@@ -93,13 +93,30 @@ fn bool_returning_function() {
 }
 
 #[test]
-fn unsupported_string_errors() {
-    // Strings aren't in the JIT subset yet; the type checker passes but
-    // the codegen rejects with a clear error.
-    let toks = tokenize(r#"let s = "hi""#).unwrap();
-    let prog = parse(&toks).unwrap();
-    TypeChecker::new().check(&prog).unwrap();
-    assert!(jit_run(&prog).is_err());
+fn string_literal_concat_compare() {
+    assert_eq!(
+        jit(r#""hello, " + "world""#),
+        JitValue::Str("hello, world".into())
+    );
+    assert_eq!(jit(r#""a" == "a""#), JitValue::Bool(true));
+    assert_eq!(jit(r#""a" == "b""#), JitValue::Bool(false));
+    assert_eq!(jit(r#""a" != "b""#), JitValue::Bool(true));
+}
+
+#[test]
+fn string_round_trip_through_function() {
+    let src = r#"
+        fn shout(s: string): string { s + "!!!" }
+        shout("wow")
+    "#;
+    assert_eq!(jit(src), JitValue::Str("wow!!!".into()));
+}
+
+#[test]
+fn console_log_runs() {
+    // Output isn't captured; just verify it compiles and exits cleanly.
+    assert_eq!(jit("console.log(1, 2, 3)"), JitValue::Unit);
+    assert_eq!(jit(r#"console.log("hello", true, 3.14)"#), JitValue::Unit);
 }
 
 #[test]

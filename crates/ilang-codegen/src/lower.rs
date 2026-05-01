@@ -58,6 +58,32 @@ extern "C" fn ilang_jit_print_newline() {
     println!();
 }
 
+// ─── String runtime ────────────────────────────────────────────────────
+// Strings are heap-allocated `Box<String>` values; the JIT carries them
+// as raw pointers (i64). They leak on scope exit — ARC/deinit is not
+// wired in for the JIT yet.
+
+extern "C" fn ilang_jit_print_str(ptr: i64) {
+    let s = unsafe { &*(ptr as *const String) };
+    print!("{s}");
+}
+
+extern "C" fn ilang_jit_str_concat(a: i64, b: i64) -> i64 {
+    let a = unsafe { &*(a as *const String) };
+    let b = unsafe { &*(b as *const String) };
+    Box::leak(Box::new(format!("{a}{b}"))) as *const String as i64
+}
+
+extern "C" fn ilang_jit_str_eq(a: i64, b: i64) -> i8 {
+    let a = unsafe { &*(a as *const String) };
+    let b = unsafe { &*(b as *const String) };
+    if a == b {
+        1
+    } else {
+        0
+    }
+}
+
 // ─── JitValue (program result surfaced to the CLI) ──────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +100,7 @@ pub enum JitValue {
     F64(f64),
     Bool(bool),
     Object { class: String, ptr: i64 },
+    Str(String),
     Unit,
 }
 
@@ -92,6 +119,7 @@ impl std::fmt::Display for JitValue {
             JitValue::F64(x) => fmt_float(f, *x),
             JitValue::Bool(b) => write!(f, "{b}"),
             JitValue::Object { class, ptr } => write!(f, "<{class} @ {ptr:#x}>"),
+            JitValue::Str(s) => write!(f, "{s}"),
             JitValue::Unit => Ok(()),
         }
     }
@@ -123,6 +151,8 @@ enum JitTy {
     /// Heap pointer to a class instance. The id indexes into the
     /// compiler's `class_layouts` / `class_methods` vecs.
     Object(u32),
+    /// Heap pointer to a `Box<String>`.
+    Str,
     Unit,
 }
 
@@ -144,6 +174,7 @@ impl JitTy {
             Type::F32 => JitTy::F32,
             Type::F64 => JitTy::F64,
             Type::Bool => JitTy::Bool,
+            Type::Str => JitTy::Str,
             Type::Unit => JitTy::Unit,
             Type::Object(name) => {
                 let id = class_ids.get(name).copied().ok_or_else(|| {
@@ -168,7 +199,7 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
             JitTy::I16 | JitTy::U16 => I16,
             JitTy::I32 | JitTy::U32 => I32,
-            JitTy::I64 | JitTy::U64 | JitTy::Object(_) => I64,
+            JitTy::I64 | JitTy::U64 | JitTy::Object(_) | JitTy::Str => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -201,7 +232,7 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
             JitTy::I16 | JitTy::U16 => 2,
             JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
-            JitTy::I64 | JitTy::U64 | JitTy::F64 | JitTy::Object(_) => 8,
+            JitTy::I64 | JitTy::U64 | JitTy::F64 | JitTy::Object(_) | JitTy::Str => 8,
             JitTy::Unit => 0,
         }
     }
@@ -322,6 +353,14 @@ struct JitCompiler {
     print_bool: FuncId,
     print_space: FuncId,
     print_newline: FuncId,
+    print_str: FuncId,
+    str_concat: FuncId,
+    str_eq: FuncId,
+    /// Each string literal is interned at compile time as a leaked
+    /// `Box<String>`; the literal's pointer value is embedded as an
+    /// `iconst` when it's referenced. Holding the boxes here also keeps
+    /// them alive until the compiler is dropped.
+    interned_strings: Vec<Box<String>>,
 }
 
 impl JitCompiler {
@@ -345,6 +384,9 @@ impl JitCompiler {
             "ilang_jit_print_newline",
             ilang_jit_print_newline as *const u8,
         );
+        builder.symbol("ilang_jit_print_str", ilang_jit_print_str as *const u8);
+        builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
+        builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -358,6 +400,15 @@ impl JitCompiler {
         let print_space = declare_import(&mut module, "ilang_jit_print_space", &[], None)?;
         let print_newline =
             declare_import(&mut module, "ilang_jit_print_newline", &[], None)?;
+        let print_str = declare_import(&mut module, "ilang_jit_print_str", &[I64], None)?;
+        let str_concat = declare_import(
+            &mut module,
+            "ilang_jit_str_concat",
+            &[I64, I64],
+            Some(I64),
+        )?;
+        let str_eq =
+            declare_import(&mut module, "ilang_jit_str_eq", &[I64, I64], Some(I8))?;
 
         Ok(Self {
             module,
@@ -375,8 +426,13 @@ impl JitCompiler {
             print_bool,
             print_space,
             print_newline,
+            print_str,
+            str_concat,
+            str_eq,
+            interned_strings: Vec::new(),
         })
     }
+
 
     fn declare_class(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
         let id = self.class_layouts.len() as u32;
@@ -536,11 +592,17 @@ impl JitCompiler {
                 bool: self.print_bool,
                 space: self.print_space,
                 newline: self.print_newline,
+                str: self.print_str,
+            },
+            strfns: StrFns {
+                concat: self.str_concat,
+                eq: self.str_eq,
             },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
             this,
+            interned_strings: &mut self.interned_strings,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         emit_return(&mut builder, ret_ty, body, f.span)?;
@@ -588,11 +650,17 @@ impl JitCompiler {
                 bool: self.print_bool,
                 space: self.print_space,
                 newline: self.print_newline,
+                str: self.print_str,
+            },
+            strfns: StrFns {
+                concat: self.str_concat,
+                eq: self.str_eq,
             },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
             this: None,
+            interned_strings: &mut self.interned_strings,
         };
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
@@ -662,6 +730,11 @@ impl JitCompiler {
                         ptr: p,
                     }
                 }
+                JitTy::Str => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    let s = (*(p as *const String)).clone();
+                    JitValue::Str(s)
+                }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit
@@ -719,6 +792,13 @@ struct PrintFns {
     bool: FuncId,
     space: FuncId,
     newline: FuncId,
+    str: FuncId,
+}
+
+/// FFI helpers for the heap String runtime.
+struct StrFns {
+    concat: FuncId,
+    eq: FuncId,
 }
 
 struct LowerCtx<'a> {
@@ -727,11 +807,24 @@ struct LowerCtx<'a> {
     class_methods: &'a [HashMap<String, MethodInfo>],
     alloc_id: FuncId,
     print: PrintFns,
+    strfns: StrFns,
     module: &'a mut JITModule,
     env: &'a mut Env,
     loops: Vec<(Block, Block)>,
     /// `(this var, class id)` while compiling a method body.
     this: Option<(Variable, u32)>,
+    /// Per-compilation interning bucket for string literals; the boxed
+    /// String is leaked once and its pointer embedded as `iconst`.
+    interned_strings: &'a mut Vec<Box<String>>,
+}
+
+impl<'a> LowerCtx<'a> {
+    fn intern_string(&mut self, s: &str) -> i64 {
+        let boxed = Box::new(s.to_string());
+        let ptr = boxed.as_ref() as *const String as i64;
+        self.interned_strings.push(boxed);
+        ptr
+    }
 }
 
 fn lower_stmt(
@@ -803,6 +896,10 @@ fn lower_expr(
         ExprKind::Int(n) => Ok(Some((b.ins().iconst(I64, *n), JitTy::I64))),
         ExprKind::Float(f) => Ok(Some((b.ins().f64const(*f), JitTy::F64))),
         ExprKind::Bool(v) => Ok(Some((b.ins().iconst(I8, if *v { 1 } else { 0 }), JitTy::Bool))),
+        ExprKind::Str(s) => {
+            let ptr = lc.intern_string(s);
+            Ok(Some((b.ins().iconst(I64, ptr), JitTy::Str)))
+        }
         ExprKind::This => match lc.this {
             Some((var, class_id)) => Ok(Some((b.use_var(var), JitTy::Object(class_id)))),
             None => Err(CodegenError::Unsupported {
@@ -1111,6 +1208,7 @@ fn lower_console_log(
             JitTy::F32 => (lc.print.f32, av),
             JitTy::F64 => (lc.print.f64, av),
             JitTy::Bool => (lc.print.bool, av),
+            JitTy::Str => (lc.print.str, av),
             other => {
                 return Err(CodegenError::Unsupported {
                     what: format!("console.log of {other:?}"),
@@ -1214,6 +1312,36 @@ fn lower_binary(
         what: "binary rhs is unit".into(),
         span: rhs.span,
     })?;
+    // String operations: `+` concatenates, `==` / `!=` go through the
+    // FFI equality function. Other ops fall through to the numeric path
+    // and error out.
+    if matches!(lt, JitTy::Str) && matches!(rt, JitTy::Str) {
+        match op {
+            BinOp::Add => {
+                let r = lc.module.declare_func_in_func(lc.strfns.concat, b.func);
+                let call = b.ins().call(r, &[lv, rv]);
+                return Ok(Some((b.inst_results(call)[0], JitTy::Str)));
+            }
+            BinOp::Eq | BinOp::Ne => {
+                let r = lc.module.declare_func_in_func(lc.strfns.eq, b.func);
+                let call = b.ins().call(r, &[lv, rv]);
+                let eq = b.inst_results(call)[0];
+                let v = if matches!(op, BinOp::Eq) {
+                    eq
+                } else {
+                    let one = b.ins().iconst(I8, 1);
+                    b.ins().bxor(eq, one)
+                };
+                return Ok(Some((v, JitTy::Bool)));
+            }
+            _ => {
+                return Err(CodegenError::Unsupported {
+                    what: format!("operator {op:?} on strings"),
+                    span: lhs.span,
+                });
+            }
+        }
+    }
     let common = common_numeric_ty(lt, rt).ok_or_else(|| CodegenError::Unsupported {
         what: format!("incompatible binary operand types {lt:?} and {rt:?}"),
         span: lhs.span,
