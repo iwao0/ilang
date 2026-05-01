@@ -107,6 +107,7 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
             if let Some(t) = numeric_result(l, r) {
                 return Ok(t);
             }
+            return Err(mixed_signedness_or_bad(l, r));
         }
         return Err(TypeError::BadBinary {
             lhs: l.clone(),
@@ -138,19 +139,29 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
         if result.is_some() {
             return Ok(Type::Bool);
         }
-        return Err(TypeError::BadBinary {
-            lhs: l.clone(),
-            rhs: r.clone(),
-            span: ilang_ast::Span::dummy(),
-        });
+        return Err(mixed_signedness_or_bad(l, r));
     }
     // String concatenation: `+` between two strings yields a new string.
     if matches!(op, BinOp::Add) && l == &Type::Str && r == &Type::Str {
         return Ok(Type::Str);
     }
-    result.ok_or_else(|| TypeError::BadBinary {
+    result.ok_or_else(|| mixed_signedness_or_bad(l, r))
+}
+
+/// Pick the more helpful error for a failed numeric op: if both sides
+/// are integers but their signedness disagrees, point the user at the
+/// `as` cast they need; otherwise fall back to the generic BadBinary.
+fn mixed_signedness_or_bad(l: &Type, r: &Type) -> TypeError {
+    if l.is_int() && r.is_int() && l.is_signed_int() != r.is_signed_int() {
+        return TypeError::MixedSignedness {
+            lhs: l.clone(),
+            rhs: r.clone(),
+            span: ilang_ast::Span::dummy(),
+        };
+    }
+    TypeError::BadBinary {
         lhs: l.clone(),
         rhs: r.clone(),
         span: ilang_ast::Span::dummy(),
-    })
+    }
 }

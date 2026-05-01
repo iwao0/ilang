@@ -356,9 +356,13 @@ fn implicit_int_to_float_ok() {
 
 #[test]
 fn signed_unsigned_mix_rejected() {
-    // i32 + u32 (without literal) requires explicit `as`.
+    // i32 + u32 (without literal) requires explicit `as`. The error
+    // points the user at the cast rather than the generic BadBinary.
     let src = "let a: i32 = 1; let b: u32 = 2; a + b";
-    assert!(matches!(ty(src), Err(TypeError::BadBinary { .. })));
+    assert!(matches!(ty(src), Err(TypeError::MixedSignedness { .. })));
+    // Same for comparisons.
+    let src = "let a: i32 = 1; let b: u32 = 2; a == b";
+    assert!(matches!(ty(src), Err(TypeError::MixedSignedness { .. })));
 }
 
 #[test]

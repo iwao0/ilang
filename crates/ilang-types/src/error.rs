@@ -59,6 +59,8 @@ pub enum TypeError {
     ReservedName { name: String, span: Span },
     #[error("{span}: cannot infer element type for empty array literal — add a type annotation (e.g. `let a: i32[] = []`)")]
     EmptyArrayNeedsAnnotation { span: Span },
+    #[error("{span}: cannot mix {lhs} and {rhs} arithmetic — use an explicit `as` cast on one side")]
+    MixedSignedness { lhs: Type, rhs: Type, span: Span },
 }
 
 impl TypeError {
@@ -80,7 +82,8 @@ impl TypeError {
             | TypeError::CannotCallDeinit { span }
             | TypeError::BadDeinitSignature { span }
             | TypeError::ReservedName { span, .. }
-            | TypeError::EmptyArrayNeedsAnnotation { span } => *span,
+            | TypeError::EmptyArrayNeedsAnnotation { span }
+            | TypeError::MixedSignedness { span, .. } => *span,
         }
     }
 }

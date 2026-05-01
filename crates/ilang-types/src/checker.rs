@@ -830,6 +830,9 @@ fn attach_span(e: TypeError, span: Span) -> TypeError {
     match e {
         TypeError::BadBinary { lhs, rhs, .. } => TypeError::BadBinary { lhs, rhs, span },
         TypeError::BadUnary { ty, .. } => TypeError::BadUnary { ty, span },
+        TypeError::MixedSignedness { lhs, rhs, .. } => {
+            TypeError::MixedSignedness { lhs, rhs, span }
+        }
         other => other,
     }
 }
