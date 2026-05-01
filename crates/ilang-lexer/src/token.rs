@@ -17,6 +17,9 @@ pub enum TokenKind {
     While,
     True,
     False,
+    Class,
+    New,
+    This,
     // punctuation
     Plus,
     Minus,
@@ -43,6 +46,7 @@ pub enum TokenKind {
     AmpAmp,
     PipePipe,
     Bang,
+    Dot,
     Hash,
     Eof,
 }

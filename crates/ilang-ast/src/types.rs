@@ -1,9 +1,11 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     I64,
     F64,
     Bool,
     Unit,
+    /// Instance of a user-defined class, identified by class name.
+    Object(String),
 }
 
 impl std::fmt::Display for Type {
@@ -13,6 +15,7 @@ impl std::fmt::Display for Type {
             Type::F64 => write!(f, "f64"),
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
+            Type::Object(name) => write!(f, "{name}"),
         }
     }
 }

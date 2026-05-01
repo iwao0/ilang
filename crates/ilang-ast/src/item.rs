@@ -31,6 +31,23 @@ pub struct FnDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FieldDecl {
+    pub name: String,
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassDecl {
+    pub name: String,
+    pub fields: Vec<FieldDecl>,
+    /// All methods of the class. The constructor is the method named `init`
+    /// (treated as a regular method by the parser; recognised specially by
+    /// the type checker and evaluator).
+    pub methods: Vec<FnDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Fn(FnDecl),
+    Class(ClassDecl),
 }

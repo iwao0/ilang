@@ -6,6 +6,8 @@ pub enum Expr {
     Float(f64),
     Bool(bool),
     Var(String),
+    /// The implicit receiver `this` inside a method body.
+    This,
     Unary {
         op: UnOp,
         expr: Box<Expr>,
@@ -22,8 +24,25 @@ pub enum Expr {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
     },
+    /// Free function call: `foo(args)`. Method calls go through MethodCall.
     Call {
         callee: String,
+        args: Vec<Expr>,
+    },
+    /// `obj.field` — field read.
+    Field {
+        obj: Box<Expr>,
+        name: String,
+    },
+    /// `obj.method(args)`.
+    MethodCall {
+        obj: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
+    /// `new ClassName(args)`.
+    New {
+        class: String,
         args: Vec<Expr>,
     },
     Block(Block),
@@ -40,6 +59,12 @@ pub enum Expr {
     /// Assignment to an existing variable. Always evaluates to `Unit`.
     Assign {
         target: String,
+        value: Box<Expr>,
+    },
+    /// Assignment to a field: `obj.field = value`. Evaluates to `Unit`.
+    AssignField {
+        obj: Box<Expr>,
+        field: String,
         value: Box<Expr>,
     },
 }

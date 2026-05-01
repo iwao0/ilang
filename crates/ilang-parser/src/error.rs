@@ -10,8 +10,6 @@ pub enum ParseError {
         line: u32,
         col: u32,
     },
-    #[error("unknown type {name:?} at line {line}, col {col}")]
-    UnknownType { name: String, line: u32, col: u32 },
     #[error("invalid assignment target at line {line}, col {col}")]
     InvalidAssignTarget { line: u32, col: u32 },
 }

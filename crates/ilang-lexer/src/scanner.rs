@@ -206,6 +206,10 @@ impl<'a> Lexer<'a> {
                     return Err(LexError::UnexpectedChar { ch: '|', line, col });
                 }
             }
+            '.' => {
+                self.bump();
+                TokenKind::Dot
+            }
             '#' => {
                 self.bump();
                 TokenKind::Hash
@@ -246,6 +250,9 @@ impl<'a> Lexer<'a> {
             "while" => TokenKind::While,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
+            "class" => TokenKind::Class,
+            "new" => TokenKind::New,
+            "this" => TokenKind::This,
             _ => TokenKind::Ident(buf),
         }
     }

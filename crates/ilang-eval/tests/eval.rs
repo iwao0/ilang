@@ -172,6 +172,95 @@ fn no_newline_no_semicolon_still_errors() {
 }
 
 #[test]
+fn class_basic_counter() {
+    let src = r#"
+        class Counter {
+            count: i64
+            init(start: i64) { this.count = start }
+            increment(): i64 {
+                this.count = this.count + 1
+                this.count
+            }
+            get(): i64 { this.count }
+        }
+        let c = new Counter(10)
+        c.increment()
+        c.increment()
+        c.get()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(12));
+}
+
+#[test]
+fn class_no_init() {
+    // A class without `init` can be instantiated with no args.
+    let src = "class Empty { }\nlet e = new Empty()\n0";
+    assert_eq!(run(src).unwrap(), Value::Int(0));
+}
+
+#[test]
+fn class_field_read_and_write() {
+    let src = r#"
+        class Point {
+            x: i64
+            y: i64
+            init(a: i64, b: i64) { this.x = a; this.y = b }
+        }
+        let p = new Point(3, 4)
+        p.x = p.x + 10
+        p.x + p.y
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(17));
+}
+
+#[test]
+fn class_object_identity() {
+    let src = r#"
+        class Box {
+            v: i64
+            init(x: i64) { this.v = x }
+        }
+        let a = new Box(1)
+        let b = a
+        a == b
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Bool(true));
+    let src = r#"
+        class Box {
+            v: i64
+            init(x: i64) { this.v = x }
+        }
+        let a = new Box(1)
+        let c = new Box(1)
+        a == c
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Bool(false));
+}
+
+#[test]
+fn class_method_calls_other_method() {
+    let src = r#"
+        class Calc {
+            n: i64
+            init(x: i64) { this.n = x }
+            doubled(): i64 { this.n * 2 }
+            quadrupled(): i64 { this.doubled() * 2 }
+        }
+        new Calc(5).quadrupled()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(20));
+}
+
+#[test]
+fn class_arity_error_in_init() {
+    let src = "class P {\n  x: i64\n  init(a: i64) { this.x = a }\n}\nnew P(1, 2)";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    // Type checker catches it before runtime would.
+    assert!(ilang_types::check(&prog).is_err());
+}
+
+#[test]
 fn repl_persistence() {
     let mut interp = Interpreter::new();
     let toks = tokenize("let x = 10;").unwrap();

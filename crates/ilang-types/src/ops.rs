@@ -4,14 +4,14 @@ use crate::error::TypeError;
 
 /// `from` can be assigned to a binding of type `to`. Numeric widening from
 /// `i64` to `f64` is allowed (matches the runtime's promotion rule).
-pub(crate) fn assignable(from: Type, to: Type) -> bool {
+pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if from == to {
         return true;
     }
     matches!((from, to), (Type::I64, Type::F64))
 }
 
-pub(crate) fn bin_result(op: BinOp, l: Type, r: Type) -> Result<Type, TypeError> {
+pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeError> {
     let is_compare = matches!(
         op,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
@@ -24,13 +24,13 @@ pub(crate) fn bin_result(op: BinOp, l: Type, r: Type) -> Result<Type, TypeError>
     };
     if is_compare {
         // Equality is allowed on bool too; ordering is numeric only.
-        if matches!(op, BinOp::Eq | BinOp::Ne) && l == Type::Bool && r == Type::Bool {
+        if matches!(op, BinOp::Eq | BinOp::Ne) && l == &Type::Bool && r == &Type::Bool {
             return Ok(Type::Bool);
         }
         if numeric_result.is_some() {
             return Ok(Type::Bool);
         }
-        return Err(TypeError::BadBinary(l, r));
+        return Err(TypeError::BadBinary(l.clone(), r.clone()));
     }
-    numeric_result.ok_or(TypeError::BadBinary(l, r))
+    numeric_result.ok_or_else(|| TypeError::BadBinary(l.clone(), r.clone()))
 }

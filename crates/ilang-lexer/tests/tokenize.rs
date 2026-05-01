@@ -92,7 +92,7 @@ fn keywords_and_ident() {
 #[test]
 fn punctuation() {
     assert_eq!(
-        kinds("{},;:::#[]"),
+        kinds("{},;:::#[]."),
         vec![
             TokenKind::LBrace,
             TokenKind::RBrace,
@@ -103,8 +103,17 @@ fn punctuation() {
             TokenKind::Hash,
             TokenKind::LBracket,
             TokenKind::RBracket,
+            TokenKind::Dot,
             TokenKind::Eof,
         ]
+    );
+}
+
+#[test]
+fn class_keywords() {
+    assert_eq!(
+        kinds("class new this"),
+        vec![TokenKind::Class, TokenKind::New, TokenKind::This, TokenKind::Eof]
     );
 }
 

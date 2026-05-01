@@ -39,7 +39,7 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
     loop {
         match &p.peek().kind {
             TokenKind::Eof => break,
-            TokenKind::Hash | TokenKind::Fn => {
+            TokenKind::Hash | TokenKind::Fn | TokenKind::Class => {
                 let item = p.parse_item()?;
                 prog.items.push(item);
             }

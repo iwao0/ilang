@@ -1,10 +1,12 @@
+use std::rc::Rc;
+
 use ilang_ast::{BinOp, UnOp};
 
 use crate::error::RuntimeError;
 use crate::value::Value;
 
 pub(crate) fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
-    match (op, v) {
+    match (op, &v) {
         (UnOp::Pos, Value::Int(_)) | (UnOp::Pos, Value::Float(_)) => Ok(v),
         (UnOp::Neg, Value::Int(n)) => n.checked_neg().map(Value::Int).ok_or(RuntimeError::Overflow),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
@@ -24,7 +26,7 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
     match (l, r) {
         (Value::Int(a), Value::Int(b)) => int_op(op, a, b),
         (a @ (Value::Int(_) | Value::Float(_)), b @ (Value::Int(_) | Value::Float(_))) => {
-            Ok(Value::Float(float_op(op, to_f64(a), to_f64(b))))
+            Ok(Value::Float(float_op(op, to_f64(&a), to_f64(&b))))
         }
         _ => Err(RuntimeError::TypeError("invalid binary operands".into())),
     }
@@ -32,12 +34,22 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
 
 fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     use std::cmp::Ordering;
-    let ord = match (l, r) {
-        (Value::Int(a), Value::Int(b)) => Some(a.cmp(&b)),
-        (a @ (Value::Int(_) | Value::Float(_)), b @ (Value::Int(_) | Value::Float(_))) => {
-            to_f64(a).partial_cmp(&to_f64(b))
+    // Object identity (==/!=) — reference equality on the Rc.
+    if let (Value::Object(a), Value::Object(b)) = (&l, &r) {
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            let same = Rc::ptr_eq(a, b);
+            return Ok(Value::Bool(if op == BinOp::Eq { same } else { !same }));
         }
-        (Value::Bool(a), Value::Bool(b)) if matches!(op, BinOp::Eq | BinOp::Ne) => Some(a.cmp(&b)),
+        return Err(RuntimeError::TypeError(
+            "objects support only == and !=".into(),
+        ));
+    }
+    let ord = match (&l, &r) {
+        (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
+        (Value::Int(_), Value::Float(_))
+        | (Value::Float(_), Value::Int(_))
+        | (Value::Float(_), Value::Float(_)) => to_f64(&l).partial_cmp(&to_f64(&r)),
+        (Value::Bool(a), Value::Bool(b)) if matches!(op, BinOp::Eq | BinOp::Ne) => Some(a.cmp(b)),
         _ => {
             return Err(RuntimeError::TypeError(
                 "invalid comparison operands".into(),
@@ -67,10 +79,10 @@ pub(crate) fn as_bool(v: Value) -> Result<bool, RuntimeError> {
     }
 }
 
-fn to_f64(v: Value) -> f64 {
+fn to_f64(v: &Value) -> f64 {
     match v {
-        Value::Int(n) => n as f64,
-        Value::Float(f) => f,
+        Value::Int(n) => *n as f64,
+        Value::Float(f) => *f,
         _ => 0.0,
     }
 }

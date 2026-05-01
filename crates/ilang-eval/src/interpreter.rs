@@ -1,19 +1,23 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use ilang_ast::{Block, Expr, FnDecl, Item, LogicalOp, Program, Stmt};
+use ilang_ast::{Block, ClassDecl, Expr, FnDecl, Item, LogicalOp, Program, Stmt};
 
 use crate::error::RuntimeError;
 use crate::ops::{apply_binary, apply_unary, as_bool};
-use crate::value::Value;
+use crate::value::{ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
 
 /// Persistent interpreter state — used by the REPL across input lines.
-/// In file mode you can use [`crate::run_program`] which builds a fresh `Interpreter`.
 #[derive(Debug, Default)]
 pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
+    classes: HashMap<String, ClassDecl>,
     vars: HashMap<String, Value>,
+    /// Current `this` binding (`Some` while executing a method body).
+    this: Option<ObjectRef>,
     depth: usize,
 }
 
@@ -22,14 +26,14 @@ impl Interpreter {
         Self::default()
     }
 
-    /// Execute a program. Items (fn declarations) are registered into the
-    /// function table; statements update variable bindings; the trailing
-    /// expression's value (or `Unit` if absent) is returned.
     pub fn run(&mut self, prog: &Program) -> Result<Value, RuntimeError> {
         for item in &prog.items {
             match item {
                 Item::Fn(f) => {
                     self.fns.insert(f.name.clone(), f.clone());
+                }
+                Item::Class(c) => {
+                    self.classes.insert(c.name.clone(), c.clone());
                 }
             }
         }
@@ -59,10 +63,14 @@ impl Interpreter {
             Expr::Int(n) => Ok(Value::Int(*n)),
             Expr::Float(f) => Ok(Value::Float(*f)),
             Expr::Bool(b) => Ok(Value::Bool(*b)),
+            Expr::This => match &self.this {
+                Some(o) => Ok(Value::Object(o.clone())),
+                None => Err(RuntimeError::ThisOutsideMethod),
+            },
             Expr::Var(name) => self
                 .vars
                 .get(name)
-                .copied()
+                .cloned()
                 .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone())),
             Expr::Unary { op, expr } => {
                 let v = self.eval_expr(expr)?;
@@ -95,7 +103,24 @@ impl Interpreter {
                     }
                 }
             }
-            Expr::Call { callee, args } => self.call(callee, args),
+            Expr::Call { callee, args } => self.call_fn(callee, args),
+            Expr::Field { obj, name } => {
+                let v = self.eval_expr(obj)?;
+                let o = expect_object(v)?;
+                let o = o.borrow();
+                o.fields.get(name).cloned().ok_or_else(|| {
+                    RuntimeError::UnknownField {
+                        class: o.class.clone(),
+                        field: name.clone(),
+                    }
+                })
+            }
+            Expr::MethodCall { obj, method, args } => {
+                let v = self.eval_expr(obj)?;
+                let o = expect_object(v)?;
+                self.call_method(o, method, args)
+            }
+            Expr::New { class, args } => self.new_object(class, args),
             Expr::Block(b) => self.eval_block(b),
             Expr::If {
                 cond,
@@ -126,16 +151,23 @@ impl Interpreter {
                 self.vars.insert(target.clone(), v);
                 Ok(Value::Unit)
             }
+            Expr::AssignField { obj, field, value } => {
+                // Existence of the field is validated by the type checker;
+                // the runtime just stores the value (init creates the field
+                // entry on first assignment).
+                let v = self.eval_expr(value)?;
+                let target = self.eval_expr(obj)?;
+                let target = expect_object(target)?;
+                target.borrow_mut().fields.insert(field.clone(), v);
+                Ok(Value::Unit)
+            }
         }
     }
 
     fn eval_block(&mut self, block: &Block) -> Result<Value, RuntimeError> {
         // Track let-bindings introduced in this block so they can be undone
         // on exit (Rust-style lexical scoping for `let`). Assignments to
-        // *outer* variables, in contrast, must persist after the block ends —
-        // that's how `while x < n { x = x + 1; }` updates `x` in the outer
-        // scope. Recording previous values lets us restore shadowed bindings
-        // without dropping concurrent assignments.
+        // outer variables persist after the block ends.
         let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
         let mut last = Value::Unit;
         for s in &block.stmts {
@@ -167,16 +199,75 @@ impl Interpreter {
         Ok(last)
     }
 
-    fn call(&mut self, name: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
-        let evaluated: Vec<Value> = args
-            .iter()
-            .map(|a| self.eval_expr(a))
-            .collect::<Result<_, _>>()?;
+    fn call_fn(&mut self, name: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let evaluated = self.eval_args(args)?;
         let decl = self
             .fns
             .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::UndefinedFunction(name.to_string()))?;
+        self.invoke(name, &decl, evaluated, None)
+    }
+
+    fn call_method(
+        &mut self,
+        receiver: ObjectRef,
+        method: &str,
+        args: &[Expr],
+    ) -> Result<Value, RuntimeError> {
+        let evaluated = self.eval_args(args)?;
+        let class_name = receiver.borrow().class.clone();
+        let class = self
+            .classes
+            .get(&class_name)
+            .cloned()
+            .ok_or_else(|| RuntimeError::UndefinedClass(class_name.clone()))?;
+        let decl = class
+            .methods
+            .iter()
+            .find(|m| m.name == method)
+            .cloned()
+            .ok_or_else(|| RuntimeError::UnknownMethod {
+                class: class_name,
+                method: method.to_string(),
+            })?;
+        self.invoke(method, &decl, evaluated, Some(receiver))
+    }
+
+    fn new_object(&mut self, class: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+        let evaluated = self.eval_args(args)?;
+        let decl = self
+            .classes
+            .get(class)
+            .cloned()
+            .ok_or_else(|| RuntimeError::UndefinedClass(class.to_string()))?;
+        let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
+            class: class.to_string(),
+            fields: HashMap::new(),
+        }));
+        if let Some(init) = decl.methods.iter().find(|m| m.name == "init").cloned() {
+            self.invoke("init", &init, evaluated, Some(obj.clone()))?;
+        } else if !evaluated.is_empty() {
+            return Err(RuntimeError::ArityMismatch {
+                name: format!("{class}::init"),
+                expected: 0,
+                got: evaluated.len(),
+            });
+        }
+        Ok(Value::Object(obj))
+    }
+
+    fn eval_args(&mut self, args: &[Expr]) -> Result<Vec<Value>, RuntimeError> {
+        args.iter().map(|a| self.eval_expr(a)).collect()
+    }
+
+    fn invoke(
+        &mut self,
+        name: &str,
+        decl: &FnDecl,
+        evaluated: Vec<Value>,
+        receiver: Option<ObjectRef>,
+    ) -> Result<Value, RuntimeError> {
         if decl.params.len() != evaluated.len() {
             return Err(RuntimeError::ArityMismatch {
                 name: name.to_string(),
@@ -189,12 +280,21 @@ impl Interpreter {
         }
         self.depth += 1;
         let saved_vars = std::mem::take(&mut self.vars);
+        let saved_this = std::mem::replace(&mut self.this, receiver);
         for (p, v) in decl.params.iter().zip(evaluated.into_iter()) {
             self.vars.insert(p.name.clone(), v);
         }
         let result = self.eval_block(&decl.body);
         self.vars = saved_vars;
+        self.this = saved_this;
         self.depth -= 1;
         result
+    }
+}
+
+fn expect_object(v: Value) -> Result<ObjectRef, RuntimeError> {
+    match v {
+        Value::Object(o) => Ok(o),
+        other => Err(RuntimeError::NotAnObject(format!("{other}"))),
     }
 }

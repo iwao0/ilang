@@ -23,8 +23,11 @@ use crate::stmt::parse_block;
 impl<'a> Parser<'a> {
     pub(crate) fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
+        // Postfix: `.field` and `.method(args)` chains. These bind tighter
+        // than any infix operator.
+        lhs = self.parse_postfix(lhs)?;
         loop {
-            // Assignment is right-associative; lhs must be a Var.
+            // Assignment is right-associative; lhs must be Var or Field.
             if matches!(self.peek().kind, TokenKind::Equals) {
                 let l_bp = 2u8;
                 let r_bp = 1u8;
@@ -34,18 +37,22 @@ impl<'a> Parser<'a> {
                 let eq_tok = self.peek().clone();
                 self.bump();
                 let value = self.parse_expr(r_bp)?;
-                let target = match lhs {
-                    Expr::Var(name) => name,
+                lhs = match lhs {
+                    Expr::Var(name) => Expr::Assign {
+                        target: name,
+                        value: Box::new(value),
+                    },
+                    Expr::Field { obj, name } => Expr::AssignField {
+                        obj,
+                        field: name,
+                        value: Box::new(value),
+                    },
                     _ => {
                         return Err(ParseError::InvalidAssignTarget {
                             line: eq_tok.span.line,
                             col: eq_tok.span.col,
                         });
                     }
-                };
-                lhs = Expr::Assign {
-                    target,
-                    value: Box::new(value),
                 };
                 continue;
             }
@@ -98,6 +105,41 @@ impl<'a> Parser<'a> {
         Ok(lhs)
     }
 
+    /// Apply postfix `.field` / `.method(args)` chains, repeatedly, to a
+    /// parsed primary expression.
+    fn parse_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
+        while matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            let name = self.expect_ident("field or method name")?;
+            if matches!(self.peek().kind, TokenKind::LParen) {
+                self.bump();
+                let mut args = Vec::new();
+                if !matches!(self.peek().kind, TokenKind::RParen) {
+                    loop {
+                        args.push(self.parse_expr(0)?);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&TokenKind::RParen, "')'")?;
+                expr = Expr::MethodCall {
+                    obj: Box::new(expr),
+                    method: name,
+                    args,
+                };
+            } else {
+                expr = Expr::Field {
+                    obj: Box::new(expr),
+                    name,
+                };
+            }
+        }
+        Ok(expr)
+    }
+
     fn parse_prefix(&mut self) -> Result<Expr, ParseError> {
         let t = self.peek().clone();
         match t.kind {
@@ -116,6 +158,28 @@ impl<'a> Parser<'a> {
             TokenKind::False => {
                 self.bump();
                 Ok(Expr::Bool(false))
+            }
+            TokenKind::This => {
+                self.bump();
+                Ok(Expr::This)
+            }
+            TokenKind::New => {
+                self.bump();
+                let class = self.expect_ident("class name")?;
+                self.expect(&TokenKind::LParen, "'('")?;
+                let mut args = Vec::new();
+                if !matches!(self.peek().kind, TokenKind::RParen) {
+                    loop {
+                        args.push(self.parse_expr(0)?);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&TokenKind::RParen, "')'")?;
+                Ok(Expr::New { class, args })
             }
             TokenKind::If => self.parse_if(),
             TokenKind::While => self.parse_while(),

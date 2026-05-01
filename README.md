@@ -13,7 +13,7 @@
 
 `let` / `fn` / 型チェック / capability アノテーション (パースのみ) に加えて、`bool`・比較演算子・短絡論理演算子・`if`/`else`/`while`・代入を実装済み。所有権/`mut`/借用は採用せず、変数はすべて再代入可能。
 
-詳細: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md), [docs/phase3-plan.md](docs/phase3-plan.md)
+詳細: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md), [docs/phase3-plan.md](docs/phase3-plan.md), [docs/phase4-plan.md](docs/phase4-plan.md)
 
 ```sh
 # REPL (let / fn が永続化)

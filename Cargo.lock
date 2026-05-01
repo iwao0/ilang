@@ -196,6 +196,7 @@ dependencies = [
  "ilang-ast",
  "ilang-lexer",
  "ilang-parser",
+ "ilang-types",
  "thiserror",
 ]
 
