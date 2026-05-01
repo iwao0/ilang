@@ -33,4 +33,8 @@ pub enum TypeError {
     UnknownMethod { class: String, method: String },
     #[error("`this` used outside of a method body")]
     ThisOutsideMethod,
+    #[error("`break` used outside of a loop")]
+    BreakOutsideLoop,
+    #[error("`continue` used outside of a loop")]
+    ContinueOutsideLoop,
 }

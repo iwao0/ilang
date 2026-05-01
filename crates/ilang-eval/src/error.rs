@@ -30,4 +30,12 @@ pub enum RuntimeError {
     ThisOutsideMethod,
     #[error("expected an object, got {0}")]
     NotAnObject(String),
+    /// Internal control-flow signal carried by `Result::Err` so `?` propagates
+    /// it to the enclosing loop. The type checker rejects `break` outside a
+    /// loop, so this never escapes a well-typed program.
+    #[error("`break` outside of a loop")]
+    Break,
+    /// Sibling of `Break` for `continue`.
+    #[error("`continue` outside of a loop")]
+    Continue,
 }

@@ -14,7 +14,10 @@ pub(crate) enum ExprEnd {
 }
 
 pub(crate) fn is_block_like(e: &Expr) -> bool {
-    matches!(e, Expr::Block(_) | Expr::If { .. } | Expr::While { .. })
+    matches!(
+        e,
+        Expr::Block(_) | Expr::If { .. } | Expr::While { .. } | Expr::Loop { .. }
+    )
 }
 
 impl<'a> Parser<'a> {

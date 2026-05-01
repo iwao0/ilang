@@ -183,6 +183,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::If => self.parse_if(),
             TokenKind::While => self.parse_while(),
+            TokenKind::Loop => self.parse_loop(),
+            TokenKind::Break => {
+                self.bump();
+                Ok(Expr::Break)
+            }
+            TokenKind::Continue => {
+                self.bump();
+                Ok(Expr::Continue)
+            }
             TokenKind::Bang => {
                 self.bump();
                 let e = self.parse_expr(30)?;
@@ -280,5 +289,11 @@ impl<'a> Parser<'a> {
             cond: Box::new(cond),
             body,
         })
+    }
+
+    fn parse_loop(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&TokenKind::Loop, "'loop'")?;
+        let body = parse_block(self)?;
+        Ok(Expr::Loop { body })
     }
 }

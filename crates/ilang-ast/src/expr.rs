@@ -56,6 +56,16 @@ pub enum Expr {
         cond: Box<Expr>,
         body: Block,
     },
+    /// Infinite loop. Exits only via `break` (or returning from the
+    /// enclosing function once `return` exists). Always evaluates to `Unit`.
+    Loop {
+        body: Block,
+    },
+    /// Exit the innermost enclosing `loop`/`while`. Type checker rejects
+    /// occurrences outside any loop, including across function boundaries.
+    Break,
+    /// Skip to the next iteration of the innermost enclosing loop.
+    Continue,
     /// Assignment to an existing variable. Always evaluates to `Unit`.
     Assign {
         target: String,

@@ -271,3 +271,53 @@ fn repl_persistence() {
     let p = parse(&toks).unwrap();
     assert_eq!(interp.run(&p).unwrap(), Value::Int(15));
 }
+
+#[test]
+fn loop_with_break() {
+    let src = r#"
+        let i = 0
+        loop {
+            i = i + 1
+            if i == 5 { break }
+        }
+        i
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(5));
+}
+
+#[test]
+fn loop_continue_skips_evens() {
+    let src = r#"
+        let i = 0
+        let sum = 0
+        loop {
+            i = i + 1
+            if i > 10 { break }
+            if i % 2 == 0 { continue }
+            sum = sum + i
+        }
+        sum
+    "#;
+    // 1 + 3 + 5 + 7 + 9 == 25
+    assert_eq!(run(src).unwrap(), Value::Int(25));
+}
+
+#[test]
+fn while_with_break() {
+    let src = r#"
+        let i = 0
+        while true {
+            i = i + 1
+            if i == 3 { break }
+        }
+        i
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn loop_expression_value_is_unit() {
+    // The value of a `loop` expression is Unit; binding it should work.
+    let src = "let _x = loop { break }; 42";
+    assert_eq!(run(src).unwrap(), Value::Int(42));
+}

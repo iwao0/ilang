@@ -124,3 +124,18 @@ fn bad_exponent() {
         Err(LexError::InvalidNumber { .. })
     ));
 }
+
+#[test]
+fn loop_break_continue_keywords() {
+    let toks = tokenize("loop break continue").unwrap();
+    let kinds: Vec<_> = toks.into_iter().map(|t| t.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::Loop,
+            TokenKind::Break,
+            TokenKind::Continue,
+            TokenKind::Eof,
+        ]
+    );
+}

@@ -178,3 +178,41 @@ fn assign_requires_existing_var_and_compat_type() {
 fn block_scope_in_types() {
     assert_eq!(ty("let x = 1; { let x = 2.0; x }").unwrap(), Type::F64);
 }
+
+#[test]
+fn loop_break_continue_are_unit() {
+    assert_eq!(ty("loop { break }").unwrap(), Type::Unit);
+    assert_eq!(
+        ty("let i = 0\nloop { i = i + 1; if i > 3 { break } else { continue } }").unwrap(),
+        Type::Unit
+    );
+}
+
+#[test]
+fn break_outside_loop_rejected() {
+    assert_eq!(ty("break"), Err(TypeError::BreakOutsideLoop));
+}
+
+#[test]
+fn continue_outside_loop_rejected() {
+    assert_eq!(ty("continue"), Err(TypeError::ContinueOutsideLoop));
+}
+
+#[test]
+fn break_does_not_cross_function_boundary() {
+    // The `break` is inside a function defined inside a loop, but it does
+    // not refer to that outer loop.
+    let src = r#"
+        fn helper() { break }
+        loop { helper(); break }
+    "#;
+    assert_eq!(ty(src), Err(TypeError::BreakOutsideLoop));
+}
+
+#[test]
+fn break_inside_while_ok() {
+    assert_eq!(
+        ty("let i = 0\nwhile i < 10 { i = i + 1; if i == 5 { break } }").unwrap(),
+        Type::Unit
+    );
+}

@@ -141,8 +141,23 @@ impl Interpreter {
                 if !as_bool(c)? {
                     break Ok(Value::Unit);
                 }
-                self.eval_block(body)?;
+                match self.eval_block(body) {
+                    Ok(_) => {}
+                    Err(RuntimeError::Break) => break Ok(Value::Unit),
+                    Err(RuntimeError::Continue) => {}
+                    Err(e) => break Err(e),
+                }
             },
+            Expr::Loop { body } => loop {
+                match self.eval_block(body) {
+                    Ok(_) => {}
+                    Err(RuntimeError::Break) => break Ok(Value::Unit),
+                    Err(RuntimeError::Continue) => {}
+                    Err(e) => break Err(e),
+                }
+            },
+            Expr::Break => Err(RuntimeError::Break),
+            Expr::Continue => Err(RuntimeError::Continue),
             Expr::Assign { target, value } => {
                 let v = self.eval_expr(value)?;
                 if !self.vars.contains_key(target) {
@@ -288,7 +303,19 @@ impl Interpreter {
         self.vars = saved_vars;
         self.this = saved_this;
         self.depth -= 1;
-        result
+        // Defense in depth: the type checker rejects break/continue that
+        // would escape the function, but if a malformed AST slips through we
+        // surface it as a TypeError rather than letting the signal bubble up
+        // and silently affect an outer loop in the caller.
+        match result {
+            Err(RuntimeError::Break) => {
+                Err(RuntimeError::TypeError("`break` escaped function body".into()))
+            }
+            Err(RuntimeError::Continue) => Err(RuntimeError::TypeError(
+                "`continue` escaped function body".into(),
+            )),
+            other => other,
+        }
     }
 }
 
