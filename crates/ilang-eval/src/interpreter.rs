@@ -3,12 +3,13 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, LogicalOp, Program, Span, Stmt, StmtKind,
+    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FnDecl, Item, LogicalOp,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, VariantPayload,
 };
 
 use crate::error::RuntimeError;
 use crate::ops::{apply_binary, apply_unary, as_bool, cast_value};
-use crate::value::{ObjectData, ObjectRef, Value};
+use crate::value::{EnumPayload, ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
 
@@ -16,6 +17,7 @@ const MAX_DEPTH: usize = 256;
 pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
     classes: HashMap<String, ClassDecl>,
+    enums: HashMap<String, EnumDecl>,
     vars: HashMap<String, Value>,
     this: Option<ObjectRef>,
     depth: usize,
@@ -48,6 +50,9 @@ impl Interpreter {
                 }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), c.clone());
+                }
+                Item::Enum(e) => {
+                    self.enums.insert(e.name.clone(), e.clone());
                 }
             }
         }
@@ -391,6 +396,139 @@ impl Interpreter {
                         span,
                     }),
                 }
+            }
+            ExprKind::EnumCtor {
+                enum_name,
+                variant,
+                args,
+            } => {
+                let payload = match args {
+                    CtorArgs::Unit => EnumPayload::Unit,
+                    CtorArgs::Tuple(elems) => {
+                        let mut vs = Vec::with_capacity(elems.len());
+                        for e in elems {
+                            vs.push(self.eval_expr(e)?);
+                        }
+                        // Cast to declared payload types so the runtime
+                        // representation matches (e.g. f64 → f32 narrows
+                        // when the variant declared f32).
+                        if let Some(decl) = self.enums.get(enum_name).cloned() {
+                            if let Some(v) = decl.variants.iter().find(|v| v.name == *variant) {
+                                if let VariantPayload::Tuple(tys) = &v.payload {
+                                    for (i, t) in tys.iter().enumerate() {
+                                        if let Some(slot) = vs.get_mut(i) {
+                                            *slot = cast_value(slot.clone(), t);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        EnumPayload::Tuple(vs)
+                    }
+                    CtorArgs::Struct(pairs) => {
+                        let decl_payload = self
+                            .enums
+                            .get(enum_name)
+                            .and_then(|d| {
+                                d.variants
+                                    .iter()
+                                    .find(|v| v.name == *variant)
+                                    .map(|v| v.payload.clone())
+                            });
+                        let mut fs = HashMap::new();
+                        for (name, e) in pairs {
+                            let mut v = self.eval_expr(e)?;
+                            if let Some(VariantPayload::Struct(decl_fields)) = &decl_payload {
+                                if let Some(fty) =
+                                    decl_fields.iter().find(|f| f.name == *name).map(|f| f.ty.clone())
+                                {
+                                    v = cast_value(v, &fty);
+                                }
+                            }
+                            fs.insert(name.clone(), v);
+                        }
+                        EnumPayload::Struct(fs)
+                    }
+                };
+                Ok(Value::Enum {
+                    ty: enum_name.clone(),
+                    variant: variant.clone(),
+                    payload,
+                })
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                let v = self.eval_expr(scrutinee)?;
+                let (sv_ty, sv_var, sv_payload) = match v {
+                    Value::Enum { ty, variant, payload } => (ty, variant, payload),
+                    other => {
+                        return Err(RuntimeError::TypeError {
+                            msg: format!("match on non-enum value {other}"),
+                            span,
+                        });
+                    }
+                };
+                for arm in arms {
+                    match &arm.pattern.kind {
+                        PatternKind::Wildcard => {
+                            return self.eval_expr(&arm.body);
+                        }
+                        PatternKind::Variant {
+                            enum_name: _,
+                            variant,
+                            bindings,
+                        } if *variant == sv_var => {
+                            // Bind payload, run body, restore env.
+                            let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
+                            match (bindings, &sv_payload) {
+                                (PatternBindings::Unit, EnumPayload::Unit) => {}
+                                (
+                                    PatternBindings::Tuple(names),
+                                    EnumPayload::Tuple(values),
+                                ) => {
+                                    for (n, val) in names.iter().zip(values.iter()) {
+                                        if n != "_" {
+                                            let prev =
+                                                self.vars.insert(n.clone(), val.clone());
+                                            shadows.push((n.clone(), prev));
+                                        }
+                                    }
+                                }
+                                (
+                                    PatternBindings::Struct(pairs),
+                                    EnumPayload::Struct(values),
+                                ) => {
+                                    for (fname, bname) in pairs {
+                                        if bname != "_" {
+                                            if let Some(val) = values.get(fname) {
+                                                let prev = self
+                                                    .vars
+                                                    .insert(bname.clone(), val.clone());
+                                                shadows.push((bname.clone(), prev));
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                            let result = self.eval_expr(&arm.body);
+                            while let Some((n, prev)) = shadows.pop() {
+                                let outgoing = match prev {
+                                    Some(p) => self.vars.insert(n, p),
+                                    None => self.vars.remove(&n),
+                                };
+                                if let Some(o) = outgoing {
+                                    self.release(o);
+                                }
+                            }
+                            return result;
+                        }
+                        _ => continue,
+                    }
+                }
+                Err(RuntimeError::TypeError {
+                    msg: format!("match: no arm matched variant {sv_ty}::{sv_var}"),
+                    span,
+                })
             }
         }
     }

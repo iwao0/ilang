@@ -135,6 +135,73 @@ pub enum ExprKind {
         then_branch: Block,
         else_branch: Option<Box<Expr>>,
     },
+    /// `EnumName::Variant` (Phase 1: unit) or `EnumName::Variant(args)` /
+    /// `EnumName::Variant { f: v }` (Phase 2: payload).
+    EnumCtor {
+        enum_name: String,
+        variant: String,
+        args: CtorArgs,
+    },
+    /// `match scrutinee { Pattern => body, ... }`.
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CtorArgs {
+    Unit,
+    Tuple(Vec<Expr>),
+    Struct(Vec<(String, Expr)>),
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expr,
+    pub span: crate::span::Span,
+}
+
+impl PartialEq for MatchArm {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern && self.body == other.body
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: crate::span::Span,
+}
+
+impl PartialEq for Pattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
+    /// `_` — matches anything, binds nothing.
+    Wildcard,
+    /// `EnumName::Variant` (Phase 1) or with bindings (Phase 2).
+    Variant {
+        enum_name: String,
+        variant: String,
+        bindings: PatternBindings,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternBindings {
+    /// Unit variant (no inner pattern).
+    Unit,
+    /// `EnumName::Variant(name1, name2)` — positional bindings (`_`
+    /// for "ignore"); the strings are the binding names.
+    Tuple(Vec<String>),
+    /// `EnumName::Variant { f1: name1, f2 }` (shorthand allowed).
+    Struct(Vec<(String, String)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

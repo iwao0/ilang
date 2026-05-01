@@ -42,6 +42,20 @@ pub enum Value {
     /// `T.weak` — non-owning reference. `.get()` upgrades to `Some(obj)`
     /// if alive, `None` otherwise.
     Weak(std::rc::Weak<std::cell::RefCell<ObjectData>>),
+    /// User-defined enum value. The payload kind matches the variant's
+    /// declaration: Unit / positional Tuple / named Struct.
+    Enum {
+        ty: String,
+        variant: String,
+        payload: EnumPayload,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EnumPayload {
+    Unit,
+    Tuple(Vec<Value>),
+    Struct(HashMap<String, Value>),
 }
 
 impl PartialEq for Value {
@@ -66,6 +80,18 @@ impl PartialEq for Value {
             (None, None) => true,
             (Some(a), Some(b)) => a == b,
             (Weak(a), Weak(b)) => std::rc::Weak::ptr_eq(a, b),
+            (
+                Enum {
+                    ty: ta,
+                    variant: va,
+                    payload: pa,
+                },
+                Enum {
+                    ty: tb,
+                    variant: vb,
+                    payload: pb,
+                },
+            ) => ta == tb && va == vb && pa == pb,
             _ => false,
         }
     }
@@ -115,6 +141,36 @@ impl std::fmt::Display for Value {
             Value::Weak(w) => match w.upgrade() {
                 Some(_) => write!(f, "weak(<alive>)"),
                 None => write!(f, "weak(<dead>)"),
+            },
+            Value::Enum { ty, variant, payload } => match payload {
+                EnumPayload::Unit => write!(f, "{ty}::{variant}"),
+                EnumPayload::Tuple(items) => {
+                    write!(f, "{ty}::{variant}(")?;
+                    for (i, v) in items.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{v}")?;
+                    }
+                    write!(f, ")")
+                }
+                EnumPayload::Struct(fields) => {
+                    write!(f, "{ty}::{variant} {{")?;
+                    let mut keys: Vec<&String> = fields.keys().collect();
+                    keys.sort();
+                    let mut first = true;
+                    for k in keys {
+                        if !first {
+                            write!(f, ",")?;
+                        }
+                        first = false;
+                        write!(f, " {}: {}", k, fields[k])?;
+                    }
+                    if !first {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "}}")
+                }
             },
             Value::Object(o) => {
                 let o = o.borrow();

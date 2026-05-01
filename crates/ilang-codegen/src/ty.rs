@@ -7,6 +7,7 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_module::FuncId;
 use ilang_ast::Type;
+use std::collections::HashMap as StdHashMap;
 
 use crate::error::CodegenError;
 
@@ -41,14 +42,21 @@ pub(crate) enum JitTy {
     /// the weak retain/release helpers and `weak_get` checks liveness.
     /// The id is a class id, identical in shape to `Object(class_id)`.
     Weak(u32),
+    /// User-defined `enum`. Phase 1 layout: a 4-byte i32 ordinal tag
+    /// (no heap, no rc). Phase 2 will add a tagged-union variant for
+    /// enums with payload-carrying variants. The id indexes the
+    /// compiler's `enum_layouts` table.
+    Enum(u32),
     Unit,
 }
 
 impl JitTy {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_ast(
         t: &Type,
         span: ilang_ast::Span,
         class_ids: &HashMap<String, u32>,
+        enum_ids: &HashMap<String, u32>,
         array_kinds: &mut Vec<ArrayKind>,
         optional_inners: &mut Vec<JitTy>,
     ) -> Result<Self, CodegenError> {
@@ -67,16 +75,32 @@ impl JitTy {
             Type::Str => JitTy::Str,
             Type::Unit => JitTy::Unit,
             Type::Object(name) => {
-                let id = class_ids.get(name).copied().ok_or_else(|| {
+                // The parser produces Object(name) for any user-defined
+                // type — could be a class or an enum. Enum lookup wins
+                // when the name matches one.
+                if let Some(eid) = enum_ids.get(name).copied() {
+                    JitTy::Enum(eid)
+                } else {
+                    let id = class_ids.get(name).copied().ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: format!("unknown class {name:?}"),
+                            span,
+                        }
+                    })?;
+                    JitTy::Object(id)
+                }
+            }
+            Type::Enum(name) => {
+                let id = enum_ids.get(name).copied().ok_or_else(|| {
                     CodegenError::Unsupported {
-                        what: format!("unknown class {name:?}"),
+                        what: format!("unknown enum {name:?}"),
                         span,
                     }
                 })?;
-                JitTy::Object(id)
+                JitTy::Enum(id)
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, array_kinds, optional_inners)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, array_kinds, optional_inners)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -87,7 +111,7 @@ impl JitTy {
                 JitTy::Array(id)
             }
             Type::Optional(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, array_kinds, optional_inners)?;
                 if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
@@ -98,7 +122,7 @@ impl JitTy {
                 JitTy::Optional(id)
             }
             Type::Weak(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, array_kinds, optional_inners)?;
                 match inner_jty {
                     JitTy::Object(class_id) => JitTy::Weak(class_id),
                     _ => {
@@ -122,7 +146,7 @@ impl JitTy {
         Some(match self {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
             JitTy::I16 | JitTy::U16 => I16,
-            JitTy::I32 | JitTy::U32 => I32,
+            JitTy::I32 | JitTy::U32 | JitTy::Enum(_) => I32,
             JitTy::I64
             | JitTy::U64
             | JitTy::Object(_)
@@ -140,7 +164,7 @@ impl JitTy {
         match self {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
             JitTy::I16 | JitTy::U16 => 2,
-            JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
+            JitTy::I32 | JitTy::U32 | JitTy::F32 | JitTy::Enum(_) => 4,
             JitTy::I64
             | JitTy::U64
             | JitTy::F64
@@ -197,6 +221,36 @@ pub(crate) struct ClassLayout {
 pub(crate) struct ArrayKind {
     pub elem: JitTy,
     pub fixed: Option<u32>,
+}
+
+/// Per-enum layout information used by the JIT. Phase 1 supports only
+/// unit-only enums (Phase 2 will extend `variants` with payload field
+/// metadata for tagged-union codegen).
+#[derive(Debug, Clone)]
+pub(crate) struct EnumLayout {
+    pub name: String,
+    /// Variant names in declaration order; the index is the i32 tag.
+    pub variants: Vec<String>,
+    /// `true` when every variant is unit (Phase 1 representation: bare
+    /// i32 tag, no heap). `false` is reserved for Phase 2.
+    pub all_unit: bool,
+    /// Per-variant payload metadata (Phase 2). Indices align with
+    /// `variants`; for Phase 1 every entry is `EnumVariantLayout::Unit`.
+    #[allow(dead_code)]
+    pub payloads: Vec<EnumVariantLayout>,
+}
+
+/// Per-variant payload layout. Phase 1 carries only `Unit`; Phase 2
+/// adds tuple/struct payloads with offset tables for the JIT.
+#[allow(dead_code)] // Tuple/Struct used by Phase 2.
+#[derive(Debug, Clone)]
+pub(crate) enum EnumVariantLayout {
+    Unit,
+    /// Positional payload — `(offset, type)` pairs, in declaration
+    /// order, relative to the start of the user payload area.
+    Tuple(Vec<(u32, JitTy)>),
+    /// Named payload — name → (offset, type).
+    Struct(StdHashMap<String, (u32, JitTy)>),
 }
 
 /// Intern an array type, returning a stable side-table id. Linear scan

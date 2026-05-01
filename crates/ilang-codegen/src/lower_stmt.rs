@@ -5,7 +5,7 @@ use cranelift::prelude::*;
 use ilang_ast::{ExprKind, Stmt, StmtKind, Type};
 
 use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_heap, is_aliased_heap_source};
-use crate::env::{class_ids_from, LowerCtx};
+use crate::env::{class_ids_from, enum_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_expr::{lower_array_literal, lower_expr};
 use crate::lower_op::coerce;
@@ -32,6 +32,7 @@ pub(crate) fn lower_stmt(
                     target_elem,
                     value.span,
                     &class_ids_from(lc),
+                    &enum_ids_from(lc),
                     lc.array_kinds,
                     lc.optional_inners,
                 )?;
@@ -53,6 +54,7 @@ pub(crate) fn lower_stmt(
                     t,
                     s.span,
                     &class_ids_from(lc),
+                    &enum_ids_from(lc),
                     lc.array_kinds,
                     lc.optional_inners,
                 )?,

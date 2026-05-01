@@ -5,8 +5,14 @@ pub mod span;
 pub mod stmt;
 pub mod types;
 
-pub use expr::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
-pub use item::{AttrArg, Attribute, ClassDecl, FieldDecl, FnDecl, Item, Param};
+pub use expr::{
+    BinOp, CtorArgs, Expr, ExprKind, LogicalOp, MatchArm, Pattern, PatternBindings,
+    PatternKind, UnOp,
+};
+pub use item::{
+    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param, Variant,
+    VariantPayload,
+};
 pub use program::Program;
 pub use span::Span;
 pub use stmt::{Block, Stmt, StmtKind};

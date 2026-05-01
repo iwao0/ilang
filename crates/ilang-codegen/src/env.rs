@@ -9,7 +9,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::error::CodegenError;
 use crate::runtime::{StringRc, STRING_RC_SATURATED};
-use crate::ty::{ArrayKind, ClassLayout, JitTy, MethodInfo};
+use crate::ty::{ArrayKind, ClassLayout, EnumLayout, JitTy, MethodInfo};
 
 /// Declare an external runtime symbol with the given signature so
 /// `module.declare_func_in_func` can produce a call ref later.
@@ -82,6 +82,7 @@ pub(crate) struct LowerCtx<'a> {
     pub funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
     pub class_layouts: &'a [ClassLayout],
     pub class_methods: &'a [HashMap<String, MethodInfo>],
+    pub enum_layouts: &'a [EnumLayout],
     pub alloc_object_id: FuncId,
     pub retain_object_id: FuncId,
     pub release_object_id: FuncId,
@@ -138,6 +139,14 @@ impl<'a> LowerCtx<'a> {
 /// TypeChecker.
 pub(crate) fn class_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
     lc.class_layouts
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.name.clone(), i as u32))
+        .collect()
+}
+
+pub(crate) fn enum_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
+    lc.enum_layouts
         .iter()
         .enumerate()
         .map(|(i, l)| (l.name.clone(), i as u32))

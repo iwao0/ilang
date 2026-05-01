@@ -24,6 +24,9 @@ pub enum TokenKind {
     As,
     None_,
     Some_,
+    Enum,
+    Match,
+    FatArrow,
     // punctuation
     Plus,
     Minus,

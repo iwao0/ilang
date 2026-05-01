@@ -9,7 +9,7 @@ use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_codegen::settings;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
-use ilang_ast::{ClassDecl, FnDecl, Item, Program};
+use ilang_ast::{ClassDecl, EnumDecl, FnDecl, Item, Program, VariantPayload};
 
 use crate::arc::{emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{declare_import, ArrayFns, Env, LowerCtx, PrintFns, StrFns};
@@ -28,21 +28,26 @@ use crate::runtime::{
     ilang_jit_retain_string, ilang_jit_retain_weak, ilang_jit_str_concat, ilang_jit_str_eq,
     ilang_jit_release_weak, ilang_jit_weak_get, StringRc,
 };
-use crate::ty::{align_up, ArrayKind, ClassLayout, JitTy, MethodInfo};
+use crate::ty::{
+    align_up, ArrayKind, ClassLayout, EnumLayout, EnumVariantLayout, JitTy, MethodInfo,
+};
 use crate::value::{read_array, JitValue};
 
 pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new()?;
-    // 1a. Register every class name → id, with empty layouts. This
-    //     way `Child { p: Parent.weak }` resolves even when Parent is
-    //     declared after Child.
+    // 1a. Register every class / enum name → id, with empty layouts.
+    //     This way `Child { p: Parent.weak }` resolves even when Parent
+    //     is declared after Child, and likewise for enum forward-refs.
     for item in &prog.items {
-        if let Item::Class(c) = item {
-            compiler.declare_class_name(c);
+        match item {
+            Item::Class(c) => compiler.declare_class_name(c),
+            Item::Enum(e) => compiler.declare_enum_layout(e)?,
+            _ => {}
         }
     }
-    // 1b. Compute field offsets / heap-side-tables now that every
-    //     class id is in `class_ids`.
+    // 1b. Compute field offsets now that every class id is in
+    //     `class_ids`. Enums were finalized at declaration time
+    //     (variants don't refer to other types in Phase 1).
     for item in &prog.items {
         if let Item::Class(c) = item {
             compiler.finalize_class_layout(c)?;
@@ -53,6 +58,7 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         match item {
             Item::Fn(f) => compiler.declare_fn(f)?,
             Item::Class(c) => compiler.declare_methods(c)?,
+            Item::Enum(_) => {}
         }
     }
     // 2b. Declare per-class drop wrappers so `new` lowering can embed
@@ -64,6 +70,7 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         match item {
             Item::Fn(f) => compiler.define_fn(f)?,
             Item::Class(c) => compiler.define_methods(c)?,
+            Item::Enum(_) => {}
         }
     }
     let main_ret = compiler.define_main(prog)?;
@@ -83,6 +90,8 @@ pub(crate) struct JitCompiler {
     pub(crate) class_ids: HashMap<String, u32>,
     pub(crate) class_layouts: Vec<ClassLayout>,
     pub(crate) class_methods: Vec<HashMap<String, MethodInfo>>,
+    pub(crate) enum_ids: HashMap<String, u32>,
+    pub(crate) enum_layouts: Vec<EnumLayout>,
     pub(crate) array_kinds: Vec<ArrayKind>,
     pub(crate) optional_inners: Vec<JitTy>,
     pub(crate) alloc_object_id: FuncId,
@@ -282,6 +291,8 @@ impl JitCompiler {
             class_ids: HashMap::new(),
             class_layouts: Vec::new(),
             class_methods: Vec::new(),
+            enum_ids: HashMap::new(),
+            enum_layouts: Vec::new(),
             array_kinds: Vec::new(),
             optional_inners: Vec::new(),
             alloc_object_id,
@@ -317,6 +328,42 @@ impl JitCompiler {
         })
     }
 
+    /// Register an enum's layout. Phase 1 only handles unit-only
+    /// enums (4-byte ordinal tag). Mixed enums fall through to the
+    /// "not yet supported" Phase 2 path.
+    fn declare_enum_layout(&mut self, e: &EnumDecl) -> Result<(), CodegenError> {
+        let id = self.enum_layouts.len() as u32;
+        self.enum_ids.insert(e.name.clone(), id);
+        let all_unit = e
+            .variants
+            .iter()
+            .all(|v| matches!(v.payload, VariantPayload::Unit));
+        if !all_unit {
+            // Phase 2 territory; we still register the enum so type
+            // checking can talk about it, but any actual codegen path
+            // will surface "Optional<primitive>"-style Unsupported.
+            return Err(CodegenError::Unsupported {
+                what: format!(
+                    "enum {:?} with payload variants is not supported by the JIT yet",
+                    e.name
+                ),
+                span: e.span,
+            });
+        }
+        let layout = EnumLayout {
+            name: e.name.clone(),
+            variants: e.variants.iter().map(|v| v.name.clone()).collect(),
+            all_unit,
+            payloads: e
+                .variants
+                .iter()
+                .map(|_| EnumVariantLayout::Unit)
+                .collect(),
+        };
+        self.enum_layouts.push(layout);
+        Ok(())
+    }
+
     /// First pass: register the class name → id mapping with an empty
     /// layout, so other classes' field types can refer to this one
     /// (`Parent.weak`, `Child?`, etc.) regardless of declaration order.
@@ -345,6 +392,7 @@ impl JitCompiler {
                 &field.ty,
                 field.span,
                 &self.class_ids,
+                &self.enum_ids,
                 &mut self.array_kinds,
                 &mut self.optional_inners,
             )?;
@@ -396,10 +444,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -485,6 +533,7 @@ impl JitCompiler {
             funcs: &self.funcs,
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
+            enum_layouts: &self.enum_layouts,
             alloc_object_id: self.alloc_object_id,
             retain_object_id: self.retain_object_id,
             release_object_id: self.release_object_id,
@@ -570,7 +619,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -594,6 +643,7 @@ impl JitCompiler {
             funcs: &self.funcs,
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
+            enum_layouts: &self.enum_layouts,
             alloc_object_id: self.alloc_object_id,
             retain_object_id: self.retain_object_id,
             release_object_id: self.release_object_id,
@@ -754,6 +804,7 @@ impl JitCompiler {
                         self.array_kinds[id as usize],
                         &self.array_kinds,
                         &self.class_layouts,
+                        &self.enum_layouts,
                         &self.optional_inners,
                     ))
                 }
@@ -764,6 +815,7 @@ impl JitCompiler {
                         self.optional_inners[id as usize],
                         &self.array_kinds,
                         &self.class_layouts,
+                        &self.enum_layouts,
                         &self.optional_inners,
                     )
                 }
@@ -777,6 +829,19 @@ impl JitCompiler {
                     JitValue::Weak {
                         class: self.class_layouts[class_id as usize].name.clone(),
                         alive,
+                    }
+                }
+                JitTy::Enum(id) => {
+                    let tag = (std::mem::transmute::<_, extern "C" fn() -> i32>(ptr))()
+                        as usize;
+                    let layout = &self.enum_layouts[id as usize];
+                    JitValue::Enum {
+                        ty: layout.name.clone(),
+                        variant: layout
+                            .variants
+                            .get(tag)
+                            .cloned()
+                            .unwrap_or_else(|| format!("?{tag}")),
                     }
                 }
                 JitTy::Unit => {

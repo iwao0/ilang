@@ -1,4 +1,7 @@
-use ilang_ast::{AttrArg, Attribute, ClassDecl, FieldDecl, FnDecl, Item, Param, Type};
+use ilang_ast::{
+    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param, Type, Variant,
+    VariantPayload,
+};
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
@@ -25,11 +28,23 @@ impl<'a> Parser<'a> {
                 let c = self.parse_class_decl()?;
                 Ok(Item::Class(c))
             }
+            TokenKind::Enum => {
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "'fn' (attributes on enums are not supported)".into(),
+                        span: t.span,
+                    });
+                }
+                let e = self.parse_enum_decl()?;
+                Ok(Item::Enum(e))
+            }
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
                     found: t.kind.clone(),
-                    expected: "'fn' or 'class' after attributes".into(),
+                    expected: "'fn', 'class', or 'enum' after attributes".into(),
                     span: t.span,
                 })
             }
@@ -89,6 +104,91 @@ impl<'a> Parser<'a> {
             name,
             fields,
             methods,
+            span,
+        })
+    }
+
+    fn parse_enum_decl(&mut self) -> Result<EnumDecl, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::Enum, "'enum'")?;
+        let name = self.expect_ident("enum name")?;
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut variants = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace) {
+            let v_span = self.peek().span;
+            let v_name = self.expect_ident("variant name")?;
+            let payload = match self.peek().kind {
+                TokenKind::LParen => {
+                    self.bump();
+                    let mut tys = Vec::new();
+                    if !matches!(self.peek().kind, TokenKind::RParen) {
+                        loop {
+                            tys.push(self.parse_type()?);
+                            if matches!(self.peek().kind, TokenKind::Comma) {
+                                self.bump();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(&TokenKind::RParen, "')'")?;
+                    VariantPayload::Tuple(tys)
+                }
+                TokenKind::LBrace => {
+                    self.bump();
+                    let mut fields = Vec::new();
+                    while !matches!(self.peek().kind, TokenKind::RBrace) {
+                        let f_span = self.peek().span;
+                        let f_name = self.expect_ident("field name")?;
+                        self.expect(&TokenKind::Colon, "':'")?;
+                        let f_ty = self.parse_type()?;
+                        fields.push(FieldDecl {
+                            name: f_name,
+                            ty: f_ty,
+                            span: f_span,
+                        });
+                        // Comma or newline separates fields.
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                            && !self.peek().leading_newline
+                        {
+                            let p = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: p.kind.clone(),
+                                expected: "',' or newline between struct fields".into(),
+                                span: p.span,
+                            });
+                        }
+                    }
+                    self.expect(&TokenKind::RBrace, "'}'")?;
+                    VariantPayload::Struct(fields)
+                }
+                _ => VariantPayload::Unit,
+            };
+            variants.push(Variant {
+                name: v_name,
+                payload,
+                span: v_span,
+            });
+            // Variants separated by commas or newlines.
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+            } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                && !self.peek().leading_newline
+            {
+                let p = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: p.kind.clone(),
+                    expected: "',' or newline between variants".into(),
+                    span: p.span,
+                });
+            }
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(EnumDecl {
+            name,
+            variants,
             span,
         })
     }

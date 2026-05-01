@@ -1115,3 +1115,50 @@ fn return_outside_fn_is_type_error() {
     let prog = parse(&toks).unwrap();
     assert!(TypeChecker::new().check(&prog).is_err());
 }
+
+// ─── enum + match (Phase 1: unit-only variants) ──────────────────────
+
+#[test]
+fn enum_unit_construct_and_match() {
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        let c = Color::Green
+        match c {
+            Color::Red => 1
+            Color::Green => 2
+            Color::Blue => 3
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(2));
+}
+
+#[test]
+fn enum_match_wildcard() {
+    let src = r#"
+        enum Day { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
+        let d = Day::Sat
+        match d {
+            Day::Sat => "weekend"
+            Day::Sun => "weekend"
+            _ => "weekday"
+        }
+    "#;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Str(std::rc::Rc::new("weekend".to_string()))
+    );
+}
+
+#[test]
+fn enum_non_exhaustive_match_is_type_error() {
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"
+        enum X { A, B, C }
+        match X::A { X::A => 1, X::B => 2 }
+    "#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}

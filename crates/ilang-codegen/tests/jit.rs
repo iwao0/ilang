@@ -975,3 +975,48 @@ fn jit_return_aliased_object() {
     "#;
     assert_eq!(jit(src), JitValue::I64(7));
 }
+
+// ─── enum + match (Phase 1) ───────────────────────────────────────────
+
+#[test]
+fn jit_enum_unit_construct_and_match() {
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        let c = Color::Green
+        match c {
+            Color::Red => 1
+            Color::Green => 2
+            Color::Blue => 3
+        }
+    "#;
+    assert_eq!(jit(src), JitValue::I64(2));
+}
+
+#[test]
+fn jit_enum_match_wildcard() {
+    let src = r#"
+        enum Day { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
+        let d = Day::Sat
+        match d {
+            Day::Sat => 1
+            Day::Sun => 1
+            _ => 0
+        }
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_enum_returned_as_value() {
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        Color::Blue
+    "#;
+    assert_eq!(
+        jit(src),
+        JitValue::Enum {
+            ty: "Color".into(),
+            variant: "Blue".into(),
+        }
+    );
+}

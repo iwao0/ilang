@@ -2,16 +2,18 @@
 //! reverse-walker that rebuilds it from a JIT heap layout.
 
 use crate::runtime::{ArrayHeader, StringRc};
-use crate::ty::{ArrayKind, ClassLayout, JitTy};
+use crate::ty::{ArrayKind, ClassLayout, EnumLayout, JitTy};
 
 /// Walk a `T?` slot whose pointer is at `p` (i64 representation; 0 = none).
 /// Used by `run_main` for the program's tail value and by `read_array`
 /// for Optional elements.
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn read_optional_pointer(
     p: i64,
     inner: JitTy,
     array_kinds: &[ArrayKind],
     class_layouts: &[ClassLayout],
+    enum_layouts: &[EnumLayout],
     optional_inners: &[JitTy],
 ) -> JitValue {
     if p == 0 {
@@ -28,6 +30,7 @@ pub(crate) unsafe fn read_optional_pointer(
             array_kinds[id as usize],
             array_kinds,
             class_layouts,
+            enum_layouts,
             optional_inners,
         )),
         JitTy::Weak(class_id) => {
@@ -67,6 +70,10 @@ pub enum JitValue {
     /// liveness bit. The JIT pointer isn't surfaced because using it
     /// without going through `weak_get` would defeat ARC.
     Weak { class: String, alive: bool },
+    /// User-defined enum value surfaced to the host. Phase 1 only
+    /// records the variant name (no payload); Phase 2 will add an
+    /// optional payload field.
+    Enum { ty: String, variant: String },
 }
 
 impl std::fmt::Display for JitValue {
@@ -100,6 +107,7 @@ impl std::fmt::Display for JitValue {
             JitValue::Some(v) => write!(f, "some({v})"),
             JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
             JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
+            JitValue::Enum { ty, variant } => write!(f, "{ty}::{variant}"),
         }
     }
 }
@@ -115,11 +123,13 @@ fn fmt_float(f: &mut std::fmt::Formatter<'_>, x: f64) -> std::fmt::Result {
 /// Walk a JITed array's heap layout and rebuild a `Vec<JitValue>` for
 /// the host. Recurses into element type so nested arrays / strings /
 /// objects round-trip correctly.
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn read_array(
     header_ptr: i64,
     kind: ArrayKind,
     array_kinds: &[ArrayKind],
     class_layouts: &[ClassLayout],
+    enum_layouts: &[EnumLayout],
     optional_inners: &[JitTy],
 ) -> Vec<JitValue> {
     if header_ptr == 0 {
@@ -166,6 +176,7 @@ pub(crate) unsafe fn read_array(
                 array_kinds[id as usize],
                 array_kinds,
                 class_layouts,
+                enum_layouts,
                 optional_inners,
             )),
             JitTy::Optional(id) => read_optional_pointer(
@@ -173,8 +184,21 @@ pub(crate) unsafe fn read_array(
                 optional_inners[id as usize],
                 array_kinds,
                 class_layouts,
+                enum_layouts,
                 optional_inners,
             ),
+            JitTy::Enum(id) => {
+                let tag = *(p as *const i32) as usize;
+                let layout = &enum_layouts[id as usize];
+                JitValue::Enum {
+                    ty: layout.name.clone(),
+                    variant: layout
+                        .variants
+                        .get(tag)
+                        .cloned()
+                        .unwrap_or_else(|| format!("?{tag}")),
+                }
+            }
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

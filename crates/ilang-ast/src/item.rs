@@ -51,8 +51,35 @@ pub struct ClassDecl {
     pub span: Span,
 }
 
+/// One variant of an `enum`. Phase 1 supports unit-only variants; Phase 2
+/// adds `Tuple` and `Struct` payload kinds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variant {
+    pub name: String,
+    pub payload: VariantPayload,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariantPayload {
+    /// `Color::Red` — no associated data.
+    Unit,
+    /// `Shape::Circle(f64)` — positional payload.
+    Tuple(Vec<Type>),
+    /// `Shape::Square { side: f64 }` — named payload.
+    Struct(Vec<FieldDecl>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: String,
+    pub variants: Vec<Variant>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Fn(FnDecl),
     Class(ClassDecl),
+    Enum(EnumDecl),
 }

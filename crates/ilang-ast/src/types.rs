@@ -16,6 +16,10 @@ pub enum Type {
     Unit,
     /// Instance of a user-defined class, identified by class name.
     Object(String),
+    /// Value of a user-defined `enum`, identified by name. The set of
+    /// variants and their payloads live in the type checker's enum
+    /// signature table.
+    Enum(String),
     /// Array of `elem`. `fixed = Some(n)` is a fixed-length array of
     /// exactly n elements; `fixed = None` is a growable array (`push` is
     /// allowed only on the latter). Both share the same runtime layout.
@@ -81,6 +85,7 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
             Type::Object(name) => write!(f, "{name}"),
+            Type::Enum(name) => write!(f, "{name}"),
             Type::Array { elem, fixed: None } => write!(f, "{elem}[]"),
             Type::Array { elem, fixed: Some(n) } => write!(f, "{elem}[{n}]"),
             Type::Optional(inner) => write!(f, "{inner}?"),

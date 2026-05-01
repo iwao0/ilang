@@ -3,7 +3,7 @@
 //! `lower_console_log`, `call_method`).
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::types::{I64, I8};
+use cranelift_codegen::ir::types::{I32, I64, I8};
 use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
@@ -11,7 +11,7 @@ use crate::arc::{
     emit_bind_retain, emit_release_heap, emit_release_object, emit_retain_heap,
     emit_retain_object, is_aliased_heap_source,
 };
-use crate::env::{class_ids_from, LowerCtx};
+use crate::env::{class_ids_from, enum_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
 use crate::lower_op::{coerce, lower_binary, lower_logical, lower_unary};
@@ -71,6 +71,7 @@ pub(crate) fn lower_expr(
                 ty,
                 e.span,
                 &class_ids_from(lc),
+                &enum_ids_from(lc),
                 lc.array_kinds,
                 lc.optional_inners,
             )?;
@@ -120,6 +121,12 @@ pub(crate) fn lower_expr(
             Ok(None)
         }
         ExprKind::Return(value) => lower_return(b, lc, value.as_deref(), e.span),
+        ExprKind::EnumCtor {
+            enum_name,
+            variant,
+            args,
+        } => lower_enum_ctor(b, lc, enum_name, variant, args, e.span),
+        ExprKind::Match { scrutinee, arms } => lower_match(b, lc, scrutinee, arms, e.span),
         ExprKind::Assign { target, value } => {
             // Ordinary local first; then implicit-`this` field write.
             if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
@@ -702,6 +709,167 @@ fn lower_return(
     Ok(None)
 }
 
+/// Phase 1 enum constructor: emit the variant's ordinal as an i32.
+/// Phase 2 (payload variants) will allocate a tagged-union heap node;
+/// for now non-Unit ctors surface Unsupported.
+fn lower_enum_ctor(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    enum_name: &str,
+    variant: &str,
+    args: &ilang_ast::CtorArgs,
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let id = match enum_ids_from(lc).get(enum_name).copied() {
+        Some(id) => id,
+        None => {
+            return Err(CodegenError::Unsupported {
+                what: format!("unknown enum {enum_name:?}"),
+                span,
+            });
+        }
+    };
+    let layout = &lc.enum_layouts[id as usize];
+    if !layout.all_unit {
+        return Err(CodegenError::Unsupported {
+            what: format!(
+                "enum {enum_name:?} has payload variants — JIT support is Phase 2"
+            ),
+            span,
+        });
+    }
+    if !matches!(args, ilang_ast::CtorArgs::Unit) {
+        return Err(CodegenError::Unsupported {
+            what: format!("variant {enum_name}::{variant} is unit but ctor args supplied"),
+            span,
+        });
+    }
+    let tag = layout
+        .variants
+        .iter()
+        .position(|v| v == variant)
+        .ok_or_else(|| CodegenError::Unsupported {
+            what: format!("enum {enum_name:?} has no variant {variant:?}"),
+            span,
+        })? as i64;
+    let v = b.ins().iconst(I32, tag);
+    Ok(Some((v, JitTy::Enum(id))))
+}
+
+/// Phase 1 match: a cascade of `icmp + brif` on the i32 tag. Each arm
+/// jumps to its own block; the merge block joins everyone with a
+/// block-param of the unified result type. A trailing wildcard arm
+/// becomes the fallthrough.
+fn lower_match(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    scrutinee: &Expr,
+    arms: &[ilang_ast::MatchArm],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let (sv, st) = lower_expr(b, lc, scrutinee)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "match scrutinee is unit".into(),
+        span: scrutinee.span,
+    })?;
+    let enum_id = match st {
+        JitTy::Enum(id) => id,
+        other => {
+            return Err(CodegenError::Unsupported {
+                what: format!("match on non-enum {other:?}"),
+                span: scrutinee.span,
+            });
+        }
+    };
+    let layout = lc.enum_layouts[enum_id as usize].clone();
+    if !layout.all_unit {
+        return Err(CodegenError::Unsupported {
+            what: format!(
+                "match on enum {:?} with payload variants — JIT support is Phase 2",
+                layout.name
+            ),
+            span,
+        });
+    }
+
+    // Pre-create one body block per arm + a merge block for joining.
+    // We won't seal the merge until every arm has jumped to it.
+    let arm_blocks: Vec<Block> = arms.iter().map(|_| b.create_block()).collect();
+    let merge = b.create_block();
+    // We don't know the result Cranelift type until we lower the first
+    // body; capture it lazily.
+    let mut merge_param: Option<Value> = None;
+    let mut result_ty: Option<JitTy> = None;
+
+    // Dispatch chain. For each non-wildcard arm: compare tag, branch to
+    // its body or fall through to the next compare. A wildcard arm
+    // becomes the fallthrough body. If there's no wildcard the type
+    // checker has guaranteed exhaustiveness, so the final compare's
+    // false-branch goes to a `trap` (unreachable in well-typed code).
+    let mut wildcard_idx: Option<usize> = None;
+    for (i, arm) in arms.iter().enumerate() {
+        if matches!(arm.pattern.kind, ilang_ast::PatternKind::Wildcard) {
+            wildcard_idx = Some(i);
+            break;
+        }
+        let variant_name = match &arm.pattern.kind {
+            ilang_ast::PatternKind::Variant { variant, .. } => variant.clone(),
+            _ => unreachable!(),
+        };
+        let tag = layout
+            .variants
+            .iter()
+            .position(|v| *v == variant_name)
+            .expect("type checker validated variant") as i64;
+        let want = b.ins().iconst(I32, tag);
+        let cond = b.ins().icmp(IntCC::Equal, sv, want);
+        let next = b.create_block();
+        b.ins().brif(cond, arm_blocks[i], &[], next, &[]);
+        b.switch_to_block(next);
+        b.seal_block(next);
+    }
+    // After the chain: the current block is the fallthrough. Either
+    // jump to the wildcard's body or trap (exhaustiveness guarantees
+    // unreachability for well-typed unit enums).
+    if let Some(w) = wildcard_idx {
+        b.ins().jump(arm_blocks[w], &[]);
+    } else {
+        b.ins().trap(TrapCode::user(1).expect("trap code"));
+    }
+
+    // Lower each body in its own block, jumping to merge with the
+    // produced value (or no value for Unit).
+    for (i, arm) in arms.iter().enumerate() {
+        // A body past the wildcard is dead (type checker rejected
+        // it), but we still create the block above; lower it as a
+        // regular body for safety.
+        b.switch_to_block(arm_blocks[i]);
+        b.seal_block(arm_blocks[i]);
+        let body_tv = lower_expr(b, lc, &arm.body)?;
+        match (body_tv, result_ty) {
+            (Some((v, vt)), None) => {
+                let cl = vt.cl().ok_or_else(|| CodegenError::Unsupported {
+                    what: "match arm produces unit while merge expects a value".into(),
+                    span: arm.span,
+                })?;
+                merge_param = Some(b.append_block_param(merge, cl));
+                result_ty = Some(vt);
+                b.ins().jump(merge, &[v]);
+            }
+            (Some((v, vt)), Some(prev_ty)) => {
+                let v = coerce(b, (v, vt), prev_ty, arm.span)?;
+                b.ins().jump(merge, &[v]);
+            }
+            (None, _) => {
+                b.ins().jump(merge, &[]);
+            }
+        }
+    }
+
+    b.switch_to_block(merge);
+    b.seal_block(merge);
+    Ok(merge_param.zip(result_ty).map(|(v, t)| (v, t)))
+}
+
 fn lower_if_let(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
@@ -960,6 +1128,31 @@ fn emit_print_value(
             emit_print_literal(b, lc, &format!("<weak {class_name} dead>"));
             b.ins().jump(merge, &[]);
 
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+        }
+        JitTy::Enum(id) => {
+            // Branch on the i32 tag and print `EnumName::Variant`.
+            // Phase 1 enums have no payload to recurse into.
+            let layout = lc.enum_layouts[id as usize].clone();
+            let merge = b.create_block();
+            for (i, variant) in layout.variants.iter().enumerate() {
+                let tag = b.ins().iconst(I32, i as i64);
+                let cond = b.ins().icmp(IntCC::Equal, v, tag);
+                let body_block = b.create_block();
+                let next_block = b.create_block();
+                b.ins().brif(cond, body_block, &[], next_block, &[]);
+                b.switch_to_block(body_block);
+                b.seal_block(body_block);
+                emit_print_literal(b, lc, &format!("{}::{variant}", layout.name));
+                b.ins().jump(merge, &[]);
+                b.switch_to_block(next_block);
+                b.seal_block(next_block);
+            }
+            // Fallthrough (well-typed code never reaches here): print
+            // a marker and join to merge.
+            emit_print_literal(b, lc, &format!("{}::?", layout.name));
+            b.ins().jump(merge, &[]);
             b.switch_to_block(merge);
             b.seal_block(merge);
         }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span, Stmt,
-    StmtKind, Type, UnOp,
+    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Type, UnOp, VariantPayload,
 };
 
 use crate::error::TypeError;
@@ -99,12 +99,33 @@ struct ClassSig {
     methods: HashMap<String, Signature>,
 }
 
+/// Type-checker view of an enum. Variants preserve declaration order so
+/// the JIT can use the same indices as ordinal tags.
+#[derive(Debug, Clone)]
+struct EnumSig {
+    variants: Vec<EnumVariantSig>,
+}
+
+#[derive(Debug, Clone)]
+struct EnumVariantSig {
+    name: String,
+    payload: VariantPayloadSig,
+}
+
+#[derive(Debug, Clone)]
+enum VariantPayloadSig {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<(String, Type)>),
+}
+
 type Vars = HashMap<String, Type>;
 
 #[derive(Debug, Default)]
 pub struct TypeChecker {
     fns: HashMap<String, Signature>,
     classes: HashMap<String, ClassSig>,
+    enums: HashMap<String, EnumSig>,
     vars: HashMap<String, Type>,
 }
 
@@ -165,12 +186,17 @@ impl TypeChecker {
                     let sig = class_signature(c);
                     self.classes.insert(c.name.clone(), sig);
                 }
+                Item::Enum(e) => {
+                    let sig = enum_signature(e);
+                    self.enums.insert(e.name.clone(), sig);
+                }
             }
         }
         for item in &prog.items {
             match item {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
+                Item::Enum(e) => self.check_enum(e)?,
             }
         }
 
@@ -195,6 +221,45 @@ impl TypeChecker {
         }
         self.vars = env;
         Ok(last)
+    }
+
+    fn check_enum(&self, e: &EnumDecl) -> Result<(), TypeError> {
+        // Validate every payload type now that all class/enum names are
+        // known. Duplicate variant names are rejected — they'd make
+        // pattern matching ambiguous.
+        let mut seen = std::collections::HashSet::new();
+        for v in &e.variants {
+            if !seen.insert(v.name.clone()) {
+                return Err(TypeError::Unsupported {
+                    what: format!("duplicate variant {:?} in enum {:?}", v.name, e.name),
+                    span: v.span,
+                });
+            }
+            match &v.payload {
+                VariantPayload::Unit => {}
+                VariantPayload::Tuple(tys) => {
+                    for t in tys {
+                        self.validate_type(t, v.span)?;
+                    }
+                }
+                VariantPayload::Struct(fields) => {
+                    let mut fseen = std::collections::HashSet::new();
+                    for f in fields {
+                        if !fseen.insert(f.name.clone()) {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "duplicate field {:?} in {}::{}",
+                                    f.name, e.name, v.name
+                                ),
+                                span: f.span,
+                            });
+                        }
+                        self.validate_type(&f.ty, f.span)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
@@ -243,7 +308,22 @@ impl TypeChecker {
     fn validate_type(&self, t: &Type, span: Span) -> Result<(), TypeError> {
         match t {
             Type::Object(name) => {
-                if !self.classes.contains_key(name) {
+                // An identifier may refer to either a class or an enum;
+                // accept both since the parser can't tell them apart at
+                // type-position. `Type::Enum` only exists when the
+                // checker resolved it explicitly (currently unused —
+                // the parser produces `Object(name)` for both).
+                if self.classes.contains_key(name) || self.enums.contains_key(name) {
+                    // ok
+                } else {
+                    return Err(TypeError::UndefinedClass {
+                        name: name.clone(),
+                        span,
+                    });
+                }
+            }
+            Type::Enum(name) => {
+                if !self.enums.contains_key(name) {
                     return Err(TypeError::UndefinedClass {
                         name: name.clone(),
                         span,
@@ -915,6 +995,224 @@ impl TypeChecker {
                     Ok(Type::Unit)
                 }
             }
+            ExprKind::EnumCtor {
+                enum_name,
+                variant,
+                args,
+            } => {
+                let sig = self.enums.get(enum_name).cloned().ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: enum_name.clone(),
+                        span,
+                    }
+                })?;
+                let v = sig.variants.iter().find(|v| v.name == *variant).ok_or_else(|| {
+                    TypeError::Unsupported {
+                        what: format!("enum {enum_name:?} has no variant {variant:?}"),
+                        span,
+                    }
+                })?;
+                match (&v.payload, args) {
+                    (VariantPayloadSig::Unit, CtorArgs::Unit) => {}
+                    (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
+                        if tys.len() != elems.len() {
+                            return Err(TypeError::ArityMismatch {
+                                name: format!("{enum_name}::{variant}"),
+                                expected: tys.len(),
+                                got: elems.len(),
+                                span,
+                            });
+                        }
+                        for (e, t) in elems.iter().zip(tys.iter()) {
+                            let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
+                            if !literal_assignable(e, &et, t) {
+                                return Err(TypeError::Mismatch {
+                                    expected: t.clone(),
+                                    got: et,
+                                    span: e.span,
+                                });
+                            }
+                        }
+                    }
+                    (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
+                        if provided.len() != fields.len() {
+                            return Err(TypeError::ArityMismatch {
+                                name: format!("{enum_name}::{variant}"),
+                                expected: fields.len(),
+                                got: provided.len(),
+                                span,
+                            });
+                        }
+                        for (fname, fty) in fields {
+                            let supplied = provided.iter().find(|(n, _)| n == fname).ok_or_else(
+                                || TypeError::UnknownField {
+                                    class: format!("{enum_name}::{variant}"),
+                                    field: fname.clone(),
+                                    span,
+                                },
+                            )?;
+                            let st = self.check_expr(
+                                &supplied.1,
+                                env,
+                                ret_ty,
+                                in_class,
+                                loop_depth,
+                            )?;
+                            if !literal_assignable(&supplied.1, &st, fty) {
+                                return Err(TypeError::Mismatch {
+                                    expected: fty.clone(),
+                                    got: st,
+                                    span: supplied.1.span,
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "constructor shape for {enum_name}::{variant} doesn't match its declaration"
+                            ),
+                            span,
+                        });
+                    }
+                }
+                Ok(Type::Object(enum_name.clone()))
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                let st = self.check_expr(scrutinee, env, ret_ty, in_class, loop_depth)?;
+                let enum_name = match &st {
+                    Type::Object(name) if self.enums.contains_key(name) => name.clone(),
+                    _ => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Object("<enum>".into()),
+                            got: st,
+                            span: scrutinee.span,
+                        });
+                    }
+                };
+                let sig = self.enums[&enum_name].clone();
+                let mut covered: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut has_wildcard = false;
+                let mut result_ty: Option<Type> = None;
+                for arm in arms {
+                    if has_wildcard {
+                        return Err(TypeError::Unsupported {
+                            what: "match arm after wildcard `_` is unreachable".into(),
+                            span: arm.span,
+                        });
+                    }
+                    let mut arm_env = env.clone();
+                    let arm_kind_span = arm.pattern.span;
+                    match &arm.pattern.kind {
+                        PatternKind::Wildcard => {
+                            has_wildcard = true;
+                        }
+                        PatternKind::Variant {
+                            enum_name: pat_enum,
+                            variant,
+                            bindings,
+                        } => {
+                            if pat_enum != &enum_name {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::Object(enum_name.clone()),
+                                    got: Type::Object(pat_enum.clone()),
+                                    span: arm_kind_span,
+                                });
+                            }
+                            let v = sig
+                                .variants
+                                .iter()
+                                .find(|v| v.name == *variant)
+                                .ok_or_else(|| TypeError::Unsupported {
+                                    what: format!(
+                                        "enum {enum_name:?} has no variant {variant:?}"
+                                    ),
+                                    span: arm_kind_span,
+                                })?;
+                            if !covered.insert(variant.clone()) {
+                                return Err(TypeError::Unsupported {
+                                    what: format!("duplicate match arm for {variant:?}"),
+                                    span: arm_kind_span,
+                                });
+                            }
+                            // Check binding shape matches and add bindings.
+                            match (&v.payload, bindings) {
+                                (VariantPayloadSig::Unit, PatternBindings::Unit) => {}
+                                (
+                                    VariantPayloadSig::Tuple(tys),
+                                    PatternBindings::Tuple(names),
+                                ) => {
+                                    if tys.len() != names.len() {
+                                        return Err(TypeError::ArityMismatch {
+                                            name: format!("{enum_name}::{variant}"),
+                                            expected: tys.len(),
+                                            got: names.len(),
+                                            span: arm_kind_span,
+                                        });
+                                    }
+                                    for (n, t) in names.iter().zip(tys.iter()) {
+                                        if n != "_" {
+                                            arm_env.insert(n.clone(), t.clone());
+                                        }
+                                    }
+                                }
+                                (
+                                    VariantPayloadSig::Struct(fields),
+                                    PatternBindings::Struct(pairs),
+                                ) => {
+                                    for (fname, bname) in pairs {
+                                        let fty = fields
+                                            .iter()
+                                            .find(|(n, _)| n == fname)
+                                            .map(|(_, t)| t.clone())
+                                            .ok_or_else(|| TypeError::UnknownField {
+                                                class: format!("{enum_name}::{variant}"),
+                                                field: fname.clone(),
+                                                span: arm_kind_span,
+                                            })?;
+                                        if bname != "_" {
+                                            arm_env.insert(bname.clone(), fty);
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    return Err(TypeError::Unsupported {
+                                        what: format!(
+                                            "pattern shape for {enum_name}::{variant} doesn't match its declaration"
+                                        ),
+                                        span: arm_kind_span,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    let bt = self.check_expr(&arm.body, &arm_env, ret_ty, in_class, loop_depth)?;
+                    result_ty = Some(match result_ty {
+                        None => bt,
+                        Some(prev) => unify_branch(prev, bt, arm.body.span)?,
+                    });
+                }
+                if !has_wildcard {
+                    let total = sig.variants.len();
+                    if covered.len() != total {
+                        let missing: Vec<_> = sig
+                            .variants
+                            .iter()
+                            .filter(|v| !covered.contains(&v.name))
+                            .map(|v| v.name.clone())
+                            .collect();
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "non-exhaustive match on {enum_name}: missing {}",
+                                missing.join(", ")
+                            ),
+                            span,
+                        });
+                    }
+                }
+                Ok(result_ty.unwrap_or(Type::Unit))
+            }
         }
     }
 
@@ -985,6 +1283,44 @@ fn class_signature(c: &ClassDecl) -> ClassSig {
         methods.insert(m.name.clone(), signature_of(m));
     }
     ClassSig { fields, methods }
+}
+
+/// Pick the unifying type between two branches of an `if`/`match`. If
+/// either side is assignable to the other, the wider one wins; otherwise
+/// surface a type-mismatch.
+fn unify_branch(a: Type, b: Type, span: Span) -> Result<Type, TypeError> {
+    if a == b {
+        return Ok(a);
+    }
+    if assignable(&a, &b) {
+        return Ok(b);
+    }
+    if assignable(&b, &a) {
+        return Ok(a);
+    }
+    Err(TypeError::Mismatch {
+        expected: a,
+        got: b,
+        span,
+    })
+}
+
+fn enum_signature(e: &EnumDecl) -> EnumSig {
+    let variants = e
+        .variants
+        .iter()
+        .map(|v| EnumVariantSig {
+            name: v.name.clone(),
+            payload: match &v.payload {
+                VariantPayload::Unit => VariantPayloadSig::Unit,
+                VariantPayload::Tuple(tys) => VariantPayloadSig::Tuple(tys.clone()),
+                VariantPayload::Struct(fs) => VariantPayloadSig::Struct(
+                    fs.iter().map(|f| (f.name.clone(), f.ty.clone())).collect(),
+                ),
+            },
+        })
+        .collect();
+    EnumSig { variants }
 }
 
 fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {

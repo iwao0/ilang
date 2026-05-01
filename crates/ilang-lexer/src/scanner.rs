@@ -211,11 +211,16 @@ impl<'a> Lexer<'a> {
             }
             '=' => {
                 self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::EqEq
-                } else {
-                    TokenKind::Equals
+                match self.peek() {
+                    Some('=') => {
+                        self.bump();
+                        TokenKind::EqEq
+                    }
+                    Some('>') => {
+                        self.bump();
+                        TokenKind::FatArrow
+                    }
+                    _ => TokenKind::Equals,
                 }
             }
             '!' => {
@@ -477,6 +482,8 @@ impl<'a> Lexer<'a> {
             "as" => TokenKind::As,
             "none" => TokenKind::None_,
             "some" => TokenKind::Some_,
+            "enum" => TokenKind::Enum,
+            "match" => TokenKind::Match,
             _ => TokenKind::Ident(buf),
         }
     }

@@ -383,6 +383,74 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(name) => {
                 self.bump();
+                // `EnumName::Variant` (with optional payload).
+                if matches!(self.peek().kind, TokenKind::ColonColon) {
+                    self.bump();
+                    let variant = self.expect_ident("variant name")?;
+                    let args = match self.peek().kind {
+                        TokenKind::LParen => {
+                            self.bump();
+                            let mut elems = Vec::new();
+                            if !matches!(self.peek().kind, TokenKind::RParen) {
+                                loop {
+                                    elems.push(self.parse_expr(0)?);
+                                    if matches!(self.peek().kind, TokenKind::Comma) {
+                                        self.bump();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                            self.expect(&TokenKind::RParen, "')'")?;
+                            ilang_ast::CtorArgs::Tuple(elems)
+                        }
+                        // Struct-style payload `{ name: value, ... }`.
+                        // 2-token lookahead disambiguates this from
+                        // `match X::A { ... }` where the `{` opens the
+                        // arm block, not a payload.
+                        TokenKind::LBrace
+                            if matches!(
+                                self.peek_n(1).map(|t| &t.kind),
+                                Some(TokenKind::Ident(_))
+                            ) && matches!(
+                                self.peek_n(2).map(|t| &t.kind),
+                                Some(TokenKind::Colon)
+                            ) =>
+                        {
+                            self.bump();
+                            let mut fs = Vec::new();
+                            while !matches!(self.peek().kind, TokenKind::RBrace) {
+                                let fname = self.expect_ident("field name")?;
+                                self.expect(&TokenKind::Colon, "':'")?;
+                                let fval = self.parse_expr(0)?;
+                                fs.push((fname, fval));
+                                if matches!(self.peek().kind, TokenKind::Comma) {
+                                    self.bump();
+                                } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                                    && !self.peek().leading_newline
+                                {
+                                    let p = self.peek();
+                                    return Err(ParseError::Unexpected {
+                                        found: p.kind.clone(),
+                                        expected: "',' or newline between fields".into(),
+                                        span: p.span,
+                                    });
+                                }
+                            }
+                            self.expect(&TokenKind::RBrace, "'}'")?;
+                            ilang_ast::CtorArgs::Struct(fs)
+                        }
+                        _ => ilang_ast::CtorArgs::Unit,
+                    };
+                    return Ok(Expr::new(
+                        ExprKind::EnumCtor {
+                            enum_name: name,
+                            variant,
+                            args,
+                        },
+                        span,
+                    ));
+                }
                 if matches!(self.peek().kind, TokenKind::LParen) {
                     self.bump();
                     let mut args = Vec::new();
@@ -401,6 +469,43 @@ impl<'a> Parser<'a> {
                 } else {
                     Ok(Expr::new(ExprKind::Var(name), span))
                 }
+            }
+            TokenKind::Match => {
+                self.bump();
+                let scrutinee = self.parse_expr(0)?;
+                self.expect(&TokenKind::LBrace, "'{'")?;
+                let mut arms = Vec::new();
+                while !matches!(self.peek().kind, TokenKind::RBrace) {
+                    let arm_span = self.peek().span;
+                    let pattern = self.parse_pattern()?;
+                    self.expect(&TokenKind::FatArrow, "'=>'")?;
+                    let body = self.parse_expr(0)?;
+                    arms.push(ilang_ast::MatchArm {
+                        pattern,
+                        body,
+                        span: arm_span,
+                    });
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                        && !self.peek().leading_newline
+                    {
+                        let p = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: p.kind.clone(),
+                            expected: "',' or newline between match arms".into(),
+                            span: p.span,
+                        });
+                    }
+                }
+                self.expect(&TokenKind::RBrace, "'}'")?;
+                Ok(Expr::new(
+                    ExprKind::Match {
+                        scrutinee: Box::new(scrutinee),
+                        arms,
+                    },
+                    span,
+                ))
             }
             TokenKind::Minus => {
                 self.bump();
@@ -493,6 +598,78 @@ impl<'a> Parser<'a> {
             },
             span,
         ))
+    }
+
+    fn parse_pattern(&mut self) -> Result<ilang_ast::Pattern, ParseError> {
+        let span = self.peek().span;
+        // `_` wildcard.
+        if let TokenKind::Ident(name) = &self.peek().kind {
+            if name == "_" {
+                self.bump();
+                return Ok(ilang_ast::Pattern {
+                    kind: ilang_ast::PatternKind::Wildcard,
+                    span,
+                });
+            }
+        }
+        let enum_name = self.expect_ident("pattern (variant or `_`)")?;
+        self.expect(&TokenKind::ColonColon, "'::'")?;
+        let variant = self.expect_ident("variant name")?;
+        let bindings = match self.peek().kind {
+            TokenKind::LParen => {
+                self.bump();
+                let mut names = Vec::new();
+                if !matches!(self.peek().kind, TokenKind::RParen) {
+                    loop {
+                        let n = self.expect_ident("binding name (or `_`)")?;
+                        names.push(n);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&TokenKind::RParen, "')'")?;
+                ilang_ast::PatternBindings::Tuple(names)
+            }
+            TokenKind::LBrace => {
+                self.bump();
+                let mut fs = Vec::new();
+                while !matches!(self.peek().kind, TokenKind::RBrace) {
+                    let fname = self.expect_ident("field name")?;
+                    // Shorthand: `{ side }` is `{ side: side }`.
+                    let bname = if matches!(self.peek().kind, TokenKind::Colon) {
+                        self.bump();
+                        self.expect_ident("binding name")?
+                    } else {
+                        fname.clone()
+                    };
+                    fs.push((fname, bname));
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else if !matches!(self.peek().kind, TokenKind::RBrace) {
+                        let p = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: p.kind.clone(),
+                            expected: "',' between struct-pattern fields".into(),
+                            span: p.span,
+                        });
+                    }
+                }
+                self.expect(&TokenKind::RBrace, "'}'")?;
+                ilang_ast::PatternBindings::Struct(fs)
+            }
+            _ => ilang_ast::PatternBindings::Unit,
+        };
+        Ok(ilang_ast::Pattern {
+            kind: ilang_ast::PatternKind::Variant {
+                enum_name,
+                variant,
+                bindings,
+            },
+            span,
+        })
     }
 
     fn parse_if_let(&mut self, span: ilang_ast::Span) -> Result<Expr, ParseError> {
