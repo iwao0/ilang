@@ -311,6 +311,14 @@ pub(crate) fn coerce(
     {
         return Ok(v);
     }
+    // Strong → weak downgrade is bit-identical (same heap pointer).
+    // The binding-side retain (which dispatches to retain_weak via
+    // emit_retain_heap on JitTy::Weak) bumps the weak_rc.
+    if let (JitTy::Object(a), JitTy::Weak(b)) = (from, to) {
+        if a == b {
+            return Ok(v);
+        }
+    }
     let v = match (from, to) {
         (JitTy::Bool, t) if t.is_int() => widen_int(b, v, 8, t, false),
         (t, JitTy::Bool) if t.is_int() => narrow_int(b, v, 8, t),

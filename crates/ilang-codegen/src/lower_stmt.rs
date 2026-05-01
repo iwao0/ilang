@@ -4,7 +4,7 @@
 use cranelift::prelude::*;
 use ilang_ast::{ExprKind, Stmt, StmtKind, Type};
 
-use crate::arc::{emit_release_heap, emit_retain_heap, is_aliased_heap_source};
+use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{class_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_expr::{lower_array_literal, lower_expr};
@@ -64,11 +64,7 @@ pub(crate) fn lower_stmt(
             // new binding has its own reference. Fresh allocations
             // (`new C(...)`, fn results, "literal" + "literal", `[...]`)
             // already start at rc=1.
-            if bind_ty.is_heap()
-                && is_aliased_heap_source(&value.kind)
-            {
-                emit_retain_heap(b, lc, coerced, bind_ty);
-            }
+            emit_bind_retain(b, lc, &value.kind, vt, bind_ty, coerced);
             let var = Variable::new(lc.env.next_var_id());
             b.declare_var(
                 var,

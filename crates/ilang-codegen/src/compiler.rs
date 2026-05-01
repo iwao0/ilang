@@ -25,18 +25,27 @@ use crate::runtime::{
     ilang_jit_print_newline, ilang_jit_print_space, ilang_jit_print_str,
     ilang_jit_print_u64, ilang_jit_release_array, ilang_jit_release_object,
     ilang_jit_release_string, ilang_jit_retain_array, ilang_jit_retain_object,
-    ilang_jit_retain_string, ilang_jit_str_concat, ilang_jit_str_eq, StringRc,
+    ilang_jit_retain_string, ilang_jit_retain_weak, ilang_jit_str_concat, ilang_jit_str_eq,
+    ilang_jit_release_weak, ilang_jit_weak_get, StringRc,
 };
 use crate::ty::{align_up, ArrayKind, ClassLayout, JitTy, MethodInfo};
 use crate::value::{read_array, JitValue};
 
 pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new()?;
-    // 1. Assign class ids and compute layouts before anything else needs
-    //    to look up `Type::Object(name)`.
+    // 1a. Register every class name → id, with empty layouts. This
+    //     way `Child { p: Parent.weak }` resolves even when Parent is
+    //     declared after Child.
     for item in &prog.items {
         if let Item::Class(c) = item {
-            compiler.declare_class(c)?;
+            compiler.declare_class_name(c);
+        }
+    }
+    // 1b. Compute field offsets / heap-side-tables now that every
+    //     class id is in `class_ids`.
+    for item in &prog.items {
+        if let Item::Class(c) = item {
+            compiler.finalize_class_layout(c)?;
         }
     }
     // 2. Declare every fn / method signature so cross-references resolve.
@@ -95,6 +104,9 @@ pub(crate) struct JitCompiler {
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
+    pub(crate) retain_weak_id: FuncId,
+    pub(crate) release_weak_id: FuncId,
+    pub(crate) weak_get_id: FuncId,
     pub(crate) array_push_i8: FuncId,
     pub(crate) array_push_i16: FuncId,
     pub(crate) array_push_i32: FuncId,
@@ -167,6 +179,9 @@ impl JitCompiler {
             "ilang_jit_release_array",
             ilang_jit_release_array as *const u8,
         );
+        builder.symbol("ilang_jit_retain_weak", ilang_jit_retain_weak as *const u8);
+        builder.symbol("ilang_jit_release_weak", ilang_jit_release_weak as *const u8);
+        builder.symbol("ilang_jit_weak_get", ilang_jit_weak_get as *const u8);
         builder.symbol(
             "ilang_jit_array_push_i8",
             ilang_jit_array_push_i8 as *const u8,
@@ -240,6 +255,12 @@ impl JitCompiler {
             &[I64, I64],
             None,
         )?;
+        let retain_weak_id =
+            declare_import(&mut module, "ilang_jit_retain_weak", &[I64], None)?;
+        let release_weak_id =
+            declare_import(&mut module, "ilang_jit_release_weak", &[I64, I64], None)?;
+        let weak_get_id =
+            declare_import(&mut module, "ilang_jit_weak_get", &[I64], Some(I64))?;
         let array_push_i8 =
             declare_import(&mut module, "ilang_jit_array_push_i8", &[I64, I8], None)?;
         let array_push_i16 =
@@ -281,6 +302,9 @@ impl JitCompiler {
             array_new,
             retain_array_id,
             release_array_id,
+            retain_weak_id,
+            release_weak_id,
+            weak_get_id,
             array_push_i8,
             array_push_i16,
             array_push_i32,
@@ -293,14 +317,37 @@ impl JitCompiler {
         })
     }
 
-    fn declare_class(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+    /// First pass: register the class name → id mapping with an empty
+    /// layout, so other classes' field types can refer to this one
+    /// (`Parent.weak`, `Child?`, etc.) regardless of declaration order.
+    fn declare_class_name(&mut self, c: &ClassDecl) {
         let id = self.class_layouts.len() as u32;
         self.class_ids.insert(c.name.clone(), id);
+        self.class_layouts.push(ClassLayout {
+            name: c.name.clone(),
+            fields: HashMap::new(),
+            size: 0,
+        });
+        self.class_methods.push(HashMap::new());
+    }
+
+    /// Second pass: compute field offsets/sizes now that every class
+    /// id is in the table. Splits out from `declare_class_name` so
+    /// `Child { p: Parent.weak }` works when Parent is declared after
+    /// Child in source order.
+    fn finalize_class_layout(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+        let id = self.class_ids[&c.name] as usize;
         let mut offset = 0u32;
         let mut max_align = 1u32;
         let mut fields = HashMap::new();
         for field in &c.fields {
-            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?;
+            let jty = JitTy::from_ast(
+                &field.ty,
+                field.span,
+                &self.class_ids,
+                &mut self.array_kinds,
+                &mut self.optional_inners,
+            )?;
             let size = jty.size_bytes();
             let align = size.max(1);
             offset = align_up(offset, align);
@@ -309,12 +356,8 @@ impl JitCompiler {
             max_align = max_align.max(align);
         }
         let size = align_up(offset.max(1), max_align);
-        self.class_layouts.push(ClassLayout {
-            name: c.name.clone(),
-            fields,
-            size,
-        });
-        self.class_methods.push(HashMap::new());
+        self.class_layouts[id].fields = fields;
+        self.class_layouts[id].size = size;
         Ok(())
     }
 
@@ -445,6 +488,9 @@ impl JitCompiler {
             alloc_object_id: self.alloc_object_id,
             retain_object_id: self.retain_object_id,
             release_object_id: self.release_object_id,
+            retain_weak_id: self.retain_weak_id,
+            release_weak_id: self.release_weak_id,
+            weak_get_id: self.weak_get_id,
             print: PrintFns {
                 i64: self.print_i64,
                 u64: self.print_u64,
@@ -549,6 +595,9 @@ impl JitCompiler {
             alloc_object_id: self.alloc_object_id,
             retain_object_id: self.retain_object_id,
             release_object_id: self.release_object_id,
+            retain_weak_id: self.retain_weak_id,
+            release_weak_id: self.release_weak_id,
+            weak_get_id: self.weak_get_id,
             print: PrintFns {
                 i64: self.print_i64,
                 u64: self.print_u64,
@@ -713,6 +762,18 @@ impl JitCompiler {
                         &self.class_layouts,
                         &self.optional_inners,
                     )
+                }
+                JitTy::Weak(class_id) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    let alive = if p == 0 {
+                        false
+                    } else {
+                        *((p - 24) as *const i64) > 0
+                    };
+                    JitValue::Weak {
+                        class: self.class_layouts[class_id as usize].name.clone(),
+                        alive,
+                    }
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();

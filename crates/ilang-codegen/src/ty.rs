@@ -36,6 +36,11 @@ pub(crate) enum JitTy {
     /// (would require a tagged 16-byte layout). The id indexes the
     /// compiler's `optional_inners` side table.
     Optional(u32),
+    /// `T.weak` — non-owning reference to a class instance. Stored as
+    /// the same i64 pointer as the strong form; lifecycle goes through
+    /// the weak retain/release helpers and `weak_get` checks liveness.
+    /// The id is a class id, identical in shape to `Object(class_id)`.
+    Weak(u32),
     Unit,
 }
 
@@ -83,7 +88,7 @@ impl JitTy {
             }
             Type::Optional(inner) => {
                 let inner_jty = JitTy::from_ast(inner, span, class_ids, array_kinds, optional_inners)?;
-                if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
                         span,
@@ -91,6 +96,18 @@ impl JitTy {
                 }
                 let id = intern_optional_inner(optional_inners, inner_jty);
                 JitTy::Optional(id)
+            }
+            Type::Weak(inner) => {
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, array_kinds, optional_inners)?;
+                match inner_jty {
+                    JitTy::Object(class_id) => JitTy::Weak(class_id),
+                    _ => {
+                        return Err(CodegenError::UnsupportedType {
+                            ty: t.clone(),
+                            span,
+                        });
+                    }
+                }
             }
             other => {
                 return Err(CodegenError::UnsupportedType {
@@ -111,7 +128,8 @@ impl JitTy {
             | JitTy::Object(_)
             | JitTy::Str
             | JitTy::Array(_)
-            | JitTy::Optional(_) => I64,
+            | JitTy::Optional(_)
+            | JitTy::Weak(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -129,7 +147,8 @@ impl JitTy {
             | JitTy::Object(_)
             | JitTy::Str
             | JitTy::Array(_)
-            | JitTy::Optional(_) => 8,
+            | JitTy::Optional(_)
+            | JitTy::Weak(_) => 8,
             JitTy::Unit => 0,
         }
     }
@@ -140,7 +159,7 @@ impl JitTy {
     pub(crate) fn is_heap(self) -> bool {
         matches!(
             self,
-            JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Optional(_)
+            JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Optional(_) | JitTy::Weak(_)
         )
     }
 

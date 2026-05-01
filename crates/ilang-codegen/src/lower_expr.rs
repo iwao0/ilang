@@ -7,7 +7,7 @@ use cranelift_codegen::ir::types::{I64, I8};
 use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
-use crate::arc::{emit_release_heap, emit_retain_heap, emit_retain_object, is_aliased_heap_source};
+use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_object};
 use crate::env::{class_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
@@ -131,9 +131,7 @@ pub(crate) fn lower_expr(
                     }
                 })?;
                 let coerced = coerce(b, (val, vt), var_ty, e.span)?;
-                if is_heap && is_aliased_heap_source(&value.kind) {
-                    emit_retain_heap(b, lc, coerced, var_ty);
-                }
+                emit_bind_retain(b, lc, &value.kind, vt, var_ty, coerced);
                 b.def_var(var, coerced);
                 if let Some(old) = old_val {
                     emit_release_heap(b, lc, old, var_ty);
@@ -163,9 +161,7 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (val, vt), fty, e.span)?;
-                    if is_heap && is_aliased_heap_source(&value.kind) {
-                        emit_retain_heap(b, lc, coerced, fty);
-                    }
+                    emit_bind_retain(b, lc, &value.kind, vt, fty, coerced);
                     b.ins()
                         .store(MemFlags::trusted(), coerced, this, offset as i32);
                     if let Some(old) = old_val {
@@ -222,12 +218,7 @@ pub(crate) fn lower_expr(
                 }
             })?;
             let coerced = coerce(b, (val, vt), fty, e.span)?;
-            // Aliased rhs needs an extra retain so the field has its own
-            // reference; fresh allocations (`new`, `[..]`, "a"+"b", call
-            // result) already arrive with rc=1.
-            if is_heap && is_aliased_heap_source(&value.kind) {
-                emit_retain_heap(b, lc, coerced, fty);
-            }
+            emit_bind_retain(b, lc, &value.kind, vt, fty, coerced);
             b.ins()
                 .store(MemFlags::trusted(), coerced, obj_v, offset as i32);
             if let Some(old) = old_val {
@@ -292,6 +283,23 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Built-in Weak method: get() returns Optional<Object>.
+            if let JitTy::Weak(class_id) = obj_t {
+                if method == "get" {
+                    let r = lc.module.declare_func_in_func(lc.weak_get_id, b.func);
+                    let call = b.ins().call(r, &[obj_v]);
+                    let result = b.inst_results(call)[0];
+                    let opt_id = intern_optional_inner(
+                        lc.optional_inners,
+                        JitTy::Object(class_id),
+                    );
+                    return Ok(Some((result, JitTy::Optional(opt_id))));
+                }
+                return Err(CodegenError::Unsupported {
+                    what: format!("weak has no method {method:?}"),
+                    span: e.span,
+                });
+            }
             // Built-in Optional methods. The Optional value is a
             // nullable pointer (i64); these inspect it without
             // touching rc.
@@ -385,10 +393,7 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
-                    if param_tys[i].is_heap() && is_aliased_heap_source(&a.kind)
-                    {
-                        emit_retain_heap(b, lc, coerced, param_tys[i]);
-                    }
+                    emit_bind_retain(b, lc, &a.kind, at, param_tys[i], coerced);
                     arg_vals.push(coerced);
                 }
                 let func_ref = lc.module.declare_func_in_func(id, b.func);
@@ -530,9 +535,7 @@ pub(crate) fn lower_expr(
             } else {
                 None
             };
-            if is_heap && is_aliased_heap_source(&value.kind) {
-                emit_retain_heap(b, lc, coerced, elem_jty);
-            }
+            emit_bind_retain(b, lc, &value.kind, vt, elem_jty, coerced);
             b.ins().store(MemFlags::trusted(), coerced, addr, 0);
             if let Some(old) = old_val {
                 emit_release_heap(b, lc, old, elem_jty);
@@ -853,10 +856,7 @@ fn call_method(
             span: a.span,
         })?;
         let coerced = coerce(b, (av, at), info.params[i], a.span)?;
-        if info.params[i].is_heap() && is_aliased_heap_source(&a.kind)
-        {
-            emit_retain_heap(b, lc, coerced, info.params[i]);
-        }
+        emit_bind_retain(b, lc, &a.kind, at, info.params[i], coerced);
         arg_vals.push(coerced);
     }
     let func_ref = lc.module.declare_func_in_func(info.id, b.func);

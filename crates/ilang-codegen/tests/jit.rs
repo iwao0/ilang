@@ -798,3 +798,74 @@ fn jit_optional_field_none_no_crash() {
     "#;
     assert_eq!(jit(src), JitValue::I64(42));
 }
+
+// ─── Phase E-2b: Weak references in JIT ──────────────────────────────
+
+#[test]
+fn jit_weak_get_some_when_alive() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 7 }
+        }
+        let c = new Counter()
+        let w: Counter.weak = c
+        if let some(s) = w.get() {
+            s.n
+        } else {
+            -1
+        }
+    "#;
+    assert_eq!(jit(src), JitValue::I64(7));
+}
+
+#[test]
+fn jit_weak_get_none_after_strong_dropped() {
+    // The Counter is allocated and only weakly referenced; with no
+    // strong binding, its strong_rc reaches 0 immediately and the
+    // weak's get() returns none.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+        }
+        let r = 0
+        let w: Counter.weak = new Counter()
+        if w.get().is_none() {
+            r = 42
+        }
+        r
+    "#;
+    assert_eq!(jit(src), JitValue::I64(42));
+}
+
+#[test]
+fn jit_weak_breaks_cycle() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Child {
+            p: Parent.weak
+            init(pp: Parent) { this.p = pp }
+        }
+        class Parent {
+            c: Child?
+            tracker: Counter
+            init(t: Counter) {
+                this.c = none
+                this.tracker = t
+            }
+            deinit() { tracker.inc() }
+        }
+        let counter = new Counter()
+        {
+            let p = new Parent(counter)
+            p.c = some(new Child(p))
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}

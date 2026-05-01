@@ -5,28 +5,38 @@
 //! heap values (`StringRc`, `ArrayHeader`) live here too — the host
 //! side (`read_array`, `run_main`) needs to walk them.
 
-// ─── ARC for objects (Phase A + D) ─────────────────────────────────────
+// ─── ARC for objects (Phase A/D/E) ────────────────────────────────────
 // Each `new` allocation lays out memory as:
-//   [ rc: i64 | drop_fn_ptr: i64 | field0 | field1 | ... ]
-// The pointer surfaced to JITed code points at field0; rc and the
-// drop pointer live at offsets -16 and -8. Field offsets stay the
-// same as the no-ARC layout, so the rest of the codegen is unchanged.
+//   [ strong_rc | weak_rc | drop_fn_ptr | field0 | field1 | ... ]
+// (each header slot is i64). The pointer surfaced to JITed code points
+// at field0; the three header slots sit at offsets -24, -16, -8.
+// Field offsets stay the same as before, so user-pointer arithmetic in
+// generated code is unchanged.
 //
-// `drop_fn` is a JIT-generated wrapper (see drops.rs) that runs the
-// user `deinit` (if any) and recursively releases any heap-typed
-// fields. For trivial classes (no deinit, no heap fields) it's 0.
+// Two-rc lifecycle (Phase E):
+//  - strong_rc reaches 0 → run `drop_fn` (user deinit + heap field
+//    release). Storage is freed only once weak_rc is also 0; until then
+//    weak refs can detect "dead" by reading strong_rc==0 and `get()`
+//    returns none.
+//  - weak_rc reaches 0 with strong_rc==0 → free the storage.
+//
+// `drop_fn` is a JIT-generated wrapper (see drops.rs). Trivial classes
+// (no deinit, no heap fields) use 0 to skip the call.
 
-const RC_OFFSET: i64 = -16;
+const STRONG_OFFSET: i64 = -24;
+const WEAK_OFFSET: i64 = -16;
 const DROP_OFFSET: i64 = -8;
+const HEADER_SIZE: usize = 24;
 
 pub(crate) extern "C" fn ilang_jit_alloc_object(user_size: i64, drop_fn_ptr: i64) -> i64 {
-    let total = 16 + (user_size as usize);
+    let total = HEADER_SIZE + (user_size as usize);
     let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
     unsafe {
         let raw = std::alloc::alloc_zeroed(layout);
-        *(raw as *mut i64) = 1;
-        *(raw.add(8) as *mut i64) = drop_fn_ptr;
-        raw.add(16) as i64
+        *(raw as *mut i64) = 1; // strong
+        *(raw.add(8) as *mut i64) = 0; // weak
+        *(raw.add(16) as *mut i64) = drop_fn_ptr;
+        raw.add(HEADER_SIZE) as i64
     }
 }
 
@@ -35,37 +45,103 @@ pub(crate) extern "C" fn ilang_jit_retain_object(ptr: i64) {
         return;
     }
     unsafe {
-        let rc = (ptr + RC_OFFSET) as *mut i64;
+        let rc = (ptr + STRONG_OFFSET) as *mut i64;
         *rc += 1;
     }
 }
 
-/// Decrement the object's refcount; on zero call its `drop_fn` wrapper
-/// (which runs user `deinit` and recursive field releases) and free
-/// the underlying allocation.
+/// Decrement the strong refcount. On zero, run the drop wrapper
+/// (deinit + heap field release). Free the storage only if weak_rc is
+/// also 0; otherwise leave the allocation around so weak refs see
+/// strong_rc==0 and report "dead" through `weak_get`.
 ///
-/// `deinit` receives `this` as a parameter; the JIT suppresses its
-/// exit-release of `this` so the body sees rc=0 without re-entering
-/// this routine. The drop wrapper itself also avoids touching `this`'s
-/// rc.
+/// `deinit`'s own exit-release of `this` is suppressed by the JIT
+/// (see `define_function_body`), so the body observes rc=0 without
+/// re-entering this routine.
 pub(crate) extern "C" fn ilang_jit_release_object(ptr: i64, user_size: i64) {
     if ptr == 0 {
         return;
     }
     unsafe {
-        let rc_ptr = (ptr + RC_OFFSET) as *mut i64;
-        *rc_ptr -= 1;
-        if *rc_ptr != 0 {
+        let strong_ptr = (ptr + STRONG_OFFSET) as *mut i64;
+        *strong_ptr -= 1;
+        if *strong_ptr != 0 {
             return;
         }
+        // Sentinel: bump weak_rc by 1 across the drop_fn call so a
+        // weak field that points back at *us* (e.g. a Parent owning a
+        // Child whose `p: Parent.weak` is the back-edge) can run its
+        // release_weak without prematurely deallocating our own
+        // storage from inside the drop wrapper.
+        let weak_ptr = (ptr + WEAK_OFFSET) as *mut i64;
+        *weak_ptr += 1;
         let drop_ptr = *((ptr + DROP_OFFSET) as *const i64);
         if drop_ptr != 0 {
             let f: extern "C" fn(i64) = std::mem::transmute(drop_ptr);
             f(ptr);
         }
-        let total = 16 + (user_size as usize);
+        *weak_ptr -= 1;
+        if *weak_ptr == 0 {
+            let total = HEADER_SIZE + (user_size as usize);
+            let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
+            std::alloc::dealloc((ptr - HEADER_SIZE as i64) as *mut u8, layout);
+        }
+        // else: keep storage alive for surviving weak references;
+        // freed when ilang_jit_release_weak drops the last weak.
+    }
+}
+
+/// Increment a weak ref's count. Used when a weak binding is created
+/// (downgrade from strong, or re-bind from another weak).
+pub(crate) extern "C" fn ilang_jit_retain_weak(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let weak_ptr = (ptr + WEAK_OFFSET) as *mut i64;
+        *weak_ptr += 1;
+    }
+}
+
+/// Decrement a weak ref's count. Frees the storage only if both
+/// strong and weak hit zero (i.e. the object's contents have already
+/// been dropped and no other weak refs survive).
+pub(crate) extern "C" fn ilang_jit_release_weak(ptr: i64, user_size: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let weak_ptr = (ptr + WEAK_OFFSET) as *mut i64;
+        *weak_ptr -= 1;
+        if *weak_ptr != 0 {
+            return;
+        }
+        let strong_count = *((ptr + STRONG_OFFSET) as *const i64);
+        if strong_count != 0 {
+            return;
+        }
+        let total = HEADER_SIZE + (user_size as usize);
         let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
-        std::alloc::dealloc((ptr - 16) as *mut u8, layout);
+        std::alloc::dealloc((ptr - HEADER_SIZE as i64) as *mut u8, layout);
+    }
+}
+
+/// Try to upgrade a weak reference to a strong one. If the target is
+/// still alive (strong_rc > 0), bumps strong_rc and returns the same
+/// pointer; the caller now owns +1 strong reference, equivalent to a
+/// fresh allocation. If dead, returns 0 (which the JIT treats as the
+/// `none` value of an Optional).
+pub(crate) extern "C" fn ilang_jit_weak_get(ptr: i64) -> i64 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let strong_ptr = (ptr + STRONG_OFFSET) as *mut i64;
+        if *strong_ptr == 0 {
+            return 0;
+        }
+        *strong_ptr += 1;
+        ptr
     }
 }
 

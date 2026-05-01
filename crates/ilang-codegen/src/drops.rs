@@ -92,6 +92,7 @@ fn define_one_class_drop(
         release_object_id,
         release_string_id,
         release_array_id,
+        release_weak_id,
         ..
     } = compiler;
 
@@ -123,6 +124,7 @@ fn define_one_class_drop(
             *release_object_id,
             *release_string_id,
             *release_array_id,
+            *release_weak_id,
             &mut builder,
             v,
             fty,
@@ -201,6 +203,7 @@ fn define_one_array_drop(
         release_object_id,
         release_string_id,
         release_array_id,
+        release_weak_id,
         ..
     } = compiler;
 
@@ -247,6 +250,7 @@ fn define_one_array_drop(
         *release_object_id,
         *release_string_id,
         *release_array_id,
+        *release_weak_id,
         &mut builder,
         elem,
         elem_jty,
@@ -278,6 +282,7 @@ fn emit_release_for(
     release_object_id: FuncId,
     release_string_id: FuncId,
     release_array_id: FuncId,
+    release_weak_id: FuncId,
     b: &mut FunctionBuilder,
     ptr: Value,
     ty: JitTy,
@@ -301,7 +306,7 @@ fn emit_release_for(
         }
         JitTy::Optional(id) => {
             // Dispatch to inner type's release. The runtime's
-            // release_object/string/array all guard against null
+            // release_object/string/array/weak all guard against null
             // pointers, so a None Optional is automatically a no-op.
             let inner = optional_inners[id as usize];
             emit_release_for(
@@ -312,10 +317,17 @@ fn emit_release_for(
                 release_object_id,
                 release_string_id,
                 release_array_id,
+                release_weak_id,
                 b,
                 ptr,
                 inner,
             );
+        }
+        JitTy::Weak(class_id) => {
+            let r = module.declare_func_in_func(release_weak_id, b.func);
+            let user_size = class_layouts[class_id as usize].size as i64;
+            let size_v = b.ins().iconst(I64, user_size);
+            b.ins().call(r, &[ptr, size_v]);
         }
         _ => {}
     }

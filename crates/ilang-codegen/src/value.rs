@@ -30,6 +30,13 @@ pub(crate) unsafe fn read_optional_pointer(
             class_layouts,
             optional_inners,
         )),
+        JitTy::Weak(class_id) => {
+            let alive = *((p - 24) as *const i64) > 0;
+            JitValue::Weak {
+                class: class_layouts[class_id as usize].name.clone(),
+                alive,
+            }
+        }
         _ => unreachable!("Optional<primitive> rejected at JitTy::from_ast"),
     };
     JitValue::Some(Box::new(v))
@@ -56,6 +63,10 @@ pub enum JitValue {
     /// inner value (always heap-typed in JIT).
     None,
     Some(Box<JitValue>),
+    /// `T.weak` — the host-side image is just the class name and a
+    /// liveness bit. The JIT pointer isn't surfaced because using it
+    /// without going through `weak_get` would defeat ARC.
+    Weak { class: String, alive: bool },
 }
 
 impl std::fmt::Display for JitValue {
@@ -87,6 +98,8 @@ impl std::fmt::Display for JitValue {
             JitValue::Unit => Ok(()),
             JitValue::None => write!(f, "none"),
             JitValue::Some(v) => write!(f, "some({v})"),
+            JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
+            JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
         }
     }
 }
@@ -136,6 +149,18 @@ pub(crate) unsafe fn read_array(
                 class: class_layouts[id as usize].name.clone(),
                 ptr: *(p as *const i64),
             },
+            JitTy::Weak(class_id) => {
+                let raw = *(p as *const i64);
+                let alive = if raw == 0 {
+                    false
+                } else {
+                    *((raw - 24) as *const i64) > 0
+                };
+                JitValue::Weak {
+                    class: class_layouts[class_id as usize].name.clone(),
+                    alive,
+                }
+            }
             JitTy::Array(id) => JitValue::Array(read_array(
                 *(p as *const i64),
                 array_kinds[id as usize],

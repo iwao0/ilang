@@ -22,6 +22,49 @@ pub(crate) fn is_aliased_heap_source(kind: &ExprKind) -> bool {
     )
 }
 
+/// Apply rc adjustments at a heap-typed bind site (`let`, function arg,
+/// field/index assign). Encapsulates the aliased-vs-fresh and the
+/// strong→weak downgrade subcases so each call site doesn't need to
+/// reason about rc transitions individually.
+///
+/// - Heap target, aliased source: retain (the source binding still
+///   holds its +1, so the new slot needs its own).
+/// - Heap target, fresh source same kind: consume the source's rc=1
+///   (no-op).
+/// - `Weak<C>` target, fresh `Object<C>` source: retain_weak +
+///   release_strong — the strong rc=1 owned by the fresh value gets
+///   released, and the weak slot takes a +1 weak. With no other
+///   strong holders, the object's strong reaches 0 and its drop fires
+///   immediately; storage stays alive while weak_rc > 0 so `get()`
+///   returns none.
+pub(crate) fn emit_bind_retain(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    value_kind: &ExprKind,
+    vt: JitTy,
+    bind_ty: JitTy,
+    coerced: Value,
+) {
+    if !bind_ty.is_heap() {
+        return;
+    }
+    let aliased = is_aliased_heap_source(value_kind);
+    if let (JitTy::Weak(target_class), JitTy::Object(source_class)) = (bind_ty, vt) {
+        if target_class == source_class {
+            // Always retain_weak; for fresh sources, additionally
+            // release the strong rc since no other binding owns it.
+            emit_retain_weak(b, lc, coerced);
+            if !aliased {
+                emit_release_object(b, lc, coerced, target_class);
+            }
+            return;
+        }
+    }
+    if aliased {
+        emit_retain_heap(b, lc, coerced, bind_ty);
+    }
+}
+
 pub(crate) fn emit_retain_object(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
     let r = lc.module.declare_func_in_func(lc.retain_object_id, b.func);
     b.ins().call(r, &[ptr]);
@@ -66,6 +109,23 @@ pub(crate) fn emit_release_array(
     b.ins().call(r, &[ptr, size_v]);
 }
 
+pub(crate) fn emit_retain_weak(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.retain_weak_id, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+pub(crate) fn emit_release_weak(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+    class_id: u32,
+) {
+    let r = lc.module.declare_func_in_func(lc.release_weak_id, b.func);
+    let user_size = lc.class_layouts[class_id as usize].size as i64;
+    let size_v = b.ins().iconst(I64, user_size);
+    b.ins().call(r, &[ptr, size_v]);
+}
+
 /// Emit retain for any heap-typed value. No-op for non-heap types.
 /// `Optional<inner>` dispatches to inner's retain (the runtime helpers
 /// already guard against null pointers).
@@ -79,6 +139,7 @@ pub(crate) fn emit_retain_heap(
         JitTy::Object(_) => emit_retain_object(b, lc, ptr),
         JitTy::Str => emit_retain_string(b, lc, ptr),
         JitTy::Array(_) => emit_retain_array(b, lc, ptr),
+        JitTy::Weak(_) => emit_retain_weak(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_retain_heap(b, lc, ptr, inner);
@@ -98,6 +159,7 @@ pub(crate) fn emit_release_heap(
         JitTy::Object(id) => emit_release_object(b, lc, ptr, id),
         JitTy::Str => emit_release_string(b, lc, ptr),
         JitTy::Array(id) => emit_release_array(b, lc, ptr, id),
+        JitTy::Weak(class_id) => emit_release_weak(b, lc, ptr, class_id),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_release_heap(b, lc, ptr, inner);
