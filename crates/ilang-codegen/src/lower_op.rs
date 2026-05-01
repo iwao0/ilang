@@ -300,6 +300,17 @@ pub(crate) fn coerce(
     if matches!(from, JitTy::Array(_)) && matches!(to, JitTy::Array(_)) {
         return Ok(v);
     }
+    // Optional<X> values share runtime representation (i64 nullable
+    // pointer) regardless of inner. Auto-wrap T → T? also lands here:
+    // a heap pointer is identical to its Optional-wrapped form.
+    if matches!(from, JitTy::Optional(_)) && matches!(to, JitTy::Optional(_)) {
+        return Ok(v);
+    }
+    if from.is_heap()
+        && matches!(to, JitTy::Optional(_))
+    {
+        return Ok(v);
+    }
     let v = match (from, to) {
         (JitTy::Bool, t) if t.is_int() => widen_int(b, v, 8, t, false),
         (t, JitTy::Bool) if t.is_int() => narrow_int(b, v, 8, t),

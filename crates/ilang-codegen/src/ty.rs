@@ -31,6 +31,11 @@ pub(crate) enum JitTy {
     /// Heap pointer to an `ArrayHeader`. The id indexes the compiler's
     /// `array_kinds` side table for element type / fixed length.
     Array(u32),
+    /// `T?` represented as a nullable pointer (0 = none). Inner must be
+    /// a heap type — Optional<primitive> isn't supported in JIT yet
+    /// (would require a tagged 16-byte layout). The id indexes the
+    /// compiler's `optional_inners` side table.
+    Optional(u32),
     Unit,
 }
 
@@ -40,6 +45,7 @@ impl JitTy {
         span: ilang_ast::Span,
         class_ids: &HashMap<String, u32>,
         array_kinds: &mut Vec<ArrayKind>,
+        optional_inners: &mut Vec<JitTy>,
     ) -> Result<Self, CodegenError> {
         Ok(match t {
             Type::I8 => JitTy::I8,
@@ -65,7 +71,7 @@ impl JitTy {
                 JitTy::Object(id)
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, array_kinds)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, array_kinds, optional_inners)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -74,6 +80,17 @@ impl JitTy {
                     },
                 );
                 JitTy::Array(id)
+            }
+            Type::Optional(inner) => {
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, array_kinds, optional_inners)?;
+                if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                    return Err(CodegenError::UnsupportedType {
+                        ty: t.clone(),
+                        span,
+                    });
+                }
+                let id = intern_optional_inner(optional_inners, inner_jty);
+                JitTy::Optional(id)
             }
             other => {
                 return Err(CodegenError::UnsupportedType {
@@ -89,11 +106,42 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
             JitTy::I16 | JitTy::U16 => I16,
             JitTy::I32 | JitTy::U32 => I32,
-            JitTy::I64 | JitTy::U64 | JitTy::Object(_) | JitTy::Str | JitTy::Array(_) => I64,
+            JitTy::I64
+            | JitTy::U64
+            | JitTy::Object(_)
+            | JitTy::Str
+            | JitTy::Array(_)
+            | JitTy::Optional(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
         })
+    }
+
+    pub(crate) fn size_bytes(self) -> u32 {
+        match self {
+            JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
+            JitTy::I16 | JitTy::U16 => 2,
+            JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
+            JitTy::I64
+            | JitTy::U64
+            | JitTy::F64
+            | JitTy::Object(_)
+            | JitTy::Str
+            | JitTy::Array(_)
+            | JitTy::Optional(_) => 8,
+            JitTy::Unit => 0,
+        }
+    }
+
+    /// True for any heap-managed type — Object, Str, Array, or any
+    /// Optional thereof. Drives retain/release wiring across the
+    /// lowering passes.
+    pub(crate) fn is_heap(self) -> bool {
+        matches!(
+            self,
+            JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Optional(_)
+        )
     }
 
     pub(crate) fn is_signed_int(self) -> bool {
@@ -115,20 +163,6 @@ impl JitTy {
             JitTy::I32 | JitTy::U32 => 32,
             JitTy::I64 | JitTy::U64 => 64,
             _ => 0,
-        }
-    }
-    pub(crate) fn size_bytes(self) -> u32 {
-        match self {
-            JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
-            JitTy::I16 | JitTy::U16 => 2,
-            JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
-            JitTy::I64
-            | JitTy::U64
-            | JitTy::F64
-            | JitTy::Object(_)
-            | JitTy::Str
-            | JitTy::Array(_) => 8,
-            JitTy::Unit => 0,
         }
     }
 }
@@ -156,6 +190,17 @@ pub(crate) fn intern_array_kind(kinds: &mut Vec<ArrayKind>, kind: ArrayKind) -> 
     }
     let id = kinds.len() as u32;
     kinds.push(kind);
+    id
+}
+
+/// Intern an Optional inner type. The same approach as array kinds —
+/// dedup by structural equality, return a side-table id.
+pub(crate) fn intern_optional_inner(inners: &mut Vec<JitTy>, inner: JitTy) -> u32 {
+    if let Some((i, _)) = inners.iter().enumerate().find(|(_, t)| **t == inner) {
+        return i as u32;
+    }
+    let id = inners.len() as u32;
+    inners.push(inner);
     id
 }
 

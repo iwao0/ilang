@@ -14,7 +14,7 @@ use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
 use crate::lower_op::{coerce, lower_binary, lower_logical, lower_unary};
 use crate::lower_stmt::lower_block_value;
 use crate::runtime::{ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET};
-use crate::ty::{intern_array_kind, ArrayKind, JitTy, TV};
+use crate::ty::{intern_array_kind, intern_optional_inner, ArrayKind, JitTy, TV};
 
 pub(crate) fn lower_expr(
     b: &mut FunctionBuilder,
@@ -69,6 +69,7 @@ pub(crate) fn lower_expr(
                 e.span,
                 &class_ids_from(lc),
                 lc.array_kinds,
+                lc.optional_inners,
             )?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
@@ -119,7 +120,7 @@ pub(crate) fn lower_expr(
             // Ordinary local first; then implicit-`this` field write.
             if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
                 let is_heap =
-                    matches!(var_ty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+                    var_ty.is_heap();
                 // Capture the old value before def_var, so we can drop
                 // the previous reference once the new one is in place.
                 let old_val = if is_heap { Some(b.use_var(var)) } else { None };
@@ -143,7 +144,7 @@ pub(crate) fn lower_expr(
                 let layout = &lc.class_layouts[class_id as usize];
                 if let Some(&(offset, fty)) = layout.fields.get(target) {
                     let is_heap =
-                        matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+                        fty.is_heap();
                     let this = b.use_var(this_var);
                     let old_val = if is_heap {
                         Some(b.ins().load(
@@ -201,7 +202,7 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
-            let is_heap = matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+            let is_heap = fty.is_heap();
             // Read the old field value first so we can release it after
             // the new one is in place.
             let old_val = if is_heap {
@@ -291,6 +292,35 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Built-in Optional methods. The Optional value is a
+            // nullable pointer (i64); these inspect it without
+            // touching rc.
+            if let JitTy::Optional(id) = obj_t {
+                let zero = b.ins().iconst(I64, 0);
+                match method.as_str() {
+                    "is_some" => {
+                        let v = b.ins().icmp(IntCC::NotEqual, obj_v, zero);
+                        return Ok(Some((v, JitTy::Bool)));
+                    }
+                    "is_none" => {
+                        let v = b.ins().icmp(IntCC::Equal, obj_v, zero);
+                        return Ok(Some((v, JitTy::Bool)));
+                    }
+                    "unwrap" => {
+                        // No null-check codegen — relies on the user
+                        // having checked `is_some()` first. Calling on
+                        // `none` reads address 0 downstream (segfault).
+                        let inner = lc.optional_inners[id as usize];
+                        return Ok(Some((obj_v, inner)));
+                    }
+                    _ => {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("optional has no method {method:?}"),
+                            span: e.span,
+                        });
+                    }
+                }
+            }
             // Built-in `array.push(x)` dispatches to the per-width FFI.
             if let JitTy::Array(id) = obj_t {
                 if method == "push" {
@@ -355,10 +385,7 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
-                    if matches!(
-                        param_tys[i],
-                        JitTy::Object(_) | JitTy::Str | JitTy::Array(_)
-                    ) && is_aliased_heap_source(&a.kind)
+                    if param_tys[i].is_heap() && is_aliased_heap_source(&a.kind)
                     {
                         emit_retain_heap(b, lc, coerced, param_tys[i]);
                     }
@@ -489,7 +516,7 @@ pub(crate) fn lower_expr(
             let data = b.ins().load(I64, MemFlags::trusted(), obj_v, ARRAY_DATA_OFFSET);
             let addr = b.ins().iadd(data, off);
             let is_heap =
-                matches!(elem_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+                elem_jty.is_heap();
             // Read the old element so we can release it after writing the
             // new one. Aliased rhs gets an extra retain; fresh values
             // arrive with rc=1.
@@ -553,12 +580,139 @@ pub(crate) fn lower_expr(
             }
             Ok(Some((ptr, JitTy::Object(class_id))))
         }
-        ExprKind::None | ExprKind::Some(_) | ExprKind::IfLet { .. } => {
-            Err(CodegenError::Unsupported {
-                what: "Optional (`T?` / `none` / `some` / `if let`) not supported in JIT yet"
-                    .into(),
-                span: e.span,
-            })
+        ExprKind::None => {
+            // Represent as null pointer. The inner type id doesn't
+            // matter for storage (always i64=0), but we need *some*
+            // valid optional id so the type tag is well-formed; pick
+            // the first interned inner (or intern a dummy Str).
+            let id = if lc.optional_inners.is_empty() {
+                lc.optional_inners.push(JitTy::Str);
+                0
+            } else {
+                0
+            };
+            let zero = b.ins().iconst(I64, 0);
+            Ok(Some((zero, JitTy::Optional(id))))
+        }
+        ExprKind::Some(inner) => {
+            let (v, vt) = lower_expr(b, lc, inner)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "some(...) on unit".into(),
+                    span: e.span,
+                }
+            })?;
+            if !vt.is_heap() {
+                return Err(CodegenError::Unsupported {
+                    what: format!("some({vt:?}) — JIT only supports Optional of heap types"),
+                    span: e.span,
+                });
+            }
+            let id = intern_optional_inner(lc.optional_inners, vt);
+            Ok(Some((v, JitTy::Optional(id))))
+        }
+        ExprKind::IfLet {
+            name,
+            expr,
+            then_branch,
+            else_branch,
+        } => lower_if_let(b, lc, name, expr, then_branch, else_branch.as_deref()),
+    }
+}
+
+fn lower_if_let(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    name: &str,
+    scrut: &Expr,
+    then_branch: &ilang_ast::Block,
+    else_branch: Option<&Expr>,
+) -> Result<Option<TV>, CodegenError> {
+    let (scrut_v, scrut_t) = lower_expr(b, lc, scrut)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "if-let scrutinee is unit".into(),
+        span: scrut.span,
+    })?;
+    let inner_id = match scrut_t {
+        JitTy::Optional(id) => id,
+        other => {
+            return Err(CodegenError::Unsupported {
+                what: format!("if-let on non-optional {other:?}"),
+                span: scrut.span,
+            });
+        }
+    };
+    let inner_jty = lc.optional_inners[inner_id as usize];
+
+    let then_block = b.create_block();
+    let else_block = b.create_block();
+
+    let zero = b.ins().iconst(I64, 0);
+    let cond = b.ins().icmp(IntCC::NotEqual, scrut_v, zero);
+    b.ins().brif(cond, then_block, &[], else_block, &[]);
+
+    // Then branch: bind `name` to the unwrapped pointer with the inner
+    // heap type. Retain so the binding has its own +1 (block-end release
+    // in lower_block_value will balance it).
+    b.switch_to_block(then_block);
+    b.seal_block(then_block);
+    let var = Variable::new(lc.env.next_var_id());
+    b.declare_var(var, I64);
+    b.def_var(var, scrut_v);
+    crate::arc::emit_retain_heap(b, lc, scrut_v, inner_jty);
+    let prev = lc.env.bindings.insert(name.to_string(), (var, inner_jty));
+    let then_val = lower_block_value(b, lc, then_branch)?;
+    // Restore the prior binding.
+    match prev {
+        Some(p) => {
+            lc.env.bindings.insert(name.to_string(), p);
+        }
+        None => {
+            lc.env.bindings.remove(name);
+        }
+    }
+
+    // Merge block: gather a value from both branches if the type is
+    // non-unit. Mirrors lower_if.
+    let merge = b.create_block();
+    let merge_param = match then_val {
+        Some((v, _)) => Some(b.append_block_param(merge, b.func.dfg.value_type(v))),
+        None => None,
+    };
+    if let Some((v, _)) = then_val {
+        b.ins().jump(merge, &[v]);
+    } else {
+        b.ins().jump(merge, &[]);
+    }
+
+    b.switch_to_block(else_block);
+    b.seal_block(else_block);
+    let else_val = match else_branch {
+        Some(e) => lower_expr(b, lc, e)?,
+        None => None,
+    };
+    match (then_val, else_val) {
+        (Some((_, tt)), Some((ev, _et))) => {
+            let ev_coerced = coerce(b, (ev, _et), tt, scrut.span)?;
+            b.ins().jump(merge, &[ev_coerced]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            Ok(merge_param.map(|p| (p, tt)))
+        }
+        (Some((_, tt)), None) => {
+            let zero = match tt.cl() {
+                Some(t) if t.is_float() => b.ins().f64const(0.0),
+                Some(t) => b.ins().iconst(t, 0),
+                None => unreachable!(),
+            };
+            b.ins().jump(merge, &[zero]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            Ok(None)
+        }
+        (None, _) => {
+            b.ins().jump(merge, &[]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            Ok(None)
         }
     }
 }
@@ -699,10 +853,7 @@ fn call_method(
             span: a.span,
         })?;
         let coerced = coerce(b, (av, at), info.params[i], a.span)?;
-        if matches!(
-            info.params[i],
-            JitTy::Object(_) | JitTy::Str | JitTy::Array(_)
-        ) && is_aliased_heap_source(&a.kind)
+        if info.params[i].is_heap() && is_aliased_heap_source(&a.kind)
         {
             emit_retain_heap(b, lc, coerced, info.params[i]);
         }

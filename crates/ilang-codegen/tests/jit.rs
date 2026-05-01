@@ -716,3 +716,85 @@ fn jit_returning_fresh_object_balances() {
     // t goes out of scope inside the inner block → 1 deinit.
     assert_eq!(jit(src), JitValue::I64(1));
 }
+
+// ─── Phase E-1b: Optional in JIT ──────────────────────────────────────
+
+#[test]
+fn jit_optional_string_some_some() {
+    let src = r#"
+        let x: string? = some("hello")
+        if let some(s) = x {
+            s
+        } else {
+            "missing"
+        }
+    "#;
+    assert_eq!(jit(src), JitValue::Str("hello".into()));
+}
+
+#[test]
+fn jit_optional_string_none_takes_else() {
+    let src = r#"
+        let x: string? = none
+        if let some(s) = x {
+            s
+        } else {
+            "missing"
+        }
+    "#;
+    assert_eq!(jit(src), JitValue::Str("missing".into()));
+}
+
+#[test]
+fn jit_optional_predicates() {
+    let src = r#"
+        let a: string? = some("yes")
+        let b: string? = none
+        let r1 = if a.is_some() { 1 } else { 0 }
+        let r2 = if b.is_none() { 10 } else { 0 }
+        r1 + r2
+    "#;
+    assert_eq!(jit(src), JitValue::I64(11));
+}
+
+#[test]
+fn jit_optional_field_recursive_release() {
+    // Holder.t is a Tracked? field. When Holder drops, the field's
+    // release fires, which (when Some) bumps the counter via deinit.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        class Holder {
+            t: Tracked?
+            init() { this.t = none }
+        }
+        let counter = new Counter()
+        {
+            let h = new Holder()
+            h.t = some(new Tracked(counter))
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_optional_field_none_no_crash() {
+    let src = r#"
+        class Holder {
+            s: string?
+            init() { this.s = none }
+        }
+        let h = new Holder()
+        if h.s.is_none() { 42 } else { -1 }
+    "#;
+    assert_eq!(jit(src), JitValue::I64(42));
+}

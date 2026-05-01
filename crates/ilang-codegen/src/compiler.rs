@@ -75,6 +75,7 @@ pub(crate) struct JitCompiler {
     pub(crate) class_layouts: Vec<ClassLayout>,
     pub(crate) class_methods: Vec<HashMap<String, MethodInfo>>,
     pub(crate) array_kinds: Vec<ArrayKind>,
+    pub(crate) optional_inners: Vec<JitTy>,
     pub(crate) alloc_object_id: FuncId,
     pub(crate) retain_object_id: FuncId,
     pub(crate) release_object_id: FuncId,
@@ -261,6 +262,7 @@ impl JitCompiler {
             class_layouts: Vec::new(),
             class_methods: Vec::new(),
             array_kinds: Vec::new(),
+            optional_inners: Vec::new(),
             alloc_object_id,
             retain_object_id,
             release_object_id,
@@ -298,7 +300,7 @@ impl JitCompiler {
         let mut max_align = 1u32;
         let mut fields = HashMap::new();
         for field in &c.fields {
-            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids, &mut self.array_kinds)?;
+            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?;
             let size = jty.size_bytes();
             let align = size.max(1);
             offset = align_up(offset, align);
@@ -351,10 +353,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &mut self.array_kinds)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &mut self.array_kinds)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -476,6 +478,7 @@ impl JitCompiler {
             this,
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
+            optional_inners: &mut self.optional_inners,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
         };
@@ -488,7 +491,7 @@ impl JitCompiler {
             .iter()
             .filter_map(|p| {
                 let &(var, jty) = lc.env.bindings.get(&p.name)?;
-                if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                if jty.is_heap() {
                     Some((var, jty))
                 } else {
                     None
@@ -519,7 +522,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &mut self.array_kinds)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &mut self.array_kinds, &mut self.optional_inners)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -579,6 +582,7 @@ impl JitCompiler {
             this: None,
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
+            optional_inners: &mut self.optional_inners,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
         };
@@ -600,7 +604,7 @@ impl JitCompiler {
         // releases don't free what we're returning. Fresh heap tails
         // already arrive with rc=1.
         if let Some((v, t)) = body {
-            if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+            if t.is_heap()
                 && tail_kind.map(is_aliased_heap_source).unwrap_or(false)
             {
                 emit_retain_heap(&mut builder, &mut lc, v, t);
@@ -612,7 +616,7 @@ impl JitCompiler {
             .iter()
             .filter(|(k, _)| !before.contains(k.as_str()))
             .filter_map(|(_, &(var, jty))| {
-                if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                if jty.is_heap() {
                     Some((var, jty))
                 } else {
                     None
@@ -697,7 +701,18 @@ impl JitCompiler {
                         self.array_kinds[id as usize],
                         &self.array_kinds,
                         &self.class_layouts,
+                        &self.optional_inners,
                     ))
+                }
+                JitTy::Optional(id) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    crate::value::read_optional_pointer(
+                        p,
+                        self.optional_inners[id as usize],
+                        &self.array_kinds,
+                        &self.class_layouts,
+                        &self.optional_inners,
+                    )
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();

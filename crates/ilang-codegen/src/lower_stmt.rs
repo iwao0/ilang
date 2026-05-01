@@ -33,6 +33,7 @@ pub(crate) fn lower_stmt(
                     value.span,
                     &class_ids_from(lc),
                     lc.array_kinds,
+                    lc.optional_inners,
                 )?;
                 Some(lower_array_literal(b, lc, elements, target_elem_jty, value.span)?)
             } else {
@@ -53,6 +54,7 @@ pub(crate) fn lower_stmt(
                     s.span,
                     &class_ids_from(lc),
                     lc.array_kinds,
+                    lc.optional_inners,
                 )?,
                 None => vt,
             };
@@ -62,7 +64,7 @@ pub(crate) fn lower_stmt(
             // new binding has its own reference. Fresh allocations
             // (`new C(...)`, fn results, "literal" + "literal", `[...]`)
             // already start at rc=1.
-            if matches!(bind_ty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+            if bind_ty.is_heap()
                 && is_aliased_heap_source(&value.kind)
             {
                 emit_retain_heap(b, lc, coerced, bind_ty);
@@ -84,7 +86,7 @@ pub(crate) fn lower_stmt(
             // it doesn't leak. Aliased heap sources (Var/Field/Index/
             // This) are still owned by their binding, so leave them.
             if let Some((v, t)) = lower_expr(b, lc, e)? {
-                if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+                if t.is_heap()
                     && !is_aliased_heap_source(&e.kind)
                 {
                     emit_release_heap(b, lc, v, t);
@@ -116,7 +118,7 @@ pub(crate) fn lower_block_value(
     // Fresh heap values (call result, `new`, `[..]`, "a"+"b") already
     // come with rc=1, and a second retain would leak.
     if let Some((v, t)) = tail {
-        if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+        if t.is_heap()
             && tail_kind.map(is_aliased_heap_source).unwrap_or(false)
         {
             emit_retain_heap(b, lc, v, t);
@@ -133,7 +135,7 @@ pub(crate) fn lower_block_value(
         .iter()
         .filter(|(k, _)| !before.contains(k.as_str()))
         .filter_map(|(k, &(var, jty))| {
-            if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+            if jty.is_heap() {
                 Some((k.clone(), var, jty))
             } else {
                 None

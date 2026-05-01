@@ -4,6 +4,37 @@
 use crate::runtime::{ArrayHeader, StringRc};
 use crate::ty::{ArrayKind, ClassLayout, JitTy};
 
+/// Walk a `T?` slot whose pointer is at `p` (i64 representation; 0 = none).
+/// Used by `run_main` for the program's tail value and by `read_array`
+/// for Optional elements.
+pub(crate) unsafe fn read_optional_pointer(
+    p: i64,
+    inner: JitTy,
+    array_kinds: &[ArrayKind],
+    class_layouts: &[ClassLayout],
+    optional_inners: &[JitTy],
+) -> JitValue {
+    if p == 0 {
+        return JitValue::None;
+    }
+    let v = match inner {
+        JitTy::Str => JitValue::Str((*(p as *const StringRc)).s.clone()),
+        JitTy::Object(id) => JitValue::Object {
+            class: class_layouts[id as usize].name.clone(),
+            ptr: p,
+        },
+        JitTy::Array(id) => JitValue::Array(read_array(
+            p,
+            array_kinds[id as usize],
+            array_kinds,
+            class_layouts,
+            optional_inners,
+        )),
+        _ => unreachable!("Optional<primitive> rejected at JitTy::from_ast"),
+    };
+    JitValue::Some(Box::new(v))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum JitValue {
     I8(i8),
@@ -21,6 +52,10 @@ pub enum JitValue {
     Str(String),
     Array(Vec<JitValue>),
     Unit,
+    /// `T?` — `None` is the absent state; `Some(v)` wraps the present
+    /// inner value (always heap-typed in JIT).
+    None,
+    Some(Box<JitValue>),
 }
 
 impl std::fmt::Display for JitValue {
@@ -50,6 +85,8 @@ impl std::fmt::Display for JitValue {
                 write!(f, "]")
             }
             JitValue::Unit => Ok(()),
+            JitValue::None => write!(f, "none"),
+            JitValue::Some(v) => write!(f, "some({v})"),
         }
     }
 }
@@ -70,6 +107,7 @@ pub(crate) unsafe fn read_array(
     kind: ArrayKind,
     array_kinds: &[ArrayKind],
     class_layouts: &[ClassLayout],
+    optional_inners: &[JitTy],
 ) -> Vec<JitValue> {
     if header_ptr == 0 {
         return Vec::new();
@@ -103,7 +141,15 @@ pub(crate) unsafe fn read_array(
                 array_kinds[id as usize],
                 array_kinds,
                 class_layouts,
+                optional_inners,
             )),
+            JitTy::Optional(id) => read_optional_pointer(
+                *(p as *const i64),
+                optional_inners[id as usize],
+                array_kinds,
+                class_layouts,
+                optional_inners,
+            ),
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

@@ -20,13 +20,15 @@ use crate::env::LowerCtx;
 use crate::error::CodegenError;
 use crate::ty::{ArrayKind, ClassLayout, JitTy};
 
+
+
 /// True when a class needs a drop wrapper at all (heap field or deinit).
 fn class_needs_drop(compiler: &JitCompiler, class_id: u32) -> bool {
     let layout = &compiler.class_layouts[class_id as usize];
     let has_heap_field = layout
         .fields
         .values()
-        .any(|(_, fty)| matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)));
+        .any(|(_, fty)| fty.is_heap());
     let has_deinit = compiler.class_methods[class_id as usize].contains_key("deinit");
     has_heap_field || has_deinit
 }
@@ -76,7 +78,7 @@ fn define_one_class_drop(
     let heap_fields: Vec<(u32, JitTy)> = compiler.class_layouts[class_id as usize]
         .fields
         .values()
-        .filter(|(_, fty)| matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)))
+        .filter(|(_, fty)| fty.is_heap())
         .copied()
         .collect();
 
@@ -86,6 +88,7 @@ fn define_one_class_drop(
         builder_ctx,
         class_layouts,
         array_kinds,
+        optional_inners,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -116,6 +119,7 @@ fn define_one_class_drop(
             module,
             class_layouts,
             array_kinds,
+            optional_inners,
             *release_object_id,
             *release_string_id,
             *release_array_id,
@@ -146,7 +150,7 @@ pub(crate) fn array_drop_fn_ptr(
     array_id: u32,
 ) -> Value {
     let elem = lc.array_kinds[array_id as usize].elem;
-    if !matches!(elem, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+    if !elem.is_heap() {
         lc.array_drops.entry(array_id).or_insert(None);
         return b.ins().iconst(I64, 0);
     }
@@ -193,6 +197,7 @@ fn define_one_array_drop(
         builder_ctx,
         class_layouts,
         array_kinds,
+        optional_inners,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -238,6 +243,7 @@ fn define_one_array_drop(
         module,
         class_layouts,
         array_kinds,
+        optional_inners,
         *release_object_id,
         *release_string_id,
         *release_array_id,
@@ -268,6 +274,7 @@ fn emit_release_for(
     module: &mut JITModule,
     class_layouts: &[ClassLayout],
     array_kinds: &[ArrayKind],
+    optional_inners: &[JitTy],
     release_object_id: FuncId,
     release_string_id: FuncId,
     release_array_id: FuncId,
@@ -291,6 +298,24 @@ fn emit_release_for(
             let elem_size = array_kinds[inner_id as usize].elem.size_bytes() as i64;
             let size_v = b.ins().iconst(I64, elem_size);
             b.ins().call(r, &[ptr, size_v]);
+        }
+        JitTy::Optional(id) => {
+            // Dispatch to inner type's release. The runtime's
+            // release_object/string/array all guard against null
+            // pointers, so a None Optional is automatically a no-op.
+            let inner = optional_inners[id as usize];
+            emit_release_for(
+                module,
+                class_layouts,
+                array_kinds,
+                optional_inners,
+                release_object_id,
+                release_string_id,
+                release_array_id,
+                b,
+                ptr,
+                inner,
+            );
         }
         _ => {}
     }
