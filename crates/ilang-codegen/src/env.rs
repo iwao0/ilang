@@ -96,6 +96,14 @@ pub(crate) struct LowerCtx<'a> {
     pub loops: Vec<(Block, Block)>,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
+    /// Declared return type of the function currently being lowered;
+    /// `Unit` for `__main` when the program has no tail expression.
+    /// Used by `ExprKind::Return` to coerce the value.
+    pub current_ret_ty: JitTy,
+    /// `true` while compiling a `deinit` body. The early-return path
+    /// must skip releasing `this` to avoid re-entering `release_object`
+    /// on rc=0.
+    pub current_fn_is_deinit: bool,
     /// Per-compilation interning bucket for string literals; the boxed
     /// StringRc is held here so its storage lives for the compiler's
     /// lifetime, and its pointer is embedded as `iconst`. The interned

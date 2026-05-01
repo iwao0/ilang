@@ -143,12 +143,13 @@ fn if_expression_branches_match() {
 }
 
 #[test]
-fn if_without_else_must_be_unit() {
+fn if_without_else_evaluates_to_unit() {
+    // No else: the expression is always () regardless of the
+    // then-branch's type. Lets `if cond { return X }` compile in a
+    // non-Unit-returning function — and matches the JS-style intent
+    // that a value-less `if` discards whatever the body produced.
     assert_eq!(ty("if true { let _x = 1; }").unwrap(), Type::Unit);
-    assert!(matches!(
-        ty("if true { 1 }"),
-        Err(TypeError::Mismatch { .. })
-    ));
+    assert_eq!(ty("if true { 1 }").unwrap(), Type::Unit);
 }
 
 #[test]

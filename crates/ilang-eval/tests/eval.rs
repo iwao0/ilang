@@ -1027,3 +1027,91 @@ fn weak_breaks_reference_cycle() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(1));
 }
+
+// ─── return statement ────────────────────────────────────────────────
+
+#[test]
+fn return_early_from_fn() {
+    let src = r#"
+        fn abs(n: i64): i64 {
+            if n < 0 { return -n }
+            n
+        }
+        abs(-7)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(7));
+}
+
+#[test]
+fn return_unit_fn() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        fn bump_unless_neg(c: Counter, n: i64) {
+            if n < 0 { return }
+            c.inc()
+        }
+        let c = new Counter()
+        bump_unless_neg(c, -1)
+        bump_unless_neg(c, 5)
+        bump_unless_neg(c, 7)
+        c.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(2));
+}
+
+#[test]
+fn return_from_loop_in_fn() {
+    let src = r#"
+        fn first_div(xs: i64[], k: i64): i64 {
+            let i = 0
+            while i < xs.length {
+                if xs[i] % k == 0 { return xs[i] }
+                i = i + 1
+            }
+            0 - 1
+        }
+        first_div([3, 5, 8, 11], 4)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(8));
+}
+
+#[test]
+fn return_from_method_runs_deinit() {
+    // The method early-returns; the local Tracked binding must still
+    // have its deinit fire as the function unwinds.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        fn run_once(c: Counter): i64 {
+            let _t = new Tracked(c)
+            return 99
+        }
+        let counter = new Counter()
+        run_once(counter)
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}
+
+#[test]
+fn return_outside_fn_is_type_error() {
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = "return 1";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}

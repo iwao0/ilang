@@ -7,7 +7,10 @@ use cranelift_codegen::ir::types::{I64, I8};
 use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
-use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_object};
+use crate::arc::{
+    emit_bind_retain, emit_release_heap, emit_release_object, emit_retain_heap,
+    emit_retain_object, is_aliased_heap_source,
+};
 use crate::env::{class_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
@@ -116,6 +119,7 @@ pub(crate) fn lower_expr(
             b.seal_block(dead);
             Ok(None)
         }
+        ExprKind::Return(value) => lower_return(b, lc, value.as_deref(), e.span),
         ExprKind::Assign { target, value } => {
             // Ordinary local first; then implicit-`this` field write.
             if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
@@ -620,6 +624,82 @@ pub(crate) fn lower_expr(
             else_branch,
         } => lower_if_let(b, lc, name, expr, then_branch, else_branch.as_deref()),
     }
+}
+
+/// Lower an early `return` (with or without a value). Mirrors what
+/// `define_function_body` / `define_main` do at the natural fall-off
+/// point: retain the return value if it borrows from a binding,
+/// release every heap-typed binding currently in scope (including
+/// function params), then emit the cranelift return. Subsequent
+/// instructions go into a fresh dead block.
+fn lower_return(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    value: Option<&Expr>,
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let body = match value {
+        Some(e) => {
+            let tv = lower_expr(b, lc, e)?;
+            if let Some((v, t)) = tv {
+                if t.is_heap() && is_aliased_heap_source(&e.kind) {
+                    // Hand the caller +1 ownership when borrowing from
+                    // a binding we're about to release below.
+                    emit_retain_heap(b, lc, v, t);
+                }
+            }
+            tv
+        }
+        None => None,
+    };
+    // Coerce to the declared return type before emitting the heap
+    // releases — coerce is pure type-shape work, not rc-affecting.
+    let ret_ty = lc.current_ret_ty;
+    let coerced = match body {
+        Some((v, vt)) => Some(coerce(b, (v, vt), ret_ty, span)?),
+        None => None,
+    };
+    // Release every heap-typed binding currently in scope (params +
+    // every enclosing let). LIFO by var id matches scope-end release.
+    let mut heap: Vec<(Variable, JitTy)> = lc
+        .env
+        .bindings
+        .values()
+        .copied()
+        .filter(|(_, t)| t.is_heap())
+        .collect();
+    heap.sort_by_key(|(var, _)| std::cmp::Reverse(var.as_u32()));
+    for (var, jty) in heap {
+        let p = b.use_var(var);
+        emit_release_heap(b, lc, p, jty);
+    }
+    // Release `this` for methods, except inside `deinit` where the
+    // runtime release_object owns the lifecycle.
+    if let Some((this_var, class_id)) = lc.this {
+        if !lc.current_fn_is_deinit {
+            let p = b.use_var(this_var);
+            emit_release_object(b, lc, p, class_id);
+        }
+    }
+    // Emit the cranelift return.
+    match (ret_ty, coerced) {
+        (JitTy::Unit, _) => {
+            b.ins().return_(&[]);
+        }
+        (_, Some(v)) => {
+            b.ins().return_(&[v]);
+        }
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: "`return` without a value in a non-unit function".into(),
+                span,
+            });
+        }
+    }
+    let dead = b.create_block();
+    b.switch_to_block(dead);
+    b.seal_block(dead);
+    Ok(None)
 }
 
 fn lower_if_let(

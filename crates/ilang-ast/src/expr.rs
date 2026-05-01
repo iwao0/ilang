@@ -89,6 +89,10 @@ pub enum ExprKind {
     Break,
     /// Skip to the next iteration of the innermost enclosing loop.
     Continue,
+    /// `return` (with or without a value) — early exit from the
+    /// enclosing function/method. Type checker rejects occurrences
+    /// outside any function body.
+    Return(Option<Box<Expr>>),
     /// Assignment to an existing variable. Always evaluates to `Unit`.
     Assign {
         target: String,

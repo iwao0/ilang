@@ -49,6 +49,11 @@ pub enum RuntimeError {
     /// loop, so this never escapes a well-typed program.
     #[error("`break` outside of a loop")]
     Break,
+    /// Carries an early `return value` out of the enclosing function.
+    /// Caught by `Interpreter::invoke`; the type checker keeps it from
+    /// surfacing outside a function body.
+    #[error("`return` outside of a function")]
+    Return(crate::Value),
     /// Sibling of `Break` for `continue`.
     #[error("`continue` outside of a loop")]
     Continue,
@@ -132,7 +137,9 @@ impl RuntimeError {
             | RuntimeError::NotAnObject { span, .. }
             | RuntimeError::IndexOutOfBounds { span, .. }
             | RuntimeError::NegativeShift { span, .. } => *span,
-            RuntimeError::Break | RuntimeError::Continue => Span::dummy(),
+            RuntimeError::Break | RuntimeError::Continue | RuntimeError::Return(_) => {
+                Span::dummy()
+            }
         }
     }
 }

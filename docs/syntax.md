@@ -128,7 +128,21 @@ if let some(v) = x {
 }
 ```
 
-`break` / `continue` はループ内のみ (型チェッカーが範囲外を拒否)。`return` 文は **未実装** — 関数/メソッドは末尾式が戻り値になる。
+`break` / `continue` はループ内のみ (型チェッカーが範囲外を拒否)。
+
+```rust
+// return — 関数/メソッドからの早期脱出。値ありと値なし両対応。
+fn abs(n: i64): i64 {
+    if n < 0 { return -n }
+    n
+}
+fn maybe_bump(c: Counter, n: i64) {
+    if n < 0 { return }   // Unit fn の値なし return
+    c.bump()
+}
+```
+
+末尾式は今までどおり戻り値として使える。`return` を書かなくても良い。
 
 ---
 
@@ -304,7 +318,6 @@ JIT で `Unsupported` になる主なケース:
 
 ## 15. 未実装
 
-- `return` 文 (早期 return)
 - `match` / `enum` / 代数的データ型 (`if let some` だけサポート)
 - 継承 (`extends`, `super`)
 - 辞書/Map 型

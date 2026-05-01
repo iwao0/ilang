@@ -188,10 +188,10 @@ impl TypeChecker {
                     });
                 }
             }
-            last = self.check_stmt(s, &mut env, None, 0)?;
+            last = self.check_stmt(s, &mut env, None, None, 0)?;
         }
         if let Some(t) = &prog.tail {
-            last = self.check_expr(t, &env, None, 0)?;
+            last = self.check_expr(t, &env, None, None, 0)?;
         }
         self.vars = env;
         Ok(last)
@@ -227,8 +227,8 @@ impl TypeChecker {
         for Param { name, ty, .. } in &f.params {
             env.insert(name.clone(), ty.clone());
         }
-        let body_ty = self.check_block(&f.body, &env, in_class, 0)?;
         let expected = f.ret.clone().unwrap_or(Type::Unit);
+        let body_ty = self.check_block(&f.body, &env, Some(&expected), in_class, 0)?;
         if !assignable(&body_ty, &expected) {
             return Err(TypeError::BadReturn {
                 name: f.name.clone(),
@@ -276,16 +276,17 @@ impl TypeChecker {
         &self,
         block: &Block,
         outer: &Vars,
+        ret_ty: Option<&Type>,
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         let mut env = outer.clone();
         let mut last = Type::Unit;
         for s in &block.stmts {
-            last = self.check_stmt(s, &mut env, in_class, loop_depth)?;
+            last = self.check_stmt(s, &mut env, ret_ty, in_class, loop_depth)?;
         }
         if let Some(t) = &block.tail {
-            last = self.check_expr(t, &env, in_class, loop_depth)?;
+            last = self.check_expr(t, &env, ret_ty, in_class, loop_depth)?;
         }
         Ok(last)
     }
@@ -294,6 +295,7 @@ impl TypeChecker {
         &self,
         stmt: &Stmt,
         env: &mut Vars,
+        ret_ty: Option<&Type>,
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
@@ -310,7 +312,7 @@ impl TypeChecker {
                         }
                     }
                 }
-                let vt = self.check_expr(value, env, in_class, loop_depth)?;
+                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span)?;
@@ -328,7 +330,7 @@ impl TypeChecker {
                 env.insert(name.clone(), bind);
                 Ok(Type::Unit)
             }
-            StmtKind::Expr(e) => self.check_expr(e, env, in_class, loop_depth),
+            StmtKind::Expr(e) => self.check_expr(e, env, ret_ty, in_class, loop_depth),
         }
     }
 
@@ -336,6 +338,7 @@ impl TypeChecker {
         &self,
         expr: &Expr,
         env: &Vars,
+        ret_ty: Option<&Type>,
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
@@ -366,7 +369,7 @@ impl TypeChecker {
                 })
             }
             ExprKind::Unary { op, expr: inner } => {
-                let t = self.check_expr(inner, env, in_class, loop_depth)?;
+                let t = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 match op {
                     // Unary `-` is only meaningful on signed numerics.
                     UnOp::Neg if t.is_signed_int() || t.is_float() => Ok(t),
@@ -379,13 +382,13 @@ impl TypeChecker {
                 }
             }
             ExprKind::Binary { op, lhs, rhs } => {
-                let l = self.check_expr(lhs, env, in_class, loop_depth)?;
-                let r = self.check_expr(rhs, env, in_class, loop_depth)?;
+                let l = self.check_expr(lhs, env, ret_ty, in_class, loop_depth)?;
+                let r = self.check_expr(rhs, env, ret_ty, in_class, loop_depth)?;
                 bin_result(*op, &l, &r).map_err(|e| attach_span(e, span))
             }
             ExprKind::Logical { op: _, lhs, rhs } => {
-                let l = self.check_expr(lhs, env, in_class, loop_depth)?;
-                let r = self.check_expr(rhs, env, in_class, loop_depth)?;
+                let l = self.check_expr(lhs, env, ret_ty, in_class, loop_depth)?;
+                let r = self.check_expr(rhs, env, ret_ty, in_class, loop_depth)?;
                 if l != Type::Bool || r != Type::Bool {
                     return Err(TypeError::BadBinary {
                         lhs: l,
@@ -402,7 +405,7 @@ impl TypeChecker {
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(sig) = cls.methods.get(callee).cloned() {
-                            self.check_args(callee, &sig, args, env, in_class, loop_depth, span)?;
+                            self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                             return Ok(sig.ret);
                         }
                     }
@@ -413,11 +416,11 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                self.check_args(callee, &sig, args, env, in_class, loop_depth, span)?;
+                self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }
             ExprKind::Field { obj, name } => {
-                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 // Built-in property: every array exposes `length: i64`.
                 if matches!(ot, Type::Array { .. }) && name == "length" {
                     return Ok(Type::I64);
@@ -441,7 +444,7 @@ impl TypeChecker {
                 if method == "deinit" {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
-                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 // Built-in Weak method: get(): T?.
                 if let Type::Weak(inner) = &ot {
                     if method == "get" {
@@ -516,7 +519,7 @@ impl TypeChecker {
                                 span,
                             });
                         }
-                        let at = self.check_expr(&args[0], env, in_class, loop_depth)?;
+                        let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                         if !literal_assignable(&args[0], &at, elem) {
                             return Err(TypeError::Mismatch {
                                 expected: (**elem).clone(),
@@ -546,7 +549,7 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                self.check_args(method, &sig, args, env, in_class, loop_depth, span)?;
+                self.check_args(method, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }
             ExprKind::New { class, args } => {
@@ -560,6 +563,7 @@ impl TypeChecker {
                         &init,
                         args,
                         env,
+                        ret_ty,
                         in_class,
                         loop_depth,
                         span,
@@ -574,13 +578,13 @@ impl TypeChecker {
                 }
                 Ok(Type::Object(class.clone()))
             }
-            ExprKind::Block(b) => self.check_block(b, env, in_class, loop_depth),
+            ExprKind::Block(b) => self.check_block(b, env, ret_ty, in_class, loop_depth),
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => {
-                let c = self.check_expr(cond, env, in_class, loop_depth)?;
+                let c = self.check_expr(cond, env, ret_ty, in_class, loop_depth)?;
                 if c != Type::Bool {
                     return Err(TypeError::Mismatch {
                         expected: Type::Bool,
@@ -588,20 +592,17 @@ impl TypeChecker {
                         span: cond.span,
                     });
                 }
-                let then_ty = self.check_block(then_branch, env, in_class, loop_depth)?;
+                let then_ty = self.check_block(then_branch, env, ret_ty, in_class, loop_depth)?;
                 match else_branch {
                     None => {
-                        if then_ty != Type::Unit {
-                            return Err(TypeError::Mismatch {
-                                expected: Type::Unit,
-                                got: then_ty,
-                                span,
-                            });
-                        }
+                        // No else: the expression evaluates to () regardless
+                        // of the then-branch's type (any value would be
+                        // discarded). Mirrors `if let some(...)` and matches
+                        // the JS-style intent of "do this conditionally".
                         Ok(Type::Unit)
                     }
                     Some(else_e) => {
-                        let else_ty = self.check_expr(else_e, env, in_class, loop_depth)?;
+                        let else_ty = self.check_expr(else_e, env, ret_ty, in_class, loop_depth)?;
                         if then_ty == else_ty {
                             Ok(then_ty)
                         } else if assignable(&then_ty, &else_ty) {
@@ -619,7 +620,7 @@ impl TypeChecker {
                 }
             }
             ExprKind::While { cond, body } => {
-                let c = self.check_expr(cond, env, in_class, loop_depth)?;
+                let c = self.check_expr(cond, env, ret_ty, in_class, loop_depth)?;
                 if c != Type::Bool {
                     return Err(TypeError::Mismatch {
                         expected: Type::Bool,
@@ -627,7 +628,7 @@ impl TypeChecker {
                         span: cond.span,
                     });
                 }
-                let body_ty = self.check_block(body, env, in_class, loop_depth + 1)?;
+                let body_ty = self.check_block(body, env, ret_ty, in_class, loop_depth + 1)?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -638,7 +639,7 @@ impl TypeChecker {
                 Ok(Type::Unit)
             }
             ExprKind::Loop { body } => {
-                let body_ty = self.check_block(body, env, in_class, loop_depth + 1)?;
+                let body_ty = self.check_block(body, env, ret_ty, in_class, loop_depth + 1)?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -660,9 +661,47 @@ impl TypeChecker {
                 }
                 Ok(Type::Unit)
             }
+            ExprKind::Return(value) => {
+                let expected = match ret_ty {
+                    Some(t) => t.clone(),
+                    None => {
+                        return Err(TypeError::Unsupported {
+                            what: "`return` outside of a function body".into(),
+                            span,
+                        });
+                    }
+                };
+                match value {
+                    Some(v) => {
+                        let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
+                        if !literal_assignable(v, &vt, &expected) {
+                            return Err(TypeError::Mismatch {
+                                expected,
+                                got: vt,
+                                span: v.span,
+                            });
+                        }
+                    }
+                    None => {
+                        if !matches!(expected, Type::Unit) {
+                            return Err(TypeError::Mismatch {
+                                expected,
+                                got: Type::Unit,
+                                span,
+                            });
+                        }
+                    }
+                }
+                // `return` diverges — control never continues past it.
+                // We pretend the expression has the function's return
+                // type so a body ending in `return X` and a non-else
+                // `if cond { return X }` both type-check without
+                // needing a separate Never type.
+                Ok(expected)
+            }
             ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
-                    let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
+                    let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                     if !literal_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
@@ -675,7 +714,7 @@ impl TypeChecker {
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
-                            let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
+                            let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                             if !literal_assignable(value, &v_ty, &field_ty) {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,
@@ -704,9 +743,9 @@ impl TypeChecker {
                         fixed: Some(0),
                     });
                 }
-                let first_ty = self.check_expr(&elements[0], env, in_class, loop_depth)?;
+                let first_ty = self.check_expr(&elements[0], env, ret_ty, in_class, loop_depth)?;
                 for e in &elements[1..] {
-                    let et = self.check_expr(e, env, in_class, loop_depth)?;
+                    let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
                     if !literal_assignable(e, &et, &first_ty) {
                         return Err(TypeError::Mismatch {
                             expected: first_ty.clone(),
@@ -721,8 +760,8 @@ impl TypeChecker {
                 })
             }
             ExprKind::Index { obj, index } => {
-                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
-                let it = self.check_expr(index, env, in_class, loop_depth)?;
+                let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+                let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
                 if !it.is_int() {
                     return Err(TypeError::Mismatch {
                         expected: Type::I64,
@@ -743,8 +782,8 @@ impl TypeChecker {
                 }
             }
             ExprKind::AssignIndex { obj, index, value } => {
-                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
-                let it = self.check_expr(index, env, in_class, loop_depth)?;
+                let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+                let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
                 if !it.is_int() {
                     return Err(TypeError::Mismatch {
                         expected: Type::I64,
@@ -765,7 +804,7 @@ impl TypeChecker {
                         });
                     }
                 };
-                let vt = self.check_expr(value, env, in_class, loop_depth)?;
+                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                 if !literal_assignable(value, &vt, &elem_ty) {
                     return Err(TypeError::Mismatch {
                         expected: elem_ty,
@@ -776,7 +815,7 @@ impl TypeChecker {
                 Ok(Type::Unit)
             }
             ExprKind::Cast { expr: inner, ty } => {
-                let from = self.check_expr(inner, env, in_class, loop_depth)?;
+                let from = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 self.validate_type(ty, span)?;
                 // Permit any numeric → numeric cast plus `bool → int` for
                 // 0/1 conversion. Other casts (e.g. object → numeric) are
@@ -793,7 +832,7 @@ impl TypeChecker {
                 Ok(ty.clone())
             }
             ExprKind::AssignField { obj, field, value } => {
-                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let class_name = expect_object(&ot, obj.span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
@@ -808,7 +847,7 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
+                let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                 if !literal_assignable(value, &v_ty, &field_ty) {
                     return Err(TypeError::Mismatch {
                         expected: field_ty,
@@ -820,7 +859,7 @@ impl TypeChecker {
             }
             ExprKind::None => Ok(Type::Optional(Box::new(Type::Any))),
             ExprKind::Some(inner) => {
-                let it = self.check_expr(inner, env, in_class, loop_depth)?;
+                let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 Ok(Type::Optional(Box::new(it)))
             }
             ExprKind::IfLet {
@@ -829,7 +868,7 @@ impl TypeChecker {
                 then_branch,
                 else_branch,
             } => {
-                let scrut_ty = self.check_expr(expr, env, in_class, loop_depth)?;
+                let scrut_ty = self.check_expr(expr, env, ret_ty, in_class, loop_depth)?;
                 let inner = match &scrut_ty {
                     Type::Optional(t) => (**t).clone(),
                     _ => {
@@ -852,9 +891,9 @@ impl TypeChecker {
                 }
                 let mut then_env = env.clone();
                 then_env.insert(name.clone(), inner);
-                let then_ty = self.check_block(then_branch, &then_env, in_class, loop_depth)?;
+                let then_ty = self.check_block(then_branch, &then_env, ret_ty, in_class, loop_depth)?;
                 if let Some(eb) = else_branch {
-                    let else_ty = self.check_expr(eb, env, in_class, loop_depth)?;
+                    let else_ty = self.check_expr(eb, env, ret_ty, in_class, loop_depth)?;
                     // Pick the unifying type: if either branch is Unit, the
                     // overall expr is Unit (statement-style); otherwise the
                     // two branches must agree.
@@ -886,6 +925,7 @@ impl TypeChecker {
         sig: &Signature,
         args: &[Expr],
         env: &Vars,
+        ret_ty: Option<&Type>,
         in_class: Option<&str>,
         loop_depth: u32,
         call_span: Span,
@@ -893,7 +933,7 @@ impl TypeChecker {
         if sig.variadic {
             // Variadic: any arity, every arg type-checks but acts as `Any`.
             for arg in args {
-                self.check_expr(arg, env, in_class, loop_depth)?;
+                self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
             }
             return Ok(());
         }
@@ -906,7 +946,7 @@ impl TypeChecker {
             });
         }
         for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
-            let at = self.check_expr(arg, env, in_class, loop_depth)?;
+            let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
             if !literal_assignable(arg, &at, param_ty) {
                 return Err(TypeError::Mismatch {
                     expected: param_ty.clone(),

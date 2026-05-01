@@ -27,11 +27,29 @@ pub(crate) fn emit_return(
             let v = coerce(b, (v, vt), ret_ty, span)?;
             b.ins().return_(&[v]);
         }
-        _ => {
-            return Err(CodegenError::Unsupported {
-                what: "function body produces no value".into(),
-                span,
-            });
+        // No body value, non-unit return: this only happens when an
+        // earlier `return X` already terminated the live path and we're
+        // emitting in a (statically) unreachable block. Cranelift still
+        // needs the block to have a terminator with the right ABI, so
+        // produce a zero-value of the declared type.
+        (t, None) => {
+            let dummy = match t.cl() {
+                Some(ct) if ct.is_float() => {
+                    if matches!(t, JitTy::F32) {
+                        b.ins().f32const(0.0)
+                    } else {
+                        b.ins().f64const(0.0)
+                    }
+                }
+                Some(ct) => b.ins().iconst(ct, 0),
+                None => {
+                    return Err(CodegenError::Unsupported {
+                        what: "function body produces no value".into(),
+                        span,
+                    });
+                }
+            };
+            b.ins().return_(&[dummy]);
         }
     }
     Ok(())

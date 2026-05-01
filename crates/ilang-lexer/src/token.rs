@@ -15,6 +15,7 @@ pub enum TokenKind {
     Loop,
     Break,
     Continue,
+    Return,
     True,
     False,
     Class,

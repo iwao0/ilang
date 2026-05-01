@@ -468,6 +468,7 @@ impl<'a> Lexer<'a> {
             "loop" => TokenKind::Loop,
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
+            "return" => TokenKind::Return,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "class" => TokenKind::Class,

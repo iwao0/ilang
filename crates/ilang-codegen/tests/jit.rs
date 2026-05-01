@@ -894,3 +894,84 @@ fn jit_console_log_array_object_optional_weak() {
     "#;
     assert_eq!(jit(src), JitValue::I64(42));
 }
+
+// ─── return statement ────────────────────────────────────────────────
+
+#[test]
+fn jit_return_early_from_fn() {
+    let src = r#"
+        fn abs(n: i64): i64 {
+            if n < 0 { return -n }
+            n
+        }
+        abs(-7) + abs(3)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(10));
+}
+
+#[test]
+fn jit_return_unit_fn() {
+    // `return` with no value in a Unit-returning function. We use a
+    // shared Counter instead of console.log because globals like
+    // `console` aren't visible inside fn bodies (a separate
+    // pre-existing limitation).
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        fn bump_unless_neg(c: Counter, n: i64) {
+            if n < 0 { return }
+            c.inc()
+        }
+        let c = new Counter()
+        bump_unless_neg(c, -1)
+        bump_unless_neg(c, 5)
+        bump_unless_neg(c, 7)
+        c.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(2));
+}
+
+#[test]
+fn jit_return_from_method_runs_deinit() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        fn run_once(c: Counter): i64 {
+            let _t = new Tracked(c)
+            return 99
+        }
+        let counter = new Counter()
+        run_once(counter)
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_return_aliased_object() {
+    // Returning a borrowed object: the function-exit path retains the
+    // value to give the caller +1, then releases all params/bindings.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 7 }
+        }
+        fn pick(c: Counter): Counter {
+            return c
+        }
+        let c = new Counter()
+        pick(c).n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(7));
+}

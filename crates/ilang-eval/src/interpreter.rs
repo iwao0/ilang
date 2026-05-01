@@ -259,6 +259,13 @@ impl Interpreter {
             },
             ExprKind::Break => Err(RuntimeError::Break),
             ExprKind::Continue => Err(RuntimeError::Continue),
+            ExprKind::Return(value) => {
+                let v = match value {
+                    Some(e) => self.eval_expr(e)?,
+                    None => Value::Unit,
+                };
+                Err(RuntimeError::Return(v))
+            }
             ExprKind::Assign { target, value } => {
                 let v = self.eval_expr(value)?;
                 if self.vars.contains_key(target) {
@@ -390,26 +397,33 @@ impl Interpreter {
 
     fn eval_block(&mut self, block: &Block) -> Result<Value, RuntimeError> {
         let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
-        let mut last = Value::Unit;
-        for s in &block.stmts {
-            match &s.kind {
-                StmtKind::Let { name, ty, value } => {
-                    let mut v = self.eval_expr(value)?;
-                    if let Some(t) = ty {
-                        v = cast_value(v, t);
+        // Run the body, capturing any control-flow Err so we can run the
+        // scope-end shadow cleanup before propagating it up. Otherwise an
+        // early `return`/`break`/`continue` would skip releasing this
+        // block's bindings and their deinits would never fire.
+        let result: Result<Value, RuntimeError> = (|| {
+            let mut last = Value::Unit;
+            for s in &block.stmts {
+                match &s.kind {
+                    StmtKind::Let { name, ty, value } => {
+                        let mut v = self.eval_expr(value)?;
+                        if let Some(t) = ty {
+                            v = cast_value(v, t);
+                        }
+                        let prev = self.vars.insert(name.clone(), v);
+                        shadows.push((name.clone(), prev));
+                        last = Value::Unit;
                     }
-                    let prev = self.vars.insert(name.clone(), v);
-                    shadows.push((name.clone(), prev));
-                    last = Value::Unit;
-                }
-                StmtKind::Expr(e) => {
-                    last = self.eval_expr(e)?;
+                    StmtKind::Expr(e) => {
+                        last = self.eval_expr(e)?;
+                    }
                 }
             }
-        }
-        if let Some(tail) = &block.tail {
-            last = self.eval_expr(tail)?;
-        }
+            if let Some(tail) = &block.tail {
+                last = self.eval_expr(tail)?;
+            }
+            Ok(last)
+        })();
         while let Some((name, prev)) = shadows.pop() {
             // Restore the prior binding (or remove it). The displaced value
             // — the one this `let` introduced into scope — is then released
@@ -422,7 +436,7 @@ impl Interpreter {
                 self.release(v);
             }
         }
-        Ok(last)
+        result
     }
 
     /// Drop a value that is leaving scope. The release path is recursive:
@@ -607,6 +621,7 @@ impl Interpreter {
                 msg: "`continue` escaped function body".into(),
                 span: call_span,
             }),
+            Err(RuntimeError::Return(v)) => Ok(v),
             other => other,
         }
     }

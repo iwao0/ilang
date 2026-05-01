@@ -342,6 +342,23 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Expr::new(ExprKind::Continue, span))
             }
+            TokenKind::Return => {
+                self.bump();
+                // `return` alone vs `return expr`. The operand is
+                // omitted when the next token is a stmt terminator
+                // (`;`, `}`, EOF) or starts a new logical line (ASI).
+                let next = self.peek();
+                let no_value = matches!(
+                    next.kind,
+                    TokenKind::Semicolon | TokenKind::RBrace | TokenKind::Eof
+                ) || next.leading_newline;
+                let value = if no_value {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expr(0)?))
+                };
+                Ok(Expr::new(ExprKind::Return(value), span))
+            }
             TokenKind::Bang => {
                 self.bump();
                 let e = self.parse_expr(30)?;
