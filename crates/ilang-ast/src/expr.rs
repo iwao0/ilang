@@ -106,6 +106,8 @@ pub enum UnOp {
     Neg,
     Pos,
     Not,
+    /// Bitwise NOT (`~`). Operand must be `i64`.
+    BitNot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,6 +123,12 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
+    /// Bitwise operators. All require `i64` on both sides and produce `i64`.
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

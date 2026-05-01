@@ -15,6 +15,20 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
 }
 
 pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeError> {
+    let is_bit = matches!(
+        op,
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
+    );
+    if is_bit {
+        if l == &Type::I64 && r == &Type::I64 {
+            return Ok(Type::I64);
+        }
+        return Err(TypeError::BadBinary {
+            lhs: l.clone(),
+            rhs: r.clone(),
+            span: ilang_ast::Span::dummy(),
+        });
+    }
     let is_compare = matches!(
         op,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge

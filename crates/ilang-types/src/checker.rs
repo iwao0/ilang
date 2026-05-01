@@ -233,6 +233,7 @@ impl TypeChecker {
                     (UnOp::Neg | UnOp::Pos, Type::I64) => Ok(Type::I64),
                     (UnOp::Neg | UnOp::Pos, Type::F64) => Ok(Type::F64),
                     (UnOp::Not, Type::Bool) => Ok(Type::Bool),
+                    (UnOp::BitNot, Type::I64) => Ok(Type::I64),
                     _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
             }

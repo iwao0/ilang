@@ -16,6 +16,7 @@ pub(crate) fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
             }),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
         (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
+        (UnOp::BitNot, Value::Int(n)) => Ok(Value::Int(!n)),
         _ => Err(RuntimeError::TypeError {
             msg: "invalid unary operand".into(),
             span: Span::dummy(),
@@ -30,6 +31,13 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
     );
     if is_compare {
         return compare(op, l, r);
+    }
+    let is_bit = matches!(
+        op,
+        BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
+    );
+    if is_bit {
+        return bit_op(op, l, r);
     }
     match (l, r) {
         (Value::Int(a), Value::Int(b)) => int_op(op, a, b),
@@ -122,6 +130,25 @@ fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, RuntimeError> {
         _ => unreachable!("non-arithmetic BinOp in int_op"),
     };
     r.map(Value::Int).ok_or(RuntimeError::Overflow { span: dummy })
+}
+
+fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
+    let (Value::Int(a), Value::Int(b)) = (l, r) else {
+        return Err(RuntimeError::TypeError {
+            msg: "bitwise operators require i64 operands".into(),
+            span: Span::dummy(),
+        });
+    };
+    Ok(Value::Int(match op {
+        BinOp::BitAnd => a & b,
+        BinOp::BitOr => a | b,
+        BinOp::BitXor => a ^ b,
+        // Shifts: clamp the rhs into [0, 63] using Rust's wrapping_shl/shr
+        // semantics by masking with 63 to avoid panics on out-of-range shifts.
+        BinOp::Shl => a.wrapping_shl((b as u32) & 63),
+        BinOp::Shr => a.wrapping_shr((b as u32) & 63),
+        _ => unreachable!("non-bit BinOp in bit_op"),
+    }))
 }
 
 fn float_op(op: BinOp, a: f64, b: f64) -> f64 {

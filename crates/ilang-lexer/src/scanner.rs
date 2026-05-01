@@ -218,39 +218,82 @@ impl<'a> Lexer<'a> {
             }
             '<' => {
                 self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::LtEq
-                } else {
-                    TokenKind::Lt
+                match self.peek() {
+                    Some('=') => {
+                        self.bump();
+                        TokenKind::LtEq
+                    }
+                    Some('<') => {
+                        self.bump();
+                        if matches!(self.peek(), Some('=')) {
+                            self.bump();
+                            TokenKind::LtLtEq
+                        } else {
+                            TokenKind::LtLt
+                        }
+                    }
+                    _ => TokenKind::Lt,
                 }
             }
             '>' => {
                 self.bump();
-                if matches!(self.peek(), Some('=')) {
-                    self.bump();
-                    TokenKind::GtEq
-                } else {
-                    TokenKind::Gt
+                match self.peek() {
+                    Some('=') => {
+                        self.bump();
+                        TokenKind::GtEq
+                    }
+                    Some('>') => {
+                        self.bump();
+                        if matches!(self.peek(), Some('=')) {
+                            self.bump();
+                            TokenKind::GtGtEq
+                        } else {
+                            TokenKind::GtGt
+                        }
+                    }
+                    _ => TokenKind::Gt,
                 }
             }
             '&' => {
                 self.bump();
-                if matches!(self.peek(), Some('&')) {
-                    self.bump();
-                    TokenKind::AmpAmp
-                } else {
-                    return Err(LexError::UnexpectedChar { ch: '&', span });
+                match self.peek() {
+                    Some('&') => {
+                        self.bump();
+                        TokenKind::AmpAmp
+                    }
+                    Some('=') => {
+                        self.bump();
+                        TokenKind::AmpEq
+                    }
+                    _ => TokenKind::Amp,
                 }
             }
             '|' => {
                 self.bump();
-                if matches!(self.peek(), Some('|')) {
-                    self.bump();
-                    TokenKind::PipePipe
-                } else {
-                    return Err(LexError::UnexpectedChar { ch: '|', span });
+                match self.peek() {
+                    Some('|') => {
+                        self.bump();
+                        TokenKind::PipePipe
+                    }
+                    Some('=') => {
+                        self.bump();
+                        TokenKind::PipeEq
+                    }
+                    _ => TokenKind::Pipe,
                 }
+            }
+            '^' => {
+                self.bump();
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::CaretEq
+                } else {
+                    TokenKind::Caret
+                }
+            }
+            '~' => {
+                self.bump();
+                TokenKind::Tilde
             }
             '.' => {
                 self.bump();

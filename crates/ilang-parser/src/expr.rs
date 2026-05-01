@@ -1,17 +1,21 @@
 //! Pratt expression parser.
 //!
-//! Precedence (low → high):
+//! Precedence (low → high), C/JS-style:
 //!
-//! | Operator           | l_bp / r_bp | Assoc |
-//! |--------------------|-------------|-------|
-//! | `=`                | 2 / 1       | right |
-//! | `\|\|`             | 3 / 4       | left  |
-//! | `&&`               | 5 / 6       | left  |
-//! | `==` `!=`          | 7 / 8       | left  |
-//! | `<` `<=` `>` `>=`  | 9 / 10      | left  |
-//! | `+` `-`            | 10 / 11     | left  |
-//! | `*` `/` `%`        | 20 / 21     | left  |
-//! | prefix `-` `+` `!` | — / 30      | prefix|
+//! | Operator                | l_bp / r_bp | Assoc  |
+//! |-------------------------|-------------|--------|
+//! | `=` `+=` …              | 2 / 1       | right  |
+//! | `\|\|`                  | 3 / 4       | left   |
+//! | `&&`                    | 5 / 6       | left   |
+//! | `\|` (bit or)           | 7 / 8       | left   |
+//! | `^` (bit xor)           | 9 / 10      | left   |
+//! | `&` (bit and)           | 11 / 12     | left   |
+//! | `==` `!=`               | 13 / 14     | left   |
+//! | `<` `<=` `>` `>=`       | 15 / 16     | left   |
+//! | `<<` `>>`               | 17 / 18     | left   |
+//! | `+` `-`                 | 19 / 20     | left   |
+//! | `*` `/` `%`             | 21 / 22     | left   |
+//! | prefix `-` `+` `!` `~`  | — / 30      | prefix |
 
 use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
 use ilang_lexer::TokenKind;
@@ -37,6 +41,11 @@ impl<'a> Parser<'a> {
                 TokenKind::StarEq => Some(BinOp::Mul),
                 TokenKind::SlashEq => Some(BinOp::Div),
                 TokenKind::PercentEq => Some(BinOp::Rem),
+                TokenKind::AmpEq => Some(BinOp::BitAnd),
+                TokenKind::PipeEq => Some(BinOp::BitOr),
+                TokenKind::CaretEq => Some(BinOp::BitXor),
+                TokenKind::LtLtEq => Some(BinOp::Shl),
+                TokenKind::GtGtEq => Some(BinOp::Shr),
                 _ => None,
             };
             if matches!(self.peek().kind, TokenKind::Equals) || compound_op.is_some() {
@@ -108,17 +117,22 @@ impl<'a> Parser<'a> {
 
             // Regular binary operators.
             let (op, l_bp, r_bp) = match &self.peek().kind {
-                TokenKind::EqEq => (BinOp::Eq, 7, 8),
-                TokenKind::BangEq => (BinOp::Ne, 7, 8),
-                TokenKind::Lt => (BinOp::Lt, 9, 10),
-                TokenKind::LtEq => (BinOp::Le, 9, 10),
-                TokenKind::Gt => (BinOp::Gt, 9, 10),
-                TokenKind::GtEq => (BinOp::Ge, 9, 10),
-                TokenKind::Plus => (BinOp::Add, 10, 11),
-                TokenKind::Minus => (BinOp::Sub, 10, 11),
-                TokenKind::Star => (BinOp::Mul, 20, 21),
-                TokenKind::Slash => (BinOp::Div, 20, 21),
-                TokenKind::Percent => (BinOp::Rem, 20, 21),
+                TokenKind::Pipe => (BinOp::BitOr, 7, 8),
+                TokenKind::Caret => (BinOp::BitXor, 9, 10),
+                TokenKind::Amp => (BinOp::BitAnd, 11, 12),
+                TokenKind::EqEq => (BinOp::Eq, 13, 14),
+                TokenKind::BangEq => (BinOp::Ne, 13, 14),
+                TokenKind::Lt => (BinOp::Lt, 15, 16),
+                TokenKind::LtEq => (BinOp::Le, 15, 16),
+                TokenKind::Gt => (BinOp::Gt, 15, 16),
+                TokenKind::GtEq => (BinOp::Ge, 15, 16),
+                TokenKind::LtLt => (BinOp::Shl, 17, 18),
+                TokenKind::GtGt => (BinOp::Shr, 17, 18),
+                TokenKind::Plus => (BinOp::Add, 19, 20),
+                TokenKind::Minus => (BinOp::Sub, 19, 20),
+                TokenKind::Star => (BinOp::Mul, 21, 22),
+                TokenKind::Slash => (BinOp::Div, 21, 22),
+                TokenKind::Percent => (BinOp::Rem, 21, 22),
                 _ => break,
             };
             if l_bp < min_bp {
@@ -240,6 +254,17 @@ impl<'a> Parser<'a> {
                 Ok(Expr::new(
                     ExprKind::Unary {
                         op: UnOp::Not,
+                        expr: Box::new(e),
+                    },
+                    span,
+                ))
+            }
+            TokenKind::Tilde => {
+                self.bump();
+                let e = self.parse_expr(30)?;
+                Ok(Expr::new(
+                    ExprKind::Unary {
+                        op: UnOp::BitNot,
                         expr: Box::new(e),
                     },
                     span,

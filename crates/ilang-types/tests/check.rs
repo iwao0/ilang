@@ -327,3 +327,11 @@ fn console_log_arity_checked() {
         Err(TypeError::ArityMismatch { .. })
     ));
 }
+
+#[test]
+fn bitwise_requires_i64() {
+    assert_eq!(ty("1 & 2").unwrap(), Type::I64);
+    assert!(matches!(ty("1.0 & 2"), Err(TypeError::BadBinary { .. })));
+    assert!(matches!(ty("true & false"), Err(TypeError::BadBinary { .. })));
+    assert!(matches!(ty("~true"), Err(TypeError::BadUnary { .. })));
+}

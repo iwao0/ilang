@@ -523,3 +523,32 @@ fn console_log_executes() {
     let src = "class P { x: i64; init(a: i64) { this.x = a } } console.log(new P(7))";
     assert_eq!(run(src).unwrap(), Value::Unit);
 }
+
+#[test]
+fn bitwise_ops() {
+    assert_eq!(run("12 & 10").unwrap(), Value::Int(8));
+    assert_eq!(run("12 | 10").unwrap(), Value::Int(14));
+    assert_eq!(run("12 ^ 10").unwrap(), Value::Int(6));
+    assert_eq!(run("~0").unwrap(), Value::Int(-1));
+    assert_eq!(run("1 << 4").unwrap(), Value::Int(16));
+    assert_eq!(run("256 >> 2").unwrap(), Value::Int(64));
+}
+
+#[test]
+fn bit_compound_assignment() {
+    assert_eq!(run("let m = 7; m &= 4; m").unwrap(), Value::Int(4));
+    assert_eq!(run("let m = 1; m |= 2; m").unwrap(), Value::Int(3));
+    assert_eq!(run("let m = 5; m ^= 6; m").unwrap(), Value::Int(3));
+    assert_eq!(run("let v = 1; v <<= 3; v").unwrap(), Value::Int(8));
+    assert_eq!(run("let v = 256; v >>= 4; v").unwrap(), Value::Int(16));
+}
+
+#[test]
+fn bit_precedence_matches_c() {
+    // `+` is tighter than `<<`, so `5 + 1 << 2` = `(5 + 1) << 2` = 24.
+    assert_eq!(run("5 + 1 << 2").unwrap(), Value::Int(24));
+    // `+` is tighter than `&`, so `1 & 3 + 4` = `1 & (3 + 4)` = `1 & 7` = 1.
+    assert_eq!(run("1 & 3 + 4").unwrap(), Value::Int(1));
+    // `&` is tighter than `|`, so `1 | 2 & 0` = `1 | (2 & 0)` = 1.
+    assert_eq!(run("1 | 2 & 0").unwrap(), Value::Int(1));
+}
