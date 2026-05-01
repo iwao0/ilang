@@ -4,8 +4,12 @@
 //! Supports the full numeric / bool / control-flow / fn / class /
 //! string / array subset; `console.log` is treated as a built-in.
 
+mod arc;
+mod env;
 mod error;
 mod lower;
+mod lower_ctrl;
+mod lower_op;
 mod runtime;
 mod ty;
 mod value;
