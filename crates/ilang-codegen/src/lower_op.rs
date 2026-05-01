@@ -7,6 +7,7 @@ use cranelift_codegen::ir::types::{F32, F64, I8};
 use cranelift_module::Module;
 use ilang_ast::{BinOp, Expr, LogicalOp, UnOp};
 
+use crate::arc::{emit_release_string, is_aliased_heap_source};
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
 use crate::lower_expr::lower_expr;
@@ -89,16 +90,35 @@ pub(crate) fn lower_binary(
     // FFI equality function. Other ops fall through to the numeric path
     // and error out.
     if matches!(lt, JitTy::Str) && matches!(rt, JitTy::Str) {
+        // Operands that came from a fresh allocation (call result,
+        // "a"+"b") have rc=1 and nothing else owns them, so we release
+        // after use. Aliased operands (Var/Field/Index/This) stay
+        // owned by their binding.
+        let release_lhs = !is_aliased_heap_source(&lhs.kind);
+        let release_rhs = !is_aliased_heap_source(&rhs.kind);
         match op {
             BinOp::Add => {
                 let r = lc.module.declare_func_in_func(lc.strfns.concat, b.func);
                 let call = b.ins().call(r, &[lv, rv]);
-                return Ok(Some((b.inst_results(call)[0], JitTy::Str)));
+                let result = b.inst_results(call)[0];
+                if release_lhs {
+                    emit_release_string(b, lc, lv);
+                }
+                if release_rhs {
+                    emit_release_string(b, lc, rv);
+                }
+                return Ok(Some((result, JitTy::Str)));
             }
             BinOp::Eq | BinOp::Ne => {
                 let r = lc.module.declare_func_in_func(lc.strfns.eq, b.func);
                 let call = b.ins().call(r, &[lv, rv]);
                 let eq = b.inst_results(call)[0];
+                if release_lhs {
+                    emit_release_string(b, lc, lv);
+                }
+                if release_rhs {
+                    emit_release_string(b, lc, rv);
+                }
                 let v = if matches!(op, BinOp::Eq) {
                     eq
                 } else {

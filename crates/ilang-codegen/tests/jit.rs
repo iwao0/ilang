@@ -452,3 +452,143 @@ fn jit_array_push_growth_no_leak_crash() {
     "#;
     assert_eq!(jit(src), JitValue::I64(51));
 }
+
+// ─── ARC Phase C: assignment overwrite + intermediate release ──────────
+
+#[test]
+fn jit_field_overwrite_releases_old() {
+    // Each Tracked deinit bumps Counter.n. Assigning a new Tracked into
+    // the field N times should fire deinit on each replaced value.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        class Holder {
+            t: Tracked
+            init(tt: Tracked) { this.t = tt }
+        }
+        let counter = new Counter()
+        let h = new Holder(new Tracked(counter))
+        h.t = new Tracked(counter)
+        h.t = new Tracked(counter)
+        counter.n
+    "#;
+    // Two overwrites → two old Tracked instances released → 2 deinits.
+    assert_eq!(jit(src), JitValue::I64(2));
+}
+
+#[test]
+fn jit_local_var_overwrite_releases_old_object() {
+    // Reassigning a local Object var releases the previous binding's
+    // referent.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        let t = new Tracked(counter)
+        t = new Tracked(counter)
+        t = new Tracked(counter)
+        counter.n
+    "#;
+    // Two overwrites → 2 deinits during the program. A third deinit
+    // fires at the top-level `t` release after `counter.n` is read,
+    // but counter.n captured 2 before that. Actually the read happens
+    // last expression; releases follow. So we observe 2.
+    assert_eq!(jit(src), JitValue::I64(2));
+}
+
+#[test]
+fn jit_discarded_fresh_object_releases() {
+    // `new X()` as a discarded statement should not leak — release
+    // fires at the statement boundary so deinit runs.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        new Tracked(counter)
+        new Tracked(counter)
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(2));
+}
+
+#[test]
+fn jit_string_concat_chain_no_crash() {
+    // ("a"+"b") + ("c"+"d") used to leak both inner concats. Now
+    // they're released as fresh operands. Loop hard so any double-free
+    // would be detected.
+    let src = r#"
+        let i = 0
+        let last = ""
+        while i < 100 {
+            last = ("a" + "b") + ("c" + "d")
+            i = i + 1
+        }
+        last
+    "#;
+    assert_eq!(jit(src), JitValue::Str("abcd".into()));
+}
+
+#[test]
+fn jit_string_field_overwrite_no_crash() {
+    let src = r#"
+        class Holder {
+            s: string
+            init(x: string) { this.s = x }
+        }
+        let h = new Holder("hi")
+        h.s = "world"
+        h.s = "a" + "b"
+        h.s
+    "#;
+    assert_eq!(jit(src), JitValue::Str("ab".into()));
+}
+
+#[test]
+fn jit_returning_fresh_object_balances() {
+    // `fn f(): Foo { new Foo() }` previously over-retained tail.
+    // Caller binds the result and the scope-end release should free it.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        fn make(c: Counter): Tracked { new Tracked(c) }
+        let counter = new Counter()
+        {
+            let t = make(counter)
+        }
+        counter.n
+    "#;
+    // t goes out of scope inside the inner block → 1 deinit.
+    assert_eq!(jit(src), JitValue::I64(1));
+}

@@ -11,7 +11,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 use ilang_ast::{ClassDecl, FnDecl, Item, Program};
 
-use crate::arc::{emit_release_heap, emit_retain_heap};
+use crate::arc::{emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{declare_import, ArrayFns, Env, LowerCtx, PrintFns, StrFns};
 use crate::error::CodegenError;
 use crate::lower_expr::lower_expr;
@@ -568,16 +568,20 @@ impl JitCompiler {
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
         }
+        let tail_kind = prog.tail.as_ref().map(|e| &e.kind);
         let body = match &prog.tail {
             // A unit-typed tail (e.g. `console.log(...)`) is fine — we'll
             // emit a bare `return` and won't try to coerce a value.
             Some(t) => lower_expr(&mut builder, &mut lc, t)?,
             None => None,
         };
-        // Retain the body value if it's heap-typed so the imminent
-        // releases of top-level lets don't free what we're returning.
+        // Retain only aliased heap tails so the upcoming top-level let
+        // releases don't free what we're returning. Fresh heap tails
+        // already arrive with rc=1.
         if let Some((v, t)) = body {
-            if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+            if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+                && tail_kind.map(is_aliased_heap_source).unwrap_or(false)
+            {
                 emit_retain_heap(&mut builder, &mut lc, v, t);
             }
         }

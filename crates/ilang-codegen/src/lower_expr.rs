@@ -7,7 +7,7 @@ use cranelift_codegen::ir::types::{I64, I8};
 use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
-use crate::arc::{emit_retain_heap, emit_retain_object, is_aliased_heap_source};
+use crate::arc::{emit_release_heap, emit_retain_heap, emit_retain_object, is_aliased_heap_source};
 use crate::env::{class_ids_from, LowerCtx};
 use crate::error::CodegenError;
 use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
@@ -118,6 +118,11 @@ pub(crate) fn lower_expr(
         ExprKind::Assign { target, value } => {
             // Ordinary local first; then implicit-`this` field write.
             if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
+                let is_heap =
+                    matches!(var_ty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+                // Capture the old value before def_var, so we can drop
+                // the previous reference once the new one is in place.
+                let old_val = if is_heap { Some(b.use_var(var)) } else { None };
                 let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                     CodegenError::Unsupported {
                         what: "assigning unit".into(),
@@ -125,12 +130,31 @@ pub(crate) fn lower_expr(
                     }
                 })?;
                 let coerced = coerce(b, (val, vt), var_ty, e.span)?;
+                if is_heap && is_aliased_heap_source(&value.kind) {
+                    emit_retain_heap(b, lc, coerced, var_ty);
+                }
                 b.def_var(var, coerced);
+                if let Some(old) = old_val {
+                    emit_release_heap(b, lc, old, var_ty);
+                }
                 return Ok(None);
             }
             if let Some((this_var, class_id)) = lc.this {
                 let layout = &lc.class_layouts[class_id as usize];
                 if let Some(&(offset, fty)) = layout.fields.get(target) {
+                    let is_heap =
+                        matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+                    let this = b.use_var(this_var);
+                    let old_val = if is_heap {
+                        Some(b.ins().load(
+                            fty.cl().expect("non-unit field"),
+                            MemFlags::trusted(),
+                            this,
+                            offset as i32,
+                        ))
+                    } else {
+                        None
+                    };
                     let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                         CodegenError::Unsupported {
                             what: "assigning unit".into(),
@@ -138,9 +162,14 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (val, vt), fty, e.span)?;
-                    let this = b.use_var(this_var);
+                    if is_heap && is_aliased_heap_source(&value.kind) {
+                        emit_retain_heap(b, lc, coerced, fty);
+                    }
                     b.ins()
                         .store(MemFlags::trusted(), coerced, this, offset as i32);
+                    if let Some(old) = old_val {
+                        emit_release_heap(b, lc, old, fty);
+                    }
                     return Ok(None);
                 }
             }
@@ -172,6 +201,19 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
+            let is_heap = matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+            // Read the old field value first so we can release it after
+            // the new one is in place.
+            let old_val = if is_heap {
+                Some(b.ins().load(
+                    fty.cl().expect("non-unit field"),
+                    MemFlags::trusted(),
+                    obj_v,
+                    offset as i32,
+                ))
+            } else {
+                None
+            };
             let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "field value is unit".into(),
@@ -179,16 +221,17 @@ pub(crate) fn lower_expr(
                 }
             })?;
             let coerced = coerce(b, (val, vt), fty, e.span)?;
-            // The field will hold its own reference. Retain so the value
-            // outlives the storing scope (e.g. `this.c = counter` keeps
-            // counter alive past the init/scope that supplied it).
-            // The previous field value is leaked (Phase A/B) — releasing
-            // it requires reading the old slot first, which is Phase D.
-            if matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+            // Aliased rhs needs an extra retain so the field has its own
+            // reference; fresh allocations (`new`, `[..]`, "a"+"b", call
+            // result) already arrive with rc=1.
+            if is_heap && is_aliased_heap_source(&value.kind) {
                 emit_retain_heap(b, lc, coerced, fty);
             }
             b.ins()
                 .store(MemFlags::trusted(), coerced, obj_v, offset as i32);
+            if let Some(old) = old_val {
+                emit_release_heap(b, lc, old, fty);
+            }
             Ok(None)
         }
         ExprKind::Field { obj, name } => {
@@ -445,7 +488,28 @@ pub(crate) fn lower_expr(
             let off = b.ins().imul(idx_i64, elem_size);
             let data = b.ins().load(I64, MemFlags::trusted(), obj_v, ARRAY_DATA_OFFSET);
             let addr = b.ins().iadd(data, off);
+            let is_heap =
+                matches!(elem_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_));
+            // Read the old element so we can release it after writing the
+            // new one. Aliased rhs gets an extra retain; fresh values
+            // arrive with rc=1.
+            let old_val = if is_heap {
+                Some(b.ins().load(
+                    elem_jty.cl().expect("non-unit elem"),
+                    MemFlags::trusted(),
+                    addr,
+                    0,
+                ))
+            } else {
+                None
+            };
+            if is_heap && is_aliased_heap_source(&value.kind) {
+                emit_retain_heap(b, lc, coerced, elem_jty);
+            }
             b.ins().store(MemFlags::trusted(), coerced, addr, 0);
+            if let Some(old) = old_val {
+                emit_release_heap(b, lc, old, elem_jty);
+            }
             Ok(None)
         }
         ExprKind::New { class, args } => {

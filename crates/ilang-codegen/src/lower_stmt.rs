@@ -79,7 +79,17 @@ pub(crate) fn lower_stmt(
             lc.env.bindings.insert(name.clone(), (var, bind_ty));
         }
         StmtKind::Expr(e) => {
-            let _ = lower_expr(b, lc, e)?;
+            // Discarded result. If it's a fresh heap value (call result,
+            // `new`, `[..]`, "a"+"b"), nothing else owns it — release so
+            // it doesn't leak. Aliased heap sources (Var/Field/Index/
+            // This) are still owned by their binding, so leave them.
+            if let Some((v, t)) = lower_expr(b, lc, e)? {
+                if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+                    && !is_aliased_heap_source(&e.kind)
+                {
+                    emit_release_heap(b, lc, v, t);
+                }
+            }
         }
     }
     Ok(())
@@ -95,15 +105,20 @@ pub(crate) fn lower_block_value(
     for s in &block.stmts {
         lower_stmt(b, lc, s)?;
     }
+    let tail_kind = block.tail.as_ref().map(|e| &e.kind);
     let tail = match &block.tail {
         Some(t) => lower_expr(b, lc, t)?,
         None => None,
     };
-    // Retain the tail value if it's heap-typed, so the upcoming releases
-    // of this block's heap-typed bindings don't free the value the
-    // caller is about to consume.
+    // Retain the tail value only when it's an aliased heap reference
+    // (Var/Field/Index/This): the binding it borrows from is about to
+    // be released, so we need our own +1 to hand to the caller.
+    // Fresh heap values (call result, `new`, `[..]`, "a"+"b") already
+    // come with rc=1, and a second retain would leak.
     if let Some((v, t)) = tail {
-        if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+        if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+            && tail_kind.map(is_aliased_heap_source).unwrap_or(false)
+        {
             emit_retain_heap(b, lc, v, t);
         }
     }
