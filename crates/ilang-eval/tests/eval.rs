@@ -704,3 +704,12 @@ fn literal_inference_into_unsigned() {
         || matches!(run("let x: u8 = 300; x"), Ok(_)));
     // (Either path is fine; the type checker rejects 300 as u8.)
 }
+
+#[test]
+fn console_log_variadic() {
+    // Eval-only smoke test (stdout isn't captured here). Each call should
+    // succeed and return Unit regardless of arity.
+    assert_eq!(run("console.log()").unwrap(), Value::Unit);
+    assert_eq!(run("console.log(1, 2, 3)").unwrap(), Value::Unit);
+    assert_eq!(run("console.log(true, 1.5, 42)").unwrap(), Value::Unit);
+}

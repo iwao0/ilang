@@ -317,15 +317,12 @@ fn console_log_accepts_any_value() {
 }
 
 #[test]
-fn console_log_arity_checked() {
-    assert!(matches!(
-        ty("console.log()"),
-        Err(TypeError::ArityMismatch { .. })
-    ));
-    assert!(matches!(
-        ty("console.log(1, 2)"),
-        Err(TypeError::ArityMismatch { .. })
-    ));
+fn console_log_is_variadic() {
+    // Any arity (0+) and any mix of types is accepted.
+    assert_eq!(ty("console.log()").unwrap(), Type::Unit);
+    assert_eq!(ty("console.log(1)").unwrap(), Type::Unit);
+    assert_eq!(ty("console.log(1, 2, 3)").unwrap(), Type::Unit);
+    assert_eq!(ty("console.log(1, true, 3.14)").unwrap(), Type::Unit);
 }
 
 #[test]

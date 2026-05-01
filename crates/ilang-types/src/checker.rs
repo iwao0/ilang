@@ -47,6 +47,10 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
 struct Signature {
     params: Vec<Type>,
     ret: Type,
+    /// `true` for built-ins like `console.log` that accept any number of
+    /// arguments (each typed as `Any`). User-defined variadics are not
+    /// yet supported (parser doesn't accept `...args`).
+    variadic: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -79,8 +83,11 @@ impl TypeChecker {
         methods.insert(
             "log".to_string(),
             Signature {
+                // The `params` slot is unused for variadics; left as a single
+                // `Any` so any introspection still has something to print.
                 params: vec![Type::Any],
                 ret: Type::Unit,
+                variadic: true,
             },
         );
         self.classes.insert(
@@ -552,6 +559,13 @@ impl TypeChecker {
         loop_depth: u32,
         call_span: Span,
     ) -> Result<(), TypeError> {
+        if sig.variadic {
+            // Variadic: any arity, every arg type-checks but acts as `Any`.
+            for arg in args {
+                self.check_expr(arg, env, in_class, loop_depth)?;
+            }
+            return Ok(());
+        }
         if sig.params.len() != args.len() {
             return Err(TypeError::ArityMismatch {
                 name: name.to_string(),
@@ -578,6 +592,7 @@ fn signature_of(f: &FnDecl) -> Signature {
     Signature {
         params: f.params.iter().map(|p| p.ty.clone()).collect(),
         ret: f.ret.clone().unwrap_or(Type::Unit),
+        variadic: false,
     }
 }
 

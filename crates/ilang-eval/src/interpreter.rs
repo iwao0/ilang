@@ -320,17 +320,11 @@ impl Interpreter {
         let evaluated = self.eval_args(args)?;
         let class_name = receiver.borrow().class.clone();
         if class_name == "Console" && method == "log" {
-            // Arity is enforced by the type checker (`log` takes exactly one
-            // argument); the runtime check is defense in depth.
-            if evaluated.len() != 1 {
-                return Err(RuntimeError::ArityMismatch {
-                    name: "console.log".into(),
-                    expected: 1,
-                    got: evaluated.len(),
-                    span,
-                });
-            }
-            println!("{}", evaluated.into_iter().next().unwrap());
+            // Variadic: print every argument separated by a single space,
+            // matching the JS `console.log(...)` convention. Zero args
+            // prints just a newline.
+            let parts: Vec<String> = evaluated.iter().map(|v| format!("{v}")).collect();
+            println!("{}", parts.join(" "));
             return Ok(Value::Unit);
         }
         let class = self
