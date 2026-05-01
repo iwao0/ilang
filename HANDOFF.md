@@ -12,35 +12,55 @@
 - 四則演算規則は **C / JavaScript** とほぼ同一
 - 文末は **JS 風 ASI** (改行が `;` 代わり)
 
-実装言語: **Rust 1.95**。実行モデル: ツリーウォーク型インタプリタ。最終的には [docs/phase1-plan.md](docs/phase1-plan.md) のロードマップ通り **Cranelift 経由のネイティブコード化** を目指す (LLVM は後付け候補)。
+実装言語: **Rust 1.95**。実行モデル: ツリーウォーク型インタプリタ + **Cranelift JIT** (`ilang run --jit`)。LLVM は後付け候補。
 
-## 現在地 (フェーズ4 完了)
+## 現在地 (フェーズ6: Cranelift JIT + ARC Phase A)
 
-`26965bf` (`Phase 4: classes`) が最新コミット。**77 テスト** 全通過。
+最新コミット `38360f6` (`JIT ARC for objects (Phase A)`)。**210 テスト** 全通過、警告ゼロ。
 
-| フェーズ | 内容 | コミット |
+### 完了フェーズ
+| フェーズ | 内容 | 代表コミット |
 | --- | --- | --- |
 | 1 | 数値の四則演算インタプリタ | `437fc16` |
 | 2 | `let` / 関数定義 / `#[requires(...)]` パース / 最小型チェッカー | `3301d17` |
 | 3 | bool / 比較 / 短絡論理 / `if`/`while` / 代入 | `b3be50b` |
 | 4 | クラス (`class`/`new`/`this`/`init`) | `26965bf` |
+| 5a | `loop` / `break` / `continue` | `6e05c7f` |
+| 5b | エラー span 統一 (`filename [row:col]: msg`) | `4c37a30` |
+| 5c | `deinit` (スコープ脱出時、ARC ではなく refcount==1 検出) | `c78c0ab` |
+| 5d | `console.log` (variadic、組み込み Console クラス) | `7d4d1f2` `3c8d375` |
+| 5e | ビット演算 (`&` `\|` `^` `~` `<<` `>>` + 複合代入) | `2a7e2a0` |
+| 5f | 16 進/2 進リテラル + `_` 桁区切り | `b1ac6ee` |
+| 5g | 全 10 数値型 (`i8/i16/i32/i64/u8/u16/u32/u64/f32/f64`) + `as` キャスト | `5bb6c82` `c1cacc6` |
+| 5h | 文字列型 (`+` 連結、`==` `!=`) | `a8e40e5` |
+| 5i | 配列 (`T[]` / `T[N]` + `.length` / `.push`) | `9d61e51` |
+| 5j | 数値型サフィックス (`1_i32` `1.5f32`) | `7be28d3` |
+| 6a | **Cranelift JIT 導入** (i64/bool/制御フロー/`fn`) | `9cafa6f` `9702258` |
+| 6b | JIT: 全数値型 + `as` キャスト | `2f68f53` |
+| 6c | JIT: クラス (alloc + メソッド/フィールド + `this`、ARC なし) | `4d54a18` |
+| 6d | JIT: `console.log` | `803e49d` |
+| 6e | JIT: 文字列 | `a070d7a` |
+| 6f | JIT: 配列 | `379b4a7` |
+| 6g | **JIT ARC Phase A** (object のみ、refcount + deinit + free) | `38360f6` |
 
-途中で:
-- 各 crate の `lib.rs` を役割別モジュールに分割 (`712d2cb`)
-- テストを `tests/` ディレクトリに移動して統合テスト化 (`0f99194`)
-- 戻り値型を `-> T` から `: T` に変更 (`064b708`)
-- 改行を文区切りに (ASI) (`3535983`)
+### 設計的な大幅整理
+- AST に `Span` を持たせて全エラーが `[row:col]` を出力 (`4c37a30`)
+- 暗黙 `this` (メソッド本体内でフィールド/メソッドを `this.` なしで参照可) (`0389b8d`)
+- 複合代入 `+=` `-=` 等 (`1487d36`)
+- メモリリーク対策: object のフィールドや配列要素に保持された Foo の deinit を再帰発火 (`9992cd6`、ただし interpreter のみ)
+- 設計レビューの結果に基づく fix: `numeric_result` 厳密化 + `Console`/`console` 予約名 + 空配列メッセージ + recursive release (#1-#3) + `MixedSignedness` ヒント
 
 ## ワークスペース構成
 
 ```
 crates/
-├── ilang-ast/       # 純粋な AST 定義 (型・式・文・項目)
-├── ilang-lexer/     # 字句解析 (Token, Span, leading_newline フラグ)
+├── ilang-ast/       # 純粋な AST 定義 (型・式・文・項目、Span は ast 側)
+├── ilang-lexer/     # 字句解析 (Token, leading_newline フラグ、numeric_suffix)
 ├── ilang-parser/    # Pratt 構文解析
-├── ilang-types/     # 型チェッカー
+├── ilang-types/     # 型チェッカー (built-in Console + 予約名チェック含む)
 ├── ilang-eval/      # ツリーウォーク評価器 (REPL 状態は Interpreter が保持)
-└── ilang-cli/       # `ilang` バイナリ (REPL + `ilang run path.il`)
+├── ilang-codegen/   # **Cranelift JIT** (AST → CLIF lowering、ARC ランタイム)
+└── ilang-cli/       # `ilang` バイナリ (REPL + `ilang run [--jit] path.il`)
 docs/
 ├── phase1-plan.md   # 四則演算 + Cranelift 採用の経緯
 ├── phase2-plan.md   # let / 関数 / capability 構文
@@ -68,36 +88,58 @@ while i <= 10 {
     i = i + 1
 }
 
-// クラス — JS 風、`init` がコンストラクタ
+// クラス — JS 風、`init` がコンストラクタ、`deinit` がデストラクタ
 class Counter {
     count: i64
     init(start: i64) { this.count = start }
     increment(): i64 {
-        this.count = this.count + 1
-        this.count
+        count += 1            // 暗黙 this (`this.` 省略可)
+        count
     }
+    deinit() { /* スコープ脱出時に発火 */ }
 }
 let c = new Counter(10)
 c.increment()
+console.log("count is:", c.increment())   // count is: 12
+
+// 配列
+let xs: i32[] = [1, 2, 3]
+xs.push(4)
+console.log(xs.length, xs[0])
+
+// 文字列
+let s = "hello, " + "world"
+console.log(s)
 ```
 
-### 型
-- プリミティブ: `i64`, `f64`, `bool`, `()` (Unit)
-- ユーザ定義: `Type::Object(class_name)` (クラス名と同一)
-- `i64 → f64` の暗黙昇格あり (混合算術と引数渡しで)
+`ilang run --jit foo.il` で Cranelift 経由の JIT 実行 (interpreter の数十〜数百倍速い)。
 
-### 演算子優先順位 (低 → 高)
+### 型
+- 整数: `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64`
+- 浮動: `f32` `f64`
+- その他: `bool`, `string`, `()` (Unit)
+- ユーザ定義: `Type::Object(class_name)` (クラス名と同一)
+- 配列: `T[]` (動的) と `T[N]` (固定長)
+- 暗黙変換: 同一符号同士の整数間 / 整数 → 浮動 / float → float (両方向)。**符号またぎ** と **float → int** は `as` 必須
+- 数値リテラルサフィックス: `1_i32` `1.5f32` `0xff_u8` 等
+
+### 演算子優先順位 (低 → 高、C/JS 互換)
 | 演算子 | l_bp / r_bp | 結合性 |
 | --- | --- | --- |
-| `=` | 2 / 1 | 右 |
+| `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | 2 / 1 | 右 |
 | `\|\|` | 3 / 4 | 左 |
 | `&&` | 5 / 6 | 左 |
-| `==` `!=` | 7 / 8 | 左 |
-| `<` `<=` `>` `>=` | 9 / 10 | 左 |
-| `+` `-` | 10 / 11 | 左 |
-| `*` `/` `%` | 20 / 21 | 左 |
-| 単項 `-` `+` `!` | — / 30 | 前置 |
-| 後置 `.` (field/method) | (parse_postfix で個別処理) | 左 |
+| `\|` (BitOr) | 7 / 8 | 左 |
+| `^` (BitXor) | 9 / 10 | 左 |
+| `&` (BitAnd) | 11 / 12 | 左 |
+| `==` `!=` | 13 / 14 | 左 |
+| `<` `<=` `>` `>=` | 15 / 16 | 左 |
+| `<<` `>>` | 17 / 18 | 左 |
+| `+` `-` | 19 / 20 | 左 |
+| `*` `/` `%` | 21 / 22 | 左 |
+| `as` (cast) | 23 / — | 後置 |
+| 単項 `-` `+` `!` `~` | — / 30 | 前置 |
+| 後置 `.` (field/method) / `[]` (index) | (parse_postfix で個別処理) | 左 |
 
 ### ASI (自動セミコロン挿入)
 - `Token` に `leading_newline: bool` がある (lexer が設定)
@@ -119,34 +161,88 @@ c.increment()
 | コンストラクタ名 | `init` (Swift 風) | キーワードではなく特殊メソッド名 |
 | オブジェクト等価性 | 参照等価 (`Rc::ptr_eq`) | structural equality は将来トレイト経由 |
 
+## JIT (`ilang-codegen`) のサブセットと ARC 状況
+
+`ilang run --jit foo.il` で Cranelift 経由のネイティブコード実行。デフォルトはツリーウォーク (互換性維持)。
+
+### JIT 対応済み
+- 全 10 数値型 + bool + `as` キャスト
+- `if`/`else`/`while`/`loop`/`break`/`continue`、`fn` 定義 + 再帰
+- クラス (`new`/`obj.field`/`obj.method()`/`this`/暗黙 this/`init`)
+- 文字列 (リテラル、`+`、`==` `!=`)
+- 配列 (`T[]`/`T[N]`/`a[i]`/`a.length`/`a.push(x)`)
+- `console.log(...)` (variadic、型別 FFI 関数で出力)
+- **ARC Phase A (object のみ)**: refcount + `deinit` 発火 + メモリ解放
+
+### JIT 未対応 (interpreter にフォールバック必要)
+- **文字列・配列の ARC** (refcount ヘッダなし → リーク)
+- **オブジェクトのフィールド/配列要素の再帰 release** (`Vec<Foo>` のドロップで Foo の `deinit` は発火しない)
+- **代入上書き** (`x = newval`) — 古い値リーク
+- **比較演算/捨てられる中間値** (一時 object がリークする可能性)
+- **継承** / 動的ディスパッチ (interpreter にも未実装)
+- 循環参照 (Weak ref なし — Phase A 共通の制限)
+
+### JIT メモリレイアウト
+- Object: `[rc: i64 | deinit_fn_ptr: i64 | field0 | ...]` (ユーザポインタは field0 を指す)
+- String: `Box<StringRc { rc, s }>` (ARC 未対応、リーク)
+- Array: `[len: i64 | cap: i64 | data_ptr: i64]` ヘッダ + 別領域データバッファ (ARC 未対応)
+
+### JIT 設計上の核心ルール
+- **caller 側で borrowed Object 引数を retain**、callee 側で param を関数出口で release (deinit の `this` は除く — `release_object` が lifecycle を持つので二重に release すると無限再帰)
+- ブロック終了時に新規 object binding を **LIFO 順** で release (依存する binding が先に解放される問題を回避)
+- `let y = x` で借用元 (Var/Field/Index/This) なら retain
+- `obj.field = newval` で field 型が Object なら value を retain (古い field 値の release は未実装、leak)
+
 ## 既知の制限 / TODO
 
+### 言語機能
 - **未初期化フィールド読み出しはランタイムエラー**: 型チェッカーは definite initialization を追跡しない
 - **同一行に複数のクラスメンバー**: ASI は効かない (`;` か改行が必要)
 - **クラス自体への属性**: `#[requires(...)]` は今のところメソッドにしか付与不可
 - **`return` 文なし**: 関数/メソッドは末尾式が戻り値
-- **文字列 / 配列 / 辞書 / `match` / ADT / `loop`/`break`/`continue`**: 未実装
+- **辞書 / `match` / ADT**: 未実装
 - **`use` / モジュール / インポート**: 未実装
+- **文字列メソッド** (`length`/`charAt`/補間): なし
+- **配列メソッド** (`pop`/`slice`/`for-of`): なし
+- **`pop()` / 例外**: なし
+
+### ARC / メモリ
+- JIT ARC は **object Phase A のみ**。Phase B-D が残っている (上記 JIT 未対応参照)
+- interpreter は scope-based deinit、JIT は refcount-based。挙動は概ね一致するが、配列/文字列のドロップ時の挙動は異なる
 
 ## 次の候補 (次フェーズの選択肢)
 
-ユーザーと相談して選ぶこと:
+ユーザーと相談して選ぶこと。現時点で未着手 / 未完のもの:
 
-1. **capability の enforce** ← サプライチェーン対策の核。優先度高い
-   - 呼び出し側にも `#[requires(...)]` を要求するチェック
-   - `use http_client with cap(net = env.net)` のような import 構文
-   - クラスに capability を持たせる構文設計
-2. **`loop` / `break` / `continue`**
-3. **文字列型** (リテラル、`+` 連結、補間?)
-4. **配列 / 辞書**
-5. **`match` + `enum` (ADT)**
-6. **継承** (`extends` / `super`) — 必要性をまず議論
-7. **`ilang-mir` 中間表現 (未着手)** — 現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower.rs`)。MIR を挟むと:
-   - 複数バックエンド (LLVM / wasm / バイトコード VM) を後付けしやすい
-   - `lower.rs` の「signed?/float?/widen?」分岐を 1 度で解決できる
-   - constant folding / dead code elim 等の最適化を載せる足場になる
-   - capability enforce (`#[requires(...)]`) の検査箇所として最適
-   - tree-walk より速い軽量バイトコード VM が書ける (JIT 起動コストを払いたくない短いスクリプト用)
+### A. JIT ARC の続き (object Phase A は完了)
+- **B**: 文字列・配列に refcount + retain/release を追加 (Phase A と同じパターンの拡張、規模小〜中)
+- **C**: 関数引数/戻り値の retain/release を厳密化、代入上書き release、比較・statement 一時値 release (規模中)
+- **D**: フィールド/配列要素の再帰 release (object 内の Foo の deinit が連鎖発火するように、規模中)
+- 循環参照 / Weak 参照 (大、Phase E)
+
+### B. capability の enforce ← **サプライチェーン対策の核 (元々の言語ビジョン)**
+- 呼び出し側にも `#[requires(...)]` を要求するチェック
+- `use http_client with cap(net = env.net)` のような import 構文
+- クラスに capability を持たせる構文設計
+- MIR を挟むタイミングで一緒に入れるのが自然 (関数呼び出しグラフが扱いやすい)
+
+### C. 言語機能拡張
+- `for-of` ループ / 配列メソッド (`pop`/`slice`)
+- 文字列メソッド (`length`/`charAt`/補間)
+- `return` 文 (早期 return)
+- `match` + `enum` (ADT) — 大きい
+- 継承 (`extends` / `super`) — 必要性を議論してから
+- 辞書型
+- `use` / モジュール / インポート (capability の前提でもある)
+
+### D. `ilang-mir` 中間表現 (未着手)
+現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower.rs`)。MIR を挟むと:
+- 複数バックエンド (LLVM / wasm / バイトコード VM) を後付けしやすい
+- `lower.rs` の「signed?/float?/widen?」分岐を 1 度で解決できる
+- constant folding / dead code elim 等の最適化を載せる足場になる
+- capability enforce (`#[requires(...)]`) の検査箇所として最適
+- tree-walk より速い軽量バイトコード VM が書ける (JIT 起動コストを払いたくない短いスクリプト用)
+2 段階で導入想定: ① MIR 定義 + AST → MIR、② MIR → CLIF (現 codegen の書き換え)。LLVM/wasm/VM が欲しくなったタイミングが導入の合図。
    2 段階で導入する想定: ① MIR 定義 + AST → MIR、② MIR → CLIF (現 codegen の書き換え)。LLVM/wasm/VM が欲しくなったタイミングが導入の合図
 
 ## 開発フロー
