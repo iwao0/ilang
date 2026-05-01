@@ -55,6 +55,10 @@ pub enum TypeError {
     CannotCallDeinit { span: Span },
     #[error("{span}: `deinit` must take no parameters and return ()")]
     BadDeinitSignature { span: Span },
+    #[error("{span}: {name:?} is a built-in name and cannot be redefined")]
+    ReservedName { name: String, span: Span },
+    #[error("{span}: cannot infer element type for empty array literal — add a type annotation (e.g. `let a: i32[] = []`)")]
+    EmptyArrayNeedsAnnotation { span: Span },
 }
 
 impl TypeError {
@@ -74,7 +78,9 @@ impl TypeError {
             | TypeError::BreakOutsideLoop { span }
             | TypeError::ContinueOutsideLoop { span }
             | TypeError::CannotCallDeinit { span }
-            | TypeError::BadDeinitSignature { span } => *span,
+            | TypeError::BadDeinitSignature { span }
+            | TypeError::ReservedName { span, .. }
+            | TypeError::EmptyArrayNeedsAnnotation { span } => *span,
         }
     }
 }

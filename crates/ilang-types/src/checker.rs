@@ -33,6 +33,11 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
                 return false;
             }
         }
+        // Empty literal: element type doesn't matter, accept whatever the
+        // annotation asks for (subject to the length check above).
+        if elements.is_empty() {
+            return true;
+        }
         let vt_elem = match vt {
             Type::Array { elem, .. } => elem.clone(),
             _ => return false,
@@ -126,6 +131,19 @@ impl TypeChecker {
     }
 
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
+        // Pass 0: refuse to redefine built-in names. Otherwise a user
+        // `class Console { ... }` would silently overwrite the built-in
+        // signature and `console.log` would call the user code.
+        for item in &prog.items {
+            if let Item::Class(c) = item {
+                if is_reserved_class(&c.name) {
+                    return Err(TypeError::ReservedName {
+                        name: c.name.clone(),
+                        span: c.span,
+                    });
+                }
+            }
+        }
         for item in &prog.items {
             match item {
                 Item::Fn(f) => {
@@ -148,6 +166,17 @@ impl TypeChecker {
         let mut env: Vars = self.vars.clone();
         let mut last = Type::Unit;
         for s in &prog.stmts {
+            // Refuse to redefine built-in globals at top level so a
+            // wayward `let console = ...` cannot disable `console.log`.
+            // Inner-scope shadowing is still allowed.
+            if let StmtKind::Let { name, .. } = &s.kind {
+                if is_reserved_global(name) {
+                    return Err(TypeError::ReservedName {
+                        name: name.clone(),
+                        span: s.span,
+                    });
+                }
+            }
             last = self.check_stmt(s, &mut env, None, 0)?;
         }
         if let Some(t) = &prog.tail {
@@ -245,6 +274,17 @@ impl TypeChecker {
     ) -> Result<Type, TypeError> {
         match &stmt.kind {
             StmtKind::Let { name, ty, value } => {
+                // `let a = []` cannot pick an element type. Force the
+                // user to annotate before we lose the chance to do so.
+                if ty.is_none() {
+                    if let ExprKind::Array(elements) = &value.kind {
+                        if elements.is_empty() {
+                            return Err(TypeError::EmptyArrayNeedsAnnotation {
+                                span: value.span,
+                            });
+                        }
+                    }
+                }
                 let vt = self.check_expr(value, env, in_class, loop_depth)?;
                 let bind = match ty {
                     Some(ann) => {
@@ -576,16 +616,14 @@ impl TypeChecker {
             }
             ExprKind::Array(elements) => {
                 if elements.is_empty() {
-                    // No elements → element type is unknown. The user must
-                    // annotate the binding (`let a: i32[] = []`) so the
-                    // outer literal_assignable path handles this.
-                    return Err(TypeError::Mismatch {
-                        expected: Type::Array {
-                            elem: Box::new(Type::Any),
-                            fixed: None,
-                        },
-                        got: Type::Unit,
-                        span,
+                    // Element type is unknown; surface a marker
+                    // (`Any`-element array) and let `literal_assignable`
+                    // accept it when the let / param annotation pins the
+                    // type. Bare `let a = []` falls through to the
+                    // EmptyArrayNeedsAnnotation error in `check_stmt`.
+                    return Ok(Type::Array {
+                        elem: Box::new(Type::Any),
+                        fixed: Some(0),
                     });
                 }
                 let first_ty = self.check_expr(&elements[0], env, in_class, loop_depth)?;
@@ -743,6 +781,14 @@ impl TypeChecker {
         }
         Ok(())
     }
+}
+
+fn is_reserved_class(name: &str) -> bool {
+    matches!(name, "Console")
+}
+
+fn is_reserved_global(name: &str) -> bool {
+    matches!(name, "console")
 }
 
 fn signature_of(f: &FnDecl) -> Signature {

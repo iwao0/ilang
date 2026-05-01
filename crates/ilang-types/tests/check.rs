@@ -436,3 +436,38 @@ fn array_index_must_be_int() {
         Err(TypeError::Mismatch { .. })
     ));
 }
+
+#[test]
+fn array_equality_rejected() {
+    // Arrays don't support `==` at the type level (no deep equality yet).
+    let src = "let a: i32[] = [1]; let b: i32[] = [1]; a == b";
+    assert!(matches!(ty(src), Err(TypeError::BadBinary { .. })));
+}
+
+#[test]
+fn object_equality_still_works() {
+    let src = "class P { init() {} } let a = new P(); let b = a; a == b";
+    assert_eq!(ty(src).unwrap(), Type::Bool);
+}
+
+#[test]
+fn console_class_redefinition_rejected() {
+    let src = "class Console { init() {} }";
+    assert!(matches!(ty(src), Err(TypeError::ReservedName { .. })));
+}
+
+#[test]
+fn console_global_redefinition_rejected() {
+    let src = "let console = 1";
+    assert!(matches!(ty(src), Err(TypeError::ReservedName { .. })));
+}
+
+#[test]
+fn empty_array_needs_annotation() {
+    assert!(matches!(
+        ty("let a = []"),
+        Err(TypeError::EmptyArrayNeedsAnnotation { .. })
+    ));
+    // Annotated form is fine and produces an empty dynamic array.
+    assert!(ty("let a: i32[] = []").is_ok());
+}

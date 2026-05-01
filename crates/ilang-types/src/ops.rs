@@ -62,7 +62,14 @@ pub(crate) fn int_literal_fits(n: i64, t: &Type) -> bool {
 /// `Bool`; this helper handles numeric promotion only.
 pub(crate) fn numeric_result(l: &Type, r: &Type) -> Option<Type> {
     use Type::*;
-    if l == r && l.is_numeric() {
+    // Reject non-numeric inputs up front. Without this guard the
+    // "one int + one float" fallthrough at the end silently treats
+    // arbitrary types as `F32`, which made `Object == Object` and
+    // `Array == Array` quietly pass type-checking.
+    if !l.is_numeric() || !r.is_numeric() {
+        return None;
+    }
+    if l == r {
         return Some(l.clone());
     }
     // Both ints: same signedness widens to the wider one; mixed signedness
@@ -119,6 +126,14 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
         // String supports == and != (structural equality), but not ordering.
         if matches!(op, BinOp::Eq | BinOp::Ne) && l == &Type::Str && r == &Type::Str {
             return Ok(Type::Bool);
+        }
+        // Object identity: same class on both sides supports == / !=.
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            if let (Type::Object(a), Type::Object(b)) = (l, r) {
+                if a == b {
+                    return Ok(Type::Bool);
+                }
+            }
         }
         if result.is_some() {
             return Ok(Type::Bool);
