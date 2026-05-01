@@ -306,3 +306,24 @@ fn deinit_with_return_rejected() {
         Err(TypeError::BadDeinitSignature { .. })
     ));
 }
+
+#[test]
+fn console_log_accepts_any_value() {
+    assert_eq!(ty("console.log(1)").unwrap(), Type::Unit);
+    assert_eq!(ty("console.log(1.5)").unwrap(), Type::Unit);
+    assert_eq!(ty("console.log(true)").unwrap(), Type::Unit);
+    let src = "class P { x: i64; init(a: i64) { this.x = a } } console.log(new P(1))";
+    assert_eq!(ty(src).unwrap(), Type::Unit);
+}
+
+#[test]
+fn console_log_arity_checked() {
+    assert!(matches!(
+        ty("console.log()"),
+        Err(TypeError::ArityMismatch { .. })
+    ));
+    assert!(matches!(
+        ty("console.log(1, 2)"),
+        Err(TypeError::ArityMismatch { .. })
+    ));
+}

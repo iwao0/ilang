@@ -6,6 +6,10 @@ pub enum Type {
     Unit,
     /// Instance of a user-defined class, identified by class name.
     Object(String),
+    /// Internal-only type used by built-in signatures (e.g. `console.log`)
+    /// that accept any value. The parser does not produce it; user code
+    /// cannot annotate a binding with it.
+    Any,
 }
 
 impl std::fmt::Display for Type {
@@ -16,6 +20,7 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
             Type::Object(name) => write!(f, "{name}"),
+            Type::Any => write!(f, "any"),
         }
     }
 }

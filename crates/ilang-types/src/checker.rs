@@ -31,7 +31,32 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
-        Self::default()
+        let mut tc = Self::default();
+        tc.install_builtins();
+        tc
+    }
+
+    /// Pre-register the built-in `Console` class and the `console`
+    /// singleton so `console.log(x)` type-checks for any `x`. Kept in one
+    /// place so it's easy to grow with `console.error`, `console.warn`, etc.
+    fn install_builtins(&mut self) {
+        let mut methods = HashMap::new();
+        methods.insert(
+            "log".to_string(),
+            Signature {
+                params: vec![Type::Any],
+                ret: Type::Unit,
+            },
+        );
+        self.classes.insert(
+            "Console".to_string(),
+            ClassSig {
+                fields: HashMap::new(),
+                methods,
+            },
+        );
+        self.vars
+            .insert("console".to_string(), Type::Object("Console".to_string()));
     }
 
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {

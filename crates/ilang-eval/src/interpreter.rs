@@ -23,7 +23,21 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self::default()
+        let mut i = Self::default();
+        i.install_builtins();
+        i
+    }
+
+    /// Set up the singleton `console` object. Methods on it (currently just
+    /// `log`) are dispatched in `call_method` before any user-class lookup,
+    /// so no `FnDecl` body is needed.
+    fn install_builtins(&mut self) {
+        let console: ObjectRef = Rc::new(RefCell::new(ObjectData {
+            class: "Console".to_string(),
+            fields: HashMap::new(),
+        }));
+        self.vars
+            .insert("console".to_string(), Value::Object(console));
     }
 
     pub fn run(&mut self, prog: &Program) -> Result<Value, RuntimeError> {
@@ -292,6 +306,20 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
         let class_name = receiver.borrow().class.clone();
+        if class_name == "Console" && method == "log" {
+            // Arity is enforced by the type checker (`log` takes exactly one
+            // argument); the runtime check is defense in depth.
+            if evaluated.len() != 1 {
+                return Err(RuntimeError::ArityMismatch {
+                    name: "console.log".into(),
+                    expected: 1,
+                    got: evaluated.len(),
+                    span,
+                });
+            }
+            println!("{}", evaluated.into_iter().next().unwrap());
+            return Ok(Value::Unit);
+        }
         let class = self
             .classes
             .get(&class_name)

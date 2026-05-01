@@ -513,3 +513,13 @@ fn deinit_runs_on_assignment_overwrite() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(1));
 }
+
+#[test]
+fn console_log_executes() {
+    // Stdout isn't captured here; we just verify the call succeeds and
+    // returns Unit. Output is exercised by hand via the REPL/CLI.
+    assert_eq!(run("console.log(42)").unwrap(), Value::Unit);
+    assert_eq!(run("console.log(true)").unwrap(), Value::Unit);
+    let src = "class P { x: i64; init(a: i64) { this.x = a } } console.log(new P(7))";
+    assert_eq!(run(src).unwrap(), Value::Unit);
+}

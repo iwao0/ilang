@@ -8,6 +8,9 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if from == to {
         return true;
     }
+    if matches!(to, Type::Any) {
+        return true;
+    }
     matches!((from, to), (Type::I64, Type::F64))
 }
 
