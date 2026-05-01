@@ -26,6 +26,11 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if let Type::Optional(inner) = to {
         return assignable(from, inner);
     }
+    // Auto-downgrade: a strong `T` reference can be assigned to a
+    // `T.weak` slot. Same-class match required (no implicit subtyping).
+    if let Type::Weak(inner) = to {
+        return from == inner.as_ref();
+    }
     // Arrays: element types must match exactly. Fixed lengths must agree;
     // there is intentionally no implicit conversion between fixed and
     // dynamic arrays (use a copy/conversion when explicit ones land).

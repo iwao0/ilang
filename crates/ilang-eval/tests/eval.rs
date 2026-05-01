@@ -954,3 +954,76 @@ fn optional_string_field() {
         Value::Str(std::rc::Rc::new("hello".to_string()))
     );
 }
+
+// ─── Weak references (`T.weak`) ───────────────────────────────────────
+
+#[test]
+fn weak_get_returns_some_when_alive() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+        }
+        let c = new Counter()
+        let w: Counter.weak = c
+        if let some(s) = w.get() {
+            s.n + 1
+        } else {
+            -1
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}
+
+#[test]
+fn weak_get_returns_none_after_strong_dropped() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+        }
+        let global = 0
+        let w: Counter.weak = new Counter()
+        if w.get().is_none() {
+            global = 99
+        }
+        global
+    "#;
+    // The fresh Counter has only a weak reference (no strong binding),
+    // so it dies immediately and w.get() returns none.
+    assert_eq!(run(src).unwrap(), Value::Int(99));
+}
+
+#[test]
+fn weak_breaks_reference_cycle() {
+    // Without weak, Parent ↔ Child would leak. With Parent holding
+    // Child strongly and Child holding Parent weakly, the parent's
+    // deinit fires when its scope ends.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Child {
+            p: Parent.weak
+            init(pp: Parent) { this.p = pp }
+        }
+        class Parent {
+            c: Child?
+            tracker: Counter
+            init(t: Counter) {
+                this.c = none
+                this.tracker = t
+            }
+            deinit() { tracker.inc() }
+        }
+        let counter = new Counter()
+        {
+            let p = new Parent(counter)
+            p.c = some(new Child(p))
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}

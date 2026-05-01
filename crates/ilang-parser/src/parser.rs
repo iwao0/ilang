@@ -25,6 +25,12 @@ impl<'a> Parser<'a> {
         &self.tokens[self.pos]
     }
 
+    /// Lookahead to the n-th token from the current position. Returns
+    /// `None` if we'd run past the EOF sentinel.
+    pub(crate) fn peek_n(&self, n: usize) -> Option<&'a Token> {
+        self.tokens.get(self.pos + n)
+    }
+
     pub(crate) fn bump(&mut self) -> &'a Token {
         let t = &self.tokens[self.pos];
         if !matches!(t.kind, TokenKind::Eof) {

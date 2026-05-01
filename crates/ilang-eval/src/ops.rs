@@ -399,6 +399,13 @@ pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
             Value::Some(boxed) => Value::Some(Box::new(cast_value(*boxed, inner))),
             other => Value::Some(Box::new(cast_value(other, inner))),
         },
+        // Weak target: downgrade a strong Object reference. A value
+        // already typed as Weak (re-binding) passes through.
+        Type::Weak(_inner) => match v {
+            Value::Weak(_) => v,
+            Value::Object(obj) => Value::Weak(std::rc::Rc::downgrade(&obj)),
+            other => other, // type checker should have caught mismatches
+        },
         _ => v,
     }
 }

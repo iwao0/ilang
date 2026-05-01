@@ -256,6 +256,17 @@ impl TypeChecker {
             Type::Optional(inner) => {
                 self.validate_type(inner, span)?;
             }
+            Type::Weak(inner) => {
+                // Weak is meaningful only for class instances. Reject
+                // `string.weak`, `i64.weak`, etc. up front.
+                if !matches!(inner.as_ref(), Type::Object(_)) {
+                    return Err(TypeError::Unsupported {
+                        what: format!("weak reference of {inner} (only class types allowed)"),
+                        span,
+                    });
+                }
+                self.validate_type(inner, span)?;
+            }
             _ => {}
         }
         Ok(())
@@ -431,6 +442,25 @@ impl TypeChecker {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                // Built-in Weak method: get(): T?.
+                if let Type::Weak(inner) = &ot {
+                    if method == "get" {
+                        if !args.is_empty() {
+                            return Err(TypeError::ArityMismatch {
+                                name: "get".into(),
+                                expected: 0,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        return Ok(Type::Optional(inner.clone()));
+                    }
+                    return Err(TypeError::UnknownMethod {
+                        class: format!("{ot}"),
+                        method: method.clone(),
+                        span,
+                    });
+                }
                 // Built-in Optional methods: is_some / is_none / unwrap.
                 if let Type::Optional(inner) = &ot {
                     match method.as_str() {

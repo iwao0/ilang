@@ -280,6 +280,22 @@ impl<'a> Parser<'a> {
                     self.bump();
                     ty = Type::Optional(Box::new(ty));
                 }
+                TokenKind::Dot => {
+                    // `.weak` postfix — only valid form at the moment.
+                    // We snapshot the position so an unrelated dot
+                    // sequence after a type wouldn't accidentally be
+                    // consumed (no such case today, but safe-guarded).
+                    if matches!(
+                        self.peek_n(1).map(|t| &t.kind),
+                        Some(TokenKind::Ident(n)) if n == "weak"
+                    ) {
+                        self.bump(); // .
+                        self.bump(); // weak
+                        ty = Type::Weak(Box::new(ty));
+                    } else {
+                        break;
+                    }
+                }
                 _ => break,
             }
         }

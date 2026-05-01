@@ -12,7 +12,7 @@ pub struct ObjectData {
 
 pub type ObjectRef = Rc<RefCell<ObjectData>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int8(i8),
     Int16(i16),
@@ -39,6 +39,36 @@ pub enum Value {
     /// `None` uniformly.
     None,
     Some(Box<Value>),
+    /// `T.weak` — non-owning reference. `.get()` upgrades to `Some(obj)`
+    /// if alive, `None` otherwise.
+    Weak(std::rc::Weak<std::cell::RefCell<ObjectData>>),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        use Value::*;
+        match (self, other) {
+            (Int8(a), Int8(b)) => a == b,
+            (Int16(a), Int16(b)) => a == b,
+            (Int32(a), Int32(b)) => a == b,
+            (Int(a), Int(b)) => a == b,
+            (UInt8(a), UInt8(b)) => a == b,
+            (UInt16(a), UInt16(b)) => a == b,
+            (UInt32(a), UInt32(b)) => a == b,
+            (UInt64(a), UInt64(b)) => a == b,
+            (Float32(a), Float32(b)) => a == b,
+            (Float(a), Float(b)) => a == b,
+            (Bool(a), Bool(b)) => a == b,
+            (Str(a), Str(b)) => a == b,
+            (Array(a), Array(b)) => a == b,
+            (Unit, Unit) => true,
+            (Object(a), Object(b)) => Rc::ptr_eq(a, b),
+            (None, None) => true,
+            (Some(a), Some(b)) => a == b,
+            (Weak(a), Weak(b)) => std::rc::Weak::ptr_eq(a, b),
+            _ => false,
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -82,6 +112,10 @@ impl std::fmt::Display for Value {
             Value::Unit => write!(f, "()"),
             Value::None => write!(f, "none"),
             Value::Some(v) => write!(f, "some({v})"),
+            Value::Weak(w) => match w.upgrade() {
+                Some(_) => write!(f, "weak(<alive>)"),
+                None => write!(f, "weak(<dead>)"),
+            },
             Value::Object(o) => {
                 let o = o.borrow();
                 write!(f, "{} {{", o.class)?;

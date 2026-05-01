@@ -165,6 +165,21 @@ impl Interpreter {
             }
             ExprKind::MethodCall { obj, method, args } => {
                 let v = self.eval_expr(obj)?;
+                // Weak.get(): try to upgrade to a strong Object ref;
+                // returns Optional<T>.
+                if let Value::Weak(w) = &v {
+                    if method == "get" {
+                        return Ok(match w.upgrade() {
+                            Some(obj) => Value::Some(Box::new(Value::Object(obj))),
+                            std::option::Option::None => Value::None,
+                        });
+                    }
+                    return Err(RuntimeError::UnknownMethod {
+                        class: "weak".into(),
+                        method: method.clone(),
+                        span,
+                    });
+                }
                 // Built-in Optional methods. The type checker has
                 // verified arity (0 args).
                 if matches!(v, Value::None | Value::Some(_)) {
@@ -313,6 +328,19 @@ impl Interpreter {
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
                 let target = expect_object(target, obj.span)?;
+                // Apply the field's declared type as an implicit cast,
+                // mirroring `let x: T = ...`. This covers auto-wrap to
+                // Optional and auto-downgrade Object → Weak.
+                let class_name = target.borrow().class.clone();
+                let field_ty = self
+                    .classes
+                    .get(&class_name)
+                    .and_then(|c| c.fields.iter().find(|f| f.name == *field))
+                    .map(|f| f.ty.clone());
+                let v = match field_ty {
+                    Some(t) => cast_value(v, &t),
+                    None => v,
+                };
                 let old = target.borrow_mut().fields.insert(field.clone(), v);
                 if let Some(o) = old {
                     self.release(o);

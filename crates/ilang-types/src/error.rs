@@ -61,6 +61,8 @@ pub enum TypeError {
     EmptyArrayNeedsAnnotation { span: Span },
     #[error("{span}: cannot mix {lhs} and {rhs} arithmetic — use an explicit `as` cast on one side")]
     MixedSignedness { lhs: Type, rhs: Type, span: Span },
+    #[error("{span}: {what}")]
+    Unsupported { what: String, span: Span },
 }
 
 impl TypeError {
@@ -83,7 +85,8 @@ impl TypeError {
             | TypeError::BadDeinitSignature { span }
             | TypeError::ReservedName { span, .. }
             | TypeError::EmptyArrayNeedsAnnotation { span }
-            | TypeError::MixedSignedness { span, .. } => *span,
+            | TypeError::MixedSignedness { span, .. }
+            | TypeError::Unsupported { span, .. } => *span,
         }
     }
 }

@@ -26,6 +26,10 @@ pub enum Type {
     /// `T?` — value that may be present (`some(v)`) or absent (`none`).
     /// Construction auto-wraps a `T` in any context expecting a `T?`.
     Optional(Box<Type>),
+    /// `T.weak` — non-owning reference to a class instance. Doesn't
+    /// retain the object; `.get()` returns `T?` (some if alive, none
+    /// if all strong refs are gone). Inner is restricted to `Object`.
+    Weak(Box<Type>),
     /// Internal-only type used by built-in signatures (e.g. `console.log`)
     /// that accept any value. The parser does not produce it; user code
     /// cannot annotate a binding with it.
@@ -80,6 +84,7 @@ impl std::fmt::Display for Type {
             Type::Array { elem, fixed: None } => write!(f, "{elem}[]"),
             Type::Array { elem, fixed: Some(n) } => write!(f, "{elem}[{n}]"),
             Type::Optional(inner) => write!(f, "{inner}?"),
+            Type::Weak(inner) => write!(f, "{inner}.weak"),
             Type::Any => write!(f, "any"),
         }
     }
