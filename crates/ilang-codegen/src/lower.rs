@@ -4,15 +4,28 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_codegen::settings;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
 use ilang_ast::{
-    BinOp, Expr, ExprKind, FnDecl, Item, LogicalOp, Program, Stmt, StmtKind, Type, UnOp,
+    BinOp, ClassDecl, Expr, ExprKind, FnDecl, Item, LogicalOp, Program, Stmt, StmtKind, Type, UnOp,
 };
 
 use crate::error::CodegenError;
 
-/// Result of running a JITed program. Covers every JIT-supported scalar.
-#[derive(Debug, Clone, Copy, PartialEq)]
+// ─── Runtime support ────────────────────────────────────────────────────
+
+/// Heap allocator called from JITed code via FFI. Returns a zeroed
+/// `size`-byte block as an `i64`-shaped pointer; the JIT casts it to a
+/// raw pointer for field load/store. Memory is intentionally never
+/// freed — ARC/deinit is a future addition. Short-lived programs leak.
+extern "C" fn ilang_jit_alloc(size: i64) -> i64 {
+    let n = (size as usize).max(1);
+    let layout = std::alloc::Layout::from_size_align(n, 8).unwrap();
+    unsafe { std::alloc::alloc_zeroed(layout) as i64 }
+}
+
+// ─── JitValue (program result surfaced to the CLI) ──────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum JitValue {
     I8(i8),
     I16(i16),
@@ -25,6 +38,7 @@ pub enum JitValue {
     F32(f32),
     F64(f64),
     Bool(bool),
+    Object { class: String, ptr: i64 },
     Unit,
 }
 
@@ -39,29 +53,25 @@ impl std::fmt::Display for JitValue {
             JitValue::U16(n) => write!(f, "{n}"),
             JitValue::U32(n) => write!(f, "{n}"),
             JitValue::U64(n) => write!(f, "{n}"),
-            JitValue::F32(x) => {
-                if x.is_finite() && x.fract() == 0.0 {
-                    write!(f, "{x:.1}")
-                } else {
-                    write!(f, "{x}")
-                }
-            }
-            JitValue::F64(x) => {
-                if x.is_finite() && x.fract() == 0.0 {
-                    write!(f, "{x:.1}")
-                } else {
-                    write!(f, "{x}")
-                }
-            }
+            JitValue::F32(x) => fmt_float(f, *x as f64),
+            JitValue::F64(x) => fmt_float(f, *x),
             JitValue::Bool(b) => write!(f, "{b}"),
+            JitValue::Object { class, ptr } => write!(f, "<{class} @ {ptr:#x}>"),
             JitValue::Unit => Ok(()),
         }
     }
 }
 
-/// JIT-internal type tag. Mirrors `ilang_ast::Type` for the supported
-/// scalar subset. Pairs with a cranelift `Value` to keep signedness and
-/// width information that the IR alone doesn't carry.
+fn fmt_float(f: &mut std::fmt::Formatter<'_>, x: f64) -> std::fmt::Result {
+    if x.is_finite() && x.fract() == 0.0 {
+        write!(f, "{x:.1}")
+    } else {
+        write!(f, "{x}")
+    }
+}
+
+// ─── JIT type tag ───────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JitTy {
     I8,
@@ -75,11 +85,18 @@ enum JitTy {
     F32,
     F64,
     Bool,
+    /// Heap pointer to a class instance. The id indexes into the
+    /// compiler's `class_layouts` / `class_methods` vecs.
+    Object(u32),
     Unit,
 }
 
 impl JitTy {
-    fn from_ast(t: &Type, span: ilang_ast::Span) -> Result<Self, CodegenError> {
+    fn from_ast(
+        t: &Type,
+        span: ilang_ast::Span,
+        class_ids: &HashMap<String, u32>,
+    ) -> Result<Self, CodegenError> {
         Ok(match t {
             Type::I8 => JitTy::I8,
             Type::I16 => JitTy::I16,
@@ -93,6 +110,15 @@ impl JitTy {
             Type::F64 => JitTy::F64,
             Type::Bool => JitTy::Bool,
             Type::Unit => JitTy::Unit,
+            Type::Object(name) => {
+                let id = class_ids.get(name).copied().ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: format!("unknown class {name:?}"),
+                        span,
+                    }
+                })?;
+                JitTy::Object(id)
+            }
             other => {
                 return Err(CodegenError::UnsupportedType {
                     ty: other.clone(),
@@ -107,7 +133,7 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
             JitTy::I16 | JitTy::U16 => I16,
             JitTy::I32 | JitTy::U32 => I32,
-            JitTy::I64 | JitTy::U64 => I64,
+            JitTy::I64 | JitTy::U64 | JitTy::Object(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -135,14 +161,44 @@ impl JitTy {
             _ => 0,
         }
     }
+    fn size_bytes(self) -> u32 {
+        match self {
+            JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
+            JitTy::I16 | JitTy::U16 => 2,
+            JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
+            JitTy::I64 | JitTy::U64 | JitTy::F64 | JitTy::Object(_) => 8,
+            JitTy::Unit => 0,
+        }
+    }
 }
 
-/// Compute the "common" type for a binary op, mirroring the type
-/// checker's `numeric_result`. Mixed signedness is rejected at compile
-/// time so we can assume agreement here.
+// ─── Class layout ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct ClassLayout {
+    name: String,
+    fields: HashMap<String, (u32, JitTy)>,
+    size: u32,
+}
+
+#[derive(Debug, Clone)]
+struct MethodInfo {
+    id: FuncId,
+    /// Parameter types as declared (excludes the implicit `this`).
+    params: Vec<JitTy>,
+    ret: JitTy,
+}
+
+fn align_up(offset: u32, align: u32) -> u32 {
+    (offset + align - 1) & !(align - 1)
+}
+
 fn common_numeric_ty(l: JitTy, r: JitTy) -> Option<JitTy> {
     if l == r {
         return Some(l);
+    }
+    if matches!(l, JitTy::Object(_)) || matches!(r, JitTy::Object(_)) {
+        return None;
     }
     if l.is_int() && r.is_int() {
         if l.is_signed_int() != r.is_signed_int() {
@@ -162,25 +218,31 @@ fn common_numeric_ty(l: JitTy, r: JitTy) -> Option<JitTy> {
     Some(if needs_f64 { JitTy::F64 } else { JitTy::F32 })
 }
 
-/// A lowered value plus its JIT type tag.
 type TV = (Value, JitTy);
+
+// ─── Public entry point ─────────────────────────────────────────────────
 
 pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new()?;
+    // 1. Assign class ids and compute layouts before anything else needs
+    //    to look up `Type::Object(name)`.
     for item in &prog.items {
-        if let Item::Fn(f) = item {
-            compiler.declare_fn(f)?;
+        if let Item::Class(c) = item {
+            compiler.declare_class(c)?;
         }
     }
+    // 2. Declare every fn / method signature so cross-references resolve.
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => compiler.declare_fn(f)?,
+            Item::Class(c) => compiler.declare_methods(c)?,
+        }
+    }
+    // 3. Define every body.
     for item in &prog.items {
         match item {
             Item::Fn(f) => compiler.define_fn(f)?,
-            Item::Class(c) => {
-                return Err(CodegenError::Unsupported {
-                    what: "class".into(),
-                    span: c.span,
-                });
-            }
+            Item::Class(c) => compiler.define_methods(c)?,
         }
     }
     let main_ret = compiler.define_main(prog)?;
@@ -188,12 +250,17 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     Ok(compiler.run_main(main_ret))
 }
 
+// ─── Compiler driver ────────────────────────────────────────────────────
+
 struct JitCompiler {
     module: JITModule,
     ctx: cranelift_codegen::Context,
     builder_ctx: FunctionBuilderContext,
-    /// fn name → (FuncId, param JitTys, ret JitTy)
-    funcs: HashMap<String, (cranelift_module::FuncId, Vec<JitTy>, JitTy)>,
+    funcs: HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
+    class_ids: HashMap<String, u32>,
+    class_layouts: Vec<ClassLayout>,
+    class_methods: Vec<HashMap<String, MethodInfo>>,
+    alloc_id: FuncId,
 }
 
 impl JitCompiler {
@@ -204,27 +271,102 @@ impl JitCompiler {
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))
             .map_err(|e| CodegenError::Cranelift(format!("isa: {e}")))?;
-        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        let module = JITModule::new(builder);
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+        // Expose our heap allocator to the JIT under a known symbol.
+        builder.symbol("ilang_jit_alloc", ilang_jit_alloc as *const u8);
+        let mut module = JITModule::new(builder);
         let ctx = module.make_context();
+
+        // Declare the allocator's signature so JITed code can call it.
+        let mut alloc_sig = module.make_signature();
+        alloc_sig.params.push(AbiParam::new(I64));
+        alloc_sig.returns.push(AbiParam::new(I64));
+        let alloc_id = module
+            .declare_function("ilang_jit_alloc", Linkage::Import, &alloc_sig)
+            .map_err(|e| CodegenError::Module(e.to_string()))?;
+
         Ok(Self {
             module,
             ctx,
             builder_ctx: FunctionBuilderContext::new(),
             funcs: HashMap::new(),
+            class_ids: HashMap::new(),
+            class_layouts: Vec::new(),
+            class_methods: Vec::new(),
+            alloc_id,
         })
     }
 
+    fn declare_class(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+        let id = self.class_layouts.len() as u32;
+        self.class_ids.insert(c.name.clone(), id);
+        let mut offset = 0u32;
+        let mut max_align = 1u32;
+        let mut fields = HashMap::new();
+        for field in &c.fields {
+            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids)?;
+            let size = jty.size_bytes();
+            let align = size.max(1);
+            offset = align_up(offset, align);
+            fields.insert(field.name.clone(), (offset, jty));
+            offset += size;
+            max_align = max_align.max(align);
+        }
+        let size = align_up(offset.max(1), max_align);
+        self.class_layouts.push(ClassLayout {
+            name: c.name.clone(),
+            fields,
+            size,
+        });
+        self.class_methods.push(HashMap::new());
+        Ok(())
+    }
+
     fn declare_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
+        let (id, params, ret) = self.declare_fn_signature(&f.name, f, None)?;
+        self.funcs.insert(f.name.clone(), (id, params, ret));
+        Ok(())
+    }
+
+    /// Declare every method of a class as a top-level function with
+    /// `this` as the implicit first parameter. Constructor (`init`) is
+    /// no different from a regular method here — the special handling
+    /// lives in the `new` lowering.
+    fn declare_methods(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+        let class_id = self.class_ids[&c.name];
+        for m in &c.methods {
+            let symbol = format!("__method_{}_{}", c.name, m.name);
+            let (id, params, ret) =
+                self.declare_fn_signature(&symbol, m, Some(JitTy::Object(class_id)))?;
+            self.class_methods[class_id as usize].insert(
+                m.name.clone(),
+                MethodInfo { id, params, ret },
+            );
+        }
+        Ok(())
+    }
+
+    /// Shared helper for `declare_fn` and `declare_methods`. `this_ty`,
+    /// when `Some`, is prepended to the param list so methods get an
+    /// implicit `this` pointer.
+    fn declare_fn_signature(
+        &mut self,
+        symbol: &str,
+        f: &FnDecl,
+        this_ty: Option<JitTy>,
+    ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
+        if let Some(t) = this_ty {
+            sig.params.push(AbiParam::new(t.cl().expect("object pointer")));
+        }
         for p in &params {
             sig.params.push(AbiParam::new(p.cl().ok_or_else(|| {
                 CodegenError::Unsupported {
@@ -238,14 +380,33 @@ impl JitCompiler {
         }
         let id = self
             .module
-            .declare_function(&f.name, Linkage::Local, &sig)
+            .declare_function(symbol, Linkage::Local, &sig)
             .map_err(|e| CodegenError::Module(e.to_string()))?;
-        self.funcs.insert(f.name.clone(), (id, params, ret));
-        Ok(())
+        Ok((id, params, ret))
     }
 
     fn define_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
         let (id, param_tys, ret_ty) = self.funcs[&f.name].clone();
+        self.define_function_body(id, f, &param_tys, ret_ty, None)
+    }
+
+    fn define_methods(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+        let class_id = self.class_ids[&c.name];
+        for m in &c.methods {
+            let info = self.class_methods[class_id as usize][&m.name].clone();
+            self.define_function_body(info.id, m, &info.params, info.ret, Some(class_id))?;
+        }
+        Ok(())
+    }
+
+    fn define_function_body(
+        &mut self,
+        id: FuncId,
+        f: &FnDecl,
+        param_tys: &[JitTy],
+        ret_ty: JitTy,
+        this_class: Option<u32>,
+    ) -> Result<(), CodegenError> {
         self.module.clear_context(&mut self.ctx);
         self.ctx.func.signature =
             self.module.declarations().get_function_decl(id).signature.clone();
@@ -257,20 +418,39 @@ impl JitCompiler {
         builder.seal_block(entry);
 
         let mut env = Env::default();
+        let mut block_param_idx = 0usize;
+
+        // Bind `this` first, if this is a method.
+        let this = match this_class {
+            Some(class_id) => {
+                let var = Variable::new(env.next_var_id());
+                builder.declare_var(var, I64);
+                let v = builder.block_params(entry)[block_param_idx];
+                builder.def_var(var, v);
+                block_param_idx += 1;
+                Some((var, class_id))
+            }
+            None => None,
+        };
+
         for (i, p) in f.params.iter().enumerate() {
             let pty = param_tys[i];
             let var = Variable::new(env.next_var_id());
             builder.declare_var(var, pty.cl().expect("non-unit checked at declare"));
-            let v = builder.block_params(entry)[i];
+            let v = builder.block_params(entry)[block_param_idx + i];
             builder.def_var(var, v);
             env.bindings.insert(p.name.clone(), (var, pty));
         }
 
         let mut lc = LowerCtx {
             funcs: &self.funcs,
+            class_layouts: &self.class_layouts,
+            class_methods: &self.class_methods,
+            alloc_id: self.alloc_id,
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
+            this,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         emit_return(&mut builder, ret_ty, body, f.span)?;
@@ -283,12 +463,9 @@ impl JitCompiler {
     }
 
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
-        // Use the type checker's program-level type. The caller (CLI)
-        // will normally have already type-checked, but running it again
-        // is cheap and lets us handle the JIT being called directly.
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy())?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -310,9 +487,13 @@ impl JitCompiler {
         let mut env = Env::default();
         let mut lc = LowerCtx {
             funcs: &self.funcs,
+            class_layouts: &self.class_layouts,
+            class_methods: &self.class_methods,
+            alloc_id: self.alloc_id,
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
+            this: None,
         };
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
@@ -378,6 +559,13 @@ impl JitCompiler {
                     let v = (std::mem::transmute::<_, extern "C" fn() -> i8>(ptr))();
                     JitValue::Bool(v != 0)
                 }
+                JitTy::Object(id) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    JitValue::Object {
+                        class: self.class_layouts[id as usize].name.clone(),
+                        ptr: p,
+                    }
+                }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit
@@ -411,6 +599,8 @@ fn emit_return(
     Ok(())
 }
 
+// ─── Lowering context ───────────────────────────────────────────────────
+
 #[derive(Default)]
 struct Env {
     bindings: HashMap<String, (Variable, JitTy)>,
@@ -426,10 +616,15 @@ impl Env {
 }
 
 struct LowerCtx<'a> {
-    funcs: &'a HashMap<String, (cranelift_module::FuncId, Vec<JitTy>, JitTy)>,
+    funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
+    class_layouts: &'a [ClassLayout],
+    class_methods: &'a [HashMap<String, MethodInfo>],
+    alloc_id: FuncId,
     module: &'a mut JITModule,
     env: &'a mut Env,
     loops: Vec<(Block, Block)>,
+    /// `(this var, class id)` while compiling a method body.
+    this: Option<(Variable, u32)>,
 }
 
 fn lower_stmt(
@@ -446,15 +641,18 @@ fn lower_stmt(
                 }
             })?;
             let bind_ty = match ty {
-                Some(t) => JitTy::from_ast(t, s.span)?,
+                Some(t) => JitTy::from_ast(t, s.span, &class_ids_from(lc))?,
                 None => vt,
             };
             let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
             let var = Variable::new(lc.env.next_var_id());
-            b.declare_var(var, bind_ty.cl().ok_or_else(|| CodegenError::Unsupported {
-                what: "unit-typed let binding".into(),
-                span: s.span,
-            })?);
+            b.declare_var(
+                var,
+                bind_ty.cl().ok_or_else(|| CodegenError::Unsupported {
+                    what: "unit-typed let binding".into(),
+                    span: s.span,
+                })?,
+            );
             b.def_var(var, coerced);
             lc.env.bindings.insert(name.clone(), (var, bind_ty));
         }
@@ -463,6 +661,16 @@ fn lower_stmt(
         }
     }
     Ok(())
+}
+
+/// `class_ids` reverse-lookup so the lowering paths can resolve
+/// annotations like `let x: Foo = ...` without a full TypeChecker.
+fn class_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
+    lc.class_layouts
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.name.clone(), i as u32))
+        .collect()
 }
 
 fn lower_block_value(
@@ -488,21 +696,42 @@ fn lower_expr(
         ExprKind::Int(n) => Ok(Some((b.ins().iconst(I64, *n), JitTy::I64))),
         ExprKind::Float(f) => Ok(Some((b.ins().f64const(*f), JitTy::F64))),
         ExprKind::Bool(v) => Ok(Some((b.ins().iconst(I8, if *v { 1 } else { 0 }), JitTy::Bool))),
+        ExprKind::This => match lc.this {
+            Some((var, class_id)) => Ok(Some((b.use_var(var), JitTy::Object(class_id)))),
+            None => Err(CodegenError::Unsupported {
+                what: "`this` outside a method body".into(),
+                span: e.span,
+            }),
+        },
         ExprKind::Var(name) => {
-            let (var, vt) = *lc.env.bindings.get(name).ok_or_else(|| {
-                CodegenError::Unsupported {
-                    what: format!("unknown variable {name:?}"),
-                    span: e.span,
+            if let Some(&(var, vt)) = lc.env.bindings.get(name) {
+                return Ok(Some((b.use_var(var), vt)));
+            }
+            // Implicit-`this` field access inside a method body.
+            if let Some((this_var, class_id)) = lc.this {
+                let layout = &lc.class_layouts[class_id as usize];
+                if let Some(&(offset, fty)) = layout.fields.get(name) {
+                    let this = b.use_var(this_var);
+                    let v = b.ins().load(
+                        fty.cl().expect("non-unit field"),
+                        MemFlags::trusted(),
+                        this,
+                        offset as i32,
+                    );
+                    return Ok(Some((v, fty)));
                 }
-            })?;
-            Ok(Some((b.use_var(var), vt)))
+            }
+            Err(CodegenError::Unsupported {
+                what: format!("unknown variable {name:?}"),
+                span: e.span,
+            })
         }
         ExprKind::Cast { expr, ty } => {
             let inner = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
                 what: "cast on unit".into(),
                 span: e.span,
             })?;
-            let target = JitTy::from_ast(ty, e.span)?;
+            let target = JitTy::from_ast(ty, e.span, &class_ids_from(lc))?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
         }
@@ -549,48 +778,184 @@ fn lower_expr(
             Ok(None)
         }
         ExprKind::Assign { target, value } => {
-            let (var, var_ty) = *lc.env.bindings.get(target).ok_or_else(|| {
+            // Ordinary local first; then implicit-`this` field write.
+            if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "assigning unit".into(),
+                        span: e.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), var_ty, e.span)?;
+                b.def_var(var, coerced);
+                return Ok(None);
+            }
+            if let Some((this_var, class_id)) = lc.this {
+                let layout = &lc.class_layouts[class_id as usize];
+                if let Some(&(offset, fty)) = layout.fields.get(target) {
+                    let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "assigning unit".into(),
+                            span: e.span,
+                        }
+                    })?;
+                    let coerced = coerce(b, (val, vt), fty, e.span)?;
+                    let this = b.use_var(this_var);
+                    b.ins()
+                        .store(MemFlags::trusted(), coerced, this, offset as i32);
+                    return Ok(None);
+                }
+            }
+            Err(CodegenError::Unsupported {
+                what: format!("unknown variable {target:?}"),
+                span: e.span,
+            })
+        }
+        ExprKind::AssignField { obj, field, value } => {
+            let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
                 CodegenError::Unsupported {
-                    what: format!("unknown variable {target:?}"),
+                    what: "field assignment receiver is unit".into(),
+                    span: obj.span,
+                }
+            })?;
+            let class_id = match obj_t {
+                JitTy::Object(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "field assignment on non-object".into(),
+                        span: obj.span,
+                    });
+                }
+            };
+            let layout = &lc.class_layouts[class_id as usize];
+            let (offset, fty) = *layout.fields.get(field).ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: format!("unknown field {field:?}"),
                     span: e.span,
                 }
             })?;
             let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                 CodegenError::Unsupported {
-                    what: "assigning unit".into(),
+                    what: "field value is unit".into(),
                     span: e.span,
                 }
             })?;
-            let coerced = coerce(b, (val, vt), var_ty, e.span)?;
-            b.def_var(var, coerced);
+            let coerced = coerce(b, (val, vt), fty, e.span)?;
+            b.ins()
+                .store(MemFlags::trusted(), coerced, obj_v, offset as i32);
             Ok(None)
         }
+        ExprKind::Field { obj, name } => {
+            let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "field receiver is unit".into(),
+                    span: obj.span,
+                }
+            })?;
+            let class_id = match obj_t {
+                JitTy::Object(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "field access on non-object".into(),
+                        span: obj.span,
+                    });
+                }
+            };
+            let layout = &lc.class_layouts[class_id as usize];
+            let (offset, fty) = *layout.fields.get(name).ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: format!("unknown field {name:?}"),
+                    span: e.span,
+                }
+            })?;
+            let v = b.ins().load(
+                fty.cl().expect("non-unit field"),
+                MemFlags::trusted(),
+                obj_v,
+                offset as i32,
+            );
+            Ok(Some((v, fty)))
+        }
+        ExprKind::MethodCall { obj, method, args } => {
+            let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "method receiver is unit".into(),
+                    span: obj.span,
+                }
+            })?;
+            let class_id = match obj_t {
+                JitTy::Object(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "method call on non-object".into(),
+                        span: obj.span,
+                    });
+                }
+            };
+            call_method(b, lc, class_id, method, obj_v, args, e.span)
+        }
         ExprKind::Call { callee, args } => {
-            let (id, param_tys, ret_ty) = lc
-                .funcs
-                .get(callee)
-                .cloned()
+            // Free function first.
+            if let Some(entry) = lc.funcs.get(callee).cloned() {
+                let (id, param_tys, ret_ty) = entry;
+                let mut arg_vals = Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "argument is unit".into(),
+                            span: a.span,
+                        }
+                    })?;
+                    arg_vals.push(coerce(b, (av, at), param_tys[i], a.span)?);
+                }
+                let func_ref = lc.module.declare_func_in_func(id, b.func);
+                let call = b.ins().call(func_ref, &arg_vals);
+                if matches!(ret_ty, JitTy::Unit) {
+                    return Ok(None);
+                }
+                return Ok(Some((b.inst_results(call)[0], ret_ty)));
+            }
+            // Implicit method call on `this`.
+            if let Some((this_var, class_id)) = lc.this {
+                if lc.class_methods[class_id as usize].contains_key(callee) {
+                    let this_v = b.use_var(this_var);
+                    return call_method(b, lc, class_id, callee, this_v, args, e.span);
+                }
+            }
+            Err(CodegenError::Unsupported {
+                what: format!("unknown function {callee:?}"),
+                span: e.span,
+            })
+        }
+        ExprKind::New { class, args } => {
+            let class_id = *lc
+                .class_layouts
+                .iter()
+                .enumerate()
+                .find(|(_, l)| l.name == *class)
+                .map(|(i, _)| i)
+                .map(|i| i as u32)
+                .as_ref()
                 .ok_or_else(|| CodegenError::Unsupported {
-                    what: format!("unknown function {callee:?}"),
+                    what: format!("unknown class {class:?}"),
                     span: e.span,
                 })?;
-            let mut arg_vals = Vec::with_capacity(args.len());
-            for (i, a) in args.iter().enumerate() {
-                let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
-                    CodegenError::Unsupported {
-                        what: "argument is unit".into(),
-                        span: a.span,
-                    }
-                })?;
-                arg_vals.push(coerce(b, (av, at), param_tys[i], a.span)?);
+            let size = lc.class_layouts[class_id as usize].size as i64;
+            // ptr = ilang_jit_alloc(size)
+            let alloc_ref = lc.module.declare_func_in_func(lc.alloc_id, b.func);
+            let size_v = b.ins().iconst(I64, size);
+            let alloc_call = b.ins().call(alloc_ref, &[size_v]);
+            let ptr = b.inst_results(alloc_call)[0];
+            // If init exists, call it.
+            if lc.class_methods[class_id as usize].contains_key("init") {
+                let _ = call_method(b, lc, class_id, "init", ptr, args, e.span)?;
+            } else if !args.is_empty() {
+                return Err(CodegenError::Unsupported {
+                    what: format!("no `init` for class {class}, but args were given"),
+                    span: e.span,
+                });
             }
-            let func_ref = lc.module.declare_func_in_func(id, b.func);
-            let call = b.ins().call(func_ref, &arg_vals);
-            if matches!(ret_ty, JitTy::Unit) {
-                Ok(None)
-            } else {
-                Ok(Some((b.inst_results(call)[0], ret_ty)))
-            }
+            Ok(Some((ptr, JitTy::Object(class_id))))
         }
         _ => Err(CodegenError::Unsupported {
             what: format!("expression {:?}", std::mem::discriminant(&e.kind)),
@@ -598,6 +963,45 @@ fn lower_expr(
         }),
     }
 }
+
+fn call_method(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    class_id: u32,
+    method: &str,
+    this_v: Value,
+    args: &[Expr],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let info = lc.class_methods[class_id as usize]
+        .get(method)
+        .cloned()
+        .ok_or_else(|| CodegenError::Unsupported {
+            what: format!(
+                "method {method:?} not found on class {:?}",
+                lc.class_layouts[class_id as usize].name
+            ),
+            span,
+        })?;
+    let mut arg_vals = Vec::with_capacity(args.len() + 1);
+    arg_vals.push(this_v);
+    for (i, a) in args.iter().enumerate() {
+        let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "argument is unit".into(),
+            span: a.span,
+        })?;
+        arg_vals.push(coerce(b, (av, at), info.params[i], a.span)?);
+    }
+    let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+    let call = b.ins().call(func_ref, &arg_vals);
+    if matches!(info.ret, JitTy::Unit) {
+        Ok(None)
+    } else {
+        Ok(Some((b.inst_results(call)[0], info.ret)))
+    }
+}
+
+// ─── Operator lowering (numeric / bool — unchanged from before) ─────────
 
 fn lower_unary(
     b: &mut FunctionBuilder,
@@ -835,13 +1239,11 @@ fn lower_if(
     };
     match (then_val, else_val) {
         (Some((_, tt)), Some((ev, _et))) => {
-            // Coerce else value to then's type so the merge param matches.
             let ev_coerced = coerce(b, (ev, _et), tt, cond.span)?;
             b.ins().jump(merge, &[ev_coerced]);
-            // Track tt for the result.
             b.switch_to_block(merge);
             b.seal_block(merge);
-            return Ok(merge_param.map(|p| (p, tt)));
+            Ok(merge_param.map(|p| (p, tt)))
         }
         (Some((_, tt)), None) => {
             let zero = match tt.cl() {
@@ -852,13 +1254,13 @@ fn lower_if(
             b.ins().jump(merge, &[zero]);
             b.switch_to_block(merge);
             b.seal_block(merge);
-            return Ok(None);
+            Ok(None)
         }
         (None, _) => {
             b.ins().jump(merge, &[]);
             b.switch_to_block(merge);
             b.seal_block(merge);
-            return Ok(None);
+            Ok(None)
         }
     }
 }
@@ -914,9 +1316,6 @@ fn lower_loop(
     Ok(())
 }
 
-/// Convert a value from one numeric (or bool) type to another using the
-/// appropriate cranelift instruction. Panics if either side isn't a
-/// supported scalar — callers should validate first.
 fn coerce(
     b: &mut FunctionBuilder,
     (v, from): TV,
@@ -927,11 +1326,8 @@ fn coerce(
         return Ok(v);
     }
     let v = match (from, to) {
-        // Bool / int interchangeable (bool is i8 underneath).
         (JitTy::Bool, t) if t.is_int() => widen_int(b, v, 8, t, false),
         (t, JitTy::Bool) if t.is_int() => narrow_int(b, v, 8, t),
-        // Both integers — pick the right widening / narrowing instruction
-        // based on relative widths and the source's signedness.
         (a, c) if a.is_int() && c.is_int() => {
             let from_w = a.int_width();
             let to_w = c.int_width();
@@ -940,19 +1336,15 @@ fn coerce(
             } else if to_w < from_w {
                 narrow_int(b, v, to_w, c)
             } else {
-                // Same width, different signedness — bit-pattern preserved.
                 v
             }
         }
-        // Int → Float
         (a, JitTy::F32) if a.is_signed_int() => b.ins().fcvt_from_sint(F32, v),
         (a, JitTy::F32) if a.is_unsigned_int() => b.ins().fcvt_from_uint(F32, v),
         (a, JitTy::F64) if a.is_signed_int() => b.ins().fcvt_from_sint(F64, v),
         (a, JitTy::F64) if a.is_unsigned_int() => b.ins().fcvt_from_uint(F64, v),
-        // Float ↔ Float
         (JitTy::F32, JitTy::F64) => b.ins().fpromote(F64, v),
         (JitTy::F64, JitTy::F32) => b.ins().fdemote(F32, v),
-        // Float → Int — saturating cast, matches Rust's `as`.
         (a, c) if a.is_float() && c.is_signed_int() => {
             let cl = c.cl().expect("non-unit");
             b.ins().fcvt_to_sint_sat(cl, v)
@@ -974,12 +1366,11 @@ fn coerce(
 fn widen_int(
     b: &mut FunctionBuilder,
     v: Value,
-    from_width: u32,
+    _from_width: u32,
     to: JitTy,
     signed: bool,
 ) -> Value {
     let to_cl = to.cl().expect("non-unit");
-    let _ = from_width;
     if signed {
         b.ins().sextend(to_cl, v)
     } else {

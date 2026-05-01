@@ -162,3 +162,79 @@ fn unsigned_arithmetic_uses_unsigned_ops() {
         JitValue::Bool(true)
     );
 }
+
+#[test]
+fn class_basic_counter() {
+    let src = r#"
+        class Counter {
+            count: i64
+            init(start: i64) { this.count = start }
+            increment(): i64 {
+                this.count = this.count + 1
+                this.count
+            }
+            get(): i64 { this.count }
+        }
+        let c = new Counter(10)
+        c.increment()
+        c.increment()
+        c.get()
+    "#;
+    assert_eq!(jit(src), JitValue::I64(12));
+}
+
+#[test]
+fn class_implicit_this() {
+    let src = r#"
+        class Point {
+            x: i64
+            y: i64
+            init(a: i64, b: i64) { this.x = a; this.y = b }
+            sum(): i64 { x + y }
+            scale(k: i64) { x = x * k; y = y * k }
+        }
+        let p = new Point(3, 4)
+        p.scale(10)
+        p.sum()
+    "#;
+    assert_eq!(jit(src), JitValue::I64(70));
+}
+
+#[test]
+fn class_mixed_field_types() {
+    let src = r#"
+        class Mixed {
+            a: i32
+            b: f64
+            c: bool
+            init() { this.a = 100; this.b = 3.14; this.c = true }
+            show(): i32 { a }
+        }
+        new Mixed().show()
+    "#;
+    assert_eq!(jit(src), JitValue::I32(100));
+}
+
+#[test]
+fn class_method_calls_method() {
+    let src = r#"
+        class Calc {
+            n: i64
+            init(x: i64) { this.n = x }
+            doubled(): i64 { n * 2 }
+            quadrupled(): i64 { doubled() * 2 }
+        }
+        new Calc(5).quadrupled()
+    "#;
+    assert_eq!(jit(src), JitValue::I64(20));
+}
+
+#[test]
+fn class_returned_as_object() {
+    let src = r#"
+        class P { init() {} }
+        new P()
+    "#;
+    let v = jit(src);
+    assert!(matches!(v, JitValue::Object { ref class, .. } if class == "P"));
+}
