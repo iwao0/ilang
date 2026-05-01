@@ -174,6 +174,32 @@ fn line_comment_preserves_newline_for_asi() {
 }
 
 #[test]
+fn block_comment_skipped_inline() {
+    assert_eq!(
+        kinds("1 /* hi */ + 2"),
+        vec![TokenKind::Int(1), TokenKind::Plus, TokenKind::Int(2), TokenKind::Eof],
+    );
+}
+
+#[test]
+fn block_comment_nested() {
+    // A `/* ... */` inside another doesn't end the outer one.
+    assert_eq!(
+        kinds("1 /* outer /* inner */ still */ 2"),
+        vec![TokenKind::Int(1), TokenKind::Int(2), TokenKind::Eof],
+    );
+}
+
+#[test]
+fn block_comment_with_newline_preserves_asi() {
+    // A multi-line block comment should still set leading_newline on
+    // the next token so JS-style stmt termination keeps working.
+    let toks = tokenize("1\n/* foo\nbar */ 2").unwrap();
+    let two = toks.iter().find(|t| matches!(t.kind, TokenKind::Int(2))).unwrap();
+    assert!(two.leading_newline);
+}
+
+#[test]
 fn slash_division_still_works() {
     assert_eq!(
         kinds("10 / 2"),

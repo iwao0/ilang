@@ -94,6 +94,37 @@ impl<'a> Lexer<'a> {
                         self.bump();
                     }
                 }
+                // Block comment: `/* ... */`. Nestable (Rust-style) so
+                // commenting out a region that already contains
+                // `/* ... */` works. Newlines inside still set
+                // `pending_newline` to keep ASI behavior unsurprising.
+                Some('/') if self.peek_second() == Some('*') => {
+                    self.bump(); // /
+                    self.bump(); // *
+                    let mut depth: u32 = 1;
+                    while depth > 0 {
+                        match self.peek() {
+                            None => break, // unterminated; leave for the next token to surface
+                            Some('/') if self.peek_second() == Some('*') => {
+                                self.bump();
+                                self.bump();
+                                depth += 1;
+                            }
+                            Some('*') if self.peek_second() == Some('/') => {
+                                self.bump();
+                                self.bump();
+                                depth -= 1;
+                            }
+                            Some('\n') => {
+                                self.pending_newline = true;
+                                self.bump();
+                            }
+                            Some(_) => {
+                                self.bump();
+                            }
+                        }
+                    }
+                }
                 _ => break,
             }
         }
