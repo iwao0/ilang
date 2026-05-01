@@ -60,5 +60,8 @@ ilang/
   - 関数定義 (Rust 風 `fn`)
   - **capability システムの骨組み** (ライブラリ単位の `net`/`file` 権限) ← サプライチェーン攻撃対策の核
 - ネイティブコード化のロードマップ:
-  - `ilang-mir` を挟んでから `ilang-codegen-llvm` (inkwell) を追加する想定
-  - Cranelift も比較候補
+  - **第一候補は Cranelift** (Rust 製、`cargo build` だけで完結、JIT 起動が速い)
+    - `ilang-mir` を挟んでから `ilang-codegen-cranelift` crate を追加
+    - REPL の高速化と AOT ビルドの両方に利用
+  - LLVM (inkwell) は後付けの最適化バックエンドとして検討 (リリースビルド用)
+  - 採用理由: フェーズ初期は実装コストとビルド時間を優先。LLVM は最適化が必要になった段階で第二バックエンドとして追加できるよう、コード生成インタフェースを抽象化しておく
