@@ -148,6 +148,11 @@ impl Interpreter {
             }
             ExprKind::Field { obj, name } => {
                 let v = self.eval_expr(obj)?;
+                if let Value::Array(arr) = &v {
+                    if name == "length" {
+                        return Ok(Value::Int(arr.borrow().len() as i64));
+                    }
+                }
                 let o = expect_object(v, obj.span)?;
                 let o = o.borrow();
                 o.fields.get(name).cloned().ok_or_else(|| {
@@ -160,6 +165,19 @@ impl Interpreter {
             }
             ExprKind::MethodCall { obj, method, args } => {
                 let v = self.eval_expr(obj)?;
+                if let Value::Array(arr) = &v {
+                    if method == "push" {
+                        // Type checker enforced arity 1 and dynamic-only.
+                        let val = self.eval_expr(&args[0])?;
+                        arr.borrow_mut().push(val);
+                        return Ok(Value::Unit);
+                    }
+                    return Err(RuntimeError::UnknownMethod {
+                        class: "array".into(),
+                        method: method.clone(),
+                        span,
+                    });
+                }
                 let o = expect_object(v, obj.span)?;
                 self.call_method(o, method, args, span)
             }
@@ -225,6 +243,44 @@ impl Interpreter {
             ExprKind::Cast { expr: inner, ty } => {
                 let v = self.eval_expr(inner)?;
                 Ok(cast_value(v, ty))
+            }
+            ExprKind::Array(elements) => {
+                let mut vals = Vec::with_capacity(elements.len());
+                for e in elements {
+                    vals.push(self.eval_expr(e)?);
+                }
+                Ok(Value::Array(Rc::new(RefCell::new(vals))))
+            }
+            ExprKind::Index { obj, index } => {
+                let target = self.eval_expr(obj)?;
+                let idx = self.eval_expr(index)?;
+                let i = index_to_usize(idx, index.span)?;
+                let arr = expect_array(target, obj.span)?;
+                let arr = arr.borrow();
+                arr.get(i)
+                    .cloned()
+                    .ok_or_else(|| RuntimeError::TypeError {
+                        msg: format!("array index {} out of bounds (length {})", i, arr.len()),
+                        span,
+                    })
+            }
+            ExprKind::AssignIndex { obj, index, value } => {
+                let target = self.eval_expr(obj)?;
+                let idx = self.eval_expr(index)?;
+                let i = index_to_usize(idx, index.span)?;
+                let v = self.eval_expr(value)?;
+                let arr = expect_array(target, obj.span)?;
+                let mut arr = arr.borrow_mut();
+                if i >= arr.len() {
+                    return Err(RuntimeError::TypeError {
+                        msg: format!("array index {} out of bounds (length {})", i, arr.len()),
+                        span,
+                    });
+                }
+                let old = std::mem::replace(&mut arr[i], v);
+                drop(arr);
+                self.release(old);
+                Ok(Value::Unit)
             }
             ExprKind::AssignField { obj, field, value } => {
                 let v = self.eval_expr(value)?;
@@ -438,4 +494,45 @@ fn expect_object(v: Value, span: Span) -> Result<ObjectRef, RuntimeError> {
             span,
         }),
     }
+}
+
+fn expect_array(
+    v: Value,
+    span: Span,
+) -> Result<Rc<RefCell<Vec<Value>>>, RuntimeError> {
+    match v {
+        Value::Array(a) => Ok(a),
+        other => Err(RuntimeError::TypeError {
+            msg: format!("expected an array, got {other}"),
+            span,
+        }),
+    }
+}
+
+/// Coerce any int-shaped `Value` into a `usize` for indexing. Negative
+/// indices are rejected (we don't yet do Python-style wrap-around).
+fn index_to_usize(v: Value, span: Span) -> Result<usize, RuntimeError> {
+    let n: i128 = match v {
+        Value::Int8(n) => n as i128,
+        Value::Int16(n) => n as i128,
+        Value::Int32(n) => n as i128,
+        Value::Int(n) => n as i128,
+        Value::UInt8(n) => n as i128,
+        Value::UInt16(n) => n as i128,
+        Value::UInt32(n) => n as i128,
+        Value::UInt64(n) => n as i128,
+        other => {
+            return Err(RuntimeError::TypeError {
+                msg: format!("array index must be an integer, got {other}"),
+                span,
+            });
+        }
+    };
+    if n < 0 {
+        return Err(RuntimeError::TypeError {
+            msg: format!("negative array index: {n}"),
+            span,
+        });
+    }
+    Ok(n as usize)
 }

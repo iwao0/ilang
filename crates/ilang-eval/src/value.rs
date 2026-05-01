@@ -27,6 +27,10 @@ pub enum Value {
     Bool(bool),
     /// Immutable UTF-8 string. Wrapped in `Rc` so passing/cloning is cheap.
     Str(Rc<String>),
+    /// Array shared via `Rc<RefCell<...>>` (ARC). Element vector is
+    /// mutable in place — mutation through one binding is visible to all
+    /// aliases, matching the JS array model.
+    Array(Rc<RefCell<Vec<Value>>>),
     Unit,
     Object(ObjectRef),
 }
@@ -58,6 +62,17 @@ impl std::fmt::Display for Value {
             }
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(s) => write!(f, "{s}"),
+            Value::Array(arr) => {
+                let arr = arr.borrow();
+                write!(f, "[")?;
+                for (i, v) in arr.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
             Value::Unit => write!(f, "()"),
             Value::Object(o) => {
                 let o = o.borrow();

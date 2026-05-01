@@ -105,6 +105,19 @@ pub enum ExprKind {
         expr: Box<Expr>,
         ty: crate::types::Type,
     },
+    /// Array literal: `[a, b, c]`.
+    Array(Vec<Expr>),
+    /// Index read: `obj[idx]`.
+    Index {
+        obj: Box<Expr>,
+        index: Box<Expr>,
+    },
+    /// Index write: `obj[idx] = value`.
+    AssignIndex {
+        obj: Box<Expr>,
+        index: Box<Expr>,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

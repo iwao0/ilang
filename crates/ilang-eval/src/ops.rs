@@ -373,6 +373,24 @@ pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
                 .map(|n| n as f64)
                 .unwrap_or_else(|| from_float.unwrap_or(0.0)),
         ),
+        // For an array target, deep-cast each element. This keeps the
+        // runtime representation aligned with the declared element type
+        // (e.g. `let a: i32[] = [1, 2]` actually stores `Int32` values).
+        // A fresh `Rc` is allocated, so an annotated re-binding does not
+        // alias with the source.
+        Type::Array { elem, .. } => {
+            if let Value::Array(arr) = v {
+                let casted: Vec<Value> = arr
+                    .borrow()
+                    .iter()
+                    .cloned()
+                    .map(|el| cast_value(el, elem))
+                    .collect();
+                Value::Array(std::rc::Rc::new(std::cell::RefCell::new(casted)))
+            } else {
+                v
+            }
+        }
         _ => v,
     }
 }

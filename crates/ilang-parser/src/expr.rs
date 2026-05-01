@@ -86,6 +86,14 @@ impl<'a> Parser<'a> {
                         },
                         lhs_span,
                     ),
+                    ExprKind::Index { obj, index } => Expr::new(
+                        ExprKind::AssignIndex {
+                            obj,
+                            index,
+                            value: Box::new(value),
+                        },
+                        lhs_span,
+                    ),
                     _ => {
                         return Err(ParseError::InvalidAssignTarget { span: eq_tok.span });
                     }
@@ -178,6 +186,33 @@ impl<'a> Parser<'a> {
     /// Apply postfix `.field` / `.method(args)` chains, repeatedly, to a
     /// parsed primary expression.
     fn parse_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
+        loop {
+            match self.peek().kind {
+                TokenKind::LBracket => {
+                    self.bump();
+                    let index = self.parse_expr(0)?;
+                    self.expect(&TokenKind::RBracket, "']'")?;
+                    let span = expr.span;
+                    expr = Expr::new(
+                        ExprKind::Index {
+                            obj: Box::new(expr),
+                            index: Box::new(index),
+                        },
+                        span,
+                    );
+                }
+                TokenKind::Dot => {
+                    expr = self.parse_dot_postfix(expr)?;
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    /// One iteration of `.field` / `.method(args)`. Caller's loop drives
+    /// repetition so dot and index chains can interleave (`a[0].x`).
+    fn parse_dot_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
         while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             let name = self.expect_ident("field or method name")?;
@@ -370,6 +405,22 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace => {
                 let block = parse_block(self)?;
                 Ok(Expr::new(ExprKind::Block(block), span))
+            }
+            TokenKind::LBracket => {
+                self.bump();
+                let mut elements = Vec::new();
+                if !matches!(self.peek().kind, TokenKind::RBracket) {
+                    loop {
+                        elements.push(self.parse_expr(0)?);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&TokenKind::RBracket, "']'")?;
+                Ok(Expr::new(ExprKind::Array(elements), span))
             }
             other => Err(ParseError::Unexpected {
                 found: other,

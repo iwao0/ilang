@@ -396,3 +396,43 @@ fn string_typechecks() {
         Err(TypeError::BadBinary { .. })
     ));
 }
+
+#[test]
+fn array_typechecks() {
+    assert!(matches!(
+        ty("[1, 2, 3]").unwrap(),
+        Type::Array { .. }
+    ));
+    assert!(ty("let a: i32[] = [1, 2, 3]; a").is_ok());
+    assert!(ty("let a: i32[3] = [1, 2, 3]; a").is_ok());
+}
+
+#[test]
+fn array_length_mismatch_rejected() {
+    assert!(matches!(
+        ty("let a: i32[5] = [1, 2, 3]"),
+        Err(TypeError::Mismatch { .. })
+    ));
+}
+
+#[test]
+fn array_heterogeneous_rejected() {
+    assert!(matches!(
+        ty(r#"[1, "hello"]"#),
+        Err(TypeError::Mismatch { .. })
+    ));
+}
+
+#[test]
+fn push_on_fixed_array_rejected() {
+    let src = "let a: i32[3] = [1, 2, 3]; a.push(4)";
+    assert!(matches!(ty(src), Err(TypeError::Mismatch { .. })));
+}
+
+#[test]
+fn array_index_must_be_int() {
+    assert!(matches!(
+        ty("let a: i32[] = [1]; a[1.5]"),
+        Err(TypeError::Mismatch { .. })
+    ));
+}

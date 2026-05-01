@@ -758,3 +758,63 @@ fn numeric_suffix_float() {
     assert_eq!(run("1.5f32").unwrap(), Value::Float32(1.5));
     assert_eq!(run("2.0_f64 + 1.0_f64").unwrap(), Value::Float(3.0));
 }
+
+#[test]
+fn array_literal_index_length() {
+    assert_eq!(
+        run("let a: i32[] = [1, 2, 3]; a.length").unwrap(),
+        Value::Int(3)
+    );
+    assert_eq!(
+        run("let a: i32[] = [10, 20, 30]; a[1]").unwrap(),
+        Value::Int32(20)
+    );
+}
+
+#[test]
+fn array_index_assignment() {
+    // run() skips type-checking, so the assigned literal `100` retains
+    // its natural i64 representation. The full pipeline (CLI) verifies
+    // the literal fits the declared element type.
+    let src = "let a: i32[] = [1, 2, 3]; a[0] = 100; a[0]";
+    assert_eq!(run(src).unwrap(), Value::Int(100));
+}
+
+#[test]
+fn array_push_grows_dynamic_array() {
+    let src = "let a: i32[] = [1]; a.push(2); a.push(3); a.length";
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn fixed_length_array() {
+    assert_eq!(
+        run("let a: i32[3] = [10, 20, 30]; a.length").unwrap(),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn nested_array() {
+    let src = "let m: i32[][] = [[1, 2], [3, 4]]; m[1][0]";
+    assert_eq!(run(src).unwrap(), Value::Int32(3));
+}
+
+#[test]
+fn out_of_bounds_index_errors() {
+    let src = "let a: i32[] = [1]; a[5]";
+    assert!(matches!(
+        run(src),
+        Err(RuntimeError::TypeError { msg, .. }) if msg.contains("out of bounds")
+    ));
+}
+
+#[test]
+fn negative_array_index_errors() {
+    // (0 - 1) is i64 = -1; index_to_usize rejects negatives.
+    let src = "let a: i32[] = [1, 2]; a[0 - 1]";
+    assert!(matches!(
+        run(src),
+        Err(RuntimeError::TypeError { msg, .. }) if msg.contains("negative")
+    ));
+}

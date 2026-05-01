@@ -17,6 +17,30 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
     if assignable(vt, target) {
         return true;
     }
+    // Array literal → array type. Lets `let a: i32[] = [1, 2, 3]` work
+    // even though the literal's natural element type is i64, and lets
+    // `let a: i32[3] = [1, 2, 3]` match a fixed-length annotation.
+    if let (
+        ExprKind::Array(elements),
+        Type::Array {
+            elem: target_elem,
+            fixed: target_fixed,
+        },
+    ) = (&value.kind, target)
+    {
+        if let Some(n) = target_fixed {
+            if elements.len() != *n {
+                return false;
+            }
+        }
+        let vt_elem = match vt {
+            Type::Array { elem, .. } => elem.clone(),
+            _ => return false,
+        };
+        return elements
+            .iter()
+            .all(|e| literal_assignable(e, &vt_elem, target_elem));
+    }
     if let ExprKind::Int(n) = &value.kind {
         if target.is_int() {
             return int_literal_fits(*n, target);
@@ -177,13 +201,19 @@ impl TypeChecker {
     }
 
     fn validate_type(&self, t: &Type, span: Span) -> Result<(), TypeError> {
-        if let Type::Object(name) = t {
-            if !self.classes.contains_key(name) {
-                return Err(TypeError::UndefinedClass {
-                    name: name.clone(),
-                    span,
-                });
+        match t {
+            Type::Object(name) => {
+                if !self.classes.contains_key(name) {
+                    return Err(TypeError::UndefinedClass {
+                        name: name.clone(),
+                        span,
+                    });
+                }
             }
+            Type::Array { elem, .. } => {
+                self.validate_type(elem, span)?;
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -323,6 +353,10 @@ impl TypeChecker {
             }
             ExprKind::Field { obj, name } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                // Built-in property: every array exposes `length: i64`.
+                if matches!(ot, Type::Array { .. }) && name == "length" {
+                    return Ok(Type::I64);
+                }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
@@ -343,6 +377,43 @@ impl TypeChecker {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                // Built-in array methods.
+                if let Type::Array { elem, fixed } = &ot {
+                    if method == "push" {
+                        if fixed.is_some() {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Array {
+                                    elem: elem.clone(),
+                                    fixed: None,
+                                },
+                                got: ot.clone(),
+                                span,
+                            });
+                        }
+                        if args.len() != 1 {
+                            return Err(TypeError::ArityMismatch {
+                                name: "push".into(),
+                                expected: 1,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        let at = self.check_expr(&args[0], env, in_class, loop_depth)?;
+                        if !literal_assignable(&args[0], &at, elem) {
+                            return Err(TypeError::Mismatch {
+                                expected: (**elem).clone(),
+                                got: at,
+                                span: args[0].span,
+                            });
+                        }
+                        return Ok(Type::Unit);
+                    }
+                    return Err(TypeError::UnknownMethod {
+                        class: format!("{ot}"),
+                        method: method.clone(),
+                        span,
+                    });
+                }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
@@ -502,6 +573,91 @@ impl TypeChecker {
                     name: target.clone(),
                     span,
                 })
+            }
+            ExprKind::Array(elements) => {
+                if elements.is_empty() {
+                    // No elements → element type is unknown. The user must
+                    // annotate the binding (`let a: i32[] = []`) so the
+                    // outer literal_assignable path handles this.
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: Box::new(Type::Any),
+                            fixed: None,
+                        },
+                        got: Type::Unit,
+                        span,
+                    });
+                }
+                let first_ty = self.check_expr(&elements[0], env, in_class, loop_depth)?;
+                for e in &elements[1..] {
+                    let et = self.check_expr(e, env, in_class, loop_depth)?;
+                    if !literal_assignable(e, &et, &first_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: first_ty.clone(),
+                            got: et,
+                            span: e.span,
+                        });
+                    }
+                }
+                Ok(Type::Array {
+                    elem: Box::new(first_ty),
+                    fixed: Some(elements.len()),
+                })
+            }
+            ExprKind::Index { obj, index } => {
+                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                let it = self.check_expr(index, env, in_class, loop_depth)?;
+                if !it.is_int() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::I64,
+                        got: it,
+                        span: index.span,
+                    });
+                }
+                match ot {
+                    Type::Array { elem, .. } => Ok((*elem).clone()),
+                    other => Err(TypeError::Mismatch {
+                        expected: Type::Array {
+                            elem: Box::new(Type::Any),
+                            fixed: None,
+                        },
+                        got: other,
+                        span: obj.span,
+                    }),
+                }
+            }
+            ExprKind::AssignIndex { obj, index, value } => {
+                let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                let it = self.check_expr(index, env, in_class, loop_depth)?;
+                if !it.is_int() {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::I64,
+                        got: it,
+                        span: index.span,
+                    });
+                }
+                let elem_ty = match &ot {
+                    Type::Array { elem, .. } => (**elem).clone(),
+                    other => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Array {
+                                elem: Box::new(Type::Any),
+                                fixed: None,
+                            },
+                            got: other.clone(),
+                            span: obj.span,
+                        });
+                    }
+                };
+                let vt = self.check_expr(value, env, in_class, loop_depth)?;
+                if !literal_assignable(value, &vt, &elem_ty) {
+                    return Err(TypeError::Mismatch {
+                        expected: elem_ty,
+                        got: vt,
+                        span: value.span,
+                    });
+                }
+                Ok(Type::Unit)
             }
             ExprKind::Cast { expr: inner, ty } => {
                 let from = self.check_expr(inner, env, in_class, loop_depth)?;

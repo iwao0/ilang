@@ -222,30 +222,58 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
         let t = self.peek().clone();
-        match t.kind {
+        let mut ty = match t.kind {
             TokenKind::Ident(n) => {
                 self.bump();
                 match n.as_str() {
-                    "i8" => Ok(Type::I8),
-                    "i16" => Ok(Type::I16),
-                    "i32" => Ok(Type::I32),
-                    "i64" => Ok(Type::I64),
-                    "u8" => Ok(Type::U8),
-                    "u16" => Ok(Type::U16),
-                    "u32" => Ok(Type::U32),
-                    "u64" => Ok(Type::U64),
-                    "f32" => Ok(Type::F32),
-                    "f64" => Ok(Type::F64),
-                    "bool" => Ok(Type::Bool),
-                    "string" => Ok(Type::Str),
-                    _ => Ok(Type::Object(n)),
+                    "i8" => Type::I8,
+                    "i16" => Type::I16,
+                    "i32" => Type::I32,
+                    "i64" => Type::I64,
+                    "u8" => Type::U8,
+                    "u16" => Type::U16,
+                    "u32" => Type::U32,
+                    "u64" => Type::U64,
+                    "f32" => Type::F32,
+                    "f64" => Type::F64,
+                    "bool" => Type::Bool,
+                    "string" => Type::Str,
+                    _ => Type::Object(n),
                 }
             }
-            other => Err(ParseError::Unexpected {
-                found: other,
-                expected: "type name".into(),
-                span: t.span,
-            }),
+            other => {
+                return Err(ParseError::Unexpected {
+                    found: other,
+                    expected: "type name".into(),
+                    span: t.span,
+                });
+            }
+        };
+        // Array postfix: `T[]` (dynamic) or `T[N]` (fixed length, N a
+        // non-negative integer literal). Chains: `T[][]` etc.
+        while matches!(self.peek().kind, TokenKind::LBracket) {
+            self.bump();
+            let fixed = match self.peek().kind {
+                TokenKind::RBracket => None,
+                TokenKind::Int(n) if n >= 0 => {
+                    self.bump();
+                    Some(n as usize)
+                }
+                _ => {
+                    let p = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: p.kind.clone(),
+                        expected: "']' or non-negative integer literal".into(),
+                        span: p.span,
+                    });
+                }
+            };
+            self.expect(&TokenKind::RBracket, "']'")?;
+            ty = Type::Array {
+                elem: Box::new(ty),
+                fixed,
+            };
         }
+        Ok(ty)
     }
 }

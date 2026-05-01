@@ -11,6 +11,16 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if matches!(to, Type::Any) {
         return true;
     }
+    // Arrays: element types must match exactly. Fixed lengths must agree;
+    // there is intentionally no implicit conversion between fixed and
+    // dynamic arrays (use a copy/conversion when explicit ones land).
+    if let (
+        Type::Array { elem: e1, fixed: f1 },
+        Type::Array { elem: e2, fixed: f2 },
+    ) = (from, to)
+    {
+        return e1 == e2 && f1 == f2;
+    }
     // Same-signedness ints convert freely (widening or narrowing).
     if from.is_signed_int() && to.is_signed_int() {
         return true;
