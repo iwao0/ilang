@@ -71,6 +71,15 @@ impl TypeChecker {
             self.validate_type(ty, *span)?;
         }
         for m in &c.methods {
+            // `deinit` is the destructor: zero params, no return value (or
+            // explicit Unit). Anything else would be a footgun since the
+            // runtime calls it with no arguments and discards the result.
+            if m.name == "deinit"
+                && (!m.params.is_empty()
+                    || matches!(&m.ret, Some(t) if *t != Type::Unit))
+            {
+                return Err(TypeError::BadDeinitSignature { span: m.span });
+            }
             self.check_fn(m, Some(&c.name))?;
         }
         Ok(())
@@ -220,6 +229,9 @@ impl TypeChecker {
                 Ok(Type::Bool)
             }
             ExprKind::Call { callee, args } => {
+                if callee == "deinit" {
+                    return Err(TypeError::CannotCallDeinit { span });
+                }
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(sig) = cls.methods.get(callee).cloned() {
@@ -255,6 +267,9 @@ impl TypeChecker {
                 })
             }
             ExprKind::MethodCall { obj, method, args } => {
+                if method == "deinit" {
+                    return Err(TypeError::CannotCallDeinit { span });
+                }
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {

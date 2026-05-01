@@ -282,3 +282,27 @@ fn type_error_carries_span() {
     let s = format!("{err}");
     assert!(s.starts_with("[1:9]:"), "got: {s}");
 }
+
+#[test]
+fn deinit_explicit_call_rejected() {
+    let src = "class T { init() {} deinit() {} } new T().deinit()";
+    assert!(matches!(ty(src), Err(TypeError::CannotCallDeinit { .. })));
+}
+
+#[test]
+fn deinit_with_params_rejected() {
+    let src = "class T { init() {} deinit(x: i64) {} } new T()";
+    assert!(matches!(
+        ty(src),
+        Err(TypeError::BadDeinitSignature { .. })
+    ));
+}
+
+#[test]
+fn deinit_with_return_rejected() {
+    let src = "class T { init() {} deinit(): i64 { 1 } } new T()";
+    assert!(matches!(
+        ty(src),
+        Err(TypeError::BadDeinitSignature { .. })
+    ));
+}

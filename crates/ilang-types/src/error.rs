@@ -51,6 +51,10 @@ pub enum TypeError {
     BreakOutsideLoop { span: Span },
     #[error("{span}: `continue` used outside of a loop")]
     ContinueOutsideLoop { span: Span },
+    #[error("{span}: `deinit` cannot be called explicitly (it runs automatically when the binding goes out of scope)")]
+    CannotCallDeinit { span: Span },
+    #[error("{span}: `deinit` must take no parameters and return ()")]
+    BadDeinitSignature { span: Span },
 }
 
 impl TypeError {
@@ -68,7 +72,9 @@ impl TypeError {
             | TypeError::UnknownMethod { span, .. }
             | TypeError::ThisOutsideMethod { span }
             | TypeError::BreakOutsideLoop { span }
-            | TypeError::ContinueOutsideLoop { span } => *span,
+            | TypeError::ContinueOutsideLoop { span }
+            | TypeError::CannotCallDeinit { span }
+            | TypeError::BadDeinitSignature { span } => *span,
         }
     }
 }

@@ -183,11 +183,17 @@ impl Interpreter {
             ExprKind::Assign { target, value } => {
                 let v = self.eval_expr(value)?;
                 if self.vars.contains_key(target) {
-                    self.vars.insert(target.clone(), v);
+                    let old = self.vars.insert(target.clone(), v);
+                    if let Some(o) = old {
+                        self.release(o);
+                    }
                     return Ok(Value::Unit);
                 }
                 if let Some(this) = self.this.clone() {
-                    this.borrow_mut().fields.insert(target.clone(), v);
+                    let old = this.borrow_mut().fields.insert(target.clone(), v);
+                    if let Some(o) = old {
+                        self.release(o);
+                    }
                     return Ok(Value::Unit);
                 }
                 Err(RuntimeError::UndefinedVariable {
@@ -199,7 +205,10 @@ impl Interpreter {
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
                 let target = expect_object(target, obj.span)?;
-                target.borrow_mut().fields.insert(field.clone(), v);
+                let old = target.borrow_mut().fields.insert(field.clone(), v);
+                if let Some(o) = old {
+                    self.release(o);
+                }
                 Ok(Value::Unit)
             }
         }
@@ -225,16 +234,40 @@ impl Interpreter {
             last = self.eval_expr(tail)?;
         }
         while let Some((name, prev)) = shadows.pop() {
-            match prev {
-                Some(v) => {
-                    self.vars.insert(name, v);
-                }
-                None => {
-                    self.vars.remove(&name);
-                }
+            // Restore the prior binding (or remove it). The displaced value
+            // — the one this `let` introduced into scope — is then released
+            // so its `deinit` runs if no other binding still points to it.
+            let outgoing = match prev {
+                Some(v) => self.vars.insert(name, v),
+                None => self.vars.remove(&name),
+            };
+            if let Some(v) = outgoing {
+                self.release(v);
             }
         }
         Ok(last)
+    }
+
+    /// Drop a value that is leaving scope. If it's an object whose only
+    /// remaining strong reference was the binding we just removed, the
+    /// class's `deinit` (if any) runs before the underlying allocation is
+    /// dropped. Errors raised inside `deinit` are reported to stderr and
+    /// swallowed — destructors must not surface failures up the stack.
+    fn release(&mut self, v: Value) {
+        let Value::Object(obj) = v else { return };
+        if Rc::strong_count(&obj) != 1 {
+            return;
+        }
+        let class_name = obj.borrow().class.clone();
+        let Some(cls) = self.classes.get(&class_name).cloned() else {
+            return;
+        };
+        let Some(deinit) = cls.methods.iter().find(|m| m.name == "deinit").cloned() else {
+            return;
+        };
+        if let Err(e) = self.invoke("deinit", &deinit, vec![], Some(obj.clone()), deinit.span) {
+            eprintln!("error in deinit for {class_name}: {e}");
+        }
     }
 
     fn call_fn(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, RuntimeError> {

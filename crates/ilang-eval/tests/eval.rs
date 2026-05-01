@@ -446,3 +446,70 @@ fn runtime_error_carries_span() {
     let s = format!("{err}");
     assert!(s.starts_with("[1:1]:"), "got: {s}");
 }
+
+#[test]
+fn deinit_runs_at_scope_exit() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        {
+            let _t = new Tracked(counter)
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}
+
+#[test]
+fn deinit_skipped_when_aliased() {
+    // `b` goes out of scope but `a` still holds the only strong reference.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        let a = new Tracked(counter)
+        {
+            let _b = a
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(0));
+}
+
+#[test]
+fn deinit_runs_on_assignment_overwrite() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        let t = new Tracked(counter)
+        t = new Tracked(counter)
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}
