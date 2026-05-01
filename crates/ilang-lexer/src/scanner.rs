@@ -63,16 +63,37 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(c) = self.peek() {
-            if c.is_whitespace() {
-                if c == '\n' {
-                    self.pending_newline = true;
+        loop {
+            match self.peek() {
+                Some(c) if c.is_whitespace() => {
+                    if c == '\n' {
+                        self.pending_newline = true;
+                    }
+                    self.bump();
                 }
-                self.bump();
-            } else {
-                break;
+                // Line comment: `// ...` to end of line. The `\n` itself
+                // (if any) is left for the whitespace branch above so it
+                // still sets `pending_newline`, preserving JS-style ASI.
+                Some('/') if self.peek_second() == Some('/') => {
+                    self.bump();
+                    self.bump();
+                    while let Some(c) = self.peek() {
+                        if c == '\n' {
+                            break;
+                        }
+                        self.bump();
+                    }
+                }
+                _ => break,
             }
         }
+    }
+
+    fn peek_second(&mut self) -> Option<char> {
+        // Need to materialize the first peeked char first so the underlying
+        // iterator advances to the second one.
+        let _ = self.peek();
+        self.chars.clone().next()
     }
 
     fn next_token(&mut self) -> Result<Token, LexError> {

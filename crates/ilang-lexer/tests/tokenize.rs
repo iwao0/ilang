@@ -146,3 +146,42 @@ fn lex_error_format_starts_with_span() {
     let s = format!("{err}");
     assert!(s.starts_with("[1:1]:"), "got: {s}");
 }
+
+#[test]
+fn line_comment_skipped() {
+    assert_eq!(
+        kinds("1 // a comment\n2"),
+        vec![TokenKind::Int(1), TokenKind::Int(2), TokenKind::Eof],
+    );
+}
+
+#[test]
+fn line_comment_at_eof() {
+    assert_eq!(
+        kinds("1 // trailing"),
+        vec![TokenKind::Int(1), TokenKind::Eof],
+    );
+}
+
+#[test]
+fn line_comment_preserves_newline_for_asi() {
+    // The newline after the comment must still set leading_newline on the
+    // following token, otherwise `let x = 1 // foo\nlet y = 2` would parse
+    // as `let x = 1 let y = 2` and fail.
+    let toks = tokenize("1 // foo\n2").unwrap();
+    let two = toks.iter().find(|t| matches!(t.kind, TokenKind::Int(2))).unwrap();
+    assert!(two.leading_newline);
+}
+
+#[test]
+fn slash_division_still_works() {
+    assert_eq!(
+        kinds("10 / 2"),
+        vec![
+            TokenKind::Int(10),
+            TokenKind::Slash,
+            TokenKind::Int(2),
+            TokenKind::Eof,
+        ],
+    );
+}
