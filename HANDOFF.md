@@ -14,9 +14,10 @@
 
 実装言語: **Rust 1.95**。実行モデル: ツリーウォーク型インタプリタ + **Cranelift JIT** (`ilang run --jit`)。LLVM は後付け候補。
 
-## 現在地 (フェーズ6: Cranelift JIT + ARC Phase A-D 完了)
+## 現在地 (フェーズ6/7: Cranelift JIT + ARC Phase A-E + Optional/Weak 完了)
 
-最新コミット `d6e0d96` (`JIT ARC Phase D`)。**228 テスト** 全通過、警告ゼロ。
+最新コミット `3c7c2ee` (`docs: add syntax cheatsheet`)。**245 テスト** 全通過、警告ゼロ。
+構文一覧は [`docs/syntax.md`](docs/syntax.md) に集約済み。
 
 ### 完了フェーズ
 | フェーズ | 内容 | 代表コミット |
@@ -46,6 +47,10 @@
 | 6i | `ilang-codegen` を 11 ファイルに分割 (runtime/ty/value/env/arc/lower_*/compiler/drops) | `726784b` `405a500` `e85c246` |
 | 6j | **JIT ARC Phase C** (代入上書き release、関数引数/戻り値の厳密化、捨てられる中間値の release) | `ddf13cc` |
 | 6k | **JIT ARC Phase D** (フィールド/配列要素の再帰 release、`__drop_<C>` / `__drop_arr_<id>` JIT 生成) | `d6e0d96` |
+| 7a | **Optional `T?`** (interpreter): `none` / `some(x)` / `if let some(v) = x { ... }` / `is_some` / `is_none` / `unwrap` / `T → T?` 自動 wrap | `35a65a5` |
+| 7b | **Optional in JIT** (heap inner 限定): nullable pointer 表現、JitTy::Optional + 内部型 interning | `373af5f` |
+| 7c | **Weak `T.weak`** (interpreter): `Value::Weak`、`.get(): T?`、strong → weak 自動 downgrade、循環参照解消 | `7b98d15` |
+| 7d | **Weak in JIT** (二重 rc): object header 24 byte 化 (strong/weak/drop_fn)、release_object の sentinel weak +/- across drop_fn | `d2861e5` |
 
 ### 設計的な大幅整理
 - AST に `Span` を持たせて全エラーが `[row:col]` を出力 (`4c37a30`)
@@ -124,6 +129,8 @@ console.log(s)
 - その他: `bool`, `string`, `()` (Unit)
 - ユーザ定義: `Type::Object(class_name)` (クラス名と同一)
 - 配列: `T[]` (動的) と `T[N]` (固定長)
+- **Optional**: `T?` (= `Type::Optional(Box<T>)`) — `none` / `some(x)` / `if let some(v) = x` / `is_some` / `is_none` / `unwrap`。`T → T?` は暗黙 wrap
+- **Weak**: `T.weak` (= `Type::Weak(Box<Type::Object(_)>)`) — クラス専用。`.get(): T?` で生存時 upgrade。`Foo → Foo.weak` は暗黙 downgrade
 - 暗黙変換: 同一符号同士の整数間 / 整数 → 浮動 / float → float (両方向)。**符号またぎ** と **float → int** は `as` 必須
 - 数値リテラルサフィックス: `1_i32` `1.5f32` `0xff_u8` 等
 
@@ -176,25 +183,34 @@ console.log(s)
 - 文字列 (リテラル、`+`、`==` `!=`)
 - 配列 (`T[]`/`T[N]`/`a[i]`/`a.length`/`a.push(x)`)
 - `console.log(...)` (variadic、型別 FFI 関数で出力)
-- **ARC Phase A-D 全て完了**: object/string/array の refcount、retain/release の厳密化 (引数/戻り値/代入上書き/捨てられる中間値)、フィールド/配列要素の再帰 release (JIT 生成 `__drop_<C>` / `__drop_arr_<id>` ラッパで `deinit` 連鎖発火)
+- **Optional `T?`** (heap inner 限定 — Object/Str/Array/Weak): nullable pointer 表現、`none`/`some(x)`/`if let`/`is_some`/`is_none`/`unwrap`
+- **Weak `T.weak`**: 二重 rc、`.get(): T?` で安全 upgrade、循環参照解消
+- **ARC Phase A-E 全て完了**: refcount + retain/release の厳密化 + フィールド/要素の再帰 release + 循環参照解消
 
 ### JIT 未対応 (interpreter にフォールバック必要)
 - **継承** / 動的ディスパッチ (interpreter にも未実装)
-- 循環参照 (Weak ref なし — Phase E、未着手)
+- **Optional の primitive 内部** (`i64?` 等) — タグ付き 16 byte レイアウトが必要、未対応 (interpreter は OK)
 
 ### JIT メモリレイアウト
-- Object: `[rc: i64 | drop_fn_ptr: i64 | field0 | ...]` (ユーザポインタは field0 を指す。drop_fn は user `deinit` 呼び出し + heap field 再帰 release を担う JIT 生成ラッパ。trivial クラスは 0)
+- Object: `[strong_rc | weak_rc | drop_fn_ptr | field0 | ...]` (3 × i64 = 24 byte ヘッダ。ユーザポインタは field0 を指す)
+  - strong_rc=0 で drop_fn 発火 (user deinit + heap field 再帰 release)、storage は weak_rc=0 で解放
+  - weak_rc=0 かつ strong_rc=0 で storage 解放
 - String: `Box<StringRc { rc, s }>` (リテラルは saturated rc で保護、release では解放されない)
 - Array: `[rc | drop_fn | len | cap | data_ptr]` (5 × i64 = 40 byte) ヘッダ + 別領域データバッファ。drop_fn は要素ループで release を発火する JIT 生成ラッパ (heap 要素のときのみ非 0)
+- Optional<T>: T と同じ i64 ポインタ (0 = none)。inner 型情報は compiler の `optional_inners` 側テーブルで管理 (`JitTy::Optional(u32)`)
+- Weak<T>: T と同じ i64 ポインタ。retain/release は weak 側 helper にディスパッチ
 
 ### JIT 設計上の核心ルール
 - **caller 側で aliased な heap 引数を retain**、callee 側で param を関数出口で release (deinit の `this` は除く — `release_object` が lifecycle を持つので二重に release すると無限再帰)
 - ブロック終了時に新規 heap binding を **LIFO 順** で release (依存する binding が先に解放される問題を回避)
 - `let y = x` / 関数引数 / `obj.field = x` / `a[i] = x` で borrowed 元 (Var/Field/Index/This) なら retain (fresh 値はそのまま rc=1 を譲渡)
+- **`emit_bind_retain` ヘルパが bind 時 rc 調整を集約**: heap 一般則 + 「fresh strong → weak 変換時は retain_weak + release_strong」の特殊ケース
 - 代入上書き (`x = newval` / `obj.field = ...` / `a[i] = ...`) は **新値 retain → store → 旧値 release** の順でバランス維持
 - ブロック / `__main` の **tail retain は aliased heap 値のときだけ** (fresh tail は rc=1 のまま渡す。無条件に retain すると `fn f(): Foo { new Foo() }` が leak する)
 - str_concat / str_eq の fresh オペランドは呼び出し後に release
 - StmtKind::Expr で捨てられる fresh heap 値も release
+- **release_object は drop_fn 呼び出し中 weak_rc を sentinel +1**: drop_fn 中の back-edge weak 解放で自己 storage が早期解放されるのを防ぐ
+- **クラス宣言は 2 段階**: `declare_class_name` で名前→id だけ登録し、`finalize_class_layout` でフィールド型を解決。`Child { p: Parent.weak }` のような前方参照に対応
 
 ## 既知の制限 / TODO
 
@@ -210,25 +226,21 @@ console.log(s)
 - **`pop()` / 例外**: なし
 
 ### ARC / メモリ
-- JIT ARC は **Phase A-D 完了**。残る課題は循環参照 (Phase E)
+- ARC は **Phase A-E 完了** (Optional + Weak + 二重 rc)。`T.weak` で循環参照は解消可能
 - interpreter は scope-based deinit、JIT は refcount-based。両者で `deinit` の発火順序が完全には一致しないケースがある (interpreter は scope 内の到達順、JIT は rc=0 到達順)
+- JIT で `i64?` などの **primitive Optional** は未対応 (タグ付き 16 byte レイアウトが必要、interpreter は OK)
 
 ## 次の候補 (次フェーズの選択肢)
 
 ユーザーと相談して選ぶこと。現時点で未着手 / 未完のもの:
 
-### A. JIT ARC Phase E: 循環参照 / Weak 参照
-- 現状、`a.x = b; b.x = a` のような循環は両者の rc が 0 にならず両方リーク
-- Weak 参照型 (`weak Foo`) を導入: retain しないが、deref 時に「生きていれば借用」できる
-- Cycle detector は持たない (Swift 風) — ユーザーが weak を明示的に使う方針
-
-### B. capability の enforce ← **サプライチェーン対策の核 (元々の言語ビジョン)**
+### A. capability の enforce ← **サプライチェーン対策の核 (元々の言語ビジョン)**
 - 呼び出し側にも `#[requires(...)]` を要求するチェック
 - `use http_client with cap(net = env.net)` のような import 構文
 - クラスに capability を持たせる構文設計
 - MIR を挟むタイミングで一緒に入れるのが自然 (関数呼び出しグラフが扱いやすい)
 
-### C. 言語機能拡張
+### B. 言語機能拡張
 - `for-of` ループ / 配列メソッド (`pop`/`slice`)
 - 文字列メソッド (`length`/`charAt`/補間)
 - `return` 文 (早期 return)
@@ -236,6 +248,11 @@ console.log(s)
 - 継承 (`extends` / `super`) — 必要性を議論してから
 - 辞書型
 - `use` / モジュール / インポート (capability の前提でもある)
+
+### C. JIT の primitive Optional 対応
+- `i64?` / `bool?` 等を JIT で扱えるようにする
+- タグ付き 16 byte レイアウト or null sentinel (整数値のうち 1 つを none に予約)
+- 現状 interpreter にフォールバックで動作はする — 必要性は低め
 
 ### D. `ilang-mir` 中間表現 (未着手)
 現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower_*.rs` 群)。MIR を挟むと:
