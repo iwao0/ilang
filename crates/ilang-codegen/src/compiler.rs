@@ -22,8 +22,8 @@ use crate::runtime::{
     ilang_jit_array_push_f64, ilang_jit_array_push_i16, ilang_jit_array_push_i32,
     ilang_jit_array_push_i64, ilang_jit_array_push_i8, ilang_jit_print_bool,
     ilang_jit_print_f32, ilang_jit_print_f64, ilang_jit_print_i64,
-    ilang_jit_print_newline, ilang_jit_print_space, ilang_jit_print_str,
-    ilang_jit_print_u64, ilang_jit_release_array, ilang_jit_release_object,
+    ilang_jit_print_newline, ilang_jit_print_ptr_hex, ilang_jit_print_space,
+    ilang_jit_print_str, ilang_jit_print_u64, ilang_jit_release_array, ilang_jit_release_object,
     ilang_jit_release_string, ilang_jit_retain_array, ilang_jit_retain_object,
     ilang_jit_retain_string, ilang_jit_retain_weak, ilang_jit_str_concat, ilang_jit_str_eq,
     ilang_jit_release_weak, ilang_jit_weak_get, StringRc,
@@ -97,6 +97,7 @@ pub(crate) struct JitCompiler {
     pub(crate) print_space: FuncId,
     pub(crate) print_newline: FuncId,
     pub(crate) print_str: FuncId,
+    pub(crate) print_ptr_hex: FuncId,
     pub(crate) str_concat: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) retain_string_id: FuncId,
@@ -160,6 +161,10 @@ impl JitCompiler {
             ilang_jit_print_newline as *const u8,
         );
         builder.symbol("ilang_jit_print_str", ilang_jit_print_str as *const u8);
+        builder.symbol(
+            "ilang_jit_print_ptr_hex",
+            ilang_jit_print_ptr_hex as *const u8,
+        );
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
         builder.symbol(
@@ -233,6 +238,8 @@ impl JitCompiler {
         let print_newline =
             declare_import(&mut module, "ilang_jit_print_newline", &[], None)?;
         let print_str = declare_import(&mut module, "ilang_jit_print_str", &[I64], None)?;
+        let print_ptr_hex =
+            declare_import(&mut module, "ilang_jit_print_ptr_hex", &[I64], None)?;
         let str_concat = declare_import(
             &mut module,
             "ilang_jit_str_concat",
@@ -295,6 +302,7 @@ impl JitCompiler {
             print_space,
             print_newline,
             print_str,
+            print_ptr_hex,
             str_concat,
             str_eq,
             retain_string_id,
@@ -500,6 +508,7 @@ impl JitCompiler {
                 space: self.print_space,
                 newline: self.print_newline,
                 str: self.print_str,
+                ptr_hex: self.print_ptr_hex,
             },
             strfns: StrFns {
                 concat: self.str_concat,
@@ -607,6 +616,7 @@ impl JitCompiler {
                 space: self.print_space,
                 newline: self.print_newline,
                 str: self.print_str,
+                ptr_hex: self.print_ptr_hex,
             },
             strfns: StrFns {
                 concat: self.str_concat,

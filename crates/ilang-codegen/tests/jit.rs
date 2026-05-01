@@ -869,3 +869,28 @@ fn jit_weak_breaks_cycle() {
     "#;
     assert_eq!(jit(src), JitValue::I64(1));
 }
+
+#[test]
+fn jit_console_log_array_object_optional_weak() {
+    // Just verify these compile + run without error. Output is not
+    // captured by the test harness; the body's tail evaluates to a
+    // plain integer for the assertion.
+    let src = r#"
+        class Foo {
+            x: i64
+            init() { this.x = 7 }
+        }
+        let xs: i32[] = [1, 2, 3]
+        let s: string[] = ["a", "b"]
+        let opt: string? = some("yes")
+        let nope: string? = none
+        let f = new Foo()
+        let w: Foo.weak = f
+        console.log("xs:", xs, xs.length)
+        console.log("strs:", s)
+        console.log("opt:", opt, "none:", nope)
+        console.log("obj:", f, "weak:", w)
+        42
+    "#;
+    assert_eq!(jit(src), JitValue::I64(42));
+}

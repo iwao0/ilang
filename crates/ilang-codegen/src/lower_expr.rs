@@ -796,32 +796,217 @@ fn lower_console_log(
             what: "console.log argument is unit".into(),
             span: a.span,
         })?;
-        // Promote each scalar to the matching FFI signature, then call.
-        let (id, arg) = match at {
-            JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64 => {
-                let v = coerce(b, (av, at), JitTy::I64, a.span)?;
-                (lc.print.i64, v)
-            }
-            JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64 => {
-                let v = coerce(b, (av, at), JitTy::U64, a.span)?;
-                (lc.print.u64, v)
-            }
-            JitTy::F32 => (lc.print.f32, av),
-            JitTy::F64 => (lc.print.f64, av),
-            JitTy::Bool => (lc.print.bool, av),
-            JitTy::Str => (lc.print.str, av),
-            other => {
-                return Err(CodegenError::Unsupported {
-                    what: format!("console.log of {other:?}"),
-                    span: a.span,
-                });
-            }
-        };
-        let r = lc.module.declare_func_in_func(id, b.func);
-        b.ins().call(r, &[arg]);
+        emit_print_value(b, lc, av, at, a.span)?;
     }
     let r = lc.module.declare_func_in_func(lc.print.newline, b.func);
     b.ins().call(r, &[]);
+    Ok(())
+}
+
+/// Emit code that prints a single value of static type `ty`. Mirrors
+/// `JitValue`'s `Display` impl so `console.log` output matches the
+/// interpreter's. Recurses through Array, Optional, and (shallowly)
+/// Object so nested structures format the same way.
+fn emit_print_value(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    v: Value,
+    ty: JitTy,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    match ty {
+        JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64 => {
+            let v = coerce(b, (v, ty), JitTy::I64, span)?;
+            let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64 => {
+            let v = coerce(b, (v, ty), JitTy::U64, span)?;
+            let r = lc.module.declare_func_in_func(lc.print.u64, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::F32 => {
+            let r = lc.module.declare_func_in_func(lc.print.f32, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::F64 => {
+            let r = lc.module.declare_func_in_func(lc.print.f64, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::Bool => {
+            let r = lc.module.declare_func_in_func(lc.print.bool, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::Str => {
+            let r = lc.module.declare_func_in_func(lc.print.str, b.func);
+            b.ins().call(r, &[v]);
+        }
+        JitTy::Object(class_id) => {
+            // Format as `<ClassName @ 0xPTR>` to match JitValue::Display.
+            let prefix = format!("<{} @ ", lc.class_layouts[class_id as usize].name);
+            emit_print_literal(b, lc, &prefix);
+            let r = lc.module.declare_func_in_func(lc.print.ptr_hex, b.func);
+            b.ins().call(r, &[v]);
+            emit_print_literal(b, lc, ">");
+        }
+        JitTy::Array(id) => {
+            let elem_jty = lc.array_kinds[id as usize].elem;
+            emit_print_array(b, lc, v, elem_jty, span)?;
+        }
+        JitTy::Optional(inner_id) => {
+            let inner = lc.optional_inners[inner_id as usize];
+            emit_print_optional(b, lc, v, inner, span)?;
+        }
+        JitTy::Weak(class_id) => {
+            // `<weak ClassName alive>` / `<weak ClassName dead>`. The
+            // strong_rc lives at offset -24 from the user pointer.
+            let class_name = lc.class_layouts[class_id as usize].name.clone();
+            // Branch on (ptr != 0 && strong_rc > 0).
+            let zero = b.ins().iconst(I64, 0);
+            let alive_block = b.create_block();
+            let dead_block = b.create_block();
+            let merge = b.create_block();
+            let nonnull = b.ins().icmp(IntCC::NotEqual, v, zero);
+            let check_block = b.create_block();
+            b.ins().brif(nonnull, check_block, &[], dead_block, &[]);
+            b.switch_to_block(check_block);
+            b.seal_block(check_block);
+            let strong = b.ins().load(I64, MemFlags::trusted(), v, -24);
+            let alive_cond = b.ins().icmp(IntCC::SignedGreaterThan, strong, zero);
+            b.ins().brif(alive_cond, alive_block, &[], dead_block, &[]);
+
+            b.switch_to_block(alive_block);
+            b.seal_block(alive_block);
+            emit_print_literal(b, lc, &format!("<weak {class_name} alive>"));
+            b.ins().jump(merge, &[]);
+
+            b.switch_to_block(dead_block);
+            b.seal_block(dead_block);
+            emit_print_literal(b, lc, &format!("<weak {class_name} dead>"));
+            b.ins().jump(merge, &[]);
+
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+        }
+        JitTy::Unit => {
+            return Err(CodegenError::Unsupported {
+                what: "console.log of () (unit)".into(),
+                span,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Print a static string literal by interning it and routing through
+/// `print_str`. Cheap — each unique fragment is interned once.
+fn emit_print_literal(b: &mut FunctionBuilder, lc: &mut LowerCtx, s: &str) {
+    let ptr = lc.intern_string(s);
+    let v = b.ins().iconst(I64, ptr);
+    let r = lc.module.declare_func_in_func(lc.print.str, b.func);
+    b.ins().call(r, &[v]);
+}
+
+/// Emit `[e0, e1, e2]` for an array. The element-printing branch can
+/// recursively invoke `emit_print_value`, so nested arrays / arrays of
+/// objects / arrays of optionals all format correctly.
+fn emit_print_array(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    header: Value,
+    elem_jty: JitTy,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    emit_print_literal(b, lc, "[");
+    // Walk the runtime header to read len + data_ptr.
+    let len = b.ins().load(I64, MemFlags::trusted(), header, ARRAY_LEN_OFFSET);
+    let data = b.ins().load(I64, MemFlags::trusted(), header, ARRAY_DATA_OFFSET);
+    let elem_size_const = elem_jty.size_bytes() as i64;
+
+    // Loop: i = 0; while i < len { if i > 0: print ", "; print elem[i]; i++ }
+    let i_var = Variable::new(lc.env.next_var_id());
+    b.declare_var(i_var, I64);
+    let zero = b.ins().iconst(I64, 0);
+    b.def_var(i_var, zero);
+
+    let header_block = b.create_block();
+    let body_block = b.create_block();
+    let after_block = b.create_block();
+
+    b.ins().jump(header_block, &[]);
+    b.switch_to_block(header_block);
+    let i = b.use_var(i_var);
+    let cond = b.ins().icmp(IntCC::SignedLessThan, i, len);
+    b.ins().brif(cond, body_block, &[], after_block, &[]);
+
+    b.switch_to_block(body_block);
+    b.seal_block(body_block);
+    let i = b.use_var(i_var);
+    // Comma separator before every element except the first.
+    let zero = b.ins().iconst(I64, 0);
+    let need_comma = b.ins().icmp(IntCC::SignedGreaterThan, i, zero);
+    let comma_block = b.create_block();
+    let no_comma_block = b.create_block();
+    b.ins().brif(need_comma, comma_block, &[], no_comma_block, &[]);
+    b.switch_to_block(comma_block);
+    b.seal_block(comma_block);
+    emit_print_literal(b, lc, ", ");
+    b.ins().jump(no_comma_block, &[]);
+    b.switch_to_block(no_comma_block);
+    b.seal_block(no_comma_block);
+
+    let size_v = b.ins().iconst(I64, elem_size_const);
+    let off = b.ins().imul(i, size_v);
+    let addr = b.ins().iadd(data, off);
+    let elem = b.ins().load(
+        elem_jty.cl().expect("non-unit elem"),
+        MemFlags::trusted(),
+        addr,
+        0,
+    );
+    emit_print_value(b, lc, elem, elem_jty, span)?;
+
+    let one = b.ins().iconst(I64, 1);
+    let new_i = b.ins().iadd(i, one);
+    b.def_var(i_var, new_i);
+    b.ins().jump(header_block, &[]);
+    b.seal_block(header_block);
+
+    b.switch_to_block(after_block);
+    b.seal_block(after_block);
+    emit_print_literal(b, lc, "]");
+    Ok(())
+}
+
+/// Emit `none` or `some(<value>)` depending on the runtime null check.
+fn emit_print_optional(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    v: Value,
+    inner: JitTy,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    let zero = b.ins().iconst(I64, 0);
+    let is_some = b.ins().icmp(IntCC::NotEqual, v, zero);
+    let some_block = b.create_block();
+    let none_block = b.create_block();
+    let merge = b.create_block();
+    b.ins().brif(is_some, some_block, &[], none_block, &[]);
+
+    b.switch_to_block(some_block);
+    b.seal_block(some_block);
+    emit_print_literal(b, lc, "some(");
+    emit_print_value(b, lc, v, inner, span)?;
+    emit_print_literal(b, lc, ")");
+    b.ins().jump(merge, &[]);
+
+    b.switch_to_block(none_block);
+    b.seal_block(none_block);
+    emit_print_literal(b, lc, "none");
+    b.ins().jump(merge, &[]);
+
+    b.switch_to_block(merge);
+    b.seal_block(merge);
     Ok(())
 }
 
