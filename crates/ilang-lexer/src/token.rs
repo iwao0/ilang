@@ -51,4 +51,8 @@ pub enum TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+    /// `true` if at least one newline appeared between the previous token
+    /// (or start of input) and this token. Used by the parser for
+    /// JS-style automatic semicolon insertion at statement boundaries.
+    pub leading_newline: bool,
 }

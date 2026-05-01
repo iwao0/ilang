@@ -28,6 +28,9 @@ struct Lexer<'a> {
     peeked: Option<char>,
     line: u32,
     col: u32,
+    /// Becomes `true` whenever whitespace contains at least one `\n`; the
+    /// next token consumes this flag so it knows a newline preceded it.
+    pending_newline: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -37,6 +40,7 @@ impl<'a> Lexer<'a> {
             peeked: None,
             line: 1,
             col: 1,
+            pending_newline: false,
         }
     }
 
@@ -61,6 +65,9 @@ impl<'a> Lexer<'a> {
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
             if c.is_whitespace() {
+                if c == '\n' {
+                    self.pending_newline = true;
+                }
                 self.bump();
             } else {
                 break;
@@ -70,6 +77,7 @@ impl<'a> Lexer<'a> {
 
     fn next_token(&mut self) -> Result<Token, LexError> {
         self.skip_whitespace();
+        let leading_newline = std::mem::take(&mut self.pending_newline);
         let line = self.line;
         let col = self.col;
         let span = Span { line, col };
@@ -78,6 +86,7 @@ impl<'a> Lexer<'a> {
             return Ok(Token {
                 kind: TokenKind::Eof,
                 span,
+                leading_newline,
             });
         };
 
@@ -212,7 +221,11 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        Ok(Token { kind, span })
+        Ok(Token {
+            kind,
+            span,
+            leading_newline,
+        })
     }
 
     fn read_ident_or_keyword(&mut self) -> TokenKind {

@@ -136,6 +136,42 @@ fn assign_to_undefined_fails() {
 }
 
 #[test]
+fn newlines_terminate_statements() {
+    let src = "let x = 1\nlet y = 2\nx + y";
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn semicolons_and_newlines_can_mix() {
+    let src = "let x = 1; let y = 2\nx + y";
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn binary_op_continues_across_newline() {
+    // newline between operator and next operand is ignored
+    let src = "let x = 1 +\n  2\nx";
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+    // newline between operand and operator is also ignored (JS-style)
+    let src = "let x = 1\n  + 2\nx";
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn fn_body_with_newlines() {
+    let src = "fn sum_to(n: i64): i64 {\n  let s = 0\n  let i = 1\n  while i <= n {\n    s = s + i\n    i = i + 1\n  }\n  s\n}\nsum_to(10)";
+    assert_eq!(run(src).unwrap(), Value::Int(55));
+}
+
+#[test]
+fn no_newline_no_semicolon_still_errors() {
+    // `let x = 1 let y = 2` on one line should still be a parse error.
+    let src = "let x = 1 let y = 2; x";
+    let toks = tokenize(src).unwrap();
+    assert!(parse(&toks).is_err());
+}
+
+#[test]
 fn repl_persistence() {
     let mut interp = Interpreter::new();
     let toks = tokenize("let x = 10;").unwrap();

@@ -44,6 +44,6 @@ pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
     };
     p.expect(&TokenKind::Equals, "'='")?;
     let value = p.parse_expr(0)?;
-    p.expect(&TokenKind::Semicolon, "';'")?;
+    p.consume_stmt_terminator()?;
     Ok(Stmt::Let { name, ty, value })
 }

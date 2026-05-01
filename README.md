@@ -19,16 +19,16 @@
 # REPL (let / fn が永続化)
 cargo run -p ilang-cli
 
-# ファイル実行
+# ファイル実行 (`;` は省略可、改行が文の区切りになる JS 風 ASI)
 cat > sample.il <<'EOF'
 fn count_div(n: i64): i64 {
-    let i = 1;
-    let count = 0;
+    let i = 1
+    let count = 0
     while i <= n {
         if i % 3 == 0 || i % 5 == 0 {
-            count = count + 1;
+            count = count + 1
         }
-        i = i + 1;
+        i = i + 1
     }
     count
 }

@@ -65,8 +65,9 @@ impl<'a> Parser<'a> {
     }
 
     /// After parsing an expression in statement-position, decide whether it
-    /// becomes a statement (followed by `;`, or block-like and more tokens
-    /// follow) or the trailing expression (at end of program/block).
+    /// becomes a statement (followed by `;`, JS-style implicit terminator
+    /// from a leading newline on the next token, or block-like form) or the
+    /// trailing expression (at end of program/block).
     pub(crate) fn classify_expr_end(
         &mut self,
         expr: &Expr,
@@ -79,13 +80,38 @@ impl<'a> Parser<'a> {
         if std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(&end) {
             return Ok(ExprEnd::Tail);
         }
+        if self.peek().leading_newline {
+            return Ok(ExprEnd::Stmt);
+        }
         if is_block_like(expr) {
             return Ok(ExprEnd::Stmt);
         }
         let t = self.peek();
         Err(ParseError::Unexpected {
             found: t.kind.clone(),
-            expected: "';' or end of block".into(),
+            expected: "';', newline, or end of block".into(),
+            line: t.span.line,
+            col: t.span.col,
+        })
+    }
+
+    /// Consume a statement terminator after a non-expression statement (e.g.
+    /// `let`). Accepts an explicit `;`, an implicit newline before the next
+    /// token (JS-style ASI), or a closing `}` / EOF (block boundary).
+    pub(crate) fn consume_stmt_terminator(&mut self) -> Result<(), ParseError> {
+        if matches!(self.peek().kind, TokenKind::Semicolon) {
+            self.bump();
+            return Ok(());
+        }
+        if self.peek().leading_newline
+            || matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof)
+        {
+            return Ok(());
+        }
+        let t = self.peek();
+        Err(ParseError::Unexpected {
+            found: t.kind.clone(),
+            expected: "';' or newline".into(),
             line: t.span.line,
             col: t.span.col,
         })
