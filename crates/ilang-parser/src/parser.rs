@@ -1,4 +1,4 @@
-use ilang_ast::Expr;
+use ilang_ast::{Expr, ExprKind};
 use ilang_lexer::{Token, TokenKind};
 
 use crate::error::ParseError;
@@ -15,8 +15,8 @@ pub(crate) enum ExprEnd {
 
 pub(crate) fn is_block_like(e: &Expr) -> bool {
     matches!(
-        e,
-        Expr::Block(_) | Expr::If { .. } | Expr::While { .. } | Expr::Loop { .. }
+        e.kind,
+        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::While { .. } | ExprKind::Loop { .. }
     )
 }
 
@@ -46,8 +46,7 @@ impl<'a> Parser<'a> {
             Err(ParseError::Unexpected {
                 found: t.kind.clone(),
                 expected: label.into(),
-                line: t.span.line,
-                col: t.span.col,
+                span: t.span,
             })
         }
     }
@@ -61,8 +60,7 @@ impl<'a> Parser<'a> {
             Err(ParseError::Unexpected {
                 found: t.kind,
                 expected: label.into(),
-                line: t.span.line,
-                col: t.span.col,
+                span: t.span,
             })
         }
     }
@@ -93,8 +91,7 @@ impl<'a> Parser<'a> {
         Err(ParseError::Unexpected {
             found: t.kind.clone(),
             expected: "';', newline, or end of block".into(),
-            line: t.span.line,
-            col: t.span.col,
+            span: t.span,
         })
     }
 
@@ -115,8 +112,7 @@ impl<'a> Parser<'a> {
         Err(ParseError::Unexpected {
             found: t.kind.clone(),
             expected: "';' or newline".into(),
-            line: t.span.line,
-            col: t.span.col,
+            span: t.span,
         })
     }
 }

@@ -30,7 +30,15 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
         if numeric_result.is_some() {
             return Ok(Type::Bool);
         }
-        return Err(TypeError::BadBinary(l.clone(), r.clone()));
+        return Err(TypeError::BadBinary {
+            lhs: l.clone(),
+            rhs: r.clone(),
+            span: ilang_ast::Span::dummy(),
+        });
     }
-    numeric_result.ok_or_else(|| TypeError::BadBinary(l.clone(), r.clone()))
+    numeric_result.ok_or_else(|| TypeError::BadBinary {
+            lhs: l.clone(),
+            rhs: r.clone(),
+            span: ilang_ast::Span::dummy(),
+        })
 }

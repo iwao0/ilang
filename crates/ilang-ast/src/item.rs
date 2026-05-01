@@ -1,3 +1,4 @@
+use crate::span::Span;
 use crate::stmt::Block;
 use crate::types::Type;
 
@@ -5,6 +6,7 @@ use crate::types::Type;
 pub struct Param {
     pub name: String,
     pub ty: Type,
+    pub span: Span,
 }
 
 /// Attribute on a function declaration, e.g. `#[requires(net, file::read)]`.
@@ -28,12 +30,14 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     pub ret: Option<Type>,
     pub body: Block,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
     pub name: String,
     pub ty: Type,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +48,7 @@ pub struct ClassDecl {
     /// (treated as a regular method by the parser; recognised specially by
     /// the type checker and evaluator).
     pub methods: Vec<FnDecl>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

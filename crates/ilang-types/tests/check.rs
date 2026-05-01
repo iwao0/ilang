@@ -82,7 +82,7 @@ fn return_type_mismatch() {
 fn undefined_variable() {
     assert!(matches!(
         ty("x + 1"),
-        Err(TypeError::UndefinedVariable(_))
+        Err(TypeError::UndefinedVariable { .. })
     ));
 }
 
@@ -90,7 +90,7 @@ fn undefined_variable() {
 fn undefined_function() {
     assert!(matches!(
         ty("foo(1)"),
-        Err(TypeError::UndefinedFunction(_))
+        Err(TypeError::UndefinedFunction { .. })
     ));
 }
 
@@ -121,15 +121,15 @@ fn bool_and_comparison() {
     assert_eq!(ty("1.0 == 2").unwrap(), Type::Bool);
     assert!(matches!(
         ty("true < false"),
-        Err(TypeError::BadBinary(_, _))
+        Err(TypeError::BadBinary { .. })
     ));
 }
 
 #[test]
 fn logical_and_not() {
     assert_eq!(ty("true && false || !true").unwrap(), Type::Bool);
-    assert!(matches!(ty("true && 1"), Err(TypeError::BadBinary(_, _))));
-    assert!(matches!(ty("!1"), Err(TypeError::BadUnary(_))));
+    assert!(matches!(ty("true && 1"), Err(TypeError::BadBinary { .. })));
+    assert!(matches!(ty("!1"), Err(TypeError::BadUnary { .. })));
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn assign_requires_existing_var_and_compat_type() {
     assert!(ty("let x: f64 = 0.0; x = 1;").is_ok());
     assert!(matches!(
         ty("y = 1;"),
-        Err(TypeError::UndefinedVariable(_))
+        Err(TypeError::UndefinedVariable { .. })
     ));
     assert!(matches!(
         ty("let x: i64 = 0; x = 1.5;"),
@@ -190,12 +190,15 @@ fn loop_break_continue_are_unit() {
 
 #[test]
 fn break_outside_loop_rejected() {
-    assert_eq!(ty("break"), Err(TypeError::BreakOutsideLoop));
+    assert!(matches!(ty("break"), Err(TypeError::BreakOutsideLoop { .. })));
 }
 
 #[test]
 fn continue_outside_loop_rejected() {
-    assert_eq!(ty("continue"), Err(TypeError::ContinueOutsideLoop));
+    assert!(matches!(
+        ty("continue"),
+        Err(TypeError::ContinueOutsideLoop { .. })
+    ));
 }
 
 #[test]
@@ -206,7 +209,7 @@ fn break_does_not_cross_function_boundary() {
         fn helper() { break }
         loop { helper(); break }
     "#;
-    assert_eq!(ty(src), Err(TypeError::BreakOutsideLoop));
+    assert!(matches!(ty(src), Err(TypeError::BreakOutsideLoop { .. })));
 }
 
 #[test]
@@ -265,5 +268,17 @@ fn unknown_implicit_field_still_errors() {
         }
         new B().bad()
     "#;
-    assert!(matches!(ty(src), Err(TypeError::UndefinedVariable(_))));
+    assert!(matches!(ty(src), Err(TypeError::UndefinedVariable { .. })));
+}
+
+#[test]
+fn type_error_carries_span() {
+    // The undefined variable `z` is at line 1, column 9 (1-based).
+    let toks = tokenize("let x = z").unwrap();
+    let prog = parse(&toks).unwrap();
+    let err = check(&prog).unwrap_err();
+    let span = err.span();
+    assert_eq!((span.line, span.col), (1, 9));
+    let s = format!("{err}");
+    assert!(s.starts_with("[1:9]:"), "got: {s}");
 }

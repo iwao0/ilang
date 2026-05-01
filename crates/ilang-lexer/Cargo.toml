@@ -5,4 +5,5 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+ilang-ast = { path = "../ilang-ast" }
 thiserror = { workspace = true }

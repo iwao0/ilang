@@ -1,7 +1,29 @@
+use crate::span::Span;
 use crate::stmt::Block;
 
+#[derive(Debug, Clone)]
+pub struct Expr {
+    pub kind: ExprKind,
+    pub span: Span,
+}
+
+impl Expr {
+    pub fn new(kind: ExprKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+// AST equality is structural over `kind`; spans are metadata and would
+// otherwise force tests to thread exact source positions through every
+// expected-tree literal.
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub enum ExprKind {
     Int(i64),
     Float(f64),
     Bool(bool),

@@ -1,14 +1,22 @@
+use ilang_ast::Span;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum LexError {
-    #[error("unexpected character {ch:?} at line {line}, col {col}")]
-    UnexpectedChar { ch: char, line: u32, col: u32 },
-    #[error("invalid number {text:?} at line {line}, col {col}: {reason}")]
+    #[error("{span}: unexpected character {ch:?}")]
+    UnexpectedChar { ch: char, span: Span },
+    #[error("{span}: invalid number {text:?}: {reason}")]
     InvalidNumber {
         text: String,
-        line: u32,
-        col: u32,
+        span: Span,
         reason: String,
     },
+}
+
+impl LexError {
+    pub fn span(&self) -> Span {
+        match self {
+            LexError::UnexpectedChar { span, .. } | LexError::InvalidNumber { span, .. } => *span,
+        }
+    }
 }

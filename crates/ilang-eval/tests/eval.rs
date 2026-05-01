@@ -29,10 +29,10 @@ fn let_and_use() {
 
 #[test]
 fn undefined_variable() {
-    assert_eq!(
+    assert!(matches!(
         run("x + 1"),
-        Err(RuntimeError::UndefinedVariable("x".into()))
-    );
+        Err(RuntimeError::UndefinedVariable { name, .. }) if name == "x"
+    ));
 }
 
 #[test]
@@ -69,13 +69,13 @@ fn attribute_parses_but_does_not_enforce() {
 
 #[test]
 fn division_by_zero_int() {
-    assert_eq!(run("1 / 0"), Err(RuntimeError::DivisionByZero));
+    assert!(matches!(run("1 / 0"), Err(RuntimeError::DivisionByZero { .. })));
 }
 
 #[test]
 fn overflow_detected() {
     let src = format!("{} + 1", i64::MAX);
-    assert_eq!(run(&src), Err(RuntimeError::Overflow));
+    assert!(matches!(run(&src), Err(RuntimeError::Overflow { .. })));
 }
 
 #[test]
@@ -129,10 +129,14 @@ fn assignment_persists_across_block() {
 
 #[test]
 fn assign_to_undefined_fails() {
-    assert_eq!(
+    // The type checker rejects this before runtime, so use the eval pipeline
+    // (which skips type-checking) to exercise the runtime path. The runtime
+    // path is now actually unreachable from a well-typed program but kept
+    // here as defense-in-depth coverage.
+    assert!(matches!(
         run("y = 1;"),
-        Err(RuntimeError::UndefinedVariable("y".into()))
-    );
+        Err(RuntimeError::UndefinedVariable { name, .. }) if name == "y"
+    ));
 }
 
 #[test]
@@ -431,4 +435,14 @@ fn compound_assign_implicit_this() {
         c.tick()
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn runtime_error_carries_span() {
+    // 1 / 0 at line 1, column 1 (the binary expression starts at the `1`).
+    let toks = tokenize("1 / 0").unwrap();
+    let prog = parse(&toks).unwrap();
+    let err = ilang_eval::run_program(&prog).unwrap_err();
+    let s = format!("{err}");
+    assert!(s.starts_with("[1:1]:"), "got: {s}");
 }

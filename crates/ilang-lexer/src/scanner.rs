@@ -219,7 +219,7 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     TokenKind::AmpAmp
                 } else {
-                    return Err(LexError::UnexpectedChar { ch: '&', line, col });
+                    return Err(LexError::UnexpectedChar { ch: '&', span });
                 }
             }
             '|' => {
@@ -228,7 +228,7 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     TokenKind::PipePipe
                 } else {
-                    return Err(LexError::UnexpectedChar { ch: '|', line, col });
+                    return Err(LexError::UnexpectedChar { ch: '|', span });
                 }
             }
             '.' => {
@@ -239,14 +239,10 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Hash
             }
-            c if c.is_ascii_digit() => self.read_number(line, col)?,
+            c if c.is_ascii_digit() => self.read_number(span)?,
             c if is_ident_start(c) => self.read_ident_or_keyword(),
             other => {
-                return Err(LexError::UnexpectedChar {
-                    ch: other,
-                    line,
-                    col,
-                });
+                return Err(LexError::UnexpectedChar { ch: other, span });
             }
         };
 
@@ -285,7 +281,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_number(&mut self, line: u32, col: u32) -> Result<TokenKind, LexError> {
+    fn read_number(&mut self, span: Span) -> Result<TokenKind, LexError> {
         let mut buf = String::new();
         let mut is_float = false;
 
@@ -336,8 +332,7 @@ impl<'a> Lexer<'a> {
                 if !saw_digit {
                     return Err(LexError::InvalidNumber {
                         text: buf,
-                        line,
-                        col,
+                        span,
                         reason: "exponent has no digits".into(),
                     });
                 }
@@ -349,8 +344,7 @@ impl<'a> Lexer<'a> {
                 .map(TokenKind::Float)
                 .map_err(|e| LexError::InvalidNumber {
                     text: buf.clone(),
-                    line,
-                    col,
+                    span,
                     reason: e.to_string(),
                 })
         } else {
@@ -358,8 +352,7 @@ impl<'a> Lexer<'a> {
                 .map(TokenKind::Int)
                 .map_err(|e| LexError::InvalidNumber {
                     text: buf.clone(),
-                    line,
-                    col,
+                    span,
                     reason: e.to_string(),
                 })
         }

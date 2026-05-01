@@ -1,8 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Span {
-    pub line: u32,
-    pub col: u32,
-}
+pub use ilang_ast::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {

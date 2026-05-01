@@ -13,7 +13,7 @@
 //! | `*` `/` `%`        | 20 / 21     | left  |
 //! | prefix `-` `+` `!` | — / 30      | prefix|
 
-use ilang_ast::{BinOp, Expr, LogicalOp, UnOp};
+use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
@@ -48,29 +48,36 @@ impl<'a> Parser<'a> {
                 let eq_tok = self.peek().clone();
                 self.bump();
                 let rhs = self.parse_expr(r_bp)?;
+                let lhs_span = lhs.span;
                 let value = match compound_op {
-                    Some(op) => Expr::Binary {
-                        op,
-                        lhs: Box::new(lhs.clone()),
-                        rhs: Box::new(rhs),
-                    },
+                    Some(op) => Expr::new(
+                        ExprKind::Binary {
+                            op,
+                            lhs: Box::new(lhs.clone()),
+                            rhs: Box::new(rhs),
+                        },
+                        lhs_span,
+                    ),
                     None => rhs,
                 };
-                lhs = match lhs {
-                    Expr::Var(name) => Expr::Assign {
-                        target: name,
-                        value: Box::new(value),
-                    },
-                    Expr::Field { obj, name } => Expr::AssignField {
-                        obj,
-                        field: name,
-                        value: Box::new(value),
-                    },
+                lhs = match lhs.kind {
+                    ExprKind::Var(name) => Expr::new(
+                        ExprKind::Assign {
+                            target: name,
+                            value: Box::new(value),
+                        },
+                        lhs_span,
+                    ),
+                    ExprKind::Field { obj, name } => Expr::new(
+                        ExprKind::AssignField {
+                            obj,
+                            field: name,
+                            value: Box::new(value),
+                        },
+                        lhs_span,
+                    ),
                     _ => {
-                        return Err(ParseError::InvalidAssignTarget {
-                            line: eq_tok.span.line,
-                            col: eq_tok.span.col,
-                        });
+                        return Err(ParseError::InvalidAssignTarget { span: eq_tok.span });
                     }
                 };
                 continue;
@@ -87,11 +94,15 @@ impl<'a> Parser<'a> {
                 }
                 self.bump();
                 let rhs = self.parse_expr(r_bp)?;
-                lhs = Expr::Logical {
-                    op: logop,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                };
+                let span = lhs.span;
+                lhs = Expr::new(
+                    ExprKind::Logical {
+                        op: logop,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    span,
+                );
                 continue;
             }
 
@@ -115,11 +126,15 @@ impl<'a> Parser<'a> {
             }
             self.bump();
             let rhs = self.parse_expr(r_bp)?;
-            lhs = Expr::Binary {
-                op,
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            };
+            let span = lhs.span;
+            lhs = Expr::new(
+                ExprKind::Binary {
+                    op,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                },
+                span,
+            );
         }
         Ok(lhs)
     }
@@ -130,6 +145,7 @@ impl<'a> Parser<'a> {
         while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             let name = self.expect_ident("field or method name")?;
+            let span = expr.span;
             if matches!(self.peek().kind, TokenKind::LParen) {
                 self.bump();
                 let mut args = Vec::new();
@@ -144,16 +160,22 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                expr = Expr::MethodCall {
-                    obj: Box::new(expr),
-                    method: name,
-                    args,
-                };
+                expr = Expr::new(
+                    ExprKind::MethodCall {
+                        obj: Box::new(expr),
+                        method: name,
+                        args,
+                    },
+                    span,
+                );
             } else {
-                expr = Expr::Field {
-                    obj: Box::new(expr),
-                    name,
-                };
+                expr = Expr::new(
+                    ExprKind::Field {
+                        obj: Box::new(expr),
+                        name,
+                    },
+                    span,
+                );
             }
         }
         Ok(expr)
@@ -161,26 +183,27 @@ impl<'a> Parser<'a> {
 
     fn parse_prefix(&mut self) -> Result<Expr, ParseError> {
         let t = self.peek().clone();
+        let span = t.span;
         match t.kind {
             TokenKind::Int(n) => {
                 self.bump();
-                Ok(Expr::Int(n))
+                Ok(Expr::new(ExprKind::Int(n), span))
             }
             TokenKind::Float(f) => {
                 self.bump();
-                Ok(Expr::Float(f))
+                Ok(Expr::new(ExprKind::Float(f), span))
             }
             TokenKind::True => {
                 self.bump();
-                Ok(Expr::Bool(true))
+                Ok(Expr::new(ExprKind::Bool(true), span))
             }
             TokenKind::False => {
                 self.bump();
-                Ok(Expr::Bool(false))
+                Ok(Expr::new(ExprKind::Bool(false), span))
             }
             TokenKind::This => {
                 self.bump();
-                Ok(Expr::This)
+                Ok(Expr::new(ExprKind::This, span))
             }
             TokenKind::New => {
                 self.bump();
@@ -198,26 +221,29 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                Ok(Expr::New { class, args })
+                Ok(Expr::new(ExprKind::New { class, args }, span))
             }
             TokenKind::If => self.parse_if(),
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
             TokenKind::Break => {
                 self.bump();
-                Ok(Expr::Break)
+                Ok(Expr::new(ExprKind::Break, span))
             }
             TokenKind::Continue => {
                 self.bump();
-                Ok(Expr::Continue)
+                Ok(Expr::new(ExprKind::Continue, span))
             }
             TokenKind::Bang => {
                 self.bump();
                 let e = self.parse_expr(30)?;
-                Ok(Expr::Unary {
-                    op: UnOp::Not,
-                    expr: Box::new(e),
-                })
+                Ok(Expr::new(
+                    ExprKind::Unary {
+                        op: UnOp::Not,
+                        expr: Box::new(e),
+                    },
+                    span,
+                ))
             }
             TokenKind::Ident(name) => {
                 self.bump();
@@ -235,26 +261,32 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(&TokenKind::RParen, "')'")?;
-                    Ok(Expr::Call { callee: name, args })
+                    Ok(Expr::new(ExprKind::Call { callee: name, args }, span))
                 } else {
-                    Ok(Expr::Var(name))
+                    Ok(Expr::new(ExprKind::Var(name), span))
                 }
             }
             TokenKind::Minus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
-                Ok(Expr::Unary {
-                    op: UnOp::Neg,
-                    expr: Box::new(e),
-                })
+                Ok(Expr::new(
+                    ExprKind::Unary {
+                        op: UnOp::Neg,
+                        expr: Box::new(e),
+                    },
+                    span,
+                ))
             }
             TokenKind::Plus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
-                Ok(Expr::Unary {
-                    op: UnOp::Pos,
-                    expr: Box::new(e),
-                })
+                Ok(Expr::new(
+                    ExprKind::Unary {
+                        op: UnOp::Pos,
+                        expr: Box::new(e),
+                    },
+                    span,
+                ))
             }
             TokenKind::LParen => {
                 self.bump();
@@ -264,18 +296,18 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBrace => {
                 let block = parse_block(self)?;
-                Ok(Expr::Block(block))
+                Ok(Expr::new(ExprKind::Block(block), span))
             }
             other => Err(ParseError::Unexpected {
                 found: other,
                 expected: "number, identifier, '-', '+' or '('".into(),
-                line: t.span.line,
-                col: t.span.col,
+                span: t.span,
             }),
         }
     }
 
     fn parse_if(&mut self) -> Result<Expr, ParseError> {
+        let span = self.peek().span;
         self.expect(&TokenKind::If, "'if'")?;
         let cond = self.parse_expr(0)?;
         let then_branch = parse_block(self)?;
@@ -287,32 +319,41 @@ impl<'a> Parser<'a> {
                 let inner = self.parse_if()?;
                 Some(Box::new(inner))
             } else {
+                let block_span = self.peek().span;
                 let block = parse_block(self)?;
-                Some(Box::new(Expr::Block(block)))
+                Some(Box::new(Expr::new(ExprKind::Block(block), block_span)))
             }
         } else {
             None
         };
-        Ok(Expr::If {
-            cond: Box::new(cond),
-            then_branch,
-            else_branch,
-        })
+        Ok(Expr::new(
+            ExprKind::If {
+                cond: Box::new(cond),
+                then_branch,
+                else_branch,
+            },
+            span,
+        ))
     }
 
     fn parse_while(&mut self) -> Result<Expr, ParseError> {
+        let span = self.peek().span;
         self.expect(&TokenKind::While, "'while'")?;
         let cond = self.parse_expr(0)?;
         let body = parse_block(self)?;
-        Ok(Expr::While {
-            cond: Box::new(cond),
-            body,
-        })
+        Ok(Expr::new(
+            ExprKind::While {
+                cond: Box::new(cond),
+                body,
+            },
+            span,
+        ))
     }
 
     fn parse_loop(&mut self) -> Result<Expr, ParseError> {
+        let span = self.peek().span;
         self.expect(&TokenKind::Loop, "'loop'")?;
         let body = parse_block(self)?;
-        Ok(Expr::Loop { body })
+        Ok(Expr::new(ExprKind::Loop { body }, span))
     }
 }

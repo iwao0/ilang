@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ilang_ast::{Block, ClassDecl, Expr, FnDecl, Item, LogicalOp, Program, Stmt};
+use ilang_ast::{
+    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, LogicalOp, Program, Span, Stmt, StmtKind,
+};
 
 use crate::error::RuntimeError;
 use crate::ops::{apply_binary, apply_unary, as_bool};
@@ -10,13 +12,11 @@ use crate::value::{ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
 
-/// Persistent interpreter state — used by the REPL across input lines.
 #[derive(Debug, Default)]
 pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
     classes: HashMap<String, ClassDecl>,
     vars: HashMap<String, Value>,
-    /// Current `this` binding (`Some` while executing a method body).
     this: Option<ObjectRef>,
     depth: usize,
 }
@@ -48,26 +48,27 @@ impl Interpreter {
     }
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Value, RuntimeError> {
-        match stmt {
-            Stmt::Let { name, ty: _, value } => {
+        match &stmt.kind {
+            StmtKind::Let { name, ty: _, value } => {
                 let v = self.eval_expr(value)?;
                 self.vars.insert(name.clone(), v);
                 Ok(Value::Unit)
             }
-            Stmt::Expr(e) => self.eval_expr(e),
+            StmtKind::Expr(e) => self.eval_expr(e),
         }
     }
 
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
-        match expr {
-            Expr::Int(n) => Ok(Value::Int(*n)),
-            Expr::Float(f) => Ok(Value::Float(*f)),
-            Expr::Bool(b) => Ok(Value::Bool(*b)),
-            Expr::This => match &self.this {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Int(n) => Ok(Value::Int(*n)),
+            ExprKind::Float(f) => Ok(Value::Float(*f)),
+            ExprKind::Bool(b) => Ok(Value::Bool(*b)),
+            ExprKind::This => match &self.this {
                 Some(o) => Ok(Value::Object(o.clone())),
-                None => Err(RuntimeError::ThisOutsideMethod),
+                None => Err(RuntimeError::ThisOutsideMethod { span }),
             },
-            Expr::Var(name) => {
+            ExprKind::Var(name) => {
                 if let Some(v) = self.vars.get(name) {
                     return Ok(v.clone());
                 }
@@ -77,27 +78,30 @@ impl Interpreter {
                         return Ok(v.clone());
                     }
                 }
-                Err(RuntimeError::UndefinedVariable(name.clone()))
+                Err(RuntimeError::UndefinedVariable {
+                    name: name.clone(),
+                    span,
+                })
             }
-            Expr::Unary { op, expr } => {
-                let v = self.eval_expr(expr)?;
-                apply_unary(*op, v)
+            ExprKind::Unary { op, expr: inner } => {
+                let v = self.eval_expr(inner)?;
+                apply_unary(*op, v).map_err(|e| e.with_span(span))
             }
-            Expr::Binary { op, lhs, rhs } => {
+            ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.eval_expr(lhs)?;
                 let r = self.eval_expr(rhs)?;
-                apply_binary(*op, l, r)
+                apply_binary(*op, l, r).map_err(|e| e.with_span(span))
             }
-            Expr::Logical { op, lhs, rhs } => {
+            ExprKind::Logical { op, lhs, rhs } => {
                 let l = self.eval_expr(lhs)?;
-                let lb = as_bool(l)?;
+                let lb = as_bool(l).map_err(|e| e.with_span(lhs.span))?;
                 match op {
                     LogicalOp::And => {
                         if !lb {
                             Ok(Value::Bool(false))
                         } else {
                             let r = self.eval_expr(rhs)?;
-                            Ok(Value::Bool(as_bool(r)?))
+                            Ok(Value::Bool(as_bool(r).map_err(|e| e.with_span(rhs.span))?))
                         }
                     }
                     LogicalOp::Or => {
@@ -105,47 +109,48 @@ impl Interpreter {
                             Ok(Value::Bool(true))
                         } else {
                             let r = self.eval_expr(rhs)?;
-                            Ok(Value::Bool(as_bool(r)?))
+                            Ok(Value::Bool(as_bool(r).map_err(|e| e.with_span(rhs.span))?))
                         }
                     }
                 }
             }
-            Expr::Call { callee, args } => {
+            ExprKind::Call { callee, args } => {
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();
                     if let Some(class) = self.classes.get(&class_name) {
                         if class.methods.iter().any(|m| m.name == *callee) {
-                            return self.call_method(this, callee, args);
+                            return self.call_method(this, callee, args, span);
                         }
                     }
                 }
-                self.call_fn(callee, args)
+                self.call_fn(callee, args, span)
             }
-            Expr::Field { obj, name } => {
+            ExprKind::Field { obj, name } => {
                 let v = self.eval_expr(obj)?;
-                let o = expect_object(v)?;
+                let o = expect_object(v, obj.span)?;
                 let o = o.borrow();
                 o.fields.get(name).cloned().ok_or_else(|| {
                     RuntimeError::UnknownField {
                         class: o.class.clone(),
                         field: name.clone(),
+                        span,
                     }
                 })
             }
-            Expr::MethodCall { obj, method, args } => {
+            ExprKind::MethodCall { obj, method, args } => {
                 let v = self.eval_expr(obj)?;
-                let o = expect_object(v)?;
-                self.call_method(o, method, args)
+                let o = expect_object(v, obj.span)?;
+                self.call_method(o, method, args, span)
             }
-            Expr::New { class, args } => self.new_object(class, args),
-            Expr::Block(b) => self.eval_block(b),
-            Expr::If {
+            ExprKind::New { class, args } => self.new_object(class, args, span),
+            ExprKind::Block(b) => self.eval_block(b),
+            ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => {
                 let c = self.eval_expr(cond)?;
-                if as_bool(c)? {
+                if as_bool(c).map_err(|e| e.with_span(cond.span))? {
                     self.eval_block(then_branch)
                 } else if let Some(eb) = else_branch {
                     self.eval_expr(eb)
@@ -153,9 +158,9 @@ impl Interpreter {
                     Ok(Value::Unit)
                 }
             }
-            Expr::While { cond, body } => loop {
+            ExprKind::While { cond, body } => loop {
                 let c = self.eval_expr(cond)?;
-                if !as_bool(c)? {
+                if !as_bool(c).map_err(|e| e.with_span(cond.span))? {
                     break Ok(Value::Unit);
                 }
                 match self.eval_block(body) {
@@ -165,7 +170,7 @@ impl Interpreter {
                     Err(e) => break Err(e),
                 }
             },
-            Expr::Loop { body } => loop {
+            ExprKind::Loop { body } => loop {
                 match self.eval_block(body) {
                     Ok(_) => {}
                     Err(RuntimeError::Break) => break Ok(Value::Unit),
@@ -173,31 +178,27 @@ impl Interpreter {
                     Err(e) => break Err(e),
                 }
             },
-            Expr::Break => Err(RuntimeError::Break),
-            Expr::Continue => Err(RuntimeError::Continue),
-            Expr::Assign { target, value } => {
+            ExprKind::Break => Err(RuntimeError::Break),
+            ExprKind::Continue => Err(RuntimeError::Continue),
+            ExprKind::Assign { target, value } => {
                 let v = self.eval_expr(value)?;
                 if self.vars.contains_key(target) {
                     self.vars.insert(target.clone(), v);
                     return Ok(Value::Unit);
                 }
                 if let Some(this) = self.this.clone() {
-                    // Symmetric with the read path: an unqualified assignment
-                    // inside a method targets the field on `this` when no
-                    // local shadows it. The type checker has already
-                    // validated that the field exists, so we just write.
                     this.borrow_mut().fields.insert(target.clone(), v);
                     return Ok(Value::Unit);
                 }
-                Err(RuntimeError::UndefinedVariable(target.clone()))
+                Err(RuntimeError::UndefinedVariable {
+                    name: target.clone(),
+                    span,
+                })
             }
-            Expr::AssignField { obj, field, value } => {
-                // Existence of the field is validated by the type checker;
-                // the runtime just stores the value (init creates the field
-                // entry on first assignment).
+            ExprKind::AssignField { obj, field, value } => {
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
-                let target = expect_object(target)?;
+                let target = expect_object(target, obj.span)?;
                 target.borrow_mut().fields.insert(field.clone(), v);
                 Ok(Value::Unit)
             }
@@ -205,20 +206,17 @@ impl Interpreter {
     }
 
     fn eval_block(&mut self, block: &Block) -> Result<Value, RuntimeError> {
-        // Track let-bindings introduced in this block so they can be undone
-        // on exit (Rust-style lexical scoping for `let`). Assignments to
-        // outer variables persist after the block ends.
         let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
         let mut last = Value::Unit;
         for s in &block.stmts {
-            match s {
-                Stmt::Let { name, ty: _, value } => {
+            match &s.kind {
+                StmtKind::Let { name, ty: _, value } => {
                     let v = self.eval_expr(value)?;
                     let prev = self.vars.insert(name.clone(), v);
                     shadows.push((name.clone(), prev));
                     last = Value::Unit;
                 }
-                Stmt::Expr(e) => {
+                StmtKind::Expr(e) => {
                     last = self.eval_expr(e)?;
                 }
             }
@@ -239,14 +237,17 @@ impl Interpreter {
         Ok(last)
     }
 
-    fn call_fn(&mut self, name: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+    fn call_fn(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
         let decl = self
             .fns
             .get(name)
             .cloned()
-            .ok_or_else(|| RuntimeError::UndefinedFunction(name.to_string()))?;
-        self.invoke(name, &decl, evaluated, None)
+            .ok_or_else(|| RuntimeError::UndefinedFunction {
+                name: name.to_string(),
+                span,
+            })?;
+        self.invoke(name, &decl, evaluated, None, span)
     }
 
     fn call_method(
@@ -254,6 +255,7 @@ impl Interpreter {
         receiver: ObjectRef,
         method: &str,
         args: &[Expr],
+        span: Span,
     ) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
         let class_name = receiver.borrow().class.clone();
@@ -261,7 +263,10 @@ impl Interpreter {
             .classes
             .get(&class_name)
             .cloned()
-            .ok_or_else(|| RuntimeError::UndefinedClass(class_name.clone()))?;
+            .ok_or_else(|| RuntimeError::UndefinedClass {
+                name: class_name.clone(),
+                span,
+            })?;
         let decl = class
             .methods
             .iter()
@@ -270,28 +275,38 @@ impl Interpreter {
             .ok_or_else(|| RuntimeError::UnknownMethod {
                 class: class_name,
                 method: method.to_string(),
+                span,
             })?;
-        self.invoke(method, &decl, evaluated, Some(receiver))
+        self.invoke(method, &decl, evaluated, Some(receiver), span)
     }
 
-    fn new_object(&mut self, class: &str, args: &[Expr]) -> Result<Value, RuntimeError> {
+    fn new_object(
+        &mut self,
+        class: &str,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
         let decl = self
             .classes
             .get(class)
             .cloned()
-            .ok_or_else(|| RuntimeError::UndefinedClass(class.to_string()))?;
+            .ok_or_else(|| RuntimeError::UndefinedClass {
+                name: class.to_string(),
+                span,
+            })?;
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: class.to_string(),
             fields: HashMap::new(),
         }));
         if let Some(init) = decl.methods.iter().find(|m| m.name == "init").cloned() {
-            self.invoke("init", &init, evaluated, Some(obj.clone()))?;
+            self.invoke("init", &init, evaluated, Some(obj.clone()), span)?;
         } else if !evaluated.is_empty() {
             return Err(RuntimeError::ArityMismatch {
                 name: format!("{class}::init"),
                 expected: 0,
                 got: evaluated.len(),
+                span,
             });
         }
         Ok(Value::Object(obj))
@@ -307,16 +322,18 @@ impl Interpreter {
         decl: &FnDecl,
         evaluated: Vec<Value>,
         receiver: Option<ObjectRef>,
+        call_span: Span,
     ) -> Result<Value, RuntimeError> {
         if decl.params.len() != evaluated.len() {
             return Err(RuntimeError::ArityMismatch {
                 name: name.to_string(),
                 expected: decl.params.len(),
                 got: evaluated.len(),
+                span: call_span,
             });
         }
         if self.depth >= MAX_DEPTH {
-            return Err(RuntimeError::StackOverflow);
+            return Err(RuntimeError::StackOverflow { span: call_span });
         }
         self.depth += 1;
         let saved_vars = std::mem::take(&mut self.vars);
@@ -328,25 +345,26 @@ impl Interpreter {
         self.vars = saved_vars;
         self.this = saved_this;
         self.depth -= 1;
-        // Defense in depth: the type checker rejects break/continue that
-        // would escape the function, but if a malformed AST slips through we
-        // surface it as a TypeError rather than letting the signal bubble up
-        // and silently affect an outer loop in the caller.
         match result {
-            Err(RuntimeError::Break) => {
-                Err(RuntimeError::TypeError("`break` escaped function body".into()))
-            }
-            Err(RuntimeError::Continue) => Err(RuntimeError::TypeError(
-                "`continue` escaped function body".into(),
-            )),
+            Err(RuntimeError::Break) => Err(RuntimeError::TypeError {
+                msg: "`break` escaped function body".into(),
+                span: call_span,
+            }),
+            Err(RuntimeError::Continue) => Err(RuntimeError::TypeError {
+                msg: "`continue` escaped function body".into(),
+                span: call_span,
+            }),
             other => other,
         }
     }
 }
 
-fn expect_object(v: Value) -> Result<ObjectRef, RuntimeError> {
+fn expect_object(v: Value, span: Span) -> Result<ObjectRef, RuntimeError> {
     match v {
         Value::Object(o) => Ok(o),
-        other => Err(RuntimeError::NotAnObject(format!("{other}"))),
+        other => Err(RuntimeError::NotAnObject {
+            actual: format!("{other}"),
+            span,
+        }),
     }
 }

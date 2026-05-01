@@ -204,6 +204,7 @@ dependencies = [
 name = "ilang-lexer"
 version = "0.1.0"
 dependencies = [
+ "ilang-ast",
  "thiserror",
 ]
 

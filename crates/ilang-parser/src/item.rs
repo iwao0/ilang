@@ -19,8 +19,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected: "'fn' (attributes on classes are not supported yet)".into(),
-                        line: t.span.line,
-                        col: t.span.col,
+                        span: t.span,
                     });
                 }
                 let c = self.parse_class_decl()?;
@@ -31,14 +30,14 @@ impl<'a> Parser<'a> {
                 Err(ParseError::Unexpected {
                     found: t.kind.clone(),
                     expected: "'fn' or 'class' after attributes".into(),
-                    line: t.span.line,
-                    col: t.span.col,
+                    span: t.span,
                 })
             }
         }
     }
 
     fn parse_class_decl(&mut self) -> Result<ClassDecl, ParseError> {
+        let span = self.peek().span;
         self.expect(&TokenKind::Class, "'class'")?;
         let name = self.expect_ident("class name")?;
         self.expect(&TokenKind::LBrace, "'{'")?;
@@ -48,14 +47,11 @@ impl<'a> Parser<'a> {
             match self.peek().kind {
                 TokenKind::RBrace => break,
                 TokenKind::Hash => {
-                    // Method-level attribute: parse and attach to the next method.
                     let attrs = self.parse_attributes()?;
                     let m = self.parse_method(attrs)?;
                     methods.push(m);
                 }
                 TokenKind::Ident(_) => {
-                    // Either `name: Type` (field) or `name(...)` (method).
-                    // Disambiguate by looking ahead one token.
                     let next_kind = self.tokens[(self.pos + 1).min(self.tokens.len() - 1)]
                         .kind
                         .clone();
@@ -73,8 +69,7 @@ impl<'a> Parser<'a> {
                             return Err(ParseError::Unexpected {
                                 found: other,
                                 expected: "':' (field) or '(' (method)".into(),
-                                line: t.span.line,
-                                col: t.span.col,
+                                span: t.span,
                             });
                         }
                     }
@@ -84,8 +79,7 @@ impl<'a> Parser<'a> {
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected: "field, method, or '}'".into(),
-                        line: t.span.line,
-                        col: t.span.col,
+                        span: t.span,
                     });
                 }
             }
@@ -95,29 +89,34 @@ impl<'a> Parser<'a> {
             name,
             fields,
             methods,
+            span,
         })
     }
 
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
+        let span = self.peek().span;
         let name = self.expect_ident("field name")?;
         self.expect(&TokenKind::Colon, "':'")?;
         let ty = self.parse_type()?;
         self.consume_stmt_terminator()?;
-        Ok(FieldDecl { name, ty })
+        Ok(FieldDecl { name, ty, span })
     }
 
     fn parse_method(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
+        let span = self.peek().span;
         let name = self.expect_ident("method name")?;
         self.expect(&TokenKind::LParen, "'('")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
             loop {
+                let pspan = self.peek().span;
                 let pname = self.expect_ident("parameter name")?;
                 self.expect(&TokenKind::Colon, "':'")?;
                 let pty = self.parse_type()?;
                 params.push(Param {
                     name: pname,
                     ty: pty,
+                    span: pspan,
                 });
                 if matches!(self.peek().kind, TokenKind::Comma) {
                     self.bump();
@@ -140,6 +139,7 @@ impl<'a> Parser<'a> {
             params,
             ret,
             body,
+            span,
         })
     }
 
@@ -179,18 +179,21 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fn_decl(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
+        let span = self.peek().span;
         self.expect(&TokenKind::Fn, "'fn'")?;
         let name = self.expect_ident("function name")?;
         self.expect(&TokenKind::LParen, "'('")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
             loop {
+                let pspan = self.peek().span;
                 let pname = self.expect_ident("parameter name")?;
                 self.expect(&TokenKind::Colon, "':'")?;
                 let pty = self.parse_type()?;
                 params.push(Param {
                     name: pname,
                     ty: pty,
+                    span: pspan,
                 });
                 if matches!(self.peek().kind, TokenKind::Comma) {
                     self.bump();
@@ -200,9 +203,6 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(&TokenKind::RParen, "')'")?;
-        // TypeScript-style return type: `): Type { ... }`. The leading `{`
-        // of the body is what disambiguates "no annotation" from "missing
-        // type": `): {` would be invalid because `{` isn't a type.
         let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
             Some(self.parse_type()?)
@@ -216,6 +216,7 @@ impl<'a> Parser<'a> {
             params,
             ret,
             body,
+            span,
         })
     }
 
@@ -228,16 +229,13 @@ impl<'a> Parser<'a> {
                     "i64" => Ok(Type::I64),
                     "f64" => Ok(Type::F64),
                     "bool" => Ok(Type::Bool),
-                    // Any other identifier is treated as a class name. The
-                    // type checker validates that the class actually exists.
                     _ => Ok(Type::Object(n)),
                 }
             }
             other => Err(ParseError::Unexpected {
                 found: other,
                 expected: "type name".into(),
-                line: t.span.line,
-                col: t.span.col,
+                span: t.span,
             }),
         }
     }

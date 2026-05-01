@@ -1,15 +1,25 @@
+use ilang_ast::Span;
 use ilang_lexer::TokenKind;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseError {
-    #[error("unexpected token {found:?} at line {line}, col {col} (expected {expected})")]
+    #[error("{span}: unexpected token {found:?} (expected {expected})")]
     Unexpected {
         found: TokenKind,
         expected: String,
-        line: u32,
-        col: u32,
+        span: Span,
     },
-    #[error("invalid assignment target at line {line}, col {col}")]
-    InvalidAssignTarget { line: u32, col: u32 },
+    #[error("{span}: invalid assignment target")]
+    InvalidAssignTarget { span: Span },
+}
+
+impl ParseError {
+    pub fn span(&self) -> Span {
+        match self {
+            ParseError::Unexpected { span, .. } | ParseError::InvalidAssignTarget { span } => {
+                *span
+            }
+        }
+    }
 }

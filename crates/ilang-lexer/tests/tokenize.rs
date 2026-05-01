@@ -139,3 +139,10 @@ fn loop_break_continue_keywords() {
         ]
     );
 }
+
+#[test]
+fn lex_error_format_starts_with_span() {
+    let err = tokenize("@").unwrap_err();
+    let s = format!("{err}");
+    assert!(s.starts_with("[1:1]:"), "got: {s}");
+}

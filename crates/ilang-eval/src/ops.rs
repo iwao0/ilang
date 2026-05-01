@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use ilang_ast::{BinOp, UnOp};
+use ilang_ast::{BinOp, Span, UnOp};
 
 use crate::error::RuntimeError;
 use crate::value::Value;
@@ -8,10 +8,18 @@ use crate::value::Value;
 pub(crate) fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
     match (op, &v) {
         (UnOp::Pos, Value::Int(_)) | (UnOp::Pos, Value::Float(_)) => Ok(v),
-        (UnOp::Neg, Value::Int(n)) => n.checked_neg().map(Value::Int).ok_or(RuntimeError::Overflow),
+        (UnOp::Neg, Value::Int(n)) => n
+            .checked_neg()
+            .map(Value::Int)
+            .ok_or(RuntimeError::Overflow {
+                span: Span::dummy(),
+            }),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
         (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
-        _ => Err(RuntimeError::TypeError("invalid unary operand".into())),
+        _ => Err(RuntimeError::TypeError {
+            msg: "invalid unary operand".into(),
+            span: Span::dummy(),
+        }),
     }
 }
 
@@ -28,21 +36,24 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
         (a @ (Value::Int(_) | Value::Float(_)), b @ (Value::Int(_) | Value::Float(_))) => {
             Ok(Value::Float(float_op(op, to_f64(&a), to_f64(&b))))
         }
-        _ => Err(RuntimeError::TypeError("invalid binary operands".into())),
+        _ => Err(RuntimeError::TypeError {
+            msg: "invalid binary operands".into(),
+            span: Span::dummy(),
+        }),
     }
 }
 
 fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     use std::cmp::Ordering;
-    // Object identity (==/!=) — reference equality on the Rc.
     if let (Value::Object(a), Value::Object(b)) = (&l, &r) {
         if matches!(op, BinOp::Eq | BinOp::Ne) {
             let same = Rc::ptr_eq(a, b);
             return Ok(Value::Bool(if op == BinOp::Eq { same } else { !same }));
         }
-        return Err(RuntimeError::TypeError(
-            "objects support only == and !=".into(),
-        ));
+        return Err(RuntimeError::TypeError {
+            msg: "objects support only == and !=".into(),
+            span: Span::dummy(),
+        });
     }
     let ord = match (&l, &r) {
         (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
@@ -51,9 +62,10 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
         | (Value::Float(_), Value::Float(_)) => to_f64(&l).partial_cmp(&to_f64(&r)),
         (Value::Bool(a), Value::Bool(b)) if matches!(op, BinOp::Eq | BinOp::Ne) => Some(a.cmp(b)),
         _ => {
-            return Err(RuntimeError::TypeError(
-                "invalid comparison operands".into(),
-            ));
+            return Err(RuntimeError::TypeError {
+                msg: "invalid comparison operands".into(),
+                span: Span::dummy(),
+            });
         }
     };
     let result = match (op, ord) {
@@ -63,7 +75,6 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
         (BinOp::Le, Some(o)) => o != Ordering::Greater,
         (BinOp::Gt, Some(o)) => o == Ordering::Greater,
         (BinOp::Ge, Some(o)) => o != Ordering::Less,
-        // None happens for NaN; equality says false, ordering says false.
         (BinOp::Eq, None) => false,
         (BinOp::Ne, None) => true,
         (_, None) => false,
@@ -75,7 +86,10 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
 pub(crate) fn as_bool(v: Value) -> Result<bool, RuntimeError> {
     match v {
         Value::Bool(b) => Ok(b),
-        _ => Err(RuntimeError::TypeError("expected bool".into())),
+        _ => Err(RuntimeError::TypeError {
+            msg: "expected bool".into(),
+            span: Span::dummy(),
+        }),
     }
 }
 
@@ -88,25 +102,26 @@ fn to_f64(v: &Value) -> f64 {
 }
 
 fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, RuntimeError> {
+    let dummy = Span::dummy();
     let r = match op {
         BinOp::Add => a.checked_add(b),
         BinOp::Sub => a.checked_sub(b),
         BinOp::Mul => a.checked_mul(b),
         BinOp::Div => {
             if b == 0 {
-                return Err(RuntimeError::DivisionByZero);
+                return Err(RuntimeError::DivisionByZero { span: dummy });
             }
             a.checked_div(b)
         }
         BinOp::Rem => {
             if b == 0 {
-                return Err(RuntimeError::DivisionByZero);
+                return Err(RuntimeError::DivisionByZero { span: dummy });
             }
             a.checked_rem(b)
         }
         _ => unreachable!("non-arithmetic BinOp in int_op"),
     };
-    r.map(Value::Int).ok_or(RuntimeError::Overflow)
+    r.map(Value::Int).ok_or(RuntimeError::Overflow { span: dummy })
 }
 
 fn float_op(op: BinOp, a: f64, b: f64) -> f64 {

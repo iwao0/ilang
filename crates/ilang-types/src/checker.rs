@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, FnDecl, Item, Param, Program, Stmt, Type, UnOp,
+    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span, Stmt,
+    StmtKind, Type, UnOp,
 };
 
 use crate::error::TypeError;
@@ -25,8 +26,6 @@ type Vars = HashMap<String, Type>;
 pub struct TypeChecker {
     fns: HashMap<String, Signature>,
     classes: HashMap<String, ClassSig>,
-    /// Persistent top-level variable bindings — needed by the REPL so a `let`
-    /// on one line is still in scope on the next.
     vars: HashMap<String, Type>,
 }
 
@@ -35,10 +34,7 @@ impl TypeChecker {
         Self::default()
     }
 
-    /// Type-check a program. Class and fn signatures are registered first so
-    /// references can be resolved regardless of declaration order.
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
-        // Pass 1: register signatures.
         for item in &prog.items {
             match item {
                 Item::Fn(f) => {
@@ -51,8 +47,6 @@ impl TypeChecker {
                 }
             }
         }
-        // Pass 2: validate field/method types (e.g. `Type::Object(name)`
-        // refers to a known class) and check method bodies.
         for item in &prog.items {
             match item {
                 Item::Fn(f) => self.check_fn(f, None)?,
@@ -60,7 +54,6 @@ impl TypeChecker {
             }
         }
 
-        // Top-level let-bindings persist for the REPL.
         let mut env: Vars = self.vars.clone();
         let mut last = Type::Unit;
         for s in &prog.stmts {
@@ -74,8 +67,8 @@ impl TypeChecker {
     }
 
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
-        for f in &c.fields {
-            self.validate_type(&f.ty)?;
+        for FieldDecl { ty, span, .. } in &c.fields {
+            self.validate_type(ty, *span)?;
         }
         for m in &c.methods {
             self.check_fn(m, Some(&c.name))?;
@@ -84,18 +77,16 @@ impl TypeChecker {
     }
 
     fn check_fn(&self, f: &FnDecl, in_class: Option<&str>) -> Result<(), TypeError> {
-        for p in &f.params {
-            self.validate_type(&p.ty)?;
+        for Param { ty, span, .. } in &f.params {
+            self.validate_type(ty, *span)?;
         }
         if let Some(ret) = &f.ret {
-            self.validate_type(ret)?;
+            self.validate_type(ret, f.span)?;
         }
         let mut env: Vars = HashMap::new();
-        for Param { name, ty } in &f.params {
+        for Param { name, ty, .. } in &f.params {
             env.insert(name.clone(), ty.clone());
         }
-        // Function body starts a fresh loop-depth scope: a `break` inside a
-        // function defined within a loop must NOT escape to the outer loop.
         let body_ty = self.check_block(&f.body, &env, in_class, 0)?;
         let expected = f.ret.clone().unwrap_or(Type::Unit);
         if !assignable(&body_ty, &expected) {
@@ -103,15 +94,19 @@ impl TypeChecker {
                 name: f.name.clone(),
                 expected,
                 got: body_ty,
+                span: f.span,
             });
         }
         Ok(())
     }
 
-    fn validate_type(&self, t: &Type) -> Result<(), TypeError> {
+    fn validate_type(&self, t: &Type, span: Span) -> Result<(), TypeError> {
         if let Type::Object(name) = t {
             if !self.classes.contains_key(name) {
-                return Err(TypeError::UndefinedClass(name.clone()));
+                return Err(TypeError::UndefinedClass {
+                    name: name.clone(),
+                    span,
+                });
             }
         }
         Ok(())
@@ -142,16 +137,17 @@ impl TypeChecker {
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
-        match stmt {
-            Stmt::Let { name, ty, value } => {
+        match &stmt.kind {
+            StmtKind::Let { name, ty, value } => {
                 let vt = self.check_expr(value, env, in_class, loop_depth)?;
                 let bind = match ty {
                     Some(ann) => {
-                        self.validate_type(ann)?;
+                        self.validate_type(ann, stmt.span)?;
                         if !assignable(&vt, ann) {
                             return Err(TypeError::Mismatch {
                                 expected: ann.clone(),
                                 got: vt,
+                                span: value.span,
                             });
                         }
                         ann.clone()
@@ -161,7 +157,7 @@ impl TypeChecker {
                 env.insert(name.clone(), bind);
                 Ok(Type::Unit)
             }
-            Stmt::Expr(e) => self.check_expr(e, env, in_class, loop_depth),
+            StmtKind::Expr(e) => self.check_expr(e, env, in_class, loop_depth),
         }
     }
 
@@ -172,18 +168,16 @@ impl TypeChecker {
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
-        match expr {
-            Expr::Int(_) => Ok(Type::I64),
-            Expr::Float(_) => Ok(Type::F64),
-            Expr::Bool(_) => Ok(Type::Bool),
-            Expr::This => match in_class {
+        let span = expr.span;
+        match &expr.kind {
+            ExprKind::Int(_) => Ok(Type::I64),
+            ExprKind::Float(_) => Ok(Type::F64),
+            ExprKind::Bool(_) => Ok(Type::Bool),
+            ExprKind::This => match in_class {
                 Some(name) => Ok(Type::Object(name.to_string())),
-                None => Err(TypeError::ThisOutsideMethod),
+                None => Err(TypeError::ThisOutsideMethod { span }),
             },
-            Expr::Var(n) => {
-                // Method-body sugar: an identifier with no local binding
-                // resolves against the implicit `this`. Locals always win,
-                // so `init(count) { this.count = count }` still works.
+            ExprKind::Var(n) => {
                 if let Some(t) = env.get(n) {
                     return Ok(t.clone());
                 }
@@ -194,88 +188,96 @@ impl TypeChecker {
                         }
                     }
                 }
-                Err(TypeError::UndefinedVariable(n.clone()))
+                Err(TypeError::UndefinedVariable {
+                    name: n.clone(),
+                    span,
+                })
             }
-            Expr::Unary { op, expr } => {
-                let t = self.check_expr(expr, env, in_class, loop_depth)?;
+            ExprKind::Unary { op, expr: inner } => {
+                let t = self.check_expr(inner, env, in_class, loop_depth)?;
                 match (op, &t) {
                     (UnOp::Neg | UnOp::Pos, Type::I64) => Ok(Type::I64),
                     (UnOp::Neg | UnOp::Pos, Type::F64) => Ok(Type::F64),
                     (UnOp::Not, Type::Bool) => Ok(Type::Bool),
-                    _ => Err(TypeError::BadUnary(t)),
+                    _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
             }
-            Expr::Binary { op, lhs, rhs } => {
+            ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.check_expr(lhs, env, in_class, loop_depth)?;
                 let r = self.check_expr(rhs, env, in_class, loop_depth)?;
-                bin_result(*op, &l, &r)
+                bin_result(*op, &l, &r).map_err(|e| attach_span(e, span))
             }
-            Expr::Logical { op: _, lhs, rhs } => {
+            ExprKind::Logical { op: _, lhs, rhs } => {
                 let l = self.check_expr(lhs, env, in_class, loop_depth)?;
                 let r = self.check_expr(rhs, env, in_class, loop_depth)?;
                 if l != Type::Bool || r != Type::Bool {
-                    return Err(TypeError::BadBinary(l, r));
+                    return Err(TypeError::BadBinary {
+                        lhs: l,
+                        rhs: r,
+                        span,
+                    });
                 }
                 Ok(Type::Bool)
             }
-            Expr::Call { callee, args } => {
-                // Inside a method body, an unqualified call resolves against
-                // own methods first (implicit `this.callee(args)`). Falls
-                // back to free functions so existing code keeps working.
+            ExprKind::Call { callee, args } => {
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(sig) = cls.methods.get(callee).cloned() {
-                            self.check_args(callee, &sig, args, env, in_class, loop_depth)?;
+                            self.check_args(callee, &sig, args, env, in_class, loop_depth, span)?;
                             return Ok(sig.ret);
                         }
                     }
                 }
-                let sig = self
-                    .fns
-                    .get(callee)
-                    .cloned()
-                    .ok_or_else(|| TypeError::UndefinedFunction(callee.clone()))?;
-                self.check_args(callee, &sig, args, env, in_class, loop_depth)?;
+                let sig = self.fns.get(callee).cloned().ok_or_else(|| {
+                    TypeError::UndefinedFunction {
+                        name: callee.clone(),
+                        span,
+                    }
+                })?;
+                self.check_args(callee, &sig, args, env, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }
-            Expr::Field { obj, name } => {
+            ExprKind::Field { obj, name } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
-                let class_name = expect_object(&ot)?;
-                let cls = self
-                    .classes
-                    .get(class_name)
-                    .ok_or_else(|| TypeError::UndefinedClass(class_name.to_string()))?;
+                let class_name = expect_object(&ot, span)?;
+                let cls = self.classes.get(class_name).ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: class_name.to_string(),
+                        span,
+                    }
+                })?;
                 cls.fields.get(name).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
                         field: name.clone(),
+                        span,
                     }
                 })
             }
-            Expr::MethodCall { obj, method, args } => {
+            ExprKind::MethodCall { obj, method, args } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
-                let class_name = expect_object(&ot)?;
-                let cls = self
-                    .classes
-                    .get(class_name)
-                    .ok_or_else(|| TypeError::UndefinedClass(class_name.to_string()))?;
-                let sig =
-                    cls.methods.get(method).cloned().ok_or_else(|| {
-                        TypeError::UnknownMethod {
-                            class: class_name.to_string(),
-                            method: method.clone(),
-                        }
-                    })?;
-                self.check_args(method, &sig, args, env, in_class, loop_depth)?;
+                let class_name = expect_object(&ot, span)?;
+                let cls = self.classes.get(class_name).ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: class_name.to_string(),
+                        span,
+                    }
+                })?;
+                let sig = cls.methods.get(method).cloned().ok_or_else(|| {
+                    TypeError::UnknownMethod {
+                        class: class_name.to_string(),
+                        method: method.clone(),
+                        span,
+                    }
+                })?;
+                self.check_args(method, &sig, args, env, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }
-            Expr::New { class, args } => {
-                let cls = self
-                    .classes
-                    .get(class)
-                    .ok_or_else(|| TypeError::UndefinedClass(class.clone()))?;
-                // If the class has an `init` method, treat it as the
-                // constructor. Otherwise `new C()` must take zero arguments.
+            ExprKind::New { class, args } => {
+                let cls = self.classes.get(class).ok_or_else(|| TypeError::UndefinedClass {
+                    name: class.clone(),
+                    span,
+                })?;
                 if let Some(init) = cls.methods.get("init").cloned() {
                     self.check_args(
                         &format!("{class}::init"),
@@ -284,18 +286,20 @@ impl TypeChecker {
                         env,
                         in_class,
                         loop_depth,
+                        span,
                     )?;
                 } else if !args.is_empty() {
                     return Err(TypeError::ArityMismatch {
                         name: format!("{class}::init"),
                         expected: 0,
                         got: args.len(),
+                        span,
                     });
                 }
                 Ok(Type::Object(class.clone()))
             }
-            Expr::Block(b) => self.check_block(b, env, in_class, loop_depth),
-            Expr::If {
+            ExprKind::Block(b) => self.check_block(b, env, in_class, loop_depth),
+            ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
@@ -305,6 +309,7 @@ impl TypeChecker {
                     return Err(TypeError::Mismatch {
                         expected: Type::Bool,
                         got: c,
+                        span: cond.span,
                     });
                 }
                 let then_ty = self.check_block(then_branch, env, in_class, loop_depth)?;
@@ -314,6 +319,7 @@ impl TypeChecker {
                             return Err(TypeError::Mismatch {
                                 expected: Type::Unit,
                                 got: then_ty,
+                                span,
                             });
                         }
                         Ok(Type::Unit)
@@ -330,17 +336,19 @@ impl TypeChecker {
                             Err(TypeError::Mismatch {
                                 expected: then_ty,
                                 got: else_ty,
+                                span: else_e.span,
                             })
                         }
                     }
                 }
             }
-            Expr::While { cond, body } => {
+            ExprKind::While { cond, body } => {
                 let c = self.check_expr(cond, env, in_class, loop_depth)?;
                 if c != Type::Bool {
                     return Err(TypeError::Mismatch {
                         expected: Type::Bool,
                         got: c,
+                        span: cond.span,
                     });
                 }
                 let body_ty = self.check_block(body, env, in_class, loop_depth + 1)?;
@@ -348,42 +356,42 @@ impl TypeChecker {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
                         got: body_ty,
+                        span,
                     });
                 }
                 Ok(Type::Unit)
             }
-            Expr::Loop { body } => {
+            ExprKind::Loop { body } => {
                 let body_ty = self.check_block(body, env, in_class, loop_depth + 1)?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
                         got: body_ty,
+                        span,
                     });
                 }
                 Ok(Type::Unit)
             }
-            Expr::Break => {
+            ExprKind::Break => {
                 if loop_depth == 0 {
-                    return Err(TypeError::BreakOutsideLoop);
+                    return Err(TypeError::BreakOutsideLoop { span });
                 }
                 Ok(Type::Unit)
             }
-            Expr::Continue => {
+            ExprKind::Continue => {
                 if loop_depth == 0 {
-                    return Err(TypeError::ContinueOutsideLoop);
+                    return Err(TypeError::ContinueOutsideLoop { span });
                 }
                 Ok(Type::Unit)
             }
-            Expr::Assign { target, value } => {
-                // Mirror the read-side fallback: assigning to an unqualified
-                // name inside a method body assigns to the field on `this`
-                // when no local binding shadows it.
+            ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
                     let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
                     if !assignable(&v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
                             got: v_ty,
+                            span: value.span,
                         });
                     }
                     return Ok(Type::Unit);
@@ -396,25 +404,32 @@ impl TypeChecker {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,
                                     got: v_ty,
+                                    span: value.span,
                                 });
                             }
                             return Ok(Type::Unit);
                         }
                     }
                 }
-                Err(TypeError::UndefinedVariable(target.clone()))
+                Err(TypeError::UndefinedVariable {
+                    name: target.clone(),
+                    span,
+                })
             }
-            Expr::AssignField { obj, field, value } => {
+            ExprKind::AssignField { obj, field, value } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
-                let class_name = expect_object(&ot)?;
-                let cls = self
-                    .classes
-                    .get(class_name)
-                    .ok_or_else(|| TypeError::UndefinedClass(class_name.to_string()))?;
+                let class_name = expect_object(&ot, obj.span)?;
+                let cls = self.classes.get(class_name).ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: class_name.to_string(),
+                        span: obj.span,
+                    }
+                })?;
                 let field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
                         field: field.clone(),
+                        span,
                     }
                 })?;
                 let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
@@ -422,6 +437,7 @@ impl TypeChecker {
                     return Err(TypeError::Mismatch {
                         expected: field_ty,
                         got: v_ty,
+                        span: value.span,
                     });
                 }
                 Ok(Type::Unit)
@@ -429,6 +445,7 @@ impl TypeChecker {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_args(
         &self,
         name: &str,
@@ -437,12 +454,14 @@ impl TypeChecker {
         env: &Vars,
         in_class: Option<&str>,
         loop_depth: u32,
+        call_span: Span,
     ) -> Result<(), TypeError> {
         if sig.params.len() != args.len() {
             return Err(TypeError::ArityMismatch {
                 name: name.to_string(),
                 expected: sig.params.len(),
                 got: args.len(),
+                span: call_span,
             });
         }
         for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
@@ -451,6 +470,7 @@ impl TypeChecker {
                 return Err(TypeError::Mismatch {
                     expected: param_ty.clone(),
                     got: at,
+                    span: arg.span,
                 });
             }
         }
@@ -477,13 +497,25 @@ fn class_signature(c: &ClassDecl) -> ClassSig {
     ClassSig { fields, methods }
 }
 
-fn expect_object(t: &Type) -> Result<&str, TypeError> {
+fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {
     if let Type::Object(name) = t {
         Ok(name)
     } else {
         Err(TypeError::Mismatch {
             expected: Type::Object("<object>".into()),
             got: t.clone(),
+            span,
         })
+    }
+}
+
+/// Helper for `bin_result`-style spanless errors (the ops module returns
+/// `BadBinary`/`BadUnary` without knowing the source position; we attach
+/// the surrounding expression's span here).
+fn attach_span(e: TypeError, span: Span) -> TypeError {
+    match e {
+        TypeError::BadBinary { lhs, rhs, .. } => TypeError::BadBinary { lhs, rhs, span },
+        TypeError::BadUnary { ty, .. } => TypeError::BadUnary { ty, span },
+        other => other,
     }
 }

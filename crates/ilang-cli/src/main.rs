@@ -19,9 +19,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Evaluate an .il source file.
-    Run {
-        path: PathBuf,
-    },
+    Run { path: PathBuf },
 }
 
 fn main() -> ExitCode {
@@ -51,10 +49,10 @@ fn run_repl() -> ExitCode {
                     continue;
                 }
                 let _ = rl.add_history_entry(trimmed);
-                match eval_in(&mut interp, &mut tc, trimmed) {
+                match eval_in(&mut interp, &mut tc, trimmed, "<repl>") {
                     Ok(Value::Unit) => {}
                     Ok(v) => println!("{v}"),
-                    Err(e) => eprintln!("error: {e}"),
+                    Err(e) => eprintln!("{e}"),
                 }
             }
             Err(ReadlineError::Interrupted) => continue,
@@ -78,26 +76,31 @@ fn run_file(path: &PathBuf) -> ExitCode {
     };
     let mut interp = Interpreter::new();
     let mut tc = TypeChecker::new();
-    match eval_in(&mut interp, &mut tc, src.trim()) {
+    let display_path = path.display().to_string();
+    match eval_in(&mut interp, &mut tc, src.trim(), &display_path) {
         Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
             println!("{v}");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("error: {e}");
+            eprintln!("{e}");
             ExitCode::FAILURE
         }
     }
 }
 
+/// Run one chunk of source. `source_label` (filename or `<repl>`) is
+/// prepended to each error's leading `[row:col]` so users see exactly where
+/// the message came from. Errors already start with `[row:col]: ...`.
 fn eval_in(
     interp: &mut Interpreter,
     tc: &mut TypeChecker,
     src: &str,
+    source_label: &str,
 ) -> Result<Value, String> {
-    let toks = tokenize(src).map_err(|e| e.to_string())?;
-    let prog = parse(&toks).map_err(|e| e.to_string())?;
-    tc.check(&prog).map_err(|e| format!("type error: {e}"))?;
-    interp.run(&prog).map_err(|e| e.to_string())
+    let toks = tokenize(src).map_err(|e| format!("{source_label} {e}"))?;
+    let prog = parse(&toks).map_err(|e| format!("{source_label} {e}"))?;
+    tc.check(&prog).map_err(|e| format!("{source_label} {e}"))?;
+    interp.run(&prog).map_err(|e| format!("{source_label} {e}"))
 }

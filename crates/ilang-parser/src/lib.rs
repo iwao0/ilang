@@ -4,7 +4,7 @@ mod item;
 mod parser;
 mod stmt;
 
-use ilang_ast::{Expr, Program, Stmt};
+use ilang_ast::{Expr, Program, Stmt, StmtKind};
 use ilang_lexer::{Token, TokenKind};
 
 pub use error::ParseError;
@@ -27,8 +27,7 @@ pub fn parse_expr_only(tokens: &[Token]) -> Result<Expr, ParseError> {
         return Err(ParseError::Unexpected {
             found: t.kind.clone(),
             expected: "end of input".into(),
-            line: t.span.line,
-            col: t.span.col,
+            span: t.span,
         });
     }
     Ok(e)
@@ -49,8 +48,11 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
             }
             _ => {
                 let e = p.parse_expr(0)?;
+                let span = e.span;
                 match p.classify_expr_end(&e, TokenKind::Eof)? {
-                    ExprEnd::Stmt => prog.stmts.push(Stmt::Expr(e)),
+                    ExprEnd::Stmt => {
+                        prog.stmts.push(Stmt::new(StmtKind::Expr(e), span));
+                    }
                     ExprEnd::Tail => {
                         prog.tail = Some(e);
                         break;
