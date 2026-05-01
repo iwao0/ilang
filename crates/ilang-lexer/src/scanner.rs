@@ -93,23 +93,48 @@ impl<'a> Lexer<'a> {
         let kind = match c {
             '+' => {
                 self.bump();
-                TokenKind::Plus
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::PlusEq
+                } else {
+                    TokenKind::Plus
+                }
             }
             '-' => {
                 self.bump();
-                TokenKind::Minus
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::MinusEq
+                } else {
+                    TokenKind::Minus
+                }
             }
             '*' => {
                 self.bump();
-                TokenKind::Star
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::StarEq
+                } else {
+                    TokenKind::Star
+                }
             }
             '/' => {
                 self.bump();
-                TokenKind::Slash
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::SlashEq
+                } else {
+                    TokenKind::Slash
+                }
             }
             '%' => {
                 self.bump();
-                TokenKind::Percent
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::PercentEq
+                } else {
+                    TokenKind::Percent
+                }
             }
             '(' => {
                 self.bump();

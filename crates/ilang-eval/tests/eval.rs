@@ -378,3 +378,57 @@ fn local_shadows_field() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(15));
 }
+
+#[test]
+fn compound_assign_var() {
+    let src = r#"
+        let i = 10
+        i += 5
+        i -= 3
+        i *= 2
+        i
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(24));
+}
+
+#[test]
+fn compound_assign_div_rem() {
+    assert_eq!(
+        run("let i = 17; i /= 4; i").unwrap(),
+        Value::Int(4)
+    );
+    assert_eq!(
+        run("let i = 17; i %= 4; i").unwrap(),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn compound_assign_field() {
+    let src = r#"
+        class C {
+            n: i64
+            init(n: i64) { this.n = n }
+        }
+        let c = new C(10)
+        c.n += 5
+        c.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(15));
+}
+
+#[test]
+fn compound_assign_implicit_this() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            tick(): i64 { n += 1; n }
+        }
+        let c = new Counter()
+        c.tick()
+        c.tick()
+        c.tick()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}

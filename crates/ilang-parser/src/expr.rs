@@ -28,7 +28,18 @@ impl<'a> Parser<'a> {
         lhs = self.parse_postfix(lhs)?;
         loop {
             // Assignment is right-associative; lhs must be Var or Field.
-            if matches!(self.peek().kind, TokenKind::Equals) {
+            // Compound forms (`+=`, `-=`, ...) are desugared here into the
+            // equivalent `lhs = lhs <op> rhs` so the rest of the pipeline
+            // (type checker, evaluator) needs no new cases.
+            let compound_op = match self.peek().kind {
+                TokenKind::PlusEq => Some(BinOp::Add),
+                TokenKind::MinusEq => Some(BinOp::Sub),
+                TokenKind::StarEq => Some(BinOp::Mul),
+                TokenKind::SlashEq => Some(BinOp::Div),
+                TokenKind::PercentEq => Some(BinOp::Rem),
+                _ => None,
+            };
+            if matches!(self.peek().kind, TokenKind::Equals) || compound_op.is_some() {
                 let l_bp = 2u8;
                 let r_bp = 1u8;
                 if l_bp < min_bp {
@@ -36,7 +47,15 @@ impl<'a> Parser<'a> {
                 }
                 let eq_tok = self.peek().clone();
                 self.bump();
-                let value = self.parse_expr(r_bp)?;
+                let rhs = self.parse_expr(r_bp)?;
+                let value = match compound_op {
+                    Some(op) => Expr::Binary {
+                        op,
+                        lhs: Box::new(lhs.clone()),
+                        rhs: Box::new(rhs),
+                    },
+                    None => rhs,
+                };
                 lhs = match lhs {
                     Expr::Var(name) => Expr::Assign {
                         target: name,
