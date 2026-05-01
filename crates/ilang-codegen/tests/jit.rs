@@ -255,3 +255,45 @@ fn class_returned_as_object() {
     let v = jit(src);
     assert!(matches!(v, JitValue::Object { ref class, .. } if class == "P"));
 }
+
+#[test]
+fn array_literal_index_length() {
+    assert_eq!(
+        jit("let a: i32[] = [10, 20, 30]; a.length"),
+        JitValue::I64(3)
+    );
+    assert_eq!(
+        jit("let a: i32[] = [10, 20, 30]; a[1]"),
+        JitValue::I32(20)
+    );
+}
+
+#[test]
+fn array_index_assignment() {
+    let src = "let a: i32[] = [1, 2, 3]; a[0] = 100; a[0]";
+    assert_eq!(jit(src), JitValue::I32(100));
+}
+
+#[test]
+fn array_push_grows() {
+    let src = "let a: i32[] = [1]; a.push(2); a.push(3); a.length";
+    assert_eq!(jit(src), JitValue::I64(3));
+}
+
+#[test]
+fn array_returned_to_host() {
+    let v = jit("let a: i32[] = [10, 20, 30]; a");
+    assert_eq!(
+        v,
+        JitValue::Array(vec![
+            JitValue::I32(10),
+            JitValue::I32(20),
+            JitValue::I32(30),
+        ])
+    );
+}
+
+#[test]
+fn array_of_f64() {
+    assert_eq!(jit("let a: f64[] = [1.5, 2.5, 3.5]; a[2]"), JitValue::F64(3.5));
+}

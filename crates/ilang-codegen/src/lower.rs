@@ -84,6 +84,87 @@ extern "C" fn ilang_jit_str_eq(a: i64, b: i64) -> i8 {
     }
 }
 
+// ─── Array runtime ─────────────────────────────────────────────────────
+// Layout:
+//   header (24 bytes): [len: i64, cap: i64, data_ptr: i64]
+//   data buffer: separately heap-allocated `cap * elem_size` bytes
+// The two-level layout means `push` can reallocate the data buffer
+// without invalidating any aliased reference to the header.
+//
+// Memory leaks like the rest of the JIT-allocated heap — ARC pending.
+
+#[repr(C)]
+struct ArrayHeader {
+    len: i64,
+    cap: i64,
+    data_ptr: i64,
+}
+
+extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64) -> i64 {
+    let cap = len.max(4);
+    let data = if cap == 0 || elem_size == 0 {
+        0
+    } else {
+        let layout = std::alloc::Layout::from_size_align(
+            (cap as usize) * (elem_size as usize),
+            8,
+        )
+        .unwrap();
+        unsafe { std::alloc::alloc_zeroed(layout) as i64 }
+    };
+    let header_layout = std::alloc::Layout::new::<ArrayHeader>();
+    let header = unsafe { std::alloc::alloc_zeroed(header_layout) as *mut ArrayHeader };
+    unsafe {
+        (*header).len = len;
+        (*header).cap = cap;
+        (*header).data_ptr = data;
+    }
+    header as i64
+}
+
+/// Internal helper: ensure the data buffer has room for one more
+/// element, reallocating if needed.
+unsafe fn array_grow_if_full(header: *mut ArrayHeader, elem_size: i64) {
+    let len = (*header).len;
+    let cap = (*header).cap;
+    if len < cap {
+        return;
+    }
+    let new_cap = (cap * 2).max(4);
+    let old_size = (cap as usize) * (elem_size as usize);
+    let new_size = (new_cap as usize) * (elem_size as usize);
+    let layout = std::alloc::Layout::from_size_align(new_size.max(1), 8).unwrap();
+    let new_data = std::alloc::alloc_zeroed(layout);
+    let old_data = (*header).data_ptr;
+    if old_data != 0 && old_size != 0 {
+        std::ptr::copy_nonoverlapping(old_data as *const u8, new_data, old_size);
+        // Old buffer leaks (no ARC).
+    }
+    (*header).cap = new_cap;
+    (*header).data_ptr = new_data as i64;
+}
+
+macro_rules! push_fn {
+    ($name:ident, $ty:ty, $size:expr) => {
+        extern "C" fn $name(header: i64, val: $ty) {
+            unsafe {
+                let header = header as *mut ArrayHeader;
+                array_grow_if_full(header, $size);
+                let dst =
+                    ((*header).data_ptr + (*header).len * $size) as *mut $ty;
+                *dst = val;
+                (*header).len += 1;
+            }
+        }
+    };
+}
+push_fn!(ilang_jit_array_push_i8, i8, 1);
+push_fn!(ilang_jit_array_push_i16, i16, 2);
+push_fn!(ilang_jit_array_push_i32, i32, 4);
+push_fn!(ilang_jit_array_push_i64, i64, 8);
+push_fn!(ilang_jit_array_push_f32, f32, 4);
+push_fn!(ilang_jit_array_push_f64, f64, 8);
+
 // ─── JitValue (program result surfaced to the CLI) ──────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +182,7 @@ pub enum JitValue {
     Bool(bool),
     Object { class: String, ptr: i64 },
     Str(String),
+    Array(Vec<JitValue>),
     Unit,
 }
 
@@ -120,6 +202,16 @@ impl std::fmt::Display for JitValue {
             JitValue::Bool(b) => write!(f, "{b}"),
             JitValue::Object { class, ptr } => write!(f, "<{class} @ {ptr:#x}>"),
             JitValue::Str(s) => write!(f, "{s}"),
+            JitValue::Array(items) => {
+                write!(f, "[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
             JitValue::Unit => Ok(()),
         }
     }
@@ -153,6 +245,9 @@ enum JitTy {
     Object(u32),
     /// Heap pointer to a `Box<String>`.
     Str,
+    /// Heap pointer to an `ArrayHeader`. The id indexes the compiler's
+    /// `array_kinds` side table for element type / fixed length.
+    Array(u32),
     Unit,
 }
 
@@ -161,6 +256,7 @@ impl JitTy {
         t: &Type,
         span: ilang_ast::Span,
         class_ids: &HashMap<String, u32>,
+        array_kinds: &mut Vec<ArrayKind>,
     ) -> Result<Self, CodegenError> {
         Ok(match t {
             Type::I8 => JitTy::I8,
@@ -185,6 +281,17 @@ impl JitTy {
                 })?;
                 JitTy::Object(id)
             }
+            Type::Array { elem, fixed } => {
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, array_kinds)?;
+                let id = intern_array_kind(
+                    array_kinds,
+                    ArrayKind {
+                        elem: elem_jty,
+                        fixed: fixed.map(|n| n as u32),
+                    },
+                );
+                JitTy::Array(id)
+            }
             other => {
                 return Err(CodegenError::UnsupportedType {
                     ty: other.clone(),
@@ -199,7 +306,7 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
             JitTy::I16 | JitTy::U16 => I16,
             JitTy::I32 | JitTy::U32 => I32,
-            JitTy::I64 | JitTy::U64 | JitTy::Object(_) | JitTy::Str => I64,
+            JitTy::I64 | JitTy::U64 | JitTy::Object(_) | JitTy::Str | JitTy::Array(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -232,7 +339,12 @@ impl JitTy {
             JitTy::I8 | JitTy::U8 | JitTy::Bool => 1,
             JitTy::I16 | JitTy::U16 => 2,
             JitTy::I32 | JitTy::U32 | JitTy::F32 => 4,
-            JitTy::I64 | JitTy::U64 | JitTy::F64 | JitTy::Object(_) | JitTy::Str => 8,
+            JitTy::I64
+            | JitTy::U64
+            | JitTy::F64
+            | JitTy::Object(_)
+            | JitTy::Str
+            | JitTy::Array(_) => 8,
             JitTy::Unit => 0,
         }
     }
@@ -245,6 +357,25 @@ struct ClassLayout {
     name: String,
     fields: HashMap<String, (u32, JitTy)>,
     size: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ArrayKind {
+    elem: JitTy,
+    fixed: Option<u32>,
+}
+
+/// Intern an array type, returning a stable side-table id. Linear scan
+/// is fine — programs rarely have more than a handful of array types.
+fn intern_array_kind(kinds: &mut Vec<ArrayKind>, kind: ArrayKind) -> u32 {
+    if let Some((i, _)) = kinds.iter().enumerate().find(|(_, k)| {
+        k.elem == kind.elem && k.fixed == kind.fixed
+    }) {
+        return i as u32;
+    }
+    let id = kinds.len() as u32;
+    kinds.push(kind);
+    id
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +475,7 @@ struct JitCompiler {
     class_ids: HashMap<String, u32>,
     class_layouts: Vec<ClassLayout>,
     class_methods: Vec<HashMap<String, MethodInfo>>,
+    array_kinds: Vec<ArrayKind>,
     alloc_id: FuncId,
     /// Per-type FFI print helpers used to lower `console.log(...)`.
     print_i64: FuncId,
@@ -356,6 +488,13 @@ struct JitCompiler {
     print_str: FuncId,
     str_concat: FuncId,
     str_eq: FuncId,
+    array_new: FuncId,
+    array_push_i8: FuncId,
+    array_push_i16: FuncId,
+    array_push_i32: FuncId,
+    array_push_i64: FuncId,
+    array_push_f32: FuncId,
+    array_push_f64: FuncId,
     /// Each string literal is interned at compile time as a leaked
     /// `Box<String>`; the literal's pointer value is embedded as an
     /// `iconst` when it's referenced. Holding the boxes here also keeps
@@ -387,6 +526,31 @@ impl JitCompiler {
         builder.symbol("ilang_jit_print_str", ilang_jit_print_str as *const u8);
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
+        builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
+        builder.symbol(
+            "ilang_jit_array_push_i8",
+            ilang_jit_array_push_i8 as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_array_push_i16",
+            ilang_jit_array_push_i16 as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_array_push_i32",
+            ilang_jit_array_push_i32 as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_array_push_i64",
+            ilang_jit_array_push_i64 as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_array_push_f32",
+            ilang_jit_array_push_f32 as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_array_push_f64",
+            ilang_jit_array_push_f64 as *const u8,
+        );
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -409,6 +573,20 @@ impl JitCompiler {
         )?;
         let str_eq =
             declare_import(&mut module, "ilang_jit_str_eq", &[I64, I64], Some(I8))?;
+        let array_new =
+            declare_import(&mut module, "ilang_jit_array_new", &[I64, I64], Some(I64))?;
+        let array_push_i8 =
+            declare_import(&mut module, "ilang_jit_array_push_i8", &[I64, I8], None)?;
+        let array_push_i16 =
+            declare_import(&mut module, "ilang_jit_array_push_i16", &[I64, I16], None)?;
+        let array_push_i32 =
+            declare_import(&mut module, "ilang_jit_array_push_i32", &[I64, I32], None)?;
+        let array_push_i64 =
+            declare_import(&mut module, "ilang_jit_array_push_i64", &[I64, I64], None)?;
+        let array_push_f32 =
+            declare_import(&mut module, "ilang_jit_array_push_f32", &[I64, F32], None)?;
+        let array_push_f64 =
+            declare_import(&mut module, "ilang_jit_array_push_f64", &[I64, F64], None)?;
 
         Ok(Self {
             module,
@@ -418,6 +596,7 @@ impl JitCompiler {
             class_ids: HashMap::new(),
             class_layouts: Vec::new(),
             class_methods: Vec::new(),
+            array_kinds: Vec::new(),
             alloc_id,
             print_i64,
             print_u64,
@@ -429,6 +608,13 @@ impl JitCompiler {
             print_str,
             str_concat,
             str_eq,
+            array_new,
+            array_push_i8,
+            array_push_i16,
+            array_push_i32,
+            array_push_i64,
+            array_push_f32,
+            array_push_f64,
             interned_strings: Vec::new(),
         })
     }
@@ -441,7 +627,7 @@ impl JitCompiler {
         let mut max_align = 1u32;
         let mut fields = HashMap::new();
         for field in &c.fields {
-            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids)?;
+            let jty = JitTy::from_ast(&field.ty, field.span, &self.class_ids, &mut self.array_kinds)?;
             let size = jty.size_bytes();
             let align = size.max(1);
             offset = align_up(offset, align);
@@ -494,10 +680,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &mut self.array_kinds)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &mut self.array_kinds)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -598,11 +784,21 @@ impl JitCompiler {
                 concat: self.str_concat,
                 eq: self.str_eq,
             },
+            arrfns: ArrayFns {
+                new: self.array_new,
+                push_i8: self.array_push_i8,
+                push_i16: self.array_push_i16,
+                push_i32: self.array_push_i32,
+                push_i64: self.array_push_i64,
+                push_f32: self.array_push_f32,
+                push_f64: self.array_push_f64,
+            },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
             this,
             interned_strings: &mut self.interned_strings,
+            array_kinds: &mut self.array_kinds,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         emit_return(&mut builder, ret_ty, body, f.span)?;
@@ -617,7 +813,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &mut self.array_kinds)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -656,11 +852,21 @@ impl JitCompiler {
                 concat: self.str_concat,
                 eq: self.str_eq,
             },
+            arrfns: ArrayFns {
+                new: self.array_new,
+                push_i8: self.array_push_i8,
+                push_i16: self.array_push_i16,
+                push_i32: self.array_push_i32,
+                push_i64: self.array_push_i64,
+                push_f32: self.array_push_f32,
+                push_f64: self.array_push_f64,
+            },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
             this: None,
             interned_strings: &mut self.interned_strings,
+            array_kinds: &mut self.array_kinds,
         };
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
@@ -735,6 +941,15 @@ impl JitCompiler {
                     let s = (*(p as *const String)).clone();
                     JitValue::Str(s)
                 }
+                JitTy::Array(id) => {
+                    let header_ptr = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    JitValue::Array(read_array(
+                        header_ptr,
+                        self.array_kinds[id as usize],
+                        &self.array_kinds,
+                        &self.class_layouts,
+                    ))
+                }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit
@@ -742,6 +957,55 @@ impl JitCompiler {
             }
         }
     }
+}
+
+/// Walk a JITed array's heap layout and rebuild a `Vec<JitValue>` for
+/// the host. Recurses into element type so nested arrays / strings /
+/// objects round-trip correctly.
+unsafe fn read_array(
+    header_ptr: i64,
+    kind: ArrayKind,
+    array_kinds: &[ArrayKind],
+    class_layouts: &[ClassLayout],
+) -> Vec<JitValue> {
+    if header_ptr == 0 {
+        return Vec::new();
+    }
+    let header = header_ptr as *const ArrayHeader;
+    let len = (*header).len as usize;
+    let data = (*header).data_ptr;
+    let elem_size = kind.elem.size_bytes() as i64;
+    let mut out = Vec::with_capacity(len);
+    for i in 0..len {
+        let p = data + (i as i64) * elem_size;
+        let v = match kind.elem {
+            JitTy::I8 => JitValue::I8(*(p as *const i8)),
+            JitTy::I16 => JitValue::I16(*(p as *const i16)),
+            JitTy::I32 => JitValue::I32(*(p as *const i32)),
+            JitTy::I64 => JitValue::I64(*(p as *const i64)),
+            JitTy::U8 => JitValue::U8(*(p as *const u8)),
+            JitTy::U16 => JitValue::U16(*(p as *const u16)),
+            JitTy::U32 => JitValue::U32(*(p as *const u32)),
+            JitTy::U64 => JitValue::U64(*(p as *const u64)),
+            JitTy::F32 => JitValue::F32(*(p as *const f32)),
+            JitTy::F64 => JitValue::F64(*(p as *const f64)),
+            JitTy::Bool => JitValue::Bool(*(p as *const i8) != 0),
+            JitTy::Str => JitValue::Str((*(*(p as *const i64) as *const String)).clone()),
+            JitTy::Object(id) => JitValue::Object {
+                class: class_layouts[id as usize].name.clone(),
+                ptr: *(p as *const i64),
+            },
+            JitTy::Array(id) => JitValue::Array(read_array(
+                *(p as *const i64),
+                array_kinds[id as usize],
+                array_kinds,
+                class_layouts,
+            )),
+            JitTy::Unit => JitValue::Unit,
+        };
+        out.push(v);
+    }
+    out
 }
 
 fn emit_return(
@@ -801,6 +1065,18 @@ struct StrFns {
     eq: FuncId,
 }
 
+/// FFI helpers for the heap array runtime. `push_<width>` is picked by
+/// the JIT based on the static element type.
+struct ArrayFns {
+    new: FuncId,
+    push_i8: FuncId,
+    push_i16: FuncId,
+    push_i32: FuncId,
+    push_i64: FuncId,
+    push_f32: FuncId,
+    push_f64: FuncId,
+}
+
 struct LowerCtx<'a> {
     funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
     class_layouts: &'a [ClassLayout],
@@ -808,6 +1084,7 @@ struct LowerCtx<'a> {
     alloc_id: FuncId,
     print: PrintFns,
     strfns: StrFns,
+    arrfns: ArrayFns,
     module: &'a mut JITModule,
     env: &'a mut Env,
     loops: Vec<(Block, Block)>,
@@ -816,6 +1093,7 @@ struct LowerCtx<'a> {
     /// Per-compilation interning bucket for string literals; the boxed
     /// String is leaked once and its pointer embedded as `iconst`.
     interned_strings: &'a mut Vec<Box<String>>,
+    array_kinds: &'a mut Vec<ArrayKind>,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -834,14 +1112,42 @@ fn lower_stmt(
 ) -> Result<(), CodegenError> {
     match &s.kind {
         StmtKind::Let { name, ty, value } => {
-            let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
-                CodegenError::Unsupported {
-                    what: "let value produces no value".into(),
-                    span: value.span,
-                }
-            })?;
+            // Special-case `let a: T[] = [...]` so the literal is built
+            // with the annotated element type from the start. Otherwise
+            // the array would be allocated with the literal's natural
+            // element type (i64 from `1`) and the strides wouldn't match
+            // the bind type's element width.
+            let lowered = if let (
+                Some(Type::Array { elem: target_elem, .. }),
+                ExprKind::Array(elements),
+            ) = (ty.as_ref(), &value.kind)
+            {
+                let target_elem_jty = JitTy::from_ast(
+                    target_elem,
+                    value.span,
+                    &class_ids_from(lc),
+                    lc.array_kinds,
+                )?;
+                Some(lower_array_literal(b, lc, elements, target_elem_jty, value.span)?)
+            } else {
+                None
+            };
+            let (val, vt) = match lowered {
+                Some(tv) => tv,
+                None => lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "let value produces no value".into(),
+                        span: value.span,
+                    }
+                })?,
+            };
             let bind_ty = match ty {
-                Some(t) => JitTy::from_ast(t, s.span, &class_ids_from(lc))?,
+                Some(t) => JitTy::from_ast(
+                    t,
+                    s.span,
+                    &class_ids_from(lc),
+                    lc.array_kinds,
+                )?,
                 None => vt,
             };
             let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
@@ -935,7 +1241,12 @@ fn lower_expr(
                 what: "cast on unit".into(),
                 span: e.span,
             })?;
-            let target = JitTy::from_ast(ty, e.span, &class_ids_from(lc))?;
+            let target = JitTy::from_ast(
+                ty,
+                e.span,
+                &class_ids_from(lc),
+                lc.array_kinds,
+            )?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
         }
@@ -1056,6 +1367,11 @@ fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Built-in `array.length` reads the first slot of the header.
+            if matches!(obj_t, JitTy::Array(_)) && name == "length" {
+                let len = b.ins().load(I64, MemFlags::trusted(), obj_v, 0);
+                return Ok(Some((len, JitTy::I64)));
+            }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
                 _ => {
@@ -1096,6 +1412,46 @@ fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Built-in `array.push(x)` dispatches to the per-width FFI.
+            if let JitTy::Array(id) = obj_t {
+                if method == "push" {
+                    if args.len() != 1 {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("array.push takes 1 arg, got {}", args.len()),
+                            span: e.span,
+                        });
+                    }
+                    let elem_jty = lc.array_kinds[id as usize].elem;
+                    let (av, at) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "push arg is unit".into(),
+                            span: args[0].span,
+                        }
+                    })?;
+                    let coerced = coerce(b, (av, at), elem_jty, args[0].span)?;
+                    let push_id = match elem_jty.size_bytes() {
+                        1 => lc.arrfns.push_i8,
+                        2 => lc.arrfns.push_i16,
+                        4 => match elem_jty {
+                            JitTy::F32 => lc.arrfns.push_f32,
+                            _ => lc.arrfns.push_i32,
+                        },
+                        8 => match elem_jty {
+                            JitTy::F64 => lc.arrfns.push_f64,
+                            _ => lc.arrfns.push_i64,
+                        },
+                        n => {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("array.push of {n}-byte element"),
+                                span: e.span,
+                            });
+                        }
+                    };
+                    let r = lc.module.declare_func_in_func(push_id, b.func);
+                    b.ins().call(r, &[obj_v, coerced]);
+                    return Ok(None);
+                }
+            }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
                 _ => {
@@ -1140,6 +1496,114 @@ fn lower_expr(
                 span: e.span,
             })
         }
+        ExprKind::Array(elements) => {
+            if elements.is_empty() {
+                return Err(CodegenError::Unsupported {
+                    what: "JIT array literal must have at least one element \
+                           (annotate the binding to allow `[]`)".into(),
+                    span: e.span,
+                });
+            }
+            // No type hint here — pick the element type from the first
+            // element. The Let path overrides via `lower_array_literal`
+            // when an annotation is present.
+            let (first_v, first_t) = lower_expr(b, lc, &elements[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "array element is unit".into(),
+                    span: elements[0].span,
+                }
+            })?;
+            let mut tail: Vec<(Value, JitTy, ilang_ast::Span)> =
+                Vec::with_capacity(elements.len() - 1);
+            for el in &elements[1..] {
+                let (v, t) = lower_expr(b, lc, el)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "array element is unit".into(),
+                        span: el.span,
+                    }
+                })?;
+                tail.push((v, t, el.span));
+            }
+            let mut all = Vec::with_capacity(elements.len());
+            all.push((first_v, first_t, elements[0].span));
+            all.extend(tail);
+            build_array(b, lc, all, first_t)
+        }
+        ExprKind::Index { obj, index } => {
+            let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "indexed value is unit".into(),
+                    span: obj.span,
+                }
+            })?;
+            let array_id = match obj_t {
+                JitTy::Array(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "index on non-array".into(),
+                        span: obj.span,
+                    });
+                }
+            };
+            let elem_jty = lc.array_kinds[array_id as usize].elem;
+            let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "index is unit".into(),
+                    span: index.span,
+                }
+            })?;
+            // Coerce index to i64; bounds-checking elided in MVP.
+            let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+            let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+            let off = b.ins().imul(idx_i64, elem_size);
+            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, 16);
+            let addr = b.ins().iadd(data, off);
+            let v = b.ins().load(
+                elem_jty.cl().expect("non-unit elem"),
+                MemFlags::trusted(),
+                addr,
+                0,
+            );
+            Ok(Some((v, elem_jty)))
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "indexed value is unit".into(),
+                    span: obj.span,
+                }
+            })?;
+            let array_id = match obj_t {
+                JitTy::Array(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "index assignment on non-array".into(),
+                        span: obj.span,
+                    });
+                }
+            };
+            let elem_jty = lc.array_kinds[array_id as usize].elem;
+            let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "index is unit".into(),
+                    span: index.span,
+                }
+            })?;
+            let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+            let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "assigned value is unit".into(),
+                    span: value.span,
+                }
+            })?;
+            let coerced = coerce(b, (val, vt), elem_jty, value.span)?;
+            let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+            let off = b.ins().imul(idx_i64, elem_size);
+            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, 16);
+            let addr = b.ins().iadd(data, off);
+            b.ins().store(MemFlags::trusted(), coerced, addr, 0);
+            Ok(None)
+        }
         ExprKind::New { class, args } => {
             let class_id = *lc
                 .class_layouts
@@ -1170,11 +1634,64 @@ fn lower_expr(
             }
             Ok(Some((ptr, JitTy::Object(class_id))))
         }
-        _ => Err(CodegenError::Unsupported {
-            what: format!("expression {:?}", std::mem::discriminant(&e.kind)),
-            span: e.span,
-        }),
     }
+}
+
+/// Lower an array literal forcing each element to `target_elem_jty`.
+/// Used by `let a: T[] = [...]` so the runtime layout matches the
+/// declared element width even when the literal would naturally pick
+/// a different (wider) type.
+fn lower_array_literal(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    elements: &[Expr],
+    target_elem_jty: JitTy,
+    span: ilang_ast::Span,
+) -> Result<TV, CodegenError> {
+    let mut lowered: Vec<(Value, JitTy, ilang_ast::Span)> =
+        Vec::with_capacity(elements.len());
+    for el in elements {
+        let (v, t) = lower_expr(b, lc, el)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "array element is unit".into(),
+            span: el.span,
+        })?;
+        lowered.push((v, t, el.span));
+    }
+    let tv = build_array(b, lc, lowered, target_elem_jty)?;
+    tv.ok_or_else(|| CodegenError::Unsupported {
+        what: "array literal produced no value".into(),
+        span,
+    })
+}
+
+/// Allocate the header + buffer and store every (already-lowered)
+/// element, coercing to `elem_jty`. Returns `(header_ptr, Array(id))`.
+fn build_array(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    lowered: Vec<(Value, JitTy, ilang_ast::Span)>,
+    elem_jty: JitTy,
+) -> Result<Option<TV>, CodegenError> {
+    let array_id = intern_array_kind(
+        lc.array_kinds,
+        ArrayKind {
+            elem: elem_jty,
+            fixed: Some(lowered.len() as u32),
+        },
+    );
+    let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+    let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+    let len = b.ins().iconst(I64, lowered.len() as i64);
+    let call = b.ins().call(new_ref, &[elem_size, len]);
+    let header = b.inst_results(call)[0];
+    let data = b.ins().load(I64, MemFlags::trusted(), header, 16);
+    let elem_size_i32 = elem_jty.size_bytes() as i32;
+    for (i, (v, t, sp)) in lowered.into_iter().enumerate() {
+        let coerced = coerce(b, (v, t), elem_jty, sp)?;
+        let offset = (i as i32) * elem_size_i32;
+        b.ins().store(MemFlags::trusted(), coerced, data, offset);
+    }
+    Ok(Some((header, JitTy::Array(array_id))))
 }
 
 /// Lower a `console.log(a, b, c, ...)` call: dispatch each argument to
@@ -1613,6 +2130,15 @@ fn coerce(
     span: ilang_ast::Span,
 ) -> Result<Value, CodegenError> {
     if from == to {
+        return Ok(v);
+    }
+    // Array values share runtime representation regardless of fixed-vs-
+    // dynamic; allow assignment between them as long as the element type
+    // matches. Need access to the kinds table — the helper passes it via
+    // a separate path because `coerce` is otherwise type-table-free, so
+    // we accept the "id may differ" case unconditionally for arrays
+    // and trust the type checker to have caught real mismatches.
+    if matches!(from, JitTy::Array(_)) && matches!(to, JitTy::Array(_)) {
         return Ok(v);
     }
     let v = match (from, to) {
