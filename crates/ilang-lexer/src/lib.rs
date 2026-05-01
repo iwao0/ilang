@@ -10,6 +10,11 @@ pub struct Span {
 pub enum TokenKind {
     Int(i64),
     Float(f64),
+    Ident(String),
+    // keywords
+    Let,
+    Fn,
+    // punctuation
     Plus,
     Minus,
     Star,
@@ -17,6 +22,17 @@ pub enum TokenKind {
     Percent,
     LParen,
     RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Semicolon,
+    Comma,
+    Colon,
+    ColonColon,
+    Equals,
+    Arrow,
+    Hash,
     Eof,
 }
 
@@ -51,6 +67,14 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
         }
     }
     Ok(tokens)
+}
+
+fn is_ident_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+fn is_ident_continue(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
 struct Lexer<'a> {
@@ -118,7 +142,12 @@ impl<'a> Lexer<'a> {
             }
             '-' => {
                 self.bump();
-                TokenKind::Minus
+                if matches!(self.peek(), Some('>')) {
+                    self.bump();
+                    TokenKind::Arrow
+                } else {
+                    TokenKind::Minus
+                }
             }
             '*' => {
                 self.bump();
@@ -140,7 +169,49 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::RParen
             }
+            '{' => {
+                self.bump();
+                TokenKind::LBrace
+            }
+            '}' => {
+                self.bump();
+                TokenKind::RBrace
+            }
+            '[' => {
+                self.bump();
+                TokenKind::LBracket
+            }
+            ']' => {
+                self.bump();
+                TokenKind::RBracket
+            }
+            ';' => {
+                self.bump();
+                TokenKind::Semicolon
+            }
+            ',' => {
+                self.bump();
+                TokenKind::Comma
+            }
+            ':' => {
+                self.bump();
+                if matches!(self.peek(), Some(':')) {
+                    self.bump();
+                    TokenKind::ColonColon
+                } else {
+                    TokenKind::Colon
+                }
+            }
+            '=' => {
+                self.bump();
+                TokenKind::Equals
+            }
+            '#' => {
+                self.bump();
+                TokenKind::Hash
+            }
             c if c.is_ascii_digit() => self.read_number(line, col)?,
+            c if is_ident_start(c) => self.read_ident_or_keyword(),
             other => {
                 return Err(LexError::UnexpectedChar {
                     ch: other,
@@ -151,6 +222,23 @@ impl<'a> Lexer<'a> {
         };
 
         Ok(Token { kind, span })
+    }
+
+    fn read_ident_or_keyword(&mut self) -> TokenKind {
+        let mut buf = String::new();
+        while let Some(c) = self.peek() {
+            if is_ident_continue(c) {
+                buf.push(c);
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        match buf.as_str() {
+            "let" => TokenKind::Let,
+            "fn" => TokenKind::Fn,
+            _ => TokenKind::Ident(buf),
+        }
     }
 
     fn read_number(&mut self, line: u32, col: u32) -> Result<TokenKind, LexError> {
@@ -290,6 +378,40 @@ mod tests {
             tokenize("1 $ 2"),
             Err(LexError::UnexpectedChar { ch: '$', .. })
         ));
+    }
+
+    #[test]
+    fn keywords_and_ident() {
+        assert_eq!(
+            kinds("let fn x_1 i64"),
+            vec![
+                TokenKind::Let,
+                TokenKind::Fn,
+                TokenKind::Ident("x_1".into()),
+                TokenKind::Ident("i64".into()),
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn punctuation() {
+        assert_eq!(
+            kinds("{},;:::->#[]"),
+            vec![
+                TokenKind::LBrace,
+                TokenKind::RBrace,
+                TokenKind::Comma,
+                TokenKind::Semicolon,
+                TokenKind::ColonColon,
+                TokenKind::Colon,
+                TokenKind::Arrow,
+                TokenKind::Hash,
+                TokenKind::LBracket,
+                TokenKind::RBracket,
+                TokenKind::Eof,
+            ]
+        );
     }
 
     #[test]

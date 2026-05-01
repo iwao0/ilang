@@ -185,6 +185,7 @@ dependencies = [
  "ilang-eval",
  "ilang-lexer",
  "ilang-parser",
+ "ilang-types",
  "rustyline",
 ]
 
@@ -211,6 +212,16 @@ version = "0.1.0"
 dependencies = [
  "ilang-ast",
  "ilang-lexer",
+ "thiserror",
+]
+
+[[package]]
+name = "ilang-types"
+version = "0.1.0"
+dependencies = [
+ "ilang-ast",
+ "ilang-lexer",
+ "ilang-parser",
  "thiserror",
 ]
 

@@ -2,14 +2,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use ilang_eval::{eval, Value};
+use ilang_eval::{Interpreter, Value};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
+use ilang_types::TypeChecker;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
 #[derive(Parser, Debug)]
-#[command(name = "ilang", version, about = "ilang interpreter (phase 1: arithmetic)")]
+#[command(name = "ilang", version, about = "ilang interpreter")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Cmd>,
@@ -17,7 +18,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Evaluate an .il source file as a single expression.
+    /// Evaluate an .il source file.
     Run {
         path: PathBuf,
     },
@@ -32,7 +33,7 @@ fn main() -> ExitCode {
 }
 
 fn run_repl() -> ExitCode {
-    println!("ilang 0.1.0 (phase 1) — Ctrl-D to exit");
+    println!("ilang 0.2.0 — Ctrl-D to exit");
     let mut rl = match DefaultEditor::new() {
         Ok(rl) => rl,
         Err(e) => {
@@ -40,6 +41,8 @@ fn run_repl() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let mut interp = Interpreter::new();
+    let mut tc = TypeChecker::new();
     loop {
         match rl.readline("> ") {
             Ok(line) => {
@@ -48,7 +51,8 @@ fn run_repl() -> ExitCode {
                     continue;
                 }
                 let _ = rl.add_history_entry(trimmed);
-                match eval_str(trimmed) {
+                match eval_in(&mut interp, &mut tc, trimmed) {
+                    Ok(Value::Unit) => {}
                     Ok(v) => println!("{v}"),
                     Err(e) => eprintln!("error: {e}"),
                 }
@@ -72,7 +76,10 @@ fn run_file(path: &PathBuf) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match eval_str(src.trim()) {
+    let mut interp = Interpreter::new();
+    let mut tc = TypeChecker::new();
+    match eval_in(&mut interp, &mut tc, src.trim()) {
+        Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
             println!("{v}");
             ExitCode::SUCCESS
@@ -84,8 +91,13 @@ fn run_file(path: &PathBuf) -> ExitCode {
     }
 }
 
-fn eval_str(src: &str) -> Result<Value, String> {
+fn eval_in(
+    interp: &mut Interpreter,
+    tc: &mut TypeChecker,
+    src: &str,
+) -> Result<Value, String> {
     let toks = tokenize(src).map_err(|e| e.to_string())?;
-    let ast = parse(&toks).map_err(|e| e.to_string())?;
-    eval(&ast).map_err(|e| e.to_string())
+    let prog = parse(&toks).map_err(|e| e.to_string())?;
+    tc.check(&prog).map_err(|e| format!("type error: {e}"))?;
+    interp.run(&prog).map_err(|e| e.to_string())
 }

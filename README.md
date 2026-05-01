@@ -9,17 +9,23 @@
 - **Rust 風** の関数宣言・型名構文
 - 四則演算規則は **C / JavaScript** とほぼ同一
 
-## 現在の状態 (フェーズ1)
+## 現在の状態 (フェーズ2)
 
-数値の四則演算のみが評価できる最小インタプリタ。詳細は [docs/phase1-plan.md](docs/phase1-plan.md)。
+`let`、関数定義、最小の型チェック、capability アノテーション (`#[requires(net)]` のパースのみ、enforcement はフェーズ3) まで実装済み。
+
+詳細: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md)
 
 ```sh
-# REPL
+# REPL (let と fn が永続化)
 cargo run -p ilang-cli
 
 # ファイル実行
-echo '1 + 2 * 3' > sample.il
-cargo run -p ilang-cli -- run sample.il
+cat > sample.il <<'EOF'
+fn double(x: i64) -> i64 { x * 2 }
+let n = 21;
+double(n)
+EOF
+cargo run -p ilang-cli -- run sample.il   # => 42
 ```
 
 ## 開発

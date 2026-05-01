@@ -5,6 +5,7 @@ members = [
     "crates/ilang-lexer",
     "crates/ilang-parser",
     "crates/ilang-eval",
+    "crates/ilang-types",
     "crates/ilang-cli",
 ]
 
@@ -19,6 +20,7 @@ ilang-ast = { path = "crates/ilang-ast" }
 ilang-lexer = { path = "crates/ilang-lexer" }
 ilang-parser = { path = "crates/ilang-parser" }
 ilang-eval = { path = "crates/ilang-eval" }
+ilang-types = { path = "crates/ilang-types" }
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"

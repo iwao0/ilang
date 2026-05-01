@@ -12,5 +12,6 @@ path = "src/main.rs"
 ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
 ilang-eval = { workspace = true }
+ilang-types = { workspace = true }
 clap = { workspace = true }
 rustyline = { workspace = true }
