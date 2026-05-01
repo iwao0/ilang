@@ -740,3 +740,21 @@ fn string_param_and_return() {
         Value::Str(std::rc::Rc::new("wow!!!".into()))
     );
 }
+
+#[test]
+fn numeric_suffix_int() {
+    assert_eq!(run("1_i32").unwrap(), Value::Int32(1));
+    assert_eq!(run("1i32").unwrap(), Value::Int32(1));
+    assert_eq!(run("255_u8").unwrap(), Value::UInt8(255));
+    assert_eq!(run("0xff_u32").unwrap(), Value::UInt32(255));
+    assert_eq!(run("0b1010_i16").unwrap(), Value::Int16(10));
+    // Two i32-suffixed literals stay i32 through arithmetic.
+    assert_eq!(run("1_i32 + 2_i32").unwrap(), Value::Int32(3));
+}
+
+#[test]
+fn numeric_suffix_float() {
+    assert_eq!(run("1.5_f32").unwrap(), Value::Float32(1.5));
+    assert_eq!(run("1.5f32").unwrap(), Value::Float32(1.5));
+    assert_eq!(run("2.0_f64 + 1.0_f64").unwrap(), Value::Float(3.0));
+}

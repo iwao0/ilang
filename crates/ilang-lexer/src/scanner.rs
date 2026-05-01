@@ -33,6 +33,16 @@ struct Lexer<'a> {
     pending_newline: bool,
 }
 
+/// Snapshot of all mutable lexer state — used to roll back when a
+/// speculative read (numeric type suffix) turns out not to match.
+struct LexerSnapshot<'a> {
+    chars: std::str::Chars<'a>,
+    peeked: Option<char>,
+    line: u32,
+    col: u32,
+    pending_newline: bool,
+}
+
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
         Self {
@@ -108,6 +118,7 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Eof,
                 span,
                 leading_newline,
+                numeric_suffix: None,
             });
         };
 
@@ -311,11 +322,71 @@ impl<'a> Lexer<'a> {
             }
         };
 
+        // After a numeric body, optionally consume a type suffix
+        // (`1_i32`, `1.5f32`, ...). Suffix on a non-numeric token would
+        // be nonsensical, so only attempt for Int / Float.
+        let numeric_suffix = if matches!(kind, TokenKind::Int(_) | TokenKind::Float(_)) {
+            self.try_read_numeric_suffix()
+        } else {
+            None
+        };
+
         Ok(Token {
             kind,
             span,
             leading_newline,
+            numeric_suffix,
         })
+    }
+
+    /// Attempt to consume a numeric type suffix at the current position.
+    /// Accepts an optional leading `_` followed by one of the known type
+    /// names (`i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`f32`/`f64`).
+    /// Restores lexer state if no valid suffix is present, so a literal
+    /// like `1` followed by an identifier `foo` is unaffected.
+    fn try_read_numeric_suffix(&mut self) -> Option<ilang_ast::Type> {
+        let snap = LexerSnapshot {
+            chars: self.chars.clone(),
+            peeked: self.peeked,
+            line: self.line,
+            col: self.col,
+            pending_newline: self.pending_newline,
+        };
+        // Optional separating underscore.
+        if matches!(self.peek(), Some('_')) {
+            self.bump();
+        }
+        let mut buf = String::new();
+        while let Some(c) = self.peek() {
+            if c.is_ascii_alphanumeric() {
+                buf.push(c);
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        let ty = match buf.as_str() {
+            "i8" => Some(ilang_ast::Type::I8),
+            "i16" => Some(ilang_ast::Type::I16),
+            "i32" => Some(ilang_ast::Type::I32),
+            "i64" => Some(ilang_ast::Type::I64),
+            "u8" => Some(ilang_ast::Type::U8),
+            "u16" => Some(ilang_ast::Type::U16),
+            "u32" => Some(ilang_ast::Type::U32),
+            "u64" => Some(ilang_ast::Type::U64),
+            "f32" => Some(ilang_ast::Type::F32),
+            "f64" => Some(ilang_ast::Type::F64),
+            _ => None,
+        };
+        if ty.is_none() {
+            // Roll back: pretend we never looked at the suffix candidate.
+            self.chars = snap.chars;
+            self.peeked = snap.peeked;
+            self.line = snap.line;
+            self.col = snap.col;
+            self.pending_newline = snap.pending_newline;
+        }
+        ty
     }
 
     /// Consume a `"..."` string literal (the leading `"` is the next char).

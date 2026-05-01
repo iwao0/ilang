@@ -76,4 +76,8 @@ pub struct Token {
     /// (or start of input) and this token. Used by the parser for
     /// JS-style automatic semicolon insertion at statement boundaries.
     pub leading_newline: bool,
+    /// Set on numeric literals that ended with a type suffix (`1_i32`,
+    /// `1.5f32`, ...). The parser wraps such literals in an explicit
+    /// `as`-cast so the rest of the pipeline sees the declared type.
+    pub numeric_suffix: Option<ilang_ast::Type>,
 }

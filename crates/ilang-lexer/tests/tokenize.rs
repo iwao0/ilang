@@ -262,3 +262,22 @@ fn bad_escape_errors() {
         Err(LexError::BadEscape { .. })
     ));
 }
+
+#[test]
+fn numeric_suffix_attached_to_token() {
+    let toks = tokenize("1_i32 + 2u8").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Int(1));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::I32));
+    assert_eq!(toks[2].kind, TokenKind::Int(2));
+    assert_eq!(toks[2].numeric_suffix, Some(ilang_ast::Type::U8));
+}
+
+#[test]
+fn unknown_suffix_does_not_consume() {
+    // `1_foo` should leave `foo` as a separate identifier (the `_` is
+    // eaten by the number's own separator rule, but the rest rolls back).
+    let toks = tokenize("1_foo").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Int(1));
+    assert_eq!(toks[0].numeric_suffix, None);
+    assert!(matches!(toks[1].kind, TokenKind::Ident(ref n) if n == "foo"));
+}

@@ -222,12 +222,34 @@ impl<'a> Parser<'a> {
         let span = t.span;
         match t.kind {
             TokenKind::Int(n) => {
+                let suffix = t.numeric_suffix.clone();
                 self.bump();
-                Ok(Expr::new(ExprKind::Int(n), span))
+                let lit = Expr::new(ExprKind::Int(n), span);
+                Ok(match suffix {
+                    Some(ty) => Expr::new(
+                        ExprKind::Cast {
+                            expr: Box::new(lit),
+                            ty,
+                        },
+                        span,
+                    ),
+                    None => lit,
+                })
             }
             TokenKind::Float(f) => {
+                let suffix = t.numeric_suffix.clone();
                 self.bump();
-                Ok(Expr::new(ExprKind::Float(f), span))
+                let lit = Expr::new(ExprKind::Float(f), span);
+                Ok(match suffix {
+                    Some(ty) => Expr::new(
+                        ExprKind::Cast {
+                            expr: Box::new(lit),
+                            ty,
+                        },
+                        span,
+                    ),
+                    None => lit,
+                })
             }
             TokenKind::Str(s) => {
                 self.bump();
