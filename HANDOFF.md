@@ -141,7 +141,13 @@ c.increment()
 4. **配列 / 辞書**
 5. **`match` + `enum` (ADT)**
 6. **継承** (`extends` / `super`) — 必要性をまず議論
-7. **`ilang-mir` 中間表現** → Cranelift コード生成 (フェーズ5+ で有用)
+7. **`ilang-mir` 中間表現 (未着手)** — 現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower.rs`)。MIR を挟むと:
+   - 複数バックエンド (LLVM / wasm / バイトコード VM) を後付けしやすい
+   - `lower.rs` の「signed?/float?/widen?」分岐を 1 度で解決できる
+   - constant folding / dead code elim 等の最適化を載せる足場になる
+   - capability enforce (`#[requires(...)]`) の検査箇所として最適
+   - tree-walk より速い軽量バイトコード VM が書ける (JIT 起動コストを払いたくない短いスクリプト用)
+   2 段階で導入する想定: ① MIR 定義 + AST → MIR、② MIR → CLIF (現 codegen の書き換え)。LLVM/wasm/VM が欲しくなったタイミングが導入の合図
 
 ## 開発フロー
 
