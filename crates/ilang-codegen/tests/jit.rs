@@ -344,3 +344,111 @@ fn jit_deinit_skipped_when_aliased() {
     "#;
     assert_eq!(jit(src), JitValue::I64(0));
 }
+
+// ─── ARC Phase B: strings & arrays ─────────────────────────────────────
+// No way to peek at refcounts directly, so each test exercises a path
+// that would crash (double-free, use-after-free) or leak observably if
+// retain/release were misbalanced. Running them under `cargo test` and
+// passing is the bar.
+
+#[test]
+fn jit_string_concat_in_loop() {
+    // Repeated fresh allocations exercise release_string at scope exit.
+    let src = r#"
+        let i = 0
+        let last = ""
+        while i < 50 {
+            last = "a" + "b"
+            i = i + 1
+        }
+        last
+    "#;
+    assert_eq!(jit(src), JitValue::Str("ab".into()));
+}
+
+#[test]
+fn jit_string_param_round_trip() {
+    // Aliased `let s` retains the literal (no-op, saturated rc); the
+    // function-call retain on its arg matches the callee's exit-release.
+    let src = r#"
+        fn echo(s: string): string { s }
+        let s = "hello"
+        echo(s)
+    "#;
+    assert_eq!(jit(src), JitValue::Str("hello".into()));
+}
+
+#[test]
+fn jit_string_concat_returned_from_fn() {
+    // Fresh-alloc string returned from fn; caller binds it, block-end
+    // release frees the concat result.
+    let src = r#"
+        fn greet(s: string): string { "hi, " + s }
+        greet("world")
+    "#;
+    assert_eq!(jit(src), JitValue::Str("hi, world".into()));
+}
+
+#[test]
+fn jit_array_in_block_releases() {
+    // The inner array is freshly allocated each iteration and goes out
+    // of scope at the end of the block. Misbalanced release would
+    // double-free (crash) or leak unboundedly (still passes but ARC
+    // path is exercised).
+    let src = r#"
+        let n = 0
+        let i = 0
+        while i < 100 {
+            {
+                let xs: i64[] = [1, 2, 3]
+                xs.push(4)
+                n = n + xs.length
+            }
+            i = i + 1
+        }
+        n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(400));
+}
+
+#[test]
+fn jit_array_returned_from_fn() {
+    // Fresh array allocation crosses a function boundary. Param
+    // retain/release for the consumer (none here) plus block-end release
+    // on the binding need to balance to rc=1 at observation.
+    let src = r#"
+        fn make(): i64[] {
+            let a: i64[] = [10, 20, 30]
+            a
+        }
+        let a = make()
+        a[1]
+    "#;
+    assert_eq!(jit(src), JitValue::I64(20));
+}
+
+#[test]
+fn jit_array_param_round_trip() {
+    let src = r#"
+        fn first(xs: i64[]): i64 { xs[0] }
+        let a: i64[] = [7, 8, 9]
+        first(a) + first(a)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(14));
+}
+
+#[test]
+fn jit_array_push_growth_no_leak_crash() {
+    // array_grow_if_full now frees the old buffer; push past initial
+    // capacity (4) repeatedly to exercise the realloc path.
+    let src = r#"
+        let a: i64[] = [1]
+        let i = 0
+        while i < 50 {
+            a.push(i)
+            i = i + 1
+        }
+        a.length
+    "#;
+    assert_eq!(jit(src), JitValue::I64(51));
+}

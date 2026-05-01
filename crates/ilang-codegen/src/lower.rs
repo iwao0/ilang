@@ -20,8 +20,7 @@ use crate::error::CodegenError;
 // deinit pointer live at offsets -16 and -8. Field offsets stay the
 // same as the no-ARC layout, so the rest of the codegen is unchanged.
 //
-// Strings and arrays still leak (no rc header) — they need separate
-// per-type release helpers added in a follow-up phase.
+// Strings/arrays use their own rc layouts (Phase B) below.
 
 const RC_OFFSET: i64 = -16;
 const DEINIT_OFFSET: i64 = -8;
@@ -113,43 +112,93 @@ extern "C" fn ilang_jit_print_newline() {
     println!();
 }
 
-// ─── String runtime ────────────────────────────────────────────────────
-// Strings are heap-allocated `Box<String>` values; the JIT carries them
-// as raw pointers (i64). They leak on scope exit — ARC/deinit is not
-// wired in for the JIT yet.
+// ─── String runtime (ARC Phase B) ──────────────────────────────────────
+// Strings are heap-allocated `Box<StringRc>`; the JIT carries the raw
+// pointer (i64). String literals are interned with a *saturated* rc so
+// `release` decrements never reach 0 — the literal storage is owned by
+// `JitCompiler::interned_strings` and freed when the compiler drops.
+
+#[repr(C)]
+struct StringRc {
+    rc: i64,
+    s: String,
+}
+
+/// Used for interned literals. release_string skips when rc >= this so
+/// literal storage is never freed by the runtime.
+const STRING_RC_SATURATED: i64 = i64::MAX / 2;
+
+extern "C" fn ilang_jit_retain_string(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        if *rc >= STRING_RC_SATURATED {
+            return;
+        }
+        *rc += 1;
+    }
+}
+
+extern "C" fn ilang_jit_release_string(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        if *rc >= STRING_RC_SATURATED {
+            return;
+        }
+        *rc -= 1;
+        if *rc != 0 {
+            return;
+        }
+        drop(Box::from_raw(ptr as *mut StringRc));
+    }
+}
 
 extern "C" fn ilang_jit_print_str(ptr: i64) {
-    let s = unsafe { &*(ptr as *const String) };
-    print!("{s}");
+    let sr = unsafe { &*(ptr as *const StringRc) };
+    print!("{}", sr.s);
 }
 
 extern "C" fn ilang_jit_str_concat(a: i64, b: i64) -> i64 {
-    let a = unsafe { &*(a as *const String) };
-    let b = unsafe { &*(b as *const String) };
-    Box::leak(Box::new(format!("{a}{b}"))) as *const String as i64
+    let a = unsafe { &*(a as *const StringRc) };
+    let b = unsafe { &*(b as *const StringRc) };
+    let boxed = Box::new(StringRc {
+        rc: 1,
+        s: format!("{}{}", a.s, b.s),
+    });
+    Box::into_raw(boxed) as i64
 }
 
 extern "C" fn ilang_jit_str_eq(a: i64, b: i64) -> i8 {
-    let a = unsafe { &*(a as *const String) };
-    let b = unsafe { &*(b as *const String) };
-    if a == b {
+    let a = unsafe { &*(a as *const StringRc) };
+    let b = unsafe { &*(b as *const StringRc) };
+    if a.s == b.s {
         1
     } else {
         0
     }
 }
 
-// ─── Array runtime ─────────────────────────────────────────────────────
+// ─── Array runtime (ARC Phase B) ───────────────────────────────────────
 // Layout:
-//   header (24 bytes): [len: i64, cap: i64, data_ptr: i64]
+//   header (32 bytes): [rc: i64, len: i64, cap: i64, data_ptr: i64]
 //   data buffer: separately heap-allocated `cap * elem_size` bytes
 // The two-level layout means `push` can reallocate the data buffer
 // without invalidating any aliased reference to the header.
 //
-// Memory leaks like the rest of the JIT-allocated heap — ARC pending.
+// Phase B tracks the *header* refcount only; element slots that hold
+// objects/strings/arrays do not yet release recursively (Phase D).
+
+const ARRAY_LEN_OFFSET: i32 = 8;
+const ARRAY_DATA_OFFSET: i32 = 24;
 
 #[repr(C)]
 struct ArrayHeader {
+    rc: i64,
     len: i64,
     cap: i64,
     data_ptr: i64,
@@ -170,6 +219,7 @@ extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64) -> i64 {
     let header_layout = std::alloc::Layout::new::<ArrayHeader>();
     let header = unsafe { std::alloc::alloc_zeroed(header_layout) as *mut ArrayHeader };
     unsafe {
+        (*header).rc = 1;
         (*header).len = len;
         (*header).cap = cap;
         (*header).data_ptr = data;
@@ -177,8 +227,46 @@ extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64) -> i64 {
     header as i64
 }
 
+extern "C" fn ilang_jit_retain_array(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        *rc += 1;
+    }
+}
+
+/// elem_size lets us compute the data-buffer Layout for `dealloc`. Per
+/// Phase B scope, element retain/release is not chased.
+extern "C" fn ilang_jit_release_array(ptr: i64, elem_size: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let header = ptr as *mut ArrayHeader;
+        (*header).rc -= 1;
+        if (*header).rc != 0 {
+            return;
+        }
+        let cap = (*header).cap;
+        let data = (*header).data_ptr;
+        if data != 0 && cap != 0 && elem_size != 0 {
+            let layout = std::alloc::Layout::from_size_align(
+                (cap as usize) * (elem_size as usize),
+                8,
+            )
+            .unwrap();
+            std::alloc::dealloc(data as *mut u8, layout);
+        }
+        let header_layout = std::alloc::Layout::new::<ArrayHeader>();
+        std::alloc::dealloc(ptr as *mut u8, header_layout);
+    }
+}
+
 /// Internal helper: ensure the data buffer has room for one more
-/// element, reallocating if needed.
+/// element, reallocating if needed. The previous buffer (if any) is
+/// freed since nothing else references it (single header owns it).
 unsafe fn array_grow_if_full(header: *mut ArrayHeader, elem_size: i64) {
     let len = (*header).len;
     let cap = (*header).cap;
@@ -193,7 +281,9 @@ unsafe fn array_grow_if_full(header: *mut ArrayHeader, elem_size: i64) {
     let old_data = (*header).data_ptr;
     if old_data != 0 && old_size != 0 {
         std::ptr::copy_nonoverlapping(old_data as *const u8, new_data, old_size);
-        // Old buffer leaks (no ARC).
+        let old_layout =
+            std::alloc::Layout::from_size_align(old_size, 8).unwrap();
+        std::alloc::dealloc(old_data as *mut u8, old_layout);
     }
     (*header).cap = new_cap;
     (*header).data_ptr = new_data as i64;
@@ -545,18 +635,22 @@ struct JitCompiler {
     print_str: FuncId,
     str_concat: FuncId,
     str_eq: FuncId,
+    retain_string_id: FuncId,
+    release_string_id: FuncId,
     array_new: FuncId,
+    retain_array_id: FuncId,
+    release_array_id: FuncId,
     array_push_i8: FuncId,
     array_push_i16: FuncId,
     array_push_i32: FuncId,
     array_push_i64: FuncId,
     array_push_f32: FuncId,
     array_push_f64: FuncId,
-    /// Each string literal is interned at compile time as a leaked
-    /// `Box<String>`; the literal's pointer value is embedded as an
-    /// `iconst` when it's referenced. Holding the boxes here also keeps
-    /// them alive until the compiler is dropped.
-    interned_strings: Vec<Box<String>>,
+    /// Each string literal is interned at compile time as a `Box<StringRc>`
+    /// with a saturated rc. The pointer is embedded as an `iconst` when
+    /// the literal is referenced. Holding the boxes here keeps them alive
+    /// until the compiler is dropped.
+    interned_strings: Vec<Box<StringRc>>,
 }
 
 impl JitCompiler {
@@ -594,7 +688,23 @@ impl JitCompiler {
         builder.symbol("ilang_jit_print_str", ilang_jit_print_str as *const u8);
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
+        builder.symbol(
+            "ilang_jit_retain_string",
+            ilang_jit_retain_string as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_release_string",
+            ilang_jit_release_string as *const u8,
+        );
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
+        builder.symbol(
+            "ilang_jit_retain_array",
+            ilang_jit_retain_array as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_release_array",
+            ilang_jit_release_array as *const u8,
+        );
         builder.symbol(
             "ilang_jit_array_push_i8",
             ilang_jit_array_push_i8 as *const u8,
@@ -654,8 +764,20 @@ impl JitCompiler {
         )?;
         let str_eq =
             declare_import(&mut module, "ilang_jit_str_eq", &[I64, I64], Some(I8))?;
+        let retain_string_id =
+            declare_import(&mut module, "ilang_jit_retain_string", &[I64], None)?;
+        let release_string_id =
+            declare_import(&mut module, "ilang_jit_release_string", &[I64], None)?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64], Some(I64))?;
+        let retain_array_id =
+            declare_import(&mut module, "ilang_jit_retain_array", &[I64], None)?;
+        let release_array_id = declare_import(
+            &mut module,
+            "ilang_jit_release_array",
+            &[I64, I64],
+            None,
+        )?;
         let array_push_i8 =
             declare_import(&mut module, "ilang_jit_array_push_i8", &[I64, I8], None)?;
         let array_push_i16 =
@@ -691,7 +813,11 @@ impl JitCompiler {
             print_str,
             str_concat,
             str_eq,
+            retain_string_id,
+            release_string_id,
             array_new,
+            retain_array_id,
+            release_array_id,
             array_push_i8,
             array_push_i16,
             array_push_i32,
@@ -868,9 +994,13 @@ impl JitCompiler {
             strfns: StrFns {
                 concat: self.str_concat,
                 eq: self.str_eq,
+                retain: self.retain_string_id,
+                release: self.release_string_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
+                retain: self.retain_array_id,
+                release: self.release_array_id,
                 push_i8: self.array_push_i8,
                 push_i16: self.array_push_i16,
                 push_i32: self.array_push_i32,
@@ -886,16 +1016,16 @@ impl JitCompiler {
             array_kinds: &mut self.array_kinds,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
-        // Release object params (and `this` for methods) at function
-        // exit. Caller used `emit_retain_object` on each before the
-        // call, so the rc comes out balanced.
-        let mut param_releases: Vec<(Variable, u32)> = f
+        // Release heap-typed params (and `this` for methods) at function
+        // exit. Caller used `emit_retain_heap` on each before the call,
+        // so the rc comes out balanced.
+        let mut param_releases: Vec<(Variable, JitTy)> = f
             .params
             .iter()
             .filter_map(|p| {
                 let &(var, jty) = lc.env.bindings.get(&p.name)?;
-                if let JitTy::Object(id) = jty {
-                    Some((var, id))
+                if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                    Some((var, jty))
                 } else {
                     None
                 }
@@ -906,12 +1036,12 @@ impl JitCompiler {
         // release_object on rc=0 and infinite-loop.
         if let Some((this_var, class_id)) = this {
             if f.name != "deinit" {
-                param_releases.push((this_var, class_id));
+                param_releases.push((this_var, JitTy::Object(class_id)));
             }
         }
-        for (var, id) in param_releases {
+        for (var, jty) in param_releases {
             let p = builder.use_var(var);
-            emit_release_object(&mut builder, &mut lc, p, id);
+            emit_release_heap(&mut builder, &mut lc, p, jty);
         }
         emit_return(&mut builder, ret_ty, body, f.span)?;
         builder.finalize();
@@ -965,9 +1095,13 @@ impl JitCompiler {
             strfns: StrFns {
                 concat: self.str_concat,
                 eq: self.str_eq,
+                retain: self.retain_string_id,
+                release: self.release_string_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
+                retain: self.retain_array_id,
+                release: self.release_array_id,
                 push_i8: self.array_push_i8,
                 push_i16: self.array_push_i16,
                 push_i32: self.array_push_i32,
@@ -995,19 +1129,21 @@ impl JitCompiler {
             Some(t) => lower_expr(&mut builder, &mut lc, t)?,
             None => None,
         };
-        // Retain the body value if it's an Object so the imminent
+        // Retain the body value if it's heap-typed so the imminent
         // releases of top-level lets don't free what we're returning.
-        if let Some((v, JitTy::Object(_))) = body {
-            emit_retain_object(&mut builder, &mut lc, v);
+        if let Some((v, t)) = body {
+            if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                emit_retain_heap(&mut builder, &mut lc, v, t);
+            }
         }
-        let mut releases: Vec<(Variable, u32)> = lc
+        let mut releases: Vec<(Variable, JitTy)> = lc
             .env
             .bindings
             .iter()
             .filter(|(k, _)| !before.contains(k.as_str()))
             .filter_map(|(_, &(var, jty))| {
-                if let JitTy::Object(id) = jty {
-                    Some((var, id))
+                if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                    Some((var, jty))
                 } else {
                     None
                 }
@@ -1016,9 +1152,9 @@ impl JitCompiler {
         // LIFO release so the most-recently-bound (likely depending on
         // earlier ones) drops first.
         releases.sort_by_key(|(var, _)| std::cmp::Reverse(var.as_u32()));
-        for (var, id) in releases {
+        for (var, jty) in releases {
             let p = builder.use_var(var);
-            emit_release_object(&mut builder, &mut lc, p, id);
+            emit_release_heap(&mut builder, &mut lc, p, jty);
         }
         emit_return(&mut builder, ret_ty, body, ilang_ast::Span::dummy())?;
         builder.finalize();
@@ -1081,7 +1217,7 @@ impl JitCompiler {
                 }
                 JitTy::Str => {
                     let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
-                    let s = (*(p as *const String)).clone();
+                    let s = (*(p as *const StringRc)).s.clone();
                     JitValue::Str(s)
                 }
                 JitTy::Array(id) => {
@@ -1133,7 +1269,7 @@ unsafe fn read_array(
             JitTy::F32 => JitValue::F32(*(p as *const f32)),
             JitTy::F64 => JitValue::F64(*(p as *const f64)),
             JitTy::Bool => JitValue::Bool(*(p as *const i8) != 0),
-            JitTy::Str => JitValue::Str((*(*(p as *const i64) as *const String)).clone()),
+            JitTy::Str => JitValue::Str((*(*(p as *const i64) as *const StringRc)).s.clone()),
             JitTy::Object(id) => JitValue::Object {
                 class: class_layouts[id as usize].name.clone(),
                 ptr: *(p as *const i64),
@@ -1206,12 +1342,16 @@ struct PrintFns {
 struct StrFns {
     concat: FuncId,
     eq: FuncId,
+    retain: FuncId,
+    release: FuncId,
 }
 
 /// FFI helpers for the heap array runtime. `push_<width>` is picked by
 /// the JIT based on the static element type.
 struct ArrayFns {
     new: FuncId,
+    retain: FuncId,
+    release: FuncId,
     push_i8: FuncId,
     push_i16: FuncId,
     push_i32: FuncId,
@@ -1236,15 +1376,20 @@ struct LowerCtx<'a> {
     /// `(this var, class id)` while compiling a method body.
     this: Option<(Variable, u32)>,
     /// Per-compilation interning bucket for string literals; the boxed
-    /// String is leaked once and its pointer embedded as `iconst`.
-    interned_strings: &'a mut Vec<Box<String>>,
+    /// StringRc is held here so its storage lives for the compiler's
+    /// lifetime, and its pointer is embedded as `iconst`. The interned
+    /// rc is saturated so `release_string` never frees these.
+    interned_strings: &'a mut Vec<Box<StringRc>>,
     array_kinds: &'a mut Vec<ArrayKind>,
 }
 
 impl<'a> LowerCtx<'a> {
     fn intern_string(&mut self, s: &str) -> i64 {
-        let boxed = Box::new(s.to_string());
-        let ptr = boxed.as_ref() as *const String as i64;
+        let boxed = Box::new(StringRc {
+            rc: STRING_RC_SATURATED,
+            s: s.to_string(),
+        });
+        let ptr = boxed.as_ref() as *const StringRc as i64;
         self.interned_strings.push(boxed);
         ptr
     }
@@ -1297,13 +1442,14 @@ fn lower_stmt(
             };
             let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
             // Aliased binding (`let y = x` where x came from a Var/
-            // Field/Index of object type) needs an extra retain so the
+            // Field/Index of heap type) needs an extra retain so the
             // new binding has its own reference. Fresh allocations
-            // (`new C(...)`, function results) already start at rc=1.
-            if let JitTy::Object(_) = bind_ty {
-                if is_aliased_object_source(&value.kind) {
-                    emit_retain_object(b, lc, coerced);
-                }
+            // (`new C(...)`, fn results, "literal" + "literal", `[...]`)
+            // already start at rc=1.
+            if matches!(bind_ty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_))
+                && is_aliased_heap_source(&value.kind)
+            {
+                emit_retain_heap(b, lc, coerced, bind_ty);
             }
             let var = Variable::new(lc.env.next_var_id());
             b.declare_var(
@@ -1347,36 +1493,36 @@ fn lower_block_value(
         Some(t) => lower_expr(b, lc, t)?,
         None => None,
     };
-    // Retain the tail value if it's an Object, so the upcoming releases
+    // Retain the tail value if it's heap-typed, so the upcoming releases
     // of this block's heap-typed bindings don't free the value the
     // caller is about to consume.
-    if let Some((v, JitTy::Object(_))) = tail {
-        emit_retain_object(b, lc, v);
+    if let Some((v, t)) = tail {
+        if matches!(t, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+            emit_retain_heap(b, lc, v, t);
+        }
     }
-    // Release any object bindings introduced by this block, then drop
-    // them from the env so an outer-scope release pass doesn't see the
-    // freed value a second time. (Other binding types are left in place
-    // since their rc isn't tracked yet.)
-    // Release in LIFO order (most-recently-bound first) so a later
-    // binding can depend on an earlier one's heap fields without the
-    // earlier one getting freed first.
-    let mut new_objects: Vec<(String, Variable, u32)> = lc
+    // Release any heap-typed bindings introduced by this block, then
+    // drop them from the env so an outer-scope release pass doesn't see
+    // the freed value a second time. Release in LIFO order
+    // (most-recently-bound first) so a later binding can depend on an
+    // earlier one's heap-held data without the earlier one freeing first.
+    let mut new_heap: Vec<(String, Variable, JitTy)> = lc
         .env
         .bindings
         .iter()
         .filter(|(k, _)| !before.contains(k.as_str()))
         .filter_map(|(k, &(var, jty))| {
-            if let JitTy::Object(id) = jty {
-                Some((k.clone(), var, id))
+            if matches!(jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                Some((k.clone(), var, jty))
             } else {
                 None
             }
         })
         .collect();
-    new_objects.sort_by_key(|(_, var, _)| std::cmp::Reverse(var.as_u32()));
-    for (k, var, class_id) in new_objects {
+    new_heap.sort_by_key(|(_, var, _)| std::cmp::Reverse(var.as_u32()));
+    for (k, var, jty) in new_heap {
         let p = b.use_var(var);
-        emit_release_object(b, lc, p, class_id);
+        emit_release_heap(b, lc, p, jty);
         lc.env.bindings.remove(&k);
     }
     Ok(tail)
@@ -1385,7 +1531,7 @@ fn lower_block_value(
 /// True when an expression "borrows" an existing heap reference rather
 /// than producing a fresh one. Used to decide whether a let binding
 /// needs an extra retain to balance its own scope-exit release.
-fn is_aliased_object_source(kind: &ExprKind) -> bool {
+fn is_aliased_heap_source(kind: &ExprKind) -> bool {
     matches!(
         kind,
         ExprKind::Var(_) | ExprKind::Field { .. } | ExprKind::Index { .. } | ExprKind::This
@@ -1411,6 +1557,53 @@ fn emit_release_object(
     let size = lc.class_layouts[class_id as usize].size as i64;
     let size_v = b.ins().iconst(I64, size);
     b.ins().call(r, &[ptr, size_v]);
+}
+
+fn emit_retain_string(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.strfns.retain, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+fn emit_release_string(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.strfns.release, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+fn emit_retain_array(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.arrfns.retain, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+fn emit_release_array(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+    array_id: u32,
+) {
+    let r = lc.module.declare_func_in_func(lc.arrfns.release, b.func);
+    let elem_size = lc.array_kinds[array_id as usize].elem.size_bytes() as i64;
+    let size_v = b.ins().iconst(I64, elem_size);
+    b.ins().call(r, &[ptr, size_v]);
+}
+
+/// Emit retain for any heap-typed value. No-op for non-heap types.
+fn emit_retain_heap(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value, ty: JitTy) {
+    match ty {
+        JitTy::Object(_) => emit_retain_object(b, lc, ptr),
+        JitTy::Str => emit_retain_string(b, lc, ptr),
+        JitTy::Array(_) => emit_retain_array(b, lc, ptr),
+        _ => {}
+    }
+}
+
+/// Emit release for any heap-typed value. No-op for non-heap types.
+fn emit_release_heap(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value, ty: JitTy) {
+    match ty {
+        JitTy::Object(id) => emit_release_object(b, lc, ptr, id),
+        JitTy::Str => emit_release_string(b, lc, ptr),
+        JitTy::Array(id) => emit_release_array(b, lc, ptr, id),
+        _ => {}
+    }
 }
 
 fn lower_expr(
@@ -1579,11 +1772,10 @@ fn lower_expr(
             // The field will hold its own reference. Retain so the value
             // outlives the storing scope (e.g. `this.c = counter` keeps
             // counter alive past the init/scope that supplied it).
-            // Phase A leaks the previous field value — releasing it
-            // requires reading the old slot first, which is left to a
-            // follow-up.
-            if let JitTy::Object(_) = fty {
-                emit_retain_object(b, lc, coerced);
+            // The previous field value is leaked (Phase A/B) — releasing
+            // it requires reading the old slot first, which is Phase D.
+            if matches!(fty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_)) {
+                emit_retain_heap(b, lc, coerced, fty);
             }
             b.ins()
                 .store(MemFlags::trusted(), coerced, obj_v, offset as i32);
@@ -1596,9 +1788,14 @@ fn lower_expr(
                     span: obj.span,
                 }
             })?;
-            // Built-in `array.length` reads the first slot of the header.
+            // Built-in `array.length` reads the len slot of the header.
             if matches!(obj_t, JitTy::Array(_)) && name == "length" {
-                let len = b.ins().load(I64, MemFlags::trusted(), obj_v, 0);
+                let len = b.ins().load(
+                    I64,
+                    MemFlags::trusted(),
+                    obj_v,
+                    ARRAY_LEN_OFFSET,
+                );
                 return Ok(Some((len, JitTy::I64)));
             }
             let class_id = match obj_t {
@@ -1705,10 +1902,12 @@ fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
-                    if matches!(param_tys[i], JitTy::Object(_))
-                        && is_aliased_object_source(&a.kind)
+                    if matches!(
+                        param_tys[i],
+                        JitTy::Object(_) | JitTy::Str | JitTy::Array(_)
+                    ) && is_aliased_heap_source(&a.kind)
                     {
-                        emit_retain_object(b, lc, coerced);
+                        emit_retain_heap(b, lc, coerced, param_tys[i]);
                     }
                     arg_vals.push(coerced);
                 }
@@ -1791,7 +1990,7 @@ fn lower_expr(
             let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
             let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
             let off = b.ins().imul(idx_i64, elem_size);
-            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, 16);
+            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, ARRAY_DATA_OFFSET);
             let addr = b.ins().iadd(data, off);
             let v = b.ins().load(
                 elem_jty.cl().expect("non-unit elem"),
@@ -1834,7 +2033,7 @@ fn lower_expr(
             let coerced = coerce(b, (val, vt), elem_jty, value.span)?;
             let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
             let off = b.ins().imul(idx_i64, elem_size);
-            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, 16);
+            let data = b.ins().load(I64, MemFlags::trusted(), obj_v, ARRAY_DATA_OFFSET);
             let addr = b.ins().iadd(data, off);
             b.ins().store(MemFlags::trusted(), coerced, addr, 0);
             Ok(None)
@@ -1929,7 +2128,7 @@ fn build_array(
     let len = b.ins().iconst(I64, lowered.len() as i64);
     let call = b.ins().call(new_ref, &[elem_size, len]);
     let header = b.inst_results(call)[0];
-    let data = b.ins().load(I64, MemFlags::trusted(), header, 16);
+    let data = b.ins().load(I64, MemFlags::trusted(), header, ARRAY_DATA_OFFSET);
     let elem_size_i32 = elem_jty.size_bytes() as i32;
     for (i, (v, t, sp)) in lowered.into_iter().enumerate() {
         let coerced = coerce(b, (v, t), elem_jty, sp)?;
@@ -2017,8 +2216,12 @@ fn call_method(
             span: a.span,
         })?;
         let coerced = coerce(b, (av, at), info.params[i], a.span)?;
-        if matches!(info.params[i], JitTy::Object(_)) && is_aliased_object_source(&a.kind) {
-            emit_retain_object(b, lc, coerced);
+        if matches!(
+            info.params[i],
+            JitTy::Object(_) | JitTy::Str | JitTy::Array(_)
+        ) && is_aliased_heap_source(&a.kind)
+        {
+            emit_retain_heap(b, lc, coerced, info.params[i]);
         }
         arg_vals.push(coerced);
     }
