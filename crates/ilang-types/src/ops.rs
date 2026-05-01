@@ -106,6 +106,10 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
         if matches!(op, BinOp::Eq | BinOp::Ne) && l == &Type::Bool && r == &Type::Bool {
             return Ok(Type::Bool);
         }
+        // String supports == and != (structural equality), but not ordering.
+        if matches!(op, BinOp::Eq | BinOp::Ne) && l == &Type::Str && r == &Type::Str {
+            return Ok(Type::Bool);
+        }
         if result.is_some() {
             return Ok(Type::Bool);
         }
@@ -114,6 +118,10 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
             rhs: r.clone(),
             span: ilang_ast::Span::dummy(),
         });
+    }
+    // String concatenation: `+` between two strings yields a new string.
+    if matches!(op, BinOp::Add) && l == &Type::Str && r == &Type::Str {
+        return Ok(Type::Str);
     }
     result.ok_or_else(|| TypeError::BadBinary {
         lhs: l.clone(),

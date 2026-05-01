@@ -27,6 +27,7 @@ pub enum ExprKind {
     Int(i64),
     Float(f64),
     Bool(bool),
+    Str(String),
     Var(String),
     /// The implicit receiver `this` inside a method body.
     This,

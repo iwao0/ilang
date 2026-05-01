@@ -379,3 +379,20 @@ fn integer_literal_too_large_for_unsigned() {
     let src = "let x: u8 = 300";
     assert!(matches!(ty(src), Err(TypeError::Mismatch { .. })));
 }
+
+#[test]
+fn string_typechecks() {
+    assert_eq!(ty(r#""hello""#).unwrap(), Type::Str);
+    assert_eq!(ty(r#""a" + "b""#).unwrap(), Type::Str);
+    assert_eq!(ty(r#""a" == "b""#).unwrap(), Type::Bool);
+    // Cannot mix string and number.
+    assert!(matches!(
+        ty(r#""a" + 1"#),
+        Err(TypeError::BadBinary { .. })
+    ));
+    // Ordering is rejected.
+    assert!(matches!(
+        ty(r#""a" < "b""#),
+        Err(TypeError::BadBinary { .. })
+    ));
+}

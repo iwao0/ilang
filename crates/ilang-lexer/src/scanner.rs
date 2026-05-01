@@ -303,6 +303,7 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Hash
             }
+            '"' => self.read_string(span)?,
             c if c.is_ascii_digit() => self.read_number(span)?,
             c if is_ident_start(c) => self.read_ident_or_keyword(),
             other => {
@@ -315,6 +316,62 @@ impl<'a> Lexer<'a> {
             span,
             leading_newline,
         })
+    }
+
+    /// Consume a `"..."` string literal (the leading `"` is the next char).
+    /// Supports the basic C-style escapes; everything else is an error.
+    fn read_string(&mut self, span: Span) -> Result<TokenKind, LexError> {
+        self.bump(); // opening "
+        let mut buf = String::new();
+        loop {
+            match self.peek() {
+                None => return Err(LexError::UnterminatedString { span }),
+                Some('"') => {
+                    self.bump();
+                    return Ok(TokenKind::Str(buf));
+                }
+                Some('\\') => {
+                    self.bump();
+                    match self.peek() {
+                        Some('n') => {
+                            self.bump();
+                            buf.push('\n');
+                        }
+                        Some('t') => {
+                            self.bump();
+                            buf.push('\t');
+                        }
+                        Some('r') => {
+                            self.bump();
+                            buf.push('\r');
+                        }
+                        Some('\\') => {
+                            self.bump();
+                            buf.push('\\');
+                        }
+                        Some('"') => {
+                            self.bump();
+                            buf.push('"');
+                        }
+                        Some('0') => {
+                            self.bump();
+                            buf.push('\0');
+                        }
+                        Some(c) => {
+                            return Err(LexError::BadEscape {
+                                seq: format!("\\{c}"),
+                                span,
+                            });
+                        }
+                        None => return Err(LexError::UnterminatedString { span }),
+                    }
+                }
+                Some(c) => {
+                    self.bump();
+                    buf.push(c);
+                }
+            }
+        }
     }
 
     fn read_ident_or_keyword(&mut self) -> TokenKind {

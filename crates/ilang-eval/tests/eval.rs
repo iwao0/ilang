@@ -713,3 +713,30 @@ fn console_log_variadic() {
     assert_eq!(run("console.log(1, 2, 3)").unwrap(), Value::Unit);
     assert_eq!(run("console.log(true, 1.5, 42)").unwrap(), Value::Unit);
 }
+
+#[test]
+fn string_literal_and_concat() {
+    assert_eq!(
+        run(r#""hello, " + "world""#).unwrap(),
+        Value::Str(std::rc::Rc::new("hello, world".into()))
+    );
+}
+
+#[test]
+fn string_equality() {
+    assert_eq!(run(r#""a" == "a""#).unwrap(), Value::Bool(true));
+    assert_eq!(run(r#""a" == "b""#).unwrap(), Value::Bool(false));
+    assert_eq!(run(r#""a" != "b""#).unwrap(), Value::Bool(true));
+}
+
+#[test]
+fn string_param_and_return() {
+    let src = r#"
+        fn shout(s: string): string { s + "!!!" }
+        shout("wow")
+    "#;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Str(std::rc::Rc::new("wow!!!".into()))
+    );
+}

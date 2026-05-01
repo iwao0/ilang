@@ -136,6 +136,13 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
     ) {
         return bit_op(op, l, r);
     }
+    // String concatenation: `s + t` allocates a new string.
+    if let (BinOp::Add, Value::Str(a), Value::Str(b)) = (op, &l, &r) {
+        let mut out = String::with_capacity(a.len() + b.len());
+        out.push_str(a);
+        out.push_str(b);
+        return Ok(Value::Str(Rc::new(out)));
+    }
     let (l, r) = promote(l, r);
     arith(op, l, r)
 }
@@ -212,6 +219,12 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     if let (Value::Bool(a), Value::Bool(b)) = (&l, &r) {
         if matches!(op, BinOp::Eq | BinOp::Ne) {
             return Ok(Value::Bool(if op == BinOp::Eq { a == b } else { a != b }));
+        }
+    }
+    if let (Value::Str(a), Value::Str(b)) = (&l, &r) {
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            let same = a.as_str() == b.as_str();
+            return Ok(Value::Bool(if op == BinOp::Eq { same } else { !same }));
         }
     }
     let l_t = type_of(&l);

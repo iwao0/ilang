@@ -231,3 +231,34 @@ fn empty_radix_literal_errors() {
         Err(LexError::InvalidNumber { .. })
     ));
 }
+
+#[test]
+fn string_literal_basic() {
+    assert_eq!(
+        kinds(r#""hello""#),
+        vec![TokenKind::Str("hello".into()), TokenKind::Eof]
+    );
+}
+
+#[test]
+fn string_escapes() {
+    let toks = tokenize(r#""a\nb\tc\\\"end""#).unwrap();
+    let kind = toks.into_iter().next().unwrap().kind;
+    assert_eq!(kind, TokenKind::Str("a\nb\tc\\\"end".into()));
+}
+
+#[test]
+fn unterminated_string_errors() {
+    assert!(matches!(
+        tokenize("\"abc"),
+        Err(LexError::UnterminatedString { .. })
+    ));
+}
+
+#[test]
+fn bad_escape_errors() {
+    assert!(matches!(
+        tokenize(r#""bad\zescape""#),
+        Err(LexError::BadEscape { .. })
+    ));
+}

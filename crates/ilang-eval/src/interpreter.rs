@@ -84,6 +84,7 @@ impl Interpreter {
             ExprKind::Int(n) => Ok(Value::Int(*n)),
             ExprKind::Float(f) => Ok(Value::Float(*f)),
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),
+            ExprKind::Str(s) => Ok(Value::Str(Rc::new(s.clone()))),
             ExprKind::This => match &self.this {
                 Some(o) => Ok(Value::Object(o.clone())),
                 None => Err(RuntimeError::ThisOutsideMethod { span }),

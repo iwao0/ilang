@@ -229,6 +229,10 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Expr::new(ExprKind::Float(f), span))
             }
+            TokenKind::Str(s) => {
+                self.bump();
+                Ok(Expr::new(ExprKind::Str(s), span))
+            }
             TokenKind::True => {
                 self.bump();
                 Ok(Expr::new(ExprKind::Bool(true), span))

@@ -25,6 +25,8 @@ pub enum Value {
     Float32(f32),
     Float(f64),
     Bool(bool),
+    /// Immutable UTF-8 string. Wrapped in `Rc` so passing/cloning is cheap.
+    Str(Rc<String>),
     Unit,
     Object(ObjectRef),
 }
@@ -55,6 +57,7 @@ impl std::fmt::Display for Value {
                 }
             }
             Value::Bool(b) => write!(f, "{b}"),
+            Value::Str(s) => write!(f, "{s}"),
             Value::Unit => write!(f, "()"),
             Value::Object(o) => {
                 let o = o.borrow();

@@ -249,6 +249,7 @@ impl TypeChecker {
             ExprKind::Int(_) => Ok(Type::I64),
             ExprKind::Float(_) => Ok(Type::F64),
             ExprKind::Bool(_) => Ok(Type::Bool),
+            ExprKind::Str(_) => Ok(Type::Str),
             ExprKind::This => match in_class {
                 Some(name) => Ok(Type::Object(name.to_string())),
                 None => Err(TypeError::ThisOutsideMethod { span }),

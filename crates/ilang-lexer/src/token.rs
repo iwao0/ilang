@@ -4,6 +4,7 @@ pub use ilang_ast::Span;
 pub enum TokenKind {
     Int(i64),
     Float(f64),
+    Str(String),
     Ident(String),
     // keywords
     Let,

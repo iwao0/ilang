@@ -11,6 +11,8 @@ pub enum Type {
     F32,
     F64,
     Bool,
+    /// Immutable UTF-8 string. Stored at runtime as `Rc<String>`.
+    Str,
     Unit,
     /// Instance of a user-defined class, identified by class name.
     Object(String),
@@ -61,6 +63,7 @@ impl std::fmt::Display for Type {
             Type::U64 => write!(f, "u64"),
             Type::F32 => write!(f, "f32"),
             Type::F64 => write!(f, "f64"),
+            Type::Str => write!(f, "string"),
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
             Type::Object(name) => write!(f, "{name}"),

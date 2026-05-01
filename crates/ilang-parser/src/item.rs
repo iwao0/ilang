@@ -237,6 +237,7 @@ impl<'a> Parser<'a> {
                     "f32" => Ok(Type::F32),
                     "f64" => Ok(Type::F64),
                     "bool" => Ok(Type::Bool),
+                    "string" => Ok(Type::Str),
                     _ => Ok(Type::Object(n)),
                 }
             }
