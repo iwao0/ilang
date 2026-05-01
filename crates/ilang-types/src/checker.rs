@@ -180,10 +180,22 @@ impl TypeChecker {
                 Some(name) => Ok(Type::Object(name.to_string())),
                 None => Err(TypeError::ThisOutsideMethod),
             },
-            Expr::Var(n) => env
-                .get(n)
-                .cloned()
-                .ok_or_else(|| TypeError::UndefinedVariable(n.clone())),
+            Expr::Var(n) => {
+                // Method-body sugar: an identifier with no local binding
+                // resolves against the implicit `this`. Locals always win,
+                // so `init(count) { this.count = count }` still works.
+                if let Some(t) = env.get(n) {
+                    return Ok(t.clone());
+                }
+                if let Some(class_name) = in_class {
+                    if let Some(cls) = self.classes.get(class_name) {
+                        if let Some(t) = cls.fields.get(n) {
+                            return Ok(t.clone());
+                        }
+                    }
+                }
+                Err(TypeError::UndefinedVariable(n.clone()))
+            }
             Expr::Unary { op, expr } => {
                 let t = self.check_expr(expr, env, in_class, loop_depth)?;
                 match (op, &t) {
@@ -207,6 +219,17 @@ impl TypeChecker {
                 Ok(Type::Bool)
             }
             Expr::Call { callee, args } => {
+                // Inside a method body, an unqualified call resolves against
+                // own methods first (implicit `this.callee(args)`). Falls
+                // back to free functions so existing code keeps working.
+                if let Some(class_name) = in_class {
+                    if let Some(cls) = self.classes.get(class_name) {
+                        if let Some(sig) = cls.methods.get(callee).cloned() {
+                            self.check_args(callee, &sig, args, env, in_class, loop_depth)?;
+                            return Ok(sig.ret);
+                        }
+                    }
+                }
                 let sig = self
                     .fns
                     .get(callee)
@@ -352,18 +375,34 @@ impl TypeChecker {
                 Ok(Type::Unit)
             }
             Expr::Assign { target, value } => {
-                let var_ty = env
-                    .get(target)
-                    .cloned()
-                    .ok_or_else(|| TypeError::UndefinedVariable(target.clone()))?;
-                let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
-                if !assignable(&v_ty, &var_ty) {
-                    return Err(TypeError::Mismatch {
-                        expected: var_ty,
-                        got: v_ty,
-                    });
+                // Mirror the read-side fallback: assigning to an unqualified
+                // name inside a method body assigns to the field on `this`
+                // when no local binding shadows it.
+                if let Some(var_ty) = env.get(target).cloned() {
+                    let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
+                    if !assignable(&v_ty, &var_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: var_ty,
+                            got: v_ty,
+                        });
+                    }
+                    return Ok(Type::Unit);
                 }
-                Ok(Type::Unit)
+                if let Some(class_name) = in_class {
+                    if let Some(cls) = self.classes.get(class_name) {
+                        if let Some(field_ty) = cls.fields.get(target).cloned() {
+                            let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
+                            if !assignable(&v_ty, &field_ty) {
+                                return Err(TypeError::Mismatch {
+                                    expected: field_ty,
+                                    got: v_ty,
+                                });
+                            }
+                            return Ok(Type::Unit);
+                        }
+                    }
+                }
+                Err(TypeError::UndefinedVariable(target.clone()))
             }
             Expr::AssignField { obj, field, value } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;

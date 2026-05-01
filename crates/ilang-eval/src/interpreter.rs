@@ -67,11 +67,18 @@ impl Interpreter {
                 Some(o) => Ok(Value::Object(o.clone())),
                 None => Err(RuntimeError::ThisOutsideMethod),
             },
-            Expr::Var(name) => self
-                .vars
-                .get(name)
-                .cloned()
-                .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone())),
+            Expr::Var(name) => {
+                if let Some(v) = self.vars.get(name) {
+                    return Ok(v.clone());
+                }
+                if let Some(this) = &self.this {
+                    let this = this.borrow();
+                    if let Some(v) = this.fields.get(name) {
+                        return Ok(v.clone());
+                    }
+                }
+                Err(RuntimeError::UndefinedVariable(name.clone()))
+            }
             Expr::Unary { op, expr } => {
                 let v = self.eval_expr(expr)?;
                 apply_unary(*op, v)
@@ -103,7 +110,17 @@ impl Interpreter {
                     }
                 }
             }
-            Expr::Call { callee, args } => self.call_fn(callee, args),
+            Expr::Call { callee, args } => {
+                if let Some(this) = self.this.clone() {
+                    let class_name = this.borrow().class.clone();
+                    if let Some(class) = self.classes.get(&class_name) {
+                        if class.methods.iter().any(|m| m.name == *callee) {
+                            return self.call_method(this, callee, args);
+                        }
+                    }
+                }
+                self.call_fn(callee, args)
+            }
             Expr::Field { obj, name } => {
                 let v = self.eval_expr(obj)?;
                 let o = expect_object(v)?;
@@ -160,11 +177,19 @@ impl Interpreter {
             Expr::Continue => Err(RuntimeError::Continue),
             Expr::Assign { target, value } => {
                 let v = self.eval_expr(value)?;
-                if !self.vars.contains_key(target) {
-                    return Err(RuntimeError::UndefinedVariable(target.clone()));
+                if self.vars.contains_key(target) {
+                    self.vars.insert(target.clone(), v);
+                    return Ok(Value::Unit);
                 }
-                self.vars.insert(target.clone(), v);
-                Ok(Value::Unit)
+                if let Some(this) = self.this.clone() {
+                    // Symmetric with the read path: an unqualified assignment
+                    // inside a method targets the field on `this` when no
+                    // local shadows it. The type checker has already
+                    // validated that the field exists, so we just write.
+                    this.borrow_mut().fields.insert(target.clone(), v);
+                    return Ok(Value::Unit);
+                }
+                Err(RuntimeError::UndefinedVariable(target.clone()))
             }
             Expr::AssignField { obj, field, value } => {
                 // Existence of the field is validated by the type checker;

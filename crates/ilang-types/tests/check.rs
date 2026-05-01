@@ -216,3 +216,54 @@ fn break_inside_while_ok() {
         Type::Unit
     );
 }
+
+#[test]
+fn implicit_this_field_typechecks() {
+    let src = r#"
+        class P {
+            x: i64
+            init(x: i64) { this.x = x }
+            get(): i64 { x }
+        }
+        new P(1).get()
+    "#;
+    assert_eq!(ty(src).unwrap(), Type::I64);
+}
+
+#[test]
+fn implicit_method_call_typechecks() {
+    let src = r#"
+        class M {
+            init() {}
+            a(): i64 { b() }
+            b(): i64 { 7 }
+        }
+        new M().a()
+    "#;
+    assert_eq!(ty(src).unwrap(), Type::I64);
+}
+
+#[test]
+fn implicit_this_assign_typechecks() {
+    let src = r#"
+        class A {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        new A().inc()
+    "#;
+    assert_eq!(ty(src).unwrap(), Type::Unit);
+}
+
+#[test]
+fn unknown_implicit_field_still_errors() {
+    let src = r#"
+        class B {
+            init() {}
+            bad(): i64 { missing }
+        }
+        new B().bad()
+    "#;
+    assert!(matches!(ty(src), Err(TypeError::UndefinedVariable(_))));
+}

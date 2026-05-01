@@ -321,3 +321,60 @@ fn loop_expression_value_is_unit() {
     let src = "let _x = loop { break }; 42";
     assert_eq!(run(src).unwrap(), Value::Int(42));
 }
+
+#[test]
+fn implicit_this_field_read() {
+    let src = r#"
+        class P {
+            x: i64
+            init(x: i64) { this.x = x }
+            get(): i64 { x }
+        }
+        new P(7).get()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(7));
+}
+
+#[test]
+fn implicit_this_field_assign() {
+    let src = r#"
+        class C {
+            n: i64
+            init() { this.n = 0 }
+            bump(): i64 { n = n + 1; n }
+        }
+        let c = new C()
+        c.bump()
+        c.bump()
+        c.bump()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn implicit_this_method_call() {
+    let src = r#"
+        class M {
+            v: i64
+            init(v: i64) { this.v = v }
+            doubled(): i64 { v * 2 }
+            quadrupled(): i64 { doubled() * 2 }
+        }
+        new M(3).quadrupled()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(12));
+}
+
+#[test]
+fn local_shadows_field() {
+    // `count` parameter shadows the field with the same name.
+    let src = r#"
+        class S {
+            count: i64
+            init(count: i64) { this.count = count }
+            test(count: i64): i64 { count + this.count }
+        }
+        new S(10).test(5)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(15));
+}
