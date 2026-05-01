@@ -1,0 +1,10 @@
+[package]
+name = "ilang-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ilang-ast = { workspace = true }
+ilang-lexer = { workspace = true }
+thiserror = { workspace = true }

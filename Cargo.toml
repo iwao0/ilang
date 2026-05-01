@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ilang-ast",
+    "crates/ilang-lexer",
+    "crates/ilang-parser",
+    "crates/ilang-eval",
+    "crates/ilang-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+
+[workspace.dependencies]
+ilang-ast = { path = "crates/ilang-ast" }
+ilang-lexer = { path = "crates/ilang-lexer" }
+ilang-parser = { path = "crates/ilang-parser" }
+ilang-eval = { path = "crates/ilang-eval" }
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+rustyline = "14"

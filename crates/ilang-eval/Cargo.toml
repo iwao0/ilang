@@ -1,0 +1,13 @@
+[package]
+name = "ilang-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ilang-ast = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ilang-lexer = { workspace = true }
+ilang-parser = { workspace = true }
