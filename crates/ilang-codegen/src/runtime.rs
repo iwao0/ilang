@@ -180,13 +180,6 @@ pub(crate) extern "C" fn ilang_jit_print_newline() {
     println!();
 }
 
-/// Print a hex pointer (`0x...`) for object / weak printing inside
-/// `console.log`. Other punctuation (`[`, `]`, `, `, `none`, etc.) is
-/// emitted by interning a string literal and routing through
-/// `ilang_jit_print_str`.
-pub(crate) extern "C" fn ilang_jit_print_ptr_hex(ptr: i64) {
-    print!("{ptr:#x}");
-}
 
 // ─── String runtime (ARC Phase B) ──────────────────────────────────────
 // Strings are heap-allocated `Box<StringRc>`; the JIT carries the raw

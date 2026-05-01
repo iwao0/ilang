@@ -54,7 +54,6 @@ pub(crate) struct PrintFns {
     pub space: FuncId,
     pub newline: FuncId,
     pub str: FuncId,
-    pub ptr_hex: FuncId,
 }
 
 /// FFI helpers for the heap String runtime.

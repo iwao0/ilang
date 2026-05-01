@@ -842,12 +842,7 @@ fn emit_print_value(
             b.ins().call(r, &[v]);
         }
         JitTy::Object(class_id) => {
-            // Format as `<ClassName @ 0xPTR>` to match JitValue::Display.
-            let prefix = format!("<{} @ ", lc.class_layouts[class_id as usize].name);
-            emit_print_literal(b, lc, &prefix);
-            let r = lc.module.declare_func_in_func(lc.print.ptr_hex, b.func);
-            b.ins().call(r, &[v]);
-            emit_print_literal(b, lc, ">");
+            emit_print_object(b, lc, v, class_id, span)?;
         }
         JitTy::Array(id) => {
             let elem_jty = lc.array_kinds[id as usize].elem;
@@ -905,6 +900,45 @@ fn emit_print_literal(b: &mut FunctionBuilder, lc: &mut LowerCtx, s: &str) {
     let v = b.ins().iconst(I64, ptr);
     let r = lc.module.declare_func_in_func(lc.print.str, b.func);
     b.ins().call(r, &[v]);
+}
+
+/// Emit `ClassName { f1: v1, f2: v2 }` for an object — matches the
+/// interpreter's `JitValue` / `Value::Object` Display. Fields are
+/// printed in alphabetical order so the output is stable. An object
+/// with no fields prints as `ClassName {}`.
+fn emit_print_object(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    obj: Value,
+    class_id: u32,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    let class_name = lc.class_layouts[class_id as usize].name.clone();
+    // Snapshot the field list so we don't borrow `lc.class_layouts`
+    // through the recursive emit_print_value call below.
+    let mut fields: Vec<(String, u32, JitTy)> = lc.class_layouts[class_id as usize]
+        .fields
+        .iter()
+        .map(|(name, &(offset, fty))| (name.clone(), offset, fty))
+        .collect();
+    fields.sort_by(|a, b| a.0.cmp(&b.0));
+
+    if fields.is_empty() {
+        emit_print_literal(b, lc, &format!("{class_name} {{}}"));
+        return Ok(());
+    }
+    emit_print_literal(b, lc, &format!("{class_name} {{ "));
+    for (i, (fname, offset, fty)) in fields.into_iter().enumerate() {
+        if i > 0 {
+            emit_print_literal(b, lc, ", ");
+        }
+        emit_print_literal(b, lc, &format!("{fname}: "));
+        let cl_ty = fty.cl().expect("non-unit field");
+        let fv = b.ins().load(cl_ty, MemFlags::trusted(), obj, offset as i32);
+        emit_print_value(b, lc, fv, fty, span)?;
+    }
+    emit_print_literal(b, lc, " }");
+    Ok(())
 }
 
 /// Emit `[e0, e1, e2]` for an array. The element-printing branch can
