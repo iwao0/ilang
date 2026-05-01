@@ -13,7 +13,7 @@
 - 値を返す末尾式 (trailing expression、`;` なし)
 
 ### 2. 関数定義 / 呼び出し
-- `fn add(a: i64, b: i64) -> i64 { a + b }`
+- `fn add(a: i64, b: i64): i64 { a + b }`
 - 関数同士の前方参照 OK (型チェック・実行とも)
 - 戻り値型省略時は `()` (Unit)
 - 再帰呼び出しは深さ 256 で `StackOverflow`
@@ -46,10 +46,10 @@ crates/
 ## 構文サンプル
 
 ```rust
-fn double(x: i64) -> i64 { x * 2 }
+fn double(x: i64): i64 { x * 2 }
 
 #[requires(net)]
-fn fetch_count(id: i64) -> i64 {
+fn fetch_count(id: i64): i64 {
     id * 100
 }
 

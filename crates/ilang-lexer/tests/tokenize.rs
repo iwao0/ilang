@@ -92,7 +92,7 @@ fn keywords_and_ident() {
 #[test]
 fn punctuation() {
     assert_eq!(
-        kinds("{},;:::->#[]"),
+        kinds("{},;:::#[]"),
         vec![
             TokenKind::LBrace,
             TokenKind::RBrace,
@@ -100,7 +100,6 @@ fn punctuation() {
             TokenKind::Semicolon,
             TokenKind::ColonColon,
             TokenKind::Colon,
-            TokenKind::Arrow,
             TokenKind::Hash,
             TokenKind::LBracket,
             TokenKind::RBracket,

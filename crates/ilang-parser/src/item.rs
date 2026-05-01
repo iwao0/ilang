@@ -82,7 +82,10 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(&TokenKind::RParen, "')'")?;
-        let ret = if matches!(self.peek().kind, TokenKind::Arrow) {
+        // TypeScript-style return type: `): Type { ... }`. The leading `{`
+        // of the body is what disambiguates "no annotation" from "missing
+        // type": `): {` would be invalid because `{` isn't a type.
+        let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
             Some(self.parse_type()?)
         } else {

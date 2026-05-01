@@ -88,12 +88,7 @@ impl<'a> Lexer<'a> {
             }
             '-' => {
                 self.bump();
-                if matches!(self.peek(), Some('>')) {
-                    self.bump();
-                    TokenKind::Arrow
-                } else {
-                    TokenKind::Minus
-                }
+                TokenKind::Minus
             }
             '*' => {
                 self.bump();

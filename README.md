@@ -21,7 +21,7 @@ cargo run -p ilang-cli
 
 # ファイル実行
 cat > sample.il <<'EOF'
-fn count_div(n: i64) -> i64 {
+fn count_div(n: i64): i64 {
     let i = 1;
     let count = 0;
     while i <= n {

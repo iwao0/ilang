@@ -43,7 +43,6 @@ pub enum TokenKind {
     AmpAmp,
     PipePipe,
     Bang,
-    Arrow,
     Hash,
     Eof,
 }

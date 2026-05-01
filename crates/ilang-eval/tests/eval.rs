@@ -37,13 +37,13 @@ fn undefined_variable() {
 
 #[test]
 fn fn_call_basic() {
-    let src = "fn add(a: i64, b: i64) -> i64 { a + b } add(2, 3)";
+    let src = "fn add(a: i64, b: i64): i64 { a + b } add(2, 3)";
     assert_eq!(run(src).unwrap(), Value::Int(5));
 }
 
 #[test]
 fn fn_recursive() {
-    let src = "fn double(x: i64) -> i64 { x * 2 } fn quad(x: i64) -> i64 { double(double(x)) } quad(3)";
+    let src = "fn double(x: i64): i64 { x * 2 } fn quad(x: i64): i64 { double(double(x)) } quad(3)";
     assert_eq!(run(src).unwrap(), Value::Int(12));
 }
 
@@ -57,13 +57,13 @@ fn block_scoping() {
 
 #[test]
 fn arity_mismatch() {
-    let src = "fn id(x: i64) -> i64 { x } id(1, 2)";
+    let src = "fn id(x: i64): i64 { x } id(1, 2)";
     assert!(matches!(run(src), Err(RuntimeError::ArityMismatch { .. })));
 }
 
 #[test]
 fn attribute_parses_but_does_not_enforce() {
-    let src = "#[requires(net)] fn f(x: i64) -> i64 { x + 1 } f(41)";
+    let src = "#[requires(net)] fn f(x: i64): i64 { x + 1 } f(41)";
     assert_eq!(run(src).unwrap(), Value::Int(42));
 }
 
@@ -96,7 +96,7 @@ fn while_loop_with_assignment() {
 
 #[test]
 fn fn_with_if_and_while() {
-    let src = "fn sum_to(n: i64) -> i64 { let s = 0; let i = 1; while i <= n { s = s + i; i = i + 1; } s } sum_to(10)";
+    let src = "fn sum_to(n: i64): i64 { let s = 0; let i = 1; while i <= n { s = s + i; i = i + 1; } s } sum_to(10)";
     assert_eq!(run(src).unwrap(), Value::Int(55));
 }
 

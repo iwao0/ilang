@@ -53,7 +53,7 @@
 ## 構文サンプル
 
 ```rust
-fn count_div(n: i64) -> i64 {
+fn count_div(n: i64): i64 {
     let i = 1;
     let count = 0;
     while i <= n {

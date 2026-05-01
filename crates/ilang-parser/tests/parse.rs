@@ -59,7 +59,7 @@ fn let_with_type() {
 
 #[test]
 fn fn_decl_basic() {
-    let p = parse_str("fn add(a: i64, b: i64) -> i64 { a + b }");
+    let p = parse_str("fn add(a: i64, b: i64): i64 { a + b }");
     assert_eq!(p.items.len(), 1);
     let Item::Fn(f) = &p.items[0];
     assert_eq!(f.name, "add");
@@ -70,7 +70,7 @@ fn fn_decl_basic() {
 
 #[test]
 fn fn_call() {
-    let p = parse_str("fn id(x: i64) -> i64 { x } id(5)");
+    let p = parse_str("fn id(x: i64): i64 { x } id(5)");
     assert_eq!(p.items.len(), 1);
     assert_eq!(
         p.tail,
@@ -83,7 +83,7 @@ fn fn_call() {
 
 #[test]
 fn fn_with_attribute() {
-    let p = parse_str("#[requires(net, file::read)] fn fetch() -> i64 { 1 }");
+    let p = parse_str("#[requires(net, file::read)] fn fetch(): i64 { 1 }");
     let Item::Fn(f) = &p.items[0];
     assert_eq!(f.attrs.len(), 1);
     assert_eq!(f.attrs[0].name, "requires");

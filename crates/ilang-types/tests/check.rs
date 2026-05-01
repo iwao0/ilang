@@ -44,20 +44,20 @@ fn let_annotation_mismatch() {
 #[test]
 fn fn_signature_checks() {
     assert_eq!(
-        ty("fn add(a: i64, b: i64) -> i64 { a + b } add(1, 2)").unwrap(),
+        ty("fn add(a: i64, b: i64): i64 { a + b } add(1, 2)").unwrap(),
         Type::I64
     );
 }
 
 #[test]
 fn fn_arg_promotion() {
-    assert_eq!(ty("fn id(x: f64) -> f64 { x } id(5)").unwrap(), Type::F64);
+    assert_eq!(ty("fn id(x: f64): f64 { x } id(5)").unwrap(), Type::F64);
 }
 
 #[test]
 fn fn_arg_type_error() {
     assert!(matches!(
-        ty("fn need_int(x: i64) -> i64 { x } need_int(1.5)"),
+        ty("fn need_int(x: i64): i64 { x } need_int(1.5)"),
         Err(TypeError::Mismatch { .. })
     ));
 }
@@ -65,7 +65,7 @@ fn fn_arg_type_error() {
 #[test]
 fn arity_error() {
     assert!(matches!(
-        ty("fn id(x: i64) -> i64 { x } id(1, 2)"),
+        ty("fn id(x: i64): i64 { x } id(1, 2)"),
         Err(TypeError::ArityMismatch { .. })
     ));
 }
@@ -73,7 +73,7 @@ fn arity_error() {
 #[test]
 fn return_type_mismatch() {
     assert!(matches!(
-        ty("fn bad() -> i64 { 1.0 }"),
+        ty("fn bad(): i64 { 1.0 }"),
         Err(TypeError::BadReturn { .. })
     ));
 }
@@ -97,7 +97,7 @@ fn undefined_function() {
 #[test]
 fn attribute_does_not_affect_typing() {
     assert_eq!(
-        ty("#[requires(net)] fn f(x: i64) -> i64 { x } f(1)").unwrap(),
+        ty("#[requires(net)] fn f(x: i64): i64 { x } f(1)").unwrap(),
         Type::I64
     );
 }
