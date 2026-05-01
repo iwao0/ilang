@@ -346,12 +346,37 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_number(&mut self, span: Span) -> Result<TokenKind, LexError> {
+        // Hex / binary prefix: only valid right after a leading `0`. We've
+        // already verified the first char is an ASCII digit; check the
+        // second to decide which radix to use.
+        if self.peek() == Some('0') {
+            let mut lookahead = self.chars.clone();
+            // peeked may already hold a char; lookahead is the iterator state
+            // *after* the peeked one would be consumed.
+            if let Some(prefix) = lookahead.next() {
+                if prefix == 'x' || prefix == 'X' {
+                    self.bump(); // consume '0'
+                    self.bump(); // consume 'x' / 'X'
+                    return self.read_radix_int(span, 16, "hex");
+                }
+                if prefix == 'b' || prefix == 'B' {
+                    self.bump(); // '0'
+                    self.bump(); // 'b' / 'B'
+                    return self.read_radix_int(span, 2, "binary");
+                }
+            }
+        }
+
         let mut buf = String::new();
         let mut is_float = false;
 
+        // Integer part. `_` is allowed between digits (not at the very
+        // start, since the entry condition required an ASCII digit).
         while let Some(c) = self.peek() {
             if c.is_ascii_digit() {
                 buf.push(c);
+                self.bump();
+            } else if c == '_' {
                 self.bump();
             } else {
                 break;
@@ -365,6 +390,8 @@ impl<'a> Lexer<'a> {
             while let Some(c) = self.peek() {
                 if c.is_ascii_digit() {
                     buf.push(c);
+                    self.bump();
+                } else if c == '_' {
                     self.bump();
                 } else {
                     break;
@@ -389,6 +416,8 @@ impl<'a> Lexer<'a> {
                         buf.push(c);
                         self.bump();
                         saw_digit = true;
+                    } else if c == '_' {
+                        self.bump();
                     } else {
                         break;
                     }
@@ -420,5 +449,41 @@ impl<'a> Lexer<'a> {
                     reason: e.to_string(),
                 })
         }
+    }
+
+    /// Read the digit body of a non-decimal integer literal. The `0x` or
+    /// `0b` prefix has already been consumed. Underscores are accepted as
+    /// digit separators and stripped before parsing.
+    fn read_radix_int(
+        &mut self,
+        span: Span,
+        radix: u32,
+        label: &str,
+    ) -> Result<TokenKind, LexError> {
+        let mut digits = String::new();
+        while let Some(c) = self.peek() {
+            if c.is_digit(radix) {
+                digits.push(c);
+                self.bump();
+            } else if c == '_' {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        if digits.is_empty() {
+            return Err(LexError::InvalidNumber {
+                text: format!("0{}", if radix == 16 { "x" } else { "b" }),
+                span,
+                reason: format!("{label} literal needs at least one digit"),
+            });
+        }
+        i64::from_str_radix(&digits, radix)
+            .map(TokenKind::Int)
+            .map_err(|e| LexError::InvalidNumber {
+                text: digits,
+                span,
+                reason: e.to_string(),
+            })
     }
 }

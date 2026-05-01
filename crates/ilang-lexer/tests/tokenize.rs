@@ -185,3 +185,49 @@ fn slash_division_still_works() {
         ],
     );
 }
+
+#[test]
+fn hex_literal() {
+    assert_eq!(kinds("0xff"), vec![TokenKind::Int(255), TokenKind::Eof]);
+    assert_eq!(kinds("0xFF"), vec![TokenKind::Int(255), TokenKind::Eof]);
+    assert_eq!(kinds("0X10"), vec![TokenKind::Int(16), TokenKind::Eof]);
+}
+
+#[test]
+fn binary_literal() {
+    assert_eq!(kinds("0b1010"), vec![TokenKind::Int(10), TokenKind::Eof]);
+    assert_eq!(kinds("0B11"), vec![TokenKind::Int(3), TokenKind::Eof]);
+}
+
+#[test]
+fn underscore_separators() {
+    assert_eq!(
+        kinds("1_000_000"),
+        vec![TokenKind::Int(1_000_000), TokenKind::Eof]
+    );
+    assert_eq!(
+        kinds("0xff_ff"),
+        vec![TokenKind::Int(0xffff), TokenKind::Eof]
+    );
+    assert_eq!(
+        kinds("0b1010_0011"),
+        vec![TokenKind::Int(0b1010_0011), TokenKind::Eof]
+    );
+    // Float: separators allowed in integer, fractional, and exponent parts.
+    assert_eq!(
+        kinds("1_2.3_4e1_0"),
+        vec![TokenKind::Float(1_2.3_4e1_0), TokenKind::Eof]
+    );
+}
+
+#[test]
+fn empty_radix_literal_errors() {
+    assert!(matches!(
+        tokenize("0x"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+    assert!(matches!(
+        tokenize("0b"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+}
