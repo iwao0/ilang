@@ -1,0 +1,22 @@
+[package]
+name = "ilang-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ilang-ast = { path = "../ilang-ast" }
+ilang-types = { path = "../ilang-types" }
+thiserror = { workspace = true }
+cranelift = "0.115"
+cranelift-jit = "0.115"
+cranelift-module = "0.115"
+cranelift-frontend = "0.115"
+cranelift-codegen = "0.115"
+cranelift-native = "0.115"
+target-lexicon = "0.13"
+
+[dev-dependencies]
+ilang-lexer = { path = "../ilang-lexer" }
+ilang-parser = { path = "../ilang-parser" }
+ilang-types = { path = "../ilang-types" }
