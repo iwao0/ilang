@@ -356,3 +356,29 @@ fn implicit_int_to_float_ok() {
         Err(TypeError::Mismatch { .. })
     ));
 }
+
+#[test]
+fn signed_unsigned_mix_rejected() {
+    // i32 + u32 (without literal) requires explicit `as`.
+    let src = "let a: i32 = 1; let b: u32 = 2; a + b";
+    assert!(matches!(ty(src), Err(TypeError::BadBinary { .. })));
+}
+
+#[test]
+fn signed_unsigned_widening_within_signedness_ok() {
+    assert!(ty("let a: i8 = 1; let b: i32 = 2; a + b").is_ok());
+    assert!(ty("let a: u8 = 1; let b: u32 = 2; a + b").is_ok());
+}
+
+#[test]
+fn negation_on_unsigned_rejected() {
+    // -x where x is u8 is a type error (no signed semantics).
+    let src = "let x: u8 = 5; -x";
+    assert!(matches!(ty(src), Err(TypeError::BadUnary { .. })));
+}
+
+#[test]
+fn integer_literal_too_large_for_unsigned() {
+    let src = "let x: u8 = 300";
+    assert!(matches!(ty(src), Err(TypeError::Mismatch { .. })));
+}

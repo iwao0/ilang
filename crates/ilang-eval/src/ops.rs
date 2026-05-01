@@ -1,115 +1,198 @@
 use std::rc::Rc;
 
-use ilang_ast::{BinOp, Span, UnOp};
+use ilang_ast::{BinOp, Span, Type, UnOp};
 
 use crate::error::RuntimeError;
 use crate::value::Value;
 
+// ─── Helpers ────────────────────────────────────────────────────────────
+
+fn dummy() -> Span {
+    Span::dummy()
+}
+
+/// Map a numeric `Value` to its declared `Type`. Non-numeric values map
+/// to `Type::Unit` (callers should reject this case before reaching here).
+fn type_of(v: &Value) -> Type {
+    match v {
+        Value::Int8(_) => Type::I8,
+        Value::Int16(_) => Type::I16,
+        Value::Int32(_) => Type::I32,
+        Value::Int(_) => Type::I64,
+        Value::UInt8(_) => Type::U8,
+        Value::UInt16(_) => Type::U16,
+        Value::UInt32(_) => Type::U32,
+        Value::UInt64(_) => Type::U64,
+        Value::Float32(_) => Type::F32,
+        Value::Float(_) => Type::F64,
+        _ => Type::Unit,
+    }
+}
+
+/// Promote both operands of a binary op to a common numeric type. Mirrors
+/// `numeric_result` in ilang-types: same-signedness ints widen, mixed
+/// signed/unsigned is unreachable here (the type checker rejects it),
+/// any int + any float promotes to a float wide enough to hold the int.
+fn promote(l: Value, r: Value) -> (Value, Value) {
+    use Value::*;
+    let l_int = matches!(
+        l,
+        Int8(_) | Int16(_) | Int32(_) | Int(_)
+            | UInt8(_) | UInt16(_) | UInt32(_) | UInt64(_)
+    );
+    let r_int = matches!(
+        r,
+        Int8(_) | Int16(_) | Int32(_) | Int(_)
+            | UInt8(_) | UInt16(_) | UInt32(_) | UInt64(_)
+    );
+    let l_float = matches!(l, Float32(_) | Float(_));
+    let r_float = matches!(r, Float32(_) | Float(_));
+
+    if l_int && r_int {
+        // Same signedness assumed (type checker enforces). Pick the wider.
+        let lt = type_of(&l);
+        let rt = type_of(&r);
+        if lt.int_width() >= rt.int_width() {
+            return (l, cast_value(r, &lt));
+        }
+        return (cast_value(l, &rt), r);
+    }
+    if l_float && r_float {
+        let needs_f64 = matches!(l, Float(_)) || matches!(r, Float(_));
+        let target = if needs_f64 { Type::F64 } else { Type::F32 };
+        return (cast_value(l, &target), cast_value(r, &target));
+    }
+    // Mixed int + float.
+    let int_t = if l_int { type_of(&l) } else { type_of(&r) };
+    let float_t = if l_float { type_of(&l) } else { type_of(&r) };
+    let needs_f64 = matches!(float_t, Type::F64) || int_t.int_width() >= 32;
+    let target = if needs_f64 { Type::F64 } else { Type::F32 };
+    (cast_value(l, &target), cast_value(r, &target))
+}
+
+// ─── Unary ──────────────────────────────────────────────────────────────
+
 pub(crate) fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
-    let dummy = Span::dummy();
+    let span = dummy();
     match (op, v) {
-        (UnOp::Pos, v @ (Value::Int32(_) | Value::Int(_) | Value::Float32(_) | Value::Float(_))) => {
+        // Identity (`+x`).
+        (UnOp::Pos, v) if matches!(
+            v,
+            Value::Int8(_) | Value::Int16(_) | Value::Int32(_) | Value::Int(_)
+                | Value::UInt8(_) | Value::UInt16(_) | Value::UInt32(_) | Value::UInt64(_)
+                | Value::Float32(_) | Value::Float(_)
+        ) =>
+        {
             Ok(v)
         }
+        // Negation (signed only — checker rejects unsigned).
+        (UnOp::Neg, Value::Int8(n)) => n
+            .checked_neg()
+            .map(Value::Int8)
+            .ok_or(RuntimeError::Overflow { span }),
+        (UnOp::Neg, Value::Int16(n)) => n
+            .checked_neg()
+            .map(Value::Int16)
+            .ok_or(RuntimeError::Overflow { span }),
         (UnOp::Neg, Value::Int32(n)) => n
             .checked_neg()
             .map(Value::Int32)
-            .ok_or(RuntimeError::Overflow { span: dummy }),
+            .ok_or(RuntimeError::Overflow { span }),
         (UnOp::Neg, Value::Int(n)) => n
             .checked_neg()
             .map(Value::Int)
-            .ok_or(RuntimeError::Overflow { span: dummy }),
+            .ok_or(RuntimeError::Overflow { span }),
         (UnOp::Neg, Value::Float32(f)) => Ok(Value::Float32(-f)),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
         (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
+        // Bit-not on every int width (signed and unsigned).
+        (UnOp::BitNot, Value::Int8(n)) => Ok(Value::Int8(!n)),
+        (UnOp::BitNot, Value::Int16(n)) => Ok(Value::Int16(!n)),
         (UnOp::BitNot, Value::Int32(n)) => Ok(Value::Int32(!n)),
         (UnOp::BitNot, Value::Int(n)) => Ok(Value::Int(!n)),
+        (UnOp::BitNot, Value::UInt8(n)) => Ok(Value::UInt8(!n)),
+        (UnOp::BitNot, Value::UInt16(n)) => Ok(Value::UInt16(!n)),
+        (UnOp::BitNot, Value::UInt32(n)) => Ok(Value::UInt32(!n)),
+        (UnOp::BitNot, Value::UInt64(n)) => Ok(Value::UInt64(!n)),
         _ => Err(RuntimeError::TypeError {
             msg: "invalid unary operand".into(),
-            span: dummy,
+            span,
         }),
     }
 }
 
-/// Numeric "rank" used to pick the result type of a mixed-type op.
-/// Higher rank wins; an i64 promoted into a float context goes to f64
-/// (not f32) because f32 can't hold the full i64 range without losing
-/// precision.
-fn promote(l: Value, r: Value) -> (Value, Value) {
-    use Value::*;
-    let any_float = matches!(l, Float32(_) | Float(_)) || matches!(r, Float32(_) | Float(_));
-    let needs_f64 = matches!(l, Int(_) | Float(_)) || matches!(r, Int(_) | Float(_));
-    if any_float {
-        if needs_f64 {
-            (to_f64(l), to_f64(r))
-        } else {
-            (to_f32(l), to_f32(r))
-        }
-    } else {
-        // Both ints. If either side is i64, use i64; otherwise both i32.
-        let needs_i64 = matches!(l, Int(_)) || matches!(r, Int(_));
-        if needs_i64 {
-            (to_i64(l), to_i64(r))
-        } else {
-            (l, r)
-        }
-    }
-}
-
-fn to_i64(v: Value) -> Value {
-    match v {
-        Value::Int32(n) => Value::Int(n as i64),
-        Value::Int(_) => v,
-        _ => v,
-    }
-}
-
-fn to_f32(v: Value) -> Value {
-    match v {
-        Value::Int32(n) => Value::Float32(n as f32),
-        Value::Int(n) => Value::Float32(n as f32),
-        Value::Float32(_) => v,
-        Value::Float(f) => Value::Float32(f as f32),
-        _ => v,
-    }
-}
-
-fn to_f64(v: Value) -> Value {
-    match v {
-        Value::Int32(n) => Value::Float(n as f64),
-        Value::Int(n) => Value::Float(n as f64),
-        Value::Float32(f) => Value::Float(f as f64),
-        Value::Float(_) => v,
-        _ => v,
-    }
-}
+// ─── Binary arithmetic / comparison / bit ───────────────────────────────
 
 pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
-    let is_compare = matches!(
+    if matches!(
         op,
         BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
-    );
-    if is_compare {
+    ) {
         return compare(op, l, r);
     }
-    let is_bit = matches!(
+    if matches!(
         op,
         BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr
-    );
-    if is_bit {
+    ) {
         return bit_op(op, l, r);
     }
-    // Arithmetic: promote both operands to a common type, then dispatch
-    // on the (now equal) variants.
     let (l, r) = promote(l, r);
+    arith(op, l, r)
+}
+
+/// `arith` assumes both operands have already been promoted to the same
+/// concrete numeric variant.
+fn arith(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
+    macro_rules! int_arith {
+        ($a:expr, $b:expr, $ctor:ident) => {{
+            let r = match op {
+                BinOp::Add => $a.checked_add($b),
+                BinOp::Sub => $a.checked_sub($b),
+                BinOp::Mul => $a.checked_mul($b),
+                BinOp::Div => {
+                    if $b == 0 {
+                        return Err(RuntimeError::DivisionByZero { span: dummy() });
+                    }
+                    $a.checked_div($b)
+                }
+                BinOp::Rem => {
+                    if $b == 0 {
+                        return Err(RuntimeError::DivisionByZero { span: dummy() });
+                    }
+                    $a.checked_rem($b)
+                }
+                _ => unreachable!("non-arith op in arith()"),
+            };
+            r.map(Value::$ctor)
+                .ok_or(RuntimeError::Overflow { span: dummy() })
+        }};
+    }
+    macro_rules! float_arith {
+        ($a:expr, $b:expr, $ctor:ident) => {
+            Ok(Value::$ctor(match op {
+                BinOp::Add => $a + $b,
+                BinOp::Sub => $a - $b,
+                BinOp::Mul => $a * $b,
+                BinOp::Div => $a / $b,
+                BinOp::Rem => $a % $b,
+                _ => unreachable!("non-arith op in arith()"),
+            }))
+        };
+    }
     match (l, r) {
-        (Value::Int32(a), Value::Int32(b)) => arith_i32(op, a, b),
-        (Value::Int(a), Value::Int(b)) => arith_i64(op, a, b),
-        (Value::Float32(a), Value::Float32(b)) => Ok(Value::Float32(arith_f32(op, a, b))),
-        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(arith_f64(op, a, b))),
+        (Value::Int8(a), Value::Int8(b)) => int_arith!(a, b, Int8),
+        (Value::Int16(a), Value::Int16(b)) => int_arith!(a, b, Int16),
+        (Value::Int32(a), Value::Int32(b)) => int_arith!(a, b, Int32),
+        (Value::Int(a), Value::Int(b)) => int_arith!(a, b, Int),
+        (Value::UInt8(a), Value::UInt8(b)) => int_arith!(a, b, UInt8),
+        (Value::UInt16(a), Value::UInt16(b)) => int_arith!(a, b, UInt16),
+        (Value::UInt32(a), Value::UInt32(b)) => int_arith!(a, b, UInt32),
+        (Value::UInt64(a), Value::UInt64(b)) => int_arith!(a, b, UInt64),
+        (Value::Float32(a), Value::Float32(b)) => float_arith!(a, b, Float32),
+        (Value::Float(a), Value::Float(b)) => float_arith!(a, b, Float),
         _ => Err(RuntimeError::TypeError {
             msg: "invalid binary operands".into(),
-            span: Span::dummy(),
+            span: dummy(),
         }),
     }
 }
@@ -123,7 +206,7 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
         }
         return Err(RuntimeError::TypeError {
             msg: "objects support only == and !=".into(),
-            span: Span::dummy(),
+            span: dummy(),
         });
     }
     if let (Value::Bool(a), Value::Bool(b)) = (&l, &r) {
@@ -131,25 +214,27 @@ fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
             return Ok(Value::Bool(if op == BinOp::Eq { a == b } else { a != b }));
         }
     }
-    let is_numeric = |v: &Value| {
-        matches!(
-            v,
-            Value::Int32(_) | Value::Int(_) | Value::Float32(_) | Value::Float(_)
-        )
-    };
-    if !is_numeric(&l) || !is_numeric(&r) {
+    let l_t = type_of(&l);
+    let r_t = type_of(&r);
+    if !l_t.is_numeric() || !r_t.is_numeric() {
         return Err(RuntimeError::TypeError {
             msg: "invalid comparison operands".into(),
-            span: Span::dummy(),
+            span: dummy(),
         });
     }
     let (l, r) = promote(l, r);
     let ord = match (&l, &r) {
+        (Value::Int8(a), Value::Int8(b)) => Some(a.cmp(b)),
+        (Value::Int16(a), Value::Int16(b)) => Some(a.cmp(b)),
         (Value::Int32(a), Value::Int32(b)) => Some(a.cmp(b)),
         (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
+        (Value::UInt8(a), Value::UInt8(b)) => Some(a.cmp(b)),
+        (Value::UInt16(a), Value::UInt16(b)) => Some(a.cmp(b)),
+        (Value::UInt32(a), Value::UInt32(b)) => Some(a.cmp(b)),
+        (Value::UInt64(a), Value::UInt64(b)) => Some(a.cmp(b)),
         (Value::Float32(a), Value::Float32(b)) => a.partial_cmp(b),
         (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
-        _ => unreachable!("promote() should have unified the variants"),
+        _ => unreachable!("promote should have unified the variants"),
     };
     let result = match (op, ord) {
         (BinOp::Eq, Some(o)) => o == Ordering::Equal,
@@ -171,170 +256,110 @@ pub(crate) fn as_bool(v: Value) -> Result<bool, RuntimeError> {
         Value::Bool(b) => Ok(b),
         _ => Err(RuntimeError::TypeError {
             msg: "expected bool".into(),
-            span: Span::dummy(),
+            span: dummy(),
         }),
     }
 }
 
-fn arith_i32(op: BinOp, a: i32, b: i32) -> Result<Value, RuntimeError> {
-    let dummy = Span::dummy();
-    let r = match op {
-        BinOp::Add => a.checked_add(b),
-        BinOp::Sub => a.checked_sub(b),
-        BinOp::Mul => a.checked_mul(b),
-        BinOp::Div => {
-            if b == 0 {
-                return Err(RuntimeError::DivisionByZero { span: dummy });
-            }
-            a.checked_div(b)
-        }
-        BinOp::Rem => {
-            if b == 0 {
-                return Err(RuntimeError::DivisionByZero { span: dummy });
-            }
-            a.checked_rem(b)
-        }
-        _ => unreachable!("non-arithmetic BinOp in arith_i32"),
-    };
-    r.map(Value::Int32)
-        .ok_or(RuntimeError::Overflow { span: dummy })
-}
+// ─── Bit ops + shifts ───────────────────────────────────────────────────
 
-fn arith_i64(op: BinOp, a: i64, b: i64) -> Result<Value, RuntimeError> {
-    let dummy = Span::dummy();
-    let r = match op {
-        BinOp::Add => a.checked_add(b),
-        BinOp::Sub => a.checked_sub(b),
-        BinOp::Mul => a.checked_mul(b),
-        BinOp::Div => {
-            if b == 0 {
-                return Err(RuntimeError::DivisionByZero { span: dummy });
-            }
-            a.checked_div(b)
-        }
-        BinOp::Rem => {
-            if b == 0 {
-                return Err(RuntimeError::DivisionByZero { span: dummy });
-            }
-            a.checked_rem(b)
-        }
-        _ => unreachable!("non-arithmetic BinOp in arith_i64"),
-    };
-    r.map(Value::Int)
-        .ok_or(RuntimeError::Overflow { span: dummy })
-}
-
-fn arith_f32(op: BinOp, a: f32, b: f32) -> f32 {
-    match op {
-        BinOp::Add => a + b,
-        BinOp::Sub => a - b,
-        BinOp::Mul => a * b,
-        BinOp::Div => a / b,
-        BinOp::Rem => a % b,
-        _ => unreachable!("non-arithmetic BinOp in arith_f32"),
+fn check_shift(amount: i64, width: u32) -> Result<Option<u32>, RuntimeError> {
+    if amount < 0 {
+        return Err(RuntimeError::TypeError {
+            msg: format!("negative shift amount: {amount}"),
+            span: dummy(),
+        });
     }
-}
-
-fn arith_f64(op: BinOp, a: f64, b: f64) -> f64 {
-    match op {
-        BinOp::Add => a + b,
-        BinOp::Sub => a - b,
-        BinOp::Mul => a * b,
-        BinOp::Div => a / b,
-        BinOp::Rem => a % b,
-        _ => unreachable!("non-arithmetic BinOp in arith_f64"),
+    if amount >= width as i64 {
+        return Ok(None);
     }
+    Ok(Some(amount as u32))
 }
 
 fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     let (l, r) = promote(l, r);
-    match (l, r) {
-        (Value::Int32(a), Value::Int32(b)) => Ok(Value::Int32(do_bit_i32(op, a, b)?)),
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(do_bit_i64(op, a, b)?)),
-        _ => Err(RuntimeError::TypeError {
-            msg: "bitwise operators require integer operands".into(),
-            span: Span::dummy(),
-        }),
+    macro_rules! shift {
+        ($a:expr, $b:expr, $width:literal, $ctor:ident) => {{
+            let amount = check_shift($b as i64, $width)?;
+            Value::$ctor(match (op, amount) {
+                (BinOp::Shl, Some(k)) => $a.wrapping_shl(k),
+                (BinOp::Shr, Some(k)) => $a.wrapping_shr(k),
+                _ => 0, // out-of-range shift returns 0
+            })
+        }};
     }
-}
-
-/// Apply `<<` / `>>`. Out-of-range shift amounts return 0 (every bit gets
-/// shifted out); negative shift amounts are a runtime error since they
-/// have no well-defined meaning.
-fn checked_shift(op: BinOp, a: i64, b: i64, width: u32) -> Result<i64, RuntimeError> {
-    if b < 0 {
-        return Err(RuntimeError::TypeError {
-            msg: format!("negative shift amount: {b}"),
-            span: Span::dummy(),
-        });
+    macro_rules! bitwise {
+        ($a:expr, $b:expr, $ctor:ident, $width:literal) => {{
+            match op {
+                BinOp::BitAnd => Value::$ctor($a & $b),
+                BinOp::BitOr => Value::$ctor($a | $b),
+                BinOp::BitXor => Value::$ctor($a ^ $b),
+                BinOp::Shl | BinOp::Shr => shift!($a, $b, $width, $ctor),
+                _ => unreachable!("non-bit op in bit_op()"),
+            }
+        }};
     }
-    if b >= width as i64 {
-        return Ok(0);
-    }
-    Ok(match op {
-        BinOp::Shl => a.wrapping_shl(b as u32),
-        BinOp::Shr => a.wrapping_shr(b as u32),
-        _ => unreachable!(),
+    Ok(match (l, r) {
+        (Value::Int8(a), Value::Int8(b)) => bitwise!(a, b, Int8, 8),
+        (Value::Int16(a), Value::Int16(b)) => bitwise!(a, b, Int16, 16),
+        (Value::Int32(a), Value::Int32(b)) => bitwise!(a, b, Int32, 32),
+        (Value::Int(a), Value::Int(b)) => bitwise!(a, b, Int, 64),
+        (Value::UInt8(a), Value::UInt8(b)) => bitwise!(a, b, UInt8, 8),
+        (Value::UInt16(a), Value::UInt16(b)) => bitwise!(a, b, UInt16, 16),
+        (Value::UInt32(a), Value::UInt32(b)) => bitwise!(a, b, UInt32, 32),
+        (Value::UInt64(a), Value::UInt64(b)) => bitwise!(a, b, UInt64, 64),
+        _ => {
+            return Err(RuntimeError::TypeError {
+                msg: "bitwise operators require integer operands".into(),
+                span: dummy(),
+            });
+        }
     })
 }
 
-fn do_bit_i32(op: BinOp, a: i32, b: i32) -> Result<i32, RuntimeError> {
-    Ok(match op {
-        BinOp::BitAnd => a & b,
-        BinOp::BitOr => a | b,
-        BinOp::BitXor => a ^ b,
-        BinOp::Shl | BinOp::Shr => checked_shift(op, a as i64, b as i64, 32)? as i32,
-        _ => unreachable!("non-bit BinOp in do_bit_i32"),
-    })
-}
-
-fn do_bit_i64(op: BinOp, a: i64, b: i64) -> Result<i64, RuntimeError> {
-    Ok(match op {
-        BinOp::BitAnd => a & b,
-        BinOp::BitOr => a | b,
-        BinOp::BitXor => a ^ b,
-        BinOp::Shl | BinOp::Shr => checked_shift(op, a, b, 64)?,
-        _ => unreachable!("non-bit BinOp in do_bit_i64"),
-    })
-}
+// ─── `as` cast ──────────────────────────────────────────────────────────
 
 /// Apply an `as` cast at runtime. The type checker has already validated
-/// that the conversion is one of the permitted numeric/bool combinations.
-pub(crate) fn cast_value(v: Value, target: &ilang_ast::Type) -> Value {
-    use ilang_ast::Type;
+/// that the conversion is permitted; here we just compute the new value.
+/// Goes through `i128` (for ints) or `f64` (for floats) as an intermediate
+/// so the source variant doesn't matter.
+pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
+    let from_int: Option<i128> = match &v {
+        Value::Int8(n) => Some(*n as i128),
+        Value::Int16(n) => Some(*n as i128),
+        Value::Int32(n) => Some(*n as i128),
+        Value::Int(n) => Some(*n as i128),
+        Value::UInt8(n) => Some(*n as i128),
+        Value::UInt16(n) => Some(*n as i128),
+        Value::UInt32(n) => Some(*n as i128),
+        Value::UInt64(n) => Some(*n as i128),
+        Value::Bool(b) => Some(*b as i128),
+        _ => None,
+    };
+    let from_float: Option<f64> = match &v {
+        Value::Float32(f) => Some(*f as f64),
+        Value::Float(f) => Some(*f),
+        _ => None,
+    };
     match target {
-        Type::I32 => Value::Int32(match v {
-            Value::Int32(n) => n,
-            Value::Int(n) => n as i32,
-            Value::Float32(f) => f as i32,
-            Value::Float(f) => f as i32,
-            Value::Bool(b) => b as i32,
-            _ => 0,
-        }),
-        Type::I64 => Value::Int(match v {
-            Value::Int32(n) => n as i64,
-            Value::Int(n) => n,
-            Value::Float32(f) => f as i64,
-            Value::Float(f) => f as i64,
-            Value::Bool(b) => b as i64,
-            _ => 0,
-        }),
-        Type::F32 => Value::Float32(match v {
-            Value::Int32(n) => n as f32,
-            Value::Int(n) => n as f32,
-            Value::Float32(f) => f,
-            Value::Float(f) => f as f32,
-            Value::Bool(b) => b as i32 as f32,
-            _ => 0.0,
-        }),
-        Type::F64 => Value::Float(match v {
-            Value::Int32(n) => n as f64,
-            Value::Int(n) => n as f64,
-            Value::Float32(f) => f as f64,
-            Value::Float(f) => f,
-            Value::Bool(b) => b as i32 as f64,
-            _ => 0.0,
-        }),
+        Type::I8 => Value::Int8(from_int.map(|n| n as i8).unwrap_or_else(|| from_float.unwrap_or(0.0) as i8)),
+        Type::I16 => Value::Int16(from_int.map(|n| n as i16).unwrap_or_else(|| from_float.unwrap_or(0.0) as i16)),
+        Type::I32 => Value::Int32(from_int.map(|n| n as i32).unwrap_or_else(|| from_float.unwrap_or(0.0) as i32)),
+        Type::I64 => Value::Int(from_int.map(|n| n as i64).unwrap_or_else(|| from_float.unwrap_or(0.0) as i64)),
+        Type::U8 => Value::UInt8(from_int.map(|n| n as u8).unwrap_or_else(|| from_float.unwrap_or(0.0) as u8)),
+        Type::U16 => Value::UInt16(from_int.map(|n| n as u16).unwrap_or_else(|| from_float.unwrap_or(0.0) as u16)),
+        Type::U32 => Value::UInt32(from_int.map(|n| n as u32).unwrap_or_else(|| from_float.unwrap_or(0.0) as u32)),
+        Type::U64 => Value::UInt64(from_int.map(|n| n as u64).unwrap_or_else(|| from_float.unwrap_or(0.0) as u64)),
+        Type::F32 => Value::Float32(
+            from_int
+                .map(|n| n as f32)
+                .unwrap_or_else(|| from_float.unwrap_or(0.0) as f32),
+        ),
+        Type::F64 => Value::Float(
+            from_int
+                .map(|n| n as f64)
+                .unwrap_or_else(|| from_float.unwrap_or(0.0)),
+        ),
         _ => v,
     }
 }

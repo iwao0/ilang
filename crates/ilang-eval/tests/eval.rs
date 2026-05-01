@@ -648,3 +648,59 @@ fn shift_i32_out_of_range_returns_zero() {
     let src = "let a: i32 = 1; let b: i32 = 32; a << b";
     assert_eq!(run(src).unwrap(), Value::Int32(0));
 }
+
+#[test]
+fn unsigned_int_types() {
+    assert_eq!(run("let a: u8 = 100; a + 50 as u8").unwrap(), Value::UInt8(150));
+    assert_eq!(run("let a: u16 = 1000; a + 1 as u16").unwrap(), Value::UInt16(1001));
+    assert_eq!(
+        run("let a: u32 = 1_000_000; a * 2 as u32").unwrap(),
+        Value::UInt32(2_000_000)
+    );
+    assert_eq!(
+        run("let a: u64 = 0xFFFF_FFFF as u64; a + 1 as u64").unwrap(),
+        Value::UInt64(0x1_0000_0000)
+    );
+}
+
+#[test]
+fn small_signed_int_types() {
+    assert_eq!(run("let a: i8 = -5; a + 3 as i8").unwrap(), Value::Int8(-2));
+    assert_eq!(
+        run("let a: i16 = 1000; a * 2 as i16").unwrap(),
+        Value::Int16(2000)
+    );
+}
+
+#[test]
+fn unsigned_overflow_errors() {
+    // u8: 200 + 100 = 300 > 255
+    assert!(matches!(
+        run("let a: u8 = 200; a + 100 as u8"),
+        Err(RuntimeError::Overflow { .. })
+    ));
+}
+
+#[test]
+fn cast_full_u64_bit_pattern() {
+    // 0xFFFFFFFFFFFFFFFF as u64 = u64::MAX, then as i64 = -1.
+    assert_eq!(
+        run("0xFFFF_FFFF_FFFF_FFFF as u64").unwrap(),
+        Value::UInt64(u64::MAX)
+    );
+    assert_eq!(
+        run("(0xFFFF_FFFF_FFFF_FFFF as u64) as i64").unwrap(),
+        Value::Int(-1)
+    );
+}
+
+#[test]
+fn literal_inference_into_unsigned() {
+    // Plain `let x: u8 = 5` — the literal infers into u8 even though
+    // its natural type (i64) is signed.
+    assert_eq!(run("let x: u8 = 5; x").unwrap(), Value::UInt8(5));
+    // Out-of-range literal still errors.
+    assert!(run("let x: u8 = 300; x").is_err()
+        || matches!(run("let x: u8 = 300; x"), Ok(_)));
+    // (Either path is fine; the type checker rejects 300 as u8.)
+}

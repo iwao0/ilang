@@ -479,8 +479,11 @@ impl<'a> Lexer<'a> {
                 reason: format!("{label} literal needs at least one digit"),
             });
         }
-        i64::from_str_radix(&digits, radix)
-            .map(TokenKind::Int)
+        // Parse as u64 to allow the full bit pattern (e.g. `0xFFFFFFFFFFFFFFFF`)
+        // and reinterpret as i64. The user can `as u64` to recover the
+        // original unsigned value.
+        u64::from_str_radix(&digits, radix)
+            .map(|n| TokenKind::Int(n as i64))
             .map_err(|e| LexError::InvalidNumber {
                 text: digits,
                 span,

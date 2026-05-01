@@ -6,7 +6,42 @@ use ilang_ast::{
 };
 
 use crate::error::TypeError;
-use crate::ops::{assignable, bin_result};
+use crate::ops::{assignable, bin_result, int_literal_fits};
+
+/// Check whether a value expression can be assigned to a binding of type
+/// `target`. In addition to the normal `assignable` rule, an integer
+/// literal (or its unary negation) infers into any integer type whose
+/// range it fits — this is what lets `let x: u8 = 5` work even though
+/// the literal's natural type is i64.
+fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
+    if assignable(vt, target) {
+        return true;
+    }
+    if let ExprKind::Int(n) = &value.kind {
+        if target.is_int() {
+            return int_literal_fits(*n, target);
+        }
+        if target.is_float() {
+            return true;
+        }
+    }
+    if let ExprKind::Unary { op: ilang_ast::UnOp::Neg, expr: inner } = &value.kind {
+        if let ExprKind::Int(n) = &inner.kind {
+            if target.is_int() {
+                return n.checked_neg().is_some_and(|v| int_literal_fits(v, target));
+            }
+            if target.is_float() {
+                return true;
+            }
+        }
+    }
+    if let ExprKind::Float(_) = &value.kind {
+        if target.is_float() {
+            return true;
+        }
+    }
+    false
+}
 
 #[derive(Debug, Clone)]
 struct Signature {
@@ -177,7 +212,7 @@ impl TypeChecker {
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span)?;
-                        if !assignable(&vt, ann) {
+                        if !literal_assignable(value, &vt, ann) {
                             return Err(TypeError::Mismatch {
                                 expected: ann.clone(),
                                 got: vt,
@@ -229,14 +264,14 @@ impl TypeChecker {
             }
             ExprKind::Unary { op, expr: inner } => {
                 let t = self.check_expr(inner, env, in_class, loop_depth)?;
-                match (op, &t) {
-                    (UnOp::Neg | UnOp::Pos, Type::I32) => Ok(Type::I32),
-                    (UnOp::Neg | UnOp::Pos, Type::I64) => Ok(Type::I64),
-                    (UnOp::Neg | UnOp::Pos, Type::F32) => Ok(Type::F32),
-                    (UnOp::Neg | UnOp::Pos, Type::F64) => Ok(Type::F64),
-                    (UnOp::Not, Type::Bool) => Ok(Type::Bool),
-                    (UnOp::BitNot, Type::I32) => Ok(Type::I32),
-                    (UnOp::BitNot, Type::I64) => Ok(Type::I64),
+                match op {
+                    // Unary `-` is only meaningful on signed numerics.
+                    UnOp::Neg if t.is_signed_int() || t.is_float() => Ok(t),
+                    // Unary `+` is identity on any numeric.
+                    UnOp::Pos if t.is_numeric() => Ok(t),
+                    UnOp::Not if t == Type::Bool => Ok(t),
+                    // Bit-not on any int (signed or unsigned).
+                    UnOp::BitNot if t.is_int() => Ok(t),
                     _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
             }
@@ -431,7 +466,7 @@ impl TypeChecker {
             ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
                     let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
-                    if !assignable(&v_ty, &var_ty) {
+                    if !literal_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
                             got: v_ty,
@@ -444,7 +479,7 @@ impl TypeChecker {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
                             let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
-                            if !assignable(&v_ty, &field_ty) {
+                            if !literal_assignable(value, &v_ty, &field_ty) {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,
                                     got: v_ty,
@@ -463,15 +498,12 @@ impl TypeChecker {
             ExprKind::Cast { expr: inner, ty } => {
                 let from = self.check_expr(inner, env, in_class, loop_depth)?;
                 self.validate_type(ty, span)?;
-                let from_numeric = matches!(
-                    from,
-                    Type::I32 | Type::I64 | Type::F32 | Type::F64 | Type::Bool
-                );
-                let to_numeric = matches!(
-                    ty,
-                    Type::I32 | Type::I64 | Type::F32 | Type::F64
-                );
-                if !from_numeric || !to_numeric {
+                // Permit any numeric → numeric cast plus `bool → int` for
+                // 0/1 conversion. Other casts (e.g. object → numeric) are
+                // a type error.
+                let from_ok = from.is_numeric() || from == Type::Bool;
+                let to_ok = ty.is_numeric();
+                if !from_ok || !to_ok {
                     return Err(TypeError::Mismatch {
                         expected: ty.clone(),
                         got: from,
@@ -497,7 +529,7 @@ impl TypeChecker {
                     }
                 })?;
                 let v_ty = self.check_expr(value, env, in_class, loop_depth)?;
-                if !assignable(&v_ty, &field_ty) {
+                if !literal_assignable(value, &v_ty, &field_ty) {
                     return Err(TypeError::Mismatch {
                         expected: field_ty,
                         got: v_ty,
@@ -530,7 +562,7 @@ impl TypeChecker {
         }
         for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
             let at = self.check_expr(arg, env, in_class, loop_depth)?;
-            if !assignable(&at, param_ty) {
+            if !literal_assignable(arg, &at, param_ty) {
                 return Err(TypeError::Mismatch {
                     expected: param_ty.clone(),
                     got: at,

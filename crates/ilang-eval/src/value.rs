@@ -14,8 +14,14 @@ pub type ObjectRef = Rc<RefCell<ObjectData>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    Int8(i8),
+    Int16(i16),
     Int32(i32),
     Int(i64),
+    UInt8(u8),
+    UInt16(u16),
+    UInt32(u32),
+    UInt64(u64),
     Float32(f32),
     Float(f64),
     Bool(bool),
@@ -26,8 +32,14 @@ pub enum Value {
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Int8(n) => write!(f, "{n}"),
+            Value::Int16(n) => write!(f, "{n}"),
             Value::Int32(n) => write!(f, "{n}"),
             Value::Int(n) => write!(f, "{n}"),
+            Value::UInt8(n) => write!(f, "{n}"),
+            Value::UInt16(n) => write!(f, "{n}"),
+            Value::UInt32(n) => write!(f, "{n}"),
+            Value::UInt64(n) => write!(f, "{n}"),
             Value::Float32(x) => {
                 if x.is_finite() && x.fract() == 0.0 {
                     write!(f, "{x:.1}")
