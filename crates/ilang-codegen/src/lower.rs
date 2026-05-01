@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::types::{I64, I8};
+use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_codegen::settings;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module};
@@ -11,11 +11,19 @@ use ilang_ast::{
 
 use crate::error::CodegenError;
 
-/// Result of running a JITed program. Always an `i64` for the MVP — the
-/// CLI prints it as the program's value.
+/// Result of running a JITed program. Covers every JIT-supported scalar.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JitValue {
-    Int(i64),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    F32(f32),
+    F64(f64),
     Bool(bool),
     Unit,
 }
@@ -23,79 +31,168 @@ pub enum JitValue {
 impl std::fmt::Display for JitValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JitValue::Int(n) => write!(f, "{n}"),
+            JitValue::I8(n) => write!(f, "{n}"),
+            JitValue::I16(n) => write!(f, "{n}"),
+            JitValue::I32(n) => write!(f, "{n}"),
+            JitValue::I64(n) => write!(f, "{n}"),
+            JitValue::U8(n) => write!(f, "{n}"),
+            JitValue::U16(n) => write!(f, "{n}"),
+            JitValue::U32(n) => write!(f, "{n}"),
+            JitValue::U64(n) => write!(f, "{n}"),
+            JitValue::F32(x) => {
+                if x.is_finite() && x.fract() == 0.0 {
+                    write!(f, "{x:.1}")
+                } else {
+                    write!(f, "{x}")
+                }
+            }
+            JitValue::F64(x) => {
+                if x.is_finite() && x.fract() == 0.0 {
+                    write!(f, "{x:.1}")
+                } else {
+                    write!(f, "{x}")
+                }
+            }
             JitValue::Bool(b) => write!(f, "{b}"),
             JitValue::Unit => Ok(()),
         }
     }
 }
 
-/// Compile every function in `prog` plus a synthetic `__main` that
-/// evaluates the top-level statements / tail expression, then jump into
-/// `__main` and return its value.
-pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
-    let mut compiler = JitCompiler::new()?;
-
-    // Pass 1: declare every user fn so calls can resolve in any order.
-    for item in &prog.items {
-        if let Item::Fn(f) = item {
-            compiler.declare_fn(f)?;
-        }
-    }
-    // Pass 2: define each fn body.
-    for item in &prog.items {
-        if let Item::Fn(f) = item {
-            compiler.define_fn(f)?;
-        } else {
-            return Err(CodegenError::Unsupported {
-                what: "class".into(),
-                span: ilang_ast::Span::dummy(),
-            });
-        }
-    }
-
-    let main_ret = compiler.define_main(prog)?;
-    compiler.finalize()?;
-    let result = compiler.run_main(main_ret);
-    Ok(result)
-}
-
-/// Logical type of a value at JIT time. Mirrors what we know about the
-/// AST node's `Type` once we've narrowed it to the JIT's supported set.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// JIT-internal type tag. Mirrors `ilang_ast::Type` for the supported
+/// scalar subset. Pairs with a cranelift `Value` to keep signedness and
+/// width information that the IR alone doesn't carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JitTy {
-    Int,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
     Bool,
     Unit,
 }
 
 impl JitTy {
     fn from_ast(t: &Type, span: ilang_ast::Span) -> Result<Self, CodegenError> {
-        match t {
-            Type::I64 => Ok(JitTy::Int),
-            Type::Bool => Ok(JitTy::Bool),
-            Type::Unit => Ok(JitTy::Unit),
-            other => Err(CodegenError::UnsupportedType {
-                ty: other.clone(),
-                span,
-            }),
-        }
+        Ok(match t {
+            Type::I8 => JitTy::I8,
+            Type::I16 => JitTy::I16,
+            Type::I32 => JitTy::I32,
+            Type::I64 => JitTy::I64,
+            Type::U8 => JitTy::U8,
+            Type::U16 => JitTy::U16,
+            Type::U32 => JitTy::U32,
+            Type::U64 => JitTy::U64,
+            Type::F32 => JitTy::F32,
+            Type::F64 => JitTy::F64,
+            Type::Bool => JitTy::Bool,
+            Type::Unit => JitTy::Unit,
+            other => {
+                return Err(CodegenError::UnsupportedType {
+                    ty: other.clone(),
+                    span,
+                });
+            }
+        })
     }
 
     fn cl(self) -> Option<types::Type> {
+        Some(match self {
+            JitTy::I8 | JitTy::U8 | JitTy::Bool => I8,
+            JitTy::I16 | JitTy::U16 => I16,
+            JitTy::I32 | JitTy::U32 => I32,
+            JitTy::I64 | JitTy::U64 => I64,
+            JitTy::F32 => F32,
+            JitTy::F64 => F64,
+            JitTy::Unit => return None,
+        })
+    }
+
+    fn is_signed_int(self) -> bool {
+        matches!(self, JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64)
+    }
+    fn is_unsigned_int(self) -> bool {
+        matches!(self, JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64)
+    }
+    fn is_int(self) -> bool {
+        self.is_signed_int() || self.is_unsigned_int()
+    }
+    fn is_float(self) -> bool {
+        matches!(self, JitTy::F32 | JitTy::F64)
+    }
+    fn int_width(self) -> u32 {
         match self {
-            JitTy::Int => Some(I64),
-            JitTy::Bool => Some(I8),
-            JitTy::Unit => None,
+            JitTy::I8 | JitTy::U8 => 8,
+            JitTy::I16 | JitTy::U16 => 16,
+            JitTy::I32 | JitTy::U32 => 32,
+            JitTy::I64 | JitTy::U64 => 64,
+            _ => 0,
         }
     }
+}
+
+/// Compute the "common" type for a binary op, mirroring the type
+/// checker's `numeric_result`. Mixed signedness is rejected at compile
+/// time so we can assume agreement here.
+fn common_numeric_ty(l: JitTy, r: JitTy) -> Option<JitTy> {
+    if l == r {
+        return Some(l);
+    }
+    if l.is_int() && r.is_int() {
+        if l.is_signed_int() != r.is_signed_int() {
+            return None;
+        }
+        return Some(if l.int_width() >= r.int_width() { l } else { r });
+    }
+    if l.is_float() && r.is_float() {
+        return Some(if matches!(l, JitTy::F64) || matches!(r, JitTy::F64) {
+            JitTy::F64
+        } else {
+            JitTy::F32
+        });
+    }
+    let (int_t, float_t) = if l.is_int() { (l, r) } else { (r, l) };
+    let needs_f64 = matches!(float_t, JitTy::F64) || int_t.int_width() >= 32;
+    Some(if needs_f64 { JitTy::F64 } else { JitTy::F32 })
+}
+
+/// A lowered value plus its JIT type tag.
+type TV = (Value, JitTy);
+
+pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
+    let mut compiler = JitCompiler::new()?;
+    for item in &prog.items {
+        if let Item::Fn(f) = item {
+            compiler.declare_fn(f)?;
+        }
+    }
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => compiler.define_fn(f)?,
+            Item::Class(c) => {
+                return Err(CodegenError::Unsupported {
+                    what: "class".into(),
+                    span: c.span,
+                });
+            }
+        }
+    }
+    let main_ret = compiler.define_main(prog)?;
+    compiler.finalize()?;
+    Ok(compiler.run_main(main_ret))
 }
 
 struct JitCompiler {
     module: JITModule,
     ctx: cranelift_codegen::Context,
     builder_ctx: FunctionBuilderContext,
-    /// fn name → (FuncId, signature info) for cross-function calls.
+    /// fn name → (FuncId, param JitTys, ret JitTy)
     funcs: HashMap<String, (cranelift_module::FuncId, Vec<JitTy>, JitTy)>,
 }
 
@@ -149,9 +246,9 @@ impl JitCompiler {
 
     fn define_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
         let (id, param_tys, ret_ty) = self.funcs[&f.name].clone();
-        // Reset the context for this function.
         self.module.clear_context(&mut self.ctx);
-        self.ctx.func.signature = self.module.declarations().get_function_decl(id).signature.clone();
+        self.ctx.func.signature =
+            self.module.declarations().get_function_decl(id).signature.clone();
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_ctx);
         let entry = builder.create_block();
@@ -161,12 +258,12 @@ impl JitCompiler {
 
         let mut env = Env::default();
         for (i, p) in f.params.iter().enumerate() {
-            let ty = param_tys[i].cl().expect("non-unit checked at declare");
+            let pty = param_tys[i];
             let var = Variable::new(env.next_var_id());
-            builder.declare_var(var, ty);
+            builder.declare_var(var, pty.cl().expect("non-unit checked at declare"));
             let v = builder.block_params(entry)[i];
             builder.def_var(var, v);
-            env.bindings.insert(p.name.clone(), (var, param_tys[i]));
+            env.bindings.insert(p.name.clone(), (var, pty));
         }
 
         let mut lc = LowerCtx {
@@ -175,21 +272,8 @@ impl JitCompiler {
             env: &mut env,
             loops: Vec::new(),
         };
-        let body = lower_block_value(&mut builder, &mut lc, &f.body, ret_ty)?;
-        match (ret_ty, body) {
-            (JitTy::Unit, _) => {
-                builder.ins().return_(&[]);
-            }
-            (_, Some(v)) => {
-                builder.ins().return_(&[v]);
-            }
-            (_, None) => {
-                return Err(CodegenError::Unsupported {
-                    what: format!("function {:?} body produces no value", f.name),
-                    span: f.span,
-                });
-            }
-        }
+        let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
+        emit_return(&mut builder, ret_ty, body, f.span)?;
         builder.finalize();
 
         self.module
@@ -198,14 +282,13 @@ impl JitCompiler {
         Ok(())
     }
 
-    /// Wrap top-level statements / tail expression in a synthetic `__main`.
-    /// Returns the JIT type of the program's final value.
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
-        let ret_ty = prog
-            .tail
-            .as_ref()
-            .map(|t| infer_ty_lite(t, &self.funcs).unwrap_or(JitTy::Unit))
-            .unwrap_or(JitTy::Unit);
+        // Use the type checker's program-level type. The caller (CLI)
+        // will normally have already type-checked, but running it again
+        // is cheap and lets us handle the JIT being called directly.
+        let mut tc = ilang_types::TypeChecker::new();
+        let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy())?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -234,28 +317,22 @@ impl JitCompiler {
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
         }
-        match (ret_ty, &prog.tail) {
-            (JitTy::Unit, _) => {
-                builder.ins().return_(&[]);
-            }
-            (_, Some(t)) => {
-                let v = lower_expr(&mut builder, &mut lc, t)?;
-                let v = v.ok_or_else(|| CodegenError::Unsupported {
+        let body = match &prog.tail {
+            Some(t) => Some(lower_expr(&mut builder, &mut lc, t)?.ok_or_else(|| {
+                CodegenError::Unsupported {
                     what: "tail expression produces no value".into(),
                     span: t.span,
-                })?;
-                builder.ins().return_(&[v]);
-            }
-            _ => return Err(CodegenError::NoTopLevelValue),
-        }
+                }
+            })?),
+            None => None,
+        };
+        emit_return(&mut builder, ret_ty, body, ilang_ast::Span::dummy())?;
         builder.finalize();
 
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| CodegenError::Module(e.to_string()))?;
-        // Stash the main signature alongside fns for run_main lookup.
-        self.funcs
-            .insert("__main".into(), (id, vec![], ret_ty));
+        self.funcs.insert("__main".into(), (id, vec![], ret_ty));
         Ok(ret_ty)
     }
 
@@ -271,22 +348,67 @@ impl JitCompiler {
         let ptr = self.module.get_finalized_function(id);
         unsafe {
             match ret {
-                JitTy::Int => {
-                    let f: extern "C" fn() -> i64 = std::mem::transmute(ptr);
-                    JitValue::Int(f())
+                JitTy::I8 => JitValue::I8((std::mem::transmute::<_, extern "C" fn() -> i8>(ptr))()),
+                JitTy::I16 => {
+                    JitValue::I16((std::mem::transmute::<_, extern "C" fn() -> i16>(ptr))())
+                }
+                JitTy::I32 => {
+                    JitValue::I32((std::mem::transmute::<_, extern "C" fn() -> i32>(ptr))())
+                }
+                JitTy::I64 => {
+                    JitValue::I64((std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))())
+                }
+                JitTy::U8 => JitValue::U8((std::mem::transmute::<_, extern "C" fn() -> u8>(ptr))()),
+                JitTy::U16 => {
+                    JitValue::U16((std::mem::transmute::<_, extern "C" fn() -> u16>(ptr))())
+                }
+                JitTy::U32 => {
+                    JitValue::U32((std::mem::transmute::<_, extern "C" fn() -> u32>(ptr))())
+                }
+                JitTy::U64 => {
+                    JitValue::U64((std::mem::transmute::<_, extern "C" fn() -> u64>(ptr))())
+                }
+                JitTy::F32 => {
+                    JitValue::F32((std::mem::transmute::<_, extern "C" fn() -> f32>(ptr))())
+                }
+                JitTy::F64 => {
+                    JitValue::F64((std::mem::transmute::<_, extern "C" fn() -> f64>(ptr))())
                 }
                 JitTy::Bool => {
-                    let f: extern "C" fn() -> i8 = std::mem::transmute(ptr);
-                    JitValue::Bool(f() != 0)
+                    let v = (std::mem::transmute::<_, extern "C" fn() -> i8>(ptr))();
+                    JitValue::Bool(v != 0)
                 }
                 JitTy::Unit => {
-                    let f: extern "C" fn() = std::mem::transmute(ptr);
-                    f();
+                    (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit
                 }
             }
         }
     }
+}
+
+fn emit_return(
+    b: &mut FunctionBuilder,
+    ret_ty: JitTy,
+    body: Option<TV>,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    match (ret_ty, body) {
+        (JitTy::Unit, _) => {
+            b.ins().return_(&[]);
+        }
+        (_, Some((v, vt))) => {
+            let v = coerce(b, (v, vt), ret_ty, span)?;
+            b.ins().return_(&[v]);
+        }
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: "function body produces no value".into(),
+                span,
+            });
+        }
+    }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -307,47 +429,7 @@ struct LowerCtx<'a> {
     funcs: &'a HashMap<String, (cranelift_module::FuncId, Vec<JitTy>, JitTy)>,
     module: &'a mut JITModule,
     env: &'a mut Env,
-    /// Active loops, each as `(continue_target, break_target)`.
     loops: Vec<(Block, Block)>,
-}
-
-/// Best-effort guess at a tail expression's JIT type. We can't always be
-/// precise because we lower greedily without re-running the type checker,
-/// but for the AST shapes we accept this is enough to pick `__main`'s
-/// return signature. `funcs` lets us look up user fn return types so a
-/// trailing `myfn()` call infers correctly.
-fn infer_ty_lite(
-    e: &Expr,
-    funcs: &HashMap<String, (cranelift_module::FuncId, Vec<JitTy>, JitTy)>,
-) -> Option<JitTy> {
-    match &e.kind {
-        ExprKind::Int(_) => Some(JitTy::Int),
-        ExprKind::Bool(_) => Some(JitTy::Bool),
-        ExprKind::Unary { expr, op } => match op {
-            UnOp::Not => Some(JitTy::Bool),
-            _ => infer_ty_lite(expr, funcs),
-        },
-        ExprKind::Binary { op, lhs, .. } => match op {
-            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                Some(JitTy::Bool)
-            }
-            _ => infer_ty_lite(lhs, funcs),
-        },
-        ExprKind::Logical { .. } => Some(JitTy::Bool),
-        ExprKind::Call { callee, .. } => funcs.get(callee).map(|(_, _, ret)| *ret),
-        ExprKind::If { then_branch, .. } => then_branch
-            .tail
-            .as_deref()
-            .and_then(|t| infer_ty_lite(t, funcs))
-            .or(Some(JitTy::Unit)),
-        ExprKind::Block(b) => b
-            .tail
-            .as_deref()
-            .and_then(|t| infer_ty_lite(t, funcs))
-            .or(Some(JitTy::Unit)),
-        ExprKind::While { .. } | ExprKind::Loop { .. } => Some(JitTy::Unit),
-        _ => Some(JitTy::Int),
-    }
 }
 
 fn lower_stmt(
@@ -357,30 +439,23 @@ fn lower_stmt(
 ) -> Result<(), CodegenError> {
     match &s.kind {
         StmtKind::Let { name, ty, value } => {
-            let v = lower_expr(b, lc, value)?;
-            let v = v.ok_or_else(|| CodegenError::Unsupported {
-                what: "let value produces no value".into(),
-                span: value.span,
+            let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "let value produces no value".into(),
+                    span: value.span,
+                }
             })?;
-            // Prefer the annotation when present; otherwise look at the
-            // cranelift type of the lowered value so a `let a = true`
-            // gets a bool variable rather than the default i64.
             let bind_ty = match ty {
                 Some(t) => JitTy::from_ast(t, s.span)?,
-                None => match b.func.dfg.value_type(v) {
-                    t if t == I64 => JitTy::Int,
-                    t if t == I8 => JitTy::Bool,
-                    t => {
-                        return Err(CodegenError::Unsupported {
-                            what: format!("unsupported inferred type: {t}"),
-                            span: s.span,
-                        });
-                    }
-                },
+                None => vt,
             };
+            let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
             let var = Variable::new(lc.env.next_var_id());
-            b.declare_var(var, bind_ty.cl().expect("non-unit binding"));
-            b.def_var(var, v);
+            b.declare_var(var, bind_ty.cl().ok_or_else(|| CodegenError::Unsupported {
+                what: "unit-typed let binding".into(),
+                span: s.span,
+            })?);
+            b.def_var(var, coerced);
             lc.env.bindings.insert(name.clone(), (var, bind_ty));
         }
         StmtKind::Expr(e) => {
@@ -390,13 +465,11 @@ fn lower_stmt(
     Ok(())
 }
 
-/// Lower a `Block` and return its tail value (if any).
 fn lower_block_value(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     block: &ilang_ast::Block,
-    _expected: JitTy,
-) -> Result<Option<Value>, CodegenError> {
+) -> Result<Option<TV>, CodegenError> {
     for s in &block.stmts {
         lower_stmt(b, lc, s)?;
     }
@@ -410,71 +483,41 @@ fn lower_expr(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     e: &Expr,
-) -> Result<Option<Value>, CodegenError> {
+) -> Result<Option<TV>, CodegenError> {
     match &e.kind {
-        ExprKind::Int(n) => Ok(Some(b.ins().iconst(I64, *n))),
-        ExprKind::Bool(v) => Ok(Some(b.ins().iconst(I8, if *v { 1 } else { 0 }))),
+        ExprKind::Int(n) => Ok(Some((b.ins().iconst(I64, *n), JitTy::I64))),
+        ExprKind::Float(f) => Ok(Some((b.ins().f64const(*f), JitTy::F64))),
+        ExprKind::Bool(v) => Ok(Some((b.ins().iconst(I8, if *v { 1 } else { 0 }), JitTy::Bool))),
         ExprKind::Var(name) => {
-            let (var, _) = *lc.env.bindings.get(name).ok_or_else(|| {
+            let (var, vt) = *lc.env.bindings.get(name).ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: format!("unknown variable {name:?}"),
                     span: e.span,
                 }
             })?;
-            Ok(Some(b.use_var(var)))
+            Ok(Some((b.use_var(var), vt)))
         }
-        ExprKind::Unary { op, expr } => {
-            let v = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
-                what: "unary on unit".into(),
+        ExprKind::Cast { expr, ty } => {
+            let inner = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
+                what: "cast on unit".into(),
                 span: e.span,
             })?;
-            let r = match op {
-                UnOp::Pos => v,
-                UnOp::Neg => b.ins().ineg(v),
-                UnOp::Not => {
-                    let one = b.ins().iconst(I8, 1);
-                    b.ins().bxor(v, one)
-                }
-                UnOp::BitNot => b.ins().bnot(v),
-            };
-            Ok(Some(r))
+            let target = JitTy::from_ast(ty, e.span)?;
+            let v = coerce(b, inner, target, e.span)?;
+            Ok(Some((v, target)))
         }
-        ExprKind::Binary { op, lhs, rhs } => {
-            let l = lower_expr(b, lc, lhs)?.ok_or_else(|| CodegenError::Unsupported {
-                what: "binary lhs is unit".into(),
-                span: lhs.span,
-            })?;
-            let r = lower_expr(b, lc, rhs)?.ok_or_else(|| CodegenError::Unsupported {
-                what: "binary rhs is unit".into(),
-                span: rhs.span,
-            })?;
-            let v = match op {
-                BinOp::Add => b.ins().iadd(l, r),
-                BinOp::Sub => b.ins().isub(l, r),
-                BinOp::Mul => b.ins().imul(l, r),
-                BinOp::Div => b.ins().sdiv(l, r),
-                BinOp::Rem => b.ins().srem(l, r),
-                BinOp::BitAnd => b.ins().band(l, r),
-                BinOp::BitOr => b.ins().bor(l, r),
-                BinOp::BitXor => b.ins().bxor(l, r),
-                BinOp::Shl => b.ins().ishl(l, r),
-                BinOp::Shr => b.ins().sshr(l, r),
-                BinOp::Eq => b.ins().icmp(IntCC::Equal, l, r),
-                BinOp::Ne => b.ins().icmp(IntCC::NotEqual, l, r),
-                BinOp::Lt => b.ins().icmp(IntCC::SignedLessThan, l, r),
-                BinOp::Le => b.ins().icmp(IntCC::SignedLessThanOrEqual, l, r),
-                BinOp::Gt => b.ins().icmp(IntCC::SignedGreaterThan, l, r),
-                BinOp::Ge => b.ins().icmp(IntCC::SignedGreaterThanOrEqual, l, r),
-            };
-            Ok(Some(v))
-        }
-        ExprKind::Logical { op, lhs, rhs } => Ok(Some(lower_logical(b, lc, *op, lhs, rhs)?)),
+        ExprKind::Unary { op, expr } => lower_unary(b, lc, *op, expr, e.span),
+        ExprKind::Binary { op, lhs, rhs } => lower_binary(b, lc, *op, lhs, rhs),
+        ExprKind::Logical { op, lhs, rhs } => Ok(Some((
+            lower_logical(b, lc, *op, lhs, rhs)?,
+            JitTy::Bool,
+        ))),
         ExprKind::If {
             cond,
             then_branch,
             else_branch,
-        } => Ok(lower_if(b, lc, cond, then_branch, else_branch.as_deref())?),
-        ExprKind::Block(block) => lower_block_value(b, lc, block, JitTy::Int),
+        } => lower_if(b, lc, cond, then_branch, else_branch.as_deref()),
+        ExprKind::Block(block) => lower_block_value(b, lc, block),
         ExprKind::While { cond, body } => {
             lower_while(b, lc, cond, body)?;
             Ok(None)
@@ -484,31 +527,21 @@ fn lower_expr(
             Ok(None)
         }
         ExprKind::Break => {
-            let target = lc
-                .loops
-                .last()
-                .ok_or_else(|| CodegenError::Unsupported {
-                    what: "break outside loop (should have been caught earlier)".into(),
-                    span: e.span,
-                })?
-                .1;
+            let target = lc.loops.last().ok_or_else(|| CodegenError::Unsupported {
+                what: "break outside loop".into(),
+                span: e.span,
+            })?.1;
             b.ins().jump(target, &[]);
-            // The block becomes unreachable after this; create a dead block
-            // to land subsequent code in.
             let dead = b.create_block();
             b.switch_to_block(dead);
             b.seal_block(dead);
             Ok(None)
         }
         ExprKind::Continue => {
-            let target = lc
-                .loops
-                .last()
-                .ok_or_else(|| CodegenError::Unsupported {
-                    what: "continue outside loop".into(),
-                    span: e.span,
-                })?
-                .0;
+            let target = lc.loops.last().ok_or_else(|| CodegenError::Unsupported {
+                what: "continue outside loop".into(),
+                span: e.span,
+            })?.0;
             b.ins().jump(target, &[]);
             let dead = b.create_block();
             b.switch_to_block(dead);
@@ -516,21 +549,24 @@ fn lower_expr(
             Ok(None)
         }
         ExprKind::Assign { target, value } => {
-            let v = lower_expr(b, lc, value)?.ok_or_else(|| CodegenError::Unsupported {
-                what: "assigning unit".into(),
-                span: e.span,
-            })?;
-            let (var, _) = *lc.env.bindings.get(target).ok_or_else(|| {
+            let (var, var_ty) = *lc.env.bindings.get(target).ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: format!("unknown variable {target:?}"),
                     span: e.span,
                 }
             })?;
-            b.def_var(var, v);
+            let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "assigning unit".into(),
+                    span: e.span,
+                }
+            })?;
+            let coerced = coerce(b, (val, vt), var_ty, e.span)?;
+            b.def_var(var, coerced);
             Ok(None)
         }
         ExprKind::Call { callee, args } => {
-            let (id, _, ret_ty) = lc
+            let (id, param_tys, ret_ty) = lc
                 .funcs
                 .get(callee)
                 .cloned()
@@ -539,19 +575,21 @@ fn lower_expr(
                     span: e.span,
                 })?;
             let mut arg_vals = Vec::with_capacity(args.len());
-            for a in args {
-                let v = lower_expr(b, lc, a)?.ok_or_else(|| CodegenError::Unsupported {
-                    what: "argument is unit".into(),
-                    span: a.span,
+            for (i, a) in args.iter().enumerate() {
+                let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "argument is unit".into(),
+                        span: a.span,
+                    }
                 })?;
-                arg_vals.push(v);
+                arg_vals.push(coerce(b, (av, at), param_tys[i], a.span)?);
             }
             let func_ref = lc.module.declare_func_in_func(id, b.func);
             let call = b.ins().call(func_ref, &arg_vals);
             if matches!(ret_ty, JitTy::Unit) {
                 Ok(None)
             } else {
-                Ok(Some(b.inst_results(call)[0]))
+                Ok(Some((b.inst_results(call)[0], ret_ty)))
             }
         }
         _ => Err(CodegenError::Unsupported {
@@ -561,6 +599,152 @@ fn lower_expr(
     }
 }
 
+fn lower_unary(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    op: UnOp,
+    expr: &Expr,
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let (v, vt) = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "unary on unit".into(),
+        span,
+    })?;
+    let r = match op {
+        UnOp::Pos => v,
+        UnOp::Neg => {
+            if vt.is_float() {
+                b.ins().fneg(v)
+            } else if vt.is_signed_int() {
+                b.ins().ineg(v)
+            } else {
+                return Err(CodegenError::Unsupported {
+                    what: format!("unary `-` on {vt:?}"),
+                    span,
+                });
+            }
+        }
+        UnOp::Not => {
+            let one = b.ins().iconst(I8, 1);
+            b.ins().bxor(v, one)
+        }
+        UnOp::BitNot => b.ins().bnot(v),
+    };
+    Ok(Some((r, vt)))
+}
+
+fn lower_binary(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    op: BinOp,
+    lhs: &Expr,
+    rhs: &Expr,
+) -> Result<Option<TV>, CodegenError> {
+    let (lv, lt) = lower_expr(b, lc, lhs)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "binary lhs is unit".into(),
+        span: lhs.span,
+    })?;
+    let (rv, rt) = lower_expr(b, lc, rhs)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "binary rhs is unit".into(),
+        span: rhs.span,
+    })?;
+    let common = common_numeric_ty(lt, rt).ok_or_else(|| CodegenError::Unsupported {
+        what: format!("incompatible binary operand types {lt:?} and {rt:?}"),
+        span: lhs.span,
+    })?;
+    let lv = coerce(b, (lv, lt), common, lhs.span)?;
+    let rv = coerce(b, (rv, rt), common, rhs.span)?;
+    let is_compare = matches!(
+        op,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+    );
+    if is_compare {
+        let v = if common.is_float() {
+            let cc = match op {
+                BinOp::Eq => FloatCC::Equal,
+                BinOp::Ne => FloatCC::NotEqual,
+                BinOp::Lt => FloatCC::LessThan,
+                BinOp::Le => FloatCC::LessThanOrEqual,
+                BinOp::Gt => FloatCC::GreaterThan,
+                BinOp::Ge => FloatCC::GreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            b.ins().fcmp(cc, lv, rv)
+        } else {
+            let signed = common.is_signed_int() || matches!(common, JitTy::Bool);
+            let cc = match (op, signed) {
+                (BinOp::Eq, _) => IntCC::Equal,
+                (BinOp::Ne, _) => IntCC::NotEqual,
+                (BinOp::Lt, true) => IntCC::SignedLessThan,
+                (BinOp::Le, true) => IntCC::SignedLessThanOrEqual,
+                (BinOp::Gt, true) => IntCC::SignedGreaterThan,
+                (BinOp::Ge, true) => IntCC::SignedGreaterThanOrEqual,
+                (BinOp::Lt, false) => IntCC::UnsignedLessThan,
+                (BinOp::Le, false) => IntCC::UnsignedLessThanOrEqual,
+                (BinOp::Gt, false) => IntCC::UnsignedGreaterThan,
+                (BinOp::Ge, false) => IntCC::UnsignedGreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            b.ins().icmp(cc, lv, rv)
+        };
+        return Ok(Some((v, JitTy::Bool)));
+    }
+    let v = if common.is_float() {
+        match op {
+            BinOp::Add => b.ins().fadd(lv, rv),
+            BinOp::Sub => b.ins().fsub(lv, rv),
+            BinOp::Mul => b.ins().fmul(lv, rv),
+            BinOp::Div => b.ins().fdiv(lv, rv),
+            BinOp::Rem => {
+                return Err(CodegenError::Unsupported {
+                    what: "float `%` (cranelift has no frem)".into(),
+                    span: lhs.span,
+                });
+            }
+            _ => {
+                return Err(CodegenError::Unsupported {
+                    what: format!("operator {op:?} on float"),
+                    span: lhs.span,
+                });
+            }
+        }
+    } else {
+        let signed = common.is_signed_int();
+        match op {
+            BinOp::Add => b.ins().iadd(lv, rv),
+            BinOp::Sub => b.ins().isub(lv, rv),
+            BinOp::Mul => b.ins().imul(lv, rv),
+            BinOp::Div => {
+                if signed {
+                    b.ins().sdiv(lv, rv)
+                } else {
+                    b.ins().udiv(lv, rv)
+                }
+            }
+            BinOp::Rem => {
+                if signed {
+                    b.ins().srem(lv, rv)
+                } else {
+                    b.ins().urem(lv, rv)
+                }
+            }
+            BinOp::BitAnd => b.ins().band(lv, rv),
+            BinOp::BitOr => b.ins().bor(lv, rv),
+            BinOp::BitXor => b.ins().bxor(lv, rv),
+            BinOp::Shl => b.ins().ishl(lv, rv),
+            BinOp::Shr => {
+                if signed {
+                    b.ins().sshr(lv, rv)
+                } else {
+                    b.ins().ushr(lv, rv)
+                }
+            }
+            _ => unreachable!("compare handled above"),
+        }
+    };
+    Ok(Some((v, common)))
+}
+
 fn lower_logical(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
@@ -568,20 +752,27 @@ fn lower_logical(
     lhs: &Expr,
     rhs: &Expr,
 ) -> Result<Value, CodegenError> {
-    // `lhs && rhs` lowers as: if lhs { rhs } else { false }
-    // `lhs || rhs` lowers as: if lhs { true  } else { rhs }
     let then_block = b.create_block();
     let else_block = b.create_block();
     let merge = b.create_block();
     b.append_block_param(merge, I8);
 
-    let l = lower_expr(b, lc, lhs)?.expect("logical lhs is bool");
+    let l = lower_expr(b, lc, lhs)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "logical lhs is unit".into(),
+        span: lhs.span,
+    })?
+    .0;
     b.ins().brif(l, then_block, &[], else_block, &[]);
 
     b.switch_to_block(then_block);
     b.seal_block(then_block);
     let then_val = match op {
-        LogicalOp::And => lower_expr(b, lc, rhs)?.expect("rhs"),
+        LogicalOp::And => lower_expr(b, lc, rhs)?
+            .ok_or_else(|| CodegenError::Unsupported {
+                what: "logical rhs is unit".into(),
+                span: rhs.span,
+            })?
+            .0,
         LogicalOp::Or => b.ins().iconst(I8, 1),
     };
     b.ins().jump(merge, &[then_val]);
@@ -590,7 +781,12 @@ fn lower_logical(
     b.seal_block(else_block);
     let else_val = match op {
         LogicalOp::And => b.ins().iconst(I8, 0),
-        LogicalOp::Or => lower_expr(b, lc, rhs)?.expect("rhs"),
+        LogicalOp::Or => lower_expr(b, lc, rhs)?
+            .ok_or_else(|| CodegenError::Unsupported {
+                what: "logical rhs is unit".into(),
+                span: rhs.span,
+            })?
+            .0,
     };
     b.ins().jump(merge, &[else_val]);
 
@@ -605,26 +801,27 @@ fn lower_if(
     cond: &Expr,
     then_branch: &ilang_ast::Block,
     else_branch: Option<&Expr>,
-) -> Result<Option<Value>, CodegenError> {
+) -> Result<Option<TV>, CodegenError> {
     let then_block = b.create_block();
     let else_block = b.create_block();
 
-    let c = lower_expr(b, lc, cond)?.expect("cond");
+    let c = lower_expr(b, lc, cond)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "if-cond is unit".into(),
+        span: cond.span,
+    })?
+    .0;
     b.ins().brif(c, then_block, &[], else_block, &[]);
 
-    // Lower then-branch first so we can pick the merge block's parameter
-    // type from its value (the type checker has already proven both
-    // branches agree).
     b.switch_to_block(then_block);
     b.seal_block(then_block);
-    let then_val = lower_block_value(b, lc, then_branch, JitTy::Int)?;
+    let then_val = lower_block_value(b, lc, then_branch)?;
 
     let merge = b.create_block();
     let merge_param = match then_val {
-        Some(v) => Some(b.append_block_param(merge, b.func.dfg.value_type(v))),
+        Some((v, _)) => Some(b.append_block_param(merge, b.func.dfg.value_type(v))),
         None => None,
     };
-    if let Some(v) = then_val {
+    if let Some((v, _)) = then_val {
         b.ins().jump(merge, &[v]);
     } else {
         b.ins().jump(merge, &[]);
@@ -636,29 +833,34 @@ fn lower_if(
         Some(e) => lower_expr(b, lc, e)?,
         None => None,
     };
-    match (then_val.is_some(), else_val) {
-        (true, Some(v)) => {
-            b.ins().jump(merge, &[v]);
+    match (then_val, else_val) {
+        (Some((_, tt)), Some((ev, _et))) => {
+            // Coerce else value to then's type so the merge param matches.
+            let ev_coerced = coerce(b, (ev, _et), tt, cond.span)?;
+            b.ins().jump(merge, &[ev_coerced]);
+            // Track tt for the result.
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            return Ok(merge_param.map(|p| (p, tt)));
         }
-        (true, None) => {
-            // then has a value but else doesn't — fill with a zero of the
-            // matching type to keep the merge block well-formed.
-            let ty = b.func.dfg.value_type(then_val.unwrap());
-            let zero = b.ins().iconst(ty, 0);
+        (Some((_, tt)), None) => {
+            let zero = match tt.cl() {
+                Some(t) if t.is_float() => b.ins().f64const(0.0),
+                Some(t) => b.ins().iconst(t, 0),
+                None => unreachable!(),
+            };
             b.ins().jump(merge, &[zero]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            return Ok(None);
         }
-        (false, _) => {
+        (None, _) => {
             b.ins().jump(merge, &[]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            return Ok(None);
         }
     }
-
-    b.switch_to_block(merge);
-    b.seal_block(merge);
-    Ok(if then_val.is_some() && else_branch.is_some() {
-        merge_param
-    } else {
-        None
-    })
 }
 
 fn lower_while(
@@ -673,13 +875,17 @@ fn lower_while(
 
     b.ins().jump(header, &[]);
     b.switch_to_block(header);
-    let c = lower_expr(b, lc, cond)?.expect("cond");
+    let c = lower_expr(b, lc, cond)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "while-cond is unit".into(),
+        span: cond.span,
+    })?
+    .0;
     b.ins().brif(c, body_block, &[], after, &[]);
 
     b.switch_to_block(body_block);
     b.seal_block(body_block);
     lc.loops.push((header, after));
-    let _ = lower_block_value(b, lc, body, JitTy::Unit)?;
+    let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(header, &[]);
     b.seal_block(header);
@@ -699,11 +905,89 @@ fn lower_loop(
     b.ins().jump(header, &[]);
     b.switch_to_block(header);
     lc.loops.push((header, after));
-    let _ = lower_block_value(b, lc, body, JitTy::Unit)?;
+    let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(header, &[]);
     b.seal_block(header);
     b.switch_to_block(after);
     b.seal_block(after);
     Ok(())
+}
+
+/// Convert a value from one numeric (or bool) type to another using the
+/// appropriate cranelift instruction. Panics if either side isn't a
+/// supported scalar — callers should validate first.
+fn coerce(
+    b: &mut FunctionBuilder,
+    (v, from): TV,
+    to: JitTy,
+    span: ilang_ast::Span,
+) -> Result<Value, CodegenError> {
+    if from == to {
+        return Ok(v);
+    }
+    let v = match (from, to) {
+        // Bool / int interchangeable (bool is i8 underneath).
+        (JitTy::Bool, t) if t.is_int() => widen_int(b, v, 8, t, false),
+        (t, JitTy::Bool) if t.is_int() => narrow_int(b, v, 8, t),
+        // Both integers — pick the right widening / narrowing instruction
+        // based on relative widths and the source's signedness.
+        (a, c) if a.is_int() && c.is_int() => {
+            let from_w = a.int_width();
+            let to_w = c.int_width();
+            if to_w > from_w {
+                widen_int(b, v, from_w, c, a.is_signed_int())
+            } else if to_w < from_w {
+                narrow_int(b, v, to_w, c)
+            } else {
+                // Same width, different signedness — bit-pattern preserved.
+                v
+            }
+        }
+        // Int → Float
+        (a, JitTy::F32) if a.is_signed_int() => b.ins().fcvt_from_sint(F32, v),
+        (a, JitTy::F32) if a.is_unsigned_int() => b.ins().fcvt_from_uint(F32, v),
+        (a, JitTy::F64) if a.is_signed_int() => b.ins().fcvt_from_sint(F64, v),
+        (a, JitTy::F64) if a.is_unsigned_int() => b.ins().fcvt_from_uint(F64, v),
+        // Float ↔ Float
+        (JitTy::F32, JitTy::F64) => b.ins().fpromote(F64, v),
+        (JitTy::F64, JitTy::F32) => b.ins().fdemote(F32, v),
+        // Float → Int — saturating cast, matches Rust's `as`.
+        (a, c) if a.is_float() && c.is_signed_int() => {
+            let cl = c.cl().expect("non-unit");
+            b.ins().fcvt_to_sint_sat(cl, v)
+        }
+        (a, c) if a.is_float() && c.is_unsigned_int() => {
+            let cl = c.cl().expect("non-unit");
+            b.ins().fcvt_to_uint_sat(cl, v)
+        }
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: format!("cannot coerce {from:?} to {to:?}"),
+                span,
+            });
+        }
+    };
+    Ok(v)
+}
+
+fn widen_int(
+    b: &mut FunctionBuilder,
+    v: Value,
+    from_width: u32,
+    to: JitTy,
+    signed: bool,
+) -> Value {
+    let to_cl = to.cl().expect("non-unit");
+    let _ = from_width;
+    if signed {
+        b.ins().sextend(to_cl, v)
+    } else {
+        b.ins().uextend(to_cl, v)
+    }
+}
+
+fn narrow_int(b: &mut FunctionBuilder, v: Value, _to_width: u32, to: JitTy) -> Value {
+    let to_cl = to.cl().expect("non-unit");
+    b.ins().ireduce(to_cl, v)
 }
