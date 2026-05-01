@@ -818,3 +818,57 @@ fn negative_array_index_errors() {
         Err(RuntimeError::TypeError { msg, .. }) if msg.contains("negative")
     ));
 }
+
+#[test]
+fn deinit_runs_on_array_elements() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        {
+            let arr: Tracked[] = [
+                new Tracked(counter),
+                new Tracked(counter),
+                new Tracked(counter)
+            ]
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(3));
+}
+
+#[test]
+fn deinit_runs_on_nested_object_field() {
+    // Wrapper holds a Tracked in a field; releasing the wrapper should
+    // also release the field, firing Tracked's deinit.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        class Wrapper {
+            t: Tracked
+            init(tt: Tracked) { this.t = tt }
+        }
+        let counter = new Counter()
+        {
+            let _w = new Wrapper(new Tracked(counter))
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}

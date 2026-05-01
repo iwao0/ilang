@@ -332,25 +332,58 @@ impl Interpreter {
         Ok(last)
     }
 
-    /// Drop a value that is leaving scope. If it's an object whose only
-    /// remaining strong reference was the binding we just removed, the
-    /// class's `deinit` (if any) runs before the underlying allocation is
-    /// dropped. Errors raised inside `deinit` are reported to stderr and
-    /// swallowed — destructors must not surface failures up the stack.
+    /// Drop a value that is leaving scope. The release path is recursive:
+    ///
+    /// - For an `Object` whose only remaining strong reference is the
+    ///   binding being removed, the class's `deinit` (if any) runs while
+    ///   fields are still live, and then each field is released in turn.
+    ///   Errors inside `deinit` are reported to stderr and swallowed —
+    ///   destructors must not surface failures up the stack.
+    /// - For an `Array` similarly: when uniquely owned, every element is
+    ///   released, so e.g. `let xs: Foo[] = [...]` going out of scope
+    ///   fires `deinit` on each `Foo`.
+    /// - Other variants need no cleanup.
+    ///
+    /// Cyclic references are not yet collected (no weak refs); they leak.
     fn release(&mut self, v: Value) {
-        let Value::Object(obj) = v else { return };
-        if Rc::strong_count(&obj) != 1 {
-            return;
-        }
-        let class_name = obj.borrow().class.clone();
-        let Some(cls) = self.classes.get(&class_name).cloned() else {
-            return;
-        };
-        let Some(deinit) = cls.methods.iter().find(|m| m.name == "deinit").cloned() else {
-            return;
-        };
-        if let Err(e) = self.invoke("deinit", &deinit, vec![], Some(obj.clone()), deinit.span) {
-            eprintln!("error in deinit for {class_name}: {e}");
+        match v {
+            Value::Object(obj) => {
+                if Rc::strong_count(&obj) != 1 {
+                    return;
+                }
+                let class_name = obj.borrow().class.clone();
+                if let Some(cls) = self.classes.get(&class_name).cloned() {
+                    if let Some(deinit) =
+                        cls.methods.iter().find(|m| m.name == "deinit").cloned()
+                    {
+                        if let Err(e) = self.invoke(
+                            "deinit",
+                            &deinit,
+                            vec![],
+                            Some(obj.clone()),
+                            deinit.span,
+                        ) {
+                            eprintln!("error in deinit for {class_name}: {e}");
+                        }
+                    }
+                }
+                // Release fields after `deinit` ran. Take the map out so
+                // we never hold a borrow while recursing.
+                let fields = std::mem::take(&mut obj.borrow_mut().fields);
+                for (_, v) in fields {
+                    self.release(v);
+                }
+            }
+            Value::Array(arr) => {
+                if Rc::strong_count(&arr) != 1 {
+                    return;
+                }
+                let elements = std::mem::take(&mut *arr.borrow_mut());
+                for v in elements {
+                    self.release(v);
+                }
+            }
+            _ => {}
         }
     }
 
