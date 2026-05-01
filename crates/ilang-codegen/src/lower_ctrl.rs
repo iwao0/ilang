@@ -6,7 +6,8 @@ use ilang_ast::Expr;
 
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
-use crate::lower::{lower_block_value, lower_expr};
+use crate::lower_expr::lower_expr;
+use crate::lower_stmt::lower_block_value;
 use crate::lower_op::coerce;
 use crate::ty::TV;
 

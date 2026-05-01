@@ -5,15 +5,17 @@
 //! string / array subset; `console.log` is treated as a built-in.
 
 mod arc;
+mod compiler;
 mod env;
 mod error;
-mod lower;
 mod lower_ctrl;
+mod lower_expr;
 mod lower_op;
+mod lower_stmt;
 mod runtime;
 mod ty;
 mod value;
 
+pub use compiler::jit_run;
 pub use error::CodegenError;
-pub use lower::jit_run;
 pub use value::JitValue;

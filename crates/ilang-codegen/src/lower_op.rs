@@ -9,7 +9,7 @@ use ilang_ast::{BinOp, Expr, LogicalOp, UnOp};
 
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
-use crate::lower::lower_expr;
+use crate::lower_expr::lower_expr;
 use crate::ty::{common_numeric_ty, JitTy, TV};
 
 pub(crate) fn emit_return(
