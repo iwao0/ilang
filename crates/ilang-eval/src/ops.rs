@@ -249,8 +249,8 @@ fn arith_f64(op: BinOp, a: f64, b: f64) -> f64 {
 fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     let (l, r) = promote(l, r);
     match (l, r) {
-        (Value::Int32(a), Value::Int32(b)) => Ok(Value::Int32(do_bit_i32(op, a, b))),
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(do_bit_i64(op, a, b))),
+        (Value::Int32(a), Value::Int32(b)) => Ok(Value::Int32(do_bit_i32(op, a, b)?)),
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(do_bit_i64(op, a, b)?)),
         _ => Err(RuntimeError::TypeError {
             msg: "bitwise operators require integer operands".into(),
             span: Span::dummy(),
@@ -258,26 +258,44 @@ fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     }
 }
 
-fn do_bit_i32(op: BinOp, a: i32, b: i32) -> i32 {
-    match op {
-        BinOp::BitAnd => a & b,
-        BinOp::BitOr => a | b,
-        BinOp::BitXor => a ^ b,
-        BinOp::Shl => a.wrapping_shl((b as u32) & 31),
-        BinOp::Shr => a.wrapping_shr((b as u32) & 31),
-        _ => unreachable!("non-bit BinOp in do_bit_i32"),
+/// Apply `<<` / `>>`. Out-of-range shift amounts return 0 (every bit gets
+/// shifted out); negative shift amounts are a runtime error since they
+/// have no well-defined meaning.
+fn checked_shift(op: BinOp, a: i64, b: i64, width: u32) -> Result<i64, RuntimeError> {
+    if b < 0 {
+        return Err(RuntimeError::TypeError {
+            msg: format!("negative shift amount: {b}"),
+            span: Span::dummy(),
+        });
     }
+    if b >= width as i64 {
+        return Ok(0);
+    }
+    Ok(match op {
+        BinOp::Shl => a.wrapping_shl(b as u32),
+        BinOp::Shr => a.wrapping_shr(b as u32),
+        _ => unreachable!(),
+    })
 }
 
-fn do_bit_i64(op: BinOp, a: i64, b: i64) -> i64 {
-    match op {
+fn do_bit_i32(op: BinOp, a: i32, b: i32) -> Result<i32, RuntimeError> {
+    Ok(match op {
         BinOp::BitAnd => a & b,
         BinOp::BitOr => a | b,
         BinOp::BitXor => a ^ b,
-        BinOp::Shl => a.wrapping_shl((b as u32) & 63),
-        BinOp::Shr => a.wrapping_shr((b as u32) & 63),
+        BinOp::Shl | BinOp::Shr => checked_shift(op, a as i64, b as i64, 32)? as i32,
+        _ => unreachable!("non-bit BinOp in do_bit_i32"),
+    })
+}
+
+fn do_bit_i64(op: BinOp, a: i64, b: i64) -> Result<i64, RuntimeError> {
+    Ok(match op {
+        BinOp::BitAnd => a & b,
+        BinOp::BitOr => a | b,
+        BinOp::BitXor => a ^ b,
+        BinOp::Shl | BinOp::Shr => checked_shift(op, a, b, 64)?,
         _ => unreachable!("non-bit BinOp in do_bit_i64"),
-    }
+    })
 }
 
 /// Apply an `as` cast at runtime. The type checker has already validated

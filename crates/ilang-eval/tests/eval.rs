@@ -616,3 +616,35 @@ fn mixed_width_arithmetic_promotes() {
         Value::Float(2.5)
     );
 }
+
+#[test]
+fn shift_out_of_range_returns_zero() {
+    assert_eq!(run("1 << 64").unwrap(), Value::Int(0));
+    assert_eq!(run("1 << 65").unwrap(), Value::Int(0));
+    assert_eq!(run("1 << 1000").unwrap(), Value::Int(0));
+    assert_eq!(run("256 >> 100").unwrap(), Value::Int(0));
+}
+
+#[test]
+fn shift_at_width_boundary() {
+    // Shift by exactly (width - 1) is still valid.
+    assert_eq!(run("1 << 63").unwrap(), Value::Int(i64::MIN));
+    // Shift by width = 0 (one bit beyond the highest valid amount).
+    assert_eq!(run("1 << 64").unwrap(), Value::Int(0));
+}
+
+#[test]
+fn negative_shift_amount_errors() {
+    assert!(matches!(
+        run("1 << (0 - 1)"),
+        Err(RuntimeError::TypeError { msg, .. }) if msg.contains("negative shift")
+    ));
+}
+
+#[test]
+fn shift_i32_out_of_range_returns_zero() {
+    // Both sides i32, so the shift dispatches in i32 (width 32) and an
+    // amount >= 32 returns 0.
+    let src = "let a: i32 = 1; let b: i32 = 32; a << b";
+    assert_eq!(run(src).unwrap(), Value::Int32(0));
+}
