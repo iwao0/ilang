@@ -14,9 +14,9 @@
 
 実装言語: **Rust 1.95**。実行モデル: ツリーウォーク型インタプリタ + **Cranelift JIT** (`ilang run --jit`)。LLVM は後付け候補。
 
-## 現在地 (フェーズ6: Cranelift JIT + ARC Phase A)
+## 現在地 (フェーズ6: Cranelift JIT + ARC Phase A-D 完了)
 
-最新コミット `38360f6` (`JIT ARC for objects (Phase A)`)。**210 テスト** 全通過、警告ゼロ。
+最新コミット `d6e0d96` (`JIT ARC Phase D`)。**228 テスト** 全通過、警告ゼロ。
 
 ### 完了フェーズ
 | フェーズ | 内容 | 代表コミット |
@@ -42,6 +42,10 @@
 | 6e | JIT: 文字列 | `a070d7a` |
 | 6f | JIT: 配列 | `379b4a7` |
 | 6g | **JIT ARC Phase A** (object のみ、refcount + deinit + free) | `38360f6` |
+| 6h | **JIT ARC Phase B** (string / array コンテナの refcount + retain/release) | `a116712` |
+| 6i | `ilang-codegen` を 11 ファイルに分割 (runtime/ty/value/env/arc/lower_*/compiler/drops) | `726784b` `405a500` `e85c246` |
+| 6j | **JIT ARC Phase C** (代入上書き release、関数引数/戻り値の厳密化、捨てられる中間値の release) | `ddf13cc` |
+| 6k | **JIT ARC Phase D** (フィールド/配列要素の再帰 release、`__drop_<C>` / `__drop_arr_<id>` JIT 生成) | `d6e0d96` |
 
 ### 設計的な大幅整理
 - AST に `Span` を持たせて全エラーが `[row:col]` を出力 (`4c37a30`)
@@ -59,7 +63,7 @@ crates/
 ├── ilang-parser/    # Pratt 構文解析
 ├── ilang-types/     # 型チェッカー (built-in Console + 予約名チェック含む)
 ├── ilang-eval/      # ツリーウォーク評価器 (REPL 状態は Interpreter が保持)
-├── ilang-codegen/   # **Cranelift JIT** (AST → CLIF lowering、ARC ランタイム)
+├── ilang-codegen/   # **Cranelift JIT**: 役割別 11 ファイル (runtime / ty / value / env / arc / lower_op / lower_ctrl / lower_stmt / lower_expr / drops / compiler)
 └── ilang-cli/       # `ilang` バイナリ (REPL + `ilang run [--jit] path.il`)
 docs/
 ├── phase1-plan.md   # 四則演算 + Cranelift 採用の経緯
@@ -168,30 +172,29 @@ console.log(s)
 ### JIT 対応済み
 - 全 10 数値型 + bool + `as` キャスト
 - `if`/`else`/`while`/`loop`/`break`/`continue`、`fn` 定義 + 再帰
-- クラス (`new`/`obj.field`/`obj.method()`/`this`/暗黙 this/`init`)
+- クラス (`new`/`obj.field`/`obj.method()`/`this`/暗黙 this/`init`/`deinit`)
 - 文字列 (リテラル、`+`、`==` `!=`)
 - 配列 (`T[]`/`T[N]`/`a[i]`/`a.length`/`a.push(x)`)
 - `console.log(...)` (variadic、型別 FFI 関数で出力)
-- **ARC Phase A (object のみ)**: refcount + `deinit` 発火 + メモリ解放
+- **ARC Phase A-D 全て完了**: object/string/array の refcount、retain/release の厳密化 (引数/戻り値/代入上書き/捨てられる中間値)、フィールド/配列要素の再帰 release (JIT 生成 `__drop_<C>` / `__drop_arr_<id>` ラッパで `deinit` 連鎖発火)
 
 ### JIT 未対応 (interpreter にフォールバック必要)
-- **文字列・配列の ARC** (refcount ヘッダなし → リーク)
-- **オブジェクトのフィールド/配列要素の再帰 release** (`Vec<Foo>` のドロップで Foo の `deinit` は発火しない)
-- **代入上書き** (`x = newval`) — 古い値リーク
-- **比較演算/捨てられる中間値** (一時 object がリークする可能性)
 - **継承** / 動的ディスパッチ (interpreter にも未実装)
-- 循環参照 (Weak ref なし — Phase A 共通の制限)
+- 循環参照 (Weak ref なし — Phase E、未着手)
 
 ### JIT メモリレイアウト
-- Object: `[rc: i64 | deinit_fn_ptr: i64 | field0 | ...]` (ユーザポインタは field0 を指す)
-- String: `Box<StringRc { rc, s }>` (ARC 未対応、リーク)
-- Array: `[len: i64 | cap: i64 | data_ptr: i64]` ヘッダ + 別領域データバッファ (ARC 未対応)
+- Object: `[rc: i64 | drop_fn_ptr: i64 | field0 | ...]` (ユーザポインタは field0 を指す。drop_fn は user `deinit` 呼び出し + heap field 再帰 release を担う JIT 生成ラッパ。trivial クラスは 0)
+- String: `Box<StringRc { rc, s }>` (リテラルは saturated rc で保護、release では解放されない)
+- Array: `[rc | drop_fn | len | cap | data_ptr]` (5 × i64 = 40 byte) ヘッダ + 別領域データバッファ。drop_fn は要素ループで release を発火する JIT 生成ラッパ (heap 要素のときのみ非 0)
 
 ### JIT 設計上の核心ルール
-- **caller 側で borrowed Object 引数を retain**、callee 側で param を関数出口で release (deinit の `this` は除く — `release_object` が lifecycle を持つので二重に release すると無限再帰)
-- ブロック終了時に新規 object binding を **LIFO 順** で release (依存する binding が先に解放される問題を回避)
-- `let y = x` で借用元 (Var/Field/Index/This) なら retain
-- `obj.field = newval` で field 型が Object なら value を retain (古い field 値の release は未実装、leak)
+- **caller 側で aliased な heap 引数を retain**、callee 側で param を関数出口で release (deinit の `this` は除く — `release_object` が lifecycle を持つので二重に release すると無限再帰)
+- ブロック終了時に新規 heap binding を **LIFO 順** で release (依存する binding が先に解放される問題を回避)
+- `let y = x` / 関数引数 / `obj.field = x` / `a[i] = x` で borrowed 元 (Var/Field/Index/This) なら retain (fresh 値はそのまま rc=1 を譲渡)
+- 代入上書き (`x = newval` / `obj.field = ...` / `a[i] = ...`) は **新値 retain → store → 旧値 release** の順でバランス維持
+- ブロック / `__main` の **tail retain は aliased heap 値のときだけ** (fresh tail は rc=1 のまま渡す。無条件に retain すると `fn f(): Foo { new Foo() }` が leak する)
+- str_concat / str_eq の fresh オペランドは呼び出し後に release
+- StmtKind::Expr で捨てられる fresh heap 値も release
 
 ## 既知の制限 / TODO
 
@@ -207,18 +210,17 @@ console.log(s)
 - **`pop()` / 例外**: なし
 
 ### ARC / メモリ
-- JIT ARC は **object Phase A のみ**。Phase B-D が残っている (上記 JIT 未対応参照)
-- interpreter は scope-based deinit、JIT は refcount-based。挙動は概ね一致するが、配列/文字列のドロップ時の挙動は異なる
+- JIT ARC は **Phase A-D 完了**。残る課題は循環参照 (Phase E)
+- interpreter は scope-based deinit、JIT は refcount-based。両者で `deinit` の発火順序が完全には一致しないケースがある (interpreter は scope 内の到達順、JIT は rc=0 到達順)
 
 ## 次の候補 (次フェーズの選択肢)
 
 ユーザーと相談して選ぶこと。現時点で未着手 / 未完のもの:
 
-### A. JIT ARC の続き (object Phase A は完了)
-- **B**: 文字列・配列に refcount + retain/release を追加 (Phase A と同じパターンの拡張、規模小〜中)
-- **C**: 関数引数/戻り値の retain/release を厳密化、代入上書き release、比較・statement 一時値 release (規模中)
-- **D**: フィールド/配列要素の再帰 release (object 内の Foo の deinit が連鎖発火するように、規模中)
-- 循環参照 / Weak 参照 (大、Phase E)
+### A. JIT ARC Phase E: 循環参照 / Weak 参照
+- 現状、`a.x = b; b.x = a` のような循環は両者の rc が 0 にならず両方リーク
+- Weak 参照型 (`weak Foo`) を導入: retain しないが、deref 時に「生きていれば借用」できる
+- Cycle detector は持たない (Swift 風) — ユーザーが weak を明示的に使う方針
 
 ### B. capability の enforce ← **サプライチェーン対策の核 (元々の言語ビジョン)**
 - 呼び出し側にも `#[requires(...)]` を要求するチェック
@@ -236,7 +238,7 @@ console.log(s)
 - `use` / モジュール / インポート (capability の前提でもある)
 
 ### D. `ilang-mir` 中間表現 (未着手)
-現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower.rs`)。MIR を挟むと:
+現状は AST → Cranelift IR を直接 lowering している (`crates/ilang-codegen/src/lower_*.rs` 群)。MIR を挟むと:
 - 複数バックエンド (LLVM / wasm / バイトコード VM) を後付けしやすい
 - `lower.rs` の「signed?/float?/widen?」分岐を 1 度で解決できる
 - constant folding / dead code elim 等の最適化を載せる足場になる
