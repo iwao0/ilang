@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use ilang_ast::{Block, Expr, FnDecl, Item, Param, Program, Stmt, Type};
+use ilang_ast::{BinOp, Block, Expr, FnDecl, Item, Param, Program, Stmt, Type};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -148,19 +148,33 @@ impl TypeChecker {
         match expr {
             Expr::Int(_) => Ok(Type::I64),
             Expr::Float(_) => Ok(Type::F64),
+            Expr::Bool(_) => Ok(Type::Bool),
             Expr::Var(n) => env
                 .get(n)
                 .copied()
                 .ok_or_else(|| TypeError::UndefinedVariable(n.clone())),
-            Expr::Unary { op: _, expr } => match self.check_expr(expr, env)? {
-                t @ (Type::I64 | Type::F64) => Ok(t),
-                other => Err(TypeError::BadUnary(other)),
-            },
+            Expr::Unary { op, expr } => {
+                let t = self.check_expr(expr, env)?;
+                use ilang_ast::UnOp;
+                match (op, t) {
+                    (UnOp::Neg | UnOp::Pos, Type::I64) => Ok(Type::I64),
+                    (UnOp::Neg | UnOp::Pos, Type::F64) => Ok(Type::F64),
+                    (UnOp::Not, Type::Bool) => Ok(Type::Bool),
+                    (_, other) => Err(TypeError::BadUnary(other)),
+                }
+            }
             Expr::Binary { op, lhs, rhs } => {
-                let _ = op;
                 let l = self.check_expr(lhs, env)?;
                 let r = self.check_expr(rhs, env)?;
-                bin_result(l, r)
+                bin_result(*op, l, r)
+            }
+            Expr::Logical { op: _, lhs, rhs } => {
+                let l = self.check_expr(lhs, env)?;
+                let r = self.check_expr(rhs, env)?;
+                if l != Type::Bool || r != Type::Bool {
+                    return Err(TypeError::BadBinary(l, r));
+                }
+                Ok(Type::Bool)
             }
             Expr::Call { callee, args } => {
                 let sig = self
@@ -187,6 +201,81 @@ impl TypeChecker {
                 Ok(sig.ret)
             }
             Expr::Block(b) => self.check_block(b, env),
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let c = self.check_expr(cond, env)?;
+                if c != Type::Bool {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Bool,
+                        got: c,
+                    });
+                }
+                let then_ty = self.check_block(then_branch, env)?;
+                match else_branch {
+                    None => {
+                        // `if` without `else` produces Unit and the then-branch
+                        // must also be Unit (otherwise its value is discarded).
+                        if then_ty != Type::Unit {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Unit,
+                                got: then_ty,
+                            });
+                        }
+                        Ok(Type::Unit)
+                    }
+                    Some(else_e) => {
+                        let else_ty = self.check_expr(else_e, env)?;
+                        if then_ty == else_ty {
+                            Ok(then_ty)
+                        } else if assignable(then_ty, else_ty) {
+                            Ok(else_ty)
+                        } else if assignable(else_ty, then_ty) {
+                            Ok(then_ty)
+                        } else {
+                            Err(TypeError::Mismatch {
+                                expected: then_ty,
+                                got: else_ty,
+                            })
+                        }
+                    }
+                }
+            }
+            Expr::While { cond, body } => {
+                let c = self.check_expr(cond, env)?;
+                if c != Type::Bool {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Bool,
+                        got: c,
+                    });
+                }
+                // Body's value is discarded; require Unit so authors don't
+                // accidentally produce values that go nowhere.
+                let body_ty = self.check_block(body, env)?;
+                if body_ty != Type::Unit {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Unit,
+                        got: body_ty,
+                    });
+                }
+                Ok(Type::Unit)
+            }
+            Expr::Assign { target, value } => {
+                let var_ty = env
+                    .get(target)
+                    .copied()
+                    .ok_or_else(|| TypeError::UndefinedVariable(target.clone()))?;
+                let v_ty = self.check_expr(value, env)?;
+                if !assignable(v_ty, var_ty) {
+                    return Err(TypeError::Mismatch {
+                        expected: var_ty,
+                        got: v_ty,
+                    });
+                }
+                Ok(Type::Unit)
+            }
         }
     }
 }
@@ -202,13 +291,28 @@ fn assignable(from: Type, to: Type) -> bool {
     matches!((from, to), (Type::I64, Type::F64))
 }
 
-fn bin_result(l: Type, r: Type) -> Result<Type, TypeError> {
-    match (l, r) {
-        (Type::I64, Type::I64) => Ok(Type::I64),
-        (Type::F64, Type::F64) => Ok(Type::F64),
-        (Type::I64, Type::F64) | (Type::F64, Type::I64) => Ok(Type::F64),
-        (a, b) => Err(TypeError::BadBinary(a, b)),
+fn bin_result(op: BinOp, l: Type, r: Type) -> Result<Type, TypeError> {
+    let is_compare = matches!(
+        op,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+    );
+    let numeric_result = match (l, r) {
+        (Type::I64, Type::I64) => Some(Type::I64),
+        (Type::F64, Type::F64) => Some(Type::F64),
+        (Type::I64, Type::F64) | (Type::F64, Type::I64) => Some(Type::F64),
+        _ => None,
+    };
+    if is_compare {
+        // Equality is allowed on bool too; ordering is numeric only.
+        if matches!(op, BinOp::Eq | BinOp::Ne) && l == Type::Bool && r == Type::Bool {
+            return Ok(Type::Bool);
+        }
+        if numeric_result.is_some() {
+            return Ok(Type::Bool);
+        }
+        return Err(TypeError::BadBinary(l, r));
     }
+    numeric_result.ok_or(TypeError::BadBinary(l, r))
 }
 
 /// One-shot type check for callers that don't need to keep state.
@@ -336,6 +440,63 @@ mod tests {
         let toks = tokenize("x + 2").unwrap();
         let p = parse(&toks).unwrap();
         assert_eq!(tc.check(&p).unwrap(), Type::F64);
+    }
+
+    #[test]
+    fn bool_and_comparison() {
+        assert_eq!(ty("true").unwrap(), Type::Bool);
+        assert_eq!(ty("1 < 2").unwrap(), Type::Bool);
+        assert_eq!(ty("1.0 == 2").unwrap(), Type::Bool);
+        assert!(matches!(ty("true < false"), Err(TypeError::BadBinary(_, _))));
+    }
+
+    #[test]
+    fn logical_and_not() {
+        assert_eq!(ty("true && false || !true").unwrap(), Type::Bool);
+        assert!(matches!(ty("true && 1"), Err(TypeError::BadBinary(_, _))));
+        assert!(matches!(ty("!1"), Err(TypeError::BadUnary(_))));
+    }
+
+    #[test]
+    fn if_expression_branches_match() {
+        assert_eq!(ty("if true { 1 } else { 2 }").unwrap(), Type::I64);
+        assert_eq!(ty("if true { 1 } else { 2.0 }").unwrap(), Type::F64);
+        assert!(matches!(
+            ty("if true { 1 } else { true }"),
+            Err(TypeError::Mismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn if_without_else_must_be_unit() {
+        assert_eq!(ty("if true { let _x = 1; }").unwrap(), Type::Unit);
+        assert!(matches!(
+            ty("if true { 1 }"),
+            Err(TypeError::Mismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn while_requires_bool_cond_and_unit_body() {
+        assert!(ty("let n = 0; while n < 10 { n = n + 1; }").is_ok());
+        assert!(matches!(
+            ty("while 1 { }"),
+            Err(TypeError::Mismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn assign_requires_existing_var_and_compat_type() {
+        assert!(ty("let x = 1; x = 2;").is_ok());
+        assert!(ty("let x: f64 = 0.0; x = 1;").is_ok());
+        assert!(matches!(
+            ty("y = 1;"),
+            Err(TypeError::UndefinedVariable(_))
+        ));
+        assert!(matches!(
+            ty("let x: i64 = 0; x = 1.5;"),
+            Err(TypeError::Mismatch { .. })
+        ));
     }
 
     #[test]

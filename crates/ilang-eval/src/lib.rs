@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use ilang_ast::{BinOp, Block, Expr, FnDecl, Item, Program, Stmt, UnOp};
+use ilang_ast::{BinOp, Block, Expr, FnDecl, Item, LogicalOp, Program, Stmt, UnOp};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
     Int(i64),
     Float(f64),
+    Bool(bool),
     Unit,
 }
 
@@ -21,6 +22,7 @@ impl std::fmt::Display for Value {
                     write!(f, "{x}")
                 }
             }
+            Value::Bool(b) => write!(f, "{b}"),
             Value::Unit => write!(f, "()"),
         }
     }
@@ -44,6 +46,8 @@ pub enum RuntimeError {
     },
     #[error("recursion depth exceeded")]
     StackOverflow,
+    #[error("type error at runtime: {0}")]
+    TypeError(String),
 }
 
 const MAX_DEPTH: usize = 256;
@@ -98,6 +102,7 @@ impl Interpreter {
         match expr {
             Expr::Int(n) => Ok(Value::Int(*n)),
             Expr::Float(f) => Ok(Value::Float(*f)),
+            Expr::Bool(b) => Ok(Value::Bool(*b)),
             Expr::Var(name) => self
                 .vars
                 .get(name)
@@ -112,23 +117,97 @@ impl Interpreter {
                 let r = self.eval_expr(rhs)?;
                 apply_binary(*op, l, r)
             }
+            Expr::Logical { op, lhs, rhs } => {
+                let l = self.eval_expr(lhs)?;
+                let lb = as_bool(l)?;
+                match op {
+                    LogicalOp::And => {
+                        if !lb {
+                            Ok(Value::Bool(false))
+                        } else {
+                            let r = self.eval_expr(rhs)?;
+                            Ok(Value::Bool(as_bool(r)?))
+                        }
+                    }
+                    LogicalOp::Or => {
+                        if lb {
+                            Ok(Value::Bool(true))
+                        } else {
+                            let r = self.eval_expr(rhs)?;
+                            Ok(Value::Bool(as_bool(r)?))
+                        }
+                    }
+                }
+            }
             Expr::Call { callee, args } => self.call(callee, args),
             Expr::Block(b) => self.eval_block(b),
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let c = self.eval_expr(cond)?;
+                if as_bool(c)? {
+                    self.eval_block(then_branch)
+                } else if let Some(eb) = else_branch {
+                    self.eval_expr(eb)
+                } else {
+                    Ok(Value::Unit)
+                }
+            }
+            Expr::While { cond, body } => loop {
+                let c = self.eval_expr(cond)?;
+                if !as_bool(c)? {
+                    break Ok(Value::Unit);
+                }
+                self.eval_block(body)?;
+            },
+            Expr::Assign { target, value } => {
+                let v = self.eval_expr(value)?;
+                if !self.vars.contains_key(target) {
+                    return Err(RuntimeError::UndefinedVariable(target.clone()));
+                }
+                self.vars.insert(target.clone(), v);
+                Ok(Value::Unit)
+            }
         }
     }
 
     fn eval_block(&mut self, block: &Block) -> Result<Value, RuntimeError> {
-        // Block introduces a fresh scope. We snapshot/restore the variable map
-        // so let-bindings inside the block don't leak out (Rust-style scoping).
-        let saved = self.vars.clone();
+        // Track let-bindings introduced in this block so they can be undone
+        // on exit (Rust-style lexical scoping for `let`). Assignments to
+        // *outer* variables, in contrast, must persist after the block ends —
+        // that's how `while x < n { x = x + 1; }` updates `x` in the outer
+        // scope. Recording previous values lets us restore shadowed bindings
+        // without dropping concurrent assignments.
+        let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
         let mut last = Value::Unit;
         for s in &block.stmts {
-            last = self.exec_stmt(s)?;
+            match s {
+                Stmt::Let { name, ty: _, value } => {
+                    let v = self.eval_expr(value)?;
+                    let prev = self.vars.insert(name.clone(), v);
+                    shadows.push((name.clone(), prev));
+                    last = Value::Unit;
+                }
+                Stmt::Expr(e) => {
+                    last = self.eval_expr(e)?;
+                }
+            }
         }
         if let Some(tail) = &block.tail {
             last = self.eval_expr(tail)?;
         }
-        self.vars = saved;
+        while let Some((name, prev)) = shadows.pop() {
+            match prev {
+                Some(v) => {
+                    self.vars.insert(name, v);
+                }
+                None => {
+                    self.vars.remove(&name);
+                }
+            }
+        }
         Ok(last)
     }
 
@@ -171,18 +250,67 @@ pub fn run_program(prog: &Program) -> Result<Value, RuntimeError> {
 
 fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
     match (op, v) {
-        (UnOp::Pos, v) => Ok(v),
+        (UnOp::Pos, Value::Int(_)) | (UnOp::Pos, Value::Float(_)) => Ok(v),
         (UnOp::Neg, Value::Int(n)) => n.checked_neg().map(Value::Int).ok_or(RuntimeError::Overflow),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
-        (UnOp::Neg, Value::Unit) => Err(RuntimeError::UndefinedVariable("()".into())),
+        (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
+        _ => Err(RuntimeError::TypeError("invalid unary operand".into())),
     }
 }
 
 fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
+    let is_compare = matches!(
+        op,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+    );
+    if is_compare {
+        return compare(op, l, r);
+    }
     match (l, r) {
         (Value::Int(a), Value::Int(b)) => int_op(op, a, b),
-        (Value::Unit, _) | (_, Value::Unit) => Err(RuntimeError::UndefinedVariable("()".into())),
-        (a, b) => Ok(Value::Float(float_op(op, to_f64(a), to_f64(b)))),
+        (a @ (Value::Int(_) | Value::Float(_)), b @ (Value::Int(_) | Value::Float(_))) => {
+            Ok(Value::Float(float_op(op, to_f64(a), to_f64(b))))
+        }
+        _ => Err(RuntimeError::TypeError(
+            "invalid binary operands".into(),
+        )),
+    }
+}
+
+fn compare(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
+    use std::cmp::Ordering;
+    let ord = match (l, r) {
+        (Value::Int(a), Value::Int(b)) => Some(a.cmp(&b)),
+        (a @ (Value::Int(_) | Value::Float(_)), b @ (Value::Int(_) | Value::Float(_))) => {
+            to_f64(a).partial_cmp(&to_f64(b))
+        }
+        (Value::Bool(a), Value::Bool(b)) if matches!(op, BinOp::Eq | BinOp::Ne) => Some(a.cmp(&b)),
+        _ => {
+            return Err(RuntimeError::TypeError(
+                "invalid comparison operands".into(),
+            ));
+        }
+    };
+    let result = match (op, ord) {
+        (BinOp::Eq, Some(o)) => o == Ordering::Equal,
+        (BinOp::Ne, Some(o)) => o != Ordering::Equal,
+        (BinOp::Lt, Some(o)) => o == Ordering::Less,
+        (BinOp::Le, Some(o)) => o != Ordering::Greater,
+        (BinOp::Gt, Some(o)) => o == Ordering::Greater,
+        (BinOp::Ge, Some(o)) => o != Ordering::Less,
+        // None happens for NaN; equality says false, ordering says false.
+        (BinOp::Eq, None) => false,
+        (BinOp::Ne, None) => true,
+        (_, None) => false,
+        _ => unreachable!("non-comparison op in compare()"),
+    };
+    Ok(Value::Bool(result))
+}
+
+fn as_bool(v: Value) -> Result<bool, RuntimeError> {
+    match v {
+        Value::Bool(b) => Ok(b),
+        _ => Err(RuntimeError::TypeError("expected bool".into())),
     }
 }
 
@@ -190,7 +318,7 @@ fn to_f64(v: Value) -> f64 {
     match v {
         Value::Int(n) => n as f64,
         Value::Float(f) => f,
-        Value::Unit => 0.0, // unreachable in practice — apply_binary guards this
+        _ => 0.0,
     }
 }
 
@@ -211,6 +339,7 @@ fn int_op(op: BinOp, a: i64, b: i64) -> Result<Value, RuntimeError> {
             }
             a.checked_rem(b)
         }
+        _ => unreachable!("non-arithmetic BinOp in int_op"),
     };
     r.map(Value::Int).ok_or(RuntimeError::Overflow)
 }
@@ -222,6 +351,7 @@ fn float_op(op: BinOp, a: f64, b: f64) -> f64 {
         BinOp::Mul => a * b,
         BinOp::Div => a / b,
         BinOp::Rem => a % b,
+        _ => unreachable!("non-arithmetic BinOp in float_op"),
     }
 }
 
@@ -314,6 +444,66 @@ mod tests {
     fn overflow_detected() {
         let src = format!("{} + 1", i64::MAX);
         assert_eq!(run(&src), Err(RuntimeError::Overflow));
+    }
+
+    #[test]
+    fn if_expression() {
+        assert_eq!(run("if true { 1 } else { 2 }").unwrap(), Value::Int(1));
+        assert_eq!(run("if false { 1 } else { 2 }").unwrap(), Value::Int(2));
+        assert_eq!(
+            run("if 1 < 2 { 10 } else if 1 > 2 { 20 } else { 30 }").unwrap(),
+            Value::Int(10)
+        );
+    }
+
+    #[test]
+    fn while_loop_with_assignment() {
+        let src = "let n = 0; let i = 1; while i <= 5 { n = n + i; i = i + 1; } n";
+        assert_eq!(run(src).unwrap(), Value::Int(15));
+    }
+
+    #[test]
+    fn fn_with_if_and_while() {
+        let src = "fn sum_to(n: i64) -> i64 { let s = 0; let i = 1; while i <= n { s = s + i; i = i + 1; } s } sum_to(10)";
+        assert_eq!(run(src).unwrap(), Value::Int(55));
+    }
+
+    #[test]
+    fn short_circuit_and() {
+        // The right side would divide by zero if evaluated; && must skip it.
+        let src = "let x = 0; false && (1 / x == 0)";
+        assert_eq!(run(src).unwrap(), Value::Bool(false));
+    }
+
+    #[test]
+    fn short_circuit_or() {
+        let src = "let x = 0; true || (1 / x == 0)";
+        assert_eq!(run(src).unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn comparison_ops() {
+        assert_eq!(run("1 == 1").unwrap(), Value::Bool(true));
+        assert_eq!(run("1.5 < 2").unwrap(), Value::Bool(true));
+        assert_eq!(run("true != false").unwrap(), Value::Bool(true));
+    }
+
+    #[test]
+    fn assignment_persists_across_block() {
+        // Assigns in a block should propagate to outer scope; let inside
+        // a block must not leak.
+        let src = "let x = 1; { x = 99; let y = 5; } x";
+        assert_eq!(run(src).unwrap(), Value::Int(99));
+        let src = "let x = 1; { let x = 99; } x";
+        assert_eq!(run(src).unwrap(), Value::Int(1));
+    }
+
+    #[test]
+    fn assign_to_undefined_fails() {
+        assert_eq!(
+            run("y = 1;"),
+            Err(RuntimeError::UndefinedVariable("y".into()))
+        );
     }
 
     #[test]

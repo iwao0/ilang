@@ -1,5 +1,6 @@
 use ilang_ast::{
-    AttrArg, Attribute, BinOp, Block, Expr, FnDecl, Item, Param, Program, Stmt, Type, UnOp,
+    AttrArg, Attribute, BinOp, Block, Expr, FnDecl, Item, LogicalOp, Param, Program, Stmt, Type,
+    UnOp,
 };
 use ilang_lexer::{Token, TokenKind};
 use thiserror::Error;
@@ -15,6 +16,8 @@ pub enum ParseError {
     },
     #[error("unknown type {name:?} at line {line}, col {col}")]
     UnknownType { name: String, line: u32, col: u32 },
+    #[error("invalid assignment target at line {line}, col {col}")]
+    InvalidAssignTarget { line: u32, col: u32 },
 }
 
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
@@ -42,6 +45,15 @@ pub fn parse_expr_only(tokens: &[Token]) -> Result<Expr, ParseError> {
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+}
+
+enum ExprEnd {
+    Stmt,
+    Tail,
+}
+
+fn is_block_like(e: &Expr) -> bool {
+    matches!(e, Expr::Block(_) | Expr::If { .. } | Expr::While { .. })
 }
 
 impl<'a> Parser<'a> {
@@ -104,27 +116,44 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let e = self.parse_expr(0)?;
-                    if matches!(self.peek().kind, TokenKind::Semicolon) {
-                        self.bump();
-                        prog.stmts.push(Stmt::Expr(e));
-                    } else {
-                        // tail expression: must be at end
-                        if !matches!(self.peek().kind, TokenKind::Eof) {
-                            let t = self.peek();
-                            return Err(ParseError::Unexpected {
-                                found: t.kind.clone(),
-                                expected: "';' or end of input".into(),
-                                line: t.span.line,
-                                col: t.span.col,
-                            });
+                    match self.classify_expr_end(&e, TokenKind::Eof)? {
+                        ExprEnd::Stmt => prog.stmts.push(Stmt::Expr(e)),
+                        ExprEnd::Tail => {
+                            prog.tail = Some(e);
+                            break;
                         }
-                        prog.tail = Some(e);
-                        break;
                     }
                 }
             }
         }
         Ok(prog)
+    }
+
+    /// After parsing an expression in a statement-position, decide whether it
+    /// becomes a statement (followed by `;`, or block-like and more tokens
+    /// follow) or the trailing expression (at end of program/block).
+    fn classify_expr_end(
+        &mut self,
+        expr: &Expr,
+        end: TokenKind,
+    ) -> Result<ExprEnd, ParseError> {
+        if matches!(self.peek().kind, TokenKind::Semicolon) {
+            self.bump();
+            return Ok(ExprEnd::Stmt);
+        }
+        if std::mem::discriminant(&self.peek().kind) == std::mem::discriminant(&end) {
+            return Ok(ExprEnd::Tail);
+        }
+        if is_block_like(expr) {
+            return Ok(ExprEnd::Stmt);
+        }
+        let t = self.peek();
+        Err(ParseError::Unexpected {
+            found: t.kind.clone(),
+            expected: "';' or end of block".into(),
+            line: t.span.line,
+            col: t.span.col,
+        })
     }
 
     // ---------- item / fn / attribute ----------
@@ -230,6 +259,7 @@ impl<'a> Parser<'a> {
                 match n.as_str() {
                     "i64" => Ok(Type::I64),
                     "f64" => Ok(Type::F64),
+                    "bool" => Ok(Type::Bool),
                     _ => Err(ParseError::UnknownType {
                         name: n,
                         line: t.span.line,
@@ -259,18 +289,53 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let e = self.parse_expr(0)?;
-                    if matches!(self.peek().kind, TokenKind::Semicolon) {
-                        self.bump();
-                        stmts.push(Stmt::Expr(e));
-                    } else {
-                        tail = Some(Box::new(e));
-                        break;
+                    match self.classify_expr_end(&e, TokenKind::RBrace)? {
+                        ExprEnd::Stmt => stmts.push(Stmt::Expr(e)),
+                        ExprEnd::Tail => {
+                            tail = Some(Box::new(e));
+                            break;
+                        }
                     }
                 }
             }
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(Block { stmts, tail })
+    }
+
+    fn parse_if(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&TokenKind::If, "'if'")?;
+        let cond = self.parse_expr(0)?;
+        let then_branch = self.parse_block()?;
+        let else_branch = if matches!(self.peek().kind, TokenKind::Else) {
+            self.bump();
+            // `else if` chains: parse another If expression directly so the
+            // structure stays an If with an Else branch that is itself an If.
+            if matches!(self.peek().kind, TokenKind::If) {
+                let inner = self.parse_if()?;
+                Some(Box::new(inner))
+            } else {
+                let block = self.parse_block()?;
+                Some(Box::new(Expr::Block(block)))
+            }
+        } else {
+            None
+        };
+        Ok(Expr::If {
+            cond: Box::new(cond),
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn parse_while(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&TokenKind::While, "'while'")?;
+        let cond = self.parse_expr(0)?;
+        let body = self.parse_block()?;
+        Ok(Expr::While {
+            cond: Box::new(cond),
+            body,
+        })
     }
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -289,11 +354,78 @@ impl<'a> Parser<'a> {
     }
 
     // ---------- expression (Pratt) ----------
+    //
+    // Precedence (low → high):
+    //   `=`              : 2 / 1 (right-assoc, lhs must be a Var)
+    //   `||`             : 3 / 4
+    //   `&&`             : 5 / 6
+    //   `==` `!=`        : 7 / 8
+    //   `<` `<=` `>` `>=`: 9 / 10
+    //   `+` `-`          : 10 / 11
+    //   `*` `/` `%`      : 20 / 21
+    //   prefix unary     : 30
+    //
+    // The 9/10 and 10/11 split is intentional: `1 + 2 < 3` parses as
+    // `(1 + 2) < 3` because `+`'s l_bp (10) ≥ `<`'s r_bp (10), letting `+`
+    // bind on the rhs of `<`, while `<` itself doesn't bind tighter than `+`
+    // because its l_bp (9) < `+`'s r_bp (11).
 
     fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
         loop {
+            // Assignment is right-associative: lhs must be a Var.
+            if matches!(self.peek().kind, TokenKind::Equals) {
+                let l_bp = 2u8;
+                let r_bp = 1u8;
+                if l_bp < min_bp {
+                    break;
+                }
+                let eq_tok = self.peek().clone();
+                self.bump();
+                let value = self.parse_expr(r_bp)?;
+                let target = match lhs {
+                    Expr::Var(name) => name,
+                    _ => {
+                        return Err(ParseError::InvalidAssignTarget {
+                            line: eq_tok.span.line,
+                            col: eq_tok.span.col,
+                        });
+                    }
+                };
+                lhs = Expr::Assign {
+                    target,
+                    value: Box::new(value),
+                };
+                continue;
+            }
+
+            // Short-circuit logical operators.
+            if let Some((logop, l_bp, r_bp)) = match self.peek().kind {
+                TokenKind::PipePipe => Some((LogicalOp::Or, 3u8, 4u8)),
+                TokenKind::AmpAmp => Some((LogicalOp::And, 5u8, 6u8)),
+                _ => None,
+            } {
+                if l_bp < min_bp {
+                    break;
+                }
+                self.bump();
+                let rhs = self.parse_expr(r_bp)?;
+                lhs = Expr::Logical {
+                    op: logop,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                };
+                continue;
+            }
+
+            // Regular binary operators.
             let (op, l_bp, r_bp) = match &self.peek().kind {
+                TokenKind::EqEq => (BinOp::Eq, 7, 8),
+                TokenKind::BangEq => (BinOp::Ne, 7, 8),
+                TokenKind::Lt => (BinOp::Lt, 9, 10),
+                TokenKind::LtEq => (BinOp::Le, 9, 10),
+                TokenKind::Gt => (BinOp::Gt, 9, 10),
+                TokenKind::GtEq => (BinOp::Ge, 9, 10),
                 TokenKind::Plus => (BinOp::Add, 10, 11),
                 TokenKind::Minus => (BinOp::Sub, 10, 11),
                 TokenKind::Star => (BinOp::Mul, 20, 21),
@@ -325,6 +457,24 @@ impl<'a> Parser<'a> {
             TokenKind::Float(f) => {
                 self.bump();
                 Ok(Expr::Float(f))
+            }
+            TokenKind::True => {
+                self.bump();
+                Ok(Expr::Bool(true))
+            }
+            TokenKind::False => {
+                self.bump();
+                Ok(Expr::Bool(false))
+            }
+            TokenKind::If => self.parse_if(),
+            TokenKind::While => self.parse_while(),
+            TokenKind::Bang => {
+                self.bump();
+                let e = self.parse_expr(30)?;
+                Ok(Expr::Unary {
+                    op: UnOp::Not,
+                    expr: Box::new(e),
+                })
             }
             TokenKind::Ident(name) => {
                 self.bump();
@@ -486,5 +636,65 @@ mod tests {
     fn trailing_error() {
         let toks = tokenize("1 2").unwrap();
         assert!(parse(&toks).is_err());
+    }
+
+    #[test]
+    fn comparison_precedence() {
+        // 1 + 2 < 3 + 4   →   (1+2) < (3+4)
+        let e = parse_expr_str("1 + 2 < 3 + 4");
+        assert!(matches!(
+            e,
+            Expr::Binary { op: BinOp::Lt, .. }
+        ));
+    }
+
+    #[test]
+    fn logical_short_circuit_shape() {
+        // a && b || c   →   (a && b) || c
+        let e = parse_expr_str("true && false || true");
+        match e {
+            Expr::Logical { op: LogicalOp::Or, lhs, .. } => {
+                assert!(matches!(*lhs, Expr::Logical { op: LogicalOp::And, .. }));
+            }
+            _ => panic!("expected ||"),
+        }
+    }
+
+    #[test]
+    fn assignment_right_assoc() {
+        // x = y = 1   →   x = (y = 1)
+        let p = parse_str("x = y = 1;");
+        match &p.stmts[0] {
+            Stmt::Expr(Expr::Assign { target, value }) => {
+                assert_eq!(target, "x");
+                assert!(matches!(value.as_ref(), Expr::Assign { target: t, .. } if t == "y"));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn invalid_assign_target() {
+        let toks = tokenize("1 = 2;").unwrap();
+        assert!(matches!(parse(&toks), Err(ParseError::InvalidAssignTarget { .. })));
+    }
+
+    #[test]
+    fn if_expression_with_else_if() {
+        let p = parse_str("if true { 1 } else if false { 2 } else { 3 }");
+        match p.tail {
+            Some(Expr::If { else_branch: Some(eb), .. }) => {
+                assert!(matches!(*eb, Expr::If { .. }));
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn while_then_more_stmts() {
+        // while loop without ; followed by an expression
+        let p = parse_str("let n = 0; while false { } n");
+        assert_eq!(p.stmts.len(), 2);
+        assert_eq!(p.tail, Some(Expr::Var("n".into())));
     }
 }

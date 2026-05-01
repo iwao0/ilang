@@ -14,6 +14,11 @@ pub enum TokenKind {
     // keywords
     Let,
     Fn,
+    If,
+    Else,
+    While,
+    True,
+    False,
     // punctuation
     Plus,
     Minus,
@@ -31,6 +36,15 @@ pub enum TokenKind {
     Colon,
     ColonColon,
     Equals,
+    EqEq,
+    BangEq,
+    Lt,
+    LtEq,
+    Gt,
+    GtEq,
+    AmpAmp,
+    PipePipe,
+    Bang,
     Arrow,
     Hash,
     Eof,
@@ -204,7 +218,57 @@ impl<'a> Lexer<'a> {
             }
             '=' => {
                 self.bump();
-                TokenKind::Equals
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::EqEq
+                } else {
+                    TokenKind::Equals
+                }
+            }
+            '!' => {
+                self.bump();
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::BangEq
+                } else {
+                    TokenKind::Bang
+                }
+            }
+            '<' => {
+                self.bump();
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::LtEq
+                } else {
+                    TokenKind::Lt
+                }
+            }
+            '>' => {
+                self.bump();
+                if matches!(self.peek(), Some('=')) {
+                    self.bump();
+                    TokenKind::GtEq
+                } else {
+                    TokenKind::Gt
+                }
+            }
+            '&' => {
+                self.bump();
+                if matches!(self.peek(), Some('&')) {
+                    self.bump();
+                    TokenKind::AmpAmp
+                } else {
+                    return Err(LexError::UnexpectedChar { ch: '&', line, col });
+                }
+            }
+            '|' => {
+                self.bump();
+                if matches!(self.peek(), Some('|')) {
+                    self.bump();
+                    TokenKind::PipePipe
+                } else {
+                    return Err(LexError::UnexpectedChar { ch: '|', line, col });
+                }
             }
             '#' => {
                 self.bump();
@@ -237,6 +301,11 @@ impl<'a> Lexer<'a> {
         match buf.as_str() {
             "let" => TokenKind::Let,
             "fn" => TokenKind::Fn,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "while" => TokenKind::While,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
             _ => TokenKind::Ident(buf),
         }
     }
@@ -378,6 +447,30 @@ mod tests {
             tokenize("1 $ 2"),
             Err(LexError::UnexpectedChar { ch: '$', .. })
         ));
+    }
+
+    #[test]
+    fn control_flow_tokens() {
+        assert_eq!(
+            kinds("if else while true false == != <= >= < > && || !"),
+            vec![
+                TokenKind::If,
+                TokenKind::Else,
+                TokenKind::While,
+                TokenKind::True,
+                TokenKind::False,
+                TokenKind::EqEq,
+                TokenKind::BangEq,
+                TokenKind::LtEq,
+                TokenKind::GtEq,
+                TokenKind::Lt,
+                TokenKind::Gt,
+                TokenKind::AmpAmp,
+                TokenKind::PipePipe,
+                TokenKind::Bang,
+                TokenKind::Eof,
+            ]
+        );
     }
 
     #[test]
