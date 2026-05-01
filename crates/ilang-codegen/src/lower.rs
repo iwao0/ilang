@@ -23,6 +23,41 @@ extern "C" fn ilang_jit_alloc(size: i64) -> i64 {
     unsafe { std::alloc::alloc_zeroed(layout) as i64 }
 }
 
+// ─── console.log per-type print helpers ────────────────────────────────
+// `console.log(a, b, c)` lowers to:
+//   ilang_jit_print_<type>(a)
+//   ilang_jit_print_space()
+//   ilang_jit_print_<type>(b)
+//   ilang_jit_print_space()
+//   ilang_jit_print_<type>(c)
+//   ilang_jit_print_newline()
+
+extern "C" fn ilang_jit_print_i64(n: i64) {
+    print!("{n}");
+}
+extern "C" fn ilang_jit_print_u64(n: u64) {
+    print!("{n}");
+}
+extern "C" fn ilang_jit_print_f64(x: f64) {
+    if x.is_finite() && x.fract() == 0.0 {
+        print!("{x:.1}");
+    } else {
+        print!("{x}");
+    }
+}
+extern "C" fn ilang_jit_print_f32(x: f32) {
+    ilang_jit_print_f64(x as f64);
+}
+extern "C" fn ilang_jit_print_bool(b: i8) {
+    print!("{}", b != 0);
+}
+extern "C" fn ilang_jit_print_space() {
+    print!(" ");
+}
+extern "C" fn ilang_jit_print_newline() {
+    println!();
+}
+
 // ─── JitValue (program result surfaced to the CLI) ──────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +224,24 @@ struct MethodInfo {
     ret: JitTy,
 }
 
+fn declare_import(
+    module: &mut JITModule,
+    name: &str,
+    params: &[types::Type],
+    ret: Option<types::Type>,
+) -> Result<FuncId, CodegenError> {
+    let mut sig = module.make_signature();
+    for p in params {
+        sig.params.push(AbiParam::new(*p));
+    }
+    if let Some(r) = ret {
+        sig.returns.push(AbiParam::new(r));
+    }
+    module
+        .declare_function(name, Linkage::Import, &sig)
+        .map_err(|e| CodegenError::Module(e.to_string()))
+}
+
 fn align_up(offset: u32, align: u32) -> u32 {
     (offset + align - 1) & !(align - 1)
 }
@@ -261,6 +314,14 @@ struct JitCompiler {
     class_layouts: Vec<ClassLayout>,
     class_methods: Vec<HashMap<String, MethodInfo>>,
     alloc_id: FuncId,
+    /// Per-type FFI print helpers used to lower `console.log(...)`.
+    print_i64: FuncId,
+    print_u64: FuncId,
+    print_f64: FuncId,
+    print_f32: FuncId,
+    print_bool: FuncId,
+    print_space: FuncId,
+    print_newline: FuncId,
 }
 
 impl JitCompiler {
@@ -272,18 +333,31 @@ impl JitCompiler {
             .finish(settings::Flags::new(flag_builder))
             .map_err(|e| CodegenError::Cranelift(format!("isa: {e}")))?;
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        // Expose our heap allocator to the JIT under a known symbol.
+        // Expose runtime FFI symbols to the JIT.
         builder.symbol("ilang_jit_alloc", ilang_jit_alloc as *const u8);
+        builder.symbol("ilang_jit_print_i64", ilang_jit_print_i64 as *const u8);
+        builder.symbol("ilang_jit_print_u64", ilang_jit_print_u64 as *const u8);
+        builder.symbol("ilang_jit_print_f64", ilang_jit_print_f64 as *const u8);
+        builder.symbol("ilang_jit_print_f32", ilang_jit_print_f32 as *const u8);
+        builder.symbol("ilang_jit_print_bool", ilang_jit_print_bool as *const u8);
+        builder.symbol("ilang_jit_print_space", ilang_jit_print_space as *const u8);
+        builder.symbol(
+            "ilang_jit_print_newline",
+            ilang_jit_print_newline as *const u8,
+        );
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
-        // Declare the allocator's signature so JITed code can call it.
-        let mut alloc_sig = module.make_signature();
-        alloc_sig.params.push(AbiParam::new(I64));
-        alloc_sig.returns.push(AbiParam::new(I64));
-        let alloc_id = module
-            .declare_function("ilang_jit_alloc", Linkage::Import, &alloc_sig)
-            .map_err(|e| CodegenError::Module(e.to_string()))?;
+        // Declare signatures for every imported runtime function.
+        let alloc_id = declare_import(&mut module, "ilang_jit_alloc", &[I64], Some(I64))?;
+        let print_i64 = declare_import(&mut module, "ilang_jit_print_i64", &[I64], None)?;
+        let print_u64 = declare_import(&mut module, "ilang_jit_print_u64", &[I64], None)?;
+        let print_f64 = declare_import(&mut module, "ilang_jit_print_f64", &[F64], None)?;
+        let print_f32 = declare_import(&mut module, "ilang_jit_print_f32", &[F32], None)?;
+        let print_bool = declare_import(&mut module, "ilang_jit_print_bool", &[I8], None)?;
+        let print_space = declare_import(&mut module, "ilang_jit_print_space", &[], None)?;
+        let print_newline =
+            declare_import(&mut module, "ilang_jit_print_newline", &[], None)?;
 
         Ok(Self {
             module,
@@ -294,6 +368,13 @@ impl JitCompiler {
             class_layouts: Vec::new(),
             class_methods: Vec::new(),
             alloc_id,
+            print_i64,
+            print_u64,
+            print_f64,
+            print_f32,
+            print_bool,
+            print_space,
+            print_newline,
         })
     }
 
@@ -447,6 +528,15 @@ impl JitCompiler {
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
             alloc_id: self.alloc_id,
+            print: PrintFns {
+                i64: self.print_i64,
+                u64: self.print_u64,
+                f64: self.print_f64,
+                f32: self.print_f32,
+                bool: self.print_bool,
+                space: self.print_space,
+                newline: self.print_newline,
+            },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
@@ -490,6 +580,15 @@ impl JitCompiler {
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
             alloc_id: self.alloc_id,
+            print: PrintFns {
+                i64: self.print_i64,
+                u64: self.print_u64,
+                f64: self.print_f64,
+                f32: self.print_f32,
+                bool: self.print_bool,
+                space: self.print_space,
+                newline: self.print_newline,
+            },
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
@@ -499,12 +598,9 @@ impl JitCompiler {
             lower_stmt(&mut builder, &mut lc, s)?;
         }
         let body = match &prog.tail {
-            Some(t) => Some(lower_expr(&mut builder, &mut lc, t)?.ok_or_else(|| {
-                CodegenError::Unsupported {
-                    what: "tail expression produces no value".into(),
-                    span: t.span,
-                }
-            })?),
+            // A unit-typed tail (e.g. `console.log(...)`) is fine — we'll
+            // emit a bare `return` and won't try to coerce a value.
+            Some(t) => lower_expr(&mut builder, &mut lc, t)?,
             None => None,
         };
         emit_return(&mut builder, ret_ty, body, ilang_ast::Span::dummy())?;
@@ -615,11 +711,22 @@ impl Env {
     }
 }
 
+struct PrintFns {
+    i64: FuncId,
+    u64: FuncId,
+    f64: FuncId,
+    f32: FuncId,
+    bool: FuncId,
+    space: FuncId,
+    newline: FuncId,
+}
+
 struct LowerCtx<'a> {
     funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
     class_layouts: &'a [ClassLayout],
     class_methods: &'a [HashMap<String, MethodInfo>],
     alloc_id: FuncId,
+    print: PrintFns,
     module: &'a mut JITModule,
     env: &'a mut Env,
     loops: Vec<(Block, Block)>,
@@ -877,6 +984,15 @@ fn lower_expr(
             Ok(Some((v, fty)))
         }
         ExprKind::MethodCall { obj, method, args } => {
+            // Intercept the built-in `console.log(...)`. The receiver
+            // expression is `console`, which has type Object("Console") at
+            // the type-checker level but no class layout in the JIT — we
+            // never need its value.
+            if let ExprKind::Var(name) = &obj.kind {
+                if name == "console" && method == "log" {
+                    return lower_console_log(b, lc, args).map(|_| None);
+                }
+            }
             let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "method receiver is unit".into(),
@@ -962,6 +1078,52 @@ fn lower_expr(
             span: e.span,
         }),
     }
+}
+
+/// Lower a `console.log(a, b, c, ...)` call: dispatch each argument to
+/// the FFI print function for its type, separated by spaces, with a
+/// trailing newline. Object args are unsupported for now and surface a
+/// clear error.
+fn lower_console_log(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    args: &[Expr],
+) -> Result<(), CodegenError> {
+    for (i, a) in args.iter().enumerate() {
+        if i > 0 {
+            let r = lc.module.declare_func_in_func(lc.print.space, b.func);
+            b.ins().call(r, &[]);
+        }
+        let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "console.log argument is unit".into(),
+            span: a.span,
+        })?;
+        // Promote each scalar to the matching FFI signature, then call.
+        let (id, arg) = match at {
+            JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64 => {
+                let v = coerce(b, (av, at), JitTy::I64, a.span)?;
+                (lc.print.i64, v)
+            }
+            JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64 => {
+                let v = coerce(b, (av, at), JitTy::U64, a.span)?;
+                (lc.print.u64, v)
+            }
+            JitTy::F32 => (lc.print.f32, av),
+            JitTy::F64 => (lc.print.f64, av),
+            JitTy::Bool => (lc.print.bool, av),
+            other => {
+                return Err(CodegenError::Unsupported {
+                    what: format!("console.log of {other:?}"),
+                    span: a.span,
+                });
+            }
+        };
+        let r = lc.module.declare_func_in_func(id, b.func);
+        b.ins().call(r, &[arg]);
+    }
+    let r = lc.module.declare_func_in_func(lc.print.newline, b.func);
+    b.ins().call(r, &[]);
+    Ok(())
 }
 
 fn call_method(
