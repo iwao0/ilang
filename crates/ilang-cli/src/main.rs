@@ -19,14 +19,22 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Evaluate an .il source file.
-    Run { path: PathBuf },
+    Run {
+        path: PathBuf,
+        /// Compile to native code via Cranelift instead of using the
+        /// tree-walking interpreter. Currently supports a numeric subset
+        /// (i64 / bool, control flow, function definitions); falls back
+        /// with an error for strings, arrays, classes, etc.
+        #[arg(long)]
+        jit: bool,
+    },
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),
-        Some(Cmd::Run { path }) => run_file(&path),
+        Some(Cmd::Run { path, jit }) => run_file(&path, jit),
     }
 }
 
@@ -66,7 +74,7 @@ fn run_repl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_file(path: &PathBuf) -> ExitCode {
+fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
     let src = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
@@ -74,9 +82,12 @@ fn run_file(path: &PathBuf) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let display_path = path.display().to_string();
+    if jit {
+        return jit_file(&display_path, src.trim());
+    }
     let mut interp = Interpreter::new();
     let mut tc = TypeChecker::new();
-    let display_path = path.display().to_string();
     match eval_in(&mut interp, &mut tc, src.trim(), &display_path) {
         Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
@@ -85,6 +96,45 @@ fn run_file(path: &PathBuf) -> ExitCode {
         }
         Err(e) => {
             eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Type-check then JIT-compile and run the program. Errors from any
+/// stage are prefixed with the source label (filename) so location
+/// information matches the interpreter path.
+fn jit_file(source_label: &str, src: &str) -> ExitCode {
+    let toks = match tokenize(src) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{source_label} {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let prog = match parse(&toks) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{source_label} {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut tc = TypeChecker::new();
+    if let Err(e) = tc.check(&prog) {
+        eprintln!("{source_label} {e}");
+        return ExitCode::FAILURE;
+    }
+    match ilang_codegen::jit_run(&prog) {
+        Ok(v) => {
+            // Don't print Unit (matches the interpreter's behaviour).
+            let s = format!("{v}");
+            if !s.is_empty() {
+                println!("{s}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{source_label}: jit error: {e}");
             ExitCode::FAILURE
         }
     }

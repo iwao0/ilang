@@ -13,5 +13,6 @@ ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
 ilang-eval = { workspace = true }
 ilang-types = { workspace = true }
+ilang-codegen = { workspace = true }
 clap = { workspace = true }
 rustyline = { workspace = true }
