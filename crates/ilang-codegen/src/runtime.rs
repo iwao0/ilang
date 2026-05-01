@@ -5,25 +5,27 @@
 //! heap values (`StringRc`, `ArrayHeader`) live here too — the host
 //! side (`read_array`, `run_main`) needs to walk them.
 
-// ─── ARC for objects (Phase A) ─────────────────────────────────────────
+// ─── ARC for objects (Phase A + D) ─────────────────────────────────────
 // Each `new` allocation lays out memory as:
-//   [ rc: i64 | deinit_fn_ptr: i64 | field0 | field1 | ... ]
+//   [ rc: i64 | drop_fn_ptr: i64 | field0 | field1 | ... ]
 // The pointer surfaced to JITed code points at field0; rc and the
-// deinit pointer live at offsets -16 and -8. Field offsets stay the
+// drop pointer live at offsets -16 and -8. Field offsets stay the
 // same as the no-ARC layout, so the rest of the codegen is unchanged.
 //
-// Strings/arrays use their own rc layouts (Phase B) below.
+// `drop_fn` is a JIT-generated wrapper (see drops.rs) that runs the
+// user `deinit` (if any) and recursively releases any heap-typed
+// fields. For trivial classes (no deinit, no heap fields) it's 0.
 
 const RC_OFFSET: i64 = -16;
-const DEINIT_OFFSET: i64 = -8;
+const DROP_OFFSET: i64 = -8;
 
-pub(crate) extern "C" fn ilang_jit_alloc_object(user_size: i64, deinit_fn_ptr: i64) -> i64 {
+pub(crate) extern "C" fn ilang_jit_alloc_object(user_size: i64, drop_fn_ptr: i64) -> i64 {
     let total = 16 + (user_size as usize);
     let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
     unsafe {
         let raw = std::alloc::alloc_zeroed(layout);
         *(raw as *mut i64) = 1;
-        *(raw.add(8) as *mut i64) = deinit_fn_ptr;
+        *(raw.add(8) as *mut i64) = drop_fn_ptr;
         raw.add(16) as i64
     }
 }
@@ -38,13 +40,14 @@ pub(crate) extern "C" fn ilang_jit_retain_object(ptr: i64) {
     }
 }
 
-/// Decrement the object's refcount; on zero call its `deinit` (if any)
-/// and free the underlying allocation.
+/// Decrement the object's refcount; on zero call its `drop_fn` wrapper
+/// (which runs user `deinit` and recursive field releases) and free
+/// the underlying allocation.
 ///
-/// `deinit` receives `this` as a parameter and (per the JIT's
-/// caller/callee retain-release contract) will release that param at
-/// its exit. The JIT suppresses that exit-release for `deinit` so the
-/// body sees rc=0 without re-entering this routine.
+/// `deinit` receives `this` as a parameter; the JIT suppresses its
+/// exit-release of `this` so the body sees rc=0 without re-entering
+/// this routine. The drop wrapper itself also avoids touching `this`'s
+/// rc.
 pub(crate) extern "C" fn ilang_jit_release_object(ptr: i64, user_size: i64) {
     if ptr == 0 {
         return;
@@ -55,9 +58,9 @@ pub(crate) extern "C" fn ilang_jit_release_object(ptr: i64, user_size: i64) {
         if *rc_ptr != 0 {
             return;
         }
-        let deinit_ptr = *((ptr + DEINIT_OFFSET) as *const i64);
-        if deinit_ptr != 0 {
-            let f: extern "C" fn(i64) = std::mem::transmute(deinit_ptr);
+        let drop_ptr = *((ptr + DROP_OFFSET) as *const i64);
+        if drop_ptr != 0 {
+            let f: extern "C" fn(i64) = std::mem::transmute(drop_ptr);
             f(ptr);
         }
         let total = 16 + (user_size as usize);
@@ -172,28 +175,31 @@ pub(crate) extern "C" fn ilang_jit_str_eq(a: i64, b: i64) -> i8 {
     }
 }
 
-// ─── Array runtime (ARC Phase B) ───────────────────────────────────────
+// ─── Array runtime (ARC Phase B + D) ──────────────────────────────────
 // Layout:
-//   header (32 bytes): [rc: i64, len: i64, cap: i64, data_ptr: i64]
+//   header (40 bytes): [rc, drop_fn, len, cap, data_ptr] — all i64
 //   data buffer: separately heap-allocated `cap * elem_size` bytes
 // The two-level layout means `push` can reallocate the data buffer
 // without invalidating any aliased reference to the header.
 //
-// Phase B tracks the *header* refcount only; element slots that hold
-// objects/strings/arrays do not yet release recursively (Phase D).
+// `drop_fn` is a JIT-generated per-array-kind wrapper (see drops.rs)
+// that loops over elements and recursively releases each. For arrays
+// of non-heap elements it's 0, and the runtime just frees the
+// allocations.
 
-pub(crate) const ARRAY_LEN_OFFSET: i32 = 8;
-pub(crate) const ARRAY_DATA_OFFSET: i32 = 24;
+pub(crate) const ARRAY_LEN_OFFSET: i32 = 16;
+pub(crate) const ARRAY_DATA_OFFSET: i32 = 32;
 
 #[repr(C)]
 pub(crate) struct ArrayHeader {
     pub rc: i64,
+    pub drop_fn: i64,
     pub len: i64,
     pub cap: i64,
     pub data_ptr: i64,
 }
 
-pub(crate) extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64) -> i64 {
+pub(crate) extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64, drop_fn_ptr: i64) -> i64 {
     let cap = len.max(4);
     let data = if cap == 0 || elem_size == 0 {
         0
@@ -209,6 +215,7 @@ pub(crate) extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64) -> i64 {
     let header = unsafe { std::alloc::alloc_zeroed(header_layout) as *mut ArrayHeader };
     unsafe {
         (*header).rc = 1;
+        (*header).drop_fn = drop_fn_ptr;
         (*header).len = len;
         (*header).cap = cap;
         (*header).data_ptr = data;
@@ -226,8 +233,9 @@ pub(crate) extern "C" fn ilang_jit_retain_array(ptr: i64) {
     }
 }
 
-/// elem_size lets us compute the data-buffer Layout for `dealloc`. Per
-/// Phase B scope, element retain/release is not chased.
+/// elem_size lets us compute the data-buffer Layout for `dealloc`. The
+/// per-kind `drop_fn` (if any) handles element-level recursive release
+/// before we free the storage.
 pub(crate) extern "C" fn ilang_jit_release_array(ptr: i64, elem_size: i64) {
     if ptr == 0 {
         return;
@@ -237,6 +245,11 @@ pub(crate) extern "C" fn ilang_jit_release_array(ptr: i64, elem_size: i64) {
         (*header).rc -= 1;
         if (*header).rc != 0 {
             return;
+        }
+        let drop_ptr = (*header).drop_fn;
+        if drop_ptr != 0 {
+            let f: extern "C" fn(i64) = std::mem::transmute(drop_ptr);
+            f(ptr);
         }
         let cap = (*header).cap;
         let data = (*header).data_ptr;

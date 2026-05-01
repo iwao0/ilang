@@ -526,12 +526,13 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 })?;
             let size = lc.class_layouts[class_id as usize].size as i64;
-            // Look up the class's `deinit` (if any) and embed its
-            // function pointer in the allocation header so the runtime
-            // release can dispatch it without consulting tables.
-            let deinit_fn_ptr = match lc.class_methods[class_id as usize].get("deinit") {
-                Some(info) => {
-                    let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+            // Embed the class's drop wrapper (if non-trivial) in the
+            // allocation header. The runtime release_object dispatches
+            // to it on rc=0 to run user `deinit` and recursively
+            // release heap fields.
+            let drop_fn_ptr = match lc.class_drops[class_id as usize] {
+                Some(fid) => {
+                    let func_ref = lc.module.declare_func_in_func(fid, b.func);
                     b.ins().func_addr(I64, func_ref)
                 }
                 None => b.ins().iconst(I64, 0),
@@ -539,7 +540,7 @@ pub(crate) fn lower_expr(
             let alloc_ref =
                 lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
             let size_v = b.ins().iconst(I64, size);
-            let alloc_call = b.ins().call(alloc_ref, &[size_v, deinit_fn_ptr]);
+            let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
             // If init exists, call it.
             if lc.class_methods[class_id as usize].contains_key("init") {
@@ -600,7 +601,8 @@ fn build_array(
     let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
     let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
     let len = b.ins().iconst(I64, lowered.len() as i64);
-    let call = b.ins().call(new_ref, &[elem_size, len]);
+    let drop_fn_v = crate::drops::array_drop_fn_ptr(b, lc, array_id);
+    let call = b.ins().call(new_ref, &[elem_size, len, drop_fn_v]);
     let header = b.inst_results(call)[0];
     let data = b.ins().load(I64, MemFlags::trusted(), header, ARRAY_DATA_OFFSET);
     let elem_size_i32 = elem_jty.size_bytes() as i32;

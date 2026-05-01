@@ -46,6 +46,10 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
             Item::Class(c) => compiler.declare_methods(c)?,
         }
     }
+    // 2b. Declare per-class drop wrappers so `new` lowering can embed
+    //     their function pointers in the allocation header. Bodies are
+    //     defined later (need user methods to be defined first).
+    crate::drops::declare_class_drops(&mut compiler)?;
     // 3. Define every body.
     for item in &prog.items {
         match item {
@@ -54,49 +58,60 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         }
     }
     let main_ret = compiler.define_main(prog)?;
+    // 4. Define drop wrappers. Class drops can reference user deinit;
+    //    array drops were declared lazily during lowering.
+    crate::drops::define_class_drops(&mut compiler)?;
+    crate::drops::define_array_drops(&mut compiler)?;
     compiler.finalize()?;
     Ok(compiler.run_main(main_ret))
 }
 
-struct JitCompiler {
-    module: JITModule,
-    ctx: cranelift_codegen::Context,
-    builder_ctx: FunctionBuilderContext,
-    funcs: HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
-    class_ids: HashMap<String, u32>,
-    class_layouts: Vec<ClassLayout>,
-    class_methods: Vec<HashMap<String, MethodInfo>>,
-    array_kinds: Vec<ArrayKind>,
-    alloc_object_id: FuncId,
-    retain_object_id: FuncId,
-    release_object_id: FuncId,
+pub(crate) struct JitCompiler {
+    pub(crate) module: JITModule,
+    pub(crate) ctx: cranelift_codegen::Context,
+    pub(crate) builder_ctx: FunctionBuilderContext,
+    pub(crate) funcs: HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
+    pub(crate) class_ids: HashMap<String, u32>,
+    pub(crate) class_layouts: Vec<ClassLayout>,
+    pub(crate) class_methods: Vec<HashMap<String, MethodInfo>>,
+    pub(crate) array_kinds: Vec<ArrayKind>,
+    pub(crate) alloc_object_id: FuncId,
+    pub(crate) retain_object_id: FuncId,
+    pub(crate) release_object_id: FuncId,
     /// Per-type FFI print helpers used to lower `console.log(...)`.
-    print_i64: FuncId,
-    print_u64: FuncId,
-    print_f64: FuncId,
-    print_f32: FuncId,
-    print_bool: FuncId,
-    print_space: FuncId,
-    print_newline: FuncId,
-    print_str: FuncId,
-    str_concat: FuncId,
-    str_eq: FuncId,
-    retain_string_id: FuncId,
-    release_string_id: FuncId,
-    array_new: FuncId,
-    retain_array_id: FuncId,
-    release_array_id: FuncId,
-    array_push_i8: FuncId,
-    array_push_i16: FuncId,
-    array_push_i32: FuncId,
-    array_push_i64: FuncId,
-    array_push_f32: FuncId,
-    array_push_f64: FuncId,
+    pub(crate) print_i64: FuncId,
+    pub(crate) print_u64: FuncId,
+    pub(crate) print_f64: FuncId,
+    pub(crate) print_f32: FuncId,
+    pub(crate) print_bool: FuncId,
+    pub(crate) print_space: FuncId,
+    pub(crate) print_newline: FuncId,
+    pub(crate) print_str: FuncId,
+    pub(crate) str_concat: FuncId,
+    pub(crate) str_eq: FuncId,
+    pub(crate) retain_string_id: FuncId,
+    pub(crate) release_string_id: FuncId,
+    pub(crate) array_new: FuncId,
+    pub(crate) retain_array_id: FuncId,
+    pub(crate) release_array_id: FuncId,
+    pub(crate) array_push_i8: FuncId,
+    pub(crate) array_push_i16: FuncId,
+    pub(crate) array_push_i32: FuncId,
+    pub(crate) array_push_i64: FuncId,
+    pub(crate) array_push_f32: FuncId,
+    pub(crate) array_push_f64: FuncId,
     /// Each string literal is interned at compile time as a `Box<StringRc>`
     /// with a saturated rc. The pointer is embedded as an `iconst` when
     /// the literal is referenced. Holding the boxes here keeps them alive
     /// until the compiler is dropped.
-    interned_strings: Vec<Box<StringRc>>,
+    pub(crate) interned_strings: Vec<Box<StringRc>>,
+    /// Per-class drop wrappers (parallel to `class_layouts`). Declared
+    /// during `declare_class_drops` and defined later, after methods.
+    /// `None` indicates no wrapper is needed (no deinit, no heap fields).
+    pub(crate) class_drops: Vec<Option<FuncId>>,
+    /// Per-array-kind drop wrappers, declared lazily during lowering.
+    /// `None` indicates the kind has no heap elements.
+    pub(crate) array_drops: HashMap<u32, Option<FuncId>>,
 }
 
 impl JitCompiler {
@@ -215,7 +230,7 @@ impl JitCompiler {
         let release_string_id =
             declare_import(&mut module, "ilang_jit_release_string", &[I64], None)?;
         let array_new =
-            declare_import(&mut module, "ilang_jit_array_new", &[I64, I64], Some(I64))?;
+            declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
             declare_import(&mut module, "ilang_jit_retain_array", &[I64], None)?;
         let release_array_id = declare_import(
@@ -271,6 +286,8 @@ impl JitCompiler {
             array_push_f32,
             array_push_f64,
             interned_strings: Vec::new(),
+            class_drops: Vec::new(),
+            array_drops: HashMap::new(),
         })
     }
 
@@ -459,6 +476,8 @@ impl JitCompiler {
             this,
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
+            class_drops: &self.class_drops,
+            array_drops: &mut self.array_drops,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -560,6 +579,8 @@ impl JitCompiler {
             this: None,
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
+            class_drops: &self.class_drops,
+            array_drops: &mut self.array_drops,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.

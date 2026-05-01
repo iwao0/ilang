@@ -99,6 +99,14 @@ pub(crate) struct LowerCtx<'a> {
     /// rc is saturated so `release_string` never frees these.
     pub interned_strings: &'a mut Vec<Box<StringRc>>,
     pub array_kinds: &'a mut Vec<ArrayKind>,
+    /// Per-class drop wrappers, indexed by class id. `None` for trivial
+    /// classes (no `deinit`, no heap fields). See drops.rs.
+    pub class_drops: &'a [Option<FuncId>],
+    /// Per-array-kind drop wrappers, populated lazily during lowering
+    /// (the compiler discovers new array kinds while lowering and
+    /// declares drop fns on the fly). `None` means the kind has no
+    /// heap elements, so no per-element release is needed.
+    pub array_drops: &'a mut HashMap<u32, Option<FuncId>>,
 }
 
 impl<'a> LowerCtx<'a> {

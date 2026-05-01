@@ -567,6 +567,130 @@ fn jit_string_field_overwrite_no_crash() {
     assert_eq!(jit(src), JitValue::Str("ab".into()));
 }
 
+// ─── ARC Phase D: recursive field/element release ──────────────────────
+
+#[test]
+fn jit_object_field_recursive_release() {
+    // Holder has no deinit, only a Tracked field. When Holder is
+    // released, its drop wrapper must release the field, firing
+    // Tracked's deinit.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        class Holder {
+            t: Tracked
+            init(tt: Tracked) { this.t = tt }
+        }
+        let counter = new Counter()
+        {
+            let h = new Holder(new Tracked(counter))
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_nested_object_chain_release() {
+    // Outer → Mid → Tracked. Releasing Outer should chain.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        class Mid {
+            t: Tracked
+            init(tt: Tracked) { this.t = tt }
+        }
+        class Outer {
+            m: Mid
+            init(mm: Mid) { this.m = mm }
+        }
+        let counter = new Counter()
+        {
+            let o = new Outer(new Mid(new Tracked(counter)))
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_array_of_objects_recursive_release() {
+    // Array of Tracked: when the array is released, each element's
+    // deinit must fire.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        {
+            let xs: Tracked[] = [new Tracked(counter), new Tracked(counter), new Tracked(counter)]
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(3));
+}
+
+#[test]
+fn jit_array_of_strings_no_crash() {
+    // Strings inside an array: no crash on array release. (No deinit
+    // counter since strings have none — just exercise the path.)
+    let src = r#"
+        let i = 0
+        while i < 50 {
+            {
+                let xs: string[] = ["a" + "b", "c" + "d", "e" + "f"]
+            }
+            i = i + 1
+        }
+        i
+    "#;
+    assert_eq!(jit(src), JitValue::I64(50));
+}
+
+#[test]
+fn jit_string_field_release_on_drop() {
+    // Holder.s = fresh concat. When Holder drops, the string is
+    // released. Loop hard so any double-free shows up.
+    let src = r#"
+        class Holder {
+            s: string
+            init(x: string) { this.s = x }
+        }
+        let i = 0
+        while i < 50 {
+            {
+                let h = new Holder("a" + "b")
+            }
+            i = i + 1
+        }
+        i
+    "#;
+    assert_eq!(jit(src), JitValue::I64(50));
+}
+
 #[test]
 fn jit_returning_fresh_object_balances() {
     // `fn f(): Foo { new Foo() }` previously over-retained tail.

@@ -6,6 +6,7 @@
 
 mod arc;
 mod compiler;
+mod drops;
 mod env;
 mod error;
 mod lower_ctrl;
