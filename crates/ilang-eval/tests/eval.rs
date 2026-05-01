@@ -637,7 +637,7 @@ fn shift_at_width_boundary() {
 fn negative_shift_amount_errors() {
     assert!(matches!(
         run("1 << (0 - 1)"),
-        Err(RuntimeError::TypeError { msg, .. }) if msg.contains("negative shift")
+        Err(RuntimeError::NegativeShift { amount: -1, .. })
     ));
 }
 
@@ -805,7 +805,7 @@ fn out_of_bounds_index_errors() {
     let src = "let a: i32[] = [1]; a[5]";
     assert!(matches!(
         run(src),
-        Err(RuntimeError::TypeError { msg, .. }) if msg.contains("out of bounds")
+        Err(RuntimeError::IndexOutOfBounds { index: 5, len: 1, .. })
     ));
 }
 

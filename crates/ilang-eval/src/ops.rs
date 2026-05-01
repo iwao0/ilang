@@ -278,8 +278,8 @@ pub(crate) fn as_bool(v: Value) -> Result<bool, RuntimeError> {
 
 fn check_shift(amount: i64, width: u32) -> Result<Option<u32>, RuntimeError> {
     if amount < 0 {
-        return Err(RuntimeError::TypeError {
-            msg: format!("negative shift amount: {amount}"),
+        return Err(RuntimeError::NegativeShift {
+            amount,
             span: dummy(),
         });
     }

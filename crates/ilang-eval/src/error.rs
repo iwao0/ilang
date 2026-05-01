@@ -40,6 +40,10 @@ pub enum RuntimeError {
     ThisOutsideMethod { span: Span },
     #[error("{span}: expected an object, got {actual}")]
     NotAnObject { actual: String, span: Span },
+    #[error("{span}: array index {index} out of bounds (length {len})")]
+    IndexOutOfBounds { index: i64, len: i64, span: Span },
+    #[error("{span}: negative shift amount: {amount}")]
+    NegativeShift { amount: i64, span: Span },
     /// Internal control-flow signal carried by `Result::Err` so `?` propagates
     /// it to the enclosing loop. The type checker rejects `break` outside a
     /// loop, so this never escapes a well-typed program.
@@ -98,6 +102,12 @@ impl RuntimeError {
             RuntimeError::NotAnObject { actual, .. } => {
                 RuntimeError::NotAnObject { actual, span: real }
             }
+            RuntimeError::IndexOutOfBounds { index, len, .. } => {
+                RuntimeError::IndexOutOfBounds { index, len, span: real }
+            }
+            RuntimeError::NegativeShift { amount, .. } => {
+                RuntimeError::NegativeShift { amount, span: real }
+            }
             other => other,
         }
     }
@@ -119,7 +129,9 @@ impl RuntimeError {
             | RuntimeError::UnknownMethod { span, .. }
             | RuntimeError::UnknownField { span, .. }
             | RuntimeError::ThisOutsideMethod { span }
-            | RuntimeError::NotAnObject { span, .. } => *span,
+            | RuntimeError::NotAnObject { span, .. }
+            | RuntimeError::IndexOutOfBounds { span, .. }
+            | RuntimeError::NegativeShift { span, .. } => *span,
             RuntimeError::Break | RuntimeError::Continue => Span::dummy(),
         }
     }

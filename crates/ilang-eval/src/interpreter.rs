@@ -259,8 +259,9 @@ impl Interpreter {
                 let arr = arr.borrow();
                 arr.get(i)
                     .cloned()
-                    .ok_or_else(|| RuntimeError::TypeError {
-                        msg: format!("array index {} out of bounds (length {})", i, arr.len()),
+                    .ok_or_else(|| RuntimeError::IndexOutOfBounds {
+                        index: i as i64,
+                        len: arr.len() as i64,
                         span,
                     })
             }
@@ -272,8 +273,9 @@ impl Interpreter {
                 let arr = expect_array(target, obj.span)?;
                 let mut arr = arr.borrow_mut();
                 if i >= arr.len() {
-                    return Err(RuntimeError::TypeError {
-                        msg: format!("array index {} out of bounds (length {})", i, arr.len()),
+                    return Err(RuntimeError::IndexOutOfBounds {
+                        index: i as i64,
+                        len: arr.len() as i64,
                         span,
                     });
                 }
