@@ -230,9 +230,12 @@ impl TypeChecker {
             ExprKind::Unary { op, expr: inner } => {
                 let t = self.check_expr(inner, env, in_class, loop_depth)?;
                 match (op, &t) {
+                    (UnOp::Neg | UnOp::Pos, Type::I32) => Ok(Type::I32),
                     (UnOp::Neg | UnOp::Pos, Type::I64) => Ok(Type::I64),
+                    (UnOp::Neg | UnOp::Pos, Type::F32) => Ok(Type::F32),
                     (UnOp::Neg | UnOp::Pos, Type::F64) => Ok(Type::F64),
                     (UnOp::Not, Type::Bool) => Ok(Type::Bool),
+                    (UnOp::BitNot, Type::I32) => Ok(Type::I32),
                     (UnOp::BitNot, Type::I64) => Ok(Type::I64),
                     _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
@@ -456,6 +459,26 @@ impl TypeChecker {
                     name: target.clone(),
                     span,
                 })
+            }
+            ExprKind::Cast { expr: inner, ty } => {
+                let from = self.check_expr(inner, env, in_class, loop_depth)?;
+                self.validate_type(ty, span)?;
+                let from_numeric = matches!(
+                    from,
+                    Type::I32 | Type::I64 | Type::F32 | Type::F64 | Type::Bool
+                );
+                let to_numeric = matches!(
+                    ty,
+                    Type::I32 | Type::I64 | Type::F32 | Type::F64
+                );
+                if !from_numeric || !to_numeric {
+                    return Err(TypeError::Mismatch {
+                        expected: ty.clone(),
+                        got: from,
+                        span,
+                    });
+                }
+                Ok(ty.clone())
             }
             ExprKind::AssignField { obj, field, value } => {
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;

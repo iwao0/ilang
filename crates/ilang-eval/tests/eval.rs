@@ -552,3 +552,67 @@ fn bit_precedence_matches_c() {
     // `&` is tighter than `|`, so `1 | 2 & 0` = `1 | (2 & 0)` = 1.
     assert_eq!(run("1 | 2 & 0").unwrap(), Value::Int(1));
 }
+
+#[test]
+fn cast_int_to_int_truncates() {
+    // 4_000_000_000 doesn't fit in i32; the cast wraps per Rust's `as i32`.
+    assert_eq!(
+        run("4_000_000_000 as i32").unwrap(),
+        Value::Int32(4_000_000_000_i64 as i32)
+    );
+    assert_eq!(run("(-1) as i64").unwrap(), Value::Int(-1));
+}
+
+#[test]
+fn cast_float_to_int_truncates() {
+    assert_eq!(run("3.7 as i32").unwrap(), Value::Int32(3));
+    assert_eq!(run("(-2.9) as i64").unwrap(), Value::Int(-2));
+}
+
+#[test]
+fn cast_int_to_float() {
+    assert_eq!(run("1 as f32").unwrap(), Value::Float32(1.0));
+    assert_eq!(run("1 as f64").unwrap(), Value::Float(1.0));
+}
+
+#[test]
+fn cast_bool_to_int() {
+    assert_eq!(run("true as i32").unwrap(), Value::Int32(1));
+    assert_eq!(run("false as i64").unwrap(), Value::Int(0));
+}
+
+#[test]
+fn typed_let_coerces_value() {
+    // Literal 5 is i64; the annotation forces it into Int32 storage. The
+    // sum with another i32 stays i32; mixing in an i64 literal promotes.
+    assert_eq!(
+        run("let a: i32 = 5; let b: i32 = 7; a + b").unwrap(),
+        Value::Int32(12)
+    );
+    assert_eq!(run("let a: i32 = 5; a + 7").unwrap(), Value::Int(12));
+    // Float literal narrows to f32 when annotated.
+    assert_eq!(
+        run("let a: f32 = 1.5; a").unwrap(),
+        Value::Float32(1.5)
+    );
+}
+
+#[test]
+fn fn_param_coerces_to_declared_type() {
+    let src = "fn add32(x: i32, y: i32): i32 { x + y } add32(100, 200)";
+    assert_eq!(run(src).unwrap(), Value::Int32(300));
+}
+
+#[test]
+fn mixed_width_arithmetic_promotes() {
+    // i32 + i64 → i64
+    assert_eq!(
+        run("let a: i32 = 5; a + 10").unwrap(),
+        Value::Int(15)
+    );
+    // f32 + f64 → f64
+    assert_eq!(
+        run("let a: f32 = 1.5; a + 1.0").unwrap(),
+        Value::Float(2.5)
+    );
+}

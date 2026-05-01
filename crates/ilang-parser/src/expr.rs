@@ -15,6 +15,7 @@
 //! | `<<` `>>`               | 17 / 18     | left   |
 //! | `+` `-`                 | 19 / 20     | left   |
 //! | `*` `/` `%`             | 21 / 22     | left   |
+//! | `as` (cast)             | 23 / —      | postfix|
 //! | prefix `-` `+` `!` `~`  | — / 30      | prefix |
 
 use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
@@ -109,6 +110,27 @@ impl<'a> Parser<'a> {
                         op: logop,
                         lhs: Box::new(lhs),
                         rhs: Box::new(rhs),
+                    },
+                    span,
+                );
+                continue;
+            }
+
+            // `as`-cast: postfix-style infix that takes a type instead of
+            // an expression. Tighter than any binary op so `1 + 2 as f64`
+            // parses as `1 + ((2) as f64)`.
+            if matches!(self.peek().kind, TokenKind::As) {
+                let l_bp = 23u8;
+                if l_bp < min_bp {
+                    break;
+                }
+                self.bump();
+                let target = self.parse_type()?;
+                let span = lhs.span;
+                lhs = Expr::new(
+                    ExprKind::Cast {
+                        expr: Box::new(lhs),
+                        ty: target,
                     },
                     span,
                 );

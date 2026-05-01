@@ -335,3 +335,24 @@ fn bitwise_requires_i64() {
     assert!(matches!(ty("true & false"), Err(TypeError::BadBinary { .. })));
     assert!(matches!(ty("~true"), Err(TypeError::BadUnary { .. })));
 }
+
+#[test]
+fn cast_typechecks() {
+    assert_eq!(ty("1 as i32").unwrap(), Type::I32);
+    assert_eq!(ty("1.5 as f32").unwrap(), Type::F32);
+    assert_eq!(ty("true as i64").unwrap(), Type::I64);
+    // Cast from object → numeric is rejected.
+    let src = "class P { init() {} } new P() as i32";
+    assert!(matches!(ty(src), Err(TypeError::Mismatch { .. })));
+}
+
+#[test]
+fn implicit_int_to_float_ok() {
+    // i64 → f64 implicit, no `as` required.
+    assert!(ty("let x: f64 = 5;").is_ok());
+    // f64 → i64 implicit is *not* allowed.
+    assert!(matches!(
+        ty("let x: i64 = 1.5;"),
+        Err(TypeError::Mismatch { .. })
+    ));
+}

@@ -7,7 +7,7 @@ use ilang_ast::{
 };
 
 use crate::error::RuntimeError;
-use crate::ops::{apply_binary, apply_unary, as_bool};
+use crate::ops::{apply_binary, apply_unary, as_bool, cast_value};
 use crate::value::{ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
@@ -63,8 +63,14 @@ impl Interpreter {
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Value, RuntimeError> {
         match &stmt.kind {
-            StmtKind::Let { name, ty: _, value } => {
-                let v = self.eval_expr(value)?;
+            StmtKind::Let { name, ty, value } => {
+                let mut v = self.eval_expr(value)?;
+                // A type annotation acts as an implicit cast: the runtime
+                // representation must match the declared width so later
+                // arithmetic dispatches to the right variant.
+                if let Some(t) = ty {
+                    v = cast_value(v, t);
+                }
                 self.vars.insert(name.clone(), v);
                 Ok(Value::Unit)
             }
@@ -215,6 +221,10 @@ impl Interpreter {
                     span,
                 })
             }
+            ExprKind::Cast { expr: inner, ty } => {
+                let v = self.eval_expr(inner)?;
+                Ok(cast_value(v, ty))
+            }
             ExprKind::AssignField { obj, field, value } => {
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
@@ -233,8 +243,11 @@ impl Interpreter {
         let mut last = Value::Unit;
         for s in &block.stmts {
             match &s.kind {
-                StmtKind::Let { name, ty: _, value } => {
-                    let v = self.eval_expr(value)?;
+                StmtKind::Let { name, ty, value } => {
+                    let mut v = self.eval_expr(value)?;
+                    if let Some(t) = ty {
+                        v = cast_value(v, t);
+                    }
                     let prev = self.vars.insert(name.clone(), v);
                     shadows.push((name.clone(), prev));
                     last = Value::Unit;
@@ -400,7 +413,9 @@ impl Interpreter {
         let saved_vars = std::mem::take(&mut self.vars);
         let saved_this = std::mem::replace(&mut self.this, receiver);
         for (p, v) in decl.params.iter().zip(evaluated.into_iter()) {
-            self.vars.insert(p.name.clone(), v);
+            // Coerce arguments to the parameter's declared type so the
+            // body sees the right runtime variant (i32 vs i64, etc.).
+            self.vars.insert(p.name.clone(), cast_value(v, &p.ty));
         }
         let result = self.eval_block(&decl.body);
         self.vars = saved_vars;

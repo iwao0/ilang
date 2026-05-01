@@ -341,6 +341,7 @@ impl<'a> Lexer<'a> {
             "class" => TokenKind::Class,
             "new" => TokenKind::New,
             "this" => TokenKind::This,
+            "as" => TokenKind::As,
             _ => TokenKind::Ident(buf),
         }
     }

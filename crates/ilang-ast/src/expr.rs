@@ -99,6 +99,11 @@ pub enum ExprKind {
         field: String,
         value: Box<Expr>,
     },
+    /// Numeric (or `bool`-to-int) cast: `expr as Type`.
+    Cast {
+        expr: Box<Expr>,
+        ty: crate::types::Type,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

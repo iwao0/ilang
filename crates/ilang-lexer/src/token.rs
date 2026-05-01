@@ -19,6 +19,7 @@ pub enum TokenKind {
     Class,
     New,
     This,
+    As,
     // punctuation
     Plus,
     Minus,

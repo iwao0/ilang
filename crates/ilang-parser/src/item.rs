@@ -226,7 +226,9 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(n) => {
                 self.bump();
                 match n.as_str() {
+                    "i32" => Ok(Type::I32),
                     "i64" => Ok(Type::I64),
+                    "f32" => Ok(Type::F32),
                     "f64" => Ok(Type::F64),
                     "bool" => Ok(Type::Bool),
                     _ => Ok(Type::Object(n)),
