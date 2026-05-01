@@ -13,14 +13,69 @@ use crate::error::CodegenError;
 
 // ─── Runtime support ────────────────────────────────────────────────────
 
-/// Heap allocator called from JITed code via FFI. Returns a zeroed
-/// `size`-byte block as an `i64`-shaped pointer; the JIT casts it to a
-/// raw pointer for field load/store. Memory is intentionally never
-/// freed — ARC/deinit is a future addition. Short-lived programs leak.
-extern "C" fn ilang_jit_alloc(size: i64) -> i64 {
-    let n = (size as usize).max(1);
-    let layout = std::alloc::Layout::from_size_align(n, 8).unwrap();
-    unsafe { std::alloc::alloc_zeroed(layout) as i64 }
+// ─── ARC for objects (Phase A) ─────────────────────────────────────────
+// Each `new` allocation lays out memory as:
+//   [ rc: i64 | deinit_fn_ptr: i64 | field0 | field1 | ... ]
+// The pointer surfaced to JITed code points at field0; rc and the
+// deinit pointer live at offsets -16 and -8. Field offsets stay the
+// same as the no-ARC layout, so the rest of the codegen is unchanged.
+//
+// Strings and arrays still leak (no rc header) — they need separate
+// per-type release helpers added in a follow-up phase.
+
+const RC_OFFSET: i64 = -16;
+const DEINIT_OFFSET: i64 = -8;
+
+extern "C" fn ilang_jit_alloc_object(user_size: i64, deinit_fn_ptr: i64) -> i64 {
+    let total = 16 + (user_size as usize);
+    let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
+    unsafe {
+        let raw = std::alloc::alloc_zeroed(layout);
+        *(raw as *mut i64) = 1;
+        *(raw.add(8) as *mut i64) = deinit_fn_ptr;
+        raw.add(16) as i64
+    }
+}
+
+extern "C" fn ilang_jit_retain_object(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = (ptr + RC_OFFSET) as *mut i64;
+        *rc += 1;
+    }
+}
+
+/// Decrement the object's refcount; on zero call its `deinit` (if any)
+/// and free the underlying allocation.
+///
+/// `deinit` receives `this` as a parameter and (per the JIT's
+/// caller/callee retain-release contract) will release that param at
+/// its exit. To keep that automatic release from underflowing, we
+/// boost the refcount back to 1 right before invoking `deinit`; the
+/// callee's exit-release brings it back to 0.
+extern "C" fn ilang_jit_release_object(ptr: i64, user_size: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc_ptr = (ptr + RC_OFFSET) as *mut i64;
+        *rc_ptr -= 1;
+        if *rc_ptr != 0 {
+            return;
+        }
+        let deinit_ptr = *((ptr + DEINIT_OFFSET) as *const i64);
+        if deinit_ptr != 0 {
+            // No rc boost: deinit's `this` exit-release is suppressed
+            // by the JIT (see define_function_body). Body sees rc=0.
+            let f: extern "C" fn(i64) = std::mem::transmute(deinit_ptr);
+            f(ptr);
+        }
+        let total = 16 + (user_size as usize);
+        let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
+        std::alloc::dealloc((ptr - 16) as *mut u8, layout);
+    }
 }
 
 // ─── console.log per-type print helpers ────────────────────────────────
@@ -476,7 +531,9 @@ struct JitCompiler {
     class_layouts: Vec<ClassLayout>,
     class_methods: Vec<HashMap<String, MethodInfo>>,
     array_kinds: Vec<ArrayKind>,
-    alloc_id: FuncId,
+    alloc_object_id: FuncId,
+    retain_object_id: FuncId,
+    release_object_id: FuncId,
     /// Per-type FFI print helpers used to lower `console.log(...)`.
     print_i64: FuncId,
     print_u64: FuncId,
@@ -512,7 +569,18 @@ impl JitCompiler {
             .map_err(|e| CodegenError::Cranelift(format!("isa: {e}")))?;
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
         // Expose runtime FFI symbols to the JIT.
-        builder.symbol("ilang_jit_alloc", ilang_jit_alloc as *const u8);
+        builder.symbol(
+            "ilang_jit_alloc_object",
+            ilang_jit_alloc_object as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_retain_object",
+            ilang_jit_retain_object as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_release_object",
+            ilang_jit_release_object as *const u8,
+        );
         builder.symbol("ilang_jit_print_i64", ilang_jit_print_i64 as *const u8);
         builder.symbol("ilang_jit_print_u64", ilang_jit_print_u64 as *const u8);
         builder.symbol("ilang_jit_print_f64", ilang_jit_print_f64 as *const u8);
@@ -555,7 +623,20 @@ impl JitCompiler {
         let ctx = module.make_context();
 
         // Declare signatures for every imported runtime function.
-        let alloc_id = declare_import(&mut module, "ilang_jit_alloc", &[I64], Some(I64))?;
+        let alloc_object_id = declare_import(
+            &mut module,
+            "ilang_jit_alloc_object",
+            &[I64, I64],
+            Some(I64),
+        )?;
+        let retain_object_id =
+            declare_import(&mut module, "ilang_jit_retain_object", &[I64], None)?;
+        let release_object_id = declare_import(
+            &mut module,
+            "ilang_jit_release_object",
+            &[I64, I64],
+            None,
+        )?;
         let print_i64 = declare_import(&mut module, "ilang_jit_print_i64", &[I64], None)?;
         let print_u64 = declare_import(&mut module, "ilang_jit_print_u64", &[I64], None)?;
         let print_f64 = declare_import(&mut module, "ilang_jit_print_f64", &[F64], None)?;
@@ -597,7 +678,9 @@ impl JitCompiler {
             class_layouts: Vec::new(),
             class_methods: Vec::new(),
             array_kinds: Vec::new(),
-            alloc_id,
+            alloc_object_id,
+            retain_object_id,
+            release_object_id,
             print_i64,
             print_u64,
             print_f64,
@@ -769,7 +852,9 @@ impl JitCompiler {
             funcs: &self.funcs,
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
-            alloc_id: self.alloc_id,
+            alloc_object_id: self.alloc_object_id,
+            retain_object_id: self.retain_object_id,
+            release_object_id: self.release_object_id,
             print: PrintFns {
                 i64: self.print_i64,
                 u64: self.print_u64,
@@ -801,6 +886,33 @@ impl JitCompiler {
             array_kinds: &mut self.array_kinds,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
+        // Release object params (and `this` for methods) at function
+        // exit. Caller used `emit_retain_object` on each before the
+        // call, so the rc comes out balanced.
+        let mut param_releases: Vec<(Variable, u32)> = f
+            .params
+            .iter()
+            .filter_map(|p| {
+                let &(var, jty) = lc.env.bindings.get(&p.name)?;
+                if let JitTy::Object(id) = jty {
+                    Some((var, id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // Skip releasing `this` inside `deinit` — release_object already
+        // owns the lifecycle here. Releasing again would re-enter
+        // release_object on rc=0 and infinite-loop.
+        if let Some((this_var, class_id)) = this {
+            if f.name != "deinit" {
+                param_releases.push((this_var, class_id));
+            }
+        }
+        for (var, id) in param_releases {
+            let p = builder.use_var(var);
+            emit_release_object(&mut builder, &mut lc, p, id);
+        }
         emit_return(&mut builder, ret_ty, body, f.span)?;
         builder.finalize();
 
@@ -837,7 +949,9 @@ impl JitCompiler {
             funcs: &self.funcs,
             class_layouts: &self.class_layouts,
             class_methods: &self.class_methods,
-            alloc_id: self.alloc_id,
+            alloc_object_id: self.alloc_object_id,
+            retain_object_id: self.retain_object_id,
+            release_object_id: self.release_object_id,
             print: PrintFns {
                 i64: self.print_i64,
                 u64: self.print_u64,
@@ -868,6 +982,10 @@ impl JitCompiler {
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
         };
+        // Snapshot empty env so we know which top-level lets to release
+        // at __main exit. Mirrors what lower_block_value does for blocks.
+        let before: std::collections::HashSet<String> =
+            lc.env.bindings.keys().cloned().collect();
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
         }
@@ -877,6 +995,31 @@ impl JitCompiler {
             Some(t) => lower_expr(&mut builder, &mut lc, t)?,
             None => None,
         };
+        // Retain the body value if it's an Object so the imminent
+        // releases of top-level lets don't free what we're returning.
+        if let Some((v, JitTy::Object(_))) = body {
+            emit_retain_object(&mut builder, &mut lc, v);
+        }
+        let mut releases: Vec<(Variable, u32)> = lc
+            .env
+            .bindings
+            .iter()
+            .filter(|(k, _)| !before.contains(k.as_str()))
+            .filter_map(|(_, &(var, jty))| {
+                if let JitTy::Object(id) = jty {
+                    Some((var, id))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // LIFO release so the most-recently-bound (likely depending on
+        // earlier ones) drops first.
+        releases.sort_by_key(|(var, _)| std::cmp::Reverse(var.as_u32()));
+        for (var, id) in releases {
+            let p = builder.use_var(var);
+            emit_release_object(&mut builder, &mut lc, p, id);
+        }
         emit_return(&mut builder, ret_ty, body, ilang_ast::Span::dummy())?;
         builder.finalize();
 
@@ -1081,7 +1224,9 @@ struct LowerCtx<'a> {
     funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
     class_layouts: &'a [ClassLayout],
     class_methods: &'a [HashMap<String, MethodInfo>],
-    alloc_id: FuncId,
+    alloc_object_id: FuncId,
+    retain_object_id: FuncId,
+    release_object_id: FuncId,
     print: PrintFns,
     strfns: StrFns,
     arrfns: ArrayFns,
@@ -1151,6 +1296,15 @@ fn lower_stmt(
                 None => vt,
             };
             let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
+            // Aliased binding (`let y = x` where x came from a Var/
+            // Field/Index of object type) needs an extra retain so the
+            // new binding has its own reference. Fresh allocations
+            // (`new C(...)`, function results) already start at rc=1.
+            if let JitTy::Object(_) = bind_ty {
+                if is_aliased_object_source(&value.kind) {
+                    emit_retain_object(b, lc, coerced);
+                }
+            }
             let var = Variable::new(lc.env.next_var_id());
             b.declare_var(
                 var,
@@ -1184,13 +1338,79 @@ fn lower_block_value(
     lc: &mut LowerCtx,
     block: &ilang_ast::Block,
 ) -> Result<Option<TV>, CodegenError> {
+    let before: std::collections::HashSet<String> =
+        lc.env.bindings.keys().cloned().collect();
     for s in &block.stmts {
         lower_stmt(b, lc, s)?;
     }
-    match &block.tail {
-        Some(t) => lower_expr(b, lc, t),
-        None => Ok(None),
+    let tail = match &block.tail {
+        Some(t) => lower_expr(b, lc, t)?,
+        None => None,
+    };
+    // Retain the tail value if it's an Object, so the upcoming releases
+    // of this block's heap-typed bindings don't free the value the
+    // caller is about to consume.
+    if let Some((v, JitTy::Object(_))) = tail {
+        emit_retain_object(b, lc, v);
     }
+    // Release any object bindings introduced by this block, then drop
+    // them from the env so an outer-scope release pass doesn't see the
+    // freed value a second time. (Other binding types are left in place
+    // since their rc isn't tracked yet.)
+    // Release in LIFO order (most-recently-bound first) so a later
+    // binding can depend on an earlier one's heap fields without the
+    // earlier one getting freed first.
+    let mut new_objects: Vec<(String, Variable, u32)> = lc
+        .env
+        .bindings
+        .iter()
+        .filter(|(k, _)| !before.contains(k.as_str()))
+        .filter_map(|(k, &(var, jty))| {
+            if let JitTy::Object(id) = jty {
+                Some((k.clone(), var, id))
+            } else {
+                None
+            }
+        })
+        .collect();
+    new_objects.sort_by_key(|(_, var, _)| std::cmp::Reverse(var.as_u32()));
+    for (k, var, class_id) in new_objects {
+        let p = b.use_var(var);
+        emit_release_object(b, lc, p, class_id);
+        lc.env.bindings.remove(&k);
+    }
+    Ok(tail)
+}
+
+/// True when an expression "borrows" an existing heap reference rather
+/// than producing a fresh one. Used to decide whether a let binding
+/// needs an extra retain to balance its own scope-exit release.
+fn is_aliased_object_source(kind: &ExprKind) -> bool {
+    matches!(
+        kind,
+        ExprKind::Var(_) | ExprKind::Field { .. } | ExprKind::Index { .. } | ExprKind::This
+    )
+}
+
+fn emit_retain_object(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+) {
+    let r = lc.module.declare_func_in_func(lc.retain_object_id, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+fn emit_release_object(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+    class_id: u32,
+) {
+    let r = lc.module.declare_func_in_func(lc.release_object_id, b.func);
+    let size = lc.class_layouts[class_id as usize].size as i64;
+    let size_v = b.ins().iconst(I64, size);
+    b.ins().call(r, &[ptr, size_v]);
 }
 
 fn lower_expr(
@@ -1356,6 +1576,15 @@ fn lower_expr(
                 }
             })?;
             let coerced = coerce(b, (val, vt), fty, e.span)?;
+            // The field will hold its own reference. Retain so the value
+            // outlives the storing scope (e.g. `this.c = counter` keeps
+            // counter alive past the init/scope that supplied it).
+            // Phase A leaks the previous field value — releasing it
+            // requires reading the old slot first, which is left to a
+            // follow-up.
+            if let JitTy::Object(_) = fty {
+                emit_retain_object(b, lc, coerced);
+            }
             b.ins()
                 .store(MemFlags::trusted(), coerced, obj_v, offset as i32);
             Ok(None)
@@ -1475,7 +1704,13 @@ fn lower_expr(
                             span: a.span,
                         }
                     })?;
-                    arg_vals.push(coerce(b, (av, at), param_tys[i], a.span)?);
+                    let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
+                    if matches!(param_tys[i], JitTy::Object(_))
+                        && is_aliased_object_source(&a.kind)
+                    {
+                        emit_retain_object(b, lc, coerced);
+                    }
+                    arg_vals.push(coerced);
                 }
                 let func_ref = lc.module.declare_func_in_func(id, b.func);
                 let call = b.ins().call(func_ref, &arg_vals);
@@ -1618,10 +1853,20 @@ fn lower_expr(
                     span: e.span,
                 })?;
             let size = lc.class_layouts[class_id as usize].size as i64;
-            // ptr = ilang_jit_alloc(size)
-            let alloc_ref = lc.module.declare_func_in_func(lc.alloc_id, b.func);
+            // Look up the class's `deinit` (if any) and embed its
+            // function pointer in the allocation header so the runtime
+            // release can dispatch it without consulting tables.
+            let deinit_fn_ptr = match lc.class_methods[class_id as usize].get("deinit") {
+                Some(info) => {
+                    let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+                    b.ins().func_addr(I64, func_ref)
+                }
+                None => b.ins().iconst(I64, 0),
+            };
+            let alloc_ref =
+                lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
             let size_v = b.ins().iconst(I64, size);
-            let alloc_call = b.ins().call(alloc_ref, &[size_v]);
+            let alloc_call = b.ins().call(alloc_ref, &[size_v, deinit_fn_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
             // If init exists, call it.
             if lc.class_methods[class_id as usize].contains_key("init") {
@@ -1760,6 +2005,10 @@ fn call_method(
             ),
             span,
         })?;
+    // The callee will release `this` and any object params at exit; the
+    // caller must retain so its own references survive. (No-op for
+    // fresh-alloc receivers/args where rc=1 is already "owned".)
+    emit_retain_object(b, lc, this_v);
     let mut arg_vals = Vec::with_capacity(args.len() + 1);
     arg_vals.push(this_v);
     for (i, a) in args.iter().enumerate() {
@@ -1767,7 +2016,11 @@ fn call_method(
             what: "argument is unit".into(),
             span: a.span,
         })?;
-        arg_vals.push(coerce(b, (av, at), info.params[i], a.span)?);
+        let coerced = coerce(b, (av, at), info.params[i], a.span)?;
+        if matches!(info.params[i], JitTy::Object(_)) && is_aliased_object_source(&a.kind) {
+            emit_retain_object(b, lc, coerced);
+        }
+        arg_vals.push(coerced);
     }
     let func_ref = lc.module.declare_func_in_func(info.id, b.func);
     let call = b.ins().call(func_ref, &arg_vals);

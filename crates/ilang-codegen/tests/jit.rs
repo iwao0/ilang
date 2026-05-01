@@ -297,3 +297,50 @@ fn array_returned_to_host() {
 fn array_of_f64() {
     assert_eq!(jit("let a: f64[] = [1.5, 2.5, 3.5]; a[2]"), JitValue::F64(3.5));
 }
+
+#[test]
+fn jit_deinit_runs_on_block_exit() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        {
+            let _t = new Tracked(counter)
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
+}
+
+#[test]
+fn jit_deinit_skipped_when_aliased() {
+    // The inner `_b = a` retains; when `_b` drops, rc still > 0 because
+    // `a` outlives it. deinit shouldn't fire mid-program.
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        let counter = new Counter()
+        let a = new Tracked(counter)
+        {
+            let _b = a
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(0));
+}
