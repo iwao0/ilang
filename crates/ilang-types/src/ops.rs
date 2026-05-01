@@ -11,6 +11,21 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if matches!(to, Type::Any) {
         return true;
     }
+    // `none` (typed as Optional<Any>) is assignable to any Optional.
+    if let (Type::Optional(inner), Type::Optional(_)) = (from, to) {
+        if matches!(inner.as_ref(), Type::Any) {
+            return true;
+        }
+    }
+    // T? to U?: structural check on the inner.
+    if let (Type::Optional(a), Type::Optional(b)) = (from, to) {
+        return assignable(a, b);
+    }
+    // Auto-wrap: T → T? where T is assignable to inner. Lets
+    // `let x: User? = some_user` and `f(arg: User?)` work.
+    if let Type::Optional(inner) = to {
+        return assignable(from, inner);
+    }
     // Arrays: element types must match exactly. Fixed lengths must agree;
     // there is intentionally no implicit conversion between fixed and
     // dynamic arrays (use a copy/conversion when explicit ones land).

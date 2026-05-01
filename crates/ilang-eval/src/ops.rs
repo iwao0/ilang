@@ -391,6 +391,14 @@ pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
                 v
             }
         }
+        // Optional target: pass `None`/`Some` through untouched, otherwise
+        // auto-wrap a bare value with `Some` (deep-casting the inner so
+        // `let x: i32? = 5` stores `Some(Int32(5))`).
+        Type::Optional(inner) => match v {
+            Value::None => Value::None,
+            Value::Some(boxed) => Value::Some(Box::new(cast_value(*boxed, inner))),
+            other => Value::Some(Box::new(cast_value(other, inner))),
+        },
         _ => v,
     }
 }

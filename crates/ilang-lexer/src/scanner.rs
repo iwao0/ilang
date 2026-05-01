@@ -314,6 +314,10 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Hash
             }
+            '?' => {
+                self.bump();
+                TokenKind::Question
+            }
             '"' => self.read_string(span)?,
             c if c.is_ascii_digit() => self.read_number(span)?,
             c if is_ident_start(c) => self.read_ident_or_keyword(),
@@ -470,6 +474,8 @@ impl<'a> Lexer<'a> {
             "new" => TokenKind::New,
             "this" => TokenKind::This,
             "as" => TokenKind::As,
+            "none" => TokenKind::None_,
+            "some" => TokenKind::Some_,
             _ => TokenKind::Ident(buf),
         }
     }

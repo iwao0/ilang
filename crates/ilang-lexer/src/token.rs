@@ -21,6 +21,8 @@ pub enum TokenKind {
     New,
     This,
     As,
+    None_,
+    Some_,
     // punctuation
     Plus,
     Minus,
@@ -65,6 +67,7 @@ pub enum TokenKind {
     Bang,
     Dot,
     Hash,
+    Question,
     Eof,
 }
 

@@ -118,6 +118,19 @@ pub enum ExprKind {
         index: Box<Expr>,
         value: Box<Expr>,
     },
+    /// `none` literal — its concrete `T?` type is determined by context.
+    None,
+    /// `some(x)` constructor: wraps `x` of type `T` as a `T?` value.
+    Some(Box<Expr>),
+    /// `if let some(name) = expr { then } else { ... }`. Inside `then`,
+    /// `name` is bound to the unwrapped value of type `T` (where the
+    /// scrutinee has type `T?`).
+    IfLet {
+        name: String,
+        expr: Box<Expr>,
+        then_branch: Block,
+        else_branch: Option<Box<Expr>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

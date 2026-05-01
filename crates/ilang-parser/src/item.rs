@@ -249,30 +249,39 @@ impl<'a> Parser<'a> {
                 });
             }
         };
-        // Array postfix: `T[]` (dynamic) or `T[N]` (fixed length, N a
-        // non-negative integer literal). Chains: `T[][]` etc.
-        while matches!(self.peek().kind, TokenKind::LBracket) {
-            self.bump();
-            let fixed = match self.peek().kind {
-                TokenKind::RBracket => None,
-                TokenKind::Int(n) if n >= 0 => {
+        // Postfix modifiers: array `T[]` / `T[N]` and optional `T?`.
+        // Both can chain (`T[]?`, `T?[]`, `T??` though redundant).
+        loop {
+            match self.peek().kind {
+                TokenKind::LBracket => {
                     self.bump();
-                    Some(n as usize)
+                    let fixed = match self.peek().kind {
+                        TokenKind::RBracket => None,
+                        TokenKind::Int(n) if n >= 0 => {
+                            self.bump();
+                            Some(n as usize)
+                        }
+                        _ => {
+                            let p = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: p.kind.clone(),
+                                expected: "']' or non-negative integer literal".into(),
+                                span: p.span,
+                            });
+                        }
+                    };
+                    self.expect(&TokenKind::RBracket, "']'")?;
+                    ty = Type::Array {
+                        elem: Box::new(ty),
+                        fixed,
+                    };
                 }
-                _ => {
-                    let p = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: p.kind.clone(),
-                        expected: "']' or non-negative integer literal".into(),
-                        span: p.span,
-                    });
+                TokenKind::Question => {
+                    self.bump();
+                    ty = Type::Optional(Box::new(ty));
                 }
-            };
-            self.expect(&TokenKind::RBracket, "']'")?;
-            ty = Type::Array {
-                elem: Box::new(ty),
-                fixed,
-            };
+                _ => break,
+            }
         }
         Ok(ty)
     }

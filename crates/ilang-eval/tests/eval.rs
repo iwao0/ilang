@@ -872,3 +872,85 @@ fn deinit_runs_on_nested_object_field() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(1));
 }
+
+// ─── Optional (`T?`) ──────────────────────────────────────────────────
+
+#[test]
+fn optional_some_and_none_construct() {
+    assert_eq!(
+        run("let x: i64? = some(42); x").unwrap(),
+        Value::Some(Box::new(Value::Int(42)))
+    );
+    assert_eq!(run("let x: i64? = none; x").unwrap(), Value::None);
+}
+
+#[test]
+fn optional_auto_wrap_on_let() {
+    assert_eq!(
+        run("let x: i64? = 7; x").unwrap(),
+        Value::Some(Box::new(Value::Int(7)))
+    );
+}
+
+#[test]
+fn optional_if_let_some_branch() {
+    let src = r#"
+        let x: i64? = some(10)
+        let r = 0
+        if let some(v) = x {
+            r = v + 1
+        } else {
+            r = -1
+        }
+        r
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(11));
+}
+
+#[test]
+fn optional_if_let_none_branch() {
+    let src = r#"
+        let x: i64? = none
+        let r = 0
+        if let some(v) = x {
+            r = v
+        } else {
+            r = 99
+        }
+        r
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(99));
+}
+
+#[test]
+fn optional_predicates_and_unwrap() {
+    let src = r#"
+        let a: i64? = some(5)
+        let b: i64? = none
+        let r1 = if a.is_some() { a.unwrap() } else { -1 }
+        let r2 = if b.is_none() { 100 } else { -1 }
+        r1 + r2
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(105));
+}
+
+#[test]
+fn optional_string_field() {
+    let src = r#"
+        class Holder {
+            name: string?
+            init() { this.name = none }
+        }
+        let h = new Holder()
+        h.name = some("hello")
+        if let some(s) = h.name {
+            s
+        } else {
+            "missing"
+        }
+    "#;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Str(std::rc::Rc::new("hello".to_string()))
+    );
+}

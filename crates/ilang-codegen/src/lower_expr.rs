@@ -553,6 +553,13 @@ pub(crate) fn lower_expr(
             }
             Ok(Some((ptr, JitTy::Object(class_id))))
         }
+        ExprKind::None | ExprKind::Some(_) | ExprKind::IfLet { .. } => {
+            Err(CodegenError::Unsupported {
+                what: "Optional (`T?` / `none` / `some` / `if let`) not supported in JIT yet"
+                    .into(),
+                span: e.span,
+            })
+        }
     }
 }
 

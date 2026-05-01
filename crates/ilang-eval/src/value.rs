@@ -33,6 +33,12 @@ pub enum Value {
     Array(Rc<RefCell<Vec<Value>>>),
     Unit,
     Object(ObjectRef),
+    /// `T?` — `None` is the absent state, `Some(v)` wraps a present value.
+    /// The static type information needed to distinguish "string?-none"
+    /// from "i64?-none" lives in the type checker; the runtime treats
+    /// `None` uniformly.
+    None,
+    Some(Box<Value>),
 }
 
 impl std::fmt::Display for Value {
@@ -74,6 +80,8 @@ impl std::fmt::Display for Value {
                 write!(f, "]")
             }
             Value::Unit => write!(f, "()"),
+            Value::None => write!(f, "none"),
+            Value::Some(v) => write!(f, "some({v})"),
             Value::Object(o) => {
                 let o = o.borrow();
                 write!(f, "{} {{", o.class)?;

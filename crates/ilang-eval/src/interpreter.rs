@@ -165,6 +165,31 @@ impl Interpreter {
             }
             ExprKind::MethodCall { obj, method, args } => {
                 let v = self.eval_expr(obj)?;
+                // Built-in Optional methods. The type checker has
+                // verified arity (0 args).
+                if matches!(v, Value::None | Value::Some(_)) {
+                    match method.as_str() {
+                        "is_some" => return Ok(Value::Bool(matches!(v, Value::Some(_)))),
+                        "is_none" => return Ok(Value::Bool(matches!(v, Value::None))),
+                        "unwrap" => {
+                            return match v {
+                                Value::Some(inner) => Ok(*inner),
+                                Value::None => Err(RuntimeError::TypeError {
+                                    msg: "unwrap on `none`".into(),
+                                    span,
+                                }),
+                                _ => unreachable!(),
+                            };
+                        }
+                        _ => {
+                            return Err(RuntimeError::UnknownMethod {
+                                class: "optional".into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 if let Value::Array(arr) = &v {
                     if method == "push" {
                         // Type checker enforced arity 1 and dynamic-only.
@@ -293,6 +318,44 @@ impl Interpreter {
                     self.release(o);
                 }
                 Ok(Value::Unit)
+            }
+            ExprKind::None => Ok(Value::None),
+            ExprKind::Some(inner) => {
+                let v = self.eval_expr(inner)?;
+                Ok(Value::Some(Box::new(v)))
+            }
+            ExprKind::IfLet {
+                name,
+                expr,
+                then_branch,
+                else_branch,
+            } => {
+                let scrut = self.eval_expr(expr)?;
+                match scrut {
+                    Value::Some(inner) => {
+                        // Bind `name` for the then-branch only, then
+                        // restore the prior binding (mirrors the shadow
+                        // discipline of `let` inside `eval_block`).
+                        let prev = self.vars.insert(name.clone(), *inner);
+                        let result = self.eval_block(then_branch);
+                        let outgoing = match prev {
+                            Some(v) => self.vars.insert(name.clone(), v),
+                            None => self.vars.remove(name),
+                        };
+                        if let Some(v) = outgoing {
+                            self.release(v);
+                        }
+                        result
+                    }
+                    Value::None => match else_branch {
+                        Some(e) => self.eval_expr(e),
+                        None => Ok(Value::Unit),
+                    },
+                    other => Err(RuntimeError::TypeError {
+                        msg: format!("if-let on non-optional value {other}"),
+                        span,
+                    }),
+                }
             }
         }
     }

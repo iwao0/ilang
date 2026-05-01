@@ -17,6 +17,17 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
     if assignable(vt, target) {
         return true;
     }
+    // `let x: T? = literal` — auto-wrap. The literal is assignable to T?
+    // iff it's assignable to the inner T (with literal coercions).
+    if let Type::Optional(inner) = target {
+        // `none` itself: vt = Optional<Any>, handled by `assignable`. For
+        // `some(x)`, vt = Optional<U>, also handled there. The remaining
+        // case is a bare literal that should coerce to the inner.
+        if matches!(vt, Type::Optional(_)) {
+            return false; // already handled above
+        }
+        return literal_assignable(value, vt, inner);
+    }
     // Array literal → array type. Lets `let a: i32[] = [1, 2, 3]` work
     // even though the literal's natural element type is i64, and lets
     // `let a: i32[3] = [1, 2, 3]` match a fixed-length annotation.
@@ -242,6 +253,9 @@ impl TypeChecker {
             Type::Array { elem, .. } => {
                 self.validate_type(elem, span)?;
             }
+            Type::Optional(inner) => {
+                self.validate_type(inner, span)?;
+            }
             _ => {}
         }
         Ok(())
@@ -417,6 +431,40 @@ impl TypeChecker {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
                 let ot = self.check_expr(obj, env, in_class, loop_depth)?;
+                // Built-in Optional methods: is_some / is_none / unwrap.
+                if let Type::Optional(inner) = &ot {
+                    match method.as_str() {
+                        "is_some" | "is_none" => {
+                            if !args.is_empty() {
+                                return Err(TypeError::ArityMismatch {
+                                    name: method.clone(),
+                                    expected: 0,
+                                    got: args.len(),
+                                    span,
+                                });
+                            }
+                            return Ok(Type::Bool);
+                        }
+                        "unwrap" => {
+                            if !args.is_empty() {
+                                return Err(TypeError::ArityMismatch {
+                                    name: method.clone(),
+                                    expected: 0,
+                                    got: args.len(),
+                                    span,
+                                });
+                            }
+                            return Ok((**inner).clone());
+                        }
+                        _ => {
+                            return Err(TypeError::UnknownMethod {
+                                class: format!("{ot}"),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 // Built-in array methods.
                 if let Type::Array { elem, fixed } = &ot {
                     if method == "push" {
@@ -739,6 +787,64 @@ impl TypeChecker {
                     });
                 }
                 Ok(Type::Unit)
+            }
+            ExprKind::None => Ok(Type::Optional(Box::new(Type::Any))),
+            ExprKind::Some(inner) => {
+                let it = self.check_expr(inner, env, in_class, loop_depth)?;
+                Ok(Type::Optional(Box::new(it)))
+            }
+            ExprKind::IfLet {
+                name,
+                expr,
+                then_branch,
+                else_branch,
+            } => {
+                let scrut_ty = self.check_expr(expr, env, in_class, loop_depth)?;
+                let inner = match &scrut_ty {
+                    Type::Optional(t) => (**t).clone(),
+                    _ => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Optional(Box::new(Type::Any)),
+                            got: scrut_ty,
+                            span: expr.span,
+                        });
+                    }
+                };
+                // Inner must be concrete for the binding to be useful;
+                // we reject `if let some(x) = none` because the type of
+                // x would be `Any`.
+                if matches!(inner, Type::Any) {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Optional(Box::new(Type::Any)),
+                        got: scrut_ty,
+                        span: expr.span,
+                    });
+                }
+                let mut then_env = env.clone();
+                then_env.insert(name.clone(), inner);
+                let then_ty = self.check_block(then_branch, &then_env, in_class, loop_depth)?;
+                if let Some(eb) = else_branch {
+                    let else_ty = self.check_expr(eb, env, in_class, loop_depth)?;
+                    // Pick the unifying type: if either branch is Unit, the
+                    // overall expr is Unit (statement-style); otherwise the
+                    // two branches must agree.
+                    if matches!(then_ty, Type::Unit) || matches!(else_ty, Type::Unit) {
+                        Ok(Type::Unit)
+                    } else if assignable(&else_ty, &then_ty) {
+                        Ok(then_ty)
+                    } else if assignable(&then_ty, &else_ty) {
+                        Ok(else_ty)
+                    } else {
+                        Err(TypeError::Mismatch {
+                            expected: then_ty,
+                            got: else_ty,
+                            span,
+                        })
+                    }
+                } else {
+                    // No else: the result is Unit even if then has a value.
+                    Ok(Type::Unit)
+                }
             }
         }
     }

@@ -321,6 +321,17 @@ impl<'a> Parser<'a> {
                 Ok(Expr::new(ExprKind::New { class, args }, span))
             }
             TokenKind::If => self.parse_if(),
+            TokenKind::None_ => {
+                self.bump();
+                Ok(Expr::new(ExprKind::None, span))
+            }
+            TokenKind::Some_ => {
+                self.bump();
+                self.expect(&TokenKind::LParen, "'('")?;
+                let inner = self.parse_expr(0)?;
+                self.expect(&TokenKind::RParen, "')'")?;
+                Ok(Expr::new(ExprKind::Some(Box::new(inner)), span))
+            }
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
             TokenKind::Break => {
@@ -433,6 +444,13 @@ impl<'a> Parser<'a> {
     fn parse_if(&mut self) -> Result<Expr, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::If, "'if'")?;
+        // `if let some(name) = expr { ... } else { ... }` — the only
+        // pattern form supported (so far). Anything else after `if let`
+        // is a syntax error to avoid promising more pattern matching
+        // than is implemented.
+        if matches!(self.peek().kind, TokenKind::Let) {
+            return self.parse_if_let(span);
+        }
         let cond = self.parse_expr(0)?;
         let then_branch = parse_block(self)?;
         let else_branch = if matches!(self.peek().kind, TokenKind::Else) {
@@ -453,6 +471,39 @@ impl<'a> Parser<'a> {
         Ok(Expr::new(
             ExprKind::If {
                 cond: Box::new(cond),
+                then_branch,
+                else_branch,
+            },
+            span,
+        ))
+    }
+
+    fn parse_if_let(&mut self, span: ilang_ast::Span) -> Result<Expr, ParseError> {
+        self.expect(&TokenKind::Let, "'let'")?;
+        self.expect(&TokenKind::Some_, "'some' (only pattern supported)")?;
+        self.expect(&TokenKind::LParen, "'('")?;
+        let name = self.expect_ident("variable name")?;
+        self.expect(&TokenKind::RParen, "')'")?;
+        self.expect(&TokenKind::Equals, "'='")?;
+        let scrut = self.parse_expr(0)?;
+        let then_branch = parse_block(self)?;
+        let else_branch = if matches!(self.peek().kind, TokenKind::Else) {
+            self.bump();
+            if matches!(self.peek().kind, TokenKind::If) {
+                let inner = self.parse_if()?;
+                Some(Box::new(inner))
+            } else {
+                let block_span = self.peek().span;
+                let block = parse_block(self)?;
+                Some(Box::new(Expr::new(ExprKind::Block(block), block_span)))
+            }
+        } else {
+            None
+        };
+        Ok(Expr::new(
+            ExprKind::IfLet {
+                name,
+                expr: Box::new(scrut),
                 then_branch,
                 else_branch,
             },

@@ -23,6 +23,9 @@ pub enum Type {
         elem: Box<Type>,
         fixed: Option<usize>,
     },
+    /// `T?` — value that may be present (`some(v)`) or absent (`none`).
+    /// Construction auto-wraps a `T` in any context expecting a `T?`.
+    Optional(Box<Type>),
     /// Internal-only type used by built-in signatures (e.g. `console.log`)
     /// that accept any value. The parser does not produce it; user code
     /// cannot annotate a binding with it.
@@ -76,6 +79,7 @@ impl std::fmt::Display for Type {
             Type::Object(name) => write!(f, "{name}"),
             Type::Array { elem, fixed: None } => write!(f, "{elem}[]"),
             Type::Array { elem, fixed: Some(n) } => write!(f, "{elem}[{n}]"),
+            Type::Optional(inner) => write!(f, "{inner}?"),
             Type::Any => write!(f, "any"),
         }
     }
