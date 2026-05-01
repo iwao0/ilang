@@ -19,4 +19,4 @@ mod value;
 
 pub use compiler::jit_run;
 pub use error::CodegenError;
-pub use value::JitValue;
+pub use value::{JitEnumPayload, JitValue};

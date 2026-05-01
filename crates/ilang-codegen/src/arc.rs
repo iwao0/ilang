@@ -140,6 +140,7 @@ pub(crate) fn emit_retain_heap(
         JitTy::Str => emit_retain_string(b, lc, ptr),
         JitTy::Array(_) => emit_retain_array(b, lc, ptr),
         JitTy::Weak(_) => emit_retain_weak(b, lc, ptr),
+        JitTy::EnumHeap(_) => emit_retain_object(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_retain_heap(b, lc, ptr, inner);
@@ -160,10 +161,26 @@ pub(crate) fn emit_release_heap(
         JitTy::Str => emit_release_string(b, lc, ptr),
         JitTy::Array(id) => emit_release_array(b, lc, ptr, id),
         JitTy::Weak(class_id) => emit_release_weak(b, lc, ptr, class_id),
+        JitTy::EnumHeap(enum_id) => emit_release_enum_heap(b, lc, ptr, enum_id),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_release_heap(b, lc, ptr, inner);
         }
         _ => {}
     }
+}
+
+/// Release an enum-heap value. The user_size passed to release_object
+/// is the per-enum tagged-union total: 8 (tag area) + max_payload_size.
+pub(crate) fn emit_release_enum_heap(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+    enum_id: u32,
+) {
+    let layout = &lc.enum_layouts[enum_id as usize];
+    let user_size = 8i64 + layout.max_payload_size as i64;
+    let r = lc.module.declare_func_in_func(lc.release_object_id, b.func);
+    let size_v = b.ins().iconst(I64, user_size);
+    b.ins().call(r, &[ptr, size_v]);
 }

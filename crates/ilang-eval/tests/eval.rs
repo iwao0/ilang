@@ -1162,3 +1162,66 @@ fn enum_non_exhaustive_match_is_type_error() {
     let prog = parse(&toks).unwrap();
     assert!(TypeChecker::new().check(&prog).is_err());
 }
+
+// ─── enum + match (Phase 2: payload variants) ────────────────────────
+
+#[test]
+fn enum_tuple_payload() {
+    let src = r#"
+        enum Shape {
+            Circle(f64)
+            Rect(f64, f64)
+        }
+        fn area(s: Shape): f64 {
+            match s {
+                Shape::Circle(r) => 3.14 * r * r
+                Shape::Rect(w, h) => w * h
+            }
+        }
+        area(Shape::Rect(3.0, 4.0))
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Float(12.0));
+}
+
+#[test]
+fn enum_struct_payload_with_shorthand() {
+    let src = r#"
+        enum Pt {
+            Origin
+            At { x: i64, y: i64 }
+        }
+        fn sumxy(p: Pt): i64 {
+            match p {
+                Pt::Origin => 0
+                Pt::At { x, y } => x + y
+            }
+        }
+        sumxy(Pt::At { x: 3, y: 4 })
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(7));
+}
+
+#[test]
+fn enum_payload_runs_deinit_on_release() {
+    // Wrap holds a Tracked. When the binding goes out of scope, the
+    // Tracked's deinit must fire (counter goes from 0 to 1).
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n += 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        enum Wrap { Has(Tracked), Empty }
+        let counter = new Counter()
+        {
+            let _w = Wrap::Has(new Tracked(counter))
+        }
+        counter.n
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}

@@ -42,11 +42,15 @@ pub(crate) enum JitTy {
     /// the weak retain/release helpers and `weak_get` checks liveness.
     /// The id is a class id, identical in shape to `Object(class_id)`.
     Weak(u32),
-    /// User-defined `enum`. Phase 1 layout: a 4-byte i32 ordinal tag
-    /// (no heap, no rc). Phase 2 will add a tagged-union variant for
-    /// enums with payload-carrying variants. The id indexes the
+    /// User-defined `enum`, all variants unit. Stored as a 4-byte
+    /// i32 ordinal tag (no heap, no rc). The id indexes the
     /// compiler's `enum_layouts` table.
     Enum(u32),
+    /// User-defined `enum` with at least one payload-carrying variant.
+    /// Heap-allocated tagged union — the same allocation header used
+    /// for objects, with `[tag: i32 | padding | payload]` as the user
+    /// area. The id indexes `enum_layouts`.
+    EnumHeap(u32),
     Unit,
 }
 
@@ -57,6 +61,7 @@ impl JitTy {
         span: ilang_ast::Span,
         class_ids: &HashMap<String, u32>,
         enum_ids: &HashMap<String, u32>,
+        enum_layouts: &[EnumLayout],
         array_kinds: &mut Vec<ArrayKind>,
         optional_inners: &mut Vec<JitTy>,
     ) -> Result<Self, CodegenError> {
@@ -77,9 +82,23 @@ impl JitTy {
             Type::Object(name) => {
                 // The parser produces Object(name) for any user-defined
                 // type — could be a class or an enum. Enum lookup wins
-                // when the name matches one.
+                // when the name matches one. We need access to the
+                // enum_layouts to know whether the storage is the
+                // unit-tag form or a tagged-union heap allocation; we
+                // smuggle that decision via a sentinel inner type:
+                // EnumHeap is chosen when at least one variant has a
+                // payload. We can't inspect layouts here without the
+                // table; mark as Enum and let the caller (the JIT
+                // compiler at the same point in its pipeline as
+                // enum_layouts) resolve the storage. To keep this pure,
+                // we store the storage decision at decl time by using
+                // EnumHeap when payloads exist (see compiler.rs).
                 if let Some(eid) = enum_ids.get(name).copied() {
-                    JitTy::Enum(eid)
+                    if enum_layouts[eid as usize].all_unit {
+                        JitTy::Enum(eid)
+                    } else {
+                        JitTy::EnumHeap(eid)
+                    }
                 } else {
                     let id = class_ids.get(name).copied().ok_or_else(|| {
                         CodegenError::Unsupported {
@@ -97,10 +116,14 @@ impl JitTy {
                         span,
                     }
                 })?;
-                JitTy::Enum(id)
+                if enum_layouts[id as usize].all_unit {
+                    JitTy::Enum(id)
+                } else {
+                    JitTy::EnumHeap(id)
+                }
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, array_kinds, optional_inners)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -111,7 +134,7 @@ impl JitTy {
                 JitTy::Array(id)
             }
             Type::Optional(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
                 if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
@@ -122,7 +145,7 @@ impl JitTy {
                 JitTy::Optional(id)
             }
             Type::Weak(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
                 match inner_jty {
                     JitTy::Object(class_id) => JitTy::Weak(class_id),
                     _ => {
@@ -153,7 +176,8 @@ impl JitTy {
             | JitTy::Str
             | JitTy::Array(_)
             | JitTy::Optional(_)
-            | JitTy::Weak(_) => I64,
+            | JitTy::Weak(_)
+            | JitTy::EnumHeap(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -168,6 +192,7 @@ impl JitTy {
             JitTy::I64
             | JitTy::U64
             | JitTy::F64
+            | JitTy::EnumHeap(_)
             | JitTy::Object(_)
             | JitTy::Str
             | JitTy::Array(_)
@@ -183,7 +208,12 @@ impl JitTy {
     pub(crate) fn is_heap(self) -> bool {
         matches!(
             self,
-            JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Optional(_) | JitTy::Weak(_)
+            JitTy::Object(_)
+                | JitTy::Str
+                | JitTy::Array(_)
+                | JitTy::Optional(_)
+                | JitTy::Weak(_)
+                | JitTy::EnumHeap(_)
         )
     }
 
@@ -223,22 +253,32 @@ pub(crate) struct ArrayKind {
     pub fixed: Option<u32>,
 }
 
-/// Per-enum layout information used by the JIT. Phase 1 supports only
-/// unit-only enums (Phase 2 will extend `variants` with payload field
-/// metadata for tagged-union codegen).
+/// Per-enum layout information used by the JIT. For unit-only enums
+/// the storage is a bare i32 ordinal. For enums with at least one
+/// payload variant, each `new` allocates a tagged-union object whose
+/// user area is `[tag: i32 | padding | payload bytes]` where
+/// `max_payload_size` is the max across variants.
 #[derive(Debug, Clone)]
 pub(crate) struct EnumLayout {
     pub name: String,
     /// Variant names in declaration order; the index is the i32 tag.
     pub variants: Vec<String>,
     /// `true` when every variant is unit (Phase 1 representation: bare
-    /// i32 tag, no heap). `false` is reserved for Phase 2.
+    /// i32 tag, no heap).
     pub all_unit: bool,
-    /// Per-variant payload metadata (Phase 2). Indices align with
-    /// `variants`; for Phase 1 every entry is `EnumVariantLayout::Unit`.
-    #[allow(dead_code)]
+    /// Per-variant payload metadata; offsets are within the user
+    /// payload area (i.e. `addr + ENUM_PAYLOAD_OFFSET + offset`).
     pub payloads: Vec<EnumVariantLayout>,
+    /// Max payload size across variants (0 for unit-only enums).
+    /// The user_size passed to `alloc_object` is
+    /// `ENUM_PAYLOAD_OFFSET + max_payload_size`.
+    pub max_payload_size: u32,
 }
+
+/// Tag lives at offset 0 from the user pointer. Payload starts at
+/// offset 8 to keep 8-byte alignment for any inner field.
+pub(crate) const ENUM_TAG_OFFSET: i32 = 0;
+pub(crate) const ENUM_PAYLOAD_OFFSET: i32 = 8;
 
 /// Per-variant payload layout. Phase 1 carries only `Unit`; Phase 2
 /// adds tuple/struct payloads with offset tables for the JIT.

@@ -18,7 +18,9 @@ use cranelift_module::{FuncId, Linkage, Module};
 use crate::compiler::JitCompiler;
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
-use crate::ty::{ArrayKind, ClassLayout, JitTy};
+use crate::ty::{
+    ArrayKind, ClassLayout, EnumVariantLayout, JitTy, ENUM_PAYLOAD_OFFSET, ENUM_TAG_OFFSET,
+};
 
 
 
@@ -169,6 +171,142 @@ pub(crate) fn array_drop_fn_ptr(
 }
 
 /// Define every array drop body that got declared during lowering.
+/// Define every enum drop body declared lazily during lowering. The
+/// wrapper loads the tag and branches per-variant, releasing each
+/// heap-typed payload field. Phase 2.
+pub(crate) fn define_enum_drops(compiler: &mut JitCompiler) -> Result<(), CodegenError> {
+    let to_define: Vec<(u32, FuncId)> = compiler
+        .enum_drops
+        .iter()
+        .filter_map(|(k, v)| v.map(|id| (*k, id)))
+        .collect();
+    for (enum_id, drop_id) in to_define {
+        define_one_enum_drop(compiler, enum_id, drop_id)?;
+    }
+    Ok(())
+}
+
+fn define_one_enum_drop(
+    compiler: &mut JitCompiler,
+    enum_id: u32,
+    drop_id: FuncId,
+) -> Result<(), CodegenError> {
+    compiler.module.clear_context(&mut compiler.ctx);
+    compiler.ctx.func.signature =
+        compiler.module.declarations().get_function_decl(drop_id).signature.clone();
+
+    let layout = compiler.enum_layouts[enum_id as usize].clone();
+
+    let JitCompiler {
+        module,
+        ctx,
+        builder_ctx,
+        class_layouts,
+        array_kinds,
+        optional_inners,
+        release_object_id,
+        release_string_id,
+        release_array_id,
+        release_weak_id,
+        ..
+    } = compiler;
+
+    let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let this = builder.block_params(entry)[0];
+
+    let tag = builder
+        .ins()
+        .load(cranelift_codegen::ir::types::I32, MemFlags::trusted(), this, ENUM_TAG_OFFSET);
+
+    let merge = builder.create_block();
+    for (i, vlayout) in layout.payloads.iter().enumerate() {
+        // Skip variants with no heap fields entirely — nothing to do.
+        let any_heap = match vlayout {
+            EnumVariantLayout::Unit => false,
+            EnumVariantLayout::Tuple(entries) => entries.iter().any(|(_, t)| t.is_heap()),
+            EnumVariantLayout::Struct(map) => map.values().any(|(_, t)| t.is_heap()),
+        };
+        if !any_heap {
+            continue;
+        }
+        let want = builder.ins().iconst(cranelift_codegen::ir::types::I32, i as i64);
+        let cond = builder.ins().icmp(IntCC::Equal, tag, want);
+        let body = builder.create_block();
+        let next = builder.create_block();
+        builder.ins().brif(cond, body, &[], next, &[]);
+        builder.switch_to_block(body);
+        builder.seal_block(body);
+        // Release each heap-typed payload field for this variant.
+        match vlayout {
+            EnumVariantLayout::Unit => {}
+            EnumVariantLayout::Tuple(entries) => {
+                for (off, fty) in entries {
+                    if !fty.is_heap() {
+                        continue;
+                    }
+                    let cl = fty.cl().expect("non-unit field");
+                    let abs = ENUM_PAYLOAD_OFFSET + (*off as i32);
+                    let v = builder.ins().load(cl, MemFlags::trusted(), this, abs);
+                    emit_release_for(
+                        module,
+                        class_layouts,
+                        array_kinds,
+                        optional_inners,
+                        *release_object_id,
+                        *release_string_id,
+                        *release_array_id,
+                        *release_weak_id,
+                        &mut builder,
+                        v,
+                        *fty,
+                    );
+                }
+            }
+            EnumVariantLayout::Struct(map) => {
+                for (off, fty) in map.values() {
+                    if !fty.is_heap() {
+                        continue;
+                    }
+                    let cl = fty.cl().expect("non-unit field");
+                    let abs = ENUM_PAYLOAD_OFFSET + (*off as i32);
+                    let v = builder.ins().load(cl, MemFlags::trusted(), this, abs);
+                    emit_release_for(
+                        module,
+                        class_layouts,
+                        array_kinds,
+                        optional_inners,
+                        *release_object_id,
+                        *release_string_id,
+                        *release_array_id,
+                        *release_weak_id,
+                        &mut builder,
+                        v,
+                        *fty,
+                    );
+                }
+            }
+        }
+        builder.ins().jump(merge, &[]);
+        builder.switch_to_block(next);
+        builder.seal_block(next);
+    }
+    builder.ins().jump(merge, &[]);
+    builder.switch_to_block(merge);
+    builder.seal_block(merge);
+    builder.ins().return_(&[]);
+    builder.finalize();
+
+    compiler
+        .module
+        .define_function(drop_id, &mut compiler.ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    Ok(())
+}
+
 pub(crate) fn define_array_drops(compiler: &mut JitCompiler) -> Result<(), CodegenError> {
     let to_define: Vec<(u32, FuncId)> = compiler
         .array_drops

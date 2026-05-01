@@ -246,6 +246,47 @@ a.unwrap()                       // T (none ならランタイム panic)
 
 ---
 
+## 9b. enum / match
+
+```rust
+// Phase 1: 単純な C 風列挙型
+enum Color { Red, Green, Blue }
+
+let c = Color::Green
+let name = match c {
+    Color::Red => "red"
+    Color::Green => "green"
+    Color::Blue => "blue"
+}
+
+// Phase 2: ペイロード付き (タプル / 名前付きフィールド)
+enum Shape {
+    Circle(f64)
+    Rect(f64, f64)
+    Square { side: f64 }
+}
+
+fn area(s: Shape): f64 {
+    match s {
+        Shape::Circle(r) => 3.14 * r * r
+        Shape::Rect(w, h) => w * h
+        Shape::Square { side } => side * side    // shorthand: { side: side }
+    }
+}
+
+// `_` ワイルドカードで残りを捕捉
+let day = Color::Red
+match day {
+    Color::Red => "alert"
+    _ => "ok"
+}
+```
+
+- 全バリアントを網羅するか `_` が必要 (型チェッカが拒否)
+- 各 arm 値は型が揃う必要あり (if/else と同じ)
+- パターンの束縛: タプルは位置 (`Shape::Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
+- ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
+
 ## 10. Weak (弱参照)
 
 ```rust
@@ -318,7 +359,6 @@ JIT で `Unsupported` になる主なケース:
 
 ## 15. 未実装
 
-- `match` / `enum` / 代数的データ型 (`if let some` だけサポート)
 - 継承 (`extends`, `super`)
 - 辞書/Map 型
 - `for-of` ループ

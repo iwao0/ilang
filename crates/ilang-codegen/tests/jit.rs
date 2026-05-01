@@ -1017,6 +1017,68 @@ fn jit_enum_returned_as_value() {
         JitValue::Enum {
             ty: "Color".into(),
             variant: "Blue".into(),
+            payload: ilang_codegen::JitEnumPayload::Unit,
         }
     );
+}
+
+// ─── enum payloads (Phase 2) ─────────────────────────────────────────
+
+#[test]
+fn jit_enum_tuple_payload() {
+    let src = r#"
+        enum Shape {
+            Circle(f64)
+            Rect(f64, f64)
+        }
+        fn area(s: Shape): f64 {
+            match s {
+                Shape::Circle(r) => 3.14 * r * r
+                Shape::Rect(w, h) => w * h
+            }
+        }
+        area(Shape::Rect(3.0, 4.0))
+    "#;
+    assert_eq!(jit(src), JitValue::F64(12.0));
+}
+
+#[test]
+fn jit_enum_struct_payload() {
+    let src = r#"
+        enum Pt {
+            Origin
+            At { x: i64, y: i64 }
+        }
+        fn sumxy(p: Pt): i64 {
+            match p {
+                Pt::Origin => 0
+                Pt::At { x, y } => x + y
+            }
+        }
+        sumxy(Pt::At { x: 3, y: 4 })
+    "#;
+    assert_eq!(jit(src), JitValue::I64(7));
+}
+
+#[test]
+fn jit_enum_payload_runs_deinit() {
+    let src = r#"
+        class Counter {
+            n: i64
+            init() { this.n = 0 }
+            inc() { n = n + 1 }
+        }
+        class Tracked {
+            c: Counter
+            init(cc: Counter) { this.c = cc }
+            deinit() { c.inc() }
+        }
+        enum Wrap { Has(Tracked), Empty }
+        let counter = new Counter()
+        {
+            let _w = Wrap::Has(new Tracked(counter))
+        }
+        counter.n
+    "#;
+    assert_eq!(jit(src), JitValue::I64(1));
 }

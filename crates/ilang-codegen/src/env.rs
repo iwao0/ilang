@@ -120,6 +120,9 @@ pub(crate) struct LowerCtx<'a> {
     /// declares drop fns on the fly). `None` means the kind has no
     /// heap elements, so no per-element release is needed.
     pub array_drops: &'a mut HashMap<u32, Option<FuncId>>,
+    /// Per-enum drop wrappers, declared lazily during lowering. `None`
+    /// means the enum has no heap-typed payload fields anywhere.
+    pub enum_drops: &'a mut HashMap<u32, Option<FuncId>>,
 }
 
 impl<'a> LowerCtx<'a> {

@@ -17,7 +17,10 @@ use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
 use crate::lower_op::{coerce, lower_binary, lower_logical, lower_unary};
 use crate::lower_stmt::lower_block_value;
 use crate::runtime::{ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET};
-use crate::ty::{intern_array_kind, intern_optional_inner, ArrayKind, JitTy, TV};
+use crate::ty::{
+    intern_array_kind, intern_optional_inner, ArrayKind, EnumVariantLayout, JitTy, TV,
+    ENUM_PAYLOAD_OFFSET, ENUM_TAG_OFFSET,
+};
 
 pub(crate) fn lower_expr(
     b: &mut FunctionBuilder,
@@ -72,6 +75,7 @@ pub(crate) fn lower_expr(
                 e.span,
                 &class_ids_from(lc),
                 &enum_ids_from(lc),
+                lc.enum_layouts,
                 lc.array_kinds,
                 lc.optional_inners,
             )?;
@@ -729,21 +733,7 @@ fn lower_enum_ctor(
             });
         }
     };
-    let layout = &lc.enum_layouts[id as usize];
-    if !layout.all_unit {
-        return Err(CodegenError::Unsupported {
-            what: format!(
-                "enum {enum_name:?} has payload variants — JIT support is Phase 2"
-            ),
-            span,
-        });
-    }
-    if !matches!(args, ilang_ast::CtorArgs::Unit) {
-        return Err(CodegenError::Unsupported {
-            what: format!("variant {enum_name}::{variant} is unit but ctor args supplied"),
-            span,
-        });
-    }
+    let layout = lc.enum_layouts[id as usize].clone();
     let tag = layout
         .variants
         .iter()
@@ -752,8 +742,117 @@ fn lower_enum_ctor(
             what: format!("enum {enum_name:?} has no variant {variant:?}"),
             span,
         })? as i64;
-    let v = b.ins().iconst(I32, tag);
-    Ok(Some((v, JitTy::Enum(id))))
+
+    if layout.all_unit {
+        if !matches!(args, ilang_ast::CtorArgs::Unit) {
+            return Err(CodegenError::Unsupported {
+                what: format!("variant {enum_name}::{variant} is unit but ctor args supplied"),
+                span,
+            });
+        }
+        let v = b.ins().iconst(I32, tag);
+        return Ok(Some((v, JitTy::Enum(id))));
+    }
+
+    // Heap-allocated tagged union. user_size = tag area (8) + max
+    // payload bytes. drop_fn dispatches on tag to release per-variant
+    // heap payload fields (registered later via finalize).
+    let user_size = (ENUM_PAYLOAD_OFFSET as i64) + layout.max_payload_size as i64;
+    let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+    let size_v = b.ins().iconst(I64, user_size);
+    let drop_fn_v = enum_drop_fn_ptr(b, lc, id);
+    let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_v]);
+    let ptr = b.inst_results(alloc_call)[0];
+    // Write tag.
+    let tag_v = b.ins().iconst(I32, tag);
+    b.ins()
+        .store(MemFlags::trusted(), tag_v, ptr, ENUM_TAG_OFFSET);
+    // Write payload fields per variant kind.
+    let variant_layout = layout.payloads[tag as usize].clone();
+    match (&variant_layout, args) {
+        (EnumVariantLayout::Unit, ilang_ast::CtorArgs::Unit) => {}
+        (EnumVariantLayout::Tuple(entries), ilang_ast::CtorArgs::Tuple(elems)) => {
+            for ((offset, fty), arg) in entries.iter().zip(elems.iter()) {
+                let (av, at) = lower_expr(b, lc, arg)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "enum ctor argument is unit".into(),
+                        span: arg.span,
+                    }
+                })?;
+                let coerced = coerce(b, (av, at), *fty, arg.span)?;
+                emit_bind_retain(b, lc, &arg.kind, at, *fty, coerced);
+                let abs_off = ENUM_PAYLOAD_OFFSET + (*offset as i32);
+                b.ins().store(MemFlags::trusted(), coerced, ptr, abs_off);
+            }
+        }
+        (EnumVariantLayout::Struct(map), ilang_ast::CtorArgs::Struct(supplied)) => {
+            for (fname, expr) in supplied {
+                let (offset, fty) = *map.get(fname).ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: format!("unknown field {fname:?}"),
+                        span: expr.span,
+                    }
+                })?;
+                let (av, at) = lower_expr(b, lc, expr)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "enum ctor field is unit".into(),
+                        span: expr.span,
+                    }
+                })?;
+                let coerced = coerce(b, (av, at), fty, expr.span)?;
+                emit_bind_retain(b, lc, &expr.kind, at, fty, coerced);
+                let abs_off = ENUM_PAYLOAD_OFFSET + (offset as i32);
+                b.ins().store(MemFlags::trusted(), coerced, ptr, abs_off);
+            }
+        }
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: format!(
+                    "ctor shape mismatch for {enum_name}::{variant} — type checker should have caught this"
+                ),
+                span,
+            });
+        }
+    }
+    Ok(Some((ptr, JitTy::EnumHeap(id))))
+}
+
+/// Lazily declare/return the per-enum drop wrapper function pointer
+/// (or 0 if the enum has no heap-typed payload fields anywhere).
+/// Wrapper definition happens after `define_main` (see `crate::drops`).
+fn enum_drop_fn_ptr(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    enum_id: u32,
+) -> Value {
+    // Determine if any variant has any heap-typed payload.
+    let layout = &lc.enum_layouts[enum_id as usize];
+    let needs_drop = layout.payloads.iter().any(|p| match p {
+        EnumVariantLayout::Unit => false,
+        EnumVariantLayout::Tuple(entries) => entries.iter().any(|(_, t)| t.is_heap()),
+        EnumVariantLayout::Struct(map) => map.values().any(|(_, t)| t.is_heap()),
+    });
+    if !needs_drop {
+        // Cache the negative result so Phase D's define_*_drops doesn't
+        // try to define this one.
+        lc.enum_drops.entry(enum_id).or_insert(None);
+        return b.ins().iconst(I64, 0);
+    }
+    let id = if let Some(Some(id)) = lc.enum_drops.get(&enum_id) {
+        *id
+    } else {
+        let symbol = format!("__drop_enum_{}", layout.name);
+        let mut sig = lc.module.make_signature();
+        sig.params.push(AbiParam::new(I64));
+        let id = lc
+            .module
+            .declare_function(&symbol, cranelift_module::Linkage::Local, &sig)
+            .expect("declare enum drop");
+        lc.enum_drops.insert(enum_id, Some(id));
+        id
+    };
+    let func_ref = lc.module.declare_func_in_func(id, b.func);
+    b.ins().func_addr(I64, func_ref)
 }
 
 /// Phase 1 match: a cascade of `icmp + brif` on the i32 tag. Each arm
@@ -771,8 +870,9 @@ fn lower_match(
         what: "match scrutinee is unit".into(),
         span: scrutinee.span,
     })?;
-    let enum_id = match st {
-        JitTy::Enum(id) => id,
+    let (enum_id, is_heap) = match st {
+        JitTy::Enum(id) => (id, false),
+        JitTy::EnumHeap(id) => (id, true),
         other => {
             return Err(CodegenError::Unsupported {
                 what: format!("match on non-enum {other:?}"),
@@ -781,15 +881,14 @@ fn lower_match(
         }
     };
     let layout = lc.enum_layouts[enum_id as usize].clone();
-    if !layout.all_unit {
-        return Err(CodegenError::Unsupported {
-            what: format!(
-                "match on enum {:?} with payload variants — JIT support is Phase 2",
-                layout.name
-            ),
-            span,
-        });
-    }
+    // The tag is either the value itself (unit-only enum) or loaded
+    // from the heap object's tag slot.
+    let tag_v = if is_heap {
+        b.ins().load(I32, MemFlags::trusted(), sv, ENUM_TAG_OFFSET)
+    } else {
+        sv
+    };
+    let _ = span;
 
     // Pre-create one body block per arm + a merge block for joining.
     // We won't seal the merge until every arm has jumped to it.
@@ -821,7 +920,7 @@ fn lower_match(
             .position(|v| *v == variant_name)
             .expect("type checker validated variant") as i64;
         let want = b.ins().iconst(I32, tag);
-        let cond = b.ins().icmp(IntCC::Equal, sv, want);
+        let cond = b.ins().icmp(IntCC::Equal, tag_v, want);
         let next = b.create_block();
         b.ins().brif(cond, arm_blocks[i], &[], next, &[]);
         b.switch_to_block(next);
@@ -837,14 +936,91 @@ fn lower_match(
     }
 
     // Lower each body in its own block, jumping to merge with the
-    // produced value (or no value for Unit).
+    // produced value (or no value for Unit). For heap-payload enums,
+    // each arm binds the variant's payload fields (loaded from the
+    // scrutinee's payload area) into the env, then runs the body,
+    // then restores the env.
     for (i, arm) in arms.iter().enumerate() {
-        // A body past the wildcard is dead (type checker rejected
-        // it), but we still create the block above; lower it as a
-        // regular body for safety.
         b.switch_to_block(arm_blocks[i]);
         b.seal_block(arm_blocks[i]);
+        // Payload bindings (only when the scrutinee is a heap enum
+        // and the pattern is a Variant with bindings).
+        let mut shadows: Vec<(String, Option<(Variable, JitTy)>)> = Vec::new();
+        if is_heap {
+            if let ilang_ast::PatternKind::Variant {
+                variant: pvar,
+                bindings,
+                ..
+            } = &arm.pattern.kind
+            {
+                if let Some(idx) = layout.variants.iter().position(|v| v == pvar) {
+                    let vlayout = layout.payloads[idx].clone();
+                    match (&vlayout, bindings) {
+                        (EnumVariantLayout::Unit, ilang_ast::PatternBindings::Unit) => {}
+                        (
+                            EnumVariantLayout::Tuple(entries),
+                            ilang_ast::PatternBindings::Tuple(names),
+                        ) => {
+                            for ((offset, fty), n) in entries.iter().zip(names.iter()) {
+                                if n == "_" {
+                                    continue;
+                                }
+                                let cl = fty.cl().expect("non-unit payload field");
+                                let abs = ENUM_PAYLOAD_OFFSET + (*offset as i32);
+                                let v = b.ins().load(cl, MemFlags::trusted(), sv, abs);
+                                let var = Variable::new(lc.env.next_var_id());
+                                b.declare_var(var, cl);
+                                b.def_var(var, v);
+                                if fty.is_heap() {
+                                    crate::arc::emit_retain_heap(b, lc, v, *fty);
+                                }
+                                let prev = lc.env.bindings.insert(n.clone(), (var, *fty));
+                                shadows.push((n.clone(), prev));
+                            }
+                        }
+                        (
+                            EnumVariantLayout::Struct(map),
+                            ilang_ast::PatternBindings::Struct(pairs),
+                        ) => {
+                            for (fname, bname) in pairs {
+                                if bname == "_" {
+                                    continue;
+                                }
+                                if let Some((offset, fty)) = map.get(fname).copied() {
+                                    let cl = fty.cl().expect("non-unit payload field");
+                                    let abs = ENUM_PAYLOAD_OFFSET + (offset as i32);
+                                    let v = b.ins().load(cl, MemFlags::trusted(), sv, abs);
+                                    let var = Variable::new(lc.env.next_var_id());
+                                    b.declare_var(var, cl);
+                                    b.def_var(var, v);
+                                    if fty.is_heap() {
+                                        crate::arc::emit_retain_heap(b, lc, v, fty);
+                                    }
+                                    let prev =
+                                        lc.env.bindings.insert(bname.clone(), (var, fty));
+                                    shadows.push((bname.clone(), prev));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         let body_tv = lower_expr(b, lc, &arm.body)?;
+        // Release any heap bindings introduced for this arm's pattern,
+        // then restore the env.
+        for (n, prev) in shadows.into_iter().rev() {
+            if let Some((var, jty)) = lc.env.bindings.remove(&n) {
+                if jty.is_heap() {
+                    let p = b.use_var(var);
+                    emit_release_heap(b, lc, p, jty);
+                }
+            }
+            if let Some(p) = prev {
+                lc.env.bindings.insert(n, p);
+            }
+        }
         match (body_tv, result_ty) {
             (Some((v, vt)), None) => {
                 let cl = vt.cl().ok_or_else(|| CodegenError::Unsupported {
@@ -1151,6 +1327,66 @@ fn emit_print_value(
             }
             // Fallthrough (well-typed code never reaches here): print
             // a marker and join to merge.
+            emit_print_literal(b, lc, &format!("{}::?", layout.name));
+            b.ins().jump(merge, &[]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+        }
+        JitTy::EnumHeap(id) => {
+            // Heap-allocated tagged union. Load the tag, then per
+            // variant print `EnumName::Variant` and (if applicable)
+            // recurse into payload fields.
+            let layout = lc.enum_layouts[id as usize].clone();
+            let tag_v = b.ins().load(I32, MemFlags::trusted(), v, ENUM_TAG_OFFSET);
+            let merge = b.create_block();
+            for (i, vname) in layout.variants.iter().enumerate() {
+                let want = b.ins().iconst(I32, i as i64);
+                let cond = b.ins().icmp(IntCC::Equal, tag_v, want);
+                let body_block = b.create_block();
+                let next_block = b.create_block();
+                b.ins().brif(cond, body_block, &[], next_block, &[]);
+                b.switch_to_block(body_block);
+                b.seal_block(body_block);
+                let prefix = format!("{}::{vname}", layout.name);
+                let vlayout = layout.payloads[i].clone();
+                match &vlayout {
+                    EnumVariantLayout::Unit => {
+                        emit_print_literal(b, lc, &prefix);
+                    }
+                    EnumVariantLayout::Tuple(entries) => {
+                        emit_print_literal(b, lc, &format!("{prefix}("));
+                        for (k, (off, fty)) in entries.iter().enumerate() {
+                            if k > 0 {
+                                emit_print_literal(b, lc, ", ");
+                            }
+                            let cl = fty.cl().expect("non-unit field");
+                            let abs = ENUM_PAYLOAD_OFFSET + (*off as i32);
+                            let fv = b.ins().load(cl, MemFlags::trusted(), v, abs);
+                            emit_print_value(b, lc, fv, *fty, span)?;
+                        }
+                        emit_print_literal(b, lc, ")");
+                    }
+                    EnumVariantLayout::Struct(map) => {
+                        emit_print_literal(b, lc, &format!("{prefix} {{ "));
+                        let mut sorted: Vec<(&String, &(u32, JitTy))> = map.iter().collect();
+                        sorted.sort_by(|a, b| a.0.cmp(b.0));
+                        for (k, (name, (off, fty))) in sorted.into_iter().enumerate() {
+                            if k > 0 {
+                                emit_print_literal(b, lc, ", ");
+                            }
+                            emit_print_literal(b, lc, &format!("{name}: "));
+                            let cl = fty.cl().expect("non-unit field");
+                            let abs = ENUM_PAYLOAD_OFFSET + (*off as i32);
+                            let fv = b.ins().load(cl, MemFlags::trusted(), v, abs);
+                            emit_print_value(b, lc, fv, *fty, span)?;
+                        }
+                        emit_print_literal(b, lc, " }");
+                    }
+                }
+                b.ins().jump(merge, &[]);
+                b.switch_to_block(next_block);
+                b.seal_block(next_block);
+            }
             emit_print_literal(b, lc, &format!("{}::?", layout.name));
             b.ins().jump(merge, &[]);
             b.switch_to_block(merge);

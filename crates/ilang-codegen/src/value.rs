@@ -2,7 +2,155 @@
 //! reverse-walker that rebuilds it from a JIT heap layout.
 
 use crate::runtime::{ArrayHeader, StringRc};
-use crate::ty::{ArrayKind, ClassLayout, EnumLayout, JitTy};
+use crate::ty::{
+    ArrayKind, ClassLayout, EnumLayout, EnumVariantLayout, JitTy, ENUM_PAYLOAD_OFFSET,
+    ENUM_TAG_OFFSET,
+};
+
+/// Reconstruct a host-side `JitValue::Enum` for an enum-heap pointer.
+/// Used by `run_main` and `read_array` for enum results / array
+/// elements.
+pub(crate) unsafe fn read_enum_heap(
+    ptr: i64,
+    enum_id: u32,
+    enum_layouts: &[EnumLayout],
+    array_kinds: &[ArrayKind],
+    class_layouts: &[ClassLayout],
+    optional_inners: &[JitTy],
+) -> JitValue {
+    let layout = &enum_layouts[enum_id as usize];
+    let tag = *((ptr + ENUM_TAG_OFFSET as i64) as *const i32) as usize;
+    let variant_name = layout
+        .variants
+        .get(tag)
+        .cloned()
+        .unwrap_or_else(|| format!("?{tag}"));
+    let payload_addr = ptr + ENUM_PAYLOAD_OFFSET as i64;
+    let payload = match layout.payloads.get(tag) {
+        Some(EnumVariantLayout::Unit) | None => JitEnumPayload::Unit,
+        Some(EnumVariantLayout::Tuple(entries)) => {
+            let items = entries
+                .iter()
+                .map(|(off, fty)| {
+                    read_field(
+                        payload_addr + (*off as i64),
+                        *fty,
+                        array_kinds,
+                        class_layouts,
+                        enum_layouts,
+                        optional_inners,
+                    )
+                })
+                .collect();
+            JitEnumPayload::Tuple(items)
+        }
+        Some(EnumVariantLayout::Struct(map)) => {
+            let mut items: Vec<(String, JitValue)> = map
+                .iter()
+                .map(|(name, (off, fty))| {
+                    (
+                        name.clone(),
+                        read_field(
+                            payload_addr + (*off as i64),
+                            *fty,
+                            array_kinds,
+                            class_layouts,
+                            enum_layouts,
+                            optional_inners,
+                        ),
+                    )
+                })
+                .collect();
+            items.sort_by(|a, b| a.0.cmp(&b.0));
+            JitEnumPayload::Struct(items)
+        }
+    };
+    JitValue::Enum {
+        ty: layout.name.clone(),
+        variant: variant_name,
+        payload,
+    }
+}
+
+/// Read a single typed field from a raw memory address into a host
+/// `JitValue`. Used by `read_enum_heap` for payload fields.
+unsafe fn read_field(
+    addr: i64,
+    fty: JitTy,
+    array_kinds: &[ArrayKind],
+    class_layouts: &[ClassLayout],
+    enum_layouts: &[EnumLayout],
+    optional_inners: &[JitTy],
+) -> JitValue {
+    match fty {
+        JitTy::I8 => JitValue::I8(*(addr as *const i8)),
+        JitTy::I16 => JitValue::I16(*(addr as *const i16)),
+        JitTy::I32 => JitValue::I32(*(addr as *const i32)),
+        JitTy::I64 => JitValue::I64(*(addr as *const i64)),
+        JitTy::U8 => JitValue::U8(*(addr as *const u8)),
+        JitTy::U16 => JitValue::U16(*(addr as *const u16)),
+        JitTy::U32 => JitValue::U32(*(addr as *const u32)),
+        JitTy::U64 => JitValue::U64(*(addr as *const u64)),
+        JitTy::F32 => JitValue::F32(*(addr as *const f32)),
+        JitTy::F64 => JitValue::F64(*(addr as *const f64)),
+        JitTy::Bool => JitValue::Bool(*(addr as *const i8) != 0),
+        JitTy::Str => JitValue::Str((*(*(addr as *const i64) as *const StringRc)).s.clone()),
+        JitTy::Object(id) => JitValue::Object {
+            class: class_layouts[id as usize].name.clone(),
+            ptr: *(addr as *const i64),
+        },
+        JitTy::Array(id) => JitValue::Array(read_array(
+            *(addr as *const i64),
+            array_kinds[id as usize],
+            array_kinds,
+            class_layouts,
+            enum_layouts,
+            optional_inners,
+        )),
+        JitTy::Optional(id) => read_optional_pointer(
+            *(addr as *const i64),
+            optional_inners[id as usize],
+            array_kinds,
+            class_layouts,
+            enum_layouts,
+            optional_inners,
+        ),
+        JitTy::Weak(class_id) => {
+            let raw = *(addr as *const i64);
+            let alive = if raw == 0 {
+                false
+            } else {
+                *((raw - 24) as *const i64) > 0
+            };
+            JitValue::Weak {
+                class: class_layouts[class_id as usize].name.clone(),
+                alive,
+            }
+        }
+        JitTy::Enum(id) => {
+            let tag = *(addr as *const i32) as usize;
+            let layout = &enum_layouts[id as usize];
+            JitValue::Enum {
+                ty: layout.name.clone(),
+                variant: layout
+                    .variants
+                    .get(tag)
+                    .cloned()
+                    .unwrap_or_else(|| format!("?{tag}")),
+                payload: JitEnumPayload::Unit,
+            }
+        }
+        JitTy::EnumHeap(id) => read_enum_heap(
+            *(addr as *const i64),
+            id,
+            enum_layouts,
+            array_kinds,
+            class_layouts,
+            optional_inners,
+        ),
+        JitTy::Unit => JitValue::Unit,
+    }
+}
 
 /// Walk a `T?` slot whose pointer is at `p` (i64 representation; 0 = none).
 /// Used by `run_main` for the program's tail value and by `read_array`
@@ -40,6 +188,14 @@ pub(crate) unsafe fn read_optional_pointer(
                 alive,
             }
         }
+        JitTy::EnumHeap(id) => read_enum_heap(
+            p,
+            id,
+            enum_layouts,
+            array_kinds,
+            class_layouts,
+            optional_inners,
+        ),
         _ => unreachable!("Optional<primitive> rejected at JitTy::from_ast"),
     };
     JitValue::Some(Box::new(v))
@@ -70,10 +226,21 @@ pub enum JitValue {
     /// liveness bit. The JIT pointer isn't surfaced because using it
     /// without going through `weak_get` would defeat ARC.
     Weak { class: String, alive: bool },
-    /// User-defined enum value surfaced to the host. Phase 1 only
-    /// records the variant name (no payload); Phase 2 will add an
-    /// optional payload field.
-    Enum { ty: String, variant: String },
+    /// User-defined enum value surfaced to the host. Unit variants
+    /// have no payload (mirrors Phase 1); payload-carrying variants
+    /// (Phase 2) attach the inner values.
+    Enum {
+        ty: String,
+        variant: String,
+        payload: JitEnumPayload,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JitEnumPayload {
+    Unit,
+    Tuple(Vec<JitValue>),
+    Struct(Vec<(String, JitValue)>),
 }
 
 impl std::fmt::Display for JitValue {
@@ -107,7 +274,29 @@ impl std::fmt::Display for JitValue {
             JitValue::Some(v) => write!(f, "some({v})"),
             JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
             JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
-            JitValue::Enum { ty, variant } => write!(f, "{ty}::{variant}"),
+            JitValue::Enum { ty, variant, payload } => match payload {
+                JitEnumPayload::Unit => write!(f, "{ty}::{variant}"),
+                JitEnumPayload::Tuple(items) => {
+                    write!(f, "{ty}::{variant}(")?;
+                    for (i, v) in items.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{v}")?;
+                    }
+                    write!(f, ")")
+                }
+                JitEnumPayload::Struct(fields) => {
+                    write!(f, "{ty}::{variant} {{ ")?;
+                    for (i, (name, v)) in fields.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{name}: {v}")?;
+                    }
+                    write!(f, " }}")
+                }
+            },
         }
     }
 }
@@ -197,8 +386,17 @@ pub(crate) unsafe fn read_array(
                         .get(tag)
                         .cloned()
                         .unwrap_or_else(|| format!("?{tag}")),
+                    payload: JitEnumPayload::Unit,
                 }
             }
+            JitTy::EnumHeap(id) => read_enum_heap(
+                *(p as *const i64),
+                id,
+                enum_layouts,
+                array_kinds,
+                class_layouts,
+                optional_inners,
+            ),
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

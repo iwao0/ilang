@@ -628,6 +628,20 @@ impl Interpreter {
                     self.release(v);
                 }
             }
+            Value::Enum { payload, .. } => match payload {
+                EnumPayload::Unit => {}
+                EnumPayload::Tuple(items) => {
+                    for v in items {
+                        self.release(v);
+                    }
+                }
+                EnumPayload::Struct(fields) => {
+                    for (_, v) in fields {
+                        self.release(v);
+                    }
+                }
+            },
+            Value::Some(boxed) => self.release(*boxed),
             _ => {}
         }
     }

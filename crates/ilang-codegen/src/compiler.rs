@@ -78,6 +78,7 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     //    array drops were declared lazily during lowering.
     crate::drops::define_class_drops(&mut compiler)?;
     crate::drops::define_array_drops(&mut compiler)?;
+    crate::drops::define_enum_drops(&mut compiler)?;
     compiler.finalize()?;
     Ok(compiler.run_main(main_ret))
 }
@@ -134,6 +135,9 @@ pub(crate) struct JitCompiler {
     /// Per-array-kind drop wrappers, declared lazily during lowering.
     /// `None` indicates the kind has no heap elements.
     pub(crate) array_drops: HashMap<u32, Option<FuncId>>,
+    /// Per-enum drop wrappers, declared lazily during lowering.
+    /// `None` means the enum has no heap-typed payload anywhere.
+    pub(crate) enum_drops: HashMap<u32, Option<FuncId>>,
 }
 
 impl JitCompiler {
@@ -325,12 +329,16 @@ impl JitCompiler {
             interned_strings: Vec::new(),
             class_drops: Vec::new(),
             array_drops: HashMap::new(),
+            enum_drops: HashMap::new(),
         })
     }
 
-    /// Register an enum's layout. Phase 1 only handles unit-only
-    /// enums (4-byte ordinal tag). Mixed enums fall through to the
-    /// "not yet supported" Phase 2 path.
+    /// Register an enum's layout. For unit-only enums the runtime is a
+    /// bare i32 tag. For enums with at least one payload variant we
+    /// compute per-variant payload offsets and the max payload size
+    /// for the tagged-union allocation. Resolving inner field types
+    /// piggybacks on `JitTy::from_ast`, which can see the in-progress
+    /// `enum_layouts` table for forward refs.
     fn declare_enum_layout(&mut self, e: &EnumDecl) -> Result<(), CodegenError> {
         let id = self.enum_layouts.len() as u32;
         self.enum_ids.insert(e.name.clone(), id);
@@ -338,29 +346,76 @@ impl JitCompiler {
             .variants
             .iter()
             .all(|v| matches!(v.payload, VariantPayload::Unit));
-        if !all_unit {
-            // Phase 2 territory; we still register the enum so type
-            // checking can talk about it, but any actual codegen path
-            // will surface "Optional<primitive>"-style Unsupported.
-            return Err(CodegenError::Unsupported {
-                what: format!(
-                    "enum {:?} with payload variants is not supported by the JIT yet",
-                    e.name
-                ),
-                span: e.span,
-            });
-        }
-        let layout = EnumLayout {
+        // Push a placeholder so JitTy::from_ast can see the entry while
+        // we resolve payload field types.
+        self.enum_layouts.push(EnumLayout {
             name: e.name.clone(),
             variants: e.variants.iter().map(|v| v.name.clone()).collect(),
             all_unit,
-            payloads: e
-                .variants
-                .iter()
-                .map(|_| EnumVariantLayout::Unit)
-                .collect(),
-        };
-        self.enum_layouts.push(layout);
+            payloads: vec![EnumVariantLayout::Unit; e.variants.len()],
+            max_payload_size: 0,
+        });
+        if all_unit {
+            return Ok(());
+        }
+        let mut payloads = Vec::with_capacity(e.variants.len());
+        let mut max_size = 0u32;
+        for variant in &e.variants {
+            let (vlayout, vsize) = match &variant.payload {
+                VariantPayload::Unit => (EnumVariantLayout::Unit, 0u32),
+                VariantPayload::Tuple(tys) => {
+                    let mut offset = 0u32;
+                    let mut entries = Vec::with_capacity(tys.len());
+                    for t in tys {
+                        let jty = JitTy::from_ast(
+                            t,
+                            variant.span,
+                            &self.class_ids,
+                            &self.enum_ids,
+                            &self.enum_layouts,
+                            &mut self.array_kinds,
+                            &mut self.optional_inners,
+                        )?;
+                        let size = jty.size_bytes();
+                        let align = size.max(1);
+                        offset = align_up(offset, align);
+                        entries.push((offset, jty));
+                        offset += size;
+                    }
+                    let total = align_up(offset, 8);
+                    (EnumVariantLayout::Tuple(entries), total)
+                }
+                VariantPayload::Struct(fields) => {
+                    let mut offset = 0u32;
+                    let mut map: HashMap<String, (u32, JitTy)> = HashMap::new();
+                    for f in fields {
+                        let jty = JitTy::from_ast(
+                            &f.ty,
+                            f.span,
+                            &self.class_ids,
+                            &self.enum_ids,
+                            &self.enum_layouts,
+                            &mut self.array_kinds,
+                            &mut self.optional_inners,
+                        )?;
+                        let size = jty.size_bytes();
+                        let align = size.max(1);
+                        offset = align_up(offset, align);
+                        map.insert(f.name.clone(), (offset, jty));
+                        offset += size;
+                    }
+                    let total = align_up(offset, 8);
+                    (EnumVariantLayout::Struct(map), total)
+                }
+            };
+            payloads.push(vlayout);
+            if vsize > max_size {
+                max_size = vsize;
+            }
+        }
+        let entry = &mut self.enum_layouts[id as usize];
+        entry.payloads = payloads;
+        entry.max_payload_size = max_size;
         Ok(())
     }
 
@@ -393,6 +448,7 @@ impl JitCompiler {
                 field.span,
                 &self.class_ids,
                 &self.enum_ids,
+                &self.enum_layouts,
                 &mut self.array_kinds,
                 &mut self.optional_inners,
             )?;
@@ -444,10 +500,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -578,6 +634,7 @@ impl JitCompiler {
             optional_inners: &mut self.optional_inners,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
+            enum_drops: &mut self.enum_drops,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -619,7 +676,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &mut self.array_kinds, &mut self.optional_inners)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -688,6 +745,7 @@ impl JitCompiler {
             optional_inners: &mut self.optional_inners,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
+            enum_drops: &mut self.enum_drops,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.
@@ -842,7 +900,19 @@ impl JitCompiler {
                             .get(tag)
                             .cloned()
                             .unwrap_or_else(|| format!("?{tag}")),
+                        payload: crate::value::JitEnumPayload::Unit,
                     }
+                }
+                JitTy::EnumHeap(id) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    crate::value::read_enum_heap(
+                        p,
+                        id,
+                        &self.enum_layouts,
+                        &self.array_kinds,
+                        &self.class_layouts,
+                        &self.optional_inners,
+                    )
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();

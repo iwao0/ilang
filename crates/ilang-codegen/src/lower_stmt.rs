@@ -33,6 +33,7 @@ pub(crate) fn lower_stmt(
                     value.span,
                     &class_ids_from(lc),
                     &enum_ids_from(lc),
+                    lc.enum_layouts,
                     lc.array_kinds,
                     lc.optional_inners,
                 )?;
@@ -55,6 +56,7 @@ pub(crate) fn lower_stmt(
                     s.span,
                     &class_ids_from(lc),
                     &enum_ids_from(lc),
+                    lc.enum_layouts,
                     lc.array_kinds,
                     lc.optional_inners,
                 )?,
