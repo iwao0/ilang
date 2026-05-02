@@ -513,6 +513,8 @@ impl<'a> Lexer<'a> {
             "as" => TokenKind::As,
             "none" => TokenKind::None_,
             "some" => TokenKind::Some_,
+            "ok" => TokenKind::Ok_,
+            "err" => TokenKind::Err_,
             "enum" => TokenKind::Enum,
             "match" => TokenKind::Match,
             "for" => TokenKind::For,

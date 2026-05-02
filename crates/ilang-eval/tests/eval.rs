@@ -1687,3 +1687,43 @@ fn cannot_redefine_result() {
     let prog = parse(&toks).unwrap();
     assert!(TypeChecker::new().check(&prog).is_err());
 }
+
+#[test]
+fn result_short_form_constructors_and_patterns() {
+    use std::rc::Rc;
+    let src = r#"
+        fn divide(a: i64, b: i64): Result<i64, string> {
+            if b == 0 { err("divide by zero") } else { ok(a / b) }
+        }
+        match divide(10, 2) {
+            ok(v) => v
+            err(_) => -1
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(5));
+
+    let src = r#"
+        fn divide(a: i64, b: i64): Result<i64, string> {
+            if b == 0 { err("divide by zero") } else { ok(a / b) }
+        }
+        match divide(10, 0) {
+            ok(_) => "got value"
+            err(e) => e
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Str(Rc::new("divide by zero".into())));
+}
+
+#[test]
+fn ok_err_can_mix_with_long_form() {
+    // The short form desugars to the same EnumCtor as the long form,
+    // so they're freely interchangeable.
+    let src = r#"
+        let r: Result<i64, string> = ok(42)
+        match r {
+            Result::Ok(v) => v
+            Result::Err(_) => -1
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(42));
+}
