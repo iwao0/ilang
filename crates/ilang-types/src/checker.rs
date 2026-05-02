@@ -323,6 +323,10 @@ impl TypeChecker {
                 // loader, and silently ignoring it is fine — there's
                 // nothing to check.
                 Item::Use(_) => {}
+                // Const items are inlined by the loader's substitution
+                // pass — they shouldn't appear here in the normal
+                // pipeline. Skip if any survives.
+                Item::Const(_) => {}
             }
         }
         for item in &prog.items {
@@ -330,7 +334,7 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
-                Item::Use(_) => {}
+                Item::Use(_) | Item::Const(_) => {}
             }
         }
 

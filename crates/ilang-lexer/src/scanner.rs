@@ -519,6 +519,7 @@ impl<'a> Lexer<'a> {
             "for" => TokenKind::For,
             "in" => TokenKind::In,
             "use" => TokenKind::Use,
+            "const" => TokenKind::Const,
             _ => TokenKind::Ident(buf),
         }
     }

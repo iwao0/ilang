@@ -123,6 +123,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
         }),
         Item::Enum(e) => Item::Enum(e.clone()),
         Item::Use(u) => Item::Use(u.clone()),
+        Item::Const(c) => Item::Const(c.clone()),
     }
 }
 
@@ -390,7 +391,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
                 }
             }
             Item::Fn(f) => scan_fn(f, &mut needed, &mut worklist),
-            Item::Enum(_) | Item::Use(_) => {}
+            Item::Enum(_) | Item::Use(_) | Item::Const(_) => {}
         }
     }
     for s in &prog.stmts {
@@ -994,6 +995,7 @@ fn rewrite_item(item: &Item) -> Item {
         Item::Fn(f) => Item::Fn(rewrite_fn(f)),
         Item::Enum(e) => Item::Enum(e.clone()),
         Item::Use(u) => Item::Use(u.clone()),
+        Item::Const(c) => Item::Const(c.clone()),
     }
 }
 

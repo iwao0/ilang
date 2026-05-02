@@ -138,7 +138,7 @@ fn use_builtin_math_jit() {
     let main = write_module(
         &dir,
         "main",
-        "use math\nlet p = math.pi()\nmath.sin(p / 2.0)",
+        "use math\nlet p = math.pi\nmath.sin(p / 2.0)",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -148,4 +148,27 @@ fn use_builtin_math_jit() {
         .unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1.0");
+}
+
+#[test]
+fn const_top_level_inlines() {
+    let p = write_tmp(
+        "const.il",
+        "const TWO: i64 = 2\nfn double(n: i64): i64 { n * TWO }\ndouble(21)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn const_module_qualified() {
+    // `math.pi` resolves to the embedded `const pi: f64 = ...` and
+    // is inlined at the use site — no parens needed.
+    let dir = std::env::temp_dir().join(format!("ilang_const_pi_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = write_module(&dir, "main", "use math\nmath.pi");
+    let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).trim().starts_with("3.14"));
 }

@@ -73,7 +73,7 @@ fn jit_run_inner(prog: &Program) -> Result<JitValue, CodegenError> {
             Item::Fn(f) => compiler.declare_fn(f)?,
             Item::Class(c) => compiler.declare_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) => {}
+            Item::Use(_) | Item::Const(_) => {}
         }
     }
     // 2b. Declare per-class drop wrappers so `new` lowering can embed
@@ -86,7 +86,7 @@ fn jit_run_inner(prog: &Program) -> Result<JitValue, CodegenError> {
             Item::Fn(f) => compiler.define_fn(f)?,
             Item::Class(c) => compiler.define_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) => {}
+            Item::Use(_) | Item::Const(_) => {}
         }
     }
     let main_ret = compiler.define_main(prog)?;

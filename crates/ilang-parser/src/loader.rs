@@ -116,7 +116,12 @@ pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
             other => merged.items.push(other),
         }
     }
-    Ok(merged)
+    // Inline `const` declarations: collect every Item::Const in the
+    // merged Program, then walk all expressions replacing
+    // `Var(const_name)` with the literal value. Item::Const entries
+    // are removed afterwards. Downstream stages (type checker /
+    // interpreter / JIT) never see consts.
+    Ok(inline_constants(merged))
 }
 
 fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {
@@ -261,6 +266,7 @@ fn item_name_of(item: &Item) -> Option<String> {
         Item::Fn(f) => Some(f.name.clone()),
         Item::Class(c) => Some(c.name.clone()),
         Item::Enum(e) => Some(e.name.clone()),
+        Item::Const(c) => Some(c.name.clone()),
         Item::Use(_) => None,
     }
 }
@@ -319,6 +325,11 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             Item::Enum(e)
         }
         Item::Use(u) => Item::Use(u),
+        Item::Const(mut c) => {
+            c.name = format!("{prefix}.{}", c.name);
+            // The value is a literal — no inner refs to rewrite.
+            Item::Const(c)
+        }
     }
 }
 
@@ -547,4 +558,254 @@ fn is_builtin_type(name: &str) -> bool {
     // Built-in classes/enums that should never get prefixed even
     // when referenced inside a module body.
     matches!(name, "Console" | "Map" | "Result")
+}
+
+// ─── const substitution ────────────────────────────────────────────────
+
+/// Walk the merged program collecting every `Item::Const`, then
+/// replace `Var(const_name)` references everywhere with the literal
+/// RHS. Removes the Item::Const entries from the output. Consts are
+/// allowed to reference module-prefixed names (e.g. `math.pi` after
+/// the loader's mangling) since the substitution happens by exact
+/// name match.
+fn inline_constants(prog: Program) -> Program {
+    let mut consts: HashMap<String, Expr> = HashMap::new();
+    let mut items_no_const: Vec<Item> = Vec::new();
+    for item in prog.items {
+        match item {
+            Item::Const(c) => {
+                consts.insert(c.name, c.value);
+            }
+            other => items_no_const.push(other),
+        }
+    }
+    if consts.is_empty() {
+        return Program {
+            items: items_no_const,
+            stmts: prog.stmts,
+            tail: prog.tail,
+        };
+    }
+    Program {
+        items: items_no_const
+            .into_iter()
+            .map(|i| subst_const_item(i, &consts))
+            .collect(),
+        stmts: prog
+            .stmts
+            .into_iter()
+            .map(|s| subst_const_stmt(s, &consts))
+            .collect(),
+        tail: prog.tail.map(|e| subst_const_expr(e, &consts)),
+    }
+}
+
+fn subst_const_item(item: Item, consts: &HashMap<String, Expr>) -> Item {
+    match item {
+        Item::Fn(mut f) => {
+            f.body = subst_const_block(f.body, consts);
+            Item::Fn(f)
+        }
+        Item::Class(mut c) => {
+            for m in &mut c.methods {
+                let body = std::mem::replace(
+                    &mut m.body,
+                    Block { stmts: Vec::new(), tail: None },
+                );
+                m.body = subst_const_block(body, consts);
+            }
+            Item::Class(c)
+        }
+        other => other,
+    }
+}
+
+fn subst_const_block(b: Block, consts: &HashMap<String, Expr>) -> Block {
+    Block {
+        stmts: b
+            .stmts
+            .into_iter()
+            .map(|s| subst_const_stmt(s, consts))
+            .collect(),
+        tail: b.tail.map(|e| Box::new(subst_const_expr(*e, consts))),
+    }
+}
+
+fn subst_const_stmt(s: Stmt, consts: &HashMap<String, Expr>) -> Stmt {
+    let kind = match s.kind {
+        StmtKind::Let { name, ty, value } => StmtKind::Let {
+            name,
+            ty,
+            value: subst_const_expr(value, consts),
+        },
+        StmtKind::Expr(e) => StmtKind::Expr(subst_const_expr(e, consts)),
+    };
+    Stmt { kind, span: s.span }
+}
+
+fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
+    let span = e.span;
+    let kind = match e.kind {
+        // The substitution itself: `Var(name)` whose name is a const.
+        // Re-apply the const's span to the literal so error messages
+        // point at the use site, not the declaration site.
+        ExprKind::Var(ref name) => {
+            if let Some(lit) = consts.get(name) {
+                let mut new_lit = lit.clone();
+                new_lit.span = span;
+                return new_lit;
+            }
+            ExprKind::Var(name.clone())
+        }
+        // Mechanical recursion through every other shape.
+        ExprKind::Unary { op, expr } => ExprKind::Unary {
+            op,
+            expr: Box::new(subst_const_expr(*expr, consts)),
+        },
+        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
+            op,
+            lhs: Box::new(subst_const_expr(*lhs, consts)),
+            rhs: Box::new(subst_const_expr(*rhs, consts)),
+        },
+        ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
+            op,
+            lhs: Box::new(subst_const_expr(*lhs, consts)),
+            rhs: Box::new(subst_const_expr(*rhs, consts)),
+        },
+        ExprKind::Cast { expr, ty } => ExprKind::Cast {
+            expr: Box::new(subst_const_expr(*expr, consts)),
+            ty,
+        },
+        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
+            params,
+            ret,
+            body: subst_const_block(body, consts),
+        },
+        ExprKind::Call { callee, args } => ExprKind::Call {
+            callee,
+            args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
+        },
+        ExprKind::Field { obj, name } => ExprKind::Field {
+            obj: Box::new(subst_const_expr(*obj, consts)),
+            name,
+        },
+        ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
+            obj: Box::new(subst_const_expr(*obj, consts)),
+            method,
+            args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
+        },
+        ExprKind::New {
+            class,
+            type_args,
+            args,
+        } => ExprKind::New {
+            class,
+            type_args,
+            args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
+        },
+        ExprKind::Block(b) => ExprKind::Block(subst_const_block(b, consts)),
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => ExprKind::If {
+            cond: Box::new(subst_const_expr(*cond, consts)),
+            then_branch: subst_const_block(then_branch, consts),
+            else_branch: else_branch.map(|e| Box::new(subst_const_expr(*e, consts))),
+        },
+        ExprKind::IfLet {
+            name,
+            expr,
+            then_branch,
+            else_branch,
+        } => ExprKind::IfLet {
+            name,
+            expr: Box::new(subst_const_expr(*expr, consts)),
+            then_branch: subst_const_block(then_branch, consts),
+            else_branch: else_branch.map(|e| Box::new(subst_const_expr(*e, consts))),
+        },
+        ExprKind::While { cond, body } => ExprKind::While {
+            cond: Box::new(subst_const_expr(*cond, consts)),
+            body: subst_const_block(body, consts),
+        },
+        ExprKind::Loop { body } => ExprKind::Loop {
+            body: subst_const_block(body, consts),
+        },
+        ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
+            var,
+            iter: Box::new(subst_const_expr(*iter, consts)),
+            body: subst_const_block(body, consts),
+        },
+        ExprKind::Return(opt) => {
+            ExprKind::Return(opt.map(|e| Box::new(subst_const_expr(*e, consts))))
+        }
+        ExprKind::Assign { target, value } => ExprKind::Assign {
+            target,
+            value: Box::new(subst_const_expr(*value, consts)),
+        },
+        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+            obj: Box::new(subst_const_expr(*obj, consts)),
+            field,
+            value: Box::new(subst_const_expr(*value, consts)),
+        },
+        ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
+            obj: Box::new(subst_const_expr(*obj, consts)),
+            index: Box::new(subst_const_expr(*index, consts)),
+            value: Box::new(subst_const_expr(*value, consts)),
+        },
+        ExprKind::Array(items) => ExprKind::Array(
+            items.into_iter().map(|e| subst_const_expr(e, consts)).collect(),
+        ),
+        ExprKind::MapLit(entries) => ExprKind::MapLit(
+            entries
+                .into_iter()
+                .map(|(k, v)| (subst_const_expr(k, consts), subst_const_expr(v, consts)))
+                .collect(),
+        ),
+        ExprKind::Index { obj, index } => ExprKind::Index {
+            obj: Box::new(subst_const_expr(*obj, consts)),
+            index: Box::new(subst_const_expr(*index, consts)),
+        },
+        ExprKind::Some(inner) => ExprKind::Some(Box::new(subst_const_expr(*inner, consts))),
+        ExprKind::EnumCtor {
+            enum_name,
+            variant,
+            args,
+        } => ExprKind::EnumCtor {
+            enum_name,
+            variant,
+            args: match args {
+                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
+                ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
+                    es.into_iter().map(|e| subst_const_expr(e, consts)).collect(),
+                ),
+                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
+                    fs.into_iter()
+                        .map(|(n, e)| (n, subst_const_expr(e, consts)))
+                        .collect(),
+                ),
+            },
+        },
+        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
+            scrutinee: Box::new(subst_const_expr(*scrutinee, consts)),
+            arms: arms
+                .into_iter()
+                .map(|arm| ilang_ast::MatchArm {
+                    pattern: arm.pattern,
+                    body: subst_const_expr(arm.body, consts),
+                    span: arm.span,
+                })
+                .collect(),
+        },
+        // Trivial nodes pass through.
+        other @ (ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::This
+        | ExprKind::None
+        | ExprKind::Break
+        | ExprKind::Continue) => other,
+    };
+    Expr { kind, span }
 }

@@ -96,6 +96,20 @@ pub enum Item {
     /// The loader resolves the path and merges items; the AST node
     /// is removed from the Program before type checking.
     Use(UseDecl),
+    /// `const NAME [: T] = literal` — top-level immutable binding.
+    /// Restricted to literal values (no expressions). After loader
+    /// merge, references to the (possibly module-prefixed) name are
+    /// substituted with the literal directly, so type checker /
+    /// interpreter / JIT never see Item::Const themselves.
+    Const(ConstDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstDecl {
+    pub name: String,
+    pub ty: Option<crate::types::Type>,
+    pub value: crate::expr::Expr,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

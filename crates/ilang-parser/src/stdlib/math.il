@@ -20,7 +20,6 @@
 @extern fn round(x: f64): f64
 @extern fn abs(x: f64): f64
 
-// Constants — written as zero-arg fns so they share the same surface
-// as the rest. (No top-level `let` in items yet.)
-fn pi(): f64 { 3.141592653589793 }
-fn e(): f64 { 2.718281828459045 }
+// Constants — inlined at compile time by the loader's const pass.
+const pi: f64 = 3.141592653589793
+const e: f64 = 2.718281828459045

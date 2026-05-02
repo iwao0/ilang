@@ -548,12 +548,30 @@ utils.double(c.get())            // → 22
 ```rust
 use math
 math.sqrt(16.0)              // 4.0
-math.sin(math.pi() / 2.0)    // 1.0
+math.sin(math.pi / 2.0)      // 1.0  ← `math.pi` は const、parens 不要
 math.pow(2.0, 10.0)          // 1024.0
 math.atan2(1.0, 1.0)         // π/4
 ```
 
-提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`、定数 `pi()` / `e()`。interpreter / JIT 両対応。
+提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`。定数: `pi`, `e` (`const` 宣言で同梱)。interpreter / JIT 両対応。
+
+### `const` (定数宣言)
+
+トップレベルで不変の定数を宣言できます。RHS は **リテラル限定** (数値 / bool / 文字列、単項 `-` と `as` キャスト可)。複雑な式は受け付けません。
+
+```rust
+const TWO: i64 = 2
+const NAME: string = "alice"
+const TWO_PI: f64 = 6.283185307179586     // 計算式は不可。値を書く
+
+fn double(n: i64): i64 { n * TWO }
+double(21)                                 // 42
+```
+
+- 型注釈 (`: T`) は省略可 (リテラルから推論)
+- ローダの inline pass で参照箇所が **コンパイル時に値に置換** される (実行時のルックアップなし)
+- 同梱 `math` モジュールの `pi` / `e` はこの仕組みで定義されている
+- モジュール越しに `math.pi` のように参照可能 (loader が `math.pi` という qualified 名で扱う)
 
 ---
 

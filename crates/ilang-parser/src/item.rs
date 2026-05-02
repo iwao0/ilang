@@ -1,12 +1,30 @@
 use ilang_ast::{
-    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param, Type, Variant,
-    VariantPayload,
+    AttrArg, Attribute, ClassDecl, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
+    Type, UnOp, Variant, VariantPayload,
 };
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
 use crate::parser::Parser;
 use crate::stmt::parse_block;
+
+/// True if `e` is a value-only literal — what `const` accepts as its
+/// RHS. Numeric / bool / string literals, optionally with a unary
+/// `-` on numerics. No identifiers, no calls, no expressions.
+fn is_constant_literal(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_) => true,
+        ExprKind::Unary { op: UnOp::Neg, expr } => {
+            matches!(expr.kind, ExprKind::Int(_) | ExprKind::Float(_))
+        }
+        // `1 as i32` style — keep simple: accept if inner is a literal.
+        ExprKind::Cast { expr, .. } => is_constant_literal(expr),
+        _ => false,
+    }
+}
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_item(&mut self) -> Result<Item, ParseError> {
@@ -52,6 +70,18 @@ impl<'a> Parser<'a> {
                 let u = self.parse_use_decl()?;
                 Ok(Item::Use(u))
             }
+            TokenKind::Const => {
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "'fn' (attributes on `const` are not supported)".into(),
+                        span: t.span,
+                    });
+                }
+                let c = self.parse_const_decl()?;
+                Ok(Item::Const(c))
+            }
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
@@ -61,6 +91,39 @@ impl<'a> Parser<'a> {
                 })
             }
         }
+    }
+
+    /// `const NAME [: T] = literal` — top-level immutable binding.
+    /// Restricted to literal RHS (numeric / bool / string, with
+    /// optional unary minus on numerics). Anything more elaborate is
+    /// rejected so the substitution pass stays trivial.
+    fn parse_const_decl(&mut self) -> Result<ilang_ast::ConstDecl, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::Const, "'const'")?;
+        let name = self.expect_ident("constant name")?;
+        let ty = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        self.expect(&TokenKind::Equals, "'='")?;
+        let value = self.parse_expr(0)?;
+        // Consts must be literals at the AST level so we can substitute
+        // them at compile time without an evaluator.
+        if !is_constant_literal(&value) {
+            return Err(ParseError::Unexpected {
+                found: ilang_lexer::TokenKind::Ident(format!("{:?}", value.kind)),
+                expected: "a literal value (number, bool, or string)".into(),
+                span: value.span,
+            });
+        }
+        Ok(ilang_ast::ConstDecl {
+            name,
+            ty,
+            value,
+            span,
+        })
     }
 
     /// `use module` (whole-module import) or
