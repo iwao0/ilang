@@ -131,54 +131,69 @@ impl<'a> Parser<'a> {
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             let v_span = self.peek().span;
             let v_name = self.expect_ident("variant name")?;
-            let payload = match self.peek().kind {
-                TokenKind::LParen => {
-                    self.bump();
-                    let mut tys = Vec::new();
-                    if !matches!(self.peek().kind, TokenKind::RParen) {
-                        loop {
-                            tys.push(self.parse_type()?);
-                            if matches!(self.peek().kind, TokenKind::Comma) {
-                                self.bump();
-                            } else {
-                                break;
+            // Payload is introduced by `:` — either `: (Ty, ...)` for
+            // tuple or `: { name: Ty, ... }` for struct. Without a `:`
+            // the variant is a unit (no payload).
+            let payload = if matches!(self.peek().kind, TokenKind::Colon) {
+                self.bump();
+                match self.peek().kind {
+                    TokenKind::LParen => {
+                        self.bump();
+                        let mut tys = Vec::new();
+                        if !matches!(self.peek().kind, TokenKind::RParen) {
+                            loop {
+                                tys.push(self.parse_type()?);
+                                if matches!(self.peek().kind, TokenKind::Comma) {
+                                    self.bump();
+                                } else {
+                                    break;
+                                }
                             }
                         }
+                        self.expect(&TokenKind::RParen, "')'")?;
+                        VariantPayload::Tuple(tys)
                     }
-                    self.expect(&TokenKind::RParen, "')'")?;
-                    VariantPayload::Tuple(tys)
-                }
-                TokenKind::LBrace => {
-                    self.bump();
-                    let mut fields = Vec::new();
-                    while !matches!(self.peek().kind, TokenKind::RBrace) {
-                        let f_span = self.peek().span;
-                        let f_name = self.expect_ident("field name")?;
-                        self.expect(&TokenKind::Colon, "':'")?;
-                        let f_ty = self.parse_type()?;
-                        fields.push(FieldDecl {
-                            name: f_name,
-                            ty: f_ty,
-                            span: f_span,
-                        });
-                        // Comma or newline separates fields.
-                        if matches!(self.peek().kind, TokenKind::Comma) {
-                            self.bump();
-                        } else if !matches!(self.peek().kind, TokenKind::RBrace)
-                            && !self.peek().leading_newline
-                        {
-                            let p = self.peek();
-                            return Err(ParseError::Unexpected {
-                                found: p.kind.clone(),
-                                expected: "',' or newline between struct fields".into(),
-                                span: p.span,
+                    TokenKind::LBrace => {
+                        self.bump();
+                        let mut fields = Vec::new();
+                        while !matches!(self.peek().kind, TokenKind::RBrace) {
+                            let f_span = self.peek().span;
+                            let f_name = self.expect_ident("field name")?;
+                            self.expect(&TokenKind::Colon, "':'")?;
+                            let f_ty = self.parse_type()?;
+                            fields.push(FieldDecl {
+                                name: f_name,
+                                ty: f_ty,
+                                span: f_span,
                             });
+                            if matches!(self.peek().kind, TokenKind::Comma) {
+                                self.bump();
+                            } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                                && !self.peek().leading_newline
+                            {
+                                let p = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: p.kind.clone(),
+                                    expected: "',' or newline between struct fields".into(),
+                                    span: p.span,
+                                });
+                            }
                         }
+                        self.expect(&TokenKind::RBrace, "'}'")?;
+                        VariantPayload::Struct(fields)
                     }
-                    self.expect(&TokenKind::RBrace, "'}'")?;
-                    VariantPayload::Struct(fields)
+                    _ => {
+                        let p = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: p.kind.clone(),
+                            expected: "'(' (tuple payload) or '{' (struct payload) after ':'"
+                                .into(),
+                            span: p.span,
+                        });
+                    }
                 }
-                _ => VariantPayload::Unit,
+            } else {
+                VariantPayload::Unit
             };
             variants.push(Variant {
                 name: v_name,

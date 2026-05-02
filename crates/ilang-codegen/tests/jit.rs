@@ -984,9 +984,9 @@ fn jit_enum_unit_construct_and_match() {
         enum Color { Red, Green, Blue }
         let c = Color::Green
         match c {
-            Color::Red => 1
-            Color::Green => 2
-            Color::Blue => 3
+            Color::Red { 1 }
+            Color::Green { 2 }
+            Color::Blue { 3 }
         }
     "#;
     assert_eq!(jit(src), JitValue::I64(2));
@@ -998,9 +998,9 @@ fn jit_enum_match_wildcard() {
         enum Day { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
         let d = Day::Sat
         match d {
-            Day::Sat => 1
-            Day::Sun => 1
-            _ => 0
+            Day::Sat { 1 }
+            Day::Sun { 1 }
+            _ { 0 }
         }
     "#;
     assert_eq!(jit(src), JitValue::I64(1));
@@ -1028,13 +1028,13 @@ fn jit_enum_returned_as_value() {
 fn jit_enum_tuple_payload() {
     let src = r#"
         enum Shape {
-            Circle(f64)
-            Rect(f64, f64)
+            Circle: (f64)
+            Rect: (f64, f64)
         }
         fn area(s: Shape): f64 {
             match s {
-                Shape::Circle(r) => 3.14 * r * r
-                Shape::Rect(w, h) => w * h
+                Shape::Circle(r) { 3.14 * r * r }
+                Shape::Rect(w, h) { w * h }
             }
         }
         area(Shape::Rect(3.0, 4.0))
@@ -1047,12 +1047,12 @@ fn jit_enum_struct_payload() {
     let src = r#"
         enum Pt {
             Origin
-            At { x: i64, y: i64 }
+            At: { x: i64, y: i64 }
         }
         fn sumxy(p: Pt): i64 {
             match p {
-                Pt::Origin => 0
-                Pt::At { x, y } => x + y
+                Pt::Origin { 0 }
+                Pt::At { x, y } { x + y }
             }
         }
         sumxy(Pt::At { x: 3, y: 4 })
@@ -1073,7 +1073,7 @@ fn jit_enum_payload_runs_deinit() {
             init(cc: Counter) { this.c = cc }
             deinit() { c.inc() }
         }
-        enum Wrap { Has(Tracked), Empty }
+        enum Wrap { Has: (Tracked), Empty }
         let counter = new Counter()
         {
             let _w = Wrap::Has(new Tracked(counter))
@@ -1297,8 +1297,8 @@ fn jit_rejects_generic_enum() {
     let src = r#"
         let r: Result<i64, string> = Result::Ok(42)
         match r {
-            Result::Ok(v) => v
-            Result::Err(_) => 0
+            Result::Ok(v) { v }
+            Result::Err(_) { 0 }
         }
     "#;
     let toks = tokenize(src).unwrap();

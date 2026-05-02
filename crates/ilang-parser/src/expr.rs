@@ -510,9 +510,11 @@ impl<'a> Parser<'a> {
                 let mut arms = Vec::new();
                 while !matches!(self.peek().kind, TokenKind::RBrace) {
                     let arm_span = self.peek().span;
-                    let pattern = self.parse_pattern()?;
-                    self.expect(&TokenKind::FatArrow, "'=>'")?;
-                    let body = self.parse_expr(0)?;
+                    let pattern = self.parse_pattern_in_arm()?;
+                    // Arm body is a brace-delimited block — no `=>`.
+                    let body_span = self.peek().span;
+                    let body_block = parse_block(self)?;
+                    let body = Expr::new(ExprKind::Block(body_block), body_span);
                     arms.push(ilang_ast::MatchArm {
                         pattern,
                         body,
@@ -648,6 +650,91 @@ impl<'a> Parser<'a> {
             },
             span,
         ))
+    }
+
+    /// Parse a pattern in match-arm position, where the pattern is
+    /// always followed by a `{ body }` arm body. Disambiguates the
+    /// `{` after a variant name: it's a struct-pattern only when the
+    /// matching `}` is itself followed by another `{` (that second
+    /// `{` is the arm body). Otherwise the `{` belongs to the arm
+    /// body and the pattern is a unit variant.
+    fn parse_pattern_in_arm(&mut self) -> Result<ilang_ast::Pattern, ParseError> {
+        // Wildcard / Result short forms / variant with explicit
+        // `(...)` are unambiguous — fall through to the normal path
+        // for those. The only ambiguity is when, after a variant name,
+        // we see `{`. We handle that by peeking through to the
+        // matching `}` and checking what follows.
+        if self.lookahead_is_unit_variant_in_arm() {
+            // Parse just `EnumName::Variant` (no payload), leave the
+            // arm-body `{` alone.
+            return self.parse_pattern_unit_only();
+        }
+        self.parse_pattern()
+    }
+
+    /// True when the upcoming pattern is a variant name optionally
+    /// followed by a `{ ... }` whose closing `}` is NOT followed by
+    /// another `{`. In that case the `{` belongs to the arm body —
+    /// the pattern is a bare unit variant.
+    fn lookahead_is_unit_variant_in_arm(&self) -> bool {
+        // Pattern starts with `Ident :: Ident` (or one of the short
+        // forms `ok(_)` / `err(_)`, which always have `(`). For the
+        // long form, check what comes after the second Ident.
+        let t0 = &self.tokens[self.pos].kind;
+        let t1 = self.tokens.get(self.pos + 1).map(|t| &t.kind);
+        let t2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
+        if !matches!(t0, TokenKind::Ident(_))
+            || !matches!(t1, Some(TokenKind::ColonColon))
+            || !matches!(t2, Some(TokenKind::Ident(_)))
+        {
+            return false;
+        }
+        // Token at pos+3: if not `{`, it's already unit (or tuple `(`)
+        // — let parse_pattern handle it.
+        if !matches!(self.tokens.get(self.pos + 3).map(|t| &t.kind), Some(TokenKind::LBrace)) {
+            return false;
+        }
+        // Walk from pos+3 to find the matching `}`. Then check if
+        // the next token is `{` (struct pattern + arm body) or
+        // anything else (the `{` is actually the arm body).
+        let mut depth: i32 = 0;
+        let mut i = self.pos + 3;
+        while i < self.tokens.len() {
+            match &self.tokens[i].kind {
+                TokenKind::LBrace => depth += 1,
+                TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Found the matching `}`. Look at next token.
+                        let after = self.tokens.get(i + 1).map(|t| &t.kind);
+                        return !matches!(after, Some(TokenKind::LBrace));
+                    }
+                }
+                TokenKind::Eof => break,
+                _ => {}
+            }
+            i += 1;
+        }
+        // Unbalanced — bail to the regular parser, which will error.
+        false
+    }
+
+    /// Parse `EnumName::Variant` only — used when the lookahead has
+    /// determined the `{` that follows belongs to the arm body, not
+    /// a struct payload pattern.
+    fn parse_pattern_unit_only(&mut self) -> Result<ilang_ast::Pattern, ParseError> {
+        let span = self.peek().span;
+        let enum_name = self.expect_ident("variant name")?;
+        self.expect(&TokenKind::ColonColon, "'::'")?;
+        let variant = self.expect_ident("variant name")?;
+        Ok(ilang_ast::Pattern {
+            kind: ilang_ast::PatternKind::Variant {
+                enum_name,
+                variant,
+                bindings: ilang_ast::PatternBindings::Unit,
+            },
+            span,
+        })
     }
 
     fn parse_pattern(&mut self) -> Result<ilang_ast::Pattern, ParseError> {

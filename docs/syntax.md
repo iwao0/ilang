@@ -366,34 +366,37 @@ enum Color { Red, Green, Blue }
 
 let c = Color::Green
 let name = match c {
-    Color::Red => "red"
-    Color::Green => "green"
-    Color::Blue => "blue"
+    Color::Red { "red" }
+    Color::Green { "green" }
+    Color::Blue { "blue" }
 }
 
 // Phase 2: ペイロード付き (タプル / 名前付きフィールド)
 enum Shape {
-    Circle(f64)
-    Rect(f64, f64)
-    Square { side: f64 }
+    Circle: (f64)              // タプルペイロードは `: (...)` で導入
+    Rect: (f64, f64)
+    Square: { side: f64 }      // struct ペイロードは `: { ... }`
 }
 
 fn area(s: Shape): f64 {
     match s {
-        Shape::Circle(r) => 3.14 * r * r
-        Shape::Rect(w, h) => w * h
-        Shape::Square { side } => side * side    // shorthand: { side: side }
+        Shape::Circle(r) { 3.14 * r * r }
+        Shape::Rect(w, h) { w * h }
+        Shape::Square { side } { side * side }   // struct shorthand: { side: side }
     }
 }
 
 // `_` ワイルドカードで残りを捕捉
 let day = Color::Red
 match day {
-    Color::Red => "alert"
-    _ => "ok"
+    Color::Red { "alert" }
+    _ { "ok" }
 }
 ```
 
+- **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`Circle: (f64)`)。ユニットバリアントは `:` なし (`Red`)。
+- **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color::Red { "red" }`)。
+- 構築/パターンは現状維持: `Shape::Circle(3.0)` で構築、`Shape::Circle(r)` でパターン分解。
 - 全バリアントを網羅するか `_` が必要 (型チェッカが拒否)
 - 各 arm 値は型が揃う必要あり (if/else と同じ)
 - パターンの束縛: タプルは位置 (`Shape::Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
@@ -403,14 +406,14 @@ match day {
 
 ```rust
 enum Either<L, R> {
-    Left(L)
-    Right(R)
+    Left: (L)
+    Right: (R)
 }
 
 let e: Either<i64, string> = Either::Right("hi")
 match e {
-    Either::Left(_) => "left"
-    Either::Right(s) => s
+    Either::Left(_) { "left" }
+    Either::Right(s) { s }
 }
 ```
 
@@ -425,15 +428,15 @@ match e {
 Rust と同じ形の組み込みジェネリック enum。`Optional` の `some` / `none` と同様、構築とパターンに **短縮形 `ok(v)` / `err(e)`** が用意されている。
 
 ```rust
-enum Result<T, E> { Ok(T), Err(E) }   // 概念的な定義 (実装側で登録済み)
+enum Result<T, E> { Ok: (T), Err(E) }   // 概念的な定義 (実装側で登録済み)
 
 fn divide(a: i64, b: i64): Result<i64, string> {
     if b == 0 { err("divide by zero") } else { ok(a / b) }
 }
 
 match divide(10, 2) {
-    ok(v) => v
-    err(_) => -1
+    ok(v) { v }
+    err(_) { -1 }
 }
 
 // 長い形 (Result::Ok / Result::Err) も使える — 同じ EnumCtor に desugar される

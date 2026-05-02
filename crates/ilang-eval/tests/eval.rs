@@ -1124,9 +1124,9 @@ fn enum_unit_construct_and_match() {
         enum Color { Red, Green, Blue }
         let c = Color::Green
         match c {
-            Color::Red => 1
-            Color::Green => 2
-            Color::Blue => 3
+            Color::Red { 1 }
+            Color::Green { 2 }
+            Color::Blue { 3 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(2));
@@ -1138,9 +1138,9 @@ fn enum_match_wildcard() {
         enum Day { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
         let d = Day::Sat
         match d {
-            Day::Sat => "weekend"
-            Day::Sun => "weekend"
-            _ => "weekday"
+            Day::Sat { "weekend" }
+            Day::Sun { "weekend" }
+            _ { "weekday" }
         }
     "#;
     assert_eq!(
@@ -1156,7 +1156,10 @@ fn enum_non_exhaustive_match_is_type_error() {
     use ilang_types::TypeChecker;
     let src = r#"
         enum X { A, B, C }
-        match X::A { X::A => 1, X::B => 2 }
+        match X::A {
+            X::A { 1 }
+            X::B { 2 }
+        }
     "#;
     let toks = tokenize(src).unwrap();
     let prog = parse(&toks).unwrap();
@@ -1169,13 +1172,13 @@ fn enum_non_exhaustive_match_is_type_error() {
 fn enum_tuple_payload() {
     let src = r#"
         enum Shape {
-            Circle(f64)
-            Rect(f64, f64)
+            Circle: (f64)
+            Rect: (f64, f64)
         }
         fn area(s: Shape): f64 {
             match s {
-                Shape::Circle(r) => 3.14 * r * r
-                Shape::Rect(w, h) => w * h
+                Shape::Circle(r) { 3.14 * r * r }
+                Shape::Rect(w, h) { w * h }
             }
         }
         area(Shape::Rect(3.0, 4.0))
@@ -1188,12 +1191,12 @@ fn enum_struct_payload_with_shorthand() {
     let src = r#"
         enum Pt {
             Origin
-            At { x: i64, y: i64 }
+            At: { x: i64, y: i64 }
         }
         fn sumxy(p: Pt): i64 {
             match p {
-                Pt::Origin => 0
-                Pt::At { x, y } => x + y
+                Pt::Origin { 0 }
+                Pt::At { x, y } { x + y }
             }
         }
         sumxy(Pt::At { x: 3, y: 4 })
@@ -1216,7 +1219,7 @@ fn enum_payload_runs_deinit_on_release() {
             init(cc: Counter) { this.c = cc }
             deinit() { c.inc() }
         }
-        enum Wrap { Has(Tracked), Empty }
+        enum Wrap { Has: (Tracked), Empty }
         let counter = new Counter()
         {
             let _w = Wrap::Has(new Tracked(counter))
@@ -1607,8 +1610,8 @@ fn result_ok_and_err() {
     let src = r#"
         let r: Result<i64, string> = Result::Ok(42)
         match r {
-            Result::Ok(v) => v
-            Result::Err(_) => -1
+            Result::Ok(v) { v }
+            Result::Err(_) { -1 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(42));
@@ -1616,8 +1619,8 @@ fn result_ok_and_err() {
     let src = r#"
         let r: Result<i64, string> = Result::Err("boom")
         match r {
-            Result::Ok(_) => "ok"
-            Result::Err(e) => e
+            Result::Ok(_) { "ok" }
+            Result::Err(e) { e }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Str(Rc::new("boom".into())));
@@ -1630,8 +1633,8 @@ fn result_used_via_function_return() {
             if b == 0 { Result::Err("divide by zero") } else { Result::Ok(a / b) }
         }
         match divide(10, 2) {
-            Result::Ok(v) => v
-            Result::Err(_) => 0
+            Result::Ok(v) { v }
+            Result::Err(_) { 0 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(5));
@@ -1641,8 +1644,8 @@ fn result_used_via_function_return() {
             if b == 0 { Result::Err("divide by zero") } else { Result::Ok(a / b) }
         }
         match divide(10, 0) {
-            Result::Ok(v) => v
-            Result::Err(_) => -999
+            Result::Ok(v) { v }
+            Result::Err(_) { -999 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(-999));
@@ -1653,13 +1656,13 @@ fn user_defined_generic_enum() {
     use std::rc::Rc;
     let src = r#"
         enum Either<L, R> {
-            Left(L)
-            Right(R)
+            Left: (L)
+            Right: (R)
         }
         let e: Either<i64, string> = Either::Right("hi")
         match e {
-            Either::Left(_) => "left"
-            Either::Right(s) => s
+            Either::Left(_) { "left" }
+            Either::Right(s) { s }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Str(Rc::new("hi".into())));
@@ -1696,8 +1699,8 @@ fn result_short_form_constructors_and_patterns() {
             if b == 0 { err("divide by zero") } else { ok(a / b) }
         }
         match divide(10, 2) {
-            ok(v) => v
-            err(_) => -1
+            ok(v) { v }
+            err(_) { -1 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(5));
@@ -1707,8 +1710,8 @@ fn result_short_form_constructors_and_patterns() {
             if b == 0 { err("divide by zero") } else { ok(a / b) }
         }
         match divide(10, 0) {
-            ok(_) => "got value"
-            err(e) => e
+            ok(_) { "got value" }
+            err(e) { e }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Str(Rc::new("divide by zero".into())));
@@ -1721,8 +1724,8 @@ fn ok_err_can_mix_with_long_form() {
     let src = r#"
         let r: Result<i64, string> = ok(42)
         match r {
-            Result::Ok(v) => v
-            Result::Err(_) => -1
+            Result::Ok(v) { v }
+            Result::Err(_) { -1 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(42));
