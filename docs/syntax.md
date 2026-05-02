@@ -570,6 +570,23 @@ math.atan2(1.0, 1.0)         // π/4
 
 提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`。定数: `pi`, `e` (`const` 宣言で同梱)。interpreter / JIT 両対応。
 
+### 組み込み `test` モジュール
+
+自己アサーションのスクリプト + 結合テストフィクスチャ用。失敗時は stderr にメッセージを出して **exit code 2** で終了する。
+
+```rust
+use test
+test.expect(1 + 2 * 3, 7)              // i64 同士
+test.expectStr("ab" + "c", "abc")      // string 同士
+test.expectBool(false, false)
+test.expectF64(2.5 + 0.5, 3.0)
+test.expectTrue(1 < 2)                 // 単一条件
+test.expectFalse(1 > 2)
+test.fail("should not reach here")    // 強制失敗
+```
+
+interpreter / JIT 両対応。`crates/ilang-cli/tests/programs/*.il` に置いた `.il` ファイルは、ハーネス (`programs.rs`) が両方で実行 + 終了コードを比較してくれる。
+
 ### `const` (定数宣言)
 
 トップレベルで不変の定数を宣言できます。RHS は **リテラル限定** (数値 / bool / 文字列、単項 `-` と `as` キャスト可)。複雑な式は受け付けません。

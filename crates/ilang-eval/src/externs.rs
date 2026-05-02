@@ -38,6 +38,74 @@ pub fn invoke_extern(name: &str, args: &[Value]) -> Option<Value> {
             let (base, exp) = f2(args)?;
             Some(Value::Float(base.powf(exp)))
         }
+        // test — assertion helpers. On failure each prints to stderr
+        // and aborts with exit code 2 so the harness sees a non-zero
+        // status independently of any other panic mechanism.
+        "test.expect" => {
+            if args.len() != 2 { return None; }
+            let a = as_i64(&args[0])?;
+            let e = as_i64(&args[1])?;
+            if a != e { test_fail(&format!("expected {e}, got {a}")); }
+            Some(Value::Unit)
+        }
+        "test.expectStr" => {
+            if args.len() != 2 { return None; }
+            let a = match &args[0] { Value::Str(s) => s.clone(), _ => return None };
+            let e = match &args[1] { Value::Str(s) => s.clone(), _ => return None };
+            if *a != *e { test_fail(&format!("expected {:?}, got {:?}", *e, *a)); }
+            Some(Value::Unit)
+        }
+        "test.expectBool" => {
+            if args.len() != 2 { return None; }
+            let a = match &args[0] { Value::Bool(b) => *b, _ => return None };
+            let e = match &args[1] { Value::Bool(b) => *b, _ => return None };
+            if a != e { test_fail(&format!("expected {e}, got {a}")); }
+            Some(Value::Unit)
+        }
+        "test.expectF64" => {
+            if args.len() != 2 { return None; }
+            let a = as_f64(&args[0])?;
+            let e = as_f64(&args[1])?;
+            if a != e { test_fail(&format!("expected {e}, got {a}")); }
+            Some(Value::Unit)
+        }
+        "test.expectTrue" => {
+            if args.len() != 1 { return None; }
+            let c = match &args[0] { Value::Bool(b) => *b, _ => return None };
+            if !c { test_fail("expected true, got false"); }
+            Some(Value::Unit)
+        }
+        "test.expectFalse" => {
+            if args.len() != 1 { return None; }
+            let c = match &args[0] { Value::Bool(b) => *b, _ => return None };
+            if c { test_fail("expected false, got true"); }
+            Some(Value::Unit)
+        }
+        "test.fail" => {
+            if args.len() != 1 { return None; }
+            let msg = match &args[0] { Value::Str(s) => s.to_string(), _ => return None };
+            test_fail(&msg);
+            #[allow(unreachable_code)] Some(Value::Unit)
+        }
+        _ => None,
+    }
+}
+
+fn test_fail(msg: &str) -> ! {
+    eprintln!("test assertion failed: {msg}");
+    std::process::exit(2);
+}
+
+fn as_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::Int(n) => Some(*n),
+        Value::Int8(n) => Some(*n as i64),
+        Value::Int16(n) => Some(*n as i64),
+        Value::Int32(n) => Some(*n as i64),
+        Value::UInt8(n) => Some(*n as i64),
+        Value::UInt16(n) => Some(*n as i64),
+        Value::UInt32(n) => Some(*n as i64),
+        Value::UInt64(n) => Some(*n as i64),
         _ => None,
     }
 }
@@ -83,5 +151,7 @@ pub fn known_extern_names() -> &'static [&'static str] {
         "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan",
         "math.atan2", "math.sqrt", "math.pow", "math.exp", "math.ln", "math.log10",
         "math.log2", "math.floor", "math.ceil", "math.round", "math.abs",
+        "test.expect", "test.expectStr", "test.expectBool", "test.expectF64",
+        "test.expectTrue", "test.expectFalse", "test.fail",
     ]
 }

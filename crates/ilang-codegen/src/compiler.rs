@@ -328,6 +328,7 @@ impl JitCompiler {
         // Built-in `@extern` math fns. The names match the qualified
         // form produced by the loader (`math.sin`, etc.).
         crate::math_externs::register_math_symbols(&mut builder);
+        crate::test_externs::register_test_symbols(&mut builder);
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 

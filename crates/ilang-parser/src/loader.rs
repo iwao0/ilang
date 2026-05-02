@@ -30,6 +30,7 @@ use crate::ParseError;
 fn builtin_module_source(name: &str) -> Option<&'static str> {
     match name {
         "math" => Some(include_str!("stdlib/math.il")),
+        "test" => Some(include_str!("stdlib/test.il")),
         _ => None,
     }
 }
