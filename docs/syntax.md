@@ -567,9 +567,14 @@ JIT で `Unsupported` になる主なケース:
 - Map / ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §9 / §11 参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
-- 例外 / `throw` / `try`
 - ジェネリック関数 / 制約 (bounds) (クラスジェネリクスは interpreter / JIT とも実装済)
 - クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
+- Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)
+
+### 採用しない方針
+
+- **例外 (`throw` / `try` / `catch`)**: 採用しない。失敗するかもしれない関数は `Result<T, E>` で表現し、`match` で処理する。回復不能なバグ (ゼロ除算、配列範囲外、`unwrap()` on `none`) は **panic** として実行を停止 (catch 不可)。
+  - 理由: 制御フローがシグネチャに現れる、型システムを抜けない、ARC との相性。Rust / Go / Zig などと同じ方針。
 
 ---
 
