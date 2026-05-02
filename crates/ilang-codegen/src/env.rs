@@ -9,7 +9,7 @@ use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::error::CodegenError;
 use crate::runtime::{StringRc, STRING_RC_SATURATED};
-use crate::ty::{ArrayKind, ClassLayout, EnumLayout, JitTy, MethodInfo};
+use crate::ty::{ArrayKind, ClassLayout, EnumLayout, FnSignature, JitTy, MethodInfo};
 
 /// Declare an external runtime symbol with the given signature so
 /// `module.declare_func_in_func` can produce a call ref later.
@@ -62,6 +62,14 @@ pub(crate) struct StrFns {
     pub eq: FuncId,
     pub retain: FuncId,
     pub release: FuncId,
+    pub length: FuncId,
+    pub char_at: FuncId,
+    pub includes: FuncId,
+    pub starts_with: FuncId,
+    pub ends_with: FuncId,
+    pub to_upper: FuncId,
+    pub to_lower: FuncId,
+    pub trim: FuncId,
 }
 
 /// FFI helpers for the heap array runtime. `push_<width>` is picked by
@@ -112,6 +120,7 @@ pub(crate) struct LowerCtx<'a> {
     pub interned_strings: &'a mut Vec<Box<StringRc>>,
     pub array_kinds: &'a mut Vec<ArrayKind>,
     pub optional_inners: &'a mut Vec<JitTy>,
+    pub fn_signatures: &'a mut Vec<FnSignature>,
     /// Per-class drop wrappers, indexed by class id. `None` for trivial
     /// classes (no `deinit`, no heap fields). See drops.rs.
     pub class_drops: &'a [Option<FuncId>],

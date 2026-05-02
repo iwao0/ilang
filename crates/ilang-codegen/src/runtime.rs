@@ -252,6 +252,77 @@ pub(crate) extern "C" fn ilang_jit_str_eq(a: i64, b: i64) -> i8 {
     }
 }
 
+fn alloc_str(s: String) -> i64 {
+    Box::into_raw(Box::new(StringRc { rc: 1, s })) as i64
+}
+
+/// Unicode code-point count, matching JS-style `.length` semantics for
+/// non-BMP characters (each surrogate pair counts as one in `chars()`).
+pub(crate) extern "C" fn ilang_jit_str_length(ptr: i64) -> i64 {
+    let s = unsafe { &*(ptr as *const StringRc) };
+    s.s.chars().count() as i64
+}
+
+/// JS-style: out-of-range index returns an empty string.
+pub(crate) extern "C" fn ilang_jit_str_char_at(ptr: i64, idx: i64) -> i64 {
+    let s = unsafe { &*(ptr as *const StringRc) };
+    if idx < 0 {
+        return alloc_str(String::new());
+    }
+    let out: String = s
+        .s
+        .chars()
+        .nth(idx as usize)
+        .map(|c| c.to_string())
+        .unwrap_or_default();
+    alloc_str(out)
+}
+
+pub(crate) extern "C" fn ilang_jit_str_includes(haystack: i64, needle: i64) -> i8 {
+    let h = unsafe { &*(haystack as *const StringRc) };
+    let n = unsafe { &*(needle as *const StringRc) };
+    if h.s.contains(&n.s) {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_str_starts_with(s: i64, prefix: i64) -> i8 {
+    let s = unsafe { &*(s as *const StringRc) };
+    let p = unsafe { &*(prefix as *const StringRc) };
+    if s.s.starts_with(&p.s) {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_str_ends_with(s: i64, suffix: i64) -> i8 {
+    let s = unsafe { &*(s as *const StringRc) };
+    let f = unsafe { &*(suffix as *const StringRc) };
+    if s.s.ends_with(&f.s) {
+        1
+    } else {
+        0
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_str_to_upper(ptr: i64) -> i64 {
+    let s = unsafe { &*(ptr as *const StringRc) };
+    alloc_str(s.s.to_uppercase())
+}
+
+pub(crate) extern "C" fn ilang_jit_str_to_lower(ptr: i64) -> i64 {
+    let s = unsafe { &*(ptr as *const StringRc) };
+    alloc_str(s.s.to_lowercase())
+}
+
+pub(crate) extern "C" fn ilang_jit_str_trim(ptr: i64) -> i64 {
+    let s = unsafe { &*(ptr as *const StringRc) };
+    alloc_str(s.s.trim().to_string())
+}
+
 // ─── Array runtime (ARC Phase B + D) ──────────────────────────────────
 // Layout:
 //   header (40 bytes): [rc, drop_fn, len, cap, data_ptr] — all i64

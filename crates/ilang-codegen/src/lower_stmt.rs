@@ -36,6 +36,7 @@ pub(crate) fn lower_stmt(
                     lc.enum_layouts,
                     lc.array_kinds,
                     lc.optional_inners,
+                lc.fn_signatures,
                 )?;
                 Some(lower_array_literal(b, lc, elements, target_elem_jty, value.span)?)
             } else {
@@ -59,6 +60,7 @@ pub(crate) fn lower_stmt(
                     lc.enum_layouts,
                     lc.array_kinds,
                     lc.optional_inners,
+                lc.fn_signatures,
                 )?,
                 None => vt,
             };

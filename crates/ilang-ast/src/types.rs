@@ -16,6 +16,16 @@ pub enum Type {
     Unit,
     /// Instance of a user-defined class, identified by class name.
     Object(String),
+    /// Instance of a user-defined generic class with concrete type
+    /// arguments (e.g. `Box<i64>`). Non-generic classes use `Object`.
+    Generic { base: String, args: Vec<Type> },
+    /// Reference to a type parameter inside a generic class body
+    /// (e.g. `T` in `class Box<T> { x: T }`). Replaced with concrete
+    /// types via substitution when the class is instantiated.
+    TypeVar(String),
+    /// Function value type — `fn(T1, T2): R`. Carries no captured
+    /// state (no closures yet); at runtime it's a code pointer.
+    Fn { params: Vec<Type>, ret: Box<Type> },
     /// Value of a user-defined `enum`, identified by name. The set of
     /// variants and their payloads live in the type checker's enum
     /// signature table.
@@ -85,6 +95,31 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
             Type::Object(name) => write!(f, "{name}"),
+            Type::Generic { base, args } => {
+                write!(f, "{base}<")?;
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{a}")?;
+                }
+                write!(f, ">")
+            }
+            Type::TypeVar(name) => write!(f, "{name}"),
+            Type::Fn { params, ret } => {
+                write!(f, "fn(")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                if matches!(ret.as_ref(), Type::Unit) {
+                    write!(f, ")")
+                } else {
+                    write!(f, "): {ret}")
+                }
+            }
             Type::Enum(name) => write!(f, "{name}"),
             Type::Array { elem, fixed: None } => write!(f, "{elem}[]"),
             Type::Array { elem, fixed: Some(n) } => write!(f, "{elem}[{n}]"),

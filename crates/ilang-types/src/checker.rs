@@ -13,6 +13,36 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 /// literal (or its unary negation) infers into any integer type whose
 /// range it fits — this is what lets `let x: u8 = 5` work even though
 /// the literal's natural type is i64.
+/// `if` の枝合流専用の判定: 値式が **素の数値リテラル** (整数/浮動小数、
+/// 任意で単項 `-`) で、`target` 型に収まるかどうか。`assignable` を経由
+/// しないので i64 値→f64 のような暗黙拡張は通さない。
+fn numeric_literal_fits(value: &Expr, target: &Type) -> bool {
+    match &value.kind {
+        ExprKind::Int(n) => {
+            if target.is_int() {
+                int_literal_fits(*n, target)
+            } else {
+                target.is_float()
+            }
+        }
+        ExprKind::Unary { op: ilang_ast::UnOp::Neg, expr: inner } => {
+            if let ExprKind::Int(n) = &inner.kind {
+                if target.is_int() {
+                    n.checked_neg().is_some_and(|v| int_literal_fits(v, target))
+                } else {
+                    target.is_float()
+                }
+            } else if matches!(inner.kind, ExprKind::Float(_)) {
+                target.is_float()
+            } else {
+                false
+            }
+        }
+        ExprKind::Float(_) => target.is_float(),
+        _ => false,
+    }
+}
+
 fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
     if assignable(vt, target) {
         return true;
@@ -95,6 +125,10 @@ struct Signature {
 
 #[derive(Debug, Clone, Default)]
 struct ClassSig {
+    /// Names of generic type parameters on the class. Empty for
+    /// non-generic classes. Field/method types may reference these as
+    /// `Type::TypeVar(name)`; instantiation substitutes them.
+    type_params: Vec<String>,
     fields: HashMap<String, Type>,
     methods: HashMap<String, Signature>,
 }
@@ -154,6 +188,7 @@ impl TypeChecker {
         self.classes.insert(
             "Console".to_string(),
             ClassSig {
+                type_params: Vec::new(),
                 fields: HashMap::new(),
                 methods,
             },
@@ -239,7 +274,7 @@ impl TypeChecker {
                 VariantPayload::Unit => {}
                 VariantPayload::Tuple(tys) => {
                     for t in tys {
-                        self.validate_type(t, v.span)?;
+                        self.validate_type(t, v.span, &[])?;
                     }
                 }
                 VariantPayload::Struct(fields) => {
@@ -254,7 +289,7 @@ impl TypeChecker {
                                 span: f.span,
                             });
                         }
-                        self.validate_type(&f.ty, f.span)?;
+                        self.validate_type(&f.ty, f.span, &[])?;
                     }
                 }
             }
@@ -264,7 +299,7 @@ impl TypeChecker {
 
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
         for FieldDecl { ty, span, .. } in &c.fields {
-            self.validate_type(ty, *span)?;
+            self.validate_type(ty, *span, &c.type_params)?;
         }
         for m in &c.methods {
             // `deinit` is the destructor: zero params, no return value (or
@@ -282,17 +317,27 @@ impl TypeChecker {
     }
 
     fn check_fn(&self, f: &FnDecl, in_class: Option<&str>) -> Result<(), TypeError> {
+        // Type parameters in scope (if we're inside a generic class).
+        let class_params: Vec<String> = in_class
+            .and_then(|n| self.classes.get(n))
+            .map(|c| c.type_params.clone())
+            .unwrap_or_default();
         for Param { ty, span, .. } in &f.params {
-            self.validate_type(ty, *span)?;
+            self.validate_type(ty, *span, &class_params)?;
         }
         if let Some(ret) = &f.ret {
-            self.validate_type(ret, f.span)?;
+            self.validate_type(ret, f.span, &class_params)?;
         }
         let mut env: Vars = HashMap::new();
         for Param { name, ty, .. } in &f.params {
-            env.insert(name.clone(), ty.clone());
+            // Rewrite Object(T) → TypeVar(T) so the body checker treats
+            // references to T as the type variable (not an unknown class).
+            env.insert(name.clone(), rewrite_type_params(ty, &class_params));
         }
-        let expected = f.ret.clone().unwrap_or(Type::Unit);
+        let expected = rewrite_type_params(
+            &f.ret.clone().unwrap_or(Type::Unit),
+            &class_params,
+        );
         let body_ty = self.check_block(&f.body, &env, Some(&expected), in_class, 0)?;
         if !assignable(&body_ty, &expected) {
             return Err(TypeError::BadReturn {
@@ -305,15 +350,24 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn validate_type(&self, t: &Type, span: Span) -> Result<(), TypeError> {
+    fn validate_type(
+        &self,
+        t: &Type,
+        span: Span,
+        type_params_in_scope: &[String],
+    ) -> Result<(), TypeError> {
         match t {
             Type::Object(name) => {
-                // An identifier may refer to either a class or an enum;
-                // accept both since the parser can't tell them apart at
-                // type-position. `Type::Enum` only exists when the
-                // checker resolved it explicitly (currently unused —
-                // the parser produces `Object(name)` for both).
-                if self.classes.contains_key(name) || self.enums.contains_key(name) {
+                // An identifier may refer to either a class, an enum,
+                // or — when checking a generic class body — one of the
+                // class's type parameters. `Type::Enum` only exists
+                // when the checker resolved it explicitly (currently
+                // unused — the parser produces `Object(name)` for both
+                // classes and enums).
+                if self.classes.contains_key(name)
+                    || self.enums.contains_key(name)
+                    || type_params_in_scope.iter().any(|p| p == name)
+                {
                     // ok
                 } else {
                     return Err(TypeError::UndefinedClass {
@@ -331,10 +385,10 @@ impl TypeChecker {
                 }
             }
             Type::Array { elem, .. } => {
-                self.validate_type(elem, span)?;
+                self.validate_type(elem, span, type_params_in_scope)?;
             }
             Type::Optional(inner) => {
-                self.validate_type(inner, span)?;
+                self.validate_type(inner, span, type_params_in_scope)?;
             }
             Type::Weak(inner) => {
                 // Weak is meaningful only for class instances. Reject
@@ -345,7 +399,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                self.validate_type(inner, span)?;
+                self.validate_type(inner, span, type_params_in_scope)?;
             }
             _ => {}
         }
@@ -395,7 +449,7 @@ impl TypeChecker {
                 let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                 let bind = match ty {
                     Some(ann) => {
-                        self.validate_type(ann, stmt.span)?;
+                        self.validate_type(ann, stmt.span, &[])?;
                         if !literal_assignable(value, &vt, ann) {
                             return Err(TypeError::Mismatch {
                                 expected: ann.clone(),
@@ -443,6 +497,14 @@ impl TypeChecker {
                         }
                     }
                 }
+                // First-class function: a bare reference to a top-level
+                // `fn` becomes a function value (`Type::Fn(...)`).
+                if let Some(sig) = self.fns.get(n) {
+                    return Ok(Type::Fn {
+                        params: sig.params.clone(),
+                        ret: Box::new(sig.ret.clone()),
+                    });
+                }
                 Err(TypeError::UndefinedVariable {
                     name: n.clone(),
                     span,
@@ -482,6 +544,18 @@ impl TypeChecker {
                 if callee == "deinit" {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
+                // Indirect call through a function-typed local: shadows
+                // both methods and top-level fns, mirroring how a local
+                // `let print = ...` shadows an outer name.
+                if let Some(Type::Fn { params, ret }) = env.get(callee).cloned() {
+                    let sig = Signature {
+                        params,
+                        ret: (*ret).clone(),
+                        variadic: false,
+                    };
+                    self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                    return Ok(sig.ret);
+                }
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(sig) = cls.methods.get(callee).cloned() {
@@ -505,6 +579,11 @@ impl TypeChecker {
                 if matches!(ot, Type::Array { .. }) && name == "length" {
                     return Ok(Type::I64);
                 }
+                // Built-in property: strings expose `length: i64` (Unicode
+                // code-point count, JS-style).
+                if matches!(ot, Type::Str) && name == "length" {
+                    return Ok(Type::I64);
+                }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
@@ -512,13 +591,14 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                cls.fields.get(name).cloned().ok_or_else(|| {
+                let raw = cls.fields.get(name).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
                         field: name.clone(),
                         span,
                     }
-                })
+                })?;
+                Ok(subst_type(&raw, &cls.type_params, type_args_of(&ot)))
             }
             ExprKind::MethodCall { obj, method, args } => {
                 if method == "deinit" {
@@ -578,6 +658,58 @@ impl TypeChecker {
                         }
                     }
                 }
+                // Built-in string methods (JS-style camelCase).
+                if matches!(ot, Type::Str) {
+                    let arity_check = |expected: usize| -> Result<(), TypeError> {
+                        if args.len() != expected {
+                            Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected,
+                                got: args.len(),
+                                span,
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    };
+                    match method.as_str() {
+                        "charAt" => {
+                            arity_check(1)?;
+                            let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                            if !matches!(at, Type::I64 | Type::I32 | Type::I16 | Type::I8 | Type::U64 | Type::U32 | Type::U16 | Type::U8) {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::I64,
+                                    got: at,
+                                    span: args[0].span,
+                                });
+                            }
+                            return Ok(Type::Str);
+                        }
+                        "includes" | "startsWith" | "endsWith" => {
+                            arity_check(1)?;
+                            let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                            if !matches!(at, Type::Str) {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::Str,
+                                    got: at,
+                                    span: args[0].span,
+                                });
+                            }
+                            return Ok(Type::Bool);
+                        }
+                        "toUpperCase" | "toLowerCase" | "trim" => {
+                            arity_check(0)?;
+                            return Ok(Type::Str);
+                        }
+                        _ => {
+                            return Err(TypeError::UnknownMethod {
+                                class: "string".into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 // Built-in array methods.
                 if let Type::Array { elem, fixed } = &ot {
                     if method == "push" {
@@ -609,6 +741,50 @@ impl TypeChecker {
                         }
                         return Ok(Type::Unit);
                     }
+                    if method == "pop" {
+                        if fixed.is_some() {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Array {
+                                    elem: elem.clone(),
+                                    fixed: None,
+                                },
+                                got: ot.clone(),
+                                span,
+                            });
+                        }
+                        if !args.is_empty() {
+                            return Err(TypeError::ArityMismatch {
+                                name: "pop".into(),
+                                expected: 0,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        return Ok(Type::Optional(elem.clone()));
+                    }
+                    if method == "indexOf" || method == "includes" {
+                        if args.len() != 1 {
+                            return Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected: 1,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                        if !literal_assignable(&args[0], &at, elem) {
+                            return Err(TypeError::Mismatch {
+                                expected: (**elem).clone(),
+                                got: at,
+                                span: args[0].span,
+                            });
+                        }
+                        return Ok(if method == "indexOf" {
+                            Type::I64
+                        } else {
+                            Type::Bool
+                        });
+                    }
                     return Err(TypeError::UnknownMethod {
                         class: format!("{ot}"),
                         method: method.clone(),
@@ -622,25 +798,66 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                let sig = cls.methods.get(method).cloned().ok_or_else(|| {
+                let raw_sig = cls.methods.get(method).cloned().ok_or_else(|| {
                     TypeError::UnknownMethod {
                         class: class_name.to_string(),
                         method: method.clone(),
                         span,
                     }
                 })?;
+                let class_params = cls.type_params.clone();
+                let inst_args: Vec<Type> = type_args_of(&ot).to_vec();
+                let sig = Signature {
+                    params: raw_sig
+                        .params
+                        .iter()
+                        .map(|t| subst_type(t, &class_params, &inst_args))
+                        .collect(),
+                    ret: subst_type(&raw_sig.ret, &class_params, &inst_args),
+                    variadic: raw_sig.variadic,
+                };
                 self.check_args(method, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
             }
-            ExprKind::New { class, args } => {
+            ExprKind::New { class, type_args, args } => {
                 let cls = self.classes.get(class).ok_or_else(|| TypeError::UndefinedClass {
                     name: class.clone(),
                     span,
                 })?;
-                if let Some(init) = cls.methods.get("init").cloned() {
+                let class_params = cls.type_params.clone();
+                let init_raw = cls.methods.get("init").cloned();
+                // Generic instantiation: arity check on type args.
+                if !class_params.is_empty() && type_args.len() != class_params.len() {
+                    return Err(TypeError::ArityMismatch {
+                        name: format!("{class}::<type args>"),
+                        expected: class_params.len(),
+                        got: type_args.len(),
+                        span,
+                    });
+                }
+                // Non-generic class with explicit `<...>` args is an error.
+                if class_params.is_empty() && !type_args.is_empty() {
+                    return Err(TypeError::ArityMismatch {
+                        name: format!("{class}::<type args>"),
+                        expected: 0,
+                        got: type_args.len(),
+                        span,
+                    });
+                }
+                let inst_args: Vec<Type> = type_args.clone();
+                if let Some(init) = init_raw {
+                    let sig = Signature {
+                        params: init
+                            .params
+                            .iter()
+                            .map(|t| subst_type(t, &class_params, &inst_args))
+                            .collect(),
+                        ret: subst_type(&init.ret, &class_params, &inst_args),
+                        variadic: init.variadic,
+                    };
                     self.check_args(
                         &format!("{class}::init"),
-                        &init,
+                        &sig,
                         args,
                         env,
                         ret_ty,
@@ -656,7 +873,14 @@ impl TypeChecker {
                         span,
                     });
                 }
-                Ok(Type::Object(class.clone()))
+                Ok(if class_params.is_empty() {
+                    Type::Object(class.clone())
+                } else {
+                    Type::Generic {
+                        base: class.clone(),
+                        args: inst_args,
+                    }
+                })
             }
             ExprKind::Block(b) => self.check_block(b, env, ret_ty, in_class, loop_depth),
             ExprKind::If {
@@ -684,18 +908,26 @@ impl TypeChecker {
                     Some(else_e) => {
                         let else_ty = self.check_expr(else_e, env, ret_ty, in_class, loop_depth)?;
                         if then_ty == else_ty {
-                            Ok(then_ty)
-                        } else if assignable(&then_ty, &else_ty) {
-                            Ok(else_ty)
-                        } else if assignable(&else_ty, &then_ty) {
-                            Ok(then_ty)
-                        } else {
-                            Err(TypeError::Mismatch {
-                                expected: then_ty,
-                                got: else_ty,
-                                span: else_e.span,
-                            })
+                            return Ok(then_ty);
                         }
+                        // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
+                        // ぶつけたらエラー)。例外として、片方のアームの末尾式
+                        // が「素の数値リテラル」 (整数/浮動小数、単項マイナス
+                        // 込み) で、もう一方の型に収まるときだけ受け入れる。
+                        let then_tail = then_branch.tail.as_deref();
+                        if let Some(t) = then_tail {
+                            if numeric_literal_fits(t, &else_ty) {
+                                return Ok(else_ty);
+                            }
+                        }
+                        if numeric_literal_fits(else_e, &then_ty) {
+                            return Ok(then_ty);
+                        }
+                        Err(TypeError::Mismatch {
+                            expected: then_ty,
+                            got: else_ty,
+                            span: else_e.span,
+                        })
                     }
                 }
             }
@@ -720,6 +952,34 @@ impl TypeChecker {
             }
             ExprKind::Loop { body } => {
                 let body_ty = self.check_block(body, env, ret_ty, in_class, loop_depth + 1)?;
+                if body_ty != Type::Unit {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Unit,
+                        got: body_ty,
+                        span,
+                    });
+                }
+                Ok(Type::Unit)
+            }
+            ExprKind::ForIn { var, iter, body } => {
+                let it = self.check_expr(iter, env, ret_ty, in_class, loop_depth)?;
+                let elem = match &it {
+                    Type::Array { elem, .. } => (**elem).clone(),
+                    other => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Array {
+                                elem: Box::new(Type::Any),
+                                fixed: None,
+                            },
+                            got: other.clone(),
+                            span: iter.span,
+                        });
+                    }
+                };
+                let mut inner = env.clone();
+                inner.insert(var.clone(), elem);
+                let body_ty =
+                    self.check_block(body, &inner, ret_ty, in_class, loop_depth + 1)?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -894,9 +1154,39 @@ impl TypeChecker {
                 }
                 Ok(Type::Unit)
             }
+            ExprKind::FnExpr { params, ret, body } => {
+                for Param { ty, span: pspan, .. } in params {
+                    self.validate_type(ty, *pspan, &[])?;
+                }
+                if let Some(r) = ret {
+                    self.validate_type(r, span, &[])?;
+                }
+                // Closures aren't supported yet — the anon body sees
+                // only its own parameters (plus top-level fns/classes
+                // resolved through `self.*` tables), not outer locals.
+                let mut inner: Vars = HashMap::new();
+                for Param { name, ty, .. } in params {
+                    inner.insert(name.clone(), ty.clone());
+                }
+                let expected = ret.clone().unwrap_or(Type::Unit);
+                let body_ty =
+                    self.check_block(body, &inner, Some(&expected), in_class, 0)?;
+                if !assignable(&body_ty, &expected) {
+                    return Err(TypeError::BadReturn {
+                        name: "<closure>".into(),
+                        expected,
+                        got: body_ty,
+                        span,
+                    });
+                }
+                Ok(Type::Fn {
+                    params: params.iter().map(|p| p.ty.clone()).collect(),
+                    ret: Box::new(ret.clone().unwrap_or(Type::Unit)),
+                })
+            }
             ExprKind::Cast { expr: inner, ty } => {
                 let from = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
-                self.validate_type(ty, span)?;
+                self.validate_type(ty, span, &[])?;
                 // Permit any numeric → numeric cast plus `bool → int` for
                 // 0/1 conversion. Other casts (e.g. object → numeric) are
                 // a type error.
@@ -1276,13 +1566,74 @@ fn signature_of(f: &FnDecl) -> Signature {
 fn class_signature(c: &ClassDecl) -> ClassSig {
     let mut fields = HashMap::new();
     for f in &c.fields {
-        fields.insert(f.name.clone(), f.ty.clone());
+        fields.insert(f.name.clone(), rewrite_type_params(&f.ty, &c.type_params));
     }
     let mut methods = HashMap::new();
     for m in &c.methods {
-        methods.insert(m.name.clone(), signature_of(m));
+        let mut sig = signature_of(m);
+        for p in sig.params.iter_mut() {
+            *p = rewrite_type_params(p, &c.type_params);
+        }
+        sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
+        methods.insert(m.name.clone(), sig);
     }
-    ClassSig { fields, methods }
+    ClassSig {
+        type_params: c.type_params.clone(),
+        fields,
+        methods,
+    }
+}
+
+/// The parser produces `Type::Object(name)` for any user-defined type
+/// reference. Inside a generic class body, references that match the
+/// class's type-parameter names are actually type variables — convert
+/// them to `Type::TypeVar` so the checker can substitute later.
+fn rewrite_type_params(t: &Type, params: &[String]) -> Type {
+    match t {
+        Type::Object(name) if params.iter().any(|p| p == name) => {
+            Type::TypeVar(name.clone())
+        }
+        Type::Array { elem, fixed } => Type::Array {
+            elem: Box::new(rewrite_type_params(elem, params)),
+            fixed: *fixed,
+        },
+        Type::Optional(inner) => {
+            Type::Optional(Box::new(rewrite_type_params(inner, params)))
+        }
+        Type::Weak(inner) => Type::Weak(Box::new(rewrite_type_params(inner, params))),
+        Type::Generic { base, args } => Type::Generic {
+            base: base.clone(),
+            args: args
+                .iter()
+                .map(|a| rewrite_type_params(a, params))
+                .collect(),
+        },
+        _ => t.clone(),
+    }
+}
+
+/// Substitute concrete types for type variables. Used when a generic
+/// class is instantiated: each `TypeVar(P)` is replaced with the i-th
+/// concrete arg from the matching position in `params`.
+fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
+    match t {
+        Type::TypeVar(name) => params
+            .iter()
+            .position(|p| p == name)
+            .and_then(|i| args.get(i).cloned())
+            .unwrap_or_else(|| t.clone()),
+        Type::Array { elem, fixed } => Type::Array {
+            elem: Box::new(subst_type(elem, params, args)),
+            fixed: *fixed,
+        },
+        Type::Optional(inner) => Type::Optional(Box::new(subst_type(inner, params, args))),
+        Type::Weak(inner) => Type::Weak(Box::new(subst_type(inner, params, args))),
+        Type::Generic { base, args: targs } => Type::Generic {
+            base: base.clone(),
+            args: targs.iter().map(|a| subst_type(a, params, args)).collect(),
+        },
+        _ => t.clone(),
+    }
 }
 
 /// Pick the unifying type between two branches of an `if`/`match`. If
@@ -1324,14 +1675,24 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
 }
 
 fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {
-    if let Type::Object(name) = t {
-        Ok(name)
-    } else {
-        Err(TypeError::Mismatch {
+    match t {
+        Type::Object(name) => Ok(name),
+        Type::Generic { base, .. } => Ok(base),
+        _ => Err(TypeError::Mismatch {
             expected: Type::Object("<object>".into()),
             got: t.clone(),
             span,
-        })
+        }),
+    }
+}
+
+/// Extract the concrete type arguments from an object-typed value, if
+/// any. Non-generic objects return an empty slice.
+fn type_args_of(t: &Type) -> &[Type] {
+    if let Type::Generic { args, .. } = t {
+        args
+    } else {
+        &[]
     }
 }
 

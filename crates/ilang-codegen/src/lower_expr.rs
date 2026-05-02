@@ -8,12 +8,12 @@ use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
 use crate::arc::{
-    emit_bind_retain, emit_release_heap, emit_release_object, emit_retain_heap,
-    emit_retain_object, is_aliased_heap_source,
+    emit_bind_retain, emit_release_heap, emit_release_object, emit_release_string,
+    emit_retain_heap, emit_retain_object, is_aliased_heap_source,
 };
 use crate::env::{class_ids_from, enum_ids_from, LowerCtx};
 use crate::error::CodegenError;
-use crate::lower_ctrl::{lower_if, lower_loop, lower_while};
+use crate::lower_ctrl::{lower_for_in, lower_if, lower_loop, lower_while};
 use crate::lower_op::{coerce, lower_binary, lower_logical, lower_unary};
 use crate::lower_stmt::lower_block_value;
 use crate::runtime::{ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET};
@@ -60,8 +60,27 @@ pub(crate) fn lower_expr(
                     return Ok(Some((v, fty)));
                 }
             }
+            // First-class function: a bare reference to a top-level fn
+            // becomes its code-address as a function pointer.
+            if let Some(entry) = lc.funcs.get(name).cloned() {
+                let (id, params, ret) = entry;
+                let func_ref = lc.module.declare_func_in_func(id, b.func);
+                let addr = b.ins().func_addr(I64, func_ref);
+                let sig_id = crate::ty::intern_fn_sig(
+                    lc.fn_signatures,
+                    crate::ty::FnSignature { params, ret },
+                );
+                return Ok(Some((addr, JitTy::Fn(sig_id))));
+            }
             Err(CodegenError::Unsupported {
                 what: format!("unknown variable {name:?}"),
+                span: e.span,
+            })
+        }
+        ExprKind::FnExpr { .. } => {
+            // Hoisting pass should have replaced this with Var(synth).
+            Err(CodegenError::Unsupported {
+                what: "anonymous function reached lowering — hoist pass failed".into(),
                 span: e.span,
             })
         }
@@ -78,6 +97,7 @@ pub(crate) fn lower_expr(
                 lc.enum_layouts,
                 lc.array_kinds,
                 lc.optional_inners,
+                lc.fn_signatures,
             )?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
@@ -100,6 +120,10 @@ pub(crate) fn lower_expr(
         }
         ExprKind::Loop { body } => {
             lower_loop(b, lc, body)?;
+            Ok(None)
+        }
+        ExprKind::ForIn { var, iter, body } => {
+            lower_for_in(b, lc, var, iter, body)?;
             Ok(None)
         }
         ExprKind::Break => {
@@ -258,6 +282,17 @@ pub(crate) fn lower_expr(
                 );
                 return Ok(Some((len, JitTy::I64)));
             }
+            // Built-in `string.length` (Unicode code-point count).
+            if matches!(obj_t, JitTy::Str) && name == "length" {
+                let release = !is_aliased_heap_source(&obj.kind);
+                let r = lc.module.declare_func_in_func(lc.strfns.length, b.func);
+                let call = b.ins().call(r, &[obj_v]);
+                let n = b.inst_results(call)[0];
+                if release {
+                    emit_release_string(b, lc, obj_v);
+                }
+                return Ok(Some((n, JitTy::I64)));
+            }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
                 _ => {
@@ -383,6 +418,130 @@ pub(crate) fn lower_expr(
                     b.ins().call(r, &[obj_v, coerced]);
                     return Ok(None);
                 }
+                if method == "indexOf" || method == "includes" {
+                    if args.len() != 1 {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("array.{method} takes 1 arg"),
+                            span: e.span,
+                        });
+                    }
+                    let elem_jty = lc.array_kinds[id as usize].elem;
+                    if !matches!(
+                        elem_jty,
+                        JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64
+                            | JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64
+                            | JitTy::F32 | JitTy::F64 | JitTy::Bool
+                    ) {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "array.{method} on non-primitive element \
+                                 type is not yet supported in JIT"
+                            ),
+                            span: e.span,
+                        });
+                    }
+                    let (av, at) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: format!("{method} arg is unit"),
+                            span: args[0].span,
+                        }
+                    })?;
+                    let needle = coerce(b, (av, at), elem_jty, args[0].span)?;
+                    let idx = emit_array_index_of(b, obj_v, needle, elem_jty);
+                    let release_recv = !is_aliased_heap_source(&obj.kind);
+                    if release_recv {
+                        emit_release_heap(b, lc, obj_v, obj_t);
+                    }
+                    if method == "indexOf" {
+                        return Ok(Some((idx, JitTy::I64)));
+                    }
+                    let neg_one = b.ins().iconst(I64, -1);
+                    let found = b.ins().icmp(IntCC::NotEqual, idx, neg_one);
+                    return Ok(Some((found, JitTy::Bool)));
+                }
+            }
+            // Built-in string methods (JS-style camelCase).
+            if matches!(obj_t, JitTy::Str) {
+                let release_recv = !is_aliased_heap_source(&obj.kind);
+                let nullary = |fid: cranelift_module::FuncId, ret: JitTy, b: &mut FunctionBuilder, lc: &mut LowerCtx| {
+                    let r = lc.module.declare_func_in_func(fid, b.func);
+                    let call = b.ins().call(r, &[obj_v]);
+                    let v = b.inst_results(call)[0];
+                    if release_recv {
+                        emit_release_string(b, lc, obj_v);
+                    }
+                    Ok(Some((v, ret)))
+                };
+                match method.as_str() {
+                    "charAt" => {
+                        if args.len() != 1 {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("charAt takes 1 arg, got {}", args.len()),
+                                span: e.span,
+                            });
+                        }
+                        let (av, at) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                            CodegenError::Unsupported {
+                                what: "charAt arg is unit".into(),
+                                span: args[0].span,
+                            }
+                        })?;
+                        let idx = coerce(b, (av, at), JitTy::I64, args[0].span)?;
+                        let r = lc.module.declare_func_in_func(lc.strfns.char_at, b.func);
+                        let call = b.ins().call(r, &[obj_v, idx]);
+                        let v = b.inst_results(call)[0];
+                        if release_recv {
+                            emit_release_string(b, lc, obj_v);
+                        }
+                        return Ok(Some((v, JitTy::Str)));
+                    }
+                    "includes" | "startsWith" | "endsWith" => {
+                        if args.len() != 1 {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("{method} takes 1 arg, got {}", args.len()),
+                                span: e.span,
+                            });
+                        }
+                        let (av, at) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                            CodegenError::Unsupported {
+                                what: format!("{method} arg is unit"),
+                                span: args[0].span,
+                            }
+                        })?;
+                        if !matches!(at, JitTy::Str) {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("{method} expects string arg"),
+                                span: args[0].span,
+                            });
+                        }
+                        let release_arg = !is_aliased_heap_source(&args[0].kind);
+                        let fid = match method.as_str() {
+                            "includes" => lc.strfns.includes,
+                            "startsWith" => lc.strfns.starts_with,
+                            "endsWith" => lc.strfns.ends_with,
+                            _ => unreachable!(),
+                        };
+                        let r = lc.module.declare_func_in_func(fid, b.func);
+                        let call = b.ins().call(r, &[obj_v, av]);
+                        let v = b.inst_results(call)[0];
+                        if release_recv {
+                            emit_release_string(b, lc, obj_v);
+                        }
+                        if release_arg {
+                            emit_release_string(b, lc, av);
+                        }
+                        return Ok(Some((v, JitTy::Bool)));
+                    }
+                    "toUpperCase" => return nullary(lc.strfns.to_upper, JitTy::Str, b, lc),
+                    "toLowerCase" => return nullary(lc.strfns.to_lower, JitTy::Str, b, lc),
+                    "trim" => return nullary(lc.strfns.trim, JitTy::Str, b, lc),
+                    _ => {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("string has no method {method:?}"),
+                            span: e.span,
+                        });
+                    }
+                }
             }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
@@ -396,6 +555,41 @@ pub(crate) fn lower_expr(
             call_method(b, lc, class_id, method, obj_v, args, e.span)
         }
         ExprKind::Call { callee, args } => {
+            // Indirect call through a function-typed local. Matches the
+            // type checker's lookup order — a `let` shadows top-level
+            // fns of the same name.
+            if let Some(&(var, JitTy::Fn(sig_id))) = lc.env.bindings.get(callee) {
+                let sig = lc.fn_signatures[sig_id as usize].clone();
+                let mut arg_vals = Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "argument is unit".into(),
+                            span: a.span,
+                        }
+                    })?;
+                    let coerced = coerce(b, (av, at), sig.params[i], a.span)?;
+                    emit_bind_retain(b, lc, &a.kind, at, sig.params[i], coerced);
+                    arg_vals.push(coerced);
+                }
+                // Build the Cranelift signature for call_indirect.
+                let mut cl_sig = lc.module.make_signature();
+                for p in &sig.params {
+                    cl_sig.params.push(cranelift::prelude::AbiParam::new(
+                        p.cl().expect("non-unit param"),
+                    ));
+                }
+                if let Some(rt) = sig.ret.cl() {
+                    cl_sig.returns.push(cranelift::prelude::AbiParam::new(rt));
+                }
+                let sig_ref = b.import_signature(cl_sig);
+                let callee_v = b.use_var(var);
+                let call = b.ins().call_indirect(sig_ref, callee_v, &arg_vals);
+                if matches!(sig.ret, JitTy::Unit) {
+                    return Ok(None);
+                }
+                return Ok(Some((b.inst_results(call)[0], sig.ret)));
+            }
             // Free function first.
             if let Some(entry) = lc.funcs.get(callee).cloned() {
                 let (id, param_tys, ret_ty) = entry;
@@ -557,7 +751,15 @@ pub(crate) fn lower_expr(
             }
             Ok(None)
         }
-        ExprKind::New { class, args } => {
+        ExprKind::New { class, type_args, args } => {
+            if !type_args.is_empty() {
+                return Err(CodegenError::Unsupported {
+                    what: "generic class instantiation is not yet supported in JIT \
+                           (interpreter only)"
+                        .into(),
+                    span: e.span,
+                });
+            }
             let class_id = *lc
                 .class_layouts
                 .iter()
@@ -1392,6 +1594,13 @@ fn emit_print_value(
             b.switch_to_block(merge);
             b.seal_block(merge);
         }
+        JitTy::Fn(_) => {
+            // Print as `<fn @ 0x...>`. Reuse the i64 printer for the
+            // hex-ish address — good enough for debugging, no need
+            // for a dedicated formatter.
+            let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
+            b.ins().call(r, &[v]);
+        }
         JitTy::Unit => {
             return Err(CodegenError::Unsupported {
                 what: "console.log of () (unit)".into(),
@@ -1594,4 +1803,57 @@ fn call_method(
     } else {
         Ok(Some((b.inst_results(call)[0], info.ret)))
     }
+}
+
+/// Emit an inline scan loop for `arr.indexOf(needle)` / `arr.includes(needle)`.
+/// Returns the i64 index (-1 if not found). Element type is restricted to
+/// primitive numeric/bool by the caller (uses icmp/fcmp directly).
+fn emit_array_index_of(
+    b: &mut FunctionBuilder,
+    header_ptr: cranelift::prelude::Value,
+    needle: cranelift::prelude::Value,
+    elem_jty: JitTy,
+) -> cranelift::prelude::Value {
+    let len = b.ins().load(I64, MemFlags::trusted(), header_ptr, ARRAY_LEN_OFFSET);
+    let data = b.ins().load(I64, MemFlags::trusted(), header_ptr, ARRAY_DATA_OFFSET);
+    let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+
+    let header = b.create_block();
+    let body = b.create_block();
+    let exit = b.create_block();
+    b.append_block_param(header, I64); // i
+    b.append_block_param(exit, I64); // result
+
+    let zero = b.ins().iconst(I64, 0);
+    b.ins().jump(header, &[zero.into()]);
+
+    b.switch_to_block(header);
+    let i = b.block_params(header)[0];
+    let done = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
+    let neg_one = b.ins().iconst(I64, -1);
+    b.ins().brif(done, exit, &[neg_one.into()], body, &[]);
+
+    b.switch_to_block(body);
+    let off = b.ins().imul(i, elem_size);
+    let addr = b.ins().iadd(data, off);
+    let elem = b.ins().load(
+        elem_jty.cl().expect("primitive elem"),
+        MemFlags::trusted(),
+        addr,
+        0,
+    );
+    let eq = if matches!(elem_jty, JitTy::F32 | JitTy::F64) {
+        b.ins().fcmp(FloatCC::Equal, elem, needle)
+    } else {
+        b.ins().icmp(IntCC::Equal, elem, needle)
+    };
+    let one = b.ins().iconst(I64, 1);
+    let next_i = b.ins().iadd(i, one);
+    b.ins().brif(eq, exit, &[i.into()], header, &[next_i.into()]);
+
+    b.seal_block(header);
+    b.seal_block(body);
+    b.seal_block(exit);
+    b.switch_to_block(exit);
+    b.block_params(exit)[0]
 }

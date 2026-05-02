@@ -305,6 +305,14 @@ impl<'a> Parser<'a> {
             TokenKind::New => {
                 self.bump();
                 let class = self.expect_ident("class name")?;
+                // Optional `<T, U>` type arguments before the constructor
+                // arg list. Unambiguous after `new ClassName` since `<`
+                // can never be the start of an expression here.
+                let type_args = if matches!(self.peek().kind, TokenKind::Lt) {
+                    self.parse_type_args()?
+                } else {
+                    Vec::new()
+                };
                 self.expect(&TokenKind::LParen, "'('")?;
                 let mut args = Vec::new();
                 if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -318,9 +326,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                Ok(Expr::new(ExprKind::New { class, args }, span))
+                Ok(Expr::new(ExprKind::New { class, type_args, args }, span))
             }
             TokenKind::If => self.parse_if(),
+            TokenKind::Fn => self.parse_fn_expr(),
             TokenKind::None_ => {
                 self.bump();
                 Ok(Expr::new(ExprKind::None, span))
@@ -334,6 +343,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
+            TokenKind::For => self.parse_for(),
             TokenKind::Break => {
                 self.bump();
                 Ok(Expr::new(ExprKind::Break, span))
@@ -724,5 +734,72 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Loop, "'loop'")?;
         let body = parse_block(self)?;
         Ok(Expr::new(ExprKind::Loop { body }, span))
+    }
+
+    /// Anonymous function expression: `fn(p: T, ...): R { body }`. The
+    /// shape mirrors `fn name(...) { ... }` minus the name.
+    fn parse_fn_expr(&mut self) -> Result<Expr, ParseError> {
+        use ilang_ast::Param;
+        let span = self.peek().span;
+        self.expect(&TokenKind::Fn, "'fn'")?;
+        self.expect(&TokenKind::LParen, "'('")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                let pspan = self.peek().span;
+                let pname = self.expect_ident("parameter name")?;
+                self.expect(&TokenKind::Colon, "':'")?;
+                let pty = self.parse_type()?;
+                params.push(Param {
+                    name: pname,
+                    ty: pty,
+                    span: pspan,
+                });
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(&TokenKind::RParen, "')'")?;
+        let ret = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let body = crate::stmt::parse_block(self)?;
+        Ok(Expr::new(
+            ExprKind::FnExpr { params, ret, body },
+            span,
+        ))
+    }
+
+    fn parse_for(&mut self) -> Result<Expr, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::For, "'for'")?;
+        let var_tok = self.bump().clone();
+        let var = match &var_tok.kind {
+            TokenKind::Ident(n) => n.clone(),
+            _ => {
+                return Err(ParseError::Unexpected {
+                    found: var_tok.kind.clone(),
+                    expected: "identifier after 'for'".into(),
+                    span: var_tok.span,
+                });
+            }
+        };
+        self.expect(&TokenKind::In, "'in'")?;
+        let iter = self.parse_expr(0)?;
+        let body = parse_block(self)?;
+        Ok(Expr::new(
+            ExprKind::ForIn {
+                var,
+                iter: Box::new(iter),
+                body,
+            },
+            span,
+        ))
     }
 }

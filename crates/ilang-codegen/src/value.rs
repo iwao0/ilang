@@ -148,6 +148,7 @@ unsafe fn read_field(
             class_layouts,
             optional_inners,
         ),
+        JitTy::Fn(_) => JitValue::Fn(*(addr as *const i64)),
         JitTy::Unit => JitValue::Unit,
     }
 }
@@ -234,6 +235,10 @@ pub enum JitValue {
         variant: String,
         payload: JitEnumPayload,
     },
+    /// First-class function value — surfaced as the raw code address.
+    /// Two `Fn(p)` values compare equal iff they point at the same
+    /// JITed function.
+    Fn(i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -274,6 +279,7 @@ impl std::fmt::Display for JitValue {
             JitValue::Some(v) => write!(f, "some({v})"),
             JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
             JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
+            JitValue::Fn(p) => write!(f, "<fn @ {p:#x}>"),
             JitValue::Enum { ty, variant, payload } => match payload {
                 JitEnumPayload::Unit => write!(f, "{ty}::{variant}"),
                 JitEnumPayload::Tuple(items) => {
@@ -397,6 +403,7 @@ pub(crate) unsafe fn read_array(
                 class_layouts,
                 optional_inners,
             ),
+            JitTy::Fn(_) => JitValue::Fn(*(p as *const i64)),
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

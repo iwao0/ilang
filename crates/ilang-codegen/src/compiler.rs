@@ -25,15 +25,29 @@ use crate::runtime::{
     ilang_jit_print_newline, ilang_jit_print_space,
     ilang_jit_print_str, ilang_jit_print_u64, ilang_jit_release_array, ilang_jit_release_object,
     ilang_jit_release_string, ilang_jit_retain_array, ilang_jit_retain_object,
-    ilang_jit_retain_string, ilang_jit_retain_weak, ilang_jit_str_concat, ilang_jit_str_eq,
+    ilang_jit_retain_string, ilang_jit_retain_weak, ilang_jit_str_char_at,
+    ilang_jit_str_concat, ilang_jit_str_ends_with, ilang_jit_str_eq, ilang_jit_str_includes,
+    ilang_jit_str_length, ilang_jit_str_starts_with, ilang_jit_str_to_lower,
+    ilang_jit_str_to_upper, ilang_jit_str_trim,
     ilang_jit_release_weak, ilang_jit_weak_get, StringRc,
 };
 use crate::ty::{
-    align_up, ArrayKind, ClassLayout, EnumLayout, EnumVariantLayout, JitTy, MethodInfo,
+    align_up, ArrayKind, ClassLayout, EnumLayout, EnumVariantLayout, FnSignature, JitTy,
+    MethodInfo,
 };
 use crate::value::{read_array, JitValue};
 
 pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
+    // Hoist anonymous-function expressions to top-level synthetic
+    // fns so the JIT only ever sees named functions. Then
+    // monomorphize generic classes. After both passes the program
+    // is plain non-generic, no FnExpr nodes remain.
+    let hoisted = crate::monomorphize::hoist_anon_fns(prog);
+    let mono = crate::monomorphize::monomorphize(&hoisted);
+    jit_run_inner(&mono)
+}
+
+fn jit_run_inner(prog: &Program) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new()?;
     // 1a. Register every class / enum name → id, with empty layouts.
     //     This way `Child { p: Parent.weak }` resolves even when Parent
@@ -95,6 +109,7 @@ pub(crate) struct JitCompiler {
     pub(crate) enum_layouts: Vec<EnumLayout>,
     pub(crate) array_kinds: Vec<ArrayKind>,
     pub(crate) optional_inners: Vec<JitTy>,
+    pub(crate) fn_signatures: Vec<FnSignature>,
     pub(crate) alloc_object_id: FuncId,
     pub(crate) retain_object_id: FuncId,
     pub(crate) release_object_id: FuncId,
@@ -111,6 +126,14 @@ pub(crate) struct JitCompiler {
     pub(crate) str_eq: FuncId,
     pub(crate) retain_string_id: FuncId,
     pub(crate) release_string_id: FuncId,
+    pub(crate) str_length_id: FuncId,
+    pub(crate) str_char_at_id: FuncId,
+    pub(crate) str_includes_id: FuncId,
+    pub(crate) str_starts_with_id: FuncId,
+    pub(crate) str_ends_with_id: FuncId,
+    pub(crate) str_to_upper_id: FuncId,
+    pub(crate) str_to_lower_id: FuncId,
+    pub(crate) str_trim_id: FuncId,
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
@@ -183,6 +206,14 @@ impl JitCompiler {
             "ilang_jit_release_string",
             ilang_jit_release_string as *const u8,
         );
+        builder.symbol("ilang_jit_str_length", ilang_jit_str_length as *const u8);
+        builder.symbol("ilang_jit_str_char_at", ilang_jit_str_char_at as *const u8);
+        builder.symbol("ilang_jit_str_includes", ilang_jit_str_includes as *const u8);
+        builder.symbol("ilang_jit_str_starts_with", ilang_jit_str_starts_with as *const u8);
+        builder.symbol("ilang_jit_str_ends_with", ilang_jit_str_ends_with as *const u8);
+        builder.symbol("ilang_jit_str_to_upper", ilang_jit_str_to_upper as *const u8);
+        builder.symbol("ilang_jit_str_to_lower", ilang_jit_str_to_lower as *const u8);
+        builder.symbol("ilang_jit_str_trim", ilang_jit_str_trim as *const u8);
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
         builder.symbol(
             "ilang_jit_retain_array",
@@ -258,6 +289,38 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_retain_string", &[I64], None)?;
         let release_string_id =
             declare_import(&mut module, "ilang_jit_release_string", &[I64], None)?;
+        let str_length_id =
+            declare_import(&mut module, "ilang_jit_str_length", &[I64], Some(I64))?;
+        let str_char_at_id = declare_import(
+            &mut module,
+            "ilang_jit_str_char_at",
+            &[I64, I64],
+            Some(I64),
+        )?;
+        let str_includes_id = declare_import(
+            &mut module,
+            "ilang_jit_str_includes",
+            &[I64, I64],
+            Some(I8),
+        )?;
+        let str_starts_with_id = declare_import(
+            &mut module,
+            "ilang_jit_str_starts_with",
+            &[I64, I64],
+            Some(I8),
+        )?;
+        let str_ends_with_id = declare_import(
+            &mut module,
+            "ilang_jit_str_ends_with",
+            &[I64, I64],
+            Some(I8),
+        )?;
+        let str_to_upper_id =
+            declare_import(&mut module, "ilang_jit_str_to_upper", &[I64], Some(I64))?;
+        let str_to_lower_id =
+            declare_import(&mut module, "ilang_jit_str_to_lower", &[I64], Some(I64))?;
+        let str_trim_id =
+            declare_import(&mut module, "ilang_jit_str_trim", &[I64], Some(I64))?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
@@ -299,6 +362,7 @@ impl JitCompiler {
             enum_layouts: Vec::new(),
             array_kinds: Vec::new(),
             optional_inners: Vec::new(),
+            fn_signatures: Vec::new(),
             alloc_object_id,
             retain_object_id,
             release_object_id,
@@ -314,6 +378,14 @@ impl JitCompiler {
             str_eq,
             retain_string_id,
             release_string_id,
+            str_length_id,
+            str_char_at_id,
+            str_includes_id,
+            str_starts_with_id,
+            str_ends_with_id,
+            str_to_upper_id,
+            str_to_lower_id,
+            str_trim_id,
             array_new,
             retain_array_id,
             release_array_id,
@@ -374,7 +446,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners,
+                            &mut self.optional_inners, &mut self.fn_signatures,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -396,7 +468,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners,
+                            &mut self.optional_inners, &mut self.fn_signatures,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -450,7 +522,7 @@ impl JitCompiler {
                 &self.enum_ids,
                 &self.enum_layouts,
                 &mut self.array_kinds,
-                &mut self.optional_inners,
+                &mut self.optional_inners, &mut self.fn_signatures,
             )?;
             let size = jty.size_bytes();
             let align = size.max(1);
@@ -500,10 +572,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -611,6 +683,14 @@ impl JitCompiler {
                 eq: self.str_eq,
                 retain: self.retain_string_id,
                 release: self.release_string_id,
+                length: self.str_length_id,
+                char_at: self.str_char_at_id,
+                includes: self.str_includes_id,
+                starts_with: self.str_starts_with_id,
+                ends_with: self.str_ends_with_id,
+                to_upper: self.str_to_upper_id,
+                to_lower: self.str_to_lower_id,
+                trim: self.str_trim_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
@@ -632,6 +712,7 @@ impl JitCompiler {
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
             optional_inners: &mut self.optional_inners,
+            fn_signatures: &mut self.fn_signatures,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
@@ -676,7 +757,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -722,6 +803,14 @@ impl JitCompiler {
                 eq: self.str_eq,
                 retain: self.retain_string_id,
                 release: self.release_string_id,
+                length: self.str_length_id,
+                char_at: self.str_char_at_id,
+                includes: self.str_includes_id,
+                starts_with: self.str_starts_with_id,
+                ends_with: self.str_ends_with_id,
+                to_upper: self.str_to_upper_id,
+                to_lower: self.str_to_lower_id,
+                trim: self.str_trim_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
@@ -743,6 +832,7 @@ impl JitCompiler {
             interned_strings: &mut self.interned_strings,
             array_kinds: &mut self.array_kinds,
             optional_inners: &mut self.optional_inners,
+            fn_signatures: &mut self.fn_signatures,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
@@ -913,6 +1003,10 @@ impl JitCompiler {
                         &self.class_layouts,
                         &self.optional_inners,
                     )
+                }
+                JitTy::Fn(_) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    JitValue::Fn(p)
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();

@@ -49,6 +49,10 @@ pub enum Value {
         variant: String,
         payload: EnumPayload,
     },
+    /// First-class function value. Wraps a `FnDecl` (named or
+    /// anonymous) with no captured environment — closures aren't
+    /// implemented yet. Cheap to clone (just bumps the Rc).
+    Fn(Rc<ilang_ast::FnDecl>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,6 +176,13 @@ impl std::fmt::Display for Value {
                     write!(f, "}}")
                 }
             },
+            Value::Fn(decl) => {
+                if decl.name.is_empty() {
+                    write!(f, "<fn>")
+                } else {
+                    write!(f, "<fn {}>", decl.name)
+                }
+            }
             Value::Object(o) => {
                 let o = o.borrow();
                 write!(f, "{} {{", o.class)?;

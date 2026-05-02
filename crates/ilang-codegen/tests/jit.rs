@@ -1082,3 +1082,208 @@ fn jit_enum_payload_runs_deinit() {
     "#;
     assert_eq!(jit(src), JitValue::I64(1));
 }
+
+#[test]
+fn jit_string_length() {
+    assert_eq!(jit(r#""hello".length"#), JitValue::I64(5));
+    assert_eq!(jit(r#""あいう".length"#), JitValue::I64(3));
+    assert_eq!(jit(r#"let s = "abcd"; s.length"#), JitValue::I64(4));
+}
+
+#[test]
+fn jit_string_char_at() {
+    assert_eq!(jit(r#""hello".charAt(1)"#), JitValue::Str("e".into()));
+    assert_eq!(jit(r#""hello".charAt(99)"#), JitValue::Str("".into()));
+}
+
+#[test]
+fn jit_string_predicates() {
+    assert_eq!(jit(r#""hello".includes("ell")"#), JitValue::Bool(true));
+    assert_eq!(jit(r#""hello".includes("xyz")"#), JitValue::Bool(false));
+    assert_eq!(jit(r#""hello".startsWith("he")"#), JitValue::Bool(true));
+    assert_eq!(jit(r#""hello".endsWith("lo")"#), JitValue::Bool(true));
+}
+
+#[test]
+fn jit_string_case_and_trim() {
+    assert_eq!(jit(r#""Hi".toUpperCase()"#), JitValue::Str("HI".into()));
+    assert_eq!(jit(r#""Hi".toLowerCase()"#), JitValue::Str("hi".into()));
+    assert_eq!(jit(r#""  hi  ".trim()"#), JitValue::Str("hi".into()));
+}
+
+#[test]
+fn jit_string_method_chain() {
+    // Each call returns a fresh rc=1 string; receiver release of the
+    // intermediate mustn't free literal storage.
+    assert_eq!(
+        jit(r#""  Hello  ".trim().toUpperCase()"#),
+        JitValue::Str("HELLO".into())
+    );
+}
+
+#[test]
+fn jit_array_index_of_and_includes() {
+    assert_eq!(
+        jit("let xs: i64[] = [10, 20, 30]; xs.indexOf(20)"),
+        JitValue::I64(1)
+    );
+    assert_eq!(
+        jit("let xs: i64[] = [10, 20, 30]; xs.indexOf(99)"),
+        JitValue::I64(-1)
+    );
+    assert_eq!(
+        jit("let xs: i64[] = [10, 20, 30]; xs.includes(20)"),
+        JitValue::Bool(true)
+    );
+    assert_eq!(
+        jit("let xs: i64[] = [10, 20, 30]; xs.includes(99)"),
+        JitValue::Bool(false)
+    );
+    assert_eq!(
+        jit("let xs: f64[] = [1.0, 2.5, 3.5]; xs.indexOf(2.5)"),
+        JitValue::I64(1)
+    );
+    assert_eq!(
+        jit("let xs: i32[] = [1, 2, 3]; xs.includes(2)"),
+        JitValue::Bool(true)
+    );
+}
+
+#[test]
+fn jit_for_in_sum() {
+    assert_eq!(
+        jit("let xs: i64[] = [1, 2, 3, 4, 5]; let s: i64 = 0; for x in xs { s += x }; s"),
+        JitValue::I64(15)
+    );
+}
+
+#[test]
+fn jit_for_in_break_continue() {
+    assert_eq!(
+        jit("let xs: i64[] = [1,2,3,4]; let s: i64 = 0; for x in xs { if x == 3 { break }; s += x }; s"),
+        JitValue::I64(3)
+    );
+    assert_eq!(
+        jit("let xs: i64[] = [1,2,3,4]; let s: i64 = 0; for x in xs { if x == 2 { continue }; s += x }; s"),
+        JitValue::I64(8)
+    );
+}
+
+#[test]
+fn jit_for_in_empty() {
+    assert_eq!(
+        jit("let xs: i64[] = []; let s: i64 = 7; for x in xs { s = 99 }; s"),
+        JitValue::I64(7)
+    );
+}
+
+#[test]
+fn jit_for_in_fresh_array_releases() {
+    // Fresh array literal as iter — release after loop. Just check it
+    // doesn't crash.
+    assert_eq!(
+        jit("let s: i64 = 0; for x in [10, 20, 30] { s += x }; s"),
+        JitValue::I64(60)
+    );
+}
+
+#[test]
+fn jit_generic_box_basic() {
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+            get(): T { x }
+        }
+        let b = new Box<i64>(42)
+        b.get()
+    "#;
+    assert_eq!(jit(src), JitValue::I64(42));
+}
+
+#[test]
+fn jit_generic_box_two_instantiations() {
+    // Box<i64> and Box<f64> should each get their own monomorphized
+    // class. Using both in the same program exercises the worklist.
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+            get(): T { x }
+        }
+        let bi = new Box<i64>(7)
+        let bf = new Box<f64>(2.5)
+        bi.get() + (bf.get() as i64)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(9));
+}
+
+#[test]
+fn jit_generic_pair() {
+    let src = r#"
+        class Pair<A, B> {
+            a: A
+            b: B
+            init(x: A, y: B) { this.a = x; this.b = y }
+            first(): A { a }
+            second(): B { b }
+        }
+        let p = new Pair<i64, i64>(3, 4)
+        p.first() + p.second()
+    "#;
+    assert_eq!(jit(src), JitValue::I64(7));
+}
+
+#[test]
+fn jit_generic_nested() {
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+        }
+        let bb = new Box<Box<i64>>(new Box<i64>(99))
+        bb.x.x
+    "#;
+    assert_eq!(jit(src), JitValue::I64(99));
+}
+
+#[test]
+fn jit_first_class_named_fn() {
+    let src = r#"
+        fn add(a: i64, b: i64): i64 { a + b }
+        let f = add
+        f(2, 3)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(5));
+}
+
+#[test]
+fn jit_anon_fn() {
+    let src = r#"
+        let f = fn(x: i64): i64 { x + 1 }
+        f(41)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(42));
+}
+
+#[test]
+fn jit_fn_passed_as_arg() {
+    let src = r#"
+        fn apply(g: fn(i64): i64, x: i64): i64 { g(x) }
+        fn double(n: i64): i64 { n * 2 }
+        apply(double, 7)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(14));
+}
+
+#[test]
+fn jit_fn_returned() {
+    let src = r#"
+        fn make(): fn(i64): i64 {
+            fn(x: i64): i64 { x + 100 }
+        }
+        let f = make()
+        f(7)
+    "#;
+    assert_eq!(jit(src), JitValue::I64(107));
+}

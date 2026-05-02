@@ -43,6 +43,10 @@ pub struct FieldDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: String,
+    /// Generic type parameters declared on the class (e.g. `<T, U>`).
+    /// Empty for non-generic classes. Inside the class body, references
+    /// to these names parse as `Type::TypeVar`.
+    pub type_params: Vec<String>,
     pub fields: Vec<FieldDecl>,
     /// All methods of the class. The constructor is the method named `init`
     /// (treated as a regular method by the parser; recognised specially by

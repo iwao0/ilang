@@ -104,6 +104,11 @@ impl Interpreter {
                         return Ok(v.clone());
                     }
                 }
+                // First-class function: bare reference to a top-level
+                // `fn` becomes a function value.
+                if let Some(decl) = self.fns.get(name) {
+                    return Ok(Value::Fn(Rc::new(decl.clone())));
+                }
                 Err(RuntimeError::UndefinedVariable {
                     name: name.clone(),
                     span,
@@ -141,6 +146,12 @@ impl Interpreter {
                 }
             }
             ExprKind::Call { callee, args } => {
+                // Indirect call through a function-typed local first
+                // (matches the type checker's lookup order — locals
+                // shadow methods and top-level fns).
+                if let Some(Value::Fn(f)) = self.vars.get(callee).cloned() {
+                    return self.invoke_fn_value(&f, args, span);
+                }
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();
                     if let Some(class) = self.classes.get(&class_name) {
@@ -156,6 +167,11 @@ impl Interpreter {
                 if let Value::Array(arr) = &v {
                     if name == "length" {
                         return Ok(Value::Int(arr.borrow().len() as i64));
+                    }
+                }
+                if let Value::Str(s) = &v {
+                    if name == "length" {
+                        return Ok(Value::Int(s.chars().count() as i64));
                     }
                 }
                 let o = expect_object(v, obj.span)?;
@@ -217,16 +233,85 @@ impl Interpreter {
                         arr.borrow_mut().push(val);
                         return Ok(Value::Unit);
                     }
+                    if method == "pop" {
+                        let popped = arr.borrow_mut().pop();
+                        return Ok(match popped {
+                            Some(v) => Value::Some(Box::new(v)),
+                            std::option::Option::None => Value::None,
+                        });
+                    }
+                    if method == "indexOf" || method == "includes" {
+                        let needle = self.eval_expr(&args[0])?;
+                        let pos = arr
+                            .borrow()
+                            .iter()
+                            .position(|x| x == &needle);
+                        return Ok(if method == "indexOf" {
+                            Value::Int(pos.map(|i| i as i64).unwrap_or(-1))
+                        } else {
+                            Value::Bool(pos.is_some())
+                        });
+                    }
                     return Err(RuntimeError::UnknownMethod {
                         class: "array".into(),
                         method: method.clone(),
                         span,
                     });
                 }
+                if let Value::Str(s) = &v {
+                    let s = s.clone();
+                    match method.as_str() {
+                        "charAt" => {
+                            let idx = match self.eval_expr(&args[0])? {
+                                Value::Int(n) => n,
+                                other => {
+                                    return Err(RuntimeError::TypeError {
+                                        msg: format!("charAt expects int, got {other:?}"),
+                                        span,
+                                    });
+                                }
+                            };
+                            let out = if idx < 0 {
+                                String::new()
+                            } else {
+                                s.chars().nth(idx as usize).map(|c| c.to_string()).unwrap_or_default()
+                            };
+                            return Ok(Value::Str(Rc::new(out)));
+                        }
+                        "includes" | "startsWith" | "endsWith" => {
+                            let arg = match self.eval_expr(&args[0])? {
+                                Value::Str(t) => t,
+                                other => {
+                                    return Err(RuntimeError::TypeError {
+                                        msg: format!("{method} expects string, got {other:?}"),
+                                        span,
+                                    });
+                                }
+                            };
+                            let r = match method.as_str() {
+                                "includes" => s.contains(arg.as_str()),
+                                "startsWith" => s.starts_with(arg.as_str()),
+                                "endsWith" => s.ends_with(arg.as_str()),
+                                _ => unreachable!(),
+                            };
+                            return Ok(Value::Bool(r));
+                        }
+                        "toUpperCase" => return Ok(Value::Str(Rc::new(s.to_uppercase()))),
+                        "toLowerCase" => return Ok(Value::Str(Rc::new(s.to_lowercase()))),
+                        "trim" => return Ok(Value::Str(Rc::new(s.trim().to_string()))),
+                        _ => {
+                            return Err(RuntimeError::UnknownMethod {
+                                class: "string".into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 let o = expect_object(v, obj.span)?;
                 self.call_method(o, method, args, span)
             }
-            ExprKind::New { class, args } => self.new_object(class, args, span),
+            ExprKind::New { class, type_args: _, args } => self.new_object(class, args, span),
             ExprKind::Block(b) => self.eval_block(b),
             ExprKind::If {
                 cond,
@@ -262,6 +347,39 @@ impl Interpreter {
                     Err(e) => break Err(e),
                 }
             },
+            ExprKind::ForIn { var, iter, body } => {
+                let it = self.eval_expr(iter)?;
+                let arr = match it {
+                    Value::Array(a) => a,
+                    other => {
+                        return Err(RuntimeError::TypeError {
+                            msg: format!("for-in expects array, got {other:?}"),
+                            span: iter.span,
+                        });
+                    }
+                };
+                let prev = self.vars.remove(var);
+                let len = arr.borrow().len();
+                let mut result: Result<Value, RuntimeError> = Ok(Value::Unit);
+                for i in 0..len {
+                    let v = arr.borrow()[i].clone();
+                    self.vars.insert(var.clone(), v);
+                    match self.eval_block(body) {
+                        Ok(_) => {}
+                        Err(RuntimeError::Break) => break,
+                        Err(RuntimeError::Continue) => {}
+                        Err(e) => {
+                            result = Err(e);
+                            break;
+                        }
+                    }
+                }
+                self.vars.remove(var);
+                if let Some(p) = prev {
+                    self.vars.insert(var.clone(), p);
+                }
+                result
+            }
             ExprKind::Break => Err(RuntimeError::Break),
             ExprKind::Continue => Err(RuntimeError::Continue),
             ExprKind::Return(value) => {
@@ -295,6 +413,20 @@ impl Interpreter {
             ExprKind::Cast { expr: inner, ty } => {
                 let v = self.eval_expr(inner)?;
                 Ok(cast_value(v, ty))
+            }
+            ExprKind::FnExpr { params, ret, body } => {
+                // Build a synthetic FnDecl on the fly — empty name +
+                // no captures. Cheap because the body is moved into
+                // an Rc once.
+                let decl = ilang_ast::FnDecl {
+                    attrs: Vec::new(),
+                    name: String::new(),
+                    params: params.clone(),
+                    ret: ret.clone(),
+                    body: body.clone(),
+                    span,
+                };
+                Ok(Value::Fn(Rc::new(decl)))
             }
             ExprKind::Array(elements) => {
                 let mut vals = Vec::with_capacity(elements.len());
@@ -657,6 +789,24 @@ impl Interpreter {
                 span,
             })?;
         self.invoke(name, &decl, evaluated, None, span)
+    }
+
+    /// Invoke a `Value::Fn` with the given arg expressions. Used for
+    /// indirect calls (locals bound to a function value or anonymous
+    /// `fn(...) { ... }` expressions).
+    fn invoke_fn_value(
+        &mut self,
+        decl: &ilang_ast::FnDecl,
+        args: &[Expr],
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        let evaluated = self.eval_args(args)?;
+        let name = if decl.name.is_empty() {
+            "<closure>"
+        } else {
+            decl.name.as_str()
+        };
+        self.invoke(name, decl, evaluated, None, span)
     }
 
     fn call_method(

@@ -6,6 +6,11 @@ use crate::error::ParseError;
 pub(crate) struct Parser<'a> {
     pub(crate) tokens: &'a [Token],
     pub(crate) pos: usize,
+    /// When closing nested generics like `Box<Box<i64>>`, the lexer
+    /// hands us a single `>>` token. The inner generic consumes one
+    /// "virtual" `>` by leaving this counter at 1; the outer's close
+    /// then decrements it instead of bumping `pos`.
+    pub(crate) pending_close_gt: u32,
 }
 
 pub(crate) enum ExprEnd {
@@ -16,7 +21,11 @@ pub(crate) enum ExprEnd {
 pub(crate) fn is_block_like(e: &Expr) -> bool {
     matches!(
         e.kind,
-        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::While { .. } | ExprKind::Loop { .. }
+        ExprKind::Block(_)
+            | ExprKind::If { .. }
+            | ExprKind::While { .. }
+            | ExprKind::Loop { .. }
+            | ExprKind::ForIn { .. }
     )
 }
 

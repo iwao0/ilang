@@ -99,6 +99,21 @@ this.field = v             // メソッド内
 
 文字列に対しては `+` (連結) と `==`/`!=` (構造的等値) のみ。オブジェクトの `==`/`!=` は同一クラスでの参照等値。`%` は浮動小数では未対応。
 
+### 文字列の組み込みメソッド (JS 風)
+
+```rust
+"hello".length              // i64 — Unicode コードポイント数 ("あいう".length == 3)
+"hello".charAt(1)           // string — 1 文字。範囲外は ""
+"hello".includes("ell")     // bool
+"hello".startsWith("he")    // bool
+"hello".endsWith("lo")      // bool
+"Hi".toUpperCase()          // string
+"Hi".toLowerCase()          // string
+"  hi  ".trim()             // string
+```
+
+`replace` / `split` / `slice` / 補間などは未実装。
+
 ---
 
 ## 5. 制御フロー
@@ -118,6 +133,10 @@ loop {
     if i % 2 == 0 { i += 1; continue }
     i += 1
 }
+
+// for-in (配列を回す)
+let xs: i64[] = [10, 20, 30]
+for x in xs { console.log(x) }     // break / continue 可
 
 // if let — Optional のパターンマッチ (現状サポートされる唯一の pattern 形)
 let x: i64? = some(42)
@@ -164,8 +183,34 @@ fn factorial(n: i64): i64 {
 ```
 
 - パラメータは型必須。
-- ジェネリクスは未実装。
+- 関数のジェネリクスは未実装 (クラスのジェネリクスは対応 — クラス節を参照)。
 - variadic は組み込み (`console.log` のみ) のみ対応。
+
+### ファーストクラス関数
+
+関数は値として変数に代入したり、引数や戻り値として渡せます。**クロージャ (キャプチャ) は未対応** — 匿名関数の本体からは外側のローカル変数を参照できません。
+
+```rust
+fn add(a: i64, b: i64): i64 { a + b }
+let f = add                          // 関数値を代入 (型は fn(i64, i64): i64)
+f(2, 3)                              // 5
+
+// 匿名関数 (即値) — 既存 fn 構文から名前を抜いた形
+let inc = fn(x: i64): i64 { x + 1 }
+inc(41)                              // 42
+
+// 関数を引数に取る/返す
+fn apply(g: fn(i64): i64, x: i64): i64 { g(x) }
+fn double(n: i64): i64 { n * 2 }
+apply(double, 7)                     // 14
+
+fn make_inc(): fn(i64): i64 { fn(x: i64): i64 { x + 1 } }
+```
+
+- 関数型: `fn(T1, T2): R` (戻り値が `()` なら `: R` 省略可)
+- ローカル `let f = some_fn` は同名のトップレベル fn より優先 (シャドーイング)
+- 匿名関数本体は **自分のパラメータ** と **トップレベル fn / クラス / enum** しか参照できない (キャプチャ不可)
+- JIT 対応済 (`func_addr` + `call_indirect`)。匿名関数は内部でトップレベルにホイストされる
 
 ### Capability アノテーション (パースのみ、enforce は未実装)
 
@@ -205,6 +250,32 @@ c.count                                 // フィールド読み取り
 - 継承・`static`・`private` はスコープ外 (未実装)。
 - 同一行に複数のクラスメンバーは書けない (ASI が効かないので `;` か改行必須)。
 
+### ジェネリッククラス
+
+```rust
+class Box<T> {
+    x: T
+    init(v: T) { this.x = v }
+    get(): T { x }
+}
+
+class Pair<A, B> {
+    a: A
+    b: B
+    init(x: A, y: B) { this.a = x; this.b = y }
+}
+
+let b = new Box<i64>(42)            // 型引数は明示必須
+let p = new Pair<string, i64>("k", 1)
+let nested = new Box<Box<i64>>(new Box<i64>(99))   // ネストも可 (>> 自動分割)
+```
+
+- 型引数は **インスタンス化時に明示必須** (`new Box<i64>(42)` — 推論なし)
+- 制約 (bounds) はサポートされない (任意の型を入れられる)
+- **JIT 対応済**。コンパイル時にモノモーフ化 (`Box<i64>` と `Box<f64>` は別クラスとしてコード生成)
+- **関数のジェネリクスは未対応** (クラスのみ)
+- 型変数同士の演算 (例: `class Pair<A, B> { ... a + b ... }`) は型チェッカが拒否 (制約がないため)
+
 ---
 
 ## 8. 配列
@@ -218,9 +289,14 @@ xs[1]                            // 添字読み取り
 xs[0] = 100                      // 添字代入
 xs.length                        // i64 を返す (組み込み)
 xs.push(40)                      // 動的配列のみ。固定長は型エラー
+xs.pop()                         // T? を返す (空なら none)。動的配列のみ
+xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
+xs.includes(20)                  // bool を返す
 ```
 
-`pop` / `slice` / `for-of` などの配列メソッド・`map`/`filter` は未実装。
+`pop` は JIT では Optional<primitive> 制限のため i64[] 等では使えません (interpreter は OK)。`indexOf` / `includes` の JIT 対応は数値・bool 要素のみ。
+
+`slice` / `map` / `filter` などは未実装。`for x in xs { ... }` は実装済 (制御フローの節を参照。JIT では要素型がプリミティブな配列に限る)。
 
 ---
 
@@ -361,12 +437,12 @@ JIT で `Unsupported` になる主なケース:
 
 - 継承 (`extends`, `super`)
 - 辞書/Map 型
-- `for-of` ループ
-- 文字列メソッド (`.length`, `.charAt`, 補間)
-- 配列メソッド (`pop`, `slice`, `map` 等)
+- 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
+- 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
 - モジュール / `use` / インポート
 - 例外 / `throw` / `try`
-- ジェネリクス
+- ジェネリック関数 / 制約 (bounds) (クラスジェネリクスは interpreter / JIT とも実装済)
+- クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — 関数節を参照)
 
 ---
 

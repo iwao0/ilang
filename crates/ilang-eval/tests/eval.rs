@@ -1225,3 +1225,253 @@ fn enum_payload_runs_deinit_on_release() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(1));
 }
+
+#[test]
+fn string_length_and_methods() {
+    use std::rc::Rc;
+    assert_eq!(run(r#""hello".length"#).unwrap(), Value::Int(5));
+    assert_eq!(run(r#""あいう".length"#).unwrap(), Value::Int(3));
+    assert_eq!(
+        run(r#""hello".charAt(1)"#).unwrap(),
+        Value::Str(Rc::new("e".into()))
+    );
+    assert_eq!(
+        run(r#""hello".charAt(99)"#).unwrap(),
+        Value::Str(Rc::new("".into()))
+    );
+    assert_eq!(run(r#""hello".includes("ell")"#).unwrap(), Value::Bool(true));
+    assert_eq!(run(r#""hello".includes("xyz")"#).unwrap(), Value::Bool(false));
+    assert_eq!(run(r#""hello".startsWith("he")"#).unwrap(), Value::Bool(true));
+    assert_eq!(run(r#""hello".endsWith("lo")"#).unwrap(), Value::Bool(true));
+    assert_eq!(
+        run(r#""Hi".toUpperCase()"#).unwrap(),
+        Value::Str(Rc::new("HI".into()))
+    );
+    assert_eq!(
+        run(r#""Hi".toLowerCase()"#).unwrap(),
+        Value::Str(Rc::new("hi".into()))
+    );
+    assert_eq!(
+        run(r#""  hi  ".trim()"#).unwrap(),
+        Value::Str(Rc::new("hi".into()))
+    );
+}
+
+#[test]
+fn array_pop_index_includes() {
+    use std::rc::Rc;
+    let src = "let xs: i64[] = [10, 20, 30]; xs.pop()";
+    assert_eq!(run(src).unwrap(), Value::Some(Box::new(Value::Int(30))));
+    let src = "let xs: i64[] = []; xs.pop()";
+    assert_eq!(run(src).unwrap(), Value::None);
+    assert_eq!(
+        run("let xs: i64[] = [10, 20, 30]; xs.indexOf(20)").unwrap(),
+        Value::Int(1)
+    );
+    assert_eq!(
+        run("let xs: i64[] = [10, 20, 30]; xs.indexOf(99)").unwrap(),
+        Value::Int(-1)
+    );
+    assert_eq!(
+        run("let xs: i64[] = [10, 20, 30]; xs.includes(20)").unwrap(),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        run("let xs: i64[] = [10, 20, 30]; xs.includes(99)").unwrap(),
+        Value::Bool(false)
+    );
+    // Pop reduces length.
+    assert_eq!(
+        run("let xs: i64[] = [1,2,3]; xs.pop(); xs.length").unwrap(),
+        Value::Int(2)
+    );
+    // String elements work too.
+    assert_eq!(
+        run(r#"let xs: string[] = ["a", "b"]; xs.indexOf("b")"#).unwrap(),
+        Value::Int(1)
+    );
+    let _ = Rc::new(""); // silence unused import if features change
+}
+
+#[test]
+fn for_in_array() {
+    assert_eq!(
+        run("let xs: i64[] = [1, 2, 3]; let s: i64 = 0; for x in xs { s += x }; s").unwrap(),
+        Value::Int(6)
+    );
+    // break stops iteration
+    assert_eq!(
+        run("let xs: i64[] = [1, 2, 3, 4]; let s: i64 = 0; for x in xs { if x == 3 { break }; s += x }; s").unwrap(),
+        Value::Int(3)
+    );
+    // continue skips
+    assert_eq!(
+        run("let xs: i64[] = [1, 2, 3, 4]; let s: i64 = 0; for x in xs { if x == 2 { continue }; s += x }; s").unwrap(),
+        Value::Int(8)
+    );
+    // empty array → 0 iterations
+    assert_eq!(
+        run("let xs: i64[] = []; let s: i64 = 0; for x in xs { s += x }; s").unwrap(),
+        Value::Int(0)
+    );
+    // Inner var doesn't leak; previous binding restored
+    assert_eq!(
+        run("let x = 100; let xs: i64[] = [1, 2]; for x in xs { }; x").unwrap(),
+        Value::Int(100)
+    );
+}
+
+#[test]
+fn generic_class_basic() {
+    use std::rc::Rc;
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+            get(): T { x }
+        }
+        let b = new Box<i64>(42)
+        b.get()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(42));
+
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+        }
+        let b = new Box<string>("hi")
+        b.x
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Str(Rc::new("hi".into())));
+}
+
+#[test]
+fn generic_class_two_params() {
+    let src = r#"
+        class Pair<A, B> {
+            a: A
+            b: B
+            init(x: A, y: B) { this.a = x; this.b = y }
+            sum(): i64 { a + b as i64 }
+        }
+        let p = new Pair<i64, i64>(3, 4)
+        p.sum()
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(7));
+}
+
+#[test]
+fn generic_class_nested() {
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+        }
+        let bb = new Box<Box<i64>>(new Box<i64>(99))
+        bb.x.x
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(99));
+}
+
+#[test]
+fn generic_class_arity_mismatch() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    let src = "class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+        }
+        new Box<i64, i64>(1)";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    let r = TypeChecker::new().check(&prog);
+    assert!(r.is_err(), "expected arity mismatch");
+}
+
+#[test]
+fn non_generic_class_rejects_type_args() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    let src = "class Foo { x: i64\n init() { this.x = 0 } }\n new Foo<i64>()";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    let r = TypeChecker::new().check(&prog);
+    assert!(r.is_err());
+}
+
+#[test]
+fn generic_method_arg_type_check() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    // T = i64, but passing string should fail type check.
+    let src = r#"
+        class Box<T> {
+            x: T
+            init(v: T) { this.x = v }
+        }
+        let b = new Box<i64>("hi")
+    "#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    let r = TypeChecker::new().check(&prog);
+    assert!(r.is_err());
+}
+
+#[test]
+fn first_class_named_fn() {
+    let src = r#"
+        fn add(a: i64, b: i64): i64 { a + b }
+        let f = add
+        f(2, 3)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(5));
+}
+
+#[test]
+fn first_class_anon_fn() {
+    let src = r#"
+        let f = fn(x: i64): i64 { x + 1 }
+        f(41)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(42));
+}
+
+#[test]
+fn fn_passed_as_arg() {
+    let src = r#"
+        fn apply(g: fn(i64): i64, x: i64): i64 { g(x) }
+        fn double(n: i64): i64 { n * 2 }
+        apply(double, 7)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(14));
+}
+
+#[test]
+fn fn_returned_from_fn() {
+    let src = r#"
+        fn make_adder(): fn(i64): i64 {
+            fn(x: i64): i64 { x + 100 }
+        }
+        let f = make_adder()
+        f(7)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(107));
+}
+
+#[test]
+fn anon_fn_no_capture_rejected() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    // Closures aren't supported — referencing an outer `let` from
+    // inside the anon body should fail type-checking (the body's env
+    // doesn't include outer locals).
+    let src = "let n = 10; let f = fn(x: i64): i64 { x + n }; f(1)";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}

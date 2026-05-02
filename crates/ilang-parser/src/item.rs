@@ -55,6 +55,13 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Class, "'class'")?;
         let name = self.expect_ident("class name")?;
+        // Optional `<T, U>` type parameters. Always unambiguous after a
+        // class name in declaration position.
+        let type_params = if matches!(self.peek().kind, TokenKind::Lt) {
+            self.parse_type_param_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -102,6 +109,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ClassDecl {
             name,
+            type_params,
             fields,
             methods,
             span,
@@ -320,8 +328,99 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse `<T, U, ...>` after a class name in declaration position.
+    /// Returns the bare identifier names; uniqueness is checked downstream.
+    fn parse_type_param_list(&mut self) -> Result<Vec<String>, ParseError> {
+        self.expect(&TokenKind::Lt, "'<'")?;
+        let mut names = Vec::new();
+        loop {
+            names.push(self.expect_ident("type parameter name")?);
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.expect_close_gt()?;
+        Ok(names)
+    }
+
+    /// Parse `<T, U, ...>` of concrete type arguments (used in generic
+    /// type references and `new Foo<T>(args)`).
+    pub(crate) fn parse_type_args(&mut self) -> Result<Vec<Type>, ParseError> {
+        self.expect(&TokenKind::Lt, "'<'")?;
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_type()?);
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.expect_close_gt()?;
+        Ok(args)
+    }
+
+    /// Consume a closing `>` for a generic. Handles the `>>` case by
+    /// splitting it: the inner generic registers one "virtual" `>` via
+    /// `pending_close_gt` so the outer can close without re-tokenizing.
+    fn expect_close_gt(&mut self) -> Result<(), ParseError> {
+        // Outer close after a previously-split `>>`.
+        if self.pending_close_gt > 0 {
+            self.pending_close_gt -= 1;
+            self.bump(); // consume the `>>` token now that both halves used
+            return Ok(());
+        }
+        let peeked = self.peek().clone();
+        match peeked.kind {
+            TokenKind::Gt => {
+                self.bump();
+                Ok(())
+            }
+            TokenKind::GtGt => {
+                // Take the first `>` here; leave the token in place so the
+                // surrounding generic's close picks up the second.
+                self.pending_close_gt += 1;
+                Ok(())
+            }
+            other => Err(ParseError::Unexpected {
+                found: other,
+                expected: "'>'".into(),
+                span: peeked.span,
+            }),
+        }
+    }
+
     pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
         let t = self.peek().clone();
+        // Function type: `fn(T1, T2): R` (or `fn(): R` / `fn(T)` for unit ret).
+        if matches!(t.kind, TokenKind::Fn) {
+            self.bump();
+            self.expect(&TokenKind::LParen, "'('")?;
+            let mut params = Vec::new();
+            if !matches!(self.peek().kind, TokenKind::RParen) {
+                loop {
+                    params.push(self.parse_type()?);
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            self.expect(&TokenKind::RParen, "')'")?;
+            let ret = if matches!(self.peek().kind, TokenKind::Colon) {
+                self.bump();
+                self.parse_type()?
+            } else {
+                Type::Unit
+            };
+            return Ok(Type::Fn {
+                params,
+                ret: Box::new(ret),
+            });
+        }
         let mut ty = match t.kind {
             TokenKind::Ident(n) => {
                 self.bump();
@@ -338,7 +437,18 @@ impl<'a> Parser<'a> {
                     "f64" => Type::F64,
                     "bool" => Type::Bool,
                     "string" => Type::Str,
-                    _ => Type::Object(n),
+                    _ => {
+                        // After a class-like name, accept optional
+                        // `<T, U>` for generic instantiations:
+                        //   Box<i64>          → Generic { Box, [i64] }
+                        //   Pair<string, i64> → Generic { Pair, [Str, I64] }
+                        if matches!(self.peek().kind, TokenKind::Lt) {
+                            let args = self.parse_type_args()?;
+                            Type::Generic { base: n, args }
+                        } else {
+                            Type::Object(n)
+                        }
+                    }
                 }
             }
             other => {

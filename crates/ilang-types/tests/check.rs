@@ -476,3 +476,22 @@ fn empty_array_needs_annotation() {
     // Annotated form is fine and produces an empty dynamic array.
     assert!(ty("let a: i32[] = []").is_ok());
 }
+
+#[test]
+fn if_else_no_implicit_numeric_widening() {
+    // i64 と f64 をぶつけたらエラー (Rust と同じ挙動)
+    assert!(matches!(
+        ty("let b = if 1 == 0 { 1 as i64 } else { 2 as f64 }"),
+        Err(TypeError::Mismatch { .. })
+    ));
+    // 同じ型同士は OK
+    assert!(ty("let b = if 1 == 0 { 1 as i64 } else { 2 as i64 }").is_ok());
+    // 片方が素の整数リテラルで他方の型に収まるなら literal coercion 可
+    assert!(ty("let b = if 1 == 0 { 1 } else { 2 as i32 }").is_ok());
+    assert!(ty("let b = if 1 == 0 { 1.0 } else { 2 as f64 }").is_ok());
+    // i64 値 (リテラルでない) を f64 アームに混ぜたら拒否
+    assert!(matches!(
+        ty("fn f(x: i64): f64 { if 1 == 0 { x } else { 2.0 } }"),
+        Err(TypeError::Mismatch { .. })
+    ));
+}

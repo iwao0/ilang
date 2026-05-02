@@ -51,6 +51,10 @@ pub(crate) enum JitTy {
     /// for objects, with `[tag: i32 | padding | payload]` as the user
     /// area. The id indexes `enum_layouts`.
     EnumHeap(u32),
+    /// Function pointer (`fn(T1, T2): R`). Stored as a raw i64 code
+    /// address. The id indexes the compiler's `fn_signatures` table
+    /// for the params/return types needed at call_indirect sites.
+    Fn(u32),
     Unit,
 }
 
@@ -64,7 +68,35 @@ impl JitTy {
         enum_layouts: &[EnumLayout],
         array_kinds: &mut Vec<ArrayKind>,
         optional_inners: &mut Vec<JitTy>,
+        fn_signatures: &mut Vec<FnSignature>,
     ) -> Result<Self, CodegenError> {
+        if let Type::Fn { params, ret } = t {
+            let mut p = Vec::with_capacity(params.len());
+            for pt in params {
+                p.push(Self::from_ast(
+                    pt,
+                    span,
+                    class_ids,
+                    enum_ids,
+                    enum_layouts,
+                    array_kinds,
+                    optional_inners,
+                    fn_signatures,
+                )?);
+            }
+            let r = Self::from_ast(
+                ret,
+                span,
+                class_ids,
+                enum_ids,
+                enum_layouts,
+                array_kinds,
+                optional_inners,
+                fn_signatures,
+            )?;
+            let id = intern_fn_sig(fn_signatures, FnSignature { params: p, ret: r });
+            return Ok(JitTy::Fn(id));
+        }
         Ok(match t {
             Type::I8 => JitTy::I8,
             Type::I16 => JitTy::I16,
@@ -123,7 +155,7 @@ impl JitTy {
                 }
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -134,7 +166,7 @@ impl JitTy {
                 JitTy::Array(id)
             }
             Type::Optional(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
                 if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
@@ -145,7 +177,7 @@ impl JitTy {
                 JitTy::Optional(id)
             }
             Type::Weak(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
                 match inner_jty {
                     JitTy::Object(class_id) => JitTy::Weak(class_id),
                     _ => {
@@ -177,7 +209,8 @@ impl JitTy {
             | JitTy::Array(_)
             | JitTy::Optional(_)
             | JitTy::Weak(_)
-            | JitTy::EnumHeap(_) => I64,
+            | JitTy::EnumHeap(_)
+            | JitTy::Fn(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -197,7 +230,8 @@ impl JitTy {
             | JitTy::Str
             | JitTy::Array(_)
             | JitTy::Optional(_)
-            | JitTy::Weak(_) => 8,
+            | JitTy::Weak(_)
+            | JitTy::Fn(_) => 8,
             JitTy::Unit => 0,
         }
     }
@@ -238,6 +272,22 @@ impl JitTy {
             _ => 0,
         }
     }
+}
+
+/// Cached signature of a function-pointer type. Indexed by `JitTy::Fn(id)`.
+#[derive(Debug, Clone)]
+pub(crate) struct FnSignature {
+    pub params: Vec<JitTy>,
+    pub ret: JitTy,
+}
+
+pub(crate) fn intern_fn_sig(table: &mut Vec<FnSignature>, sig: FnSignature) -> u32 {
+    if let Some(idx) = table.iter().position(|s| s.params == sig.params && s.ret == sig.ret) {
+        return idx as u32;
+    }
+    let idx = table.len() as u32;
+    table.push(sig);
+    idx
 }
 
 #[derive(Debug, Clone)]

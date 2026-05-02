@@ -13,14 +13,14 @@ use parser::{ExprEnd, Parser};
 use stmt::parse_let_stmt;
 
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
-    let mut p = Parser { tokens, pos: 0 };
+    let mut p = Parser { tokens, pos: 0, pending_close_gt: 0 };
     parse_program(&mut p)
 }
 
 /// Parse a single expression — used by tests that want to inspect expression
 /// trees directly without wrapping in a program.
 pub fn parse_expr_only(tokens: &[Token]) -> Result<Expr, ParseError> {
-    let mut p = Parser { tokens, pos: 0 };
+    let mut p = Parser { tokens, pos: 0, pending_close_gt: 0 };
     let e = p.parse_expr(0)?;
     if !matches!(p.peek().kind, TokenKind::Eof) {
         let t = p.peek();

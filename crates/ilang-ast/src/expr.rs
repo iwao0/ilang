@@ -63,9 +63,12 @@ pub enum ExprKind {
         method: String,
         args: Vec<Expr>,
     },
-    /// `new ClassName(args)`.
+    /// `new ClassName(args)` or `new ClassName<T, U>(args)` for
+    /// generic instantiations. `type_args` is empty for non-generic
+    /// classes.
     New {
         class: String,
+        type_args: Vec<crate::Type>,
         args: Vec<Expr>,
     },
     Block(Block),
@@ -77,6 +80,13 @@ pub enum ExprKind {
     },
     While {
         cond: Box<Expr>,
+        body: Block,
+    },
+    /// `for x in iter { body }` — iterates over an array, binding each
+    /// element to `var` for the body. Always evaluates to `Unit`.
+    ForIn {
+        var: String,
+        iter: Box<Expr>,
         body: Block,
     },
     /// Infinite loop. Exits only via `break` (or returning from the
@@ -108,6 +118,14 @@ pub enum ExprKind {
     Cast {
         expr: Box<Expr>,
         ty: crate::types::Type,
+    },
+    /// Anonymous function expression — `fn(p: T): R { body }`. No
+    /// captures (closures); at runtime it's a code pointer with the
+    /// statically-known `Type::Fn` signature.
+    FnExpr {
+        params: Vec<crate::Param>,
+        ret: Option<crate::types::Type>,
+        body: crate::stmt::Block,
     },
     /// Array literal: `[a, b, c]`.
     Array(Vec<Expr>),
