@@ -149,6 +149,11 @@ unsafe fn read_field(
             optional_inners,
         ),
         JitTy::Fn(_) => JitValue::Fn(*(addr as *const i64)),
+        JitTy::Map(_) => JitValue::Map {
+            key_ty: "?".into(),
+            val_ty: "?".into(),
+            size: 0,
+        },
         JitTy::Unit => JitValue::Unit,
     }
 }
@@ -239,6 +244,10 @@ pub enum JitValue {
     /// Two `Fn(p)` values compare equal iff they point at the same
     /// JITed function.
     Fn(i64),
+    /// Built-in `Map<K, V>` surfaced to the host. Internals are
+    /// summarized; full key/value enumeration would require dispatching
+    /// on K/V kinds and is out of scope for the simple Display.
+    Map { key_ty: String, val_ty: String, size: i64 },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -280,6 +289,9 @@ impl std::fmt::Display for JitValue {
             JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
             JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
             JitValue::Fn(p) => write!(f, "<fn @ {p:#x}>"),
+            JitValue::Map { key_ty, val_ty, size } => {
+                write!(f, "<Map<{key_ty}, {val_ty}> size={size}>")
+            }
             JitValue::Enum { ty, variant, payload } => match payload {
                 JitEnumPayload::Unit => write!(f, "{ty}::{variant}"),
                 JitEnumPayload::Tuple(items) => {
@@ -404,6 +416,11 @@ pub(crate) unsafe fn read_array(
                 optional_inners,
             ),
             JitTy::Fn(_) => JitValue::Fn(*(p as *const i64)),
+            JitTy::Map(_) => JitValue::Map {
+                key_ty: "?".into(),
+                val_ty: "?".into(),
+                size: 0,
+            },
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

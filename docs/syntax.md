@@ -620,7 +620,7 @@ double(21)                                 // 42
 
 JIT で `Unsupported` になる主なケース:
 - `i64?` / `bool?` などの **primitive Optional** (Object/Str/Array/Weak の Optional は OK)
-- `Map<K, V>` 全般
+- `Map<K, V>.get(k)` の **V=primitive ケース** のみ (V=heap は実装済 — 上の primitive Optional と同根)
 - ジェネリック enum 全般 (組み込み `Result<T, E>` を含む)
 - 配列メソッドの一部 (上記 §8 参照)
 - 継承 / 動的ディスパッチ (interpreter にも未実装)
@@ -630,7 +630,8 @@ JIT で `Unsupported` になる主なケース:
 ## 17. 未実装 (今後の TODO)
 
 - 継承 (`extends`, `super`)
-- Map / ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §9 / §11 参照)
+- ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §11 参照)
+- primitive Optional (`i64?` 等) の JIT 対応 — これが入ると `Map<K, V=primitive>.get` も自動で動く
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
 - ジェネリック制約 (bounds)

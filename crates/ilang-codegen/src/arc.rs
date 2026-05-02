@@ -141,12 +141,23 @@ pub(crate) fn emit_retain_heap(
         JitTy::Array(_) => emit_retain_array(b, lc, ptr),
         JitTy::Weak(_) => emit_retain_weak(b, lc, ptr),
         JitTy::EnumHeap(_) => emit_retain_object(b, lc, ptr),
+        JitTy::Map(_) => emit_retain_map(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_retain_heap(b, lc, ptr, inner);
         }
         _ => {}
     }
+}
+
+pub(crate) fn emit_retain_map(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.retain_map_id, b.func);
+    b.ins().call(r, &[ptr]);
+}
+
+pub(crate) fn emit_release_map(b: &mut FunctionBuilder, lc: &mut LowerCtx, ptr: Value) {
+    let r = lc.module.declare_func_in_func(lc.release_map_id, b.func);
+    b.ins().call(r, &[ptr]);
 }
 
 /// Emit release for any heap-typed value. No-op for non-heap types.
@@ -162,6 +173,7 @@ pub(crate) fn emit_release_heap(
         JitTy::Array(id) => emit_release_array(b, lc, ptr, id),
         JitTy::Weak(class_id) => emit_release_weak(b, lc, ptr, class_id),
         JitTy::EnumHeap(enum_id) => emit_release_enum_heap(b, lc, ptr, enum_id),
+        JitTy::Map(_) => emit_release_map(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             emit_release_heap(b, lc, ptr, inner);

@@ -93,6 +93,7 @@ pub(crate) struct ArrayFns {
     pub push_f64: FuncId,
 }
 
+
 pub(crate) struct LowerCtx<'a> {
     pub funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
     pub class_layouts: &'a [ClassLayout],
@@ -107,6 +108,20 @@ pub(crate) struct LowerCtx<'a> {
     pub print: PrintFns,
     pub strfns: StrFns,
     pub arrfns: ArrayFns,
+    pub map_new_id: FuncId,
+    pub retain_map_id: FuncId,
+    pub release_map_id: FuncId,
+    pub map_set_id: FuncId,
+    pub map_has_id: FuncId,
+    pub map_size_id: FuncId,
+    pub map_delete_id: FuncId,
+    pub map_index_get_id: FuncId,
+    pub map_get_or_null_id: FuncId,
+    pub map_keys_to_array_id: FuncId,
+    pub map_values_to_array_id: FuncId,
+    /// Per-(K, V) value-retain helper, lazily generated. Mirrors
+    /// `map_drops` in shape but emits `emit_retain_heap` per V instead.
+    pub map_value_retains: &'a mut HashMap<u32, Option<FuncId>>,
     pub module: &'a mut JITModule,
     pub env: &'a mut Env,
     pub loops: Vec<(Block, Block)>,
@@ -128,6 +143,9 @@ pub(crate) struct LowerCtx<'a> {
     pub array_kinds: &'a mut Vec<ArrayKind>,
     pub optional_inners: &'a mut Vec<JitTy>,
     pub fn_signatures: &'a mut Vec<FnSignature>,
+    pub map_kinds: &'a mut Vec<crate::ty::MapKind>,
+    /// Per-(K, V) drop helper for Map values; lazily generated.
+    pub map_drops: &'a mut HashMap<u32, Option<FuncId>>,
     /// Per-class drop wrappers, indexed by class id. `None` for trivial
     /// classes (no `deinit`, no heap fields). See drops.rs.
     pub class_drops: &'a [Option<FuncId>],

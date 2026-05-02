@@ -1069,18 +1069,21 @@ fn rewrite_expr(e: &Expr) -> Expr {
             args,
         } => {
             // Concrete generic instantiation → call into the
-            // monomorphized class by its mangled name.
+            // monomorphized class by its mangled name. Built-in generic
+            // classes (Map) skip mangling — the JIT lowers `new Map<..>()`
+            // by recognizing the class name + type_args directly.
             let new_args: Vec<Expr> = args.iter().map(rewrite_expr).collect();
-            if type_args.is_empty() {
+            let new_type_args: Vec<Type> = type_args.iter().map(rewrite_type).collect();
+            if type_args.is_empty() || is_builtin_generic_class(class) {
                 ExprKind::New {
                     class: class.clone(),
-                    type_args: Vec::new(),
+                    type_args: new_type_args,
                     args: new_args,
                 }
             } else {
                 let mangled = InstKey {
                     class: class.clone(),
-                    args: type_args.clone(),
+                    args: new_type_args,
                 }
                 .mangled();
                 ExprKind::New {
@@ -1243,6 +1246,14 @@ fn is_generic_enum(name: &str) -> bool {
     GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(name))
 }
 
+/// Built-in generic classes whose `Type::Generic { base, args }` should
+/// flow through to the JIT verbatim (NOT mangled into a synthetic
+/// `Type::Object` like user generic classes). The JIT recognizes these
+/// names and produces dedicated `JitTy` variants for them.
+fn is_builtin_generic_class(name: &str) -> bool {
+    name == "Map"
+}
+
 /// Collapse `Type::Generic { Box, [i64] }` to `Type::Object("Box<i64>")`
 /// so the JIT pipeline (which only knows `Object`) routes to the
 /// monomorphized class. Recurses through Array/Optional/Weak.
@@ -1252,8 +1263,10 @@ fn rewrite_type(t: &Type) -> Type {
             let new_args: Vec<Type> = args.iter().map(rewrite_type).collect();
             // Generic enums aren't monomorphized — leave them as
             // `Type::Generic` so the JIT's `from_ast` errors with a
-            // clear UnsupportedType. Classes get the mangled name.
-            if is_generic_enum(base) {
+            // clear UnsupportedType. Built-in generic classes (Map)
+            // are also kept as Generic — the JIT handles them
+            // specially. User generic classes get the mangled name.
+            if is_generic_enum(base) || is_builtin_generic_class(base) {
                 Type::Generic {
                     base: base.clone(),
                     args: new_args,

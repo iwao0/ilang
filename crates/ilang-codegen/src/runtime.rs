@@ -459,3 +459,295 @@ push_fn!(ilang_jit_array_push_i32, i32, 4);
 push_fn!(ilang_jit_array_push_i64, i64, 8);
 push_fn!(ilang_jit_array_push_f32, f32, 4);
 push_fn!(ilang_jit_array_push_f64, f64, 8);
+
+// ─── Map runtime ──────────────────────────────────────────────────────
+//
+// Map<K, V> is implemented as a Rust `HashMap<MapKey, i64>` boxed and
+// pointed to by a JIT-visible header. Keys are typed at the Rust side
+// (Str / Int / UInt / Bool — same shape as the interpreter's MapKey).
+// Values are stored as raw 8-byte slots; per-Map `drop_fn` (if any)
+// releases each value as a heap pointer when the map dies or an entry
+// is overwritten / deleted. `key_kind` tags the K representation so
+// the runtime can convert raw key bits ↔ MapKey.
+//
+// Layout (32 bytes):
+//   0  rc:        i64
+//   8  drop_fn:   i64  // extern "C" fn(val: i64) — releases one value
+//  16  key_kind:  i64  // 0=Str, 1=Int (i64), 2=UInt (u64), 3=Bool
+//  24  inner:     i64  // *mut HashMap<MapKey, i64>
+
+pub(crate) const MAP_KEY_KIND_STR: i64 = 0;
+pub(crate) const MAP_KEY_KIND_INT: i64 = 1;
+pub(crate) const MAP_KEY_KIND_UINT: i64 = 2;
+pub(crate) const MAP_KEY_KIND_BOOL: i64 = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum MapKey {
+    Str(String),
+    Int(i64),
+    UInt(u64),
+    Bool(bool),
+}
+
+#[repr(C)]
+pub(crate) struct MapHeader {
+    pub rc: i64,
+    pub drop_fn: i64,
+    pub key_kind: i64,
+    pub inner: i64,
+}
+
+unsafe fn key_from_bits(kind: i64, bits: i64) -> MapKey {
+    match kind {
+        MAP_KEY_KIND_STR => {
+            // String keys arrive as a `*mut StringRc` pointer; copy the
+            // backing String so the map can hash on its content (and
+            // owns its own copy independent of the input's ARC lifetime).
+            if bits == 0 {
+                MapKey::Str(String::new())
+            } else {
+                let s = &(*(bits as *const StringRc)).s;
+                MapKey::Str(s.clone())
+            }
+        }
+        MAP_KEY_KIND_INT => MapKey::Int(bits),
+        MAP_KEY_KIND_UINT => MapKey::UInt(bits as u64),
+        MAP_KEY_KIND_BOOL => MapKey::Bool(bits != 0),
+        _ => panic!("ilang_jit_map: unknown key_kind {kind}"),
+    }
+}
+
+unsafe fn inner_mut<'a>(ptr: i64) -> &'a mut std::collections::HashMap<MapKey, i64> {
+    &mut *((*(ptr as *mut MapHeader)).inner as *mut std::collections::HashMap<MapKey, i64>)
+}
+
+pub(crate) extern "C" fn ilang_jit_map_new(key_kind: i64, drop_fn: i64) -> i64 {
+    let inner = Box::new(std::collections::HashMap::<MapKey, i64>::new());
+    let inner_ptr = Box::into_raw(inner) as i64;
+    let header_layout = std::alloc::Layout::new::<MapHeader>();
+    let header = unsafe { std::alloc::alloc_zeroed(header_layout) as *mut MapHeader };
+    unsafe {
+        (*header).rc = 1;
+        (*header).drop_fn = drop_fn;
+        (*header).key_kind = key_kind;
+        (*header).inner = inner_ptr;
+    }
+    header as i64
+}
+
+pub(crate) extern "C" fn ilang_jit_retain_map(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        *rc += 1;
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_release_map(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        (*header).rc -= 1;
+        if (*header).rc != 0 {
+            return;
+        }
+        // Walk values and let the per-(K,V) drop_fn release any heap
+        // payloads. The HashMap itself drops keys (Rust-side memory).
+        let drop_fn = (*header).drop_fn;
+        let inner_ptr = (*header).inner as *mut std::collections::HashMap<MapKey, i64>;
+        if drop_fn != 0 {
+            let f: extern "C" fn(i64) = std::mem::transmute(drop_fn);
+            for (_, v) in (*inner_ptr).iter() {
+                f(*v);
+            }
+        }
+        // Free inner HashMap.
+        drop(Box::from_raw(inner_ptr));
+        // Free header.
+        let header_layout = std::alloc::Layout::new::<MapHeader>();
+        std::alloc::dealloc(ptr as *mut u8, header_layout);
+    }
+}
+
+/// Insert (key_bits, val). If a previous value existed at the same
+/// key, it is released via the per-Map drop_fn (heap V) before being
+/// dropped from the map.
+pub(crate) extern "C" fn ilang_jit_map_set(ptr: i64, key_bits: i64, val: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        let kind = (*header).key_kind;
+        let drop_fn = (*header).drop_fn;
+        let key = key_from_bits(kind, key_bits);
+        if let Some(old) = inner_mut(ptr).insert(key, val) {
+            if drop_fn != 0 {
+                let f: extern "C" fn(i64) = std::mem::transmute(drop_fn);
+                f(old);
+            }
+        }
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_map_has(ptr: i64, key_bits: i64) -> i8 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        let key = key_from_bits((*header).key_kind, key_bits);
+        if inner_mut(ptr).contains_key(&key) { 1 } else { 0 }
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_map_size(ptr: i64) -> i64 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe { inner_mut(ptr).len() as i64 }
+}
+
+/// Returns 1 if the entry existed (and was removed), 0 otherwise.
+/// Releases the value via drop_fn before removing.
+pub(crate) extern "C" fn ilang_jit_map_delete(ptr: i64, key_bits: i64) -> i8 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        let kind = (*header).key_kind;
+        let drop_fn = (*header).drop_fn;
+        let key = key_from_bits(kind, key_bits);
+        if let Some(old) = inner_mut(ptr).remove(&key) {
+            if drop_fn != 0 {
+                let f: extern "C" fn(i64) = std::mem::transmute(drop_fn);
+                f(old);
+            }
+            1
+        } else {
+            0
+        }
+    }
+}
+
+/// Index get: `m[k]` returns the value bits or aborts with a runtime
+/// panic when the key is missing (mirrors the interpreter's
+/// "map key not found"). Heap values are NOT retained — the caller is
+/// responsible for retain if it wants its own reference (the map keeps
+/// its own +1 internally; aliased reads behave like array indexing).
+pub(crate) extern "C" fn ilang_jit_map_index_get(ptr: i64, key_bits: i64) -> i64 {
+    unsafe {
+        if ptr == 0 {
+            eprintln!("ilang runtime: index on null Map");
+            std::process::abort();
+        }
+        let header = ptr as *mut MapHeader;
+        let key = key_from_bits((*header).key_kind, key_bits);
+        match inner_mut(ptr).get(&key) {
+            Some(v) => *v,
+            None => {
+                eprintln!("ilang runtime: map key not found");
+                std::process::abort();
+            }
+        }
+    }
+}
+
+/// Returns 0 if the key is missing, else the value bits (no retain).
+/// Used by `m.get(k): V?` for V=heap (the JIT-side lowering then bumps
+/// the pointer's rc so the caller has its own reference).
+pub(crate) extern "C" fn ilang_jit_map_get_or_null(ptr: i64, key_bits: i64) -> i64 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        let key = key_from_bits((*header).key_kind, key_bits);
+        match inner_mut(ptr).get(&key) {
+            Some(v) => *v,
+            None => 0,
+        }
+    }
+}
+
+/// Build a JIT array (`ArrayHeader` + data buffer) of all keys, in
+/// arbitrary HashMap iteration order. `elem_size` matches the JitTy
+/// width of K. String keys are materialized as fresh `Box<StringRc>`
+/// instances with rc=1 so the returned array owns them; non-string
+/// keys are stored as their raw bits.
+pub(crate) extern "C" fn ilang_jit_map_keys_to_array(
+    ptr: i64,
+    elem_size: i64,
+    drop_fn: i64,
+) -> i64 {
+    if ptr == 0 {
+        return ilang_jit_array_new(elem_size, 0, drop_fn);
+    }
+    unsafe {
+        let header = ptr as *mut MapHeader;
+        let key_kind = (*header).key_kind;
+        let len = ilang_jit_map_size(ptr);
+        let arr = ilang_jit_array_new(elem_size, len, drop_fn);
+        let arr_header = arr as *mut ArrayHeader;
+        let data = (*arr_header).data_ptr;
+        for (i, k) in inner_mut(ptr).keys().enumerate() {
+            let bits: i64 = match k {
+                MapKey::Str(s) => {
+                    let boxed = Box::new(StringRc { rc: 1, s: s.clone() });
+                    Box::into_raw(boxed) as i64
+                }
+                MapKey::Int(n) => *n,
+                MapKey::UInt(u) => *u as i64,
+                MapKey::Bool(b) => if *b { 1 } else { 0 },
+            };
+            let _ = key_kind; // currently unused beyond the MapKey discriminant
+            let dst = data + (i as i64) * elem_size;
+            write_array_slot(dst, elem_size, bits);
+        }
+        arr
+    }
+}
+
+/// Build a JIT array of all values. `retain_fn` (per-V heap retain
+/// helper, JIT-generated) is invoked on each value being copied so the
+/// new array owns its own +1; pass 0 for non-heap V.
+pub(crate) extern "C" fn ilang_jit_map_values_to_array(
+    ptr: i64,
+    elem_size: i64,
+    drop_fn: i64,
+    retain_fn: i64,
+) -> i64 {
+    if ptr == 0 {
+        return ilang_jit_array_new(elem_size, 0, drop_fn);
+    }
+    unsafe {
+        let len = ilang_jit_map_size(ptr);
+        let arr = ilang_jit_array_new(elem_size, len, drop_fn);
+        let arr_header = arr as *mut ArrayHeader;
+        let data = (*arr_header).data_ptr;
+        for (i, v) in inner_mut(ptr).values().enumerate() {
+            if retain_fn != 0 {
+                let f: extern "C" fn(i64) = std::mem::transmute(retain_fn);
+                f(*v);
+            }
+            let dst = data + (i as i64) * elem_size;
+            write_array_slot(dst, elem_size, *v);
+        }
+        arr
+    }
+}
+
+unsafe fn write_array_slot(addr: i64, elem_size: i64, bits: i64) {
+    match elem_size {
+        1 => *(addr as *mut i8) = bits as i8,
+        2 => *(addr as *mut i16) = bits as i16,
+        4 => *(addr as *mut i32) = bits as i32,
+        8 => *(addr as *mut i64) = bits,
+        n => panic!("ilang runtime: unexpected array elem_size {n}"),
+    }
+}

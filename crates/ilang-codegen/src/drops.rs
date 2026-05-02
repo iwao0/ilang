@@ -95,6 +95,7 @@ fn define_one_class_drop(
         release_string_id,
         release_array_id,
         release_weak_id,
+        release_map_id,
         ..
     } = compiler;
 
@@ -127,6 +128,7 @@ fn define_one_class_drop(
             *release_string_id,
             *release_array_id,
             *release_weak_id,
+            *release_map_id,
             &mut builder,
             v,
             fty,
@@ -208,6 +210,7 @@ fn define_one_enum_drop(
         release_string_id,
         release_array_id,
         release_weak_id,
+        release_map_id,
         ..
     } = compiler;
 
@@ -260,6 +263,7 @@ fn define_one_enum_drop(
                         *release_string_id,
                         *release_array_id,
                         *release_weak_id,
+            *release_map_id,
                         &mut builder,
                         v,
                         *fty,
@@ -283,6 +287,7 @@ fn define_one_enum_drop(
                         *release_string_id,
                         *release_array_id,
                         *release_weak_id,
+            *release_map_id,
                         &mut builder,
                         v,
                         *fty,
@@ -342,6 +347,7 @@ fn define_one_array_drop(
         release_string_id,
         release_array_id,
         release_weak_id,
+        release_map_id,
         ..
     } = compiler;
 
@@ -389,6 +395,7 @@ fn define_one_array_drop(
         *release_string_id,
         *release_array_id,
         *release_weak_id,
+            *release_map_id,
         &mut builder,
         elem,
         elem_jty,
@@ -421,6 +428,7 @@ fn emit_release_for(
     release_string_id: FuncId,
     release_array_id: FuncId,
     release_weak_id: FuncId,
+    release_map_id: FuncId,
     b: &mut FunctionBuilder,
     ptr: Value,
     ty: JitTy,
@@ -456,6 +464,7 @@ fn emit_release_for(
                 release_string_id,
                 release_array_id,
                 release_weak_id,
+                release_map_id,
                 b,
                 ptr,
                 inner,
@@ -467,6 +476,10 @@ fn emit_release_for(
             let size_v = b.ins().iconst(I64, user_size);
             b.ins().call(r, &[ptr, size_v]);
         }
+        JitTy::Map(_) => {
+            let r = module.declare_func_in_func(release_map_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
         _ => {}
     }
 }
@@ -477,4 +490,243 @@ fn declare_drop_fn(module: &mut JITModule, symbol: &str) -> Result<FuncId, Codeg
     module
         .declare_function(symbol, Linkage::Local, &sig)
         .map_err(|e| CodegenError::Module(e.to_string()))
+}
+
+/// Lazy lookup from `new Map<K, V>` lowering: returns the drop_fn_ptr
+/// Value to embed in `ilang_jit_map_new`. The wrapper is a one-arg
+/// `extern "C" fn(val: i64)` that releases the value bits as a heap V.
+/// Returns iconst 0 when V is not heap (the runtime treats 0 as "skip").
+pub(crate) fn map_drop_fn_ptr(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_id: u32,
+) -> Value {
+    let kind = lc.map_kinds[map_id as usize];
+    if !kind.val.is_heap() {
+        lc.map_drops.entry(map_id).or_insert(None);
+        return b.ins().iconst(I64, 0);
+    }
+    let id = if let Some(Some(id)) = lc.map_drops.get(&map_id) {
+        *id
+    } else {
+        let symbol = format!("__drop_map_val_{map_id}");
+        let id = declare_drop_fn(lc.module, &symbol).expect("declare map value drop");
+        lc.map_drops.insert(map_id, Some(id));
+        id
+    };
+    let func_ref = lc.module.declare_func_in_func(id, b.func);
+    b.ins().func_addr(I64, func_ref)
+}
+
+/// Lazy lookup for the per-(K, V) value-retain helper. Returns the
+/// fn pointer Value to embed in `ilang_jit_map_values_to_array`.
+/// Returns iconst 0 when V is not heap (the runtime treats 0 as "no
+/// retain needed").
+pub(crate) fn map_value_retain_fn_ptr(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_id: u32,
+) -> Value {
+    let kind = lc.map_kinds[map_id as usize];
+    if !kind.val.is_heap() {
+        lc.map_value_retains.entry(map_id).or_insert(None);
+        return b.ins().iconst(I64, 0);
+    }
+    let id = if let Some(Some(id)) = lc.map_value_retains.get(&map_id) {
+        *id
+    } else {
+        let symbol = format!("__retain_map_val_{map_id}");
+        let id = declare_drop_fn(lc.module, &symbol).expect("declare map value retain");
+        lc.map_value_retains.insert(map_id, Some(id));
+        id
+    };
+    let func_ref = lc.module.declare_func_in_func(id, b.func);
+    b.ins().func_addr(I64, func_ref)
+}
+
+/// Define every Map value-retain body declared during lowering.
+pub(crate) fn define_map_value_retains(
+    compiler: &mut JitCompiler,
+) -> Result<(), CodegenError> {
+    let to_define: Vec<(u32, FuncId)> = compiler
+        .map_value_retains
+        .iter()
+        .filter_map(|(k, v)| v.map(|id| (*k, id)))
+        .collect();
+    for (map_id, retain_id) in to_define {
+        define_one_map_value_retain(compiler, map_id, retain_id)?;
+    }
+    Ok(())
+}
+
+fn define_one_map_value_retain(
+    compiler: &mut JitCompiler,
+    map_id: u32,
+    retain_id: FuncId,
+) -> Result<(), CodegenError> {
+    compiler.module.clear_context(&mut compiler.ctx);
+    compiler.ctx.func.signature =
+        compiler.module.declarations().get_function_decl(retain_id).signature.clone();
+
+    let val_jty = compiler.map_kinds[map_id as usize].val;
+
+    let JitCompiler {
+        module,
+        ctx,
+        builder_ctx,
+        retain_object_id,
+        retain_string_id,
+        retain_array_id,
+        retain_weak_id,
+        retain_map_id,
+        ..
+    } = compiler;
+
+    let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let val = builder.block_params(entry)[0];
+
+    emit_retain_for(
+        module,
+        *retain_object_id,
+        *retain_string_id,
+        *retain_array_id,
+        *retain_weak_id,
+        *retain_map_id,
+        &mut builder,
+        val,
+        val_jty,
+    );
+
+    builder.ins().return_(&[]);
+    builder.finalize();
+
+    compiler
+        .module
+        .define_function(retain_id, &mut compiler.ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_retain_for(
+    module: &mut JITModule,
+    retain_object_id: FuncId,
+    retain_string_id: FuncId,
+    retain_array_id: FuncId,
+    retain_weak_id: FuncId,
+    retain_map_id: FuncId,
+    b: &mut FunctionBuilder,
+    ptr: Value,
+    ty: JitTy,
+) {
+    match ty {
+        JitTy::Object(_) | JitTy::EnumHeap(_) => {
+            let r = module.declare_func_in_func(retain_object_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Str => {
+            let r = module.declare_func_in_func(retain_string_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Array(_) => {
+            let r = module.declare_func_in_func(retain_array_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Weak(_) => {
+            let r = module.declare_func_in_func(retain_weak_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Map(_) => {
+            let r = module.declare_func_in_func(retain_map_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Optional(_) => {
+            // The runtime retains are all null-safe; just dispatch via
+            // the inner type. To avoid threading optional_inners here,
+            // call through retain_object — Optional<heap> always stores
+            // a pointer (object-shaped retain works for all heap types
+            // because all our heap retains share the leading-rc layout).
+            // Simpler approach: only Phase A V kinds (Object, Str, Array,
+            // Map) reach this path, so reaching Optional is a bug.
+            unreachable!("Optional V should be handled by caller");
+        }
+        _ => {} // non-heap: nothing to do
+    }
+}
+
+/// Define every Map value-drop body declared lazily during lowering.
+/// The wrapper takes a single `val: i64` and emits the appropriate
+/// per-V release call. Mirrors `define_array_drops` in shape.
+pub(crate) fn define_map_drops(compiler: &mut JitCompiler) -> Result<(), CodegenError> {
+    let to_define: Vec<(u32, FuncId)> = compiler
+        .map_drops
+        .iter()
+        .filter_map(|(k, v)| v.map(|id| (*k, id)))
+        .collect();
+    for (map_id, drop_id) in to_define {
+        define_one_map_drop(compiler, map_id, drop_id)?;
+    }
+    Ok(())
+}
+
+fn define_one_map_drop(
+    compiler: &mut JitCompiler,
+    map_id: u32,
+    drop_id: FuncId,
+) -> Result<(), CodegenError> {
+    compiler.module.clear_context(&mut compiler.ctx);
+    compiler.ctx.func.signature =
+        compiler.module.declarations().get_function_decl(drop_id).signature.clone();
+
+    let val_jty = compiler.map_kinds[map_id as usize].val;
+
+    let JitCompiler {
+        module,
+        ctx,
+        builder_ctx,
+        class_layouts,
+        array_kinds,
+        optional_inners,
+        release_object_id,
+        release_string_id,
+        release_array_id,
+        release_weak_id,
+        release_map_id,
+        ..
+    } = compiler;
+
+    let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let val = builder.block_params(entry)[0];
+
+    emit_release_for(
+        module,
+        class_layouts,
+        array_kinds,
+        optional_inners,
+        *release_object_id,
+        *release_string_id,
+        *release_array_id,
+        *release_weak_id,
+        *release_map_id,
+        &mut builder,
+        val,
+        val_jty,
+    );
+
+    builder.ins().return_(&[]);
+    builder.finalize();
+
+    compiler
+        .module
+        .define_function(drop_id, &mut compiler.ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    Ok(())
 }

@@ -3,7 +3,7 @@
 //! `lower_console_log`, `call_method`).
 
 use cranelift::prelude::*;
-use cranelift_codegen::ir::types::{I32, I64, I8};
+use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_module::Module;
 use ilang_ast::{Expr, ExprKind};
 
@@ -16,10 +16,13 @@ use crate::error::CodegenError;
 use crate::lower_ctrl::{lower_for_in, lower_if, lower_loop, lower_while};
 use crate::lower_op::{coerce, lower_binary, lower_logical, lower_unary};
 use crate::lower_stmt::lower_block_value;
-use crate::runtime::{ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET};
+use crate::runtime::{
+    ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET, MAP_KEY_KIND_BOOL, MAP_KEY_KIND_INT,
+    MAP_KEY_KIND_STR, MAP_KEY_KIND_UINT,
+};
 use crate::ty::{
-    intern_array_kind, intern_optional_inner, ArrayKind, EnumVariantLayout, JitTy, TV,
-    ENUM_PAYLOAD_OFFSET, ENUM_TAG_OFFSET,
+    intern_array_kind, intern_map_kind, intern_optional_inner, ArrayKind,
+    EnumVariantLayout, JitTy, MapKind, TV, ENUM_PAYLOAD_OFFSET, ENUM_TAG_OFFSET,
 };
 
 pub(crate) fn lower_expr(
@@ -91,13 +94,7 @@ pub(crate) fn lower_expr(
                 span: e.span,
             })
         }
-        ExprKind::MapLit(_) => {
-            // Map<K, V> is interpreter-only for now.
-            Err(CodegenError::Unsupported {
-                what: "Map<K, V> is not yet supported in JIT (interpreter only)".into(),
-                span: e.span,
-            })
-        }
+        ExprKind::MapLit(entries) => lower_map_lit(b, lc, entries, e.span),
         ExprKind::Cast { expr, ty } => {
             let inner = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
                 what: "cast on unit".into(),
@@ -112,6 +109,7 @@ pub(crate) fn lower_expr(
                 lc.array_kinds,
                 lc.optional_inners,
                 lc.fn_signatures,
+                lc.map_kinds,
             )?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
@@ -557,6 +555,10 @@ pub(crate) fn lower_expr(
                     }
                 }
             }
+            // Built-in Map methods.
+            if let JitTy::Map(map_id) = obj_t {
+                return lower_map_method(b, lc, map_id, method, obj_v, args, e.span);
+            }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
                 _ => {
@@ -678,6 +680,11 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Map indexing: `m[k]` calls into the runtime, which aborts
+            // when the key is missing (mirrors interpreter).
+            if let JitTy::Map(map_id) = obj_t {
+                return lower_map_index_get(b, lc, map_id, obj_v, index);
+            }
             let array_id = match obj_t {
                 JitTy::Array(id) => id,
                 _ => {
@@ -715,6 +722,10 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Map[k] = v: dispatch to ilang_jit_map_set; returns Unit.
+            if let JitTy::Map(map_id) = obj_t {
+                return lower_map_index_set(b, lc, map_id, obj_v, index, value, &value.kind);
+            }
             let array_id = match obj_t {
                 JitTy::Array(id) => id,
                 _ => {
@@ -766,6 +777,12 @@ pub(crate) fn lower_expr(
             Ok(None)
         }
         ExprKind::New { class, type_args, args } => {
+            // Built-in `Map<K, V>` — no class layout, just a header
+            // alloc. K and V come in via type_args (kept by the
+            // monomorphization pass for built-in generics).
+            if class == "Map" {
+                return lower_new_map(b, lc, type_args, args, e.span);
+            }
             if !type_args.is_empty() {
                 return Err(CodegenError::Unsupported {
                     what: "generic class instantiation is not yet supported in JIT \
@@ -1615,6 +1632,12 @@ fn emit_print_value(
             let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
             b.ins().call(r, &[v]);
         }
+        JitTy::Map(_) => {
+            // Same approach as Fn: print the pointer for now. A proper
+            // {key: value, ...} formatter is out of scope for Phase A.
+            let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
+            b.ins().call(r, &[v]);
+        }
         JitTy::Unit => {
             return Err(CodegenError::Unsupported {
                 what: "console.log of () (unit)".into(),
@@ -1870,4 +1893,357 @@ fn emit_array_index_of(
     b.seal_block(exit);
     b.switch_to_block(exit);
     b.block_params(exit)[0]
+}
+
+// ─── Map<K, V> lowering ──────────────────────────────────────────────
+
+/// Convert a JIT key value to the i64 bit pattern the runtime expects.
+/// Strings pass their `*mut StringRc` pointer; ints/uints/bools sign-
+/// or zero-extend into i64.
+fn coerce_map_key(
+    b: &mut FunctionBuilder,
+    _lc: &mut LowerCtx,
+    (kv, kt): TV,
+    expected: JitTy,
+    span: ilang_ast::Span,
+) -> Result<cranelift::prelude::Value, CodegenError> {
+    let coerced = coerce(b, (kv, kt), expected, span)?;
+    // For widths < 64, widen so the runtime always sees a full i64.
+    Ok(match expected {
+        JitTy::I8 | JitTy::I16 | JitTy::I32 => b.ins().sextend(I64, coerced),
+        JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::Bool => b.ins().uextend(I64, coerced),
+        _ => coerced,
+    })
+}
+
+/// Resolve the `key_kind` runtime tag for a JitTy key.
+fn map_key_kind_tag(k: JitTy, span: ilang_ast::Span) -> Result<i64, CodegenError> {
+    Ok(match k {
+        JitTy::Str => MAP_KEY_KIND_STR,
+        JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64 => MAP_KEY_KIND_INT,
+        JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64 => MAP_KEY_KIND_UINT,
+        JitTy::Bool => MAP_KEY_KIND_BOOL,
+        other => {
+            return Err(CodegenError::Unsupported {
+                what: format!("Map key type {other:?} is not supported"),
+                span,
+            });
+        }
+    })
+}
+
+pub(crate) fn lower_new_map(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    type_args: &[ilang_ast::Type],
+    args: &[ilang_ast::Expr],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    if !args.is_empty() {
+        return Err(CodegenError::Unsupported {
+            what: "new Map<K, V>() takes no constructor args".into(),
+            span,
+        });
+    }
+    if type_args.len() != 2 {
+        return Err(CodegenError::Unsupported {
+            what: "new Map needs explicit <K, V> type args".into(),
+            span,
+        });
+    }
+    let class_ids = crate::env::class_ids_from(lc);
+    let enum_ids = crate::env::enum_ids_from(lc);
+    let key_jty = JitTy::from_ast(
+        &type_args[0], span, &class_ids, &enum_ids, lc.enum_layouts,
+        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds,
+    )?;
+    let val_jty = JitTy::from_ast(
+        &type_args[1], span, &class_ids, &enum_ids, lc.enum_layouts,
+        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds,
+    )?;
+    let map_id = intern_map_kind(lc.map_kinds, MapKind { key: key_jty, val: val_jty });
+    let key_kind = map_key_kind_tag(key_jty, span)?;
+    let drop_fn_ptr = crate::drops::map_drop_fn_ptr(b, lc, map_id);
+    let key_kind_v = b.ins().iconst(I64, key_kind);
+    let new_ref = lc.module.declare_func_in_func(lc.map_new_id, b.func);
+    let call = b.ins().call(new_ref, &[key_kind_v, drop_fn_ptr]);
+    let ptr = b.inst_results(call)[0];
+    Ok(Some((ptr, JitTy::Map(map_id))))
+}
+
+pub(crate) fn lower_map_method(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_id: u32,
+    method: &str,
+    obj_v: cranelift::prelude::Value,
+    args: &[ilang_ast::Expr],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let kind = lc.map_kinds[map_id as usize];
+    let arity = |n: usize| -> Result<(), CodegenError> {
+        if args.len() == n { Ok(()) } else {
+            Err(CodegenError::Unsupported {
+                what: format!("Map.{method} takes {n} args, got {}", args.len()),
+                span,
+            })
+        }
+    };
+    match method {
+        "set" => {
+            arity(2)?;
+            let key_tv = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                what: "Map.set key is unit".into(), span: args[0].span,
+            })?;
+            let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
+            let val_tv = lower_expr(b, lc, &args[1])?.ok_or_else(|| CodegenError::Unsupported {
+                what: "Map.set value is unit".into(), span: args[1].span,
+            })?;
+            let val_coerced = coerce(b, val_tv, kind.val, args[1].span)?;
+            // Aliased heap rhs needs a retain so the map owns its own +1.
+            emit_bind_retain(b, lc, &args[1].kind, val_tv.1, kind.val, val_coerced);
+            // Pad value to i64 for the FFI slot.
+            let val_bits = match kind.val {
+                JitTy::I8 | JitTy::I16 | JitTy::I32 => b.ins().sextend(I64, val_coerced),
+                JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::Bool => b.ins().uextend(I64, val_coerced),
+                JitTy::F32 => {
+                    let bits = b.ins().bitcast(I32, MemFlags::new(), val_coerced);
+                    b.ins().uextend(I64, bits)
+                }
+                JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), val_coerced),
+                _ => val_coerced, // already i64
+            };
+            let r = lc.module.declare_func_in_func(lc.map_set_id, b.func);
+            b.ins().call(r, &[obj_v, key_bits, val_bits]);
+            Ok(None)
+        }
+        "has" => {
+            arity(1)?;
+            let key_tv = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                what: "Map.has key is unit".into(), span: args[0].span,
+            })?;
+            let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
+            let r = lc.module.declare_func_in_func(lc.map_has_id, b.func);
+            let call = b.ins().call(r, &[obj_v, key_bits]);
+            Ok(Some((b.inst_results(call)[0], JitTy::Bool)))
+        }
+        "delete" => {
+            arity(1)?;
+            let key_tv = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                what: "Map.delete key is unit".into(), span: args[0].span,
+            })?;
+            let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
+            let r = lc.module.declare_func_in_func(lc.map_delete_id, b.func);
+            let call = b.ins().call(r, &[obj_v, key_bits]);
+            Ok(Some((b.inst_results(call)[0], JitTy::Bool)))
+        }
+        "size" => {
+            arity(0)?;
+            let r = lc.module.declare_func_in_func(lc.map_size_id, b.func);
+            let call = b.ins().call(r, &[obj_v]);
+            Ok(Some((b.inst_results(call)[0], JitTy::I64)))
+        }
+        "get" => {
+            arity(1)?;
+            // V=primitive needs Optional<primitive> in the JIT, which
+            // is its own gap (see syntax.md §16). For V=heap, Optional
+            // is just a nullable pointer.
+            if !kind.val.is_heap() {
+                return Err(CodegenError::Unsupported {
+                    what: "Map.get with primitive V is not yet supported in JIT \
+                           (depends on primitive Optional support)".into(),
+                    span,
+                });
+            }
+            let key_tv = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                what: "Map.get key is unit".into(), span: args[0].span,
+            })?;
+            let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
+            let r = lc.module.declare_func_in_func(lc.map_get_or_null_id, b.func);
+            let call = b.ins().call(r, &[obj_v, key_bits]);
+            let raw = b.inst_results(call)[0];
+            // Bump rc on the returned pointer so the caller has its own
+            // reference (the runtime did NOT retain — the map's own +1
+            // is preserved). The retain helpers null-check, so a 0
+            // result (key missing) is safely a no-op.
+            crate::arc::emit_retain_heap(b, lc, raw, kind.val);
+            let opt_id = intern_optional_inner(lc.optional_inners, kind.val);
+            Ok(Some((raw, JitTy::Optional(opt_id))))
+        }
+        "keys" => {
+            arity(0)?;
+            // Build K[] via the runtime helper. The new array's per-elem
+            // drop wrapper releases each (string keys are freshly
+            // allocated by the runtime; primitive keys hold no resources).
+            let elem_jty = kind.key;
+            let array_kind_id = intern_array_kind(
+                lc.array_kinds,
+                ArrayKind { elem: elem_jty, fixed: None },
+            );
+            let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, array_kind_id);
+            let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+            let r = lc.module.declare_func_in_func(lc.map_keys_to_array_id, b.func);
+            let call = b.ins().call(r, &[obj_v, elem_size, drop_fn_ptr]);
+            Ok(Some((b.inst_results(call)[0], JitTy::Array(array_kind_id))))
+        }
+        "values" => {
+            arity(0)?;
+            let elem_jty = kind.val;
+            let array_kind_id = intern_array_kind(
+                lc.array_kinds,
+                ArrayKind { elem: elem_jty, fixed: None },
+            );
+            let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, array_kind_id);
+            let retain_fn_ptr = crate::drops::map_value_retain_fn_ptr(b, lc, map_id);
+            let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+            let r = lc.module.declare_func_in_func(lc.map_values_to_array_id, b.func);
+            let call = b.ins().call(r, &[obj_v, elem_size, drop_fn_ptr, retain_fn_ptr]);
+            Ok(Some((b.inst_results(call)[0], JitTy::Array(array_kind_id))))
+        }
+        _ => Err(CodegenError::Unsupported {
+            what: format!("Map has no method {method:?}"),
+            span,
+        }),
+    }
+}
+
+pub(crate) fn lower_map_index_get(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_id: u32,
+    obj_v: cranelift::prelude::Value,
+    index: &ilang_ast::Expr,
+) -> Result<Option<TV>, CodegenError> {
+    let kind = lc.map_kinds[map_id as usize];
+    let key_tv = lower_expr(b, lc, index)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "Map index key is unit".into(), span: index.span,
+    })?;
+    let key_bits = coerce_map_key(b, lc, key_tv, kind.key, index.span)?;
+    let r = lc.module.declare_func_in_func(lc.map_index_get_id, b.func);
+    let call = b.ins().call(r, &[obj_v, key_bits]);
+    let raw = b.inst_results(call)[0];
+    // Decode the i64 slot back to V's representation.
+    let v = match kind.val {
+        JitTy::I8 | JitTy::U8 | JitTy::Bool => b.ins().ireduce(I8, raw),
+        JitTy::I16 | JitTy::U16 => b.ins().ireduce(I16, raw),
+        JitTy::I32 | JitTy::U32 | JitTy::Enum(_) => b.ins().ireduce(I32, raw),
+        JitTy::F32 => {
+            let lo = b.ins().ireduce(I32, raw);
+            b.ins().bitcast(F32, MemFlags::new(), lo)
+        }
+        JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
+        _ => raw, // i64 / u64 / pointers
+    };
+    Ok(Some((v, kind.val)))
+}
+
+pub(crate) fn lower_map_index_set(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_id: u32,
+    obj_v: cranelift::prelude::Value,
+    index: &ilang_ast::Expr,
+    value: &ilang_ast::Expr,
+    value_kind: &ilang_ast::ExprKind,
+) -> Result<Option<TV>, CodegenError> {
+    let kind = lc.map_kinds[map_id as usize];
+    let key_tv = lower_expr(b, lc, index)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "Map index key is unit".into(), span: index.span,
+    })?;
+    let key_bits = coerce_map_key(b, lc, key_tv, kind.key, index.span)?;
+    let val_tv = lower_expr(b, lc, value)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "Map index value is unit".into(), span: value.span,
+    })?;
+    let val_coerced = coerce(b, val_tv, kind.val, value.span)?;
+    emit_bind_retain(b, lc, value_kind, val_tv.1, kind.val, val_coerced);
+    let val_bits = match kind.val {
+        JitTy::I8 | JitTy::I16 | JitTy::I32 => b.ins().sextend(I64, val_coerced),
+        JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::Bool => b.ins().uextend(I64, val_coerced),
+        JitTy::F32 => {
+            let bits = b.ins().bitcast(I32, MemFlags::new(), val_coerced);
+            b.ins().uextend(I64, bits)
+        }
+        JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), val_coerced),
+        _ => val_coerced,
+    };
+    let r = lc.module.declare_func_in_func(lc.map_set_id, b.func);
+    b.ins().call(r, &[obj_v, key_bits, val_bits]);
+    Ok(None)
+}
+
+/// Map literal `{ k1: v1, k2: v2, ... }` — allocate an empty Map then
+/// emit one `set` per entry. K and V come from the first entry's
+/// expression types (mirrors the type checker's MapLit inference).
+pub(crate) fn lower_map_lit(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    entries: &[(ilang_ast::Expr, ilang_ast::Expr)],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    if entries.is_empty() {
+        // Parser only produces MapLit when at least one entry exists,
+        // but be safe.
+        return Err(CodegenError::Unsupported {
+            what: "empty map literal — use `new Map<K, V>()` instead".into(),
+            span,
+        });
+    }
+    // Lower the first entry to discover K and V kinds.
+    let (k0, v0) = &entries[0];
+    let (k0_v, k0_t) = lower_expr(b, lc, k0)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "map key is unit".into(), span: k0.span,
+    })?;
+    let (v0_v, v0_t) = lower_expr(b, lc, v0)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "map value is unit".into(), span: v0.span,
+    })?;
+    let map_id = intern_map_kind(lc.map_kinds, MapKind { key: k0_t, val: v0_t });
+    let key_kind = map_key_kind_tag(k0_t, span)?;
+    let drop_fn_ptr = crate::drops::map_drop_fn_ptr(b, lc, map_id);
+    let key_kind_v = b.ins().iconst(I64, key_kind);
+    let new_ref = lc.module.declare_func_in_func(lc.map_new_id, b.func);
+    let new_call = b.ins().call(new_ref, &[key_kind_v, drop_fn_ptr]);
+    let map_ptr = b.inst_results(new_call)[0];
+
+    // Helper that takes a (k_v, k_t) / (v_v, v_t) pair and emits one set.
+    let emit_set = |b: &mut FunctionBuilder,
+                    lc: &mut LowerCtx,
+                        kv: cranelift::prelude::Value,
+                        kt: JitTy,
+                        k_span: ilang_ast::Span,
+                        vv: cranelift::prelude::Value,
+                        vt: JitTy,
+                        v_span: ilang_ast::Span,
+                        v_kind: &ilang_ast::ExprKind|
+     -> Result<(), CodegenError> {
+        let key_bits = coerce_map_key(b, lc, (kv, kt), k0_t, k_span)?;
+        let val_coerced = coerce(b, (vv, vt), v0_t, v_span)?;
+        emit_bind_retain(b, lc, v_kind, vt, v0_t, val_coerced);
+        let val_bits = match v0_t {
+            JitTy::I8 | JitTy::I16 | JitTy::I32 => b.ins().sextend(I64, val_coerced),
+            JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::Bool => b.ins().uextend(I64, val_coerced),
+            JitTy::F32 => {
+                let bits = b.ins().bitcast(I32, MemFlags::new(), val_coerced);
+                b.ins().uextend(I64, bits)
+            }
+            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), val_coerced),
+            _ => val_coerced,
+        };
+        let r = lc.module.declare_func_in_func(lc.map_set_id, b.func);
+        b.ins().call(r, &[map_ptr, key_bits, val_bits]);
+        Ok(())
+    };
+
+    // First entry — already lowered.
+    emit_set(b, lc, k0_v, k0_t, k0.span, v0_v, v0_t, v0.span, &v0.kind)?;
+    // Remaining entries.
+    for (k, v) in &entries[1..] {
+        let (kv, kt) = lower_expr(b, lc, k)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "map key is unit".into(), span: k.span,
+        })?;
+        let (vv, vt) = lower_expr(b, lc, v)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "map value is unit".into(), span: v.span,
+        })?;
+        emit_set(b, lc, kv, kt, k.span, vv, vt, v.span, &v.kind)?;
+    }
+    Ok(Some((map_ptr, JitTy::Map(map_id))))
 }

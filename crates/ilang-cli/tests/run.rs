@@ -339,3 +339,206 @@ fn jit_let_unit_if_for_while() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
 }
+
+#[test]
+fn jit_map_basic_string_int() {
+    let p = write_tmp(
+        "map_basic.il",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nm[\"a\"] + m[\"b\"]",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn jit_map_index_assign_and_overwrite() {
+    let p = write_tmp(
+        "map_assign.il",
+        "let m = new Map<string, i64>()\nm[\"x\"] = 10\nm[\"x\"] = 100\nm[\"x\"] + m.size()",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "101");
+}
+
+#[test]
+fn jit_map_has_and_delete() {
+    let p = write_tmp(
+        "map_has.il",
+        "let m = new Map<i64, i64>()\nm.set(1, 100)\nm.set(2, 200)\nm.delete(1)\nlet n = if m.has(2) { 1 } else { 0 }\nn + m.size()",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
+fn jit_map_string_value_arc() {
+    // V = string exercises the per-Map value drop path: overwriting an
+    // entry must release the previous string without leaking or
+    // double-freeing.
+    let p = write_tmp(
+        "map_strv.il",
+        "let m = new Map<string, string>()\nm.set(\"k\", \"first\")\nm.set(\"k\", \"second\")\nm[\"k\"]",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "second");
+}
+
+#[test]
+fn jit_map_object_value() {
+    let p = write_tmp(
+        "map_obj.il",
+        "class C {\n  n: i64\n  init(v: i64) { this.n = v }\n  get(): i64 { this.n }\n}\nlet m = new Map<string, C>()\nm.set(\"x\", new C(42))\nm[\"x\"].get()",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_map_get_primitive_v_still_unsupported() {
+    // V=primitive needs primitive-Optional support (separate gap #4).
+    // V=heap is implemented (see `jit_map_get_heap_v_*` tests).
+    let p = write_tmp(
+        "map_get_prim.il",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nlet r = m.get(\"a\")\n0",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Map.get") || stderr.contains("primitive Optional"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn jit_map_get_heap_v_present() {
+    let p = write_tmp(
+        "map_get_h.il",
+        "let m = new Map<string, string>()\nm.set(\"k\", \"v\")\nlet r = m.get(\"k\")\nif r.isSome() { r.unwrap() } else { \"?\" }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "v");
+}
+
+#[test]
+fn jit_map_get_heap_v_missing() {
+    let p = write_tmp(
+        "map_get_miss.il",
+        "let m = new Map<string, string>()\nm.set(\"a\", \"1\")\nlet r = m.get(\"z\")\nif r.isNone() { \"missing\" } else { r.unwrap() }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "missing");
+}
+
+#[test]
+fn jit_map_keys_length() {
+    let p = write_tmp(
+        "map_keys.il",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nm.set(\"b\", 2)\nm.set(\"c\", 3)\nlet ks = m.keys()\nks.length",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn jit_map_values_sum_i64() {
+    let p = write_tmp(
+        "map_values.il",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 10)\nm.set(\"b\", 20)\nm.set(\"c\", 30)\nlet vs = m.values()\nvs[0] + vs[1] + vs[2]",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "60");
+}
+
+#[test]
+fn jit_map_values_heap_v_length() {
+    // Exercises the per-V retain helper: each string value gets an
+    // extra +1 when copied into the result array.
+    let p = write_tmp(
+        "map_values_h.il",
+        "let m = new Map<string, string>()\nm.set(\"a\", \"alpha\")\nm.set(\"b\", \"beta\")\nlet vs = m.values()\nvs.length",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
+fn jit_map_literal() {
+    let p = write_tmp(
+        "map_lit.il",
+        "let m = { \"a\": 1, \"b\": 2, \"c\": 3 }\nm[\"a\"] + m[\"b\"] + m[\"c\"]",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "6");
+}

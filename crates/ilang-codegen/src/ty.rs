@@ -55,6 +55,10 @@ pub(crate) enum JitTy {
     /// address. The id indexes the compiler's `fn_signatures` table
     /// for the params/return types needed at call_indirect sites.
     Fn(u32),
+    /// Built-in `Map<K, V>`. The id indexes the compiler's `map_kinds`
+    /// side table for the key / value JitTys; storage is an `i64`
+    /// pointer to a `MapHeader` (see runtime.rs).
+    Map(u32),
     Unit,
 }
 
@@ -69,6 +73,7 @@ impl JitTy {
         array_kinds: &mut Vec<ArrayKind>,
         optional_inners: &mut Vec<JitTy>,
         fn_signatures: &mut Vec<FnSignature>,
+        map_kinds: &mut Vec<MapKind>,
     ) -> Result<Self, CodegenError> {
         if let Type::Fn { params, ret } = t {
             let mut p = Vec::with_capacity(params.len());
@@ -82,6 +87,7 @@ impl JitTy {
                     array_kinds,
                     optional_inners,
                     fn_signatures,
+                    map_kinds,
                 )?);
             }
             let r = Self::from_ast(
@@ -93,9 +99,27 @@ impl JitTy {
                 array_kinds,
                 optional_inners,
                 fn_signatures,
+                map_kinds,
             )?;
             let id = intern_fn_sig(fn_signatures, FnSignature { params: p, ret: r });
             return Ok(JitTy::Fn(id));
+        }
+        // Built-in `Map<K, V>` flows through monomorphization as
+        // `Type::Generic { base: "Map", args: [K, V] }`. Resolve K and V
+        // recursively, intern the pair, and produce a JitTy::Map handle.
+        if let Type::Generic { base, args } = t {
+            if base == "Map" && args.len() == 2 {
+                let key = Self::from_ast(
+                    &args[0], span, class_ids, enum_ids, enum_layouts,
+                    array_kinds, optional_inners, fn_signatures, map_kinds,
+                )?;
+                let val = Self::from_ast(
+                    &args[1], span, class_ids, enum_ids, enum_layouts,
+                    array_kinds, optional_inners, fn_signatures, map_kinds,
+                )?;
+                let id = intern_map_kind(map_kinds, MapKind { key, val });
+                return Ok(JitTy::Map(id));
+            }
         }
         Ok(match t {
             Type::I8 => JitTy::I8,
@@ -155,7 +179,7 @@ impl JitTy {
                 }
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -166,7 +190,7 @@ impl JitTy {
                 JitTy::Array(id)
             }
             Type::Optional(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
                 if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
@@ -177,7 +201,7 @@ impl JitTy {
                 JitTy::Optional(id)
             }
             Type::Weak(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
                 match inner_jty {
                     JitTy::Object(class_id) => JitTy::Weak(class_id),
                     _ => {
@@ -210,7 +234,8 @@ impl JitTy {
             | JitTy::Optional(_)
             | JitTy::Weak(_)
             | JitTy::EnumHeap(_)
-            | JitTy::Fn(_) => I64,
+            | JitTy::Fn(_)
+            | JitTy::Map(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -231,7 +256,8 @@ impl JitTy {
             | JitTy::Array(_)
             | JitTy::Optional(_)
             | JitTy::Weak(_)
-            | JitTy::Fn(_) => 8,
+            | JitTy::Fn(_)
+            | JitTy::Map(_) => 8,
             JitTy::Unit => 0,
         }
     }
@@ -248,6 +274,7 @@ impl JitTy {
                 | JitTy::Optional(_)
                 | JitTy::Weak(_)
                 | JitTy::EnumHeap(_)
+                | JitTy::Map(_)
         )
     }
 
@@ -301,6 +328,26 @@ pub(crate) struct ClassLayout {
 pub(crate) struct ArrayKind {
     pub elem: JitTy,
     pub fixed: Option<u32>,
+}
+
+/// Per-(K, V) info for a `Map<K, V>` instantiation. Indexed by
+/// `JitTy::Map(id)`. Values are stored as raw 8-byte slots (heap V's
+/// pointer or primitive V's bits); the Rust-side `MapHeader` carries a
+/// per-kind drop function so heap-typed values are released correctly
+/// when overwritten or when the map dies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MapKind {
+    pub key: JitTy,
+    pub val: JitTy,
+}
+
+pub(crate) fn intern_map_kind(table: &mut Vec<MapKind>, k: MapKind) -> u32 {
+    if let Some(idx) = table.iter().position(|x| *x == k) {
+        return idx as u32;
+    }
+    let idx = table.len() as u32;
+    table.push(k);
+    idx
 }
 
 /// Per-enum layout information used by the JIT. For unit-only enums

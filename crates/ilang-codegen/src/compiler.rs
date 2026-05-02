@@ -114,6 +114,8 @@ fn jit_run_inner(prog: &Program) -> Result<JitValue, CodegenError> {
     crate::drops::define_class_drops(&mut compiler)?;
     crate::drops::define_array_drops(&mut compiler)?;
     crate::drops::define_enum_drops(&mut compiler)?;
+    crate::drops::define_map_drops(&mut compiler)?;
+    crate::drops::define_map_value_retains(&mut compiler)?;
     compiler.finalize()?;
     Ok(compiler.run_main(main_ret))
 }
@@ -131,6 +133,14 @@ pub(crate) struct JitCompiler {
     pub(crate) array_kinds: Vec<ArrayKind>,
     pub(crate) optional_inners: Vec<JitTy>,
     pub(crate) fn_signatures: Vec<FnSignature>,
+    pub(crate) map_kinds: Vec<crate::ty::MapKind>,
+    /// Per-(K, V) drop helper: a JIT-generated extern "C" fn that the
+    /// runtime calls back to release one heap-typed value when a Map
+    /// entry is overwritten or the map dies. Lazily generated; absent
+    /// when V is non-heap (drop_fn passed to runtime is 0).
+    pub(crate) map_drops: HashMap<u32, Option<FuncId>>,
+    /// Per-(K, V) value-retain wrapper. Same lifecycle as `map_drops`.
+    pub(crate) map_value_retains: HashMap<u32, Option<FuncId>>,
     pub(crate) alloc_object_id: FuncId,
     pub(crate) retain_object_id: FuncId,
     pub(crate) release_object_id: FuncId,
@@ -167,6 +177,18 @@ pub(crate) struct JitCompiler {
     pub(crate) array_push_i64: FuncId,
     pub(crate) array_push_f32: FuncId,
     pub(crate) array_push_f64: FuncId,
+    // Map<K, V> runtime imports.
+    pub(crate) map_new_id: FuncId,
+    pub(crate) retain_map_id: FuncId,
+    pub(crate) release_map_id: FuncId,
+    pub(crate) map_set_id: FuncId,
+    pub(crate) map_has_id: FuncId,
+    pub(crate) map_size_id: FuncId,
+    pub(crate) map_delete_id: FuncId,
+    pub(crate) map_index_get_id: FuncId,
+    pub(crate) map_get_or_null_id: FuncId,
+    pub(crate) map_keys_to_array_id: FuncId,
+    pub(crate) map_values_to_array_id: FuncId,
     /// Each string literal is interned at compile time as a `Box<StringRc>`
     /// with a saturated rc. The pointer is embedded as an `iconst` when
     /// the literal is referenced. Holding the boxes here keeps them alive
@@ -271,6 +293,18 @@ impl JitCompiler {
             "ilang_jit_array_push_f64",
             ilang_jit_array_push_f64 as *const u8,
         );
+        // Map<K, V> runtime symbols.
+        builder.symbol("ilang_jit_map_new", crate::runtime::ilang_jit_map_new as *const u8);
+        builder.symbol("ilang_jit_retain_map", crate::runtime::ilang_jit_retain_map as *const u8);
+        builder.symbol("ilang_jit_release_map", crate::runtime::ilang_jit_release_map as *const u8);
+        builder.symbol("ilang_jit_map_set", crate::runtime::ilang_jit_map_set as *const u8);
+        builder.symbol("ilang_jit_map_has", crate::runtime::ilang_jit_map_has as *const u8);
+        builder.symbol("ilang_jit_map_size", crate::runtime::ilang_jit_map_size as *const u8);
+        builder.symbol("ilang_jit_map_delete", crate::runtime::ilang_jit_map_delete as *const u8);
+        builder.symbol("ilang_jit_map_index_get", crate::runtime::ilang_jit_map_index_get as *const u8);
+        builder.symbol("ilang_jit_map_get_or_null", crate::runtime::ilang_jit_map_get_or_null as *const u8);
+        builder.symbol("ilang_jit_map_keys_to_array", crate::runtime::ilang_jit_map_keys_to_array as *const u8);
+        builder.symbol("ilang_jit_map_values_to_array", crate::runtime::ilang_jit_map_values_to_array as *const u8);
         // Built-in `@extern` math fns. The names match the qualified
         // form produced by the loader (`math.sin`, etc.).
         crate::math_externs::register_math_symbols(&mut builder);
@@ -373,6 +407,29 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_array_push_f32", &[I64, F32], None)?;
         let array_push_f64 =
             declare_import(&mut module, "ilang_jit_array_push_f64", &[I64, F64], None)?;
+        // Map<K, V> imports.
+        let map_new_id =
+            declare_import(&mut module, "ilang_jit_map_new", &[I64, I64], Some(I64))?;
+        let retain_map_id =
+            declare_import(&mut module, "ilang_jit_retain_map", &[I64], None)?;
+        let release_map_id =
+            declare_import(&mut module, "ilang_jit_release_map", &[I64], None)?;
+        let map_set_id =
+            declare_import(&mut module, "ilang_jit_map_set", &[I64, I64, I64], None)?;
+        let map_has_id =
+            declare_import(&mut module, "ilang_jit_map_has", &[I64, I64], Some(I8))?;
+        let map_size_id =
+            declare_import(&mut module, "ilang_jit_map_size", &[I64], Some(I64))?;
+        let map_delete_id =
+            declare_import(&mut module, "ilang_jit_map_delete", &[I64, I64], Some(I8))?;
+        let map_index_get_id =
+            declare_import(&mut module, "ilang_jit_map_index_get", &[I64, I64], Some(I64))?;
+        let map_get_or_null_id =
+            declare_import(&mut module, "ilang_jit_map_get_or_null", &[I64, I64], Some(I64))?;
+        let map_keys_to_array_id =
+            declare_import(&mut module, "ilang_jit_map_keys_to_array", &[I64, I64, I64], Some(I64))?;
+        let map_values_to_array_id =
+            declare_import(&mut module, "ilang_jit_map_values_to_array", &[I64, I64, I64, I64], Some(I64))?;
 
         Ok(Self {
             module,
@@ -387,6 +444,9 @@ impl JitCompiler {
             array_kinds: Vec::new(),
             optional_inners: Vec::new(),
             fn_signatures: Vec::new(),
+            map_kinds: Vec::new(),
+            map_drops: HashMap::new(),
+            map_value_retains: HashMap::new(),
             alloc_object_id,
             retain_object_id,
             release_object_id,
@@ -422,6 +482,17 @@ impl JitCompiler {
             array_push_i64,
             array_push_f32,
             array_push_f64,
+            map_new_id,
+            retain_map_id,
+            release_map_id,
+            map_set_id,
+            map_has_id,
+            map_size_id,
+            map_delete_id,
+            map_index_get_id,
+            map_get_or_null_id,
+            map_keys_to_array_id,
+            map_values_to_array_id,
             interned_strings: Vec::new(),
             class_drops: Vec::new(),
             array_drops: HashMap::new(),
@@ -470,7 +541,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners, &mut self.fn_signatures,
+                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -492,7 +563,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners, &mut self.fn_signatures,
+                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -546,7 +617,7 @@ impl JitCompiler {
                 &self.enum_ids,
                 &self.enum_layouts,
                 &mut self.array_kinds,
-                &mut self.optional_inners, &mut self.fn_signatures,
+                &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
             )?;
             let size = jty.size_bytes();
             let align = size.max(1);
@@ -609,10 +680,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -753,6 +824,18 @@ impl JitCompiler {
                 push_f32: self.array_push_f32,
                 push_f64: self.array_push_f64,
             },
+            map_new_id: self.map_new_id,
+            retain_map_id: self.retain_map_id,
+            release_map_id: self.release_map_id,
+            map_set_id: self.map_set_id,
+            map_has_id: self.map_has_id,
+            map_size_id: self.map_size_id,
+            map_delete_id: self.map_delete_id,
+            map_index_get_id: self.map_index_get_id,
+            map_get_or_null_id: self.map_get_or_null_id,
+            map_keys_to_array_id: self.map_keys_to_array_id,
+            map_values_to_array_id: self.map_values_to_array_id,
+            map_value_retains: &mut self.map_value_retains,
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
@@ -763,6 +846,8 @@ impl JitCompiler {
             array_kinds: &mut self.array_kinds,
             optional_inners: &mut self.optional_inners,
             fn_signatures: &mut self.fn_signatures,
+            map_kinds: &mut self.map_kinds,
+            map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
@@ -807,7 +892,7 @@ impl JitCompiler {
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -873,6 +958,18 @@ impl JitCompiler {
                 push_f32: self.array_push_f32,
                 push_f64: self.array_push_f64,
             },
+            map_new_id: self.map_new_id,
+            retain_map_id: self.retain_map_id,
+            release_map_id: self.release_map_id,
+            map_set_id: self.map_set_id,
+            map_has_id: self.map_has_id,
+            map_size_id: self.map_size_id,
+            map_delete_id: self.map_delete_id,
+            map_index_get_id: self.map_index_get_id,
+            map_get_or_null_id: self.map_get_or_null_id,
+            map_keys_to_array_id: self.map_keys_to_array_id,
+            map_values_to_array_id: self.map_values_to_array_id,
+            map_value_retains: &mut self.map_value_retains,
             module: &mut self.module,
             env: &mut env,
             loops: Vec::new(),
@@ -883,6 +980,8 @@ impl JitCompiler {
             array_kinds: &mut self.array_kinds,
             optional_inners: &mut self.optional_inners,
             fn_signatures: &mut self.fn_signatures,
+            map_kinds: &mut self.map_kinds,
+            map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
@@ -1057,6 +1156,20 @@ impl JitCompiler {
                 JitTy::Fn(_) => {
                     let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
                     JitValue::Fn(p)
+                }
+                JitTy::Map(id) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    let kind = self.map_kinds[id as usize];
+                    let size = if p == 0 {
+                        0
+                    } else {
+                        crate::runtime::ilang_jit_map_size(p)
+                    };
+                    JitValue::Map {
+                        key_ty: format!("{:?}", kind.key),
+                        val_ty: format!("{:?}", kind.val),
+                        size,
+                    }
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
