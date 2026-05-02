@@ -239,6 +239,56 @@ impl<'a> Parser<'a> {
                     },
                     span,
                 );
+            } else if matches!(self.peek().kind, TokenKind::LBrace)
+                && matches!(
+                    self.peek_n(1).map(|t| &t.kind),
+                    Some(TokenKind::Ident(_))
+                )
+                && matches!(
+                    self.peek_n(2).map(|t| &t.kind),
+                    Some(TokenKind::Colon)
+                )
+                && matches!(&expr.kind, ExprKind::Var(_))
+            {
+                // `EnumName.Variant { field: value, ... }` —
+                // struct-payload enum constructor. Lookahead
+                // `{ Ident :` distinguishes from a stray block.
+                // Only accepted when the receiver is a bare Var
+                // (i.e. `EnumName`); chained access like `a.b.c { ... }`
+                // is not enum-ctor.
+                self.bump();
+                let mut fs = Vec::new();
+                while !matches!(self.peek().kind, TokenKind::RBrace) {
+                    let fname = self.expect_ident("field name")?;
+                    self.expect(&TokenKind::Colon, "':'")?;
+                    let fval = self.parse_expr(0)?;
+                    fs.push((fname, fval));
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                        && !self.peek().leading_newline
+                    {
+                        let p = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: p.kind.clone(),
+                            expected: "',' or newline between fields".into(),
+                            span: p.span,
+                        });
+                    }
+                }
+                self.expect(&TokenKind::RBrace, "'}'")?;
+                let enum_name = match expr.kind {
+                    ExprKind::Var(n) => n,
+                    _ => unreachable!(),
+                };
+                expr = Expr::new(
+                    ExprKind::EnumCtor {
+                        enum_name,
+                        variant: name,
+                        args: ilang_ast::CtorArgs::Struct(fs),
+                    },
+                    span,
+                );
             } else {
                 expr = Expr::new(
                     ExprKind::Field {
@@ -416,74 +466,6 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Ident(name) => {
                 self.bump();
-                // `EnumName::Variant` (with optional payload).
-                if matches!(self.peek().kind, TokenKind::ColonColon) {
-                    self.bump();
-                    let variant = self.expect_ident("variant name")?;
-                    let args = match self.peek().kind {
-                        TokenKind::LParen => {
-                            self.bump();
-                            let mut elems = Vec::new();
-                            if !matches!(self.peek().kind, TokenKind::RParen) {
-                                loop {
-                                    elems.push(self.parse_expr(0)?);
-                                    if matches!(self.peek().kind, TokenKind::Comma) {
-                                        self.bump();
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-                            self.expect(&TokenKind::RParen, "')'")?;
-                            ilang_ast::CtorArgs::Tuple(elems)
-                        }
-                        // Struct-style payload `{ name: value, ... }`.
-                        // 2-token lookahead disambiguates this from
-                        // `match X::A { ... }` where the `{` opens the
-                        // arm block, not a payload.
-                        TokenKind::LBrace
-                            if matches!(
-                                self.peek_n(1).map(|t| &t.kind),
-                                Some(TokenKind::Ident(_))
-                            ) && matches!(
-                                self.peek_n(2).map(|t| &t.kind),
-                                Some(TokenKind::Colon)
-                            ) =>
-                        {
-                            self.bump();
-                            let mut fs = Vec::new();
-                            while !matches!(self.peek().kind, TokenKind::RBrace) {
-                                let fname = self.expect_ident("field name")?;
-                                self.expect(&TokenKind::Colon, "':'")?;
-                                let fval = self.parse_expr(0)?;
-                                fs.push((fname, fval));
-                                if matches!(self.peek().kind, TokenKind::Comma) {
-                                    self.bump();
-                                } else if !matches!(self.peek().kind, TokenKind::RBrace)
-                                    && !self.peek().leading_newline
-                                {
-                                    let p = self.peek();
-                                    return Err(ParseError::Unexpected {
-                                        found: p.kind.clone(),
-                                        expected: "',' or newline between fields".into(),
-                                        span: p.span,
-                                    });
-                                }
-                            }
-                            self.expect(&TokenKind::RBrace, "'}'")?;
-                            ilang_ast::CtorArgs::Struct(fs)
-                        }
-                        _ => ilang_ast::CtorArgs::Unit,
-                    };
-                    return Ok(Expr::new(
-                        ExprKind::EnumCtor {
-                            enum_name: name,
-                            variant,
-                            args,
-                        },
-                        span,
-                    ));
-                }
                 if matches!(self.peek().kind, TokenKind::LParen) {
                     self.bump();
                     let mut args = Vec::new();
@@ -734,8 +716,8 @@ impl<'a> Parser<'a> {
             return false;
         }
         let t1 = self.tokens.get(self.pos + 1).map(|t| &t.kind);
-        let brace_pos = if matches!(t1, Some(TokenKind::ColonColon)) {
-            // long form
+        let brace_pos = if matches!(t1, Some(TokenKind::Dot)) {
+            // long form `Enum.Variant`
             let t2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
             if !matches!(t2, Some(TokenKind::Ident(_))) {
                 return false;
@@ -791,7 +773,7 @@ impl<'a> Parser<'a> {
             }
         }
         let first = self.expect_ident("variant name")?;
-        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::ColonColon) {
+        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             let v = self.expect_ident("variant name")?;
             (Some(first), v)
@@ -845,7 +827,7 @@ impl<'a> Parser<'a> {
         // checker fills in the enum name from the scrutinee). Detect
         // by looking for `::` after the first ident.
         let first = self.expect_ident("pattern (variant or `_`)")?;
-        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::ColonColon) {
+        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             let v = self.expect_ident("variant name")?;
             (Some(first), v)

@@ -1,6 +1,7 @@
 mod error;
 mod expr;
 mod item;
+mod normalize;
 mod parser;
 mod stmt;
 
@@ -14,7 +15,8 @@ use stmt::parse_let_stmt;
 
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
     let mut p = Parser { tokens, pos: 0, pending_close_gt: 0 };
-    parse_program(&mut p)
+    let prog = parse_program(&mut p)?;
+    Ok(normalize::normalize(prog))
 }
 
 /// Parse a single expression — used by tests that want to inspect expression

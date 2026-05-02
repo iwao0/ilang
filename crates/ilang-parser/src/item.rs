@@ -303,7 +303,7 @@ impl<'a> Parser<'a> {
 
     fn parse_attr_path(&mut self) -> Result<Vec<String>, ParseError> {
         let mut parts = vec![self.expect_ident("capability name")?];
-        while matches!(self.peek().kind, TokenKind::ColonColon) {
+        while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             parts.push(self.expect_ident("capability segment")?);
         }

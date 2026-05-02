@@ -982,11 +982,11 @@ fn jit_return_aliased_object() {
 fn jit_enum_unit_construct_and_match() {
     let src = r#"
         enum Color { Red, Green, Blue }
-        let c = Color::Green
+        let c = Color.Green
         match c {
-            Color::Red { 1 }
-            Color::Green { 2 }
-            Color::Blue { 3 }
+            Color.Red { 1 }
+            Color.Green { 2 }
+            Color.Blue { 3 }
         }
     "#;
     assert_eq!(jit(src), JitValue::I64(2));
@@ -996,10 +996,10 @@ fn jit_enum_unit_construct_and_match() {
 fn jit_enum_match_wildcard() {
     let src = r#"
         enum Day { Mon, Tue, Wed, Thu, Fri, Sat, Sun }
-        let d = Day::Sat
+        let d = Day.Sat
         match d {
-            Day::Sat { 1 }
-            Day::Sun { 1 }
+            Day.Sat { 1 }
+            Day.Sun { 1 }
             _ { 0 }
         }
     "#;
@@ -1010,7 +1010,7 @@ fn jit_enum_match_wildcard() {
 fn jit_enum_returned_as_value() {
     let src = r#"
         enum Color { Red, Green, Blue }
-        Color::Blue
+        Color.Blue
     "#;
     assert_eq!(
         jit(src),
@@ -1033,11 +1033,11 @@ fn jit_enum_tuple_payload() {
         }
         fn area(s: Shape): f64 {
             match s {
-                Shape::Circle(r) { 3.14 * r * r }
-                Shape::Rect(w, h) { w * h }
+                Shape.Circle(r) { 3.14 * r * r }
+                Shape.Rect(w, h) { w * h }
             }
         }
-        area(Shape::Rect(3.0, 4.0))
+        area(Shape.Rect(3.0, 4.0))
     "#;
     assert_eq!(jit(src), JitValue::F64(12.0));
 }
@@ -1051,11 +1051,11 @@ fn jit_enum_struct_payload() {
         }
         fn sumxy(p: Pt): i64 {
             match p {
-                Pt::Origin { 0 }
-                Pt::At { x, y } { x + y }
+                Pt.Origin { 0 }
+                Pt.At { x, y } { x + y }
             }
         }
-        sumxy(Pt::At { x: 3, y: 4 })
+        sumxy(Pt.At { x: 3, y: 4 })
     "#;
     assert_eq!(jit(src), JitValue::I64(7));
 }
@@ -1076,7 +1076,7 @@ fn jit_enum_payload_runs_deinit() {
         enum Wrap { Has: (Tracked), Empty }
         let counter = new Counter()
         {
-            let _w = Wrap::Has(new Tracked(counter))
+            let _w = Wrap.Has(new Tracked(counter))
         }
         counter.n
     "#;
@@ -1295,10 +1295,10 @@ fn jit_rejects_generic_enum() {
     use ilang_parser::parse;
     use ilang_types::TypeChecker;
     let src = r#"
-        let r: Result<i64, string> = Result::Ok(42)
+        let r: Result<i64, string> = Result.Ok(42)
         match r {
-            Result::Ok(v) { v }
-            Result::Err(_) { 0 }
+            Result.Ok(v) { v }
+            Result.Err(_) { 0 }
         }
     "#;
     let toks = tokenize(src).unwrap();

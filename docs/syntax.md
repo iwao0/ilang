@@ -364,8 +364,8 @@ a.unwrap()                       // T (none ならランタイム panic)
 // Phase 1: 単純な C 風列挙型
 enum Color { Red, Green, Blue }
 
-let c = Color::Green
-// match パターンは `Enum::` を省略可 — scrutinee 型から推論
+let c = Color.Green
+// match パターンは `Enum.` を省略可 — scrutinee 型から推論
 let name = match c {
     Red { "red" }
     Green { "green" }
@@ -387,8 +387,8 @@ fn area(s: Shape): f64 {
     }
 }
 
-// `_` ワイルドカードで残りを捕捉。長い形 `Color::Red` も引き続き有効。
-let day = Color::Red
+// `_` ワイルドカードで残りを捕捉。長い形 `Color.Red` も引き続き有効。
+let day = Color.Red
 match day {
     Red { "alert" }
     _ { "ok" }
@@ -396,12 +396,12 @@ match day {
 ```
 
 - **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`Circle: (f64)`)。ユニットバリアントは `:` なし (`Red`)。
-- **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color::Red { "red" }`)。
-- 構築は `Enum::` プレフィクス必須 (`Shape::Circle(3.0)`)。
-- **match のパターン側は `Enum::` を省略可** — scrutinee の静的型から推論される (`Circle(r)` は `Shape::Circle(r)` と同義)。長い形 (`Shape::Circle(r)`) も引き続き有効。
+- **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color.Red { "red" }`)。
+- 構築は `Enum.` プレフィクス必須 (`Shape.Circle(3.0)`)。
+- **match のパターン側は `Enum.` を省略可** — scrutinee の静的型から推論される (`Circle(r)` は `Shape.Circle(r)` と同義)。長い形 (`Shape.Circle(r)`) も引き続き有効。
 - 全バリアントを網羅するか `_` が必要 (型チェッカが拒否)
 - 各 arm 値は型が揃う必要あり (if/else と同じ)
-- パターンの束縛: タプルは位置 (`Shape::Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
+- パターンの束縛: タプルは位置 (`Shape.Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
 - ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
 
 ### ジェネリック enum
@@ -412,15 +412,15 @@ enum Either<L, R> {
     Right: (R)
 }
 
-let e: Either<i64, string> = Either::Right("hi")
+let e: Either<i64, string> = Either.Right("hi")
 match e {
-    Either::Left(_) { "left" }
-    Either::Right(s) { s }
+    Either.Left(_) { "left" }
+    Either.Right(s) { s }
 }
 ```
 
 - `enum Name<T, U> { ... }` でクラスと同じ形式の型パラメータが書ける
-- バリアント構築時の型引数は **引数から自動推論** (`Either::Right("hi")` → `Either<Any, string>`、注釈と統合される)
+- バリアント構築時の型引数は **引数から自動推論** (`Either.Right("hi")` → `Either<Any, string>`、注釈と統合される)
 - 型推論で埋まらないパラメータは内部的に `Any` のままで、let 注釈や関数戻り値型でピン止めされる
 - match 側もスクルチニーの具体型から束縛変数の型が自動で復元される
 - **JIT 未対応** — interpreter のみ (per-instantiation enum layout の実装が必要)
@@ -441,11 +441,11 @@ match divide(10, 2) {
     err(_) { -1 }
 }
 
-// 長い形 (Result::Ok / Result::Err) も使える — 同じ EnumCtor に desugar される
-let r: Result<i64, string> = Result::Ok(42)
+// 長い形 (Result.Ok / Result.Err) も使える — 同じ EnumCtor に desugar される
+let r: Result<i64, string> = Result.Ok(42)
 ```
 
-- `ok` / `err` は予約語 (変数名として使えない)。`Result::Ok` / `Result::Err` と完全互換
+- `ok` / `err` は予約語 (変数名として使えない)。`Result.Ok` / `Result.Err` と完全互換
 - 名前 `Result` も予約 (ユーザが `enum Result { ... }` を定義するとエラー)
 - 構築時の型引数は推論 — 戻り値型や let 注釈で T/E が確定する
 - match の網羅性検査もそのまま (Ok と Err を両方カバーするか `_` が必要)
