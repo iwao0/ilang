@@ -54,6 +54,7 @@ impl Interpreter {
                 Item::Enum(e) => {
                     self.enums.insert(e.name.clone(), e.clone());
                 }
+                Item::Use(_) => {}
             }
         }
         let mut last = Value::Unit;

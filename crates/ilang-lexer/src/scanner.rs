@@ -518,6 +518,7 @@ impl<'a> Lexer<'a> {
             "match" => TokenKind::Match,
             "for" => TokenKind::For,
             "in" => TokenKind::In,
+            "use" => TokenKind::Use,
             _ => TokenKind::Ident(buf),
         }
     }

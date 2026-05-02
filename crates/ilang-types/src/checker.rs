@@ -317,6 +317,12 @@ impl TypeChecker {
                     let sig = enum_signature(e);
                     self.enums.insert(e.name.clone(), sig);
                 }
+                // The loader replaces Use items with their resolved
+                // contents before type checking; any Use that survives
+                // here was emitted by something that bypassed the
+                // loader, and silently ignoring it is fine — there's
+                // nothing to check.
+                Item::Use(_) => {}
             }
         }
         for item in &prog.items {
@@ -324,6 +330,7 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
+                Item::Use(_) => {}
             }
         }
 

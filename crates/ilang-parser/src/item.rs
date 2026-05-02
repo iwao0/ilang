@@ -40,15 +40,58 @@ impl<'a> Parser<'a> {
                 let e = self.parse_enum_decl()?;
                 Ok(Item::Enum(e))
             }
+            TokenKind::Use => {
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "'fn' (attributes on `use` are not supported)".into(),
+                        span: t.span,
+                    });
+                }
+                let u = self.parse_use_decl()?;
+                Ok(Item::Use(u))
+            }
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {
                     found: t.kind.clone(),
-                    expected: "'fn', 'class', or 'enum' after attributes".into(),
+                    expected: "'fn', 'class', 'enum', or 'use' after attributes".into(),
                     span: t.span,
                 })
             }
         }
+    }
+
+    /// `use module` (whole-module import) or
+    /// `use module { name1, name2, ... }` (selective).
+    fn parse_use_decl(&mut self) -> Result<ilang_ast::UseDecl, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::Use, "'use'")?;
+        let module = self.expect_ident("module name")?;
+        let selective = if matches!(self.peek().kind, TokenKind::LBrace) {
+            self.bump();
+            let mut names = Vec::new();
+            if !matches!(self.peek().kind, TokenKind::RBrace) {
+                loop {
+                    names.push(self.expect_ident("imported name")?);
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            self.expect(&TokenKind::RBrace, "'}'")?;
+            Some(names)
+        } else {
+            None
+        };
+        Ok(ilang_ast::UseDecl {
+            module,
+            selective,
+            span,
+        })
     }
 
     fn parse_class_decl(&mut self) -> Result<ClassDecl, ParseError> {

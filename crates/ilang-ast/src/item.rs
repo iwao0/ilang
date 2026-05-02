@@ -91,4 +91,20 @@ pub enum Item {
     Fn(FnDecl),
     Class(ClassDecl),
     Enum(EnumDecl),
+    /// `use module` (whole-module namespace import) or
+    /// `use module { name1, name2 }` (selective import).
+    /// The loader resolves the path and merges items; the AST node
+    /// is removed from the Program before type checking.
+    Use(UseDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseDecl {
+    /// The module identifier (`utils` resolves to `utils.il` next to
+    /// the importing file).
+    pub module: String,
+    /// `None` for whole-module import (`use utils`); `Some(names)`
+    /// for selective import (`use utils { foo, bar }`).
+    pub selective: Option<Vec<String>>,
+    pub span: Span,
 }

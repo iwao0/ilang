@@ -29,6 +29,7 @@ pub enum TokenKind {
     Match,
     For,
     In,
+    Use,
     FatArrow,
     // punctuation
     Plus,

@@ -354,7 +354,15 @@ impl<'a> Parser<'a> {
             }
             TokenKind::New => {
                 self.bump();
-                let class = self.expect_ident("class name")?;
+                // Class name is either bare `Counter` or
+                // `module.Counter` (whole-module imported class).
+                let mut class = self.expect_ident("class name")?;
+                while matches!(self.peek().kind, TokenKind::Dot) {
+                    self.bump();
+                    let part = self.expect_ident("class name segment")?;
+                    class.push('.');
+                    class.push_str(&part);
+                }
                 // Optional `<T, U>` type arguments before the constructor
                 // arg list. Unambiguous after `new ClassName` since `<`
                 // can never be the start of an expression here.

@@ -10,8 +10,8 @@ pub use expr::{
     PatternKind, UnOp,
 };
 pub use item::{
-    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param, Variant,
-    VariantPayload,
+    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param, UseDecl,
+    Variant, VariantPayload,
 };
 pub use program::Program;
 pub use span::Span;

@@ -1,6 +1,7 @@
 mod error;
 mod expr;
 mod item;
+pub mod loader;
 mod normalize;
 mod parser;
 mod stmt;
@@ -40,7 +41,11 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
     loop {
         match &p.peek().kind {
             TokenKind::Eof => break,
-            TokenKind::At | TokenKind::Fn | TokenKind::Class | TokenKind::Enum => {
+            TokenKind::At
+            | TokenKind::Fn
+            | TokenKind::Class
+            | TokenKind::Enum
+            | TokenKind::Use => {
                 let item = p.parse_item()?;
                 prog.items.push(item);
             }

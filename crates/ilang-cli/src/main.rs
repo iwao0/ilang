@@ -75,70 +75,55 @@ fn run_repl() -> ExitCode {
 }
 
 fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
-    let src = match std::fs::read_to_string(path) {
-        Ok(s) => s,
+    // Use the loader so `use module` items get followed and merged
+    // into one program before type-checking.
+    let prog = match ilang_parser::loader::load_program(path) {
+        Ok(p) => p,
         Err(e) => {
-            eprintln!("error: cannot read {}: {e}", path.display());
+            eprintln!("{}: {e}", path.display());
             return ExitCode::FAILURE;
         }
     };
     let display_path = path.display().to_string();
     if jit {
-        return jit_file(&display_path, src.trim());
+        let mut tc = TypeChecker::new();
+        if let Err(e) = tc.check(&prog) {
+            eprintln!("{display_path} {e}");
+            return ExitCode::FAILURE;
+        }
+        return match ilang_codegen::jit_run(&prog) {
+            Ok(v) => {
+                let s = format!("{v}");
+                if !s.is_empty() {
+                    println!("{s}");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{display_path}: jit error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    let mut tc = TypeChecker::new();
+    if let Err(e) = tc.check(&prog) {
+        eprintln!("{display_path} {e}");
+        return ExitCode::FAILURE;
     }
     let mut interp = Interpreter::new();
-    let mut tc = TypeChecker::new();
-    match eval_in(&mut interp, &mut tc, src.trim(), &display_path) {
+    match interp.run(&prog) {
         Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
             println!("{v}");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("{display_path} {e}");
             ExitCode::FAILURE
         }
     }
 }
 
-/// Type-check then JIT-compile and run the program. Errors from any
-/// stage are prefixed with the source label (filename) so location
-/// information matches the interpreter path.
-fn jit_file(source_label: &str, src: &str) -> ExitCode {
-    let toks = match tokenize(src) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("{source_label} {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let prog = match parse(&toks) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("{source_label} {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let mut tc = TypeChecker::new();
-    if let Err(e) = tc.check(&prog) {
-        eprintln!("{source_label} {e}");
-        return ExitCode::FAILURE;
-    }
-    match ilang_codegen::jit_run(&prog) {
-        Ok(v) => {
-            // Don't print Unit (matches the interpreter's behaviour).
-            let s = format!("{v}");
-            if !s.is_empty() {
-                println!("{s}");
-            }
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("{source_label}: jit error: {e}");
-            ExitCode::FAILURE
-        }
-    }
-}
 
 /// Run one chunk of source. `source_label` (filename or `<repl>`) is
 /// prepended to each error's leading `[row:col]` so users see exactly where
