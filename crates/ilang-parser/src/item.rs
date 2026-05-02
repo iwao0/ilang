@@ -341,6 +341,9 @@ impl<'a> Parser<'a> {
     fn parse_method(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
         let span = self.peek().span;
         let name = self.expect_ident("method name")?;
+        // Methods don't take their own type params — they inherit
+        // the class's. Always empty here.
+        let type_params: Vec<String> = Vec::new();
         self.expect(&TokenKind::LParen, "'('")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -378,6 +381,7 @@ impl<'a> Parser<'a> {
         Ok(FnDecl {
             attrs,
             name,
+            type_params,
             params,
             ret,
             body,
@@ -433,6 +437,12 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Fn, "'fn'")?;
         let name = self.expect_ident("function name")?;
+        // Optional `<T, U>` type parameters (same shape as classes).
+        let type_params = if matches!(self.peek().kind, TokenKind::Lt) {
+            self.parse_type_param_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LParen, "'('")?;
         let mut params = Vec::new();
         if !matches!(self.peek().kind, TokenKind::RParen) {
@@ -470,6 +480,7 @@ impl<'a> Parser<'a> {
         Ok(FnDecl {
             attrs,
             name,
+            type_params,
             params,
             ret,
             body,

@@ -172,3 +172,78 @@ fn const_module_qualified() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).trim().starts_with("3.14"));
 }
+
+#[test]
+fn generic_fn_identity() {
+    let p = write_tmp(
+        "gen_id.il",
+        "fn id<T>(x: T): T { x }\nid(42) + id(8)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "50");
+}
+
+#[test]
+fn generic_fn_infers_from_arg_type() {
+    // The same generic fn binds T differently per call site.
+    let p = write_tmp(
+        "gen_str.il",
+        "fn id<T>(x: T): T { x }\nid(\"hello\")",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hello");
+}
+
+#[test]
+fn generic_fn_array_param() {
+    let p = write_tmp(
+        "gen_arr.il",
+        "fn first<T>(xs: T[]): T { xs[0] }\nfirst([10, 20, 30])",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn generic_fn_two_params() {
+    let p = write_tmp(
+        "gen_pair.il",
+        "fn first<A, B>(a: A, b: B): A { a }\nfirst(\"x\", 99)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "x");
+}
+
+#[test]
+fn generic_fn_type_mismatch_caught() {
+    // `id` infers T = string, so binding to i64 must fail at type check.
+    let p = write_tmp(
+        "gen_mis.il",
+        "fn id<T>(x: T): T { x }\nlet n: i64 = id(\"nope\")\nn",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&p).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("type mismatch"), "stderr: {stderr}");
+}
+
+#[test]
+fn generic_fn_jit_unsupported() {
+    let p = write_tmp(
+        "gen_jit.il",
+        "fn id<T>(x: T): T { x }\nid(1)",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("generic fn"), "stderr: {stderr}");
+}

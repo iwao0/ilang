@@ -502,6 +502,7 @@ impl Interpreter {
                 let decl = ilang_ast::FnDecl {
                     attrs: Vec::new(),
                     name: String::new(),
+                    type_params: Vec::new(),
                     params: params.clone(),
                     ret: ret.clone(),
                     body: body.clone(),

@@ -543,6 +543,12 @@ impl JitCompiler {
     }
 
     fn declare_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
+        if !f.type_params.is_empty() {
+            return Err(CodegenError::Unsupported {
+                what: format!("generic fn {:?} (no monomorphization yet)", f.name),
+                span: f.span,
+            });
+        }
         let (id, params, ret) = self.declare_fn_signature(&f.name, f, None)?;
         self.funcs.insert(f.name.clone(), (id, params, ret));
         Ok(())

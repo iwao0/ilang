@@ -121,6 +121,11 @@ struct Signature {
     /// arguments (each typed as `Any`). User-defined variadics are not
     /// yet supported (parser doesn't accept `...args`).
     variadic: bool,
+    /// Generic type parameters declared on the fn (e.g. `<T, U>`).
+    /// Empty for non-generic fns. `params` / `ret` may reference these
+    /// as `Type::TypeVar(name)`; concrete types are inferred from the
+    /// arg expression types at each call site.
+    type_params: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -186,7 +191,7 @@ impl TypeChecker {
                 // `Any` so any introspection still has something to print.
                 params: vec![Type::Any],
                 ret: Type::Unit,
-                variadic: true,
+                variadic: true, type_params: Vec::new(),
             },
         );
         self.classes.insert(
@@ -210,38 +215,38 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            Signature { params: vec![], ret: Type::Unit, variadic: false },
+            Signature { params: vec![], ret: Type::Unit, variadic: false, type_params: Vec::new() },
         );
         map_methods.insert(
             "get".into(),
             Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
-                variadic: false,
+                variadic: false, type_params: Vec::new(),
             },
         );
         map_methods.insert(
             "set".into(),
-            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false },
+            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, type_params: Vec::new() },
         );
         map_methods.insert(
             "has".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false },
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false, type_params: Vec::new() },
         );
         map_methods.insert(
             "delete".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false },
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false, type_params: Vec::new() },
         );
         map_methods.insert(
             "size".into(),
-            Signature { params: vec![], ret: Type::I64, variadic: false },
+            Signature { params: vec![], ret: Type::I64, variadic: false, type_params: Vec::new() },
         );
         map_methods.insert(
             "keys".into(),
             Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
-                variadic: false,
+                variadic: false, type_params: Vec::new(),
             },
         );
         map_methods.insert(
@@ -249,7 +254,7 @@ impl TypeChecker {
             Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
-                variadic: false,
+                variadic: false, type_params: Vec::new(),
             },
         );
         self.classes.insert(
@@ -420,11 +425,14 @@ impl TypeChecker {
     }
 
     fn check_fn(&self, f: &FnDecl, in_class: Option<&str>) -> Result<(), TypeError> {
-        // Type parameters in scope (if we're inside a generic class).
-        let class_params: Vec<String> = in_class
+        // Type parameters in scope: the class's (if we're inside a
+        // generic class) plus the fn's own `<T, U>`.
+        let mut params_in_scope: Vec<String> = in_class
             .and_then(|n| self.classes.get(n))
             .map(|c| c.type_params.clone())
             .unwrap_or_default();
+        params_in_scope.extend(f.type_params.iter().cloned());
+        let class_params = params_in_scope;
         for Param { ty, span, .. } in &f.params {
             self.validate_type(ty, *span, &class_params)?;
         }
@@ -660,7 +668,7 @@ impl TypeChecker {
                     let sig = Signature {
                         params,
                         ret: (*ret).clone(),
-                        variadic: false,
+                        variadic: false, type_params: Vec::new(),
                     };
                     self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
@@ -679,8 +687,45 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
-                Ok(sig.ret)
+                if sig.type_params.is_empty() {
+                    self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                    return Ok(sig.ret);
+                }
+                // Generic fn: infer type-arg bindings from the (parametric
+                // param type, arg type) pairs, then validate arg-by-arg
+                // against the substituted param types and return the
+                // substituted return type. Mirrors enum-ctor inference.
+                if sig.params.len() != args.len() {
+                    return Err(TypeError::ArityMismatch {
+                        name: callee.clone(),
+                        expected: sig.params.len(),
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let mut bindings: HashMap<String, Type> = HashMap::new();
+                let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+                for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
+                    let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+                    collect_type_var_bindings(param_ty, &at, &mut bindings);
+                    arg_tys.push(at);
+                }
+                let inferred_args: Vec<Type> = sig
+                    .type_params
+                    .iter()
+                    .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
+                    .collect();
+                for ((param_ty, arg), at) in sig.params.iter().zip(args.iter()).zip(arg_tys.iter()) {
+                    let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
+                    if !literal_assignable(arg, at, &actual) {
+                        return Err(TypeError::Mismatch {
+                            expected: actual,
+                            got: at.clone(),
+                            span: arg.span,
+                        });
+                    }
+                }
+                Ok(subst_type(&sig.ret, &sig.type_params, &inferred_args))
             }
             ExprKind::Field { obj, name } => {
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
@@ -924,6 +969,7 @@ impl TypeChecker {
                         .collect(),
                     ret: subst_type(&raw_sig.ret, &class_params, &inst_args),
                     variadic: raw_sig.variadic,
+                    type_params: Vec::new(),
                 };
                 self.check_args(method, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
@@ -963,6 +1009,7 @@ impl TypeChecker {
                             .collect(),
                         ret: subst_type(&init.ret, &class_params, &inst_args),
                         variadic: init.variadic,
+                        type_params: Vec::new(),
                     };
                     self.check_args(
                         &format!("{class}::init"),
@@ -1850,10 +1897,24 @@ fn is_reserved_global(name: &str) -> bool {
 }
 
 fn signature_of(f: &FnDecl) -> Signature {
+    // Rewrite the fn's own `<T, U>` type parameters from `Object(T)` to
+    // `TypeVar(T)` so call-site inference (which substitutes for
+    // `TypeVar`) fires. Methods rewrite the *class's* type params on top
+    // of this in `class_signature`.
+    let params: Vec<Type> = f
+        .params
+        .iter()
+        .map(|p| rewrite_type_params(&p.ty, &f.type_params))
+        .collect();
+    let ret = rewrite_type_params(
+        &f.ret.clone().unwrap_or(Type::Unit),
+        &f.type_params,
+    );
     Signature {
-        params: f.params.iter().map(|p| p.ty.clone()).collect(),
-        ret: f.ret.clone().unwrap_or(Type::Unit),
+        params,
+        ret,
         variadic: false,
+        type_params: f.type_params.clone(),
     }
 }
 

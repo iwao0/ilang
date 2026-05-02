@@ -189,8 +189,25 @@ fn factorial(n: i64): i64 {
 ```
 
 - パラメータは型必須。
-- 関数のジェネリクスは未実装 (クラスのジェネリクスは対応 — クラス節を参照)。
+- 関数のジェネリクスはサポート (`fn name<T, U>(...)`) — 詳細は [ジェネリック関数](#ジェネリック関数) 参照。
 - variadic は組み込み (`console.log` のみ) のみ対応。
+
+### ジェネリック関数
+
+クラスや enum と同じく `<T, U>` で型パラメータを宣言できます。型引数は呼び出し時の引数の型から推論されます (明示指定の構文は未提供)。
+
+```rust
+fn id<T>(x: T): T { x }
+fn first<T>(xs: T[]): T { xs[0] }
+
+id(42)            // T = i64
+id("hello")       // T = string
+first([1, 2, 3])  // T = i64
+```
+
+- 推論は引数の型から左から右へ進み、最初に決まったバインディングを採用する (enum コンストラクタと同じ方針)。
+- 戻り値の型に出てくる `T` は推論されたバインディングで置換される。
+- JIT は未対応 (モノモルフ化なし) — interpreter のみで動く。
 
 ### ファーストクラス関数
 
@@ -616,7 +633,8 @@ JIT で `Unsupported` になる主なケース:
 - Map / ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §9 / §11 参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
-- ジェネリック関数 / 制約 (bounds) (クラスジェネリクスは interpreter / JIT とも実装済)
+- 関数ジェネリクスの JIT 対応 (interpreter は実装済 — §6 参照)
+- ジェネリック制約 (bounds)
 - クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
 - Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)
 

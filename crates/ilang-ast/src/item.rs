@@ -27,6 +27,12 @@ pub enum AttrArg {
 pub struct FnDecl {
     pub attrs: Vec<Attribute>,
     pub name: String,
+    /// Generic type parameters declared on the fn (e.g. `<T, U>`).
+    /// Empty for non-generic fns. Inside the body, references to
+    /// these names are rewritten to `Type::TypeVar` by the type
+    /// checker, and concrete types are inferred from arg types at
+    /// each call site.
+    pub type_params: Vec<String>,
     pub params: Vec<Param>,
     pub ret: Option<Type>,
     pub body: Block,

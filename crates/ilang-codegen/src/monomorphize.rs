@@ -98,6 +98,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
         Item::Fn(f) => Item::Fn(FnDecl {
             attrs: f.attrs.clone(),
             name: f.name.clone(),
+            type_params: f.type_params.clone(),
             params: f.params.clone(),
             ret: f.ret.clone(),
             body: hoist_in_block(&f.body, counter, hoisted),
@@ -113,6 +114,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                 .map(|m| FnDecl {
                     attrs: m.attrs.clone(),
                     name: m.name.clone(),
+                    type_params: m.type_params.clone(),
                     params: m.params.clone(),
                     ret: m.ret.clone(),
                     body: hoist_in_block(&m.body, counter, hoisted),
@@ -165,6 +167,7 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
             hoisted.push(Item::Fn(FnDecl {
                 attrs: Vec::new(),
                 name: name.clone(),
+                type_params: Vec::new(),
                 params: params.clone(),
                 ret: ret.clone(),
                 body,
@@ -721,6 +724,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
 fn specialize_fn(f: &FnDecl, params: &[String], args: &[Type]) -> FnDecl {
     FnDecl {
         name: f.name.clone(),
+        type_params: Vec::new(),
         params: f
             .params
             .iter()
@@ -1002,6 +1006,7 @@ fn rewrite_item(item: &Item) -> Item {
 fn rewrite_fn(f: &FnDecl) -> FnDecl {
     FnDecl {
         name: f.name.clone(),
+        type_params: f.type_params.clone(),
         params: f
             .params
             .iter()
