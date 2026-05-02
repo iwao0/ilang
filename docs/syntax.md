@@ -319,12 +319,7 @@ xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
 xs.includes(20)                  // bool を返す
 ```
 
-JIT 制限:
-- `pop` は Optional<primitive> 制限のため `i64[]` 等で使えない (interpreter は OK)
-- `indexOf` / `includes` は数値・bool 要素のみ
-- `for x in xs` も要素型がプリミティブな配列に限る
-
-`slice` / `map` / `filter` などは未実装。
+`slice` / `map` / `filter` などは未実装 (interpreter / JIT とも)。それ以外 (`length` / `push` / `pop` / `indexOf` / `includes` / `for-in`) は **interpreter / JIT 同等にサポート** — 要素型の制限はありません。
 
 ---
 
@@ -619,7 +614,6 @@ double(21)                                 // 42
 | REPL | `ilang` (引数なし) | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
 
 JIT で `Unsupported` になる主なケース:
-- 配列メソッドの一部 (上記 §8 参照)
 - 継承 / 動的ディスパッチ (interpreter にも未実装)
 
 ---

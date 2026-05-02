@@ -441,6 +441,16 @@ pub(crate) fn lower_expr(
                     b.ins().call(r, &[obj_v, coerced]);
                     return Ok(None);
                 }
+                if method == "pop" {
+                    if !args.is_empty() {
+                        return Err(CodegenError::Unsupported {
+                            what: "array.pop takes no args".into(),
+                            span: e.span,
+                        });
+                    }
+                    let elem_jty = lc.array_kinds[id as usize].elem;
+                    return lower_array_pop(b, lc, obj_v, obj, id, elem_jty);
+                }
                 if method == "indexOf" || method == "includes" {
                     if args.len() != 1 {
                         return Err(CodegenError::Unsupported {
@@ -449,17 +459,9 @@ pub(crate) fn lower_expr(
                         });
                     }
                     let elem_jty = lc.array_kinds[id as usize].elem;
-                    if !matches!(
-                        elem_jty,
-                        JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64
-                            | JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64
-                            | JitTy::F32 | JitTy::F64 | JitTy::Bool
-                    ) {
+                    if matches!(elem_jty, JitTy::Unit) {
                         return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "array.{method} on non-primitive element \
-                                 type is not yet supported in JIT"
-                            ),
+                            what: format!("array.{method} on unit element"),
                             span: e.span,
                         });
                     }
@@ -470,7 +472,16 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let needle = coerce(b, (av, at), elem_jty, args[0].span)?;
-                    let idx = emit_array_index_of(b, obj_v, needle, elem_jty);
+                    let idx = emit_array_index_of(b, lc, obj_v, needle, elem_jty);
+                    // Aliased rhs heap needle (Var/Field/Index) was
+                    // borrowed; non-aliased (e.g. a literal "x" + "y"
+                    // result) was a fresh allocation that needs release
+                    // now that the search is done. Strings only — other
+                    // heap kinds compare by pointer identity and the
+                    // caller's binding still owns them.
+                    if matches!(elem_jty, JitTy::Str) && !is_aliased_heap_source(&args[0].kind) {
+                        emit_release_string(b, lc, needle);
+                    }
                     let release_recv = !is_aliased_heap_source(&obj.kind);
                     if release_recv {
                         emit_release_heap(b, lc, obj_v, obj_t);
@@ -1873,6 +1884,7 @@ fn call_method(
 /// primitive numeric/bool by the caller (uses icmp/fcmp directly).
 fn emit_array_index_of(
     b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
     header_ptr: cranelift::prelude::Value,
     needle: cranelift::prelude::Value,
     elem_jty: JitTy,
@@ -1900,15 +1912,24 @@ fn emit_array_index_of(
     let off = b.ins().imul(i, elem_size);
     let addr = b.ins().iadd(data, off);
     let elem = b.ins().load(
-        elem_jty.cl().expect("primitive elem"),
+        elem_jty.cl().expect("non-unit elem"),
         MemFlags::trusted(),
         addr,
         0,
     );
-    let eq = if matches!(elem_jty, JitTy::F32 | JitTy::F64) {
-        b.ins().fcmp(FloatCC::Equal, elem, needle)
-    } else {
-        b.ins().icmp(IntCC::Equal, elem, needle)
+    // Comparison: floats use fcmp; strings use the runtime's
+    // content-equality helper so `["a"].indexOf("a")` matches; all
+    // other heap kinds (Object/Array/Map/EnumHeap/Optional/Weak) use
+    // pointer equality, mirroring `==` semantics elsewhere.
+    let eq = match elem_jty {
+        JitTy::F32 | JitTy::F64 => b.ins().fcmp(FloatCC::Equal, elem, needle),
+        JitTy::Str => {
+            let r = lc.module.declare_func_in_func(lc.strfns.eq, b.func);
+            let call = b.ins().call(r, &[elem, needle]);
+            // str_eq returns i8 (bool); use as the cond directly.
+            b.inst_results(call)[0]
+        }
+        _ => b.ins().icmp(IntCC::Equal, elem, needle),
     };
     let one = b.ins().iconst(I64, 1);
     let next_i = b.ins().iadd(i, one);
@@ -2306,4 +2327,86 @@ pub(crate) fn lower_map_lit(
         emit_set(b, lc, kv, kt, k.span, vv, vt, v.span, &v.kind)?;
     }
     Ok(Some((map_ptr, JitTy::Map(map_id))))
+}
+
+/// Lower `xs.pop(): T?`. Inline branching on `len > 0`. For empty
+/// arrays returns 0 (None). For heap V the popped pointer flows
+/// through unchanged (the array's drop_fn iterates `[0, len)` so the
+/// no-longer-tracked slot won't be re-released). For primitive V the
+/// popped bits are heap-boxed so the result fits the same nullable-
+/// pointer shape used by every Optional in the JIT.
+pub(crate) fn lower_array_pop(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    arr_v: cranelift::prelude::Value,
+    obj: &ilang_ast::Expr,
+    array_id: u32,
+    elem_jty: JitTy,
+) -> Result<Option<TV>, CodegenError> {
+    let opt_id = intern_optional_inner(lc.optional_inners, elem_jty);
+
+    let then_blk = b.create_block();
+    let else_blk = b.create_block();
+    let merge = b.create_block();
+    b.append_block_param(merge, I64);
+
+    let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
+    let zero = b.ins().iconst(I64, 0);
+    let nonempty = b.ins().icmp(IntCC::SignedGreaterThan, len, zero);
+    b.ins().brif(nonempty, then_blk, &[], else_blk, &[]);
+
+    // Non-empty: read the last element and decrement len.
+    b.switch_to_block(then_blk);
+    b.seal_block(then_blk);
+    let one = b.ins().iconst(I64, 1);
+    let new_len = b.ins().isub(len, one);
+    b.ins().store(MemFlags::trusted(), new_len, arr_v, ARRAY_LEN_OFFSET);
+    let data = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_DATA_OFFSET);
+    let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+    let off = b.ins().imul(new_len, elem_size);
+    let addr = b.ins().iadd(data, off);
+    let elem = b.ins().load(
+        elem_jty.cl().expect("non-unit elem"),
+        MemFlags::trusted(),
+        addr,
+        0,
+    );
+    let some_v: cranelift::prelude::Value = if elem_jty.is_heap() {
+        // The element pointer's rc was set when push'd; ownership now
+        // transfers to the caller (array no longer "owns" it via
+        // drop_fn iteration). No retain needed.
+        elem
+    } else {
+        // Box the primitive payload.
+        let size_v = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+        let new_ref = lc.module.declare_func_in_func(lc.optional_box_new_id, b.func);
+        let call = b.ins().call(new_ref, &[size_v]);
+        let ptr = b.inst_results(call)[0];
+        b.ins().store(
+            MemFlags::trusted(),
+            elem,
+            ptr,
+            crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+        );
+        ptr
+    };
+    b.ins().jump(merge, &[some_v.into()]);
+
+    // Empty: yield 0 (None).
+    b.switch_to_block(else_blk);
+    b.seal_block(else_blk);
+    let none = b.ins().iconst(I64, 0);
+    b.ins().jump(merge, &[none.into()]);
+
+    b.switch_to_block(merge);
+    b.seal_block(merge);
+    let result = b.block_params(merge)[0];
+
+    // If the receiver was a fresh allocation (e.g. `[1,2,3].pop()`),
+    // release it now — the popped value is independent.
+    if !is_aliased_heap_source(&obj.kind) {
+        emit_release_heap(b, lc, arr_v, JitTy::Array(array_id));
+    }
+
+    Ok(Some((result, JitTy::Optional(opt_id))))
 }

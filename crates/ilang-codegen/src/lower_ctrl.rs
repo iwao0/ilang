@@ -137,16 +137,9 @@ pub(crate) fn lower_for_in(
         }
     };
     let elem_jty = lc.array_kinds[array_id as usize].elem;
-    if !matches!(
-        elem_jty,
-        JitTy::I8 | JitTy::I16 | JitTy::I32 | JitTy::I64
-            | JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::U64
-            | JitTy::F32 | JitTy::F64 | JitTy::Bool
-    ) {
+    if matches!(elem_jty, JitTy::Unit) {
         return Err(CodegenError::Unsupported {
-            what: "for-in over non-primitive element type is not yet \
-                   supported in JIT"
-                .into(),
+            what: "for-in over unit element type".into(),
             span: iter.span,
         });
     }
@@ -167,7 +160,7 @@ pub(crate) fn lower_for_in(
 
     // Loop var x — bound for the body.
     let x_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(x_var, elem_jty.cl().expect("primitive elem"));
+    b.declare_var(x_var, elem_jty.cl().expect("non-unit elem"));
     let prev_binding = lc.env.bindings.insert(var.to_string(), (x_var, elem_jty));
 
     let header = b.create_block();
@@ -190,7 +183,7 @@ pub(crate) fn lower_for_in(
     let off = b.ins().imul(i, elem_size);
     let addr = b.ins().iadd(data, off);
     let elem = b.ins().load(
-        elem_jty.cl().expect("primitive elem"),
+        elem_jty.cl().expect("non-unit elem"),
         MemFlags::trusted(),
         addr,
         0,

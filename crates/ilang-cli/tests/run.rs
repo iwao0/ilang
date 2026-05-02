@@ -676,3 +676,81 @@ fn jit_generic_enum_heap_payload() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
 }
+
+#[test]
+fn jit_array_pop_primitive() {
+    let p = write_tmp(
+        "pop_prim.il",
+        "let xs: i64[] = [1, 2, 3]\nlet r = xs.pop()\nif r.isSome() { r.unwrap() } else { -1 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
+}
+
+#[test]
+fn jit_array_pop_string() {
+    let p = write_tmp(
+        "pop_str.il",
+        "let xs: string[] = [\"a\", \"b\"]\nlet r = xs.pop()\nif r.isSome() { r.unwrap() } else { \"?\" }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "b");
+}
+
+#[test]
+fn jit_array_pop_empty_returns_none() {
+    let p = write_tmp(
+        "pop_empty.il",
+        "let xs: i64[] = []\nlet r = xs.pop()\nif r.isNone() { -1 } else { r.unwrap() }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
+}
+
+#[test]
+fn jit_array_indexof_string() {
+    let p = write_tmp(
+        "indexof_str.il",
+        "let xs: string[] = [\"a\", \"b\", \"c\"]\nxs.indexOf(\"b\")",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1");
+}
+
+#[test]
+fn jit_array_includes_string_missing() {
+    let p = write_tmp(
+        "incl_str.il",
+        "let xs: string[] = [\"a\", \"b\"]\nif xs.includes(\"z\") { 1 } else { 0 }",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+}
+
+#[test]
+fn jit_for_in_string_array() {
+    let p = write_tmp(
+        "forin_str.il",
+        "let xs: string[] = [\"a\", \"b\", \"c\"]\nfor x in xs { console.log(x) }\n0",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(s.contains("a") && s.contains("b") && s.contains("c"), "stdout: {s}");
+}
+
+#[test]
+fn jit_for_in_object_array() {
+    let p = write_tmp(
+        "forin_obj.il",
+        "class C {\n  n: i64\n  init(v: i64) { this.n = v }\n}\nlet xs: C[] = [new C(10), new C(20), new C(30)]\nlet total = 0\nfor c in xs { total = total + c.n }\ntotal",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "60");
+}
