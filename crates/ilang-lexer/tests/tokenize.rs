@@ -92,7 +92,7 @@ fn keywords_and_ident() {
 #[test]
 fn punctuation() {
     assert_eq!(
-        kinds("{},;:::#[]."),
+        kinds("{},;:::@[]."),
         vec![
             TokenKind::LBrace,
             TokenKind::RBrace,
@@ -100,7 +100,7 @@ fn punctuation() {
             TokenKind::Semicolon,
             TokenKind::ColonColon,
             TokenKind::Colon,
-            TokenKind::Hash,
+            TokenKind::At,
             TokenKind::LBracket,
             TokenKind::RBracket,
             TokenKind::Dot,
@@ -142,7 +142,7 @@ fn loop_break_continue_keywords() {
 
 #[test]
 fn lex_error_format_starts_with_span() {
-    let err = tokenize("@").unwrap_err();
+    let err = tokenize("$").unwrap_err();
     let s = format!("{err}");
     assert!(s.starts_with("[1:1]:"), "got: {s}");
 }

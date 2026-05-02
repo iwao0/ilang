@@ -95,7 +95,7 @@ fn fn_call() {
 
 #[test]
 fn fn_with_attribute() {
-    let p = parse_str("#[requires(net, file::read)] fn fetch(): i64 { 1 }");
+    let p = parse_str("@requires(net, file::read) fn fetch(): i64 { 1 }");
     let Item::Fn(f) = &p.items[0] else { panic!("expected fn") };
     assert_eq!(f.attrs.len(), 1);
     assert_eq!(f.attrs[0].name, "requires");

@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek().kind {
                 TokenKind::RBrace => break,
-                TokenKind::Hash => {
+                TokenKind::At => {
                     let attrs = self.parse_attributes()?;
                     let m = self.parse_method(attrs)?;
                     methods.push(m);
@@ -251,11 +251,14 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a sequence of `@name(args)` attributes (TS / Java / Python
+    /// decorator style). Each `@` introduces one attribute; chain them
+    /// for multiple. The argument list is required for now — bare `@x`
+    /// without parens is a parse error so the syntax stays predictable.
     fn parse_attributes(&mut self) -> Result<Vec<Attribute>, ParseError> {
         let mut out = Vec::new();
-        while matches!(self.peek().kind, TokenKind::Hash) {
+        while matches!(self.peek().kind, TokenKind::At) {
             self.bump();
-            self.expect(&TokenKind::LBracket, "'['")?;
             let name = self.expect_ident("attribute name")?;
             self.expect(&TokenKind::LParen, "'('")?;
             let mut args = Vec::new();
@@ -271,7 +274,6 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect(&TokenKind::RParen, "')'")?;
-            self.expect(&TokenKind::RBracket, "']'")?;
             out.push(Attribute { name, args });
         }
         Ok(out)

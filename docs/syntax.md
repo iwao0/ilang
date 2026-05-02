@@ -215,14 +215,15 @@ fn make_inc(): fn(i64): i64 { fn(x: i64): i64 { x + 1 } }
 ### Capability アノテーション (パースのみ、enforce は未実装)
 
 ```rust
-#[requires(net)]
+@requires(net)
 fn fetch(url: string): string { ... }
 
-#[requires(net, file)]
+@requires(net, file)
+@deprecated(use_v2)
 fn download(url: string, path: string) { ... }
 ```
 
-属性はメソッドにも付けられるが、クラス自体への付与は未対応。
+`@name(args)` 形式 (TS / Java / Python のデコレータ風)。複数並べる場合はそれぞれ `@` から始める。引数リストは省略不可 (`@x` 単独はパースエラー)。属性はメソッドにも付けられるが、クラス自体への付与は未対応。
 
 ---
 

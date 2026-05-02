@@ -72,7 +72,7 @@ pub enum TokenKind {
     GtGtEq,
     Bang,
     Dot,
-    Hash,
+    At,
     Question,
     Eof,
 }

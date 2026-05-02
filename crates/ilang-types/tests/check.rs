@@ -97,7 +97,7 @@ fn undefined_function() {
 #[test]
 fn attribute_does_not_affect_typing() {
     assert_eq!(
-        ty("#[requires(net)] fn f(x: i64): i64 { x } f(1)").unwrap(),
+        ty("@requires(net) fn f(x: i64): i64 { x } f(1)").unwrap(),
         Type::I64
     );
 }

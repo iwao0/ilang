@@ -346,9 +346,9 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Dot
             }
-            '#' => {
+            '@' => {
                 self.bump();
-                TokenKind::Hash
+                TokenKind::At
             }
             '?' => {
                 self.bump();

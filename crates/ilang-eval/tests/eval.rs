@@ -63,7 +63,7 @@ fn arity_mismatch() {
 
 #[test]
 fn attribute_parses_but_does_not_enforce() {
-    let src = "#[requires(net)] fn f(x: i64): i64 { x + 1 } f(41)";
+    let src = "@requires(net) fn f(x: i64): i64 { x + 1 } f(41)";
     assert_eq!(run(src).unwrap(), Value::Int(42));
 }
 
