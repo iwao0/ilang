@@ -232,10 +232,10 @@ fn generic_fn_type_mismatch_caught() {
 }
 
 #[test]
-fn generic_fn_jit_unsupported() {
+fn generic_fn_jit_identity() {
     let p = write_tmp(
         "gen_jit.il",
-        "fn id<T>(x: T): T { x }\nid(1)",
+        "fn id<T>(x: T): T { x }\nid(40) + id(2)",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -243,7 +243,99 @@ fn generic_fn_jit_unsupported() {
         .arg(&p)
         .output()
         .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("generic fn"), "stderr: {stderr}");
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn generic_fn_jit_two_instantiations() {
+    // The same `id<T>` is called with two different concrete types,
+    // which must produce two distinct monomorphized fn bodies.
+    let p = write_tmp(
+        "gen_jit_two.il",
+        "fn id<T>(x: T): T { x }\nlet n = id(7)\nconsole.log(id(\"hi\"))\nn",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hi"), "stdout: {stdout}");
+    assert!(stdout.trim_end().ends_with("7"), "stdout: {stdout}");
+}
+
+#[test]
+fn generic_fn_jit_nested_generic_call() {
+    // `doit` (generic) calls `first` (generic) — the inner instantiation
+    // is resolved against doit's bound T at monomorphization time.
+    let p = write_tmp(
+        "gen_jit_nest.il",
+        "fn first<T>(xs: T[]): T { xs[0] }\nfn doit<T>(seed: T, ys: T[]): T { first(ys) }\ndoit(0, [10, 20, 30])",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "10");
+}
+
+#[test]
+fn jit_let_unit_loop() {
+    // `let x = loop {...}` binds Unit. Used to error out with
+    // "let value produces no value"; should now match the interpreter.
+    let p = write_tmp(
+        "unit_loop.il",
+        "let x = loop { break }\n0",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+}
+
+#[test]
+fn jit_let_unit_call_and_chain() {
+    // Unit-RHS via a Unit-returning fn call, plus `let y = x` to
+    // exercise the unit-binding lookup path.
+    let p = write_tmp(
+        "unit_call.il",
+        "let x = console.log(\"hi\")\nlet y = x\n0",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("hi"), "stdout: {stdout}");
+    assert!(stdout.trim_end().ends_with('0'), "stdout: {stdout}");
+}
+
+#[test]
+fn jit_let_unit_if_for_while() {
+    // Cover the remaining Unit-yielding shapes in one program.
+    let p = write_tmp(
+        "unit_misc.il",
+        "let a = if true {} else {}\nlet b = while false {}\nlet c = for i in [1,2,3] {}\n0",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
 }

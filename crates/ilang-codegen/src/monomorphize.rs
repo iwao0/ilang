@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Stmt,
+    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span, Stmt,
     StmtKind, Type,
 };
 
@@ -1279,5 +1279,711 @@ fn rewrite_type(t: &Type) -> Type {
             ret: Box::new(rewrite_type(ret)),
         },
         _ => t.clone(),
+    }
+}
+
+// ─── generic-fn monomorphization ─────────────────────────────────────
+//
+// Generic fns don't carry explicit `<T>` syntax at call sites — the
+// type checker infers them from the arg types and stashes the result
+// in `call_type_args` keyed by the call expression's span. This pass
+// consumes that side table to:
+//
+// 1. Synthesize one concrete `FnDecl` per (generic_fn, concrete args)
+//    pair actually used in the program.
+// 2. Rewrite each Call's callee from the generic name to the mangled
+//    concrete name.
+// 3. Drop the generic templates from the output.
+//
+// **Limitation**: only call sites whose recorded type args are fully
+// concrete (no `TypeVar`) get rewritten. A generic fn called from
+// inside another generic context (e.g. a still-generic class method
+// that survived class monomorphization for some reason) leaves a
+// dangling reference; the JIT then errors with "unknown function".
+// In practice class monomorphization runs first so all class-method
+// bodies are concrete by the time we get here.
+
+fn mangle_fn_name(name: &str, args: &[Type]) -> String {
+    let mut s = name.to_string();
+    s.push('<');
+    for (i, a) in args.iter().enumerate() {
+        if i > 0 {
+            s.push_str(", ");
+        }
+        s.push_str(&a.to_string());
+    }
+    s.push('>');
+    s
+}
+
+pub(crate) fn monomorphize_fns(
+    prog: &Program,
+    call_type_args: &HashMap<Span, (String, Vec<Type>)>,
+) -> Program {
+    // Catalog generic fns. After class monomorphization every fn is a
+    // top-level `Item::Fn` (methods live inside their class's items),
+    // so we don't need to look at class methods here.
+    let generic_fns: HashMap<String, FnDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Fn(f) if !f.type_params.is_empty() => Some((f.name.clone(), f.clone())),
+            _ => None,
+        })
+        .collect();
+    if generic_fns.is_empty() {
+        return prog.clone();
+    }
+
+    // Worklist of concrete instantiations to synthesize. Dedup by
+    // mangled name; keep the (name, args) pair around for substitution.
+    let mut requested: HashSet<String> = HashSet::new();
+    let mut worklist: Vec<(String, Vec<Type>)> = Vec::new();
+
+    let enqueue = |name: &str,
+                   args: &[Type],
+                   wl: &mut Vec<(String, Vec<Type>)>,
+                   req: &mut HashSet<String>| {
+        if !generic_fns.contains_key(name) {
+            return;
+        }
+        if args.iter().any(contains_type_var) {
+            return; // call site sits in another generic context — skip
+        }
+        let key = mangle_fn_name(name, args);
+        if req.insert(key) {
+            wl.push((name.to_string(), args.to_vec()));
+        }
+    };
+
+    // Seed: scan every call in the program. Outer substitution is
+    // empty (we're at the top level / inside non-generic items).
+    let empty_params: Vec<String> = Vec::new();
+    let empty_args: Vec<Type> = Vec::new();
+    for item in &prog.items {
+        seed_calls_in_item(
+            item,
+            call_type_args,
+            &empty_params,
+            &empty_args,
+            &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
+        );
+    }
+    for s in &prog.stmts {
+        seed_calls_in_stmt(
+            s,
+            call_type_args,
+            &empty_params,
+            &empty_args,
+            &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
+        );
+    }
+    if let Some(t) = &prog.tail {
+        seed_calls_in_expr(
+            t,
+            call_type_args,
+            &empty_params,
+            &empty_args,
+            &mut |name, args| enqueue(name, args, &mut worklist, &mut requested),
+        );
+    }
+
+    // Drain the worklist. Each specialization may discover further
+    // generic-fn calls in its (substituted) body; those go back on.
+    let mut synthesized: HashMap<String, FnDecl> = HashMap::new();
+    while let Some((name, args)) = worklist.pop() {
+        let mangled = mangle_fn_name(&name, &args);
+        if synthesized.contains_key(&mangled) {
+            continue;
+        }
+        let template = generic_fns.get(&name).unwrap().clone();
+        let outer_params = template.type_params.clone();
+        let outer_args = args.clone();
+
+        // 1. Substitute T → concrete throughout sig + body.
+        let mut new_fn = specialize_fn(&template, &outer_params, &outer_args);
+        new_fn.name = mangled.clone();
+        new_fn.type_params = Vec::new();
+
+        // 2. Discover & enqueue further generic-fn calls inside the
+        //    substituted body (substituting outer T → concrete in the
+        //    recorded args first).
+        seed_calls_in_block(
+            &new_fn.body,
+            call_type_args,
+            &outer_params,
+            &outer_args,
+            &mut |inner_name, inner_args| {
+                enqueue(inner_name, inner_args, &mut worklist, &mut requested);
+            },
+        );
+
+        // 3. Rewrite generic-fn calls in the substituted body to use
+        //    their mangled names.
+        new_fn.body = rewrite_calls_in_block(
+            &new_fn.body,
+            call_type_args,
+            &outer_params,
+            &outer_args,
+            &generic_fns,
+        );
+
+        synthesized.insert(mangled, new_fn);
+    }
+
+    // Build output: drop generic-fn templates, rewrite calls in
+    // everything else, append synthesized concrete fns.
+    let mut out_items: Vec<Item> = Vec::new();
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) if !f.type_params.is_empty() => { /* drop */ }
+            other => out_items.push(rewrite_calls_in_item(
+                other,
+                call_type_args,
+                &empty_params,
+                &empty_args,
+                &generic_fns,
+            )),
+        }
+    }
+    for (_, f) in synthesized {
+        out_items.push(Item::Fn(f));
+    }
+    let stmts: Vec<Stmt> = prog
+        .stmts
+        .iter()
+        .map(|s| {
+            rewrite_calls_in_stmt(s, call_type_args, &empty_params, &empty_args, &generic_fns)
+        })
+        .collect();
+    let tail = prog.tail.as_ref().map(|e| {
+        rewrite_calls_in_expr(e, call_type_args, &empty_params, &empty_args, &generic_fns)
+    });
+    Program {
+        items: out_items,
+        stmts,
+        tail,
+    }
+}
+
+// ─── seed helpers: walk the AST and visit every Call ─────────────────
+
+fn seed_calls_in_item(
+    item: &Item,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    visit: &mut dyn FnMut(&str, &[Type]),
+) {
+    match item {
+        Item::Fn(f) => seed_calls_in_block(&f.body, table, outer_params, outer_args, visit),
+        Item::Class(c) => {
+            for m in &c.methods {
+                seed_calls_in_block(&m.body, table, outer_params, outer_args, visit);
+            }
+        }
+        Item::Enum(_) | Item::Use(_) | Item::Const(_) => {}
+    }
+}
+
+fn seed_calls_in_block(
+    b: &Block,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    visit: &mut dyn FnMut(&str, &[Type]),
+) {
+    for s in &b.stmts {
+        seed_calls_in_stmt(s, table, outer_params, outer_args, visit);
+    }
+    if let Some(t) = &b.tail {
+        seed_calls_in_expr(t, table, outer_params, outer_args, visit);
+    }
+}
+
+fn seed_calls_in_stmt(
+    s: &Stmt,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    visit: &mut dyn FnMut(&str, &[Type]),
+) {
+    match &s.kind {
+        StmtKind::Let { value, .. } => {
+            seed_calls_in_expr(value, table, outer_params, outer_args, visit)
+        }
+        StmtKind::Expr(e) => seed_calls_in_expr(e, table, outer_params, outer_args, visit),
+    }
+}
+
+fn seed_calls_in_expr(
+    e: &Expr,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    visit: &mut dyn FnMut(&str, &[Type]),
+) {
+    if let ExprKind::Call { callee, .. } = &e.kind {
+        if let Some((cname, raw_args)) = table.get(&e.span) {
+            if cname == callee {
+                let concrete: Vec<Type> = raw_args
+                    .iter()
+                    .map(|t| subst_type(t, outer_params, outer_args))
+                    .collect();
+                visit(callee, &concrete);
+            }
+        }
+    }
+    walk_expr_children(e, &mut |c| {
+        seed_calls_in_expr(c, table, outer_params, outer_args, visit)
+    });
+}
+
+// ─── rewrite helpers: same shape, but rename Call.callee ─────────────
+
+fn rewrite_calls_in_item(
+    item: &Item,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    generic_fns: &HashMap<String, FnDecl>,
+) -> Item {
+    match item {
+        Item::Fn(f) => Item::Fn(FnDecl {
+            attrs: f.attrs.clone(),
+            name: f.name.clone(),
+            type_params: f.type_params.clone(),
+            params: f.params.clone(),
+            ret: f.ret.clone(),
+            body: rewrite_calls_in_block(&f.body, table, outer_params, outer_args, generic_fns),
+            span: f.span,
+        }),
+        Item::Class(c) => Item::Class(ClassDecl {
+            name: c.name.clone(),
+            type_params: c.type_params.clone(),
+            fields: c.fields.clone(),
+            methods: c
+                .methods
+                .iter()
+                .map(|m| FnDecl {
+                    attrs: m.attrs.clone(),
+                    name: m.name.clone(),
+                    type_params: m.type_params.clone(),
+                    params: m.params.clone(),
+                    ret: m.ret.clone(),
+                    body: rewrite_calls_in_block(
+                        &m.body,
+                        table,
+                        outer_params,
+                        outer_args,
+                        generic_fns,
+                    ),
+                    span: m.span,
+                })
+                .collect(),
+            span: c.span,
+        }),
+        Item::Enum(e) => Item::Enum(e.clone()),
+        Item::Use(u) => Item::Use(u.clone()),
+        Item::Const(c) => Item::Const(c.clone()),
+    }
+}
+
+fn rewrite_calls_in_block(
+    b: &Block,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    generic_fns: &HashMap<String, FnDecl>,
+) -> Block {
+    Block {
+        stmts: b
+            .stmts
+            .iter()
+            .map(|s| rewrite_calls_in_stmt(s, table, outer_params, outer_args, generic_fns))
+            .collect(),
+        tail: b.tail.as_ref().map(|e| {
+            Box::new(rewrite_calls_in_expr(
+                e,
+                table,
+                outer_params,
+                outer_args,
+                generic_fns,
+            ))
+        }),
+    }
+}
+
+fn rewrite_calls_in_stmt(
+    s: &Stmt,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    generic_fns: &HashMap<String, FnDecl>,
+) -> Stmt {
+    let kind = match &s.kind {
+        StmtKind::Let { name, ty, value } => StmtKind::Let {
+            name: name.clone(),
+            ty: ty.clone(),
+            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
+        },
+        StmtKind::Expr(e) => StmtKind::Expr(rewrite_calls_in_expr(
+            e,
+            table,
+            outer_params,
+            outer_args,
+            generic_fns,
+        )),
+    };
+    Stmt { kind, span: s.span }
+}
+
+fn rewrite_calls_in_expr(
+    e: &Expr,
+    table: &HashMap<Span, (String, Vec<Type>)>,
+    outer_params: &[String],
+    outer_args: &[Type],
+    generic_fns: &HashMap<String, FnDecl>,
+) -> Expr {
+    let kind = match &e.kind {
+        ExprKind::Call { callee, args } => {
+            // Recurse into args first.
+            let new_args: Vec<Expr> = args
+                .iter()
+                .map(|a| rewrite_calls_in_expr(a, table, outer_params, outer_args, generic_fns))
+                .collect();
+            // Decide the callee's final name.
+            let new_callee = if generic_fns.contains_key(callee) {
+                if let Some((cname, raw_args)) = table.get(&e.span) {
+                    if cname == callee {
+                        let concrete: Vec<Type> = raw_args
+                            .iter()
+                            .map(|t| subst_type(t, outer_params, outer_args))
+                            .collect();
+                        if !concrete.iter().any(contains_type_var) {
+                            mangle_fn_name(callee, &concrete)
+                        } else {
+                            callee.clone() // dangling — JIT will error
+                        }
+                    } else {
+                        callee.clone()
+                    }
+                } else {
+                    callee.clone()
+                }
+            } else {
+                callee.clone()
+            };
+            ExprKind::Call {
+                callee: new_callee,
+                args: new_args,
+            }
+        }
+        _ => {
+            // Recurse through other expression shapes structurally.
+            map_expr_children(e, &mut |c| {
+                rewrite_calls_in_expr(c, table, outer_params, outer_args, generic_fns)
+            })
+        }
+    };
+    Expr { kind, span: e.span }
+}
+
+// ─── generic AST walk helpers ────────────────────────────────────────
+
+/// Visit every direct child Expr of `e`. Used by seed_calls_in_expr to
+/// avoid duplicating the whole match by hand.
+fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    match &e.kind {
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::Var(_)
+        | ExprKind::This
+        | ExprKind::None
+        | ExprKind::Break
+        | ExprKind::Continue => {}
+        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
+        }
+        ExprKind::Cast { expr, .. } => f(expr),
+        ExprKind::FnExpr { .. } => {
+            // Anonymous fns are hoisted out before this pass; nothing to do.
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Field { obj, .. } => f(obj),
+        ExprKind::MethodCall { obj, args, .. } => {
+            f(obj);
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::New { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Block(b) => walk_block_children(b, f),
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            f(cond);
+            walk_block_children(then_branch, f);
+            if let Some(e) = else_branch {
+                f(e);
+            }
+        }
+        ExprKind::IfLet {
+            expr,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            f(expr);
+            walk_block_children(then_branch, f);
+            if let Some(e) = else_branch {
+                f(e);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            f(cond);
+            walk_block_children(body, f);
+        }
+        ExprKind::Loop { body } => walk_block_children(body, f),
+        ExprKind::ForIn { iter, body, .. } => {
+            f(iter);
+            walk_block_children(body, f);
+        }
+        ExprKind::Return(opt) => {
+            if let Some(e) = opt {
+                f(e);
+            }
+        }
+        ExprKind::Assign { value, .. } => f(value),
+        ExprKind::AssignField { value, .. } => f(value),
+        ExprKind::AssignIndex { value, .. } => f(value),
+        ExprKind::Array(items) => {
+            for i in items {
+                f(i);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                f(k);
+                f(v);
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            f(obj);
+            f(index);
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for x in es {
+                    f(x);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, x) in fs {
+                    f(x);
+                }
+            }
+        },
+        ExprKind::Match { scrutinee, arms } => {
+            f(scrutinee);
+            for arm in arms {
+                f(&arm.body);
+            }
+        }
+    }
+}
+
+fn walk_block_children(b: &Block, f: &mut dyn FnMut(&Expr)) {
+    for s in &b.stmts {
+        match &s.kind {
+            StmtKind::Let { value, .. } => f(value),
+            StmtKind::Expr(e) => f(e),
+        }
+    }
+    if let Some(t) = &b.tail {
+        f(t);
+    }
+}
+
+/// Map every direct child of `e` through `f` and rebuild the Expr's
+/// kind. Used by rewrite_calls_in_expr's catch-all arm so we don't
+/// have to enumerate every variant by hand.
+fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
+    match &e.kind {
+        ExprKind::Int(n) => ExprKind::Int(*n),
+        ExprKind::Float(x) => ExprKind::Float(*x),
+        ExprKind::Bool(b) => ExprKind::Bool(*b),
+        ExprKind::Str(s) => ExprKind::Str(s.clone()),
+        ExprKind::Var(n) => ExprKind::Var(n.clone()),
+        ExprKind::This => ExprKind::This,
+        ExprKind::None => ExprKind::None,
+        ExprKind::Break => ExprKind::Break,
+        ExprKind::Continue => ExprKind::Continue,
+        ExprKind::Some(x) => ExprKind::Some(Box::new(f(x))),
+        ExprKind::Unary { op, expr } => ExprKind::Unary {
+            op: *op,
+            expr: Box::new(f(expr)),
+        },
+        ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
+            op: *op,
+            lhs: Box::new(f(lhs)),
+            rhs: Box::new(f(rhs)),
+        },
+        ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
+            op: *op,
+            lhs: Box::new(f(lhs)),
+            rhs: Box::new(f(rhs)),
+        },
+        ExprKind::Cast { expr, ty } => ExprKind::Cast {
+            expr: Box::new(f(expr)),
+            ty: ty.clone(),
+        },
+        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
+            params: params.clone(),
+            ret: ret.clone(),
+            body: map_block_children(body, f),
+        },
+        ExprKind::Call { callee, args } => ExprKind::Call {
+            callee: callee.clone(),
+            args: args.iter().map(|a| f(a)).collect(),
+        },
+        ExprKind::Field { obj, name } => ExprKind::Field {
+            obj: Box::new(f(obj)),
+            name: name.clone(),
+        },
+        ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
+            obj: Box::new(f(obj)),
+            method: method.clone(),
+            args: args.iter().map(|a| f(a)).collect(),
+        },
+        ExprKind::New {
+            class,
+            type_args,
+            args,
+        } => ExprKind::New {
+            class: class.clone(),
+            type_args: type_args.clone(),
+            args: args.iter().map(|a| f(a)).collect(),
+        },
+        ExprKind::Block(b) => ExprKind::Block(map_block_children(b, f)),
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => ExprKind::If {
+            cond: Box::new(f(cond)),
+            then_branch: map_block_children(then_branch, f),
+            else_branch: else_branch.as_ref().map(|e| Box::new(f(e))),
+        },
+        ExprKind::IfLet {
+            name,
+            expr,
+            then_branch,
+            else_branch,
+        } => ExprKind::IfLet {
+            name: name.clone(),
+            expr: Box::new(f(expr)),
+            then_branch: map_block_children(then_branch, f),
+            else_branch: else_branch.as_ref().map(|e| Box::new(f(e))),
+        },
+        ExprKind::While { cond, body } => ExprKind::While {
+            cond: Box::new(f(cond)),
+            body: map_block_children(body, f),
+        },
+        ExprKind::Loop { body } => ExprKind::Loop {
+            body: map_block_children(body, f),
+        },
+        ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
+            var: var.clone(),
+            iter: Box::new(f(iter)),
+            body: map_block_children(body, f),
+        },
+        ExprKind::Return(opt) => ExprKind::Return(opt.as_ref().map(|e| Box::new(f(e)))),
+        ExprKind::Assign { target, value } => ExprKind::Assign {
+            target: target.clone(),
+            value: Box::new(f(value)),
+        },
+        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+            obj: obj.clone(),
+            field: field.clone(),
+            value: Box::new(f(value)),
+        },
+        ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
+            obj: obj.clone(),
+            index: index.clone(),
+            value: Box::new(f(value)),
+        },
+        ExprKind::Array(items) => ExprKind::Array(items.iter().map(|e| f(e)).collect()),
+        ExprKind::MapLit(entries) => ExprKind::MapLit(
+            entries.iter().map(|(k, v)| (f(k), f(v))).collect(),
+        ),
+        ExprKind::Index { obj, index } => ExprKind::Index {
+            obj: Box::new(f(obj)),
+            index: Box::new(f(index)),
+        },
+        ExprKind::EnumCtor {
+            enum_name,
+            variant,
+            args,
+        } => ExprKind::EnumCtor {
+            enum_name: enum_name.clone(),
+            variant: variant.clone(),
+            args: match args {
+                ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
+                ilang_ast::CtorArgs::Tuple(es) => {
+                    ilang_ast::CtorArgs::Tuple(es.iter().map(|e| f(e)).collect())
+                }
+                ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
+                    fs.iter().map(|(n, e)| (n.clone(), f(e))).collect(),
+                ),
+            },
+        },
+        ExprKind::Match { scrutinee, arms } => ExprKind::Match {
+            scrutinee: Box::new(f(scrutinee)),
+            arms: arms
+                .iter()
+                .map(|arm| ilang_ast::MatchArm {
+                    pattern: arm.pattern.clone(),
+                    body: f(&arm.body),
+                    span: arm.span,
+                })
+                .collect(),
+        },
+    }
+}
+
+fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
+    Block {
+        stmts: b
+            .stmts
+            .iter()
+            .map(|s| {
+                let kind = match &s.kind {
+                    StmtKind::Let { name, ty, value } => StmtKind::Let {
+                        name: name.clone(),
+                        ty: ty.clone(),
+                        value: f(value),
+                    },
+                    StmtKind::Expr(e) => StmtKind::Expr(f(e)),
+                };
+                Stmt { kind, span: s.span }
+            })
+            .collect(),
+        tail: b.tail.as_ref().map(|e| Box::new(f(e))),
     }
 }

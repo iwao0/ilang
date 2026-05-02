@@ -1,7 +1,7 @@
 //! Lowering context plumbing: the variable environment + the FFI
 //! function-id tables passed down through `lower_*` calls.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cranelift::prelude::*;
 use cranelift_jit::JITModule;
@@ -34,6 +34,13 @@ pub(crate) fn declare_import(
 #[derive(Default)]
 pub(crate) struct Env {
     pub bindings: HashMap<String, (Variable, JitTy)>,
+    /// Names introduced by `let x = <unit-typed-expr>` (e.g.
+    /// `let x = loop { ... }`, `let x = console.log(...)`). Unit has
+    /// no Cranelift representation so we don't allocate a `Variable`
+    /// — but we still track the name so subsequent references resolve
+    /// to a no-value (`Ok(None)`) result, matching the interpreter
+    /// where Unit values can flow through bindings.
+    pub unit_bindings: HashSet<String>,
     next_id: u32,
 }
 

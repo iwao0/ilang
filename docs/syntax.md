@@ -207,7 +207,7 @@ first([1, 2, 3])  // T = i64
 
 - 推論は引数の型から左から右へ進み、最初に決まったバインディングを採用する (enum コンストラクタと同じ方針)。
 - 戻り値の型に出てくる `T` は推論されたバインディングで置換される。
-- JIT は未対応 (モノモルフ化なし) — interpreter のみで動く。
+- interpreter / JIT とも対応。JIT 時は型検査で得たバインディングを元に、各 (関数, 型引数) ペアごとにモノモルフ化された具象関数を生成する。
 
 ### ファーストクラス関数
 
@@ -633,7 +633,6 @@ JIT で `Unsupported` になる主なケース:
 - Map / ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §9 / §11 参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
-- 関数ジェネリクスの JIT 対応 (interpreter は実装済 — §6 参照)
 - ジェネリック制約 (bounds)
 - クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
 - Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)

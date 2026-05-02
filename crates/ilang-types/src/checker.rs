@@ -170,6 +170,13 @@ pub struct TypeChecker {
     classes: HashMap<String, ClassSig>,
     enums: HashMap<String, EnumSig>,
     vars: HashMap<String, Type>,
+    /// Inferred type-argument vector for each generic-fn call site,
+    /// keyed by the call expression's span. Populated during checking;
+    /// consumed by the JIT's monomorphization pass. Values may contain
+    /// `Type::TypeVar` when the call sits inside another generic
+    /// context — the monomorphizer substitutes those at expansion time.
+    /// Wrapped in `RefCell` because `check_expr` takes `&self`.
+    fn_call_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
 }
 
 impl TypeChecker {
@@ -177,6 +184,12 @@ impl TypeChecker {
         let mut tc = Self::default();
         tc.install_builtins();
         tc
+    }
+
+    /// Map of generic-fn call site → (callee name, inferred type args).
+    /// Filled in during `check`; consumed by the JIT monomorphizer.
+    pub fn fn_call_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
+        self.fn_call_type_args.borrow().clone()
     }
 
     /// Pre-register the built-in `Console` class and the `console`
@@ -691,6 +704,9 @@ impl TypeChecker {
                     self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
                 }
+                // Generic fn — see below; we also stash the inferred
+                // type-args vector keyed by call span so the JIT's
+                // monomorphization pass can find it later.
                 // Generic fn: infer type-arg bindings from the (parametric
                 // param type, arg type) pairs, then validate arg-by-arg
                 // against the substituted param types and return the
@@ -715,6 +731,12 @@ impl TypeChecker {
                     .iter()
                     .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
                     .collect();
+                // Stash for the JIT monomorphizer. Args may still
+                // contain TypeVars when the call is inside another
+                // generic context — that's resolved at expansion time.
+                self.fn_call_type_args
+                    .borrow_mut()
+                    .insert(span, (callee.clone(), inferred_args.clone()));
                 for ((param_ty, arg), at) in sig.params.iter().zip(args.iter()).zip(arg_tys.iter()) {
                     let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
                     if !literal_assignable(arg, at, &actual) {

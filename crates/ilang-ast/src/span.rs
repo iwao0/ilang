@@ -1,7 +1,7 @@
 /// Source position attached to AST nodes and errors. Lines and columns are
 /// 1-based; `Span::dummy()` is used by tests that compare AST values without
 /// caring about the exact position (the AST's `PartialEq` ignores spans).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub line: u32,
     pub col: u32,

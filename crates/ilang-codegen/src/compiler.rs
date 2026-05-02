@@ -38,12 +38,31 @@ use crate::ty::{
 use crate::value::{read_array, JitValue};
 
 pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
+    jit_run_with(
+        prog,
+        &std::collections::HashMap::new(),
+    )
+}
+
+/// Like `jit_run`, but takes the type checker's per-call inferred type
+/// arguments (see `TypeChecker::fn_call_type_args`) so generic
+/// functions can be monomorphized. With an empty map the pipeline
+/// behaves exactly like `jit_run`, which is fine for programs without
+/// generic fns.
+pub fn jit_run_with(
+    prog: &Program,
+    fn_call_type_args: &std::collections::HashMap<
+        ilang_ast::Span,
+        (String, Vec<ilang_ast::Type>),
+    >,
+) -> Result<JitValue, CodegenError> {
     // Hoist anonymous-function expressions to top-level synthetic
     // fns so the JIT only ever sees named functions. Then
-    // monomorphize generic classes. After both passes the program
-    // is plain non-generic, no FnExpr nodes remain.
+    // monomorphize generic classes, then generic fns. After all
+    // passes the program is plain non-generic, no FnExpr nodes remain.
     let hoisted = crate::monomorphize::hoist_anon_fns(prog);
     let mono = crate::monomorphize::monomorphize(&hoisted);
+    let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
     jit_run_inner(&mono)
 }
 
@@ -543,9 +562,16 @@ impl JitCompiler {
     }
 
     fn declare_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
+        // After the monomorphization passes, every fn we see should be
+        // concrete. If a generic fn slips through, the call site that
+        // referenced it had a non-monomorphizable arg context — surface
+        // the failure here rather than panicking deeper in lowering.
         if !f.type_params.is_empty() {
             return Err(CodegenError::Unsupported {
-                what: format!("generic fn {:?} (no monomorphization yet)", f.name),
+                what: format!(
+                    "generic fn {:?} reached the JIT — no concrete instantiation found",
+                    f.name
+                ),
                 span: f.span,
             });
         }

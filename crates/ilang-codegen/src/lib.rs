@@ -19,6 +19,6 @@ mod runtime;
 mod ty;
 mod value;
 
-pub use compiler::jit_run;
+pub use compiler::{jit_run, jit_run_with};
 pub use error::CodegenError;
 pub use value::{JitEnumPayload, JitValue};

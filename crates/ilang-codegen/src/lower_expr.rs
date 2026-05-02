@@ -46,6 +46,13 @@ pub(crate) fn lower_expr(
             if let Some(&(var, vt)) = lc.env.bindings.get(name) {
                 return Ok(Some((b.use_var(var), vt)));
             }
+            // Unit-typed bindings (`let x = loop {...}`) carry no
+            // Cranelift value — return Ok(None), letting void-tolerant
+            // contexts (statement positions, further `let` RHS) handle
+            // it the same way they handle bare `loop {}`.
+            if lc.env.unit_bindings.contains(name) {
+                return Ok(None);
+            }
             // Implicit-`this` field access inside a method body.
             if let Some((this_var, class_id)) = lc.this {
                 let layout = &lc.class_layouts[class_id as usize];

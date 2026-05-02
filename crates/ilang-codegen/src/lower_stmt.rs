@@ -42,14 +42,22 @@ pub(crate) fn lower_stmt(
             } else {
                 None
             };
-            let (val, vt) = match lowered {
+            let lowered_or_raw = match lowered {
+                Some(tv) => Some(tv),
+                None => lower_expr(b, lc, value)?,
+            };
+            // Unit RHS (`let x = loop {...}`, `let x = console.log(...)`,
+            // `let x = if true {} else {}`, etc.): the RHS produces no
+            // Cranelift value. Match the interpreter, which binds `x` to
+            // Unit. We don't allocate a Variable (Unit has no width);
+            // the name is tracked in `unit_bindings` so later references
+            // resolve to `Ok(None)`.
+            let (val, vt) = match lowered_or_raw {
                 Some(tv) => tv,
-                None => lower_expr(b, lc, value)?.ok_or_else(|| {
-                    CodegenError::Unsupported {
-                        what: "let value produces no value".into(),
-                        span: value.span,
-                    }
-                })?,
+                None => {
+                    lc.env.unit_bindings.insert(name.clone());
+                    return Ok(());
+                }
             };
             let bind_ty = match ty {
                 Some(t) => JitTy::from_ast(
@@ -106,6 +114,8 @@ pub(crate) fn lower_block_value(
 ) -> Result<Option<TV>, CodegenError> {
     let before: std::collections::HashSet<String> =
         lc.env.bindings.keys().cloned().collect();
+    let unit_before: std::collections::HashSet<String> =
+        lc.env.unit_bindings.iter().cloned().collect();
     for s in &block.stmts {
         lower_stmt(b, lc, s)?;
     }
@@ -149,6 +159,19 @@ pub(crate) fn lower_block_value(
         let p = b.use_var(var);
         emit_release_heap(b, lc, p, jty);
         lc.env.bindings.remove(&k);
+    }
+    // Drop unit bindings introduced in this block. No release needed
+    // (Unit holds no resources); just unregister so an outer-scope name
+    // collision doesn't leak in.
+    let new_units: Vec<String> = lc
+        .env
+        .unit_bindings
+        .iter()
+        .filter(|n| !unit_before.contains(n.as_str()))
+        .cloned()
+        .collect();
+    for n in new_units {
+        lc.env.unit_bindings.remove(&n);
     }
     Ok(tail)
 }
