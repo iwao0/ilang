@@ -347,6 +347,26 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
         })
         .collect();
 
+    // Generic-enum names are tracked too — we DON'T monomorphize
+    // them (per-instantiation enum layouts would need significant
+    // JIT infrastructure). Instead the rewrite step leaves their
+    // `Type::Generic` references alone so the JIT errors out with a
+    // clear "generic enum + JIT" message via UnsupportedType.
+    let generic_enum_names: HashSet<String> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Enum(e) if !e.type_params.is_empty() => Some(e.name.clone()),
+            _ => None,
+        })
+        .collect();
+    // Built-in generic enums (Result) are also enum names.
+    let mut generic_enum_names = generic_enum_names;
+    generic_enum_names.insert("Result".into());
+    GENERIC_ENUM_NAMES.with(|set| {
+        *set.borrow_mut() = generic_enum_names.clone();
+    });
+
     // Seed the worklist by scanning the entire (untransformed) program
     // for generic instantiations.
     let mut needed: HashSet<String> = HashSet::new();
@@ -1200,6 +1220,20 @@ fn rewrite_expr(e: &Expr) -> Expr {
     }
 }
 
+// Thread-local set of generic-enum names. Populated at the top of
+// `monomorphize()`; consulted by `rewrite_type` to decide whether a
+// `Type::Generic { base, args }` should be collapsed to a mangled
+// `Object` (class case) or left as-is (enum case — JIT errors out
+// later with a clear "generic enum + JIT unsupported" message).
+thread_local! {
+    static GENERIC_ENUM_NAMES: std::cell::RefCell<HashSet<String>> =
+        std::cell::RefCell::new(HashSet::new());
+}
+
+fn is_generic_enum(name: &str) -> bool {
+    GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(name))
+}
+
 /// Collapse `Type::Generic { Box, [i64] }` to `Type::Object("Box<i64>")`
 /// so the JIT pipeline (which only knows `Object`) routes to the
 /// monomorphized class. Recurses through Array/Optional/Weak.
@@ -1207,15 +1241,23 @@ fn rewrite_type(t: &Type) -> Type {
     match t {
         Type::Generic { base, args } => {
             let new_args: Vec<Type> = args.iter().map(rewrite_type).collect();
-            // Outer rewrite assumes the type is concrete (no TypeVar)
-            // since we only run this on the post-substitution program.
-            Type::Object(
-                InstKey {
-                    class: base.clone(),
+            // Generic enums aren't monomorphized — leave them as
+            // `Type::Generic` so the JIT's `from_ast` errors with a
+            // clear UnsupportedType. Classes get the mangled name.
+            if is_generic_enum(base) {
+                Type::Generic {
+                    base: base.clone(),
                     args: new_args,
                 }
-                .mangled(),
-            )
+            } else {
+                Type::Object(
+                    InstKey {
+                        class: base.clone(),
+                        args: new_args,
+                    }
+                    .mangled(),
+                )
+            }
         }
         Type::Array { elem, fixed } => Type::Array {
             elem: Box::new(rewrite_type(elem)),

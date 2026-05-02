@@ -77,6 +77,11 @@ pub enum VariantPayload {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
     pub name: String,
+    /// Generic type parameters declared on the enum (e.g. `<T, E>`).
+    /// Empty for non-generic enums. Variant payload types reference
+    /// these names; the type checker rewrites them to `Type::TypeVar`
+    /// when registering the enum's signature.
+    pub type_params: Vec<String>,
     pub variants: Vec<Variant>,
     pub span: Span,
 }

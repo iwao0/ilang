@@ -11,6 +11,28 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if matches!(to, Type::Any) {
         return true;
     }
+    // Internal-only: `Any` on the source side stands for an
+    // unsolved type variable (e.g. the `E` in `Result::Ok(5)` where
+    // E hasn't been pinned by an annotation yet). Accepting it as
+    // assignable to anything lets a later annotation refine the
+    // type. The parser doesn't produce `Any` so this can't be
+    // exploited from user code.
+    if matches!(from, Type::Any) {
+        return true;
+    }
+    // Generic instantiations: same base, args must be pairwise
+    // assignable. (We don't do variance — invariant for now, matches
+    // Rust's defaults.)
+    if let (
+        Type::Generic { base: b1, args: a1 },
+        Type::Generic { base: b2, args: a2 },
+    ) = (from, to)
+    {
+        if b1 == b2 && a1.len() == a2.len() {
+            return a1.iter().zip(a2.iter()).all(|(p, q)| assignable(p, q));
+        }
+        return false;
+    }
     // `none` (typed as Optional<Any>) is assignable to any Optional.
     if let (Type::Optional(inner), Type::Optional(_)) = (from, to) {
         if matches!(inner.as_ref(), Type::Any) {

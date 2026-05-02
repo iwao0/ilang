@@ -137,6 +137,10 @@ struct ClassSig {
 /// the JIT can use the same indices as ordinal tags.
 #[derive(Debug, Clone)]
 struct EnumSig {
+    /// Generic type parameters declared on the enum (mirrors
+    /// `ClassSig.type_params`). Empty for non-generic enums.
+    /// Variant payloads may reference these as `Type::TypeVar`.
+    type_params: Vec<String>,
     variants: Vec<EnumVariantSig>,
 }
 
@@ -256,6 +260,26 @@ impl TypeChecker {
                 methods: map_methods,
             },
         );
+
+        // Built-in `Result<T, E>` — generic enum with `Ok(T)` and
+        // `Err(E)` variants. Constructed via `Result::Ok(v)` /
+        // `Result::Err(e)` and matched like any other enum.
+        self.enums.insert(
+            "Result".into(),
+            EnumSig {
+                type_params: vec!["T".into(), "E".into()],
+                variants: vec![
+                    EnumVariantSig {
+                        name: "Ok".into(),
+                        payload: VariantPayloadSig::Tuple(vec![Type::TypeVar("T".into())]),
+                    },
+                    EnumVariantSig {
+                        name: "Err".into(),
+                        payload: VariantPayloadSig::Tuple(vec![Type::TypeVar("E".into())]),
+                    },
+                ],
+            },
+        );
     }
 
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
@@ -263,13 +287,20 @@ impl TypeChecker {
         // `class Console { ... }` would silently overwrite the built-in
         // signature and `console.log` would call the user code.
         for item in &prog.items {
-            if let Item::Class(c) = item {
-                if is_reserved_class(&c.name) {
+            match item {
+                Item::Class(c) if is_reserved_class(&c.name) => {
                     return Err(TypeError::ReservedName {
                         name: c.name.clone(),
                         span: c.span,
                     });
                 }
+                Item::Enum(e) if is_reserved_class(&e.name) => {
+                    return Err(TypeError::ReservedName {
+                        name: e.name.clone(),
+                        span: e.span,
+                    });
+                }
+                _ => {}
             }
         }
         for item in &prog.items {
@@ -335,7 +366,7 @@ impl TypeChecker {
                 VariantPayload::Unit => {}
                 VariantPayload::Tuple(tys) => {
                     for t in tys {
-                        self.validate_type(t, v.span, &[])?;
+                        self.validate_type(t, v.span, &e.type_params)?;
                     }
                 }
                 VariantPayload::Struct(fields) => {
@@ -350,7 +381,7 @@ impl TypeChecker {
                                 span: f.span,
                             });
                         }
-                        self.validate_type(&f.ty, f.span, &[])?;
+                        self.validate_type(&f.ty, f.span, &e.type_params)?;
                     }
                 }
             }
@@ -971,6 +1002,14 @@ impl TypeChecker {
                         if then_ty == else_ty {
                             return Ok(then_ty);
                         }
+                        // Generic types (e.g. `Result<T, E>`) where each
+                        // arm fixed a different type parameter need to
+                        // be merged into the more specific shape — e.g.
+                        // `Result<i64, Any>` and `Result<Any, string>`
+                        // unify to `Result<i64, string>`.
+                        if let Some(merged) = merge_generic_with_holes(&then_ty, &else_ty) {
+                            return Ok(merged);
+                        }
                         // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
                         // ぶつけたらエラー)。例外として、片方のアームの末尾式
                         // が「素の数値リテラル」 (整数/浮動小数、単項マイナス
@@ -1435,6 +1474,14 @@ impl TypeChecker {
                         span,
                     }
                 })?;
+                let type_params = sig.type_params.clone();
+                // First pass: gather arg types, infer type-parameter
+                // bindings from the (parametric payload type, arg type)
+                // pairs. Bindings absent here stay as `Any`, to be
+                // refined by an outer annotation.
+                let mut bindings: HashMap<String, Type> = HashMap::new();
+                let mut arg_tys_tuple: Vec<Type> = Vec::new();
+                let mut arg_tys_struct: Vec<(String, Type)> = Vec::new();
                 match (&v.payload, args) {
                     (VariantPayloadSig::Unit, CtorArgs::Unit) => {}
                     (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
@@ -1448,13 +1495,8 @@ impl TypeChecker {
                         }
                         for (e, t) in elems.iter().zip(tys.iter()) {
                             let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
-                            if !literal_assignable(e, &et, t) {
-                                return Err(TypeError::Mismatch {
-                                    expected: t.clone(),
-                                    got: et,
-                                    span: e.span,
-                                });
-                            }
+                            collect_type_var_bindings(t, &et, &mut bindings);
+                            arg_tys_tuple.push(et);
                         }
                     }
                     (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
@@ -1481,13 +1523,8 @@ impl TypeChecker {
                                 in_class,
                                 loop_depth,
                             )?;
-                            if !literal_assignable(&supplied.1, &st, fty) {
-                                return Err(TypeError::Mismatch {
-                                    expected: fty.clone(),
-                                    got: st,
-                                    span: supplied.1.span,
-                                });
-                            }
+                            collect_type_var_bindings(fty, &st, &mut bindings);
+                            arg_tys_struct.push((fname.clone(), st));
                         }
                     }
                     _ => {
@@ -1499,12 +1536,64 @@ impl TypeChecker {
                         });
                     }
                 }
-                Ok(Type::Object(enum_name.clone()))
+                // Build inferred type-arg vector (Any for unsolved).
+                let inferred_args: Vec<Type> = type_params
+                    .iter()
+                    .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
+                    .collect();
+                // Validate each arg against the substituted payload type.
+                match (&v.payload, args) {
+                    (VariantPayloadSig::Unit, _) => {}
+                    (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
+                        for ((e, t), et) in elems.iter().zip(tys.iter()).zip(arg_tys_tuple.iter()) {
+                            let actual = subst_type(t, &type_params, &inferred_args);
+                            if !literal_assignable(e, et, &actual) {
+                                return Err(TypeError::Mismatch {
+                                    expected: actual,
+                                    got: et.clone(),
+                                    span: e.span,
+                                });
+                            }
+                        }
+                    }
+                    (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
+                        for (fname, fty) in fields {
+                            let supplied = provided.iter().find(|(n, _)| n == fname).unwrap();
+                            let st = arg_tys_struct
+                                .iter()
+                                .find(|(n, _)| n == fname)
+                                .map(|(_, t)| t.clone())
+                                .unwrap();
+                            let actual = subst_type(fty, &type_params, &inferred_args);
+                            if !literal_assignable(&supplied.1, &st, &actual) {
+                                return Err(TypeError::Mismatch {
+                                    expected: actual,
+                                    got: st,
+                                    span: supplied.1.span,
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                Ok(if type_params.is_empty() {
+                    Type::Object(enum_name.clone())
+                } else {
+                    Type::Generic {
+                        base: enum_name.clone(),
+                        args: inferred_args,
+                    }
+                })
             }
             ExprKind::Match { scrutinee, arms } => {
                 let st = self.check_expr(scrutinee, env, ret_ty, in_class, loop_depth)?;
-                let enum_name = match &st {
-                    Type::Object(name) if self.enums.contains_key(name) => name.clone(),
+                let (enum_name, scrut_args) = match &st {
+                    Type::Object(name) if self.enums.contains_key(name) => {
+                        (name.clone(), Vec::<Type>::new())
+                    }
+                    Type::Generic { base, args } if self.enums.contains_key(base) => {
+                        (base.clone(), args.clone())
+                    }
                     _ => {
                         return Err(TypeError::Mismatch {
                             expected: Type::Object("<enum>".into()),
@@ -1514,6 +1603,7 @@ impl TypeChecker {
                     }
                 };
                 let sig = self.enums[&enum_name].clone();
+                let enum_params = sig.type_params.clone();
                 let mut covered: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
                 let mut has_wildcard = false;
@@ -1560,6 +1650,9 @@ impl TypeChecker {
                                 });
                             }
                             // Check binding shape matches and add bindings.
+                            // Generic enums: substitute the scrutinee's
+                            // concrete type args into each parametric
+                            // payload type before binding the name.
                             match (&v.payload, bindings) {
                                 (VariantPayloadSig::Unit, PatternBindings::Unit) => {}
                                 (
@@ -1576,7 +1669,9 @@ impl TypeChecker {
                                     }
                                     for (n, t) in names.iter().zip(tys.iter()) {
                                         if n != "_" {
-                                            arm_env.insert(n.clone(), t.clone());
+                                            let bind_ty =
+                                                subst_type(t, &enum_params, &scrut_args);
+                                            arm_env.insert(n.clone(), bind_ty);
                                         }
                                     }
                                 }
@@ -1595,7 +1690,9 @@ impl TypeChecker {
                                                 span: arm_kind_span,
                                             })?;
                                         if bname != "_" {
-                                            arm_env.insert(bname.clone(), fty);
+                                            let bind_ty =
+                                                subst_type(&fty, &enum_params, &scrut_args);
+                                            arm_env.insert(bname.clone(), bind_ty);
                                         }
                                     }
                                 }
@@ -1680,6 +1777,37 @@ impl TypeChecker {
     }
 }
 
+/// Walk a parametric payload type alongside a concrete arg type and
+/// record bindings for each `TypeVar` encountered. Used by the enum
+/// constructor checker to infer type arguments from call args.
+/// First-found binding wins for any given TypeVar.
+fn collect_type_var_bindings(
+    payload: &Type,
+    arg: &Type,
+    bindings: &mut HashMap<String, Type>,
+) {
+    match (payload, arg) {
+        (Type::TypeVar(name), other) => {
+            bindings.entry(name.clone()).or_insert_with(|| other.clone());
+        }
+        (Type::Array { elem: pe, .. }, Type::Array { elem: ae, .. }) => {
+            collect_type_var_bindings(pe, ae, bindings);
+        }
+        (Type::Optional(p), Type::Optional(a)) => {
+            collect_type_var_bindings(p, a, bindings);
+        }
+        (Type::Weak(p), Type::Weak(a)) => {
+            collect_type_var_bindings(p, a, bindings);
+        }
+        (Type::Generic { args: pa, .. }, Type::Generic { args: aa, .. }) => {
+            for (p, a) in pa.iter().zip(aa.iter()) {
+                collect_type_var_bindings(p, a, bindings);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Map keys are constrained to types with stable structural equality.
 /// Floats are excluded (NaN), as are heap objects and arrays.
 fn is_valid_map_key_type(t: &Type) -> bool {
@@ -1692,7 +1820,7 @@ fn is_valid_map_key_type(t: &Type) -> bool {
 }
 
 fn is_reserved_class(name: &str) -> bool {
-    matches!(name, "Console" | "Map")
+    matches!(name, "Console" | "Map" | "Result")
 }
 
 fn is_reserved_global(name: &str) -> bool {
@@ -1787,6 +1915,11 @@ fn unify_branch(a: Type, b: Type, span: Span) -> Result<Type, TypeError> {
     if a == b {
         return Ok(a);
     }
+    // Generic with `Any` placeholders (from enum-ctor inference) — try
+    // to merge the two sides into the more specific type.
+    if let Some(merged) = merge_generic_with_holes(&a, &b) {
+        return Ok(merged);
+    }
     if assignable(&a, &b) {
         return Ok(b);
     }
@@ -1800,7 +1933,44 @@ fn unify_branch(a: Type, b: Type, span: Span) -> Result<Type, TypeError> {
     })
 }
 
+/// When two arms each produced a `Type::Generic` with the same base
+/// but different concrete args (commonly with `Any` placeholders left
+/// over from constructor-type inference, e.g. `Result<i64, Any>` on
+/// one side and `Result<Any, string>` on the other), merge them by
+/// taking the non-`Any` side at each position. Returns `None` if the
+/// bases differ, the arities differ, or any position has two
+/// incompatible non-`Any` types.
+fn merge_generic_with_holes(a: &Type, b: &Type) -> Option<Type> {
+    let (Type::Generic { base: ba, args: aa }, Type::Generic { base: bb, args: ab }) =
+        (a, b)
+    else {
+        return None;
+    };
+    if ba != bb || aa.len() != ab.len() {
+        return None;
+    }
+    let mut merged = Vec::with_capacity(aa.len());
+    for (x, y) in aa.iter().zip(ab.iter()) {
+        if x == y {
+            merged.push(x.clone());
+        } else if matches!(x, Type::Any) {
+            merged.push(y.clone());
+        } else if matches!(y, Type::Any) {
+            merged.push(x.clone());
+        } else if let Some(inner) = merge_generic_with_holes(x, y) {
+            merged.push(inner);
+        } else {
+            return None;
+        }
+    }
+    Some(Type::Generic {
+        base: ba.clone(),
+        args: merged,
+    })
+}
+
 fn enum_signature(e: &EnumDecl) -> EnumSig {
+    let params = &e.type_params;
     let variants = e
         .variants
         .iter()
@@ -1808,14 +1978,21 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
             name: v.name.clone(),
             payload: match &v.payload {
                 VariantPayload::Unit => VariantPayloadSig::Unit,
-                VariantPayload::Tuple(tys) => VariantPayloadSig::Tuple(tys.clone()),
+                VariantPayload::Tuple(tys) => VariantPayloadSig::Tuple(
+                    tys.iter().map(|t| rewrite_type_params(t, params)).collect(),
+                ),
                 VariantPayload::Struct(fs) => VariantPayloadSig::Struct(
-                    fs.iter().map(|f| (f.name.clone(), f.ty.clone())).collect(),
+                    fs.iter()
+                        .map(|f| (f.name.clone(), rewrite_type_params(&f.ty, params)))
+                        .collect(),
                 ),
             },
         })
         .collect();
-    EnumSig { variants }
+    EnumSig {
+        type_params: e.type_params.clone(),
+        variants,
+    }
 }
 
 fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {

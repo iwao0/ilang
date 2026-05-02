@@ -120,6 +120,12 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Enum, "'enum'")?;
         let name = self.expect_ident("enum name")?;
+        // Optional `<T, U>` type parameters — same shape as classes.
+        let type_params = if matches!(self.peek().kind, TokenKind::Lt) {
+            self.parse_type_param_list()?
+        } else {
+            Vec::new()
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut variants = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
@@ -196,6 +202,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(EnumDecl {
             name,
+            type_params,
             variants,
             span,
         })

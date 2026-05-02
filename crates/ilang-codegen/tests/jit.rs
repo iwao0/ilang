@@ -1287,3 +1287,28 @@ fn jit_fn_returned() {
     "#;
     assert_eq!(jit(src), JitValue::I64(107));
 }
+
+#[test]
+fn jit_rejects_generic_enum() {
+    use ilang_codegen::{jit_run, CodegenError};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"
+        let r: Result<i64, string> = Result::Ok(42)
+        match r {
+            Result::Ok(v) => v
+            Result::Err(_) => 0
+        }
+    "#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    TypeChecker::new().check(&prog).unwrap();
+    // Either error variant is acceptable — both signal "Result in JIT
+    // is not yet supported".
+    let r = jit_run(&prog);
+    assert!(matches!(
+        r,
+        Err(CodegenError::UnsupportedType { .. } | CodegenError::Unsupported { .. })
+    ));
+}

@@ -1600,3 +1600,90 @@ fn map_overwrite_releases_old_value() {
         Value::Str(Rc::new("v2".into()))
     );
 }
+
+#[test]
+fn result_ok_and_err() {
+    use std::rc::Rc;
+    let src = r#"
+        let r: Result<i64, string> = Result::Ok(42)
+        match r {
+            Result::Ok(v) => v
+            Result::Err(_) => -1
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(42));
+
+    let src = r#"
+        let r: Result<i64, string> = Result::Err("boom")
+        match r {
+            Result::Ok(_) => "ok"
+            Result::Err(e) => e
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Str(Rc::new("boom".into())));
+}
+
+#[test]
+fn result_used_via_function_return() {
+    let src = r#"
+        fn divide(a: i64, b: i64): Result<i64, string> {
+            if b == 0 { Result::Err("divide by zero") } else { Result::Ok(a / b) }
+        }
+        match divide(10, 2) {
+            Result::Ok(v) => v
+            Result::Err(_) => 0
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(5));
+
+    let src = r#"
+        fn divide(a: i64, b: i64): Result<i64, string> {
+            if b == 0 { Result::Err("divide by zero") } else { Result::Ok(a / b) }
+        }
+        match divide(10, 0) {
+            Result::Ok(v) => v
+            Result::Err(_) => -999
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(-999));
+}
+
+#[test]
+fn user_defined_generic_enum() {
+    use std::rc::Rc;
+    let src = r#"
+        enum Either<L, R> {
+            Left(L)
+            Right(R)
+        }
+        let e: Either<i64, string> = Either::Right("hi")
+        match e {
+            Either::Left(_) => "left"
+            Either::Right(s) => s
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Str(Rc::new("hi".into())));
+}
+
+#[test]
+fn result_payload_type_mismatch_rejected() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    // Annotated as Result<i64, string> but Ok(v) supplies a string.
+    let src = r#"let r: Result<i64, string> = Result::Ok("not an int")"#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}
+
+#[test]
+fn cannot_redefine_result() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    let src = "enum Result { A, B }";
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}
