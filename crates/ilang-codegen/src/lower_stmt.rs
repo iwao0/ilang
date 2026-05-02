@@ -114,8 +114,13 @@ pub(crate) fn lower_block_value(
     lc: &mut LowerCtx,
     block: &ilang_ast::Block,
 ) -> Result<Option<TV>, CodegenError> {
-    let before: std::collections::HashSet<String> =
-        lc.env.bindings.keys().cloned().collect();
+    // Snapshot the entire binding map (not just the key set) so we can
+    // restore both new bindings AND shadowed bindings on block exit.
+    // Without this, `let y = 5; { let y: string = "hi"; ... }` would
+    // leave `y` mapped to the inner string Variable after the block,
+    // diverging from the interpreter.
+    let before_bindings: std::collections::HashMap<String, (Variable, JitTy)> =
+        lc.env.bindings.clone();
     let unit_before: std::collections::HashSet<String> =
         lc.env.unit_bindings.iter().cloned().collect();
     for s in &block.stmts {
@@ -138,16 +143,19 @@ pub(crate) fn lower_block_value(
             emit_retain_heap(b, lc, v, t);
         }
     }
-    // Release any heap-typed bindings introduced by this block, then
-    // drop them from the env so an outer-scope release pass doesn't see
-    // the freed value a second time. Release in LIFO order
-    // (most-recently-bound first) so a later binding can depend on an
-    // earlier one's heap-held data without the earlier one freeing first.
-    let mut new_heap: Vec<(String, Variable, JitTy)> = lc
+    // Release every heap-typed binding INTRODUCED in this block —
+    // including names that shadowed an outer binding (which need their
+    // OWN release before the outer is restored). Sort LIFO so
+    // dependents drop first.
+    let mut introduced_heap: Vec<(String, Variable, JitTy)> = lc
         .env
         .bindings
         .iter()
-        .filter(|(k, _)| !before.contains(k.as_str()))
+        .filter(|(k, current)| {
+            // Either the name is new, or its (Variable, JitTy) differs
+            // from what was here before the block (a shadow).
+            before_bindings.get(*k).map(|prev| prev != *current).unwrap_or(true)
+        })
         .filter_map(|(k, &(var, jty))| {
             if jty.is_heap() {
                 Some((k.clone(), var, jty))
@@ -156,12 +164,14 @@ pub(crate) fn lower_block_value(
             }
         })
         .collect();
-    new_heap.sort_by_key(|(_, var, _)| std::cmp::Reverse(var.as_u32()));
-    for (k, var, jty) in new_heap {
-        let p = b.use_var(var);
-        emit_release_heap(b, lc, p, jty);
-        lc.env.bindings.remove(&k);
+    introduced_heap.sort_by_key(|(_, var, _)| std::cmp::Reverse(var.as_u32()));
+    for (_, var, jty) in &introduced_heap {
+        let p = b.use_var(*var);
+        emit_release_heap(b, lc, p, *jty);
     }
+    // Restore the binding map to its pre-block state. This drops every
+    // new binding AND restores shadowed names to their outer value.
+    lc.env.bindings = before_bindings;
     // Drop unit bindings introduced in this block. No release needed
     // (Unit holds no resources); just unregister so an outer-scope name
     // collision doesn't leak in.
