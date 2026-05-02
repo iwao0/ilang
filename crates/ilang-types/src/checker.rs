@@ -1666,13 +1666,17 @@ impl TypeChecker {
                         span: obj.span,
                     }
                 })?;
-                let field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
+                let raw_field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
                         field: field.clone(),
                         span,
                     }
                 })?;
+                // Substitute the receiver's generic type args so a
+                // `Box<i64>.x = 100` check sees `i64` for `x: T`.
+                // Mirrors the substitution done by the Field read path.
+                let field_ty = subst_type(&raw_field_ty, &cls.type_params, type_args_of(&ot));
                 let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                 if !literal_assignable(value, &v_ty, &field_ty) {
                     return Err(TypeError::Mismatch {

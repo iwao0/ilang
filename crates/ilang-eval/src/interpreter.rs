@@ -80,7 +80,14 @@ impl Interpreter {
                 self.vars.insert(name.clone(), v);
                 Ok(Value::Unit)
             }
-            StmtKind::Expr(e) => self.eval_expr(e),
+            StmtKind::Expr(e) => {
+                let v = self.eval_expr(e)?;
+                // Top-level expression statement: discard the value
+                // and release any heap allocation it owned (matches
+                // `eval_block`'s StmtKind::Expr handling).
+                self.release(v);
+                Ok(Value::Unit)
+            }
         }
     }
 
@@ -947,7 +954,16 @@ impl Interpreter {
                         last = Value::Unit;
                     }
                     StmtKind::Expr(e) => {
-                        last = self.eval_expr(e)?;
+                        let v = self.eval_expr(e)?;
+                        // Statement value is discarded. If it was a
+                        // fresh heap allocation (e.g. `new C(...)` as
+                        // its own expression statement), release it
+                        // now so deinit fires — matches the JIT, which
+                        // emits a release for non-aliased heap stmts.
+                        // Aliased reads (rc>1) and primitives are
+                        // no-ops inside `release`.
+                        self.release(v);
+                        last = Value::Unit;
                     }
                 }
             }
@@ -1140,9 +1156,17 @@ impl Interpreter {
                 name: class.to_string(),
                 span,
             })?;
+        // Default-initialize every declared field. Mirrors the JIT's
+        // `alloc_zeroed`: primitive fields get 0/false/"" defaults so
+        // a class without an explicit init is still safe to read from.
+        // The `init` (if any) overwrites these immediately.
+        let mut fields = HashMap::new();
+        for f in &decl.fields {
+            fields.insert(f.name.clone(), default_value(&f.ty));
+        }
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: class.to_string(),
-            fields: HashMap::new(),
+            fields,
         }));
         if let Some(init) = decl.methods.iter().find(|m| m.name == "init").cloned() {
             self.invoke("init", &init, evaluated, Some(obj.clone()), span)?;
@@ -1265,4 +1289,33 @@ fn index_to_usize(v: Value, span: Span) -> Result<usize, RuntimeError> {
         });
     }
     Ok(n as usize)
+}
+
+/// Default value for a field type when a class has no `init`. Mirrors
+/// the JIT's `alloc_zeroed`. Heap-reference fields (Object / Map /
+/// Weak) get a Unit placeholder — accessing them before assignment
+/// would be a runtime error in practice, but readability-wise this
+/// matches the JIT's "null pointer" semantics for those slots.
+fn default_value(t: &ilang_ast::Type) -> Value {
+    use ilang_ast::Type as T;
+    match t {
+        T::I8 => Value::Int8(0),
+        T::I16 => Value::Int16(0),
+        T::I32 => Value::Int32(0),
+        T::I64 => Value::Int(0),
+        T::U8 => Value::UInt8(0),
+        T::U16 => Value::UInt16(0),
+        T::U32 => Value::UInt32(0),
+        T::U64 => Value::UInt64(0),
+        T::F32 => Value::Float32(0.0),
+        T::F64 => Value::Float(0.0),
+        T::Bool => Value::Bool(false),
+        T::Str => Value::Str(Rc::new(String::new())),
+        T::Optional(_) => Value::None,
+        T::Array { .. } => Value::Array(Rc::new(RefCell::new(Vec::new()))),
+        // Heap reference / Map / Weak / Object / Enum: no safe blank
+        // value the interpreter can synthesize — leave as Unit so a
+        // field read before assignment fails loudly elsewhere.
+        _ => Value::Unit,
+    }
 }
