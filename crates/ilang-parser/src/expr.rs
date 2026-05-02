@@ -615,6 +615,43 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Continue an `if` chain at the `elif` keyword. Produces an
+    /// `If` expression whose else branch is itself another `If` if
+    /// further `elif` follows.
+    fn parse_elif_chain(&mut self) -> Result<Expr, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::Elif, "'elif'")?;
+        let cond = self.parse_expr(0)?;
+        let then_branch = parse_block(self)?;
+        let else_branch = match self.peek().kind {
+            TokenKind::Elif => Some(Box::new(self.parse_elif_chain()?)),
+            TokenKind::Else => {
+                self.bump();
+                if matches!(self.peek().kind, TokenKind::If) {
+                    let p = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: p.kind.clone(),
+                        expected: "'elif' (use `elif` for chained conditions, not `else if`)"
+                            .into(),
+                        span: p.span,
+                    });
+                }
+                let block_span = self.peek().span;
+                let block = parse_block(self)?;
+                Some(Box::new(Expr::new(ExprKind::Block(block), block_span)))
+            }
+            _ => None,
+        };
+        Ok(Expr::new(
+            ExprKind::If {
+                cond: Box::new(cond),
+                then_branch,
+                else_branch,
+            },
+            span,
+        ))
+    }
+
     fn parse_if(&mut self) -> Result<Expr, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::If, "'if'")?;
@@ -627,20 +664,29 @@ impl<'a> Parser<'a> {
         }
         let cond = self.parse_expr(0)?;
         let then_branch = parse_block(self)?;
-        let else_branch = if matches!(self.peek().kind, TokenKind::Else) {
-            self.bump();
-            // `else if` chains: parse another If expression directly so the
-            // structure stays an If with an Else branch that is itself an If.
-            if matches!(self.peek().kind, TokenKind::If) {
-                let inner = self.parse_if()?;
+        // `elif cond { ... }` chains as the else branch (a nested if).
+        // `else if` is rejected with a hint pointing to `elif`.
+        let else_branch = match self.peek().kind {
+            TokenKind::Elif => {
+                let inner = self.parse_elif_chain()?;
                 Some(Box::new(inner))
-            } else {
+            }
+            TokenKind::Else => {
+                self.bump();
+                if matches!(self.peek().kind, TokenKind::If) {
+                    let p = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: p.kind.clone(),
+                        expected: "'elif' (use `elif` for chained conditions, not `else if`)"
+                            .into(),
+                        span: p.span,
+                    });
+                }
                 let block_span = self.peek().span;
                 let block = parse_block(self)?;
                 Some(Box::new(Expr::new(ExprKind::Block(block), block_span)))
             }
-        } else {
-            None
+            _ => None,
         };
         Ok(Expr::new(
             ExprKind::If {

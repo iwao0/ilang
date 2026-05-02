@@ -172,8 +172,8 @@ fn invalid_assign_target() {
 }
 
 #[test]
-fn if_expression_with_else_if() {
-    let p = parse_str("if true { 1 } else if false { 2 } else { 3 }");
+fn if_expression_with_elif() {
+    let p = parse_str("if true { 1 } elif false { 2 } else { 3 }");
     match p.tail.map(|t| t.kind) {
         Some(ExprKind::If {
             else_branch: Some(eb),

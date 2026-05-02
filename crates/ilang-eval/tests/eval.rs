@@ -83,7 +83,7 @@ fn if_expression() {
     assert_eq!(run("if true { 1 } else { 2 }").unwrap(), Value::Int(1));
     assert_eq!(run("if false { 1 } else { 2 }").unwrap(), Value::Int(2));
     assert_eq!(
-        run("if 1 < 2 { 10 } else if 1 > 2 { 20 } else { 30 }").unwrap(),
+        run("if 1 < 2 { 10 } elif 1 > 2 { 20 } else { 30 }").unwrap(),
         Value::Int(10)
     );
 }

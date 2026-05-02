@@ -127,7 +127,7 @@ this.field = v             // メソッド内
 ```rust
 // if は式
 let r = if n > 0 { n } else { -n }
-if cond { ... } else if cond2 { ... } else { ... }
+if cond { ... } elif cond2 { ... } else { ... }   // `else if` ではなく `elif`
 
 // while
 while cond { ... }

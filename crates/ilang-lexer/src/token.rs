@@ -10,6 +10,7 @@ pub enum TokenKind {
     Let,
     Fn,
     If,
+    Elif,
     Else,
     While,
     Loop,
