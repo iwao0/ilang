@@ -191,7 +191,10 @@ impl JitTy {
             }
             Type::Optional(inner) => {
                 let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
-                if !matches!(inner_jty, JitTy::Object(_) | JitTy::Str | JitTy::Array(_) | JitTy::Weak(_)) {
+                // Heap inner: nullable pointer (0 = None). Primitive
+                // inner: heap-boxed payload (see runtime.rs for the
+                // [rc, payload] layout). Either way it stores as i64.
+                if matches!(inner_jty, JitTy::Unit | JitTy::Optional(_)) {
                     return Err(CodegenError::UnsupportedType {
                         ty: t.clone(),
                         span,

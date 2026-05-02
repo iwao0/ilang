@@ -144,7 +144,13 @@ pub(crate) fn emit_retain_heap(
         JitTy::Map(_) => emit_retain_map(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
-            emit_retain_heap(b, lc, ptr, inner);
+            if inner.is_heap() {
+                emit_retain_heap(b, lc, ptr, inner);
+            } else {
+                // Primitive Optional: box has its own rc.
+                let r = lc.module.declare_func_in_func(lc.optional_box_retain_id, b.func);
+                b.ins().call(r, &[ptr]);
+            }
         }
         _ => {}
     }
@@ -176,7 +182,15 @@ pub(crate) fn emit_release_heap(
         JitTy::Map(_) => emit_release_map(b, lc, ptr),
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
-            emit_release_heap(b, lc, ptr, inner);
+            if inner.is_heap() {
+                emit_release_heap(b, lc, ptr, inner);
+            } else {
+                // Primitive Optional: free the box on rc=0.
+                let size = inner.size_bytes() as i64;
+                let size_v = b.ins().iconst(I64, size);
+                let r = lc.module.declare_func_in_func(lc.optional_box_release_id, b.func);
+                b.ins().call(r, &[ptr, size_v]);
+            }
         }
         _ => {}
     }

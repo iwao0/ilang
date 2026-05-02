@@ -96,6 +96,7 @@ fn define_one_class_drop(
         release_array_id,
         release_weak_id,
         release_map_id,
+        optional_box_release_id,
         ..
     } = compiler;
 
@@ -129,6 +130,7 @@ fn define_one_class_drop(
             *release_array_id,
             *release_weak_id,
             *release_map_id,
+            *optional_box_release_id,
             &mut builder,
             v,
             fty,
@@ -211,6 +213,7 @@ fn define_one_enum_drop(
         release_array_id,
         release_weak_id,
         release_map_id,
+        optional_box_release_id,
         ..
     } = compiler;
 
@@ -264,6 +267,7 @@ fn define_one_enum_drop(
                         *release_array_id,
                         *release_weak_id,
             *release_map_id,
+                        *optional_box_release_id,
                         &mut builder,
                         v,
                         *fty,
@@ -288,6 +292,7 @@ fn define_one_enum_drop(
                         *release_array_id,
                         *release_weak_id,
             *release_map_id,
+                        *optional_box_release_id,
                         &mut builder,
                         v,
                         *fty,
@@ -348,6 +353,7 @@ fn define_one_array_drop(
         release_array_id,
         release_weak_id,
         release_map_id,
+        optional_box_release_id,
         ..
     } = compiler;
 
@@ -396,6 +402,7 @@ fn define_one_array_drop(
         *release_array_id,
         *release_weak_id,
             *release_map_id,
+        *optional_box_release_id,
         &mut builder,
         elem,
         elem_jty,
@@ -429,6 +436,7 @@ fn emit_release_for(
     release_array_id: FuncId,
     release_weak_id: FuncId,
     release_map_id: FuncId,
+    optional_box_release_id: FuncId,
     b: &mut FunctionBuilder,
     ptr: Value,
     ty: JitTy,
@@ -451,24 +459,31 @@ fn emit_release_for(
             b.ins().call(r, &[ptr, size_v]);
         }
         JitTy::Optional(id) => {
-            // Dispatch to inner type's release. The runtime's
-            // release_object/string/array/weak all guard against null
-            // pointers, so a None Optional is automatically a no-op.
+            // Dispatch to inner type's release. Heap inner: walk into
+            // the inner's release. Primitive inner: call the boxed-
+            // optional release with the payload size.
             let inner = optional_inners[id as usize];
-            emit_release_for(
-                module,
-                class_layouts,
-                array_kinds,
-                optional_inners,
-                release_object_id,
-                release_string_id,
-                release_array_id,
-                release_weak_id,
-                release_map_id,
-                b,
-                ptr,
-                inner,
-            );
+            if inner.is_heap() {
+                emit_release_for(
+                    module,
+                    class_layouts,
+                    array_kinds,
+                    optional_inners,
+                    release_object_id,
+                    release_string_id,
+                    release_array_id,
+                    release_weak_id,
+                    release_map_id,
+                    optional_box_release_id,
+                    b,
+                    ptr,
+                    inner,
+                );
+            } else {
+                let r = module.declare_func_in_func(optional_box_release_id, b.func);
+                let size_v = b.ins().iconst(I64, inner.size_bytes() as i64);
+                b.ins().call(r, &[ptr, size_v]);
+            }
         }
         JitTy::Weak(class_id) => {
             let r = module.declare_func_in_func(release_weak_id, b.func);
@@ -696,6 +711,7 @@ fn define_one_map_drop(
         release_array_id,
         release_weak_id,
         release_map_id,
+        optional_box_release_id,
         ..
     } = compiler;
 
@@ -716,6 +732,7 @@ fn define_one_map_drop(
         *release_array_id,
         *release_weak_id,
         *release_map_id,
+        *optional_box_release_id,
         &mut builder,
         val,
         val_jty,

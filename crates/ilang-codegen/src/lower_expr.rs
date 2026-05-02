@@ -381,7 +381,18 @@ pub(crate) fn lower_expr(
                         // having checked `isSome()` first. Calling on
                         // `none` reads address 0 downstream (segfault).
                         let inner = lc.optional_inners[id as usize];
-                        return Ok(Some((obj_v, inner)));
+                        if inner.is_heap() {
+                            return Ok(Some((obj_v, inner)));
+                        }
+                        // Primitive: load payload from box at offset 8.
+                        let cl_ty = inner.cl().expect("primitive cl ty");
+                        let v = b.ins().load(
+                            cl_ty,
+                            cranelift::prelude::MemFlags::trusted(),
+                            obj_v,
+                            crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+                        );
+                        return Ok(Some((v, inner)));
                     }
                     _ => {
                         return Err(CodegenError::Unsupported {
@@ -852,14 +863,29 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
-            if !vt.is_heap() {
-                return Err(CodegenError::Unsupported {
-                    what: format!("some({vt:?}) — JIT only supports Optional of heap types"),
-                    span: e.span,
-                });
-            }
             let id = intern_optional_inner(lc.optional_inners, vt);
-            Ok(Some((v, JitTy::Optional(id))))
+            if vt.is_heap() {
+                // Heap inner: pointer is the value; rc was set when
+                // the inner was constructed.
+                return Ok(Some((v, JitTy::Optional(id))));
+            }
+            // Primitive inner: heap-box the payload so we have a
+            // distinct "0" sentinel for None. Layout: [rc:i64 | payload].
+            let size = vt.size_bytes() as i64;
+            let size_v = b.ins().iconst(I64, size);
+            let new_ref = lc.module.declare_func_in_func(lc.optional_box_new_id, b.func);
+            let call = b.ins().call(new_ref, &[size_v]);
+            let ptr = b.inst_results(call)[0];
+            // Write the payload at ptr + 8 with the inner's natural width.
+            let cl_ty = vt.cl().expect("primitive has a cranelift type");
+            let _ = cl_ty; // type used implicitly by store
+            b.ins().store(
+                cranelift::prelude::MemFlags::trusted(),
+                v,
+                ptr,
+                crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+            );
+            Ok(Some((ptr, JitTy::Optional(id))))
         }
         ExprKind::IfLet {
             name,
@@ -2045,16 +2071,6 @@ pub(crate) fn lower_map_method(
         }
         "get" => {
             arity(1)?;
-            // V=primitive needs Optional<primitive> in the JIT, which
-            // is its own gap (see syntax.md §16). For V=heap, Optional
-            // is just a nullable pointer.
-            if !kind.val.is_heap() {
-                return Err(CodegenError::Unsupported {
-                    what: "Map.get with primitive V is not yet supported in JIT \
-                           (depends on primitive Optional support)".into(),
-                    span,
-                });
-            }
             let key_tv = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
                 what: "Map.get key is unit".into(), span: args[0].span,
             })?;
@@ -2062,13 +2078,57 @@ pub(crate) fn lower_map_method(
             let r = lc.module.declare_func_in_func(lc.map_get_or_null_id, b.func);
             let call = b.ins().call(r, &[obj_v, key_bits]);
             let raw = b.inst_results(call)[0];
-            // Bump rc on the returned pointer so the caller has its own
-            // reference (the runtime did NOT retain — the map's own +1
-            // is preserved). The retain helpers null-check, so a 0
-            // result (key missing) is safely a no-op.
-            crate::arc::emit_retain_heap(b, lc, raw, kind.val);
             let opt_id = intern_optional_inner(lc.optional_inners, kind.val);
-            Ok(Some((raw, JitTy::Optional(opt_id))))
+            if kind.val.is_heap() {
+                // Heap V: returned pointer IS the value. Bump rc so the
+                // caller has its own reference (the runtime did NOT
+                // retain — the map's own +1 is preserved). The retain
+                // helpers null-check, so a 0 result is safely a no-op.
+                crate::arc::emit_retain_heap(b, lc, raw, kind.val);
+                return Ok(Some((raw, JitTy::Optional(opt_id))));
+            }
+            // Primitive V: branch on found/missing. Found → box the
+            // payload bits into an Optional<primitive>; missing → 0.
+            let zero = b.ins().iconst(I64, 0);
+            let found = b.ins().icmp(IntCC::NotEqual, raw, zero);
+            let then_blk = b.create_block();
+            let else_blk = b.create_block();
+            let merge = b.create_block();
+            b.append_block_param(merge, I64);
+            b.ins().brif(found, then_blk, &[], else_blk, &[]);
+            b.switch_to_block(then_blk);
+            b.seal_block(then_blk);
+            // Box the value bits.
+            let size_v = b.ins().iconst(I64, kind.val.size_bytes() as i64);
+            let box_ref = lc.module.declare_func_in_func(lc.optional_box_new_id, b.func);
+            let box_call = b.ins().call(box_ref, &[size_v]);
+            let box_ptr = b.inst_results(box_call)[0];
+            // Truncate raw bits to V's natural width before storing.
+            let payload = match kind.val {
+                JitTy::I8 | JitTy::U8 | JitTy::Bool => b.ins().ireduce(I8, raw),
+                JitTy::I16 | JitTy::U16 => b.ins().ireduce(I16, raw),
+                JitTy::I32 | JitTy::U32 | JitTy::Enum(_) => b.ins().ireduce(I32, raw),
+                JitTy::F32 => {
+                    let lo = b.ins().ireduce(I32, raw);
+                    b.ins().bitcast(F32, MemFlags::new(), lo)
+                }
+                JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
+                _ => raw,
+            };
+            b.ins().store(
+                MemFlags::trusted(),
+                payload,
+                box_ptr,
+                crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+            );
+            b.ins().jump(merge, &[box_ptr.into()]);
+            b.switch_to_block(else_blk);
+            b.seal_block(else_blk);
+            b.ins().jump(merge, &[zero.into()]);
+            b.switch_to_block(merge);
+            b.seal_block(merge);
+            let result = b.block_params(merge)[0];
+            Ok(Some((result, JitTy::Optional(opt_id))))
         }
         "keys" => {
             arity(0)?;

@@ -202,7 +202,32 @@ pub(crate) unsafe fn read_optional_pointer(
             class_layouts,
             optional_inners,
         ),
-        _ => unreachable!("Optional<primitive> rejected at JitTy::from_ast"),
+        // Primitive Optional: payload is at p + 8 (after rc).
+        JitTy::I8 => JitValue::I8(*((p + 8) as *const i8)),
+        JitTy::I16 => JitValue::I16(*((p + 8) as *const i16)),
+        JitTy::I32 => JitValue::I32(*((p + 8) as *const i32)),
+        JitTy::I64 => JitValue::I64(*((p + 8) as *const i64)),
+        JitTy::U8 => JitValue::U8(*((p + 8) as *const u8)),
+        JitTy::U16 => JitValue::U16(*((p + 8) as *const u16)),
+        JitTy::U32 => JitValue::U32(*((p + 8) as *const u32)),
+        JitTy::U64 => JitValue::U64(*((p + 8) as *const u64)),
+        JitTy::F32 => JitValue::F32(*((p + 8) as *const f32)),
+        JitTy::F64 => JitValue::F64(*((p + 8) as *const f64)),
+        JitTy::Bool => JitValue::Bool(*((p + 8) as *const i8) != 0),
+        JitTy::Enum(id) => {
+            let tag = *((p + 8) as *const i32) as usize;
+            let layout = &enum_layouts[id as usize];
+            JitValue::Enum {
+                ty: layout.name.clone(),
+                variant: layout
+                    .variants
+                    .get(tag)
+                    .cloned()
+                    .unwrap_or_else(|| format!("?{tag}")),
+                payload: JitEnumPayload::Unit,
+            }
+        }
+        _ => unreachable!("unexpected Optional inner type"),
     };
     JitValue::Some(Box::new(v))
 }

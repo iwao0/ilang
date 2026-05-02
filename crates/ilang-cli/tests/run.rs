@@ -424,12 +424,10 @@ fn jit_map_object_value() {
 }
 
 #[test]
-fn jit_map_get_primitive_v_still_unsupported() {
-    // V=primitive needs primitive-Optional support (separate gap #4).
-    // V=heap is implemented (see `jit_map_get_heap_v_*` tests).
+fn jit_map_get_primitive_v_present() {
     let p = write_tmp(
         "map_get_prim.il",
-        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nlet r = m.get(\"a\")\n0",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 42)\nlet r = m.get(\"a\")\nif r.isSome() { r.unwrap() } else { -1 }",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -437,12 +435,24 @@ fn jit_map_get_primitive_v_still_unsupported() {
         .arg(&p)
         .output()
         .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("Map.get") || stderr.contains("primitive Optional"),
-        "stderr: {stderr}"
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_map_get_primitive_v_missing() {
+    let p = write_tmp(
+        "map_get_prim_miss.il",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nlet r = m.get(\"z\")\nif r.isNone() { -99 } else { r.unwrap() }",
     );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&p)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-99");
 }
 
 #[test]
@@ -541,4 +551,66 @@ fn jit_map_literal() {
         .unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "6");
+}
+
+#[test]
+fn jit_optional_primitive_i64_some() {
+    let p = write_tmp(
+        "opt_i64.il",
+        "let x: i64? = some(42)\nif x.isSome() { x.unwrap() } else { -1 }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_optional_primitive_i64_none() {
+    let p = write_tmp(
+        "opt_i64_n.il",
+        "let x: i64? = none\nif x.isNone() { 99 } else { x.unwrap() }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "99");
+}
+
+#[test]
+fn jit_optional_primitive_bool() {
+    let p = write_tmp(
+        "opt_bool.il",
+        "let x: bool? = some(true)\nif x.isSome() { x.unwrap() } else { false }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true");
+}
+
+#[test]
+fn jit_optional_primitive_f64() {
+    let p = write_tmp(
+        "opt_f64.il",
+        "let x: f64? = some(3.14)\nif x.isSome() { x.unwrap() } else { 0.0 }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3.14");
+}
+
+#[test]
+fn jit_optional_primitive_aliased_let() {
+    // `let y = x` where x is a primitive Optional must retain the
+    // box (each binding has its own +1).
+    let p = write_tmp(
+        "opt_alias.il",
+        "let x: i64? = some(7)\nlet y = x\nif y.isSome() { y.unwrap() } else { 0 }",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "7");
 }

@@ -119,6 +119,9 @@ pub(crate) struct LowerCtx<'a> {
     pub map_get_or_null_id: FuncId,
     pub map_keys_to_array_id: FuncId,
     pub map_values_to_array_id: FuncId,
+    pub optional_box_new_id: FuncId,
+    pub optional_box_retain_id: FuncId,
+    pub optional_box_release_id: FuncId,
     /// Per-(K, V) value-retain helper, lazily generated. Mirrors
     /// `map_drops` in shape but emits `emit_retain_heap` per V instead.
     pub map_value_retains: &'a mut HashMap<u32, Option<FuncId>>,

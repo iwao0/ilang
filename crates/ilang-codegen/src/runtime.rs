@@ -751,3 +751,51 @@ unsafe fn write_array_slot(addr: i64, elem_size: i64, bits: i64) {
         n => panic!("ilang runtime: unexpected array elem_size {n}"),
     }
 }
+
+// ─── Primitive Optional runtime ──────────────────────────────────────
+//
+// `i64?` / `bool?` / `f64?` and similar primitive-payload Optionals
+// can't reuse the heap-pointer-as-tag scheme (0 is a valid payload),
+// so each `Some(v)` boxes the value on the heap with a leading rc:
+//
+//   [ rc: i64 | payload: T ]
+//
+// `None` stays as the bare 0 pointer. The JIT writes / reads the
+// payload itself via raw load/store at offset 8; this runtime owns
+// only allocation, retain, and release.
+
+pub(crate) const OPT_PRIM_PAYLOAD_OFFSET: i32 = 8;
+
+pub(crate) extern "C" fn ilang_jit_optional_box_new(payload_size: i64) -> i64 {
+    let total = 8 + payload_size as usize;
+    let layout = std::alloc::Layout::from_size_align(total.max(16), 8).unwrap();
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) as *mut i64 };
+    unsafe { *ptr = 1; } // rc = 1; payload zeroed and overwritten by caller
+    ptr as i64
+}
+
+pub(crate) extern "C" fn ilang_jit_optional_box_retain(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        *rc += 1;
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_optional_box_release(ptr: i64, payload_size: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = ptr as *mut i64;
+        *rc -= 1;
+        if *rc != 0 {
+            return;
+        }
+        let total = 8 + payload_size as usize;
+        let layout = std::alloc::Layout::from_size_align(total.max(16), 8).unwrap();
+        std::alloc::dealloc(ptr as *mut u8, layout);
+    }
+}
