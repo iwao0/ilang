@@ -1289,8 +1289,11 @@ fn jit_fn_returned() {
 }
 
 #[test]
-fn jit_rejects_generic_enum() {
-    use ilang_codegen::{jit_run, CodegenError};
+fn jit_supports_generic_enum_via_run_with() {
+    // Generic enums (Result<T, E>, user enums) now work in the JIT
+    // when invoked through `jit_run_with`, which receives the
+    // typechecker's enum-ctor side-table for monomorphization.
+    use ilang_codegen::{jit_run_with, JitValue};
     use ilang_lexer::tokenize;
     use ilang_parser::parse;
     use ilang_types::TypeChecker;
@@ -1303,12 +1306,8 @@ fn jit_rejects_generic_enum() {
     "#;
     let toks = tokenize(src).unwrap();
     let prog = parse(&toks).unwrap();
-    TypeChecker::new().check(&prog).unwrap();
-    // Either error variant is acceptable — both signal "Result in JIT
-    // is not yet supported".
-    let r = jit_run(&prog);
-    assert!(matches!(
-        r,
-        Err(CodegenError::UnsupportedType { .. } | CodegenError::Unsupported { .. })
-    ));
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).unwrap();
+    let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args()).unwrap();
+    assert_eq!(v, JitValue::I64(42));
 }

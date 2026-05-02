@@ -349,7 +349,7 @@ m.values()                       // V[]
 - リテラル `{ key: value, ... }` の最初のキーから K を、最初の値から V を推論
 - 空マップは `new Map<K, V>()` で構築 (`{}` は空ブロック扱い)
 - パーサは `{<key-token> :` の 2 トークン先読みで map literal とブロックを区別 (ID/Str/Int/Bool + `:` で map)
-- **JIT 未対応** — interpreter のみ
+- interpreter / JIT とも対応 (基本演算 + `get` / `keys` / `values` / リテラル全部)
 
 ---
 
@@ -441,7 +441,7 @@ match e {
 - バリアント構築時の型引数は **引数から自動推論** (`Either.Right("hi")` → `Either<Any, string>`、注釈と統合される)
 - 型推論で埋まらないパラメータは内部的に `Any` のままで、let 注釈や関数戻り値型でピン止めされる
 - match 側もスクルチニーの具体型から束縛変数の型が自動で復元される
-- **JIT 未対応** — interpreter のみ (per-instantiation enum layout の実装が必要)
+- interpreter / JIT とも対応 (JIT は `(enum_name, type_args)` ごとに具体 EnumDecl を生成して per-instantiation でレイアウトを取る)
 
 ### 組み込み Result<T, E>
 
@@ -466,7 +466,7 @@ match divide(10, 2) {
 - 名前 `Result` は予約 (ユーザが `enum Result { ... }` を定義するとエラー)
 - 構築時の型引数は推論 — 戻り値型や let 注釈で T/E が確定する
 - match の網羅性検査もそのまま (`ok` と `err` を両方カバーするか `_` が必要)
-- JIT 未対応 (上記のジェネリック enum 全般と同じ)
+- interpreter / JIT とも対応 (`(T, E)` ごとに具体 enum をモノモルフ化)
 
 ---
 
@@ -619,7 +619,6 @@ double(21)                                 // 42
 | REPL | `ilang` (引数なし) | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
 
 JIT で `Unsupported` になる主なケース:
-- ジェネリック enum 全般 (組み込み `Result<T, E>` を含む)
 - 配列メソッドの一部 (上記 §8 参照)
 - 継承 / 動的ディスパッチ (interpreter にも未実装)
 

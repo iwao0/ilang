@@ -614,3 +614,65 @@ fn jit_optional_primitive_aliased_let() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "7");
 }
+
+#[test]
+fn jit_generic_enum_user_defined() {
+    let p = write_tmp(
+        "gen_enum.il",
+        "enum Box<T> {\n  full: (T)\n  empty\n}\nlet b: Box<i64> = Box.full(42)\nmatch b {\n  full(v) { v }\n  empty { 0 }\n}",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_result_ok() {
+    let p = write_tmp(
+        "result_ok.il",
+        "let r: Result<i64, string> = Result.ok(42)\nmatch r {\n  ok(v) { v }\n  err(_) { -1 }\n}",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_result_err() {
+    let p = write_tmp(
+        "result_err.il",
+        "let r: Result<i64, string> = Result.err(\"boom\")\nmatch r {\n  ok(v) { v }\n  err(_) { -1 }\n}",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
+}
+
+#[test]
+fn jit_result_via_function() {
+    // Function returns Result; refinement pass propagates the
+    // declared return type into both branches' enum-ctor sites.
+    let p = write_tmp(
+        "result_fn.il",
+        "fn parse(s: string): Result<i64, string> {\n    if s == \"42\" { Result.ok(42) } else { Result.err(\"nope\") }\n}\nmatch parse(\"42\") {\n  ok(v) { v }\n  err(_) { -1 }\n}",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
+}
+
+#[test]
+fn jit_generic_enum_heap_payload() {
+    let p = write_tmp(
+        "either.il",
+        "enum Either<L, R> {\n  left: (L)\n  right: (R)\n}\nlet e: Either<i64, string> = Either.right(\"hi\")\nmatch e {\n  left(_) { \"L\" }\n  right(s) { s }\n}",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run").arg("--jit").arg(&p).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
+}

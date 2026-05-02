@@ -41,27 +41,35 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
     jit_run_with(
         prog,
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
 }
 
 /// Like `jit_run`, but takes the type checker's per-call inferred type
-/// arguments (see `TypeChecker::fn_call_type_args`) so generic
-/// functions can be monomorphized. With an empty map the pipeline
-/// behaves exactly like `jit_run`, which is fine for programs without
-/// generic fns.
+/// arguments (`fn_call_type_args` for generic fns, `enum_ctor_type_args`
+/// for generic enum constructors). Used by the JIT pipeline to
+/// monomorphize fns and enums whose type args are inferred from
+/// argument types rather than written explicitly. Empty maps fall back
+/// to non-generic behaviour.
 pub fn jit_run_with(
     prog: &Program,
     fn_call_type_args: &std::collections::HashMap<
         ilang_ast::Span,
         (String, Vec<ilang_ast::Type>),
     >,
+    enum_ctor_type_args: &std::collections::HashMap<
+        ilang_ast::Span,
+        (String, Vec<ilang_ast::Type>),
+    >,
 ) -> Result<JitValue, CodegenError> {
-    // Hoist anonymous-function expressions to top-level synthetic
-    // fns so the JIT only ever sees named functions. Then
-    // monomorphize generic classes, then generic fns. After all
-    // passes the program is plain non-generic, no FnExpr nodes remain.
+    // Pipeline:
+    //   hoist anon fns → monomorphize classes → monomorphize enums
+    //   → monomorphize fns. After all four passes the program contains
+    //   zero `Type::Generic` (except built-in `Map`), zero `FnExpr`,
+    //   and zero generic decls.
     let hoisted = crate::monomorphize::hoist_anon_fns(prog);
     let mono = crate::monomorphize::monomorphize(&hoisted);
+    let mono = crate::monomorphize::monomorphize_enums(&mono, enum_ctor_type_args);
     let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
     jit_run_inner(&mono)
 }

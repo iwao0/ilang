@@ -177,6 +177,10 @@ pub struct TypeChecker {
     /// context — the monomorphizer substitutes those at expansion time.
     /// Wrapped in `RefCell` because `check_expr` takes `&self`.
     fn_call_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
+    /// Inferred type-arg vector for each generic-enum-ctor call site.
+    /// Same shape as `fn_call_type_args`; consumed by the JIT's
+    /// enum-monomorphization pass.
+    enum_ctor_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
 }
 
 impl TypeChecker {
@@ -190,6 +194,77 @@ impl TypeChecker {
     /// Filled in during `check`; consumed by the JIT monomorphizer.
     pub fn fn_call_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
         self.fn_call_type_args.borrow().clone()
+    }
+
+    /// Map of generic-enum-ctor call site → (enum name, inferred type
+    /// args). Same purpose as `fn_call_type_args` but for `Box.full(42)`
+    /// style constructors.
+    pub fn enum_ctor_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
+        self.enum_ctor_type_args.borrow().clone()
+    }
+
+    /// When an EnumCtor's inferred type-args contain `Type::Any` (because
+    /// only some of T/E were resolvable from the args alone), use the
+    /// surrounding context's expected type to fill in the holes. This
+    /// runs at let / return / tail positions so the JIT monomorphizer
+    /// sees a fully concrete instantiation.
+    fn refine_enum_ctor_args(&self, expr: &Expr, target: &Type) {
+        let target_args = match target {
+            Type::Generic { base, args } => Some((base.clone(), args.clone())),
+            _ => None,
+        };
+        match &expr.kind {
+            ExprKind::EnumCtor { enum_name, .. } => {
+                if let Some((tbase, targs)) = &target_args {
+                    if tbase == enum_name {
+                        let mut tbl = self.enum_ctor_type_args.borrow_mut();
+                        if let Some((_, recorded)) = tbl.get_mut(&expr.span) {
+                            for (i, slot) in recorded.iter_mut().enumerate() {
+                                if matches!(slot, Type::Any) {
+                                    if let Some(t) = targs.get(i) {
+                                        *slot = t.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ExprKind::If { then_branch, else_branch, .. } => {
+                self.refine_enum_ctor_args_in_block(then_branch, target);
+                if let Some(e) = else_branch {
+                    self.refine_enum_ctor_args(e, target);
+                }
+            }
+            ExprKind::IfLet { then_branch, else_branch, .. } => {
+                self.refine_enum_ctor_args_in_block(then_branch, target);
+                if let Some(e) = else_branch {
+                    self.refine_enum_ctor_args(e, target);
+                }
+            }
+            ExprKind::Block(b) => self.refine_enum_ctor_args_in_block(b, target),
+            ExprKind::Match { arms, .. } => {
+                for arm in arms {
+                    self.refine_enum_ctor_args(&arm.body, target);
+                }
+            }
+            ExprKind::Return(Some(inner)) => self.refine_enum_ctor_args(inner, target),
+            _ => {}
+        }
+    }
+
+    fn refine_enum_ctor_args_in_block(&self, b: &ilang_ast::Block, target: &Type) {
+        // Tail produces the block's value — refine against target.
+        if let Some(t) = &b.tail {
+            self.refine_enum_ctor_args(t, target);
+        }
+        // Return statements anywhere in the block also produce the
+        // function's return value — refine those too.
+        for s in &b.stmts {
+            if let StmtKind::Expr(e) = &s.kind {
+                refine_returns(self, e, target);
+            }
+        }
     }
 
     /// Pre-register the built-in `Console` class and the `console`
@@ -477,6 +552,10 @@ impl TypeChecker {
                 span: f.span,
             });
         }
+        // Refine enum-ctor entries in tail / Return sites against the
+        // declared return type. See the equivalent in `check_stmt`'s
+        // Let arm.
+        self.refine_enum_ctor_args_in_block(&f.body, &expected);
         Ok(())
     }
 
@@ -587,6 +666,13 @@ impl TypeChecker {
                                 span: value.span,
                             });
                         }
+                        // Refine any enum-ctor side-table entries inside
+                        // `value` whose inferred args contain `Any`,
+                        // using the let annotation as the target. This
+                        // is what lets the JIT monomorphizer pick a
+                        // single concrete enum instantiation when an
+                        // EnumCtor only provides args for some of T/E.
+                        self.refine_enum_ctor_args(value, ann);
                         ann.clone()
                     }
                     None => vt,
@@ -1627,6 +1713,16 @@ impl TypeChecker {
                     .iter()
                     .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
                     .collect();
+                // Stash for the JIT enum-monomorphization pass. Args
+                // may still contain TypeVars when the call sits inside
+                // another generic context — that's resolved at
+                // expansion time. Always recorded (even for non-generic
+                // enums) since the cost is trivial.
+                if !type_params.is_empty() {
+                    self.enum_ctor_type_args
+                        .borrow_mut()
+                        .insert(span, (enum_name.clone(), inferred_args.clone()));
+                }
                 // Validate each arg against the substituted payload type.
                 match (&v.payload, args) {
                     (VariantPayloadSig::Unit, _) => {}
@@ -1916,6 +2012,121 @@ fn is_reserved_class(name: &str) -> bool {
 
 fn is_reserved_global(name: &str) -> bool {
     matches!(name, "console")
+}
+
+/// Walk `e` and call `tc.refine_enum_ctor_args(inner, target)` on
+/// every `return inner` we encounter. Used by `check_fn` to propagate
+/// the declared return type into early-return enum-ctor sites.
+fn refine_returns(tc: &TypeChecker, e: &Expr, target: &Type) {
+    if let ExprKind::Return(Some(inner)) = &e.kind {
+        tc.refine_enum_ctor_args(inner, target);
+    }
+    walk_children(e, &mut |c| refine_returns(tc, c, target));
+}
+
+/// Visit every direct child Expr of `e`. A small structural walk used
+/// only by `refine_returns`; not optimized.
+fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    match &e.kind {
+        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            f(lhs);
+            f(rhs);
+        }
+        ExprKind::Cast { expr, .. } => f(expr),
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Field { obj, .. } => f(obj),
+        ExprKind::MethodCall { obj, args, .. } => {
+            f(obj);
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::New { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::Block(b) => walk_block_children(b, f),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            f(cond);
+            walk_block_children(then_branch, f);
+            if let Some(e) = else_branch {
+                f(e);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            f(expr);
+            walk_block_children(then_branch, f);
+            if let Some(e) = else_branch {
+                f(e);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            f(cond);
+            walk_block_children(body, f);
+        }
+        ExprKind::Loop { body } => walk_block_children(body, f),
+        ExprKind::ForIn { iter, body, .. } => {
+            f(iter);
+            walk_block_children(body, f);
+        }
+        ExprKind::Return(Some(x)) => f(x),
+        ExprKind::Assign { value, .. }
+        | ExprKind::AssignField { value, .. }
+        | ExprKind::AssignIndex { value, .. } => f(value),
+        ExprKind::Array(items) => {
+            for i in items {
+                f(i);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                f(k);
+                f(v);
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            f(obj);
+            f(index);
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for x in es {
+                    f(x);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, x) in fs {
+                    f(x);
+                }
+            }
+        },
+        ExprKind::Match { scrutinee, arms } => {
+            f(scrutinee);
+            for arm in arms {
+                f(&arm.body);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn walk_block_children(b: &ilang_ast::Block, f: &mut dyn FnMut(&Expr)) {
+    for s in &b.stmts {
+        match &s.kind {
+            StmtKind::Let { value, .. } => f(value),
+            StmtKind::Expr(e) => f(e),
+        }
+    }
+    if let Some(t) = &b.tail {
+        f(t);
+    }
 }
 
 fn signature_of(f: &FnDecl) -> Signature {

@@ -91,7 +91,11 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             eprintln!("{display_path} {e}");
             return ExitCode::FAILURE;
         }
-        return match ilang_codegen::jit_run_with(&prog, &tc.fn_call_type_args()) {
+        return match ilang_codegen::jit_run_with(
+            &prog,
+            &tc.fn_call_type_args(),
+            &tc.enum_ctor_type_args(),
+        ) {
             Ok(v) => {
                 let s = format!("{v}");
                 if !s.is_empty() {
