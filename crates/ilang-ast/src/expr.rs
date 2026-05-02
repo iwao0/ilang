@@ -129,6 +129,10 @@ pub enum ExprKind {
     },
     /// Array literal: `[a, b, c]`.
     Array(Vec<Expr>),
+    /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
+    /// expressions (string / int / bool literals at parse time;
+    /// validated against the inferred K by the type checker).
+    MapLit(Vec<(Expr, Expr)>),
     /// Index read: `obj[idx]`.
     Index {
         obj: Box<Expr>,

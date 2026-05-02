@@ -1494,3 +1494,109 @@ fn array_literal_trailing_comma() {
         Value::Int(0)
     );
 }
+
+#[test]
+fn map_literal_string_keys() {
+    let src = r#"
+        let m: Map<string, i64> = {"a": 1, "b": 2, "c": 3}
+        m["b"]
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(2));
+}
+
+#[test]
+fn map_int_keys_and_get() {
+    let src = r#"
+        let m: Map<i64, string> = {1: "one", 2: "two"}
+        m.get(2)
+    "#;
+    use std::rc::Rc;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Some(Box::new(Value::Str(Rc::new("two".into()))))
+    );
+    let src = r#"
+        let m: Map<i64, string> = {1: "one"}
+        m.get(99)
+    "#;
+    assert_eq!(run(src).unwrap(), Value::None);
+}
+
+#[test]
+fn map_set_has_delete_size() {
+    let src = r#"
+        let m: Map<string, i64> = new Map<string, i64>()
+        m.set("a", 1)
+        m.set("b", 2)
+        m["c"] = 3
+        let s1 = m.size()
+        let h = m.has("b")
+        let removed = m.delete("b")
+        let s2 = m.size()
+        s1 * 100 + (h as i64) * 10 + (removed as i64) + s2
+    "#;
+    // s1=3, h=true(1), removed=true(1), s2=2 => 3*100 + 1*10 + 1 + 2 = 313
+    assert_eq!(run(src).unwrap(), Value::Int(313));
+}
+
+#[test]
+fn map_keys_and_values() {
+    let src = r#"
+        let m: Map<string, i64> = {"a": 1, "b": 2}
+        let ks = m.keys()
+        let vs = m.values()
+        ks.length + vs.length
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(4));
+}
+
+#[test]
+fn map_index_missing_errors() {
+    let src = r#"
+        let m: Map<string, i64> = {"a": 1}
+        m["nope"]
+    "#;
+    assert!(matches!(
+        run(src),
+        Err(RuntimeError::TypeError { .. })
+    ));
+}
+
+#[test]
+fn map_rejects_float_key_type() {
+    use ilang_types::TypeChecker;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    // float-key map literal: doubly rejected (parser doesn't see it
+    // as a map literal; even if we route around that, the type
+    // checker rejects `Map<f64, V>` because f64 isn't a valid key).
+    let src = r#"let m: Map<f64, i64> = {1.0: 1}"#;
+    let toks = tokenize(src).unwrap();
+    assert!(parse(&toks).is_err() || {
+        let prog = parse(&toks).unwrap();
+        TypeChecker::new().check(&prog).is_err()
+    });
+    // string-key map with a float-typed `Map<f64, V>` annotation: parses,
+    // but typecheck must reject (annotation K vs literal K mismatch).
+    let src = r#"let m: Map<f64, i64> = {"a": 1}"#;
+    let toks = tokenize(src).unwrap();
+    let prog = parse(&toks).unwrap();
+    assert!(TypeChecker::new().check(&prog).is_err());
+}
+
+#[test]
+fn map_overwrite_releases_old_value() {
+    // String values should get released when overwritten — this is
+    // mostly a smoke test that nothing panics.
+    let src = r#"
+        let m: Map<string, string> = new Map<string, string>()
+        m.set("k", "v1")
+        m.set("k", "v2")
+        m["k"]
+    "#;
+    use std::rc::Rc;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Str(Rc::new("v2".into()))
+    );
+}

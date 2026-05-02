@@ -84,6 +84,13 @@ pub(crate) fn lower_expr(
                 span: e.span,
             })
         }
+        ExprKind::MapLit(_) => {
+            // Map<K, V> is interpreter-only for now.
+            Err(CodegenError::Unsupported {
+                what: "Map<K, V> is not yet supported in JIT (interpreter only)".into(),
+                span: e.span,
+            })
+        }
         ExprKind::Cast { expr, ty } => {
             let inner = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
                 what: "cast on unit".into(),

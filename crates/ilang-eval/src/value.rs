@@ -53,6 +53,51 @@ pub enum Value {
     /// anonymous) with no captured environment — closures aren't
     /// implemented yet. Cheap to clone (just bumps the Rc).
     Fn(Rc<ilang_ast::FnDecl>),
+    /// Built-in `Map<K, V>`. Keys are restricted to hashable
+    /// primitives (string / int / bool) at the type-checker level.
+    /// Wrapped in `Rc<RefCell>` so passing/cloning is cheap and
+    /// mutations through one binding are visible to all aliases.
+    Map(Rc<RefCell<std::collections::HashMap<MapKey, Value>>>),
+}
+
+/// Hashable wrapper for the subset of `Value`s that can serve as
+/// `Map` keys. Construction is fallible (`MapKey::from_value`) — only
+/// strings, integers (signed widened to i64, unsigned to u64), and
+/// booleans are accepted. Float keys are intentionally rejected (NaN
+/// breaks `Eq`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Str(Rc<String>),
+    Int(i64),
+    UInt(u64),
+    Bool(bool),
+}
+
+impl MapKey {
+    pub fn from_value(v: &Value) -> Option<Self> {
+        Some(match v {
+            Value::Str(s) => MapKey::Str(s.clone()),
+            Value::Int8(n) => MapKey::Int(*n as i64),
+            Value::Int16(n) => MapKey::Int(*n as i64),
+            Value::Int32(n) => MapKey::Int(*n as i64),
+            Value::Int(n) => MapKey::Int(*n),
+            Value::UInt8(n) => MapKey::UInt(*n as u64),
+            Value::UInt16(n) => MapKey::UInt(*n as u64),
+            Value::UInt32(n) => MapKey::UInt(*n as u64),
+            Value::UInt64(n) => MapKey::UInt(*n),
+            Value::Bool(b) => MapKey::Bool(*b),
+            _ => return None,
+        })
+    }
+
+    pub fn into_value(self) -> Value {
+        match self {
+            MapKey::Str(s) => Value::Str(s),
+            MapKey::Int(n) => Value::Int(n),
+            MapKey::UInt(n) => Value::UInt64(n),
+            MapKey::Bool(b) => Value::Bool(b),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,6 +227,24 @@ impl std::fmt::Display for Value {
                 } else {
                     write!(f, "<fn {}>", decl.name)
                 }
+            }
+            Value::Map(m) => {
+                let m = m.borrow();
+                write!(f, "{{")?;
+                let mut keys: Vec<&MapKey> = m.keys().collect();
+                // Stable display order so test expectations don't depend
+                // on hashmap iteration randomness.
+                keys.sort_by_key(|k| format!("{}", (*k).clone().into_value()));
+                let mut first = true;
+                for k in keys {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    let kv = k.clone().into_value();
+                    write!(f, "{kv}: {}", m[k])?;
+                }
+                write!(f, "}}")
             }
             Value::Object(o) => {
                 let o = o.borrow();

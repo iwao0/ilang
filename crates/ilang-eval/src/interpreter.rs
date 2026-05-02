@@ -258,6 +258,86 @@ impl Interpreter {
                         span,
                     });
                 }
+                if let Value::Map(m) = &v {
+                    let m = m.clone();
+                    match method.as_str() {
+                        "get" => {
+                            let kv = self.eval_expr(&args[0])?;
+                            let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
+                                RuntimeError::TypeError {
+                                    msg: format!("invalid map key value {kv:?}"),
+                                    span: args[0].span,
+                                }
+                            })?;
+                            return Ok(match m.borrow().get(&key) {
+                                Some(v) => Value::Some(Box::new(v.clone())),
+                                None => Value::None,
+                            });
+                        }
+                        "set" => {
+                            let kv = self.eval_expr(&args[0])?;
+                            let vv = self.eval_expr(&args[1])?;
+                            let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
+                                RuntimeError::TypeError {
+                                    msg: format!("invalid map key value {kv:?}"),
+                                    span: args[0].span,
+                                }
+                            })?;
+                            if let Some(old) = m.borrow_mut().insert(key, vv) {
+                                self.release(old);
+                            }
+                            return Ok(Value::Unit);
+                        }
+                        "has" => {
+                            let kv = self.eval_expr(&args[0])?;
+                            let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
+                                RuntimeError::TypeError {
+                                    msg: format!("invalid map key value {kv:?}"),
+                                    span: args[0].span,
+                                }
+                            })?;
+                            return Ok(Value::Bool(m.borrow().contains_key(&key)));
+                        }
+                        "delete" => {
+                            let kv = self.eval_expr(&args[0])?;
+                            let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
+                                RuntimeError::TypeError {
+                                    msg: format!("invalid map key value {kv:?}"),
+                                    span: args[0].span,
+                                }
+                            })?;
+                            let removed = m.borrow_mut().remove(&key);
+                            let was_present = removed.is_some();
+                            if let Some(old) = removed {
+                                self.release(old);
+                            }
+                            return Ok(Value::Bool(was_present));
+                        }
+                        "size" => {
+                            return Ok(Value::Int(m.borrow().len() as i64));
+                        }
+                        "keys" => {
+                            let ks: Vec<Value> = m
+                                .borrow()
+                                .keys()
+                                .cloned()
+                                .map(|k| k.into_value())
+                                .collect();
+                            return Ok(Value::Array(Rc::new(RefCell::new(ks))));
+                        }
+                        "values" => {
+                            let vs: Vec<Value> = m.borrow().values().cloned().collect();
+                            return Ok(Value::Array(Rc::new(RefCell::new(vs))));
+                        }
+                        _ => {
+                            return Err(RuntimeError::UnknownMethod {
+                                class: "Map".into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                    }
+                }
                 if let Value::Str(s) = &v {
                     let s = s.clone();
                     match method.as_str() {
@@ -435,9 +515,39 @@ impl Interpreter {
                 }
                 Ok(Value::Array(Rc::new(RefCell::new(vals))))
             }
+            ExprKind::MapLit(entries) => {
+                let mut m: std::collections::HashMap<crate::value::MapKey, Value> =
+                    std::collections::HashMap::with_capacity(entries.len());
+                for (k_expr, v_expr) in entries {
+                    let kv = self.eval_expr(k_expr)?;
+                    let vv = self.eval_expr(v_expr)?;
+                    let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
+                        RuntimeError::TypeError {
+                            msg: format!("invalid map key value {kv:?}"),
+                            span: k_expr.span,
+                        }
+                    })?;
+                    m.insert(key, vv);
+                }
+                Ok(Value::Map(Rc::new(RefCell::new(m))))
+            }
             ExprKind::Index { obj, index } => {
                 let target = self.eval_expr(obj)?;
                 let idx = self.eval_expr(index)?;
+                if let Value::Map(m) = target {
+                    let key = crate::value::MapKey::from_value(&idx).ok_or_else(|| {
+                        RuntimeError::TypeError {
+                            msg: format!("invalid map key value {idx:?}"),
+                            span: index.span,
+                        }
+                    })?;
+                    return m.borrow().get(&key).cloned().ok_or_else(|| {
+                        RuntimeError::TypeError {
+                            msg: "map key not found".into(),
+                            span,
+                        }
+                    });
+                }
                 let i = index_to_usize(idx, index.span)?;
                 let arr = expect_array(target, obj.span)?;
                 let arr = arr.borrow();
@@ -452,8 +562,20 @@ impl Interpreter {
             ExprKind::AssignIndex { obj, index, value } => {
                 let target = self.eval_expr(obj)?;
                 let idx = self.eval_expr(index)?;
-                let i = index_to_usize(idx, index.span)?;
                 let v = self.eval_expr(value)?;
+                if let Value::Map(m) = target {
+                    let key = crate::value::MapKey::from_value(&idx).ok_or_else(|| {
+                        RuntimeError::TypeError {
+                            msg: format!("invalid map key value {idx:?}"),
+                            span: index.span,
+                        }
+                    })?;
+                    if let Some(old) = m.borrow_mut().insert(key, v) {
+                        self.release(old);
+                    }
+                    return Ok(Value::Unit);
+                }
+                let i = index_to_usize(idx, index.span)?;
                 let arr = expect_array(target, obj.span)?;
                 let mut arr = arr.borrow_mut();
                 if i >= arr.len() {
@@ -853,6 +975,22 @@ impl Interpreter {
         args: &[Expr],
         span: Span,
     ) -> Result<Value, RuntimeError> {
+        // Built-in `new Map<K, V>()` — returns an empty Value::Map.
+        // The type checker has already verified the arity (no args)
+        // and that K is a valid key type.
+        if class == "Map" {
+            if !args.is_empty() {
+                return Err(RuntimeError::ArityMismatch {
+                    name: "Map::init".into(),
+                    expected: 0,
+                    got: args.len(),
+                    span,
+                });
+            }
+            return Ok(Value::Map(Rc::new(RefCell::new(
+                std::collections::HashMap::new(),
+            ))));
+        }
         let evaluated = self.eval_args(args)?;
         let decl = self
             .classes

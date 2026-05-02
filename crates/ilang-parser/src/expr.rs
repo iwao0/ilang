@@ -546,8 +546,25 @@ impl<'a> Parser<'a> {
                 Ok(e)
             }
             TokenKind::LBrace => {
-                let block = parse_block(self)?;
-                Ok(Expr::new(ExprKind::Block(block), span))
+                // Map literal vs. block disambiguation. A `{` followed by
+                // a key token (string / int / bool literal) and then `:`
+                // is a map literal; otherwise it's a block. The tokens
+                // that can start a key never form a valid statement
+                // followed by `:`, so this rule has no false positives
+                // against existing programs.
+                let is_map = matches!(
+                    self.peek_n(1).map(|t| &t.kind),
+                    Some(TokenKind::Str(_) | TokenKind::Int(_) | TokenKind::True | TokenKind::False)
+                ) && matches!(
+                    self.peek_n(2).map(|t| &t.kind),
+                    Some(TokenKind::Colon)
+                );
+                if is_map {
+                    self.parse_map_literal(span)
+                } else {
+                    let block = parse_block(self)?;
+                    Ok(Expr::new(ExprKind::Block(block), span))
+                }
             }
             TokenKind::LBracket => {
                 self.bump();
@@ -734,6 +751,29 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Loop, "'loop'")?;
         let body = parse_block(self)?;
         Ok(Expr::new(ExprKind::Loop { body }, span))
+    }
+
+    /// Map literal: `{ key1: value1, key2: value2, ... }`. Trailing
+    /// comma allowed. Empty maps `{}` are not produced here — that
+    /// path is handled by the block-vs-map lookahead above (an empty
+    /// `{}` is parsed as a unit-block; for an empty Map use
+    /// `new Map<K, V>()`).
+    fn parse_map_literal(&mut self, span: ilang_ast::Span) -> Result<Expr, ParseError> {
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut entries = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace) {
+            let key = self.parse_expr(0)?;
+            self.expect(&TokenKind::Colon, "':'")?;
+            let value = self.parse_expr(0)?;
+            entries.push((key, value));
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(Expr::new(ExprKind::MapLit(entries), span))
     }
 
     /// Anonymous function expression: `fn(p: T, ...): R { body }`. The

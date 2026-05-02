@@ -195,6 +195,67 @@ impl TypeChecker {
         );
         self.vars
             .insert("console".to_string(), Type::Object("Console".to_string()));
+
+        // Built-in `Map<K, V>` — generic class with no fields. Methods
+        // are intercepted in the interpreter; the signatures here are
+        // what the type checker enforces. Indexing (`m[k]` / `m[k] = v`)
+        // is handled in the Index/AssignIndex arms by recognizing
+        // `Type::Generic { Map, [K, V] }` receivers.
+        let k = || Type::TypeVar("K".into());
+        let v = || Type::TypeVar("V".into());
+        let mut map_methods = HashMap::new();
+        map_methods.insert(
+            "init".into(),
+            Signature { params: vec![], ret: Type::Unit, variadic: false },
+        );
+        map_methods.insert(
+            "get".into(),
+            Signature {
+                params: vec![k()],
+                ret: Type::Optional(Box::new(v())),
+                variadic: false,
+            },
+        );
+        map_methods.insert(
+            "set".into(),
+            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false },
+        );
+        map_methods.insert(
+            "has".into(),
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false },
+        );
+        map_methods.insert(
+            "delete".into(),
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false },
+        );
+        map_methods.insert(
+            "size".into(),
+            Signature { params: vec![], ret: Type::I64, variadic: false },
+        );
+        map_methods.insert(
+            "keys".into(),
+            Signature {
+                params: vec![],
+                ret: Type::Array { elem: Box::new(k()), fixed: None },
+                variadic: false,
+            },
+        );
+        map_methods.insert(
+            "values".into(),
+            Signature {
+                params: vec![],
+                ret: Type::Array { elem: Box::new(v()), fixed: None },
+                variadic: false,
+            },
+        );
+        self.classes.insert(
+            "Map".into(),
+            ClassSig {
+                type_params: vec!["K".into(), "V".into()],
+                fields: HashMap::new(),
+                methods: map_methods,
+            },
+        );
     }
 
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
@@ -1099,9 +1160,60 @@ impl TypeChecker {
                     fixed: Some(elements.len()),
                 })
             }
+            ExprKind::MapLit(entries) => {
+                // The parser only ever emits MapLit when there's at least
+                // one `key: value` entry; `{}` parses as an empty block.
+                let (k0, v0) = &entries[0];
+                let k_ty = self.check_expr(k0, env, ret_ty, in_class, loop_depth)?;
+                if !is_valid_map_key_type(&k_ty) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "map key type {k_ty} (only string / int / bool keys are supported)"
+                        ),
+                        span: k0.span,
+                    });
+                }
+                let v_ty = self.check_expr(v0, env, ret_ty, in_class, loop_depth)?;
+                for (k, v) in &entries[1..] {
+                    let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
+                    if !literal_assignable(k, &kt, &k_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: k_ty.clone(),
+                            got: kt,
+                            span: k.span,
+                        });
+                    }
+                    let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
+                    if !literal_assignable(v, &vt, &v_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: v_ty.clone(),
+                            got: vt,
+                            span: v.span,
+                        });
+                    }
+                }
+                Ok(Type::Generic {
+                    base: "Map".into(),
+                    args: vec![k_ty, v_ty],
+                })
+            }
             ExprKind::Index { obj, index } => {
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
+                // Map<K, V> indexing: `m[k]` returns V (panics at runtime
+                // if missing — use `.get(k)` for `V?`).
+                if let Type::Generic { base, args } = &ot {
+                    if base == "Map" && args.len() == 2 {
+                        if !literal_assignable(index, &it, &args[0]) {
+                            return Err(TypeError::Mismatch {
+                                expected: args[0].clone(),
+                                got: it,
+                                span: index.span,
+                            });
+                        }
+                        return Ok(args[1].clone());
+                    }
+                }
                 if !it.is_int() {
                     return Err(TypeError::Mismatch {
                         expected: Type::I64,
@@ -1124,6 +1236,27 @@ impl TypeChecker {
             ExprKind::AssignIndex { obj, index, value } => {
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
+                // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
+                if let Type::Generic { base, args } = &ot {
+                    if base == "Map" && args.len() == 2 {
+                        if !literal_assignable(index, &it, &args[0]) {
+                            return Err(TypeError::Mismatch {
+                                expected: args[0].clone(),
+                                got: it,
+                                span: index.span,
+                            });
+                        }
+                        let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                        if !literal_assignable(value, &vt, &args[1]) {
+                            return Err(TypeError::Mismatch {
+                                expected: args[1].clone(),
+                                got: vt,
+                                span: value.span,
+                            });
+                        }
+                        return Ok(Type::Unit);
+                    }
+                }
                 if !it.is_int() {
                     return Err(TypeError::Mismatch {
                         expected: Type::I64,
@@ -1547,8 +1680,19 @@ impl TypeChecker {
     }
 }
 
+/// Map keys are constrained to types with stable structural equality.
+/// Floats are excluded (NaN), as are heap objects and arrays.
+fn is_valid_map_key_type(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Str | Type::Bool
+            | Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+    )
+}
+
 fn is_reserved_class(name: &str) -> bool {
-    matches!(name, "Console")
+    matches!(name, "Console" | "Map")
 }
 
 fn is_reserved_global(name: &str) -> bool {

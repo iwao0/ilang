@@ -271,6 +271,17 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
         ExprKind::Array(items) => ExprKind::Array(
             items.iter().map(|i| hoist_in_expr(i, counter, hoisted)).collect(),
         ),
+        ExprKind::MapLit(entries) => ExprKind::MapLit(
+            entries
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        hoist_in_expr(k, counter, hoisted),
+                        hoist_in_expr(v, counter, hoisted),
+                    )
+                })
+                .collect(),
+        ),
         ExprKind::Index { obj, index } => ExprKind::Index {
             obj: Box::new(hoist_in_expr(obj, counter, hoisted)),
             index: Box::new(hoist_in_expr(index, counter, hoisted)),
@@ -561,6 +572,12 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(i, needed, work);
             }
         }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                scan_expr(k, needed, work);
+                scan_expr(v, needed, work);
+            }
+        }
         ExprKind::Index { obj, index } => {
             scan_expr(obj, needed, work);
             scan_expr(index, needed, work);
@@ -840,6 +857,12 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         },
         ExprKind::Array(items) => ExprKind::Array(
             items.iter().map(|e| subst_expr(e, params, args)).collect(),
+        ),
+        ExprKind::MapLit(entries) => ExprKind::MapLit(
+            entries
+                .iter()
+                .map(|(k, v)| (subst_expr(k, params, args), subst_expr(v, params, args)))
+                .collect(),
         ),
         ExprKind::Index { obj, index } => ExprKind::Index {
             obj: Box::new(subst_expr(obj, params, args)),
@@ -1121,6 +1144,12 @@ fn rewrite_expr(e: &Expr) -> Expr {
         ExprKind::Array(items) => {
             ExprKind::Array(items.iter().map(rewrite_expr).collect())
         }
+        ExprKind::MapLit(entries) => ExprKind::MapLit(
+            entries
+                .iter()
+                .map(|(k, v)| (rewrite_expr(k), rewrite_expr(v)))
+                .collect(),
+        ),
         ExprKind::Index { obj, index } => ExprKind::Index {
             obj: Box::new(rewrite_expr(obj)),
             index: Box::new(rewrite_expr(index)),

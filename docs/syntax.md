@@ -301,6 +301,30 @@ xs.includes(20)                  // bool を返す
 
 ---
 
+## 8b. 辞書 (Map)
+
+```rust
+let m: Map<string, i64> = {"a": 1, "b": 2}        // リテラル
+let empty: Map<string, i64> = new Map<string, i64>()  // 空マップ
+
+m["c"] = 3                       // 書き込み
+m["a"]                           // 読み取り (キー欠如は実行時エラー)
+m.get("nope")                    // V? を返す (none あり、安全な読み取り)
+m.has("a")                       // bool
+m.delete("a")                    // bool (削除できたか)
+m.set("d", 4)                    // m["d"] = 4 と同等
+m.size()                         // i64
+m.keys()                         // K[]
+m.values()                       // V[]
+```
+
+- キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可)
+- リテラル `{ key: value, ... }` の最初のキーから K を、最初の値から V を推論
+- 空マップは `new Map<K, V>()` で構築 (`{}` は空ブロック扱い)
+- **JIT 未対応** — interpreter のみ
+
+---
+
 ## 9. Optional
 
 ```rust
@@ -437,7 +461,7 @@ JIT で `Unsupported` になる主なケース:
 ## 15. 未実装
 
 - 継承 (`extends`, `super`)
-- 辞書/Map 型
+- Map の JIT 対応 (interpreter は実装済 — Map 節を参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
 - モジュール / `use` / インポート
