@@ -319,7 +319,7 @@ xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
 xs.includes(20)                  // bool を返す
 ```
 
-`slice` / `map` / `filter` などは未実装 (interpreter / JIT とも)。それ以外 (`length` / `push` / `pop` / `indexOf` / `includes` / `for-in`) は **interpreter / JIT 同等にサポート** — 要素型の制限はありません。
+高階メソッドもサポート: `xs.map(fn)` / `xs.filter(pred)` / `xs.forEach(fn)` / `xs.slice(start, end)`。コールバックは **第一級関数** (名前参照または匿名 `fn`) を渡す形 — クロージャ未対応のため fn 本体は外側のローカル変数を参照不可。`length` / `push` / `pop` / `indexOf` / `includes` / `for-in` 含めて **interpreter / JIT とも同等** — 要素型の制限はありません。
 
 ---
 
@@ -621,9 +621,7 @@ JIT で `Unsupported` になる主なケース:
 ## 17. 未実装 (今後の TODO)
 
 - 継承 (`extends`, `super`)
-- ジェネリック enum (Result 含む) の JIT 対応 (interpreter は実装済 — §11 参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
-- 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
 - ジェネリック制約 (bounds)
 - クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
 - Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)

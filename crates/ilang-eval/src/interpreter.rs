@@ -253,6 +253,74 @@ impl Interpreter {
                             Value::Bool(pos.is_some())
                         });
                     }
+                    if method == "slice" {
+                        // slice(start, end) — JS-style: start inclusive,
+                        // end exclusive; clamps to [0, len].
+                        let start = match self.eval_expr(&args[0])? {
+                            Value::Int(n) => n,
+                            other => return Err(RuntimeError::TypeError {
+                                msg: format!("slice start must be i64, got {other:?}"),
+                                span: args[0].span,
+                            }),
+                        };
+                        let end = match self.eval_expr(&args[1])? {
+                            Value::Int(n) => n,
+                            other => return Err(RuntimeError::TypeError {
+                                msg: format!("slice end must be i64, got {other:?}"),
+                                span: args[1].span,
+                            }),
+                        };
+                        let inner = arr.borrow();
+                        let len = inner.len() as i64;
+                        let s = start.max(0).min(len) as usize;
+                        let e_ = end.max(0).min(len) as usize;
+                        let s = s.min(e_);
+                        let out: Vec<Value> = inner[s..e_].to_vec();
+                        return Ok(Value::Array(Rc::new(RefCell::new(out))));
+                    }
+                    if method == "map" || method == "filter" || method == "forEach" {
+                        let f = self.eval_expr(&args[0])?;
+                        let decl = match &f {
+                            Value::Fn(d) => d.clone(),
+                            other => return Err(RuntimeError::TypeError {
+                                msg: format!("{method} expects a function, got {other:?}"),
+                                span: args[0].span,
+                            }),
+                        };
+                        let snapshot: Vec<Value> = arr.borrow().clone();
+                        match method.as_str() {
+                            "map" => {
+                                let mut out = Vec::with_capacity(snapshot.len());
+                                for x in snapshot {
+                                    let r = self.invoke(&decl.name, &decl, vec![x], None, span)?;
+                                    out.push(r);
+                                }
+                                return Ok(Value::Array(Rc::new(RefCell::new(out))));
+                            }
+                            "filter" => {
+                                let mut out = Vec::new();
+                                for x in snapshot {
+                                    let r = self.invoke(&decl.name, &decl, vec![x.clone()], None, span)?;
+                                    match r {
+                                        Value::Bool(true) => out.push(x),
+                                        Value::Bool(false) => {}
+                                        other => return Err(RuntimeError::TypeError {
+                                            msg: format!("filter predicate must return bool, got {other:?}"),
+                                            span,
+                                        }),
+                                    }
+                                }
+                                return Ok(Value::Array(Rc::new(RefCell::new(out))));
+                            }
+                            "forEach" => {
+                                for x in snapshot {
+                                    self.invoke(&decl.name, &decl, vec![x], None, span)?;
+                                }
+                                return Ok(Value::Unit);
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
                     return Err(RuntimeError::UnknownMethod {
                         class: "array".into(),
                         method: method.clone(),

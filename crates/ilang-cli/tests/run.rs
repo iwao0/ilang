@@ -754,3 +754,56 @@ fn jit_for_in_object_array() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "60");
 }
+
+#[test]
+fn array_map_filter_slice_interp_and_jit() {
+    let src = "fn double(n: i64): i64 { n * 2 }\nfn isEven(n: i64): bool { n % 2 == 0 }\nlet xs: i64[] = [1, 2, 3, 4, 5]\nlet d = xs.map(double)\nlet e = xs.filter(isEven)\nlet s = xs.slice(1, 4)\nd[0] + d[4] + e[0] + e[1] + s[0] + s[1] + s[2]";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("am_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit {
+            cmd.arg("--jit");
+        }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        // 2 + 10 + 2 + 4 + 2 + 3 + 4 = 27
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "27", "jit={jit}");
+    }
+}
+
+#[test]
+fn array_foreach_runs_callback() {
+    // Use a string accumulator via a dedicated counter object. Side-
+    // effects on a class field prove forEach iterates.
+    // No closures — verify forEach iterates by mutating a per-element
+    // counter object passed in by reference.
+    let src = "class Counter {\n  n: i64\n  init() { this.n = 0 }\n  bump() { this.n = this.n + 1 }\n  get(): i64 { this.n }\n}\nfn bump(c: Counter) { c.bump() }\nlet cs: Counter[] = [new Counter(), new Counter(), new Counter()]\ncs.forEach(bump)\ncs[0].get() + cs[1].get() + cs[2].get()";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("fe_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit {
+            cmd.arg("--jit");
+        }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3", "jit={jit}");
+    }
+}
+
+#[test]
+fn array_string_map_filter_chain() {
+    let src = "fn upper(s: string): string { s.toUpperCase() }\nfn nonempty(s: string): bool { s.length > 0 }\nlet xs: string[] = [\"\", \"hi\", \"\", \"yo\"]\nlet ys = xs.filter(nonempty).map(upper)\nys.length";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("strchain_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit {
+            cmd.arg("--jit");
+        }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2", "jit={jit}");
+    }
+}

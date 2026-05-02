@@ -1047,6 +1047,78 @@ impl TypeChecker {
                             Type::Bool
                         });
                     }
+                    if method == "slice" {
+                        // slice(start: i64, end: i64): T[]
+                        if args.len() != 2 {
+                            return Err(TypeError::ArityMismatch {
+                                name: "slice".into(),
+                                expected: 2,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        for a in args {
+                            let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
+                            if !literal_assignable(a, &at, &Type::I64) {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::I64,
+                                    got: at,
+                                    span: a.span,
+                                });
+                            }
+                        }
+                        return Ok(Type::Array { elem: elem.clone(), fixed: None });
+                    }
+                    if method == "map" || method == "filter" || method == "forEach" {
+                        if args.len() != 1 {
+                            return Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected: 1,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        let ft = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                        let (params, ret) = match &ft {
+                            Type::Fn { params, ret } => (params.clone(), (**ret).clone()),
+                            _ => return Err(TypeError::Mismatch {
+                                expected: Type::Fn {
+                                    params: vec![(**elem).clone()],
+                                    ret: Box::new(Type::Any),
+                                },
+                                got: ft,
+                                span: args[0].span,
+                            }),
+                        };
+                        if params.len() != 1 || !assignable(elem, &params[0]) {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Fn {
+                                    params: vec![(**elem).clone()],
+                                    ret: Box::new(Type::Any),
+                                },
+                                got: Type::Fn {
+                                    params: params.clone(),
+                                    ret: Box::new(ret.clone()),
+                                },
+                                span: args[0].span,
+                            });
+                        }
+                        return Ok(match method.as_str() {
+                            "map" => Type::Array { elem: Box::new(ret), fixed: None },
+                            "filter" => {
+                                if !matches!(ret, Type::Bool) {
+                                    return Err(TypeError::Mismatch {
+                                        expected: Type::Bool,
+                                        got: ret,
+                                        span: args[0].span,
+                                    });
+                                }
+                                Type::Array { elem: elem.clone(), fixed: None }
+                            }
+                            "forEach" => Type::Unit,
+                            _ => unreachable!(),
+                        });
+                    }
                     return Err(TypeError::UnknownMethod {
                         class: format!("{ot}"),
                         method: method.clone(),

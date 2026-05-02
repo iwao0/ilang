@@ -493,6 +493,28 @@ pub(crate) fn lower_expr(
                     let found = b.ins().icmp(IntCC::NotEqual, idx, neg_one);
                     return Ok(Some((found, JitTy::Bool)));
                 }
+                if method == "slice" {
+                    if args.len() != 2 {
+                        return Err(CodegenError::Unsupported {
+                            what: "array.slice takes 2 args".into(),
+                            span: e.span,
+                        });
+                    }
+                    let elem_jty = lc.array_kinds[id as usize].elem;
+                    return lower_array_slice(b, lc, obj_v, obj, &args[0], &args[1], id, elem_jty);
+                }
+                if method == "map" || method == "filter" || method == "forEach" {
+                    if args.len() != 1 {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("array.{method} takes 1 arg"),
+                            span: e.span,
+                        });
+                    }
+                    let elem_jty = lc.array_kinds[id as usize].elem;
+                    return lower_array_higher_order(
+                        b, lc, obj_v, obj, &args[0], id, elem_jty, method,
+                    );
+                }
             }
             // Built-in string methods (JS-style camelCase).
             if matches!(obj_t, JitTy::Str) {
@@ -2409,4 +2431,296 @@ pub(crate) fn lower_array_pop(
     }
 
     Ok(Some((result, JitTy::Optional(opt_id))))
+}
+
+/// Lower `xs.slice(start, end)`. Allocates a new array and copies the
+/// element bytes one slot at a time. For heap V each copied element
+/// gets retained so the new array owns its own +1.
+pub(crate) fn lower_array_slice(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    arr_v: cranelift::prelude::Value,
+    obj: &ilang_ast::Expr,
+    start_e: &ilang_ast::Expr,
+    end_e: &ilang_ast::Expr,
+    array_id: u32,
+    elem_jty: JitTy,
+) -> Result<Option<TV>, CodegenError> {
+    let (sv, st) = lower_expr(b, lc, start_e)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "slice start is unit".into(), span: start_e.span,
+    })?;
+    let start_i64 = coerce(b, (sv, st), JitTy::I64, start_e.span)?;
+    let (ev, et) = lower_expr(b, lc, end_e)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "slice end is unit".into(), span: end_e.span,
+    })?;
+    let end_i64 = coerce(b, (ev, et), JitTy::I64, end_e.span)?;
+
+    let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
+    let zero = b.ins().iconst(I64, 0);
+
+    // Clamp: s = max(0, min(start, len)); e = max(s, min(end, len)).
+    let start_clamped_lo = clamp_max(b, start_i64, zero);
+    let start_clamped = clamp_min(b, start_clamped_lo, len);
+    let end_clamped_lo = clamp_max(b, end_i64, zero);
+    let end_clamped = clamp_min(b, end_clamped_lo, len);
+    let end_final = clamp_max(b, end_clamped, start_clamped);
+    let new_len = b.ins().isub(end_final, start_clamped);
+
+    let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, array_id);
+    let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+    let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+    let call = b.ins().call(new_ref, &[elem_size, new_len, drop_fn_ptr]);
+    let new_arr = b.inst_results(call)[0];
+
+    let src_data = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_DATA_OFFSET);
+    let dst_data = b.ins().load(I64, MemFlags::trusted(), new_arr, ARRAY_DATA_OFFSET);
+
+    // for i in 0..new_len: copy src[start+i] to dst[i] + retain if heap
+    let header = b.create_block();
+    let body = b.create_block();
+    let exit = b.create_block();
+    b.append_block_param(header, I64);
+    b.ins().jump(header, &[zero.into()]);
+
+    b.switch_to_block(header);
+    let i = b.block_params(header)[0];
+    let done = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, new_len);
+    b.ins().brif(done, exit, &[], body, &[]);
+
+    b.switch_to_block(body);
+    b.seal_block(body);
+    let src_idx = b.ins().iadd(start_clamped, i);
+    let src_off = b.ins().imul(src_idx, elem_size);
+    let src_addr = b.ins().iadd(src_data, src_off);
+    let dst_off = b.ins().imul(i, elem_size);
+    let dst_addr = b.ins().iadd(dst_data, dst_off);
+    let cl_ty = elem_jty.cl().expect("non-unit elem");
+    let elem = b.ins().load(cl_ty, MemFlags::trusted(), src_addr, 0);
+    if elem_jty.is_heap() {
+        crate::arc::emit_retain_heap(b, lc, elem, elem_jty);
+    }
+    b.ins().store(MemFlags::trusted(), elem, dst_addr, 0);
+    let one = b.ins().iconst(I64, 1);
+    let next = b.ins().iadd(i, one);
+    b.ins().jump(header, &[next.into()]);
+    b.seal_block(header);
+
+    b.switch_to_block(exit);
+    b.seal_block(exit);
+
+    if !is_aliased_heap_source(&obj.kind) {
+        emit_release_heap(b, lc, arr_v, JitTy::Array(array_id));
+    }
+    Ok(Some((new_arr, JitTy::Array(array_id))))
+}
+
+fn clamp_max(b: &mut FunctionBuilder, v: cranelift::prelude::Value, lo: cranelift::prelude::Value)
+    -> cranelift::prelude::Value
+{
+    // max(v, lo)
+    let cond = b.ins().icmp(IntCC::SignedLessThan, v, lo);
+    b.ins().select(cond, lo, v)
+}
+
+fn clamp_min(b: &mut FunctionBuilder, v: cranelift::prelude::Value, hi: cranelift::prelude::Value)
+    -> cranelift::prelude::Value
+{
+    // min(v, hi)
+    let cond = b.ins().icmp(IntCC::SignedGreaterThan, v, hi);
+    b.ins().select(cond, hi, v)
+}
+
+/// Lower `xs.map(f)` / `xs.filter(f)` / `xs.forEach(f)`. The callback
+/// `f` is a first-class fn value (`JitTy::Fn(sig_id)`), invoked via
+/// indirect call per element. Result type:
+///   map     → `U[]` (U = f's return type)
+///   filter  → `T[]`
+///   forEach → unit
+pub(crate) fn lower_array_higher_order(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    arr_v: cranelift::prelude::Value,
+    obj: &ilang_ast::Expr,
+    fn_arg: &ilang_ast::Expr,
+    array_id: u32,
+    elem_jty: JitTy,
+    method: &str,
+) -> Result<Option<TV>, CodegenError> {
+    let (fv, ft) = lower_expr(b, lc, fn_arg)?.ok_or_else(|| CodegenError::Unsupported {
+        what: format!("array.{method} fn arg is unit"), span: fn_arg.span,
+    })?;
+    let sig_id = match ft {
+        JitTy::Fn(id) => id,
+        _ => return Err(CodegenError::Unsupported {
+            what: format!("array.{method} expects a function value"),
+            span: fn_arg.span,
+        }),
+    };
+    let sig = lc.fn_signatures[sig_id as usize].clone();
+    if sig.params.len() != 1 {
+        return Err(CodegenError::Unsupported {
+            what: format!("array.{method} expects fn(T): U taking exactly one arg"),
+            span: fn_arg.span,
+        });
+    }
+    let ret_jty = sig.ret;
+
+    // Build cranelift signature for indirect call.
+    let mut cl_sig = lc.module.make_signature();
+    cl_sig.params.push(cranelift::prelude::AbiParam::new(
+        sig.params[0].cl().ok_or_else(|| CodegenError::Unsupported {
+            what: format!("{method} fn param has unit type"), span: fn_arg.span,
+        })?,
+    ));
+    if let Some(rt) = ret_jty.cl() {
+        cl_sig.returns.push(cranelift::prelude::AbiParam::new(rt));
+    }
+    let sig_ref = b.import_signature(cl_sig);
+
+    let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
+    let src_data = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_DATA_OFFSET);
+    let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
+    let zero = b.ins().iconst(I64, 0);
+
+    // For map / filter: allocate result array up front. Map sizes it
+    // to len; filter starts at 0 and uses push.
+    let (out_arr, out_kind_id, out_elem_size_v) = match method {
+        "map" => {
+            let out_kind_id = intern_array_kind(
+                lc.array_kinds,
+                ArrayKind { elem: ret_jty, fixed: None },
+            );
+            let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, out_kind_id);
+            let out_elem_size = b.ins().iconst(I64, ret_jty.size_bytes() as i64);
+            let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+            let call = b.ins().call(new_ref, &[out_elem_size, len, drop_fn_ptr]);
+            let arr = b.inst_results(call)[0];
+            (Some(arr), Some(out_kind_id), Some(out_elem_size))
+        }
+        "filter" => {
+            // Start with an empty array of T (same kind as input).
+            let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, array_id);
+            let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+            let call = b.ins().call(new_ref, &[elem_size, zero, drop_fn_ptr]);
+            let arr = b.inst_results(call)[0];
+            (Some(arr), Some(array_id), Some(elem_size))
+        }
+        _ => (None, None, None),
+    };
+
+    // Loop: for i in 0..len { call f(elem); ... }
+    let header = b.create_block();
+    let body = b.create_block();
+    let exit = b.create_block();
+    b.append_block_param(header, I64);
+    b.ins().jump(header, &[zero.into()]);
+
+    b.switch_to_block(header);
+    let i = b.block_params(header)[0];
+    let done = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
+    b.ins().brif(done, exit, &[], body, &[]);
+
+    b.switch_to_block(body);
+    b.seal_block(body);
+    let off = b.ins().imul(i, elem_size);
+    let addr = b.ins().iadd(src_data, off);
+    let cl_ty = elem_jty.cl().expect("non-unit elem");
+    let elem = b.ins().load(cl_ty, MemFlags::trusted(), addr, 0);
+    // Calling convention for first-class fn calls: caller retains
+    // each heap arg before the call so the callee can release at exit
+    // (matching how regular fn params are wired). Without this the
+    // callee's exit-release would drop the source array's +1 and
+    // leave a freed pointer in the next iteration's slot.
+    if elem_jty.is_heap() {
+        crate::arc::emit_retain_heap(b, lc, elem, elem_jty);
+    }
+    let call = b.ins().call_indirect(sig_ref, fv, &[elem]);
+    let result = if matches!(ret_jty, JitTy::Unit) {
+        None
+    } else {
+        Some(b.inst_results(call)[0])
+    };
+
+    let one = b.ins().iconst(I64, 1);
+    match method {
+        "map" => {
+            // Result is the value to store. For heap U the callee
+            // returned with rc=1 (fresh allocation) — we own it and
+            // hand it to the new array. For heap V WHERE U == V is
+            // possible too; same rule.
+            let arr = out_arr.unwrap();
+            let out_data = b.ins().load(I64, MemFlags::trusted(), arr, ARRAY_DATA_OFFSET);
+            let out_size = out_elem_size_v.unwrap();
+            let dst_off = b.ins().imul(i, out_size);
+            let dst_addr = b.ins().iadd(out_data, dst_off);
+            b.ins().store(MemFlags::trusted(), result.expect("map fn returns a value"), dst_addr, 0);
+            // Bump the result array's len so map_drops sees the slot.
+            let new_len = b.ins().iadd(i, one);
+            b.ins().store(MemFlags::trusted(), new_len, arr, ARRAY_LEN_OFFSET);
+        }
+        "filter" => {
+            let arr = out_arr.unwrap();
+            let kept_blk = b.create_block();
+            let skip_blk = b.create_block();
+            let res = result.expect("filter fn returns a bool");
+            b.ins().brif(res, kept_blk, &[], skip_blk, &[]);
+            b.switch_to_block(kept_blk);
+            b.seal_block(kept_blk);
+            // Kept path: the new array stores the elem and needs its
+            // own +1. The source still holds its +1, so no leak/double-
+            // free either way.
+            if elem_jty.is_heap() {
+                crate::arc::emit_retain_heap(b, lc, elem, elem_jty);
+            }
+            let push_id = match elem_jty.size_bytes() {
+                1 => lc.arrfns.push_i8,
+                2 => lc.arrfns.push_i16,
+                4 => match elem_jty {
+                    JitTy::F32 => lc.arrfns.push_f32,
+                    _ => lc.arrfns.push_i32,
+                },
+                8 => match elem_jty {
+                    JitTy::F64 => lc.arrfns.push_f64,
+                    _ => lc.arrfns.push_i64,
+                },
+                _ => unreachable!("primitive widths covered"),
+            };
+            let r = lc.module.declare_func_in_func(push_id, b.func);
+            b.ins().call(r, &[arr, elem]);
+            b.ins().jump(skip_blk, &[]);
+            b.switch_to_block(skip_blk);
+            b.seal_block(skip_blk);
+        }
+        "forEach" => {
+            // Callee's return value is discarded. If heap-typed (and
+            // came back with rc=1), release it so it doesn't leak.
+            if let Some(rv) = result {
+                if ret_jty.is_heap() {
+                    crate::arc::emit_release_heap(b, lc, rv, ret_jty);
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    let next = b.ins().iadd(i, one);
+    b.ins().jump(header, &[next.into()]);
+    b.seal_block(header);
+
+    b.switch_to_block(exit);
+    b.seal_block(exit);
+
+    // Release fn-arg if it was a fresh allocation. (Plain Var/named fn
+    // refs are aliased.) Fn pointers don't have rc — emit_release_heap
+    // skips Fn — so this is just for symmetry.
+
+    if !is_aliased_heap_source(&obj.kind) {
+        emit_release_heap(b, lc, arr_v, JitTy::Array(array_id));
+    }
+
+    Ok(match method {
+        "map" => Some((out_arr.unwrap(), JitTy::Array(out_kind_id.unwrap()))),
+        "filter" => Some((out_arr.unwrap(), JitTy::Array(out_kind_id.unwrap()))),
+        "forEach" => None,
+        _ => unreachable!(),
+    })
 }
