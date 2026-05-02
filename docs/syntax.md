@@ -2,7 +2,7 @@
 
 実装済みの構文を一覧で示します。各項目は実際にパース・型チェック・実行が通る形のみ。
 
-`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (ツリーウォーク) または `... run --jit path.il` (Cranelift JIT) で実行できます。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
+`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (ツリーウォーク) または `... run --jit path.il` (Cranelift JIT) で実行できます。引数なしで起動すると REPL に入ります。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
 
 ---
 
@@ -17,6 +17,8 @@
 | 文字列 | `"hello"`, `"line\nbreak"` (`\n` `\t` `\r` `\\` `\"` `\0`) | `string` |
 | Unit | `()` (式で生まれる、自前で書かない) | `()` |
 | Optional | `none`, `some(x)` | `T?` |
+| 配列 | `[1, 2, 3]`, `[1, 2, 3,]` (末尾コンマ可) | `T[]` |
+| Map | `{"a": 1, "b": 2}` | `Map<K, V>` |
 
 ---
 
@@ -33,23 +35,26 @@ T[]                 // 動的配列 (push 可)
 T[N]                // 固定長配列
 T?                  // Optional (none もしくは some(t))
 ClassName.weak      // 弱参照 (Object 限定)
+ClassName<T1, T2>   // ジェネリッククラスのインスタンス化
+Map<K, V>           // 組み込み辞書 (K = string / 整数 / bool)
+fn(T1, T2): R       // 関数値 (キャプチャなし)
 ```
 
 後置修飾子 `[]` `[N]` `?` `.weak` は重ねられる: `Foo[]?`, `User?[]`, `Node.weak?` 等。`.weak` は `ClassName.weak` の形のみ (string や i64 には付けられない)。
 
 ### 暗黙の型変換
 
-| from | to | 暗黙? |
-| --- | --- | --- |
-| 同符号の整数同士 (狭→広 / 広→狭) | | yes |
-| 整数 → 浮動 | | yes |
-| `f32` → `f64` / `f64` → `f32` | | yes |
-| 符号またぎ (`i32` ↔ `u32` 等) | | **no** (`as` 必須) |
-| 浮動 → 整数 | | **no** (`as` 必須) |
-| `T` → `T?` (Optional 自動 wrap) | | yes |
-| `Foo` → `Foo.weak` (strong → weak 自動 downgrade) | | yes (同一クラスのみ) |
+| from → to | 暗黙? |
+| --- | --- |
+| 同符号の整数同士 (狭→広 / 広→狭) | yes |
+| 整数 → 浮動 | yes |
+| `f32` ↔ `f64` | yes |
+| 符号またぎ (`i32` ↔ `u32` 等) | **no** (`as` 必須) |
+| 浮動 → 整数 | **no** (`as` 必須) |
+| `T` → `T?` (Optional 自動 wrap) | yes |
+| `Foo` → `Foo.weak` (strong → weak 自動 downgrade) | yes (同一クラスのみ) |
 
-`expr as Type` で明示キャスト。
+`expr as Type` で明示キャスト。`if`/`else` の枝合流では暗黙の数値拡張を許さない (整数リテラルのみ例外的に他方の型へ coerce)。
 
 ---
 
@@ -72,7 +77,8 @@ let w: User.weak = u       // strong → weak 自動 downgrade
 x = x + 1                  // 単純代入
 x += 1                     // 複合代入: += -= *= /= %= &= |= ^= <<= >>=
 obj.field = v
-arr[i] = v
+arr[i] = v                 // 配列添字代入
+map[k] = v                 // Map 添字代入
 this.field = v             // メソッド内
 ```
 
@@ -95,7 +101,7 @@ this.field = v             // メソッド内
 | 11 | `*` `/` `%` | 左 |
 | 12 | `as` (キャスト、後置) | — |
 | 13 | 単項 `-` `+` `!` `~` | 前置 |
-| 14 | `.` (フィールド/メソッド) / `[]` (添字) | 後置 |
+| 14 | `.` (フィールド/メソッド) / `[]` (添字) / `(...)` (呼び出し) | 後置 |
 
 文字列に対しては `+` (連結) と `==`/`!=` (構造的等値) のみ。オブジェクトの `==`/`!=` は同一クラスでの参照等値。`%` は浮動小数では未対応。
 
@@ -138,7 +144,7 @@ loop {
 let xs: i64[] = [10, 20, 30]
 for x in xs { console.log(x) }     // break / continue 可
 
-// if let — Optional のパターンマッチ (現状サポートされる唯一の pattern 形)
+// if let — Optional のパターンマッチ (`match` 以外で使える唯一の pattern 形)
 let x: i64? = some(42)
 if let some(v) = x {
     // v: i64 として使える
@@ -212,7 +218,7 @@ fn make_inc(): fn(i64): i64 { fn(x: i64): i64 { x + 1 } }
 - 匿名関数本体は **自分のパラメータ** と **トップレベル fn / クラス / enum** しか参照できない (キャプチャ不可)
 - JIT 対応済 (`func_addr` + `call_indirect`)。匿名関数は内部でトップレベルにホイストされる
 
-### Capability アノテーション (パースのみ、enforce は未実装)
+### 属性 / アノテーション (パースのみ、enforce は未実装)
 
 ```rust
 @requires(net)
@@ -245,7 +251,7 @@ c.bump()                                // メソッド呼び出し
 c.count                                 // フィールド読み取り
 ```
 
-- `init` は唯一のコンストラクタ (Swift 風)。引数なし `init() {}` を省略するとデフォルトで引数なし `new` 可。
+- `init` は唯一のコンストラクタ (Swift 風)。`init() {}` を省略するとデフォルトで引数なし `new` 可。
 - `deinit` は引数なし・戻り値 () 限定。明示呼び出し不可 (`c.deinit()` はエラー)。
 - 暗黙 `this`: メソッド本体内で `this.` を省略可。ただしローカル変数や引数があればそちら優先。
 - 継承・`static`・`private` はスコープ外 (未実装)。
@@ -274,7 +280,7 @@ let nested = new Box<Box<i64>>(new Box<i64>(99))   // ネストも可 (>> 自動
 - 型引数は **インスタンス化時に明示必須** (`new Box<i64>(42)` — 推論なし)
 - 制約 (bounds) はサポートされない (任意の型を入れられる)
 - **JIT 対応済**。コンパイル時にモノモーフ化 (`Box<i64>` と `Box<f64>` は別クラスとしてコード生成)
-- **関数のジェネリクスは未対応** (クラスのみ)
+- 関数のジェネリクスは未対応 (クラスのみ)
 - 型変数同士の演算 (例: `class Pair<A, B> { ... a + b ... }`) は型チェッカが拒否 (制約がないため)
 
 ---
@@ -285,6 +291,7 @@ let nested = new Box<Box<i64>>(new Box<i64>(99))   // ネストも可 (>> 自動
 let xs: i32[] = [10, 20, 30]    // 動的配列リテラル
 let ys: i32[3] = [1, 2, 3]      // 固定長 (要素数も型に固定)
 let zs: i32[] = []              // 空配列は注釈必須
+let trailing = [1, 2, 3,]       // 末尾コンマ可
 
 xs[1]                            // 添字読み取り
 xs[0] = 100                      // 添字代入
@@ -295,13 +302,16 @@ xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
 xs.includes(20)                  // bool を返す
 ```
 
-`pop` は JIT では Optional<primitive> 制限のため i64[] 等では使えません (interpreter は OK)。`indexOf` / `includes` の JIT 対応は数値・bool 要素のみ。
+JIT 制限:
+- `pop` は Optional<primitive> 制限のため `i64[]` 等で使えない (interpreter は OK)
+- `indexOf` / `includes` は数値・bool 要素のみ
+- `for x in xs` も要素型がプリミティブな配列に限る
 
-`slice` / `map` / `filter` などは未実装。`for x in xs { ... }` は実装済 (制御フローの節を参照。JIT では要素型がプリミティブな配列に限る)。
+`slice` / `map` / `filter` などは未実装。
 
 ---
 
-## 8b. 辞書 (Map)
+## 9. 辞書 (Map)
 
 ```rust
 let m: Map<string, i64> = {"a": 1, "b": 2}        // リテラル
@@ -318,14 +328,15 @@ m.keys()                         // K[]
 m.values()                       // V[]
 ```
 
-- キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可)
+- キー型は `string` / `i*` / `u*` / `bool` のみ (float / オブジェクト不可 — `Eq`/`Hash` の整合性確保のため)
 - リテラル `{ key: value, ... }` の最初のキーから K を、最初の値から V を推論
 - 空マップは `new Map<K, V>()` で構築 (`{}` は空ブロック扱い)
+- パーサは `{<key-token> :` の 2 トークン先読みで map literal とブロックを区別 (ID/Str/Int/Bool + `:` で map)
 - **JIT 未対応** — interpreter のみ
 
 ---
 
-## 9. Optional
+## 10. Optional
 
 ```rust
 let a: User? = some(user)        // 通常の構築
@@ -347,7 +358,7 @@ a.unwrap()                       // T (none ならランタイム panic)
 
 ---
 
-## 9b. enum / match
+## 11. enum / match
 
 ```rust
 // Phase 1: 単純な C 風列挙型
@@ -388,7 +399,9 @@ match day {
 - パターンの束縛: タプルは位置 (`Shape::Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
 - ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
 
-## 10. Weak (弱参照)
+---
+
+## 12. Weak (弱参照)
 
 ```rust
 class Node {
@@ -414,19 +427,20 @@ if let some(n) = w.get() {      // .get() は T? を返す (生存時 Some)
 
 ---
 
-## 11. console (組み込み)
+## 13. console (組み込み)
 
 ```rust
 console.log(1, "hello", true)        // variadic、空白区切り、末尾改行
 console.log()                        // 改行のみ
+console.log(arr, obj, opt)           // 配列/オブジェクト/Optional も整形して出力
 ```
 
 - `console` は予約識別子で、ユーザが `let console = ...` や同名クラスを定義するとエラー。
-- 引数の型は混在可。Object 型は JIT では未対応 (interpreter は文字列化して出力)。
+- 引数の型は混在可。
 
 ---
 
-## 12. コメント
+## 14. コメント
 
 ```rust
 // 行コメント
@@ -436,7 +450,7 @@ console.log()                        // 改行のみ
 
 ---
 
-## 13. ASI (自動セミコロン挿入)
+## 15. ASI (自動セミコロン挿入)
 
 - 改行 (LF または CRLF) と `;` と `}` `EOF` がいずれも文の終わりとして受理される。
 - 式の途中の改行は無視される: `let x = 1\n + 2` は `let x = 1 + 2`。
@@ -444,30 +458,32 @@ console.log()                        // 改行のみ
 
 ---
 
-## 14. 実行モデル
+## 16. 実行モデル
 
 | モード | コマンド | 特徴 |
 | --- | --- | --- |
 | ツリーウォーク | `ilang run path.il` | 全機能サポート、起動が速い |
 | Cranelift JIT | `ilang run --jit path.il` | ネイティブコード、interpreter の数十〜数百倍速いが一部機能制限あり |
-| REPL | `ilang` | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
+| REPL | `ilang` (引数なし) | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
 
 JIT で `Unsupported` になる主なケース:
 - `i64?` / `bool?` などの **primitive Optional** (Object/Str/Array/Weak の Optional は OK)
+- `Map<K, V>` 全般
+- 配列メソッドの一部 (上記 §8 参照)
 - 継承 / 動的ディスパッチ (interpreter にも未実装)
 
 ---
 
-## 15. 未実装
+## 17. 未実装 (今後の TODO)
 
 - 継承 (`extends`, `super`)
-- Map の JIT 対応 (interpreter は実装済 — Map 節を参照)
+- Map の JIT 対応 (interpreter は実装済 — §9 参照)
 - 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
 - 配列メソッド (`slice`, `map`, `filter`, `forEach` 等。`pop` `indexOf` `includes` は実装済)
 - モジュール / `use` / インポート
 - 例外 / `throw` / `try`
 - ジェネリック関数 / 制約 (bounds) (クラスジェネリクスは interpreter / JIT とも実装済)
-- クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — 関数節を参照)
+- クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
 
 ---
 
