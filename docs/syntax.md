@@ -347,8 +347,8 @@ if let some(v) = a {             // パターン分岐
     use(v)
 }
 
-a.is_some()                      // bool
-a.is_none()                      // bool
+a.isSome()                       // bool
+a.isNone()                       // bool
 a.unwrap()                       // T (none ならランタイム panic)
 ```
 

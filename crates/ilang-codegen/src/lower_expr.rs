@@ -363,17 +363,17 @@ pub(crate) fn lower_expr(
             if let JitTy::Optional(id) = obj_t {
                 let zero = b.ins().iconst(I64, 0);
                 match method.as_str() {
-                    "is_some" => {
+                    "isSome" => {
                         let v = b.ins().icmp(IntCC::NotEqual, obj_v, zero);
                         return Ok(Some((v, JitTy::Bool)));
                     }
-                    "is_none" => {
+                    "isNone" => {
                         let v = b.ins().icmp(IntCC::Equal, obj_v, zero);
                         return Ok(Some((v, JitTy::Bool)));
                     }
                     "unwrap" => {
                         // No null-check codegen — relies on the user
-                        // having checked `is_some()` first. Calling on
+                        // having checked `isSome()` first. Calling on
                         // `none` reads address 0 downstream (segfault).
                         let inner = lc.optional_inners[id as usize];
                         return Ok(Some((obj_v, inner)));

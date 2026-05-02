@@ -205,8 +205,8 @@ impl Interpreter {
                 // verified arity (0 args).
                 if matches!(v, Value::None | Value::Some(_)) {
                     match method.as_str() {
-                        "is_some" => return Ok(Value::Bool(matches!(v, Value::Some(_)))),
-                        "is_none" => return Ok(Value::Bool(matches!(v, Value::None))),
+                        "isSome" => return Ok(Value::Bool(matches!(v, Value::Some(_)))),
+                        "isNone" => return Ok(Value::Bool(matches!(v, Value::None))),
                         "unwrap" => {
                             return match v {
                                 Value::Some(inner) => Ok(*inner),

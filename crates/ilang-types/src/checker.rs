@@ -719,7 +719,7 @@ impl TypeChecker {
                 // Built-in Optional methods: is_some / is_none / unwrap.
                 if let Type::Optional(inner) = &ot {
                     match method.as_str() {
-                        "is_some" | "is_none" => {
+                        "isSome" | "isNone" => {
                             if !args.is_empty() {
                                 return Err(TypeError::ArityMismatch {
                                     name: method.clone(),

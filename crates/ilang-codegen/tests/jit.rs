@@ -750,8 +750,8 @@ fn jit_optional_predicates() {
     let src = r#"
         let a: string? = some("yes")
         let b: string? = none
-        let r1 = if a.is_some() { 1 } else { 0 }
-        let r2 = if b.is_none() { 10 } else { 0 }
+        let r1 = if a.isSome() { 1 } else { 0 }
+        let r2 = if b.isNone() { 10 } else { 0 }
         r1 + r2
     "#;
     assert_eq!(jit(src), JitValue::I64(11));
@@ -794,7 +794,7 @@ fn jit_optional_field_none_no_crash() {
             init() { this.s = none }
         }
         let h = new Holder()
-        if h.s.is_none() { 42 } else { -1 }
+        if h.s.isNone() { 42 } else { -1 }
     "#;
     assert_eq!(jit(src), JitValue::I64(42));
 }
@@ -831,7 +831,7 @@ fn jit_weak_get_none_after_strong_dropped() {
         }
         let r = 0
         let w: Counter.weak = new Counter()
-        if w.get().is_none() {
+        if w.get().isNone() {
             r = 42
         }
         r
