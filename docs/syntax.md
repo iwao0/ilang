@@ -361,61 +361,62 @@ a.unwrap()                       // T (none ならランタイム panic)
 ## 11. enum / match
 
 ```rust
-// Phase 1: 単純な C 風列挙型
-enum Color { Red, Green, Blue }
+// Phase 1: 単純な C 風列挙型 (バリアント名は組み込み Result に合わせて小文字始まりを推奨)
+enum Color { red, green, blue }
 
-let c = Color.Green
+let c = Color.green
 // match パターンは `Enum.` を省略可 — scrutinee 型から推論
 let name = match c {
-    Red { "red" }
-    Green { "green" }
-    Blue { "blue" }
+    red { "red" }
+    green { "green" }
+    blue { "blue" }
 }
 
 // Phase 2: ペイロード付き (タプル / 名前付きフィールド)
 enum Shape {
-    Circle: (f64)              // タプルペイロードは `: (...)` で導入
-    Rect: (f64, f64)
-    Square: { side: f64 }      // struct ペイロードは `: { ... }`
+    circle: (f64)              // タプルペイロードは `: (...)` で導入
+    rect: (f64, f64)
+    square: { side: f64 }      // struct ペイロードは `: { ... }`
 }
 
 fn area(s: Shape): f64 {
     match s {
-        Circle(r) { 3.14 * r * r }
-        Rect(w, h) { w * h }
-        Square { side } { side * side }   // struct shorthand: { side: side }
+        circle(r) { 3.14 * r * r }
+        rect(w, h) { w * h }
+        square { side } { side * side }   // struct shorthand: { side: side }
     }
 }
 
-// `_` ワイルドカードで残りを捕捉。長い形 `Color.Red` も引き続き有効。
-let day = Color.Red
+// `_` ワイルドカードで残りを捕捉。長い形 `Color.red` も引き続き有効。
+let day = Color.red
 match day {
-    Red { "alert" }
+    red { "alert" }
     _ { "ok" }
 }
 ```
 
-- **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`Circle: (f64)`)。ユニットバリアントは `:` なし (`Red`)。
-- **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color.Red { "red" }`)。
-- 構築は `Enum.` プレフィクス必須 (`Shape.Circle(3.0)`)。
-- **match のパターン側は `Enum.` を省略可** — scrutinee の静的型から推論される (`Circle(r)` は `Shape.Circle(r)` と同義)。長い形 (`Shape.Circle(r)`) も引き続き有効。
+- **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`circle: (f64)`)。ユニットバリアントは `:` なし (`red`)。
+- **バリアント名のケース**: 大文字でも小文字でも構文的には OK。ただし組み込み `Result.ok` / `Result.err` と統一して **小文字始まり推奨**。
+- **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color.red { "red" }`)。
+- 構築は `Enum.` プレフィクス必須 (`Shape.circle(3.0)`)。
+- **match のパターン側は `Enum.` を省略可** — scrutinee の静的型から推論される (`circle(r)` は `Shape.circle(r)` と同義)。長い形 (`Shape.circle(r)`) も引き続き有効。
 - 全バリアントを網羅するか `_` が必要 (型チェッカが拒否)
 - 各 arm 値は型が揃う必要あり (if/else と同じ)
-- パターンの束縛: タプルは位置 (`Shape.Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
+- パターンの束縛: タプルは位置 (`Shape.circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
 - ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
 
 ### ジェネリック enum
 
 ```rust
 enum Either<L, R> {
-    Left: (L)
-    Right: (R)
+    left: (L)
+    right: (R)
 }
 
-let e: Either<i64, string> = Either.Right("hi")
+let e: Either<i64, string> = Either.right("hi")
 match e {
-    Either.Left(_) { "left" }
-    Either.Right(s) { s }
+    left(_) { "left" }
+    right(s) { s }
 }
 ```
 
