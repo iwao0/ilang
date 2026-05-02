@@ -116,9 +116,12 @@ this.field = v             // メソッド内
 "Hi".toUpperCase()          // string
 "Hi".toLowerCase()          // string
 "  hi  ".trim()             // string
+"a,b,c".split(",")          // string[]  ─ 空セパレータでは1文字ずつ
+"abca".replace("a", "_")    // string    ─ 全箇所置換 (Rust流)
+"hello".slice(1, 4)         // string    ─ 添字は Unicode コードポイント、範囲外はクランプ
 ```
 
-`replace` / `split` / `slice` / 補間などは未実装。
+文字列補間は未実装。上記のメソッドは interpreter / JIT とも対応。
 
 ---
 
@@ -621,7 +624,7 @@ JIT で `Unsupported` になる主なケース:
 ## 17. 未実装 (今後の TODO)
 
 - 継承 (`extends`, `super`)
-- 文字列補間 / `replace` / `split` / `slice` (基本セットの `length` `charAt` `includes` `startsWith` `endsWith` `toUpperCase` `toLowerCase` `trim` は実装済)
+- 文字列補間 (バッククォート + `${expr}` などのテンプレート構文)
 - ジェネリック制約 (bounds)
 - クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
 - Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)

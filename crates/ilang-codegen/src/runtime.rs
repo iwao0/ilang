@@ -799,3 +799,76 @@ pub(crate) extern "C" fn ilang_jit_optional_box_release(ptr: i64, payload_size: 
         std::alloc::dealloc(ptr as *mut u8, layout);
     }
 }
+
+// ─── Extra string methods (replace / split / slice) ──────────────────
+
+/// Replace ALL occurrences of `needle` with `repl` (Rust-style, not
+/// JS's first-only). Returns a fresh `Box<StringRc>` with rc=1; the
+/// caller owns the new pointer.
+pub(crate) extern "C" fn ilang_jit_str_replace(s: i64, needle: i64, repl: i64) -> i64 {
+    if s == 0 {
+        return 0;
+    }
+    unsafe {
+        let s_str = &(*(s as *const StringRc)).s;
+        let n_str = if needle == 0 { "" } else { &(*(needle as *const StringRc)).s };
+        let r_str = if repl == 0 { "" } else { &(*(repl as *const StringRc)).s };
+        let out = s_str.replace(n_str, r_str);
+        Box::into_raw(Box::new(StringRc { rc: 1, s: out })) as i64
+    }
+}
+
+/// Substring on Unicode code points (mirrors `.length` / `charAt`).
+/// Indices are clamped to [0, len_chars]; if start > end after
+/// clamping, returns the empty string.
+pub(crate) extern "C" fn ilang_jit_str_slice(s: i64, start: i64, end: i64) -> i64 {
+    let result = if s == 0 {
+        String::new()
+    } else {
+        unsafe {
+            let s_str = &(*(s as *const StringRc)).s;
+            let chars: Vec<char> = s_str.chars().collect();
+            let len = chars.len() as i64;
+            let s_idx = start.max(0).min(len) as usize;
+            let e_idx = end.max(0).min(len) as usize;
+            let s_idx = s_idx.min(e_idx);
+            chars[s_idx..e_idx].iter().collect()
+        }
+    };
+    Box::into_raw(Box::new(StringRc { rc: 1, s: result })) as i64
+}
+
+/// Split on `sep` (Rust-style: empty separator → per-char). Returns
+/// an `ArrayHeader` of `*mut StringRc` (i64 slots), each element being
+/// a freshly allocated string with rc=1. `drop_fn` is the JIT-
+/// generated per-array-kind drop wrapper for the resulting `string[]`.
+pub(crate) extern "C" fn ilang_jit_str_split(s: i64, sep: i64, drop_fn: i64) -> i64 {
+    let parts: Vec<String> = if s == 0 {
+        Vec::new()
+    } else {
+        unsafe {
+            let s_str = &(*(s as *const StringRc)).s;
+            let sep_str = if sep == 0 { "" } else { &(*(sep as *const StringRc)).s };
+            if sep_str.is_empty() {
+                s_str.chars().map(|c| c.to_string()).collect()
+            } else {
+                s_str.split(sep_str).map(|p| p.to_string()).collect()
+            }
+        }
+    };
+    let len = parts.len() as i64;
+    let arr = ilang_jit_array_new(8, len, drop_fn);
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let header = arr as *mut ArrayHeader;
+        let data = (*header).data_ptr;
+        for (i, p) in parts.into_iter().enumerate() {
+            let sr = Box::into_raw(Box::new(StringRc { rc: 1, s: p })) as i64;
+            let dst = (data + (i as i64) * 8) as *mut i64;
+            *dst = sr;
+        }
+    }
+    arr
+}

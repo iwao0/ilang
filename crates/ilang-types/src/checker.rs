@@ -963,6 +963,46 @@ impl TypeChecker {
                             arity_check(0)?;
                             return Ok(Type::Str);
                         }
+                        "replace" => {
+                            arity_check(2)?;
+                            for a in args {
+                                let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
+                                if !matches!(at, Type::Str) {
+                                    return Err(TypeError::Mismatch {
+                                        expected: Type::Str,
+                                        got: at,
+                                        span: a.span,
+                                    });
+                                }
+                            }
+                            return Ok(Type::Str);
+                        }
+                        "split" => {
+                            arity_check(1)?;
+                            let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                            if !matches!(at, Type::Str) {
+                                return Err(TypeError::Mismatch {
+                                    expected: Type::Str,
+                                    got: at,
+                                    span: args[0].span,
+                                });
+                            }
+                            return Ok(Type::Array { elem: Box::new(Type::Str), fixed: None });
+                        }
+                        "slice" => {
+                            arity_check(2)?;
+                            for a in args {
+                                let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
+                                if !matches!(at, Type::I64 | Type::I32 | Type::I16 | Type::I8 | Type::U64 | Type::U32 | Type::U16 | Type::U8) {
+                                    return Err(TypeError::Mismatch {
+                                        expected: Type::I64,
+                                        got: at,
+                                        span: a.span,
+                                    });
+                                }
+                            }
+                            return Ok(Type::Str);
+                        }
                         _ => {
                             return Err(TypeError::UnknownMethod {
                                 class: "string".into(),

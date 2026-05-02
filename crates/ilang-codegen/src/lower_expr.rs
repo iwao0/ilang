@@ -591,6 +591,85 @@ pub(crate) fn lower_expr(
                     "toUpperCase" => return nullary(lc.strfns.to_upper, JitTy::Str, b, lc),
                     "toLowerCase" => return nullary(lc.strfns.to_lower, JitTy::Str, b, lc),
                     "trim" => return nullary(lc.strfns.trim, JitTy::Str, b, lc),
+                    "replace" => {
+                        if args.len() != 2 {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("replace takes 2 args, got {}", args.len()),
+                                span: e.span,
+                            });
+                        }
+                        let (nv, nt) = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                            what: "replace needle is unit".into(), span: args[0].span,
+                        })?;
+                        let (rv, rt) = lower_expr(b, lc, &args[1])?.ok_or_else(|| CodegenError::Unsupported {
+                            what: "replace replacement is unit".into(), span: args[1].span,
+                        })?;
+                        if !matches!(nt, JitTy::Str) || !matches!(rt, JitTy::Str) {
+                            return Err(CodegenError::Unsupported {
+                                what: "replace expects string args".into(), span: e.span,
+                            });
+                        }
+                        let release_n = !is_aliased_heap_source(&args[0].kind);
+                        let release_r = !is_aliased_heap_source(&args[1].kind);
+                        let r = lc.module.declare_func_in_func(lc.strfns.replace, b.func);
+                        let call = b.ins().call(r, &[obj_v, nv, rv]);
+                        let v = b.inst_results(call)[0];
+                        if release_recv { emit_release_string(b, lc, obj_v); }
+                        if release_n { emit_release_string(b, lc, nv); }
+                        if release_r { emit_release_string(b, lc, rv); }
+                        return Ok(Some((v, JitTy::Str)));
+                    }
+                    "slice" => {
+                        if args.len() != 2 {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("slice takes 2 args, got {}", args.len()),
+                                span: e.span,
+                            });
+                        }
+                        let (sv, st) = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                            what: "slice start is unit".into(), span: args[0].span,
+                        })?;
+                        let (ev_, et) = lower_expr(b, lc, &args[1])?.ok_or_else(|| CodegenError::Unsupported {
+                            what: "slice end is unit".into(), span: args[1].span,
+                        })?;
+                        let start_i64 = coerce(b, (sv, st), JitTy::I64, args[0].span)?;
+                        let end_i64 = coerce(b, (ev_, et), JitTy::I64, args[1].span)?;
+                        let r = lc.module.declare_func_in_func(lc.strfns.slice, b.func);
+                        let call = b.ins().call(r, &[obj_v, start_i64, end_i64]);
+                        let v = b.inst_results(call)[0];
+                        if release_recv { emit_release_string(b, lc, obj_v); }
+                        return Ok(Some((v, JitTy::Str)));
+                    }
+                    "split" => {
+                        if args.len() != 1 {
+                            return Err(CodegenError::Unsupported {
+                                what: format!("split takes 1 arg, got {}", args.len()),
+                                span: e.span,
+                            });
+                        }
+                        let (sv, st) = lower_expr(b, lc, &args[0])?.ok_or_else(|| CodegenError::Unsupported {
+                            what: "split sep is unit".into(), span: args[0].span,
+                        })?;
+                        if !matches!(st, JitTy::Str) {
+                            return Err(CodegenError::Unsupported {
+                                what: "split expects string sep".into(), span: args[0].span,
+                            });
+                        }
+                        let release_s = !is_aliased_heap_source(&args[0].kind);
+                        // Result is `string[]` — intern the array kind so the
+                        // drop wrapper releases each StringRc on array drop.
+                        let kind_id = intern_array_kind(
+                            lc.array_kinds,
+                            ArrayKind { elem: JitTy::Str, fixed: None },
+                        );
+                        let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, kind_id);
+                        let r = lc.module.declare_func_in_func(lc.strfns.split, b.func);
+                        let call = b.ins().call(r, &[obj_v, sv, drop_fn_ptr]);
+                        let v = b.inst_results(call)[0];
+                        if release_recv { emit_release_string(b, lc, obj_v); }
+                        if release_s { emit_release_string(b, lc, sv); }
+                        return Ok(Some((v, JitTy::Array(kind_id))));
+                    }
                     _ => {
                         return Err(CodegenError::Unsupported {
                             what: format!("string has no method {method:?}"),

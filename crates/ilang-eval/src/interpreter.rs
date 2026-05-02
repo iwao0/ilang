@@ -448,6 +448,76 @@ impl Interpreter {
                         "toUpperCase" => return Ok(Value::Str(Rc::new(s.to_uppercase()))),
                         "toLowerCase" => return Ok(Value::Str(Rc::new(s.to_lowercase()))),
                         "trim" => return Ok(Value::Str(Rc::new(s.trim().to_string()))),
+                        "replace" => {
+                            // Replace ALL occurrences (Rust-style). JS's
+                            // single-occurrence replace is reachable via
+                            // future `replaceFirst` if needed.
+                            let needle = match self.eval_expr(&args[0])? {
+                                Value::Str(s) => s,
+                                other => return Err(RuntimeError::TypeError {
+                                    msg: format!("replace needs string, got {other:?}"),
+                                    span,
+                                }),
+                            };
+                            let repl = match self.eval_expr(&args[1])? {
+                                Value::Str(s) => s,
+                                other => return Err(RuntimeError::TypeError {
+                                    msg: format!("replace needs string, got {other:?}"),
+                                    span,
+                                }),
+                            };
+                            return Ok(Value::Str(Rc::new(s.replace(needle.as_str(), repl.as_str()))));
+                        }
+                        "split" => {
+                            let sep = match self.eval_expr(&args[0])? {
+                                Value::Str(s) => s,
+                                other => return Err(RuntimeError::TypeError {
+                                    msg: format!("split needs string, got {other:?}"),
+                                    span,
+                                }),
+                            };
+                            let parts: Vec<Value> = if sep.is_empty() {
+                                // Empty separator: split into individual
+                                // chars (mirrors JS behavior).
+                                s.chars().map(|c| Value::Str(Rc::new(c.to_string()))).collect()
+                            } else {
+                                s.split(sep.as_str())
+                                    .map(|p| Value::Str(Rc::new(p.to_string())))
+                                    .collect()
+                            };
+                            return Ok(Value::Array(Rc::new(RefCell::new(parts))));
+                        }
+                        "slice" => {
+                            // start / end can be any int width — coerced
+                            // to i64 here. Indices are clamped to
+                            // [0, len_chars] and operate on Unicode code
+                            // points (mirrors `.length` / `charAt`).
+                            let to_i64 = |v: Value| -> Result<i64, RuntimeError> {
+                                match v {
+                                    Value::Int(n) => Ok(n),
+                                    Value::Int8(n) => Ok(n as i64),
+                                    Value::Int16(n) => Ok(n as i64),
+                                    Value::Int32(n) => Ok(n as i64),
+                                    Value::UInt8(n) => Ok(n as i64),
+                                    Value::UInt16(n) => Ok(n as i64),
+                                    Value::UInt32(n) => Ok(n as i64),
+                                    Value::UInt64(n) => Ok(n as i64),
+                                    other => Err(RuntimeError::TypeError {
+                                        msg: format!("slice index must be int, got {other:?}"),
+                                        span,
+                                    }),
+                                }
+                            };
+                            let start = to_i64(self.eval_expr(&args[0])?)?;
+                            let end = to_i64(self.eval_expr(&args[1])?)?;
+                            let chars: Vec<char> = s.chars().collect();
+                            let len = chars.len() as i64;
+                            let s_idx = start.max(0).min(len) as usize;
+                            let e_idx = end.max(0).min(len) as usize;
+                            let s_idx = s_idx.min(e_idx);
+                            let out: String = chars[s_idx..e_idx].iter().collect();
+                            return Ok(Value::Str(Rc::new(out)));
+                        }
                         _ => {
                             return Err(RuntimeError::UnknownMethod {
                                 class: "string".into(),

@@ -76,6 +76,9 @@ pub(crate) struct StrFns {
     pub ends_with: FuncId,
     pub to_upper: FuncId,
     pub to_lower: FuncId,
+    pub replace: FuncId,
+    pub slice: FuncId,
+    pub split: FuncId,
     pub trim: FuncId,
 }
 

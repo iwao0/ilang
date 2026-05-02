@@ -807,3 +807,72 @@ fn array_string_map_filter_chain() {
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2", "jit={jit}");
     }
 }
+
+#[test]
+fn string_replace_all() {
+    for jit in [false, true] {
+        let p = write_tmp(&format!("rep_{jit}.il"), "\"hello hello\".replace(\"hello\", \"HI\")");
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit { cmd.arg("--jit"); }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "HI HI", "jit={jit}");
+    }
+}
+
+#[test]
+fn string_split_then_index() {
+    let src = "let parts = \"a,b,c,d\".split(\",\")\nparts[2]";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("spl_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit { cmd.arg("--jit"); }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "c", "jit={jit}");
+    }
+}
+
+#[test]
+fn string_split_empty_separator() {
+    let src = "\"abc\".split(\"\").length";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("spe_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit { cmd.arg("--jit"); }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3", "jit={jit}");
+    }
+}
+
+#[test]
+fn string_slice_basic() {
+    let src = "\"hello world\".slice(6, 11)";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("ssl_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit { cmd.arg("--jit"); }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "world", "jit={jit}");
+    }
+}
+
+#[test]
+fn string_slice_out_of_range_clamps() {
+    let src = "\"hi\".slice(-5, 100)";
+    for jit in [false, true] {
+        let p = write_tmp(&format!("ssc_{jit}.il"), src);
+        let mut cmd = Command::new(ilang_bin());
+        cmd.arg("run");
+        if jit { cmd.arg("--jit"); }
+        let out = cmd.arg(&p).output().unwrap();
+        assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi", "jit={jit}");
+    }
+}

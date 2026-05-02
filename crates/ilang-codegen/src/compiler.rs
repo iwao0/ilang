@@ -173,6 +173,9 @@ pub(crate) struct JitCompiler {
     pub(crate) str_to_upper_id: FuncId,
     pub(crate) str_to_lower_id: FuncId,
     pub(crate) str_trim_id: FuncId,
+    pub(crate) str_replace_id: FuncId,
+    pub(crate) str_slice_id: FuncId,
+    pub(crate) str_split_id: FuncId,
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
@@ -268,6 +271,9 @@ impl JitCompiler {
         builder.symbol("ilang_jit_str_to_upper", ilang_jit_str_to_upper as *const u8);
         builder.symbol("ilang_jit_str_to_lower", ilang_jit_str_to_lower as *const u8);
         builder.symbol("ilang_jit_str_trim", ilang_jit_str_trim as *const u8);
+        builder.symbol("ilang_jit_str_replace", crate::runtime::ilang_jit_str_replace as *const u8);
+        builder.symbol("ilang_jit_str_slice", crate::runtime::ilang_jit_str_slice as *const u8);
+        builder.symbol("ilang_jit_str_split", crate::runtime::ilang_jit_str_split as *const u8);
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
         builder.symbol(
             "ilang_jit_retain_array",
@@ -393,6 +399,12 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_str_to_lower", &[I64], Some(I64))?;
         let str_trim_id =
             declare_import(&mut module, "ilang_jit_str_trim", &[I64], Some(I64))?;
+        let str_replace_id =
+            declare_import(&mut module, "ilang_jit_str_replace", &[I64, I64, I64], Some(I64))?;
+        let str_slice_id =
+            declare_import(&mut module, "ilang_jit_str_slice", &[I64, I64, I64], Some(I64))?;
+        let str_split_id =
+            declare_import(&mut module, "ilang_jit_str_split", &[I64, I64, I64], Some(I64))?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
@@ -490,6 +502,9 @@ impl JitCompiler {
             str_to_upper_id,
             str_to_lower_id,
             str_trim_id,
+            str_replace_id,
+            str_slice_id,
+            str_split_id,
             array_new,
             retain_array_id,
             release_array_id,
@@ -835,6 +850,9 @@ impl JitCompiler {
                 to_upper: self.str_to_upper_id,
                 to_lower: self.str_to_lower_id,
                 trim: self.str_trim_id,
+                replace: self.str_replace_id,
+                slice: self.str_slice_id,
+                split: self.str_split_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
@@ -972,6 +990,9 @@ impl JitCompiler {
                 to_upper: self.str_to_upper_id,
                 to_lower: self.str_to_lower_id,
                 trim: self.str_trim_id,
+                replace: self.str_replace_id,
+                slice: self.str_slice_id,
+                split: self.str_split_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
