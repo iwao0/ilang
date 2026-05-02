@@ -552,14 +552,14 @@ impl<'a> Parser<'a> {
             TokenKind::LBracket => {
                 self.bump();
                 let mut elements = Vec::new();
-                if !matches!(self.peek().kind, TokenKind::RBracket) {
-                    loop {
-                        elements.push(self.parse_expr(0)?);
-                        if matches!(self.peek().kind, TokenKind::Comma) {
-                            self.bump();
-                        } else {
-                            break;
-                        }
+                while !matches!(self.peek().kind, TokenKind::RBracket) {
+                    elements.push(self.parse_expr(0)?);
+                    // Trailing comma is allowed: stop the loop if the next
+                    // token is `]`, regardless of whether we consumed a `,`.
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else {
+                        break;
                     }
                 }
                 self.expect(&TokenKind::RBracket, "']'")?;

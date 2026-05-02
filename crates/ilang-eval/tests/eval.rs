@@ -1475,3 +1475,22 @@ fn anon_fn_no_capture_rejected() {
     let prog = parse(&toks).unwrap();
     assert!(TypeChecker::new().check(&prog).is_err());
 }
+
+#[test]
+fn array_literal_trailing_comma() {
+    // Trailing comma is allowed in array literals (JS / Rust style).
+    assert_eq!(
+        run("let xs: i64[] = [1, 2, 3,]; xs.length").unwrap(),
+        Value::Int(3)
+    );
+    // Multi-line trailing comma is the common case.
+    assert_eq!(
+        run("let xs: i64[] = [\n  10,\n  20,\n  30,\n]; xs[1]").unwrap(),
+        Value::Int(20)
+    );
+    // Empty array still works (no trailing comma to misinterpret).
+    assert_eq!(
+        run("let xs: i64[] = []; xs.length").unwrap(),
+        Value::Int(0)
+    );
+}
