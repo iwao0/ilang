@@ -300,7 +300,7 @@ let nested = new Box<Box<i64>>(new Box<i64>(99))   // ネストも可 (>> 自動
 - 型引数は **インスタンス化時に明示必須** (`new Box<i64>(42)` — 推論なし)
 - 制約 (bounds) はサポートされない (任意の型を入れられる)
 - **JIT 対応済**。コンパイル時にモノモーフ化 (`Box<i64>` と `Box<f64>` は別クラスとしてコード生成)
-- 関数のジェネリクスは未対応 (クラスのみ)
+- 関数のジェネリクスは [§6 ジェネリック関数](#ジェネリック関数) 参照 — interpreter / JIT とも対応
 - 型変数同士の演算 (例: `class Pair<A, B> { ... a + b ... }`) は型チェッカが拒否 (制約がないため)
 
 ---
@@ -367,7 +367,7 @@ a.isNone()                       // bool
 a.unwrap()                       // T (none ならランタイム panic)
 ```
 
-- `T?` の T は実行系で扱える任意の型 (interpreter)。**JIT は heap 内部 (Object/Str/Array/Weak) に限定** — `i64?` などの primitive Optional は JIT で `Unsupported` になる (interpreter は問題なく動く)。
+- `T?` の T は実行系で扱える任意の型 — interpreter / JIT とも対応 (JIT は primitive 内部の場合 `[rc:i64 | payload:T]` のヒープボックスで表現)。
 - `T?` を関数の引数・戻り値・フィールド型にも使える。
 - `none` は単独では型不定 — 文脈の Optional 型から推論される。
 
