@@ -25,6 +25,27 @@ use ilang_ast::{
 
 use crate::ParseError;
 
+/// Modules whose source is shipped inside the compiler. `use math`
+/// resolves here before consulting the filesystem.
+fn builtin_module_source(name: &str) -> Option<&'static str> {
+    match name {
+        "math" => Some(include_str!("stdlib/math.il")),
+        _ => None,
+    }
+}
+
+/// A path-shaped key for built-in modules so the rest of the loader
+/// can treat them uniformly with on-disk files.
+fn builtin_path(name: &str) -> PathBuf {
+    PathBuf::from(format!("<builtin>/{name}.il"))
+}
+
+fn is_builtin_path(p: &Path) -> Option<&str> {
+    let s = p.to_str()?;
+    s.strip_prefix("<builtin>/")
+        .and_then(|rest| rest.strip_suffix(".il"))
+}
+
 #[derive(Debug)]
 pub enum LoadError {
     ReadError {
@@ -105,6 +126,16 @@ fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {
     })
 }
 
+/// Resolve a `use module` to either an on-disk canonicalized path
+/// or a virtual `<builtin>/module.il` path for shipped stdlib modules.
+fn resolve_module(module: &str, dir: &Path) -> Result<PathBuf, LoadError> {
+    if builtin_module_source(module).is_some() {
+        return Ok(builtin_path(module));
+    }
+    let path = dir.join(format!("{module}.il"));
+    canonicalize(&path)
+}
+
 fn load_recursive(
     file: &Path,
     base_dir: &Path,
@@ -121,12 +152,14 @@ fn load_recursive(
     }
     chain.push(file.display().to_string());
     let prog = parse_file(file)?;
-    // Recurse into use items.
+    // Recurse into use items. Built-in modules don't have a dir, so
+    // pass through the importer's dir for any nested non-builtin
+    // resolutions (built-ins themselves don't import other modules
+    // for now, but the path stays correct if they ever do).
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
     for item in &prog.items {
         if let Item::Use(u) = item {
-            let path = dir.join(format!("{}.il", u.module));
-            let canon = canonicalize(&path)?;
+            let canon = resolve_module(&u.module, &dir)?;
             load_recursive(&canon, &dir, visiting, chain, loaded)?;
         }
     }
@@ -137,10 +170,16 @@ fn load_recursive(
 }
 
 fn parse_file(file: &Path) -> Result<Program, LoadError> {
-    let src = std::fs::read_to_string(file).map_err(|e| LoadError::ReadError {
-        path: file.to_path_buf(),
-        message: e.to_string(),
-    })?;
+    let src = if let Some(name) = is_builtin_path(file) {
+        builtin_module_source(name)
+            .expect("builtin path checked")
+            .to_string()
+    } else {
+        std::fs::read_to_string(file).map_err(|e| LoadError::ReadError {
+            path: file.to_path_buf(),
+            message: e.to_string(),
+        })?
+    };
     let toks = ilang_lexer::tokenize(&src)
         .map_err(|e| LoadError::LexError(e.to_string()))?;
     crate::parse(&toks).map_err(LoadError::ParseError)
@@ -157,8 +196,7 @@ fn apply_use(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let path = importer_dir.join(format!("{}.il", u.module));
-    let canon = canonicalize(&path)?;
+    let canon = resolve_module(&u.module, &importer_dir)?;
     let mut module_prog = loaded
         .remove(&canon)
         .expect("loaded before via load_recursive");

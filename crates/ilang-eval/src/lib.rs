@@ -1,4 +1,5 @@
 pub mod error;
+pub mod externs;
 pub mod interpreter;
 mod ops;
 pub mod value;

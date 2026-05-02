@@ -523,6 +523,37 @@ utils.double(c.get())            // → 22
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
 - 全モジュールが 1 つの Program にマージされる (ファイル境界は型チェッカ以降は意識されない)
 - 名前空間越し import の中身は `module.X` プレフィクスで内部識別されるため、`use module` した時に親プログラムの bare 名と衝突しない
+- **同梱モジュール**: 一部のモジュールはコンパイラに埋め込まれており、ディスクの探索より優先される。現状は `math` のみ。
+
+### `@extern fn` (組み込みホスト関数)
+
+ボディの代わりに **runtime が実装を供給する** 関数宣言。`@extern` 属性を付けて本体を省略します。
+
+```rust
+// 同梱の math.il より抜粋
+@extern fn sin(x: f64): f64
+@extern fn sqrt(x: f64): f64
+@extern fn pow(base: f64, exp: f64): f64
+```
+
+- `@extern` 属性付きの fn は **本体 `{ }` を書かない** (parse error にならない)
+- 型チェッカは本体検査をスキップ (シグネチャのみ契約)
+- interpreter: ホスト側のレジストリ (`crates/ilang-eval/src/externs.rs`) に名前 → Rust 関数を登録、実行時にディスパッチ
+- JIT: `Linkage::Import` で宣言、`JITBuilder::symbol("math.sin", ...)` で関数アドレスを供給 (cranelift が直接 Rust 関数を呼び出す)
+- 名前は loader でマングル後の qualified 形 (`math.sin`) でレジストリに登録
+- 現状ユーザ定義 extern は無対応 — 内部メカニズムとして `math` モジュールに使われている
+
+### 組み込み `math` モジュール
+
+```rust
+use math
+math.sqrt(16.0)              // 4.0
+math.sin(math.pi() / 2.0)    // 1.0
+math.pow(2.0, 10.0)          // 1024.0
+math.atan2(1.0, 1.0)         // π/4
+```
+
+提供関数 (すべて f64): `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sqrt`, `pow`, `exp`, `ln`, `log10`, `log2`, `floor`, `ceil`, `round`, `abs`、定数 `pi()` / `e()`。interpreter / JIT 両対応。
 
 ---
 

@@ -305,7 +305,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let body = parse_block(self)?;
+        // `@extern` fns have no body — the runtime supplies the
+        // implementation via a name-based registry.
+        let body = if attrs.iter().any(|a| a.name == "extern") {
+            ilang_ast::Block { stmts: Vec::new(), tail: None }
+        } else {
+            parse_block(self)?
+        };
         Ok(FnDecl {
             attrs,
             name,
@@ -325,20 +331,27 @@ impl<'a> Parser<'a> {
         while matches!(self.peek().kind, TokenKind::At) {
             self.bump();
             let name = self.expect_ident("attribute name")?;
-            self.expect(&TokenKind::LParen, "'('")?;
-            let mut args = Vec::new();
-            if !matches!(self.peek().kind, TokenKind::RParen) {
-                loop {
-                    let path = self.parse_attr_path()?;
-                    args.push(AttrArg::Path(path));
-                    if matches!(self.peek().kind, TokenKind::Comma) {
-                        self.bump();
-                    } else {
-                        break;
+            // Argument list is optional. `@extern` (no parens) and
+            // `@requires(net, file.read)` are both valid.
+            let args = if matches!(self.peek().kind, TokenKind::LParen) {
+                self.bump();
+                let mut args = Vec::new();
+                if !matches!(self.peek().kind, TokenKind::RParen) {
+                    loop {
+                        let path = self.parse_attr_path()?;
+                        args.push(AttrArg::Path(path));
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
                     }
                 }
-            }
-            self.expect(&TokenKind::RParen, "')'")?;
+                self.expect(&TokenKind::RParen, "')'")?;
+                args
+            } else {
+                Vec::new()
+            };
             out.push(Attribute { name, args });
         }
         Ok(out)
@@ -384,7 +397,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let body = parse_block(self)?;
+        // `@extern` fns have no body — the runtime supplies the
+        // implementation via a name-based registry.
+        let body = if attrs.iter().any(|a| a.name == "extern") {
+            ilang_ast::Block { stmts: Vec::new(), tail: None }
+        } else {
+            parse_block(self)?
+        };
         Ok(FnDecl {
             attrs,
             name,

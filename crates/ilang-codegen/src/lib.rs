@@ -13,6 +13,7 @@ mod lower_ctrl;
 mod lower_expr;
 mod lower_op;
 mod lower_stmt;
+mod math_externs;
 mod monomorphize;
 mod runtime;
 mod ty;

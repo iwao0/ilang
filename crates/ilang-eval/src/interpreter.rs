@@ -1038,6 +1038,15 @@ impl Interpreter {
                 span: call_span,
             });
         }
+        // `@extern` fns dispatch to a host-side function in the
+        // built-in registry (e.g. `math.sin` → `f64::sin`).
+        if decl.attrs.iter().any(|a| a.name == "extern") {
+            return crate::externs::invoke_extern(&decl.name, &evaluated)
+                .ok_or_else(|| RuntimeError::TypeError {
+                    msg: format!("no extern handler registered for {:?}", decl.name),
+                    span: call_span,
+                });
+        }
         if self.depth >= MAX_DEPTH {
             return Err(RuntimeError::StackOverflow { span: call_span });
         }

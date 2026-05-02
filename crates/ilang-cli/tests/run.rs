@@ -63,13 +63,13 @@ fn use_selective_import() {
     std::fs::create_dir_all(&dir).unwrap();
     write_module(
         &dir,
-        "math",
+        "nums",
         "fn double(n: i64): i64 { n * 2 }\nfn triple(n: i64): i64 { n * 3 }\nfn quad(n: i64): i64 { n * 4 }",
     );
     let main = write_module(
         &dir,
         "main",
-        "use math { double, triple }\ndouble(5) + triple(5)",
+        "use nums { double, triple }\ndouble(5) + triple(5)",
     );
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -117,4 +117,35 @@ fn use_class_via_namespace() {
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "12");
+}
+
+#[test]
+fn use_builtin_math_module() {
+    // No `math.il` written to disk — the loader should pick up the
+    // shipped stdlib version.
+    let dir = std::env::temp_dir().join(format!("ilang_math_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = write_module(&dir, "main", "use math\nmath.sqrt(16.0)");
+    let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "4.0");
+}
+
+#[test]
+fn use_builtin_math_jit() {
+    let dir = std::env::temp_dir().join(format!("ilang_math_jit_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = write_module(
+        &dir,
+        "main",
+        "use math\nlet p = math.pi()\nmath.sin(p / 2.0)",
+    );
+    let out = Command::new(ilang_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&main)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1.0");
 }

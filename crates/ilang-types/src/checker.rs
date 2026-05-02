@@ -427,6 +427,12 @@ impl TypeChecker {
         if let Some(ret) = &f.ret {
             self.validate_type(ret, f.span, &class_params)?;
         }
+        // `@extern` fns have no body — the runtime supplies the
+        // implementation. Skip the body check; the signature is the
+        // contract and the runtime is responsible for honoring it.
+        if f.attrs.iter().any(|a| a.name == "extern") {
+            return Ok(());
+        }
         let mut env: Vars = HashMap::new();
         for Param { name, ty, .. } in &f.params {
             // Rewrite Object(T) → TypeVar(T) so the body checker treats

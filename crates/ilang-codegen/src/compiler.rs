@@ -252,6 +252,9 @@ impl JitCompiler {
             "ilang_jit_array_push_f64",
             ilang_jit_array_push_f64 as *const u8,
         );
+        // Built-in `@extern` math fns. The names match the qualified
+        // form produced by the loader (`math.sin`, etc.).
+        crate::math_externs::register_math_symbols(&mut builder);
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -595,14 +598,27 @@ impl JitCompiler {
         if let Some(t) = ret.cl() {
             sig.returns.push(AbiParam::new(t));
         }
+        // `@extern` fns are linked as imports — the host registers
+        // their actual addresses via `JITBuilder::symbol` (see
+        // `register_extern_symbols` called during compiler creation).
+        let linkage = if f.attrs.iter().any(|a| a.name == "extern") {
+            Linkage::Import
+        } else {
+            Linkage::Local
+        };
         let id = self
             .module
-            .declare_function(symbol, Linkage::Local, &sig)
+            .declare_function(symbol, linkage, &sig)
             .map_err(|e| CodegenError::Module(e.to_string()))?;
         Ok((id, params, ret))
     }
 
     fn define_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
+        // Externs have no body to compile — the implementation comes
+        // from the host symbol registered before module construction.
+        if f.attrs.iter().any(|a| a.name == "extern") {
+            return Ok(());
+        }
         let (id, param_tys, ret_ty) = self.funcs[&f.name].clone();
         self.define_function_body(id, f, &param_tys, ret_ty, None)
     }
