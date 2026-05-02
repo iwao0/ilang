@@ -1447,15 +1447,29 @@ fn lower_if_let(
     let cond = b.ins().icmp(IntCC::NotEqual, scrut_v, zero);
     b.ins().brif(cond, then_block, &[], else_block, &[]);
 
-    // Then branch: bind `name` to the unwrapped pointer with the inner
-    // heap type. Retain so the binding has its own +1 (block-end release
-    // in lower_block_value will balance it).
+    // Then branch: bind `name` to the unwrapped value.
+    //   heap inner: scrut_v IS the pointer; retain so the binding owns
+    //               its own +1 (block-end release balances).
+    //   primitive inner: scrut_v is a Box<[rc | payload]>; load the
+    //                    payload at OPT_PRIM_PAYLOAD_OFFSET. No ARC on
+    //                    the binding (it's a primitive copy).
     b.switch_to_block(then_block);
     b.seal_block(then_block);
     let var = Variable::new(lc.env.next_var_id());
-    b.declare_var(var, I64);
-    b.def_var(var, scrut_v);
-    crate::arc::emit_retain_heap(b, lc, scrut_v, inner_jty);
+    let cl_ty = inner_jty.cl().expect("non-unit inner");
+    b.declare_var(var, cl_ty);
+    if inner_jty.is_heap() {
+        b.def_var(var, scrut_v);
+        crate::arc::emit_retain_heap(b, lc, scrut_v, inner_jty);
+    } else {
+        let payload = b.ins().load(
+            cl_ty,
+            cranelift::prelude::MemFlags::trusted(),
+            scrut_v,
+            crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+        );
+        b.def_var(var, payload);
+    }
     let prev = lc.env.bindings.insert(name.to_string(), (var, inner_jty));
     let then_val = lower_block_value(b, lc, then_branch)?;
     // Restore the prior binding.

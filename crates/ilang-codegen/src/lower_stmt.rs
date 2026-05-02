@@ -4,6 +4,8 @@
 use cranelift::prelude::*;
 use ilang_ast::{ExprKind, Stmt, StmtKind, Type};
 
+use cranelift_module::Module;
+
 use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{class_ids_from, enum_ids_from, LowerCtx};
 use crate::error::CodegenError;
@@ -74,6 +76,11 @@ pub(crate) fn lower_stmt(
                 )?,
                 None => vt,
             };
+            // Primitive auto-wrap (`let x: i64? = 7`): box the value on
+            // the heap before storing. coerce can't see lc, so this
+            // happens here. For heap inner types the existing path in
+            // coerce already maps T → T?.
+            let (val, vt) = maybe_box_to_optional_prim(b, lc, val, vt, bind_ty);
             let coerced = coerce(b, (val, vt), bind_ty, s.span)?;
             // Aliased binding (`let y = x` where x came from a Var/
             // Field/Index of heap type) needs an extra retain so the
@@ -186,4 +193,36 @@ pub(crate) fn lower_block_value(
         lc.env.unit_bindings.remove(&n);
     }
     Ok(tail)
+}
+
+/// If `bind_ty` is `Optional<P>` for a primitive P and the value
+/// matches P, allocate a `[rc | payload]` box and return its pointer
+/// + `Optional<P>` tagged type. Otherwise return the input unchanged.
+/// Lets `let auto: i64? = 7` work the same as `let auto: i64? = 7`
+/// already does in the interpreter.
+fn maybe_box_to_optional_prim(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    val: cranelift::prelude::Value,
+    vt: JitTy,
+    bind_ty: JitTy,
+) -> (cranelift::prelude::Value, JitTy) {
+    use cranelift_codegen::ir::types::I64;
+    if let JitTy::Optional(id) = bind_ty {
+        let inner = lc.optional_inners[id as usize];
+        if !inner.is_heap() && vt == inner {
+            let size = b.ins().iconst(I64, inner.size_bytes() as i64);
+            let new_ref = lc.module.declare_func_in_func(lc.optional_box_new_id, b.func);
+            let call = b.ins().call(new_ref, &[size]);
+            let ptr = b.inst_results(call)[0];
+            b.ins().store(
+                cranelift::prelude::MemFlags::trusted(),
+                val,
+                ptr,
+                crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+            );
+            return (ptr, bind_ty);
+        }
+    }
+    (val, vt)
 }
