@@ -1295,10 +1295,10 @@ fn jit_rejects_generic_enum() {
     use ilang_parser::parse;
     use ilang_types::TypeChecker;
     let src = r#"
-        let r: Result<i64, string> = Result.Ok(42)
+        let r: Result<i64, string> = Result.ok(42)
         match r {
-            Result.Ok(v) { v }
-            Result.Err(_) { 0 }
+            Result.ok(v) { v }
+            Result.err(_) { 0 }
         }
     "#;
     let toks = tokenize(src).unwrap();

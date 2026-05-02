@@ -427,28 +427,27 @@ match e {
 
 ### 組み込み Result<T, E>
 
-Rust と同じ形の組み込みジェネリック enum。`Optional` の `some` / `none` と同様、構築とパターンに **短縮形 `ok(v)` / `err(e)`** が用意されている。
+Rust 風の組み込みジェネリック enum。バリアント名は **小文字 `ok` / `err`**。
 
 ```rust
-enum Result<T, E> { Ok: (T), Err(E) }   // 概念的な定義 (実装側で登録済み)
+enum Result<T, E> { ok: (T), err: (E) }   // 概念的な定義 (実装側で登録済み)
 
 fn divide(a: i64, b: i64): Result<i64, string> {
-    if b == 0 { err("divide by zero") } else { ok(a / b) }
+    if b == 0 { Result.err("divide by zero") } else { Result.ok(a / b) }
 }
 
 match divide(10, 2) {
-    ok(v) { v }
+    ok(v) { v }            // ← match のパターンは scrutinee 型から推論されるので `Result.` 省略可
     err(_) { -1 }
 }
-
-// 長い形 (Result.Ok / Result.Err) も使える — 同じ EnumCtor に desugar される
-let r: Result<i64, string> = Result.Ok(42)
 ```
 
-- `ok` / `err` は予約語 (変数名として使えない)。`Result.Ok` / `Result.Err` と完全互換
-- 名前 `Result` も予約 (ユーザが `enum Result { ... }` を定義するとエラー)
+- 構築は **`Result.ok(v)` / `Result.err(e)`** (`Enum.variant(...)` の通常形式)
+- match パターンでは `ok(v)` / `err(e)` と短縮可 (バリアント短縮形と同じ仕組み)
+- `ok` / `err` は **予約語ではない** — 変数名として使える (使うと混乱するのでおすすめしないが)
+- 名前 `Result` は予約 (ユーザが `enum Result { ... }` を定義するとエラー)
 - 構築時の型引数は推論 — 戻り値型や let 注釈で T/E が確定する
-- match の網羅性検査もそのまま (Ok と Err を両方カバーするか `_` が必要)
+- match の網羅性検査もそのまま (`ok` と `err` を両方カバーするか `_` が必要)
 - JIT 未対応 (上記のジェネリック enum 全般と同じ)
 
 ---

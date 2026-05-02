@@ -270,11 +270,11 @@ impl TypeChecker {
                 type_params: vec!["T".into(), "E".into()],
                 variants: vec![
                     EnumVariantSig {
-                        name: "Ok".into(),
+                        name: "ok".into(),
                         payload: VariantPayloadSig::Tuple(vec![Type::TypeVar("T".into())]),
                     },
                     EnumVariantSig {
-                        name: "Err".into(),
+                        name: "err".into(),
                         payload: VariantPayloadSig::Tuple(vec![Type::TypeVar("E".into())]),
                     },
                 ],

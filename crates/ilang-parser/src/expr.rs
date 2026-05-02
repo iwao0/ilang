@@ -391,29 +391,6 @@ impl<'a> Parser<'a> {
                 self.expect(&TokenKind::RParen, "')'")?;
                 Ok(Expr::new(ExprKind::Some(Box::new(inner)), span))
             }
-            // `ok(x)` / `err(e)` — short forms for `Result::Ok(x)` and
-            // `Result::Err(e)`. Desugar to the same EnumCtor at parse
-            // time so the rest of the pipeline (checker, interpreter,
-            // JIT-rejection) sees no new node kind.
-            TokenKind::Ok_ | TokenKind::Err_ => {
-                let variant = if matches!(self.peek().kind, TokenKind::Ok_) {
-                    "Ok"
-                } else {
-                    "Err"
-                };
-                self.bump();
-                self.expect(&TokenKind::LParen, "'('")?;
-                let inner = self.parse_expr(0)?;
-                self.expect(&TokenKind::RParen, "')'")?;
-                Ok(Expr::new(
-                    ExprKind::EnumCtor {
-                        enum_name: "Result".into(),
-                        variant: variant.into(),
-                        args: ilang_ast::CtorArgs::Tuple(vec![inner]),
-                    },
-                    span,
-                ))
-            }
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
             TokenKind::For => self.parse_for(),
@@ -802,28 +779,7 @@ impl<'a> Parser<'a> {
                 });
             }
         }
-        // Short Result patterns: `ok(name)` / `err(name)` desugar to the
-        // explicit `Result::Ok(name)` / `Result::Err(name)` form.
-        if matches!(self.peek().kind, TokenKind::Ok_ | TokenKind::Err_) {
-            let variant = if matches!(self.peek().kind, TokenKind::Ok_) {
-                "Ok"
-            } else {
-                "Err"
-            };
-            self.bump();
-            self.expect(&TokenKind::LParen, "'('")?;
-            let n = self.expect_ident("binding name (or `_`)")?;
-            self.expect(&TokenKind::RParen, "')'")?;
-            return Ok(ilang_ast::Pattern {
-                kind: ilang_ast::PatternKind::Variant {
-                    enum_name: Some("Result".into()),
-                    variant: variant.into(),
-                    bindings: ilang_ast::PatternBindings::Tuple(vec![n]),
-                },
-                span,
-            });
-        }
-        // Long form `EnumName::Variant` vs. short form `Variant` (the
+        // Long form `EnumName.Variant` vs. short form `Variant` (the
         // checker fills in the enum name from the scrutinee). Detect
         // by looking for `::` after the first ident.
         let first = self.expect_ident("pattern (variant or `_`)")?;

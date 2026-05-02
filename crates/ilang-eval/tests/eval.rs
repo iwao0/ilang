@@ -1608,19 +1608,19 @@ fn map_overwrite_releases_old_value() {
 fn result_ok_and_err() {
     use std::rc::Rc;
     let src = r#"
-        let r: Result<i64, string> = Result.Ok(42)
+        let r: Result<i64, string> = Result.ok(42)
         match r {
-            Result.Ok(v) { v }
-            Result.Err(_) { -1 }
+            Result.ok(v) { v }
+            Result.err(_) { -1 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(42));
 
     let src = r#"
-        let r: Result<i64, string> = Result.Err("boom")
+        let r: Result<i64, string> = Result.err("boom")
         match r {
-            Result.Ok(_) { "ok" }
-            Result.Err(e) { e }
+            Result.ok(_) { "ok" }
+            Result.err(e) { e }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Str(Rc::new("boom".into())));
@@ -1630,22 +1630,22 @@ fn result_ok_and_err() {
 fn result_used_via_function_return() {
     let src = r#"
         fn divide(a: i64, b: i64): Result<i64, string> {
-            if b == 0 { Result.Err("divide by zero") } else { Result.Ok(a / b) }
+            if b == 0 { Result.err("divide by zero") } else { Result.ok(a / b) }
         }
         match divide(10, 2) {
-            Result.Ok(v) { v }
-            Result.Err(_) { 0 }
+            Result.ok(v) { v }
+            Result.err(_) { 0 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(5));
 
     let src = r#"
         fn divide(a: i64, b: i64): Result<i64, string> {
-            if b == 0 { Result.Err("divide by zero") } else { Result.Ok(a / b) }
+            if b == 0 { Result.err("divide by zero") } else { Result.ok(a / b) }
         }
         match divide(10, 0) {
-            Result.Ok(v) { v }
-            Result.Err(_) { -999 }
+            Result.ok(v) { v }
+            Result.err(_) { -999 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(-999));
@@ -1674,7 +1674,7 @@ fn result_payload_type_mismatch_rejected() {
     use ilang_lexer::tokenize;
     use ilang_parser::parse;
     // Annotated as Result<i64, string> but Ok(v) supplies a string.
-    let src = r#"let r: Result<i64, string> = Result.Ok("not an int")"#;
+    let src = r#"let r: Result<i64, string> = Result.ok("not an int")"#;
     let toks = tokenize(src).unwrap();
     let prog = parse(&toks).unwrap();
     assert!(TypeChecker::new().check(&prog).is_err());
@@ -1696,7 +1696,7 @@ fn result_short_form_constructors_and_patterns() {
     use std::rc::Rc;
     let src = r#"
         fn divide(a: i64, b: i64): Result<i64, string> {
-            if b == 0 { err("divide by zero") } else { ok(a / b) }
+            if b == 0 { Result.err("divide by zero") } else { Result.ok(a / b) }
         }
         match divide(10, 2) {
             ok(v) { v }
@@ -1707,7 +1707,7 @@ fn result_short_form_constructors_and_patterns() {
 
     let src = r#"
         fn divide(a: i64, b: i64): Result<i64, string> {
-            if b == 0 { err("divide by zero") } else { ok(a / b) }
+            if b == 0 { Result.err("divide by zero") } else { Result.ok(a / b) }
         }
         match divide(10, 0) {
             ok(_) { "got value" }
@@ -1722,10 +1722,10 @@ fn ok_err_can_mix_with_long_form() {
     // The short form desugars to the same EnumCtor as the long form,
     // so they're freely interchangeable.
     let src = r#"
-        let r: Result<i64, string> = ok(42)
+        let r: Result<i64, string> = Result.ok(42)
         match r {
-            Result.Ok(v) { v }
-            Result.Err(_) { -1 }
+            Result.ok(v) { v }
+            Result.err(_) { -1 }
         }
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(42));

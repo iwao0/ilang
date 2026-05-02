@@ -25,8 +25,6 @@ pub enum TokenKind {
     As,
     None_,
     Some_,
-    Ok_,
-    Err_,
     Enum,
     Match,
     For,
