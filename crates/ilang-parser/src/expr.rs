@@ -723,28 +723,38 @@ impl<'a> Parser<'a> {
     /// another `{`. In that case the `{` belongs to the arm body —
     /// the pattern is a bare unit variant.
     fn lookahead_is_unit_variant_in_arm(&self) -> bool {
-        // Pattern starts with `Ident :: Ident` (or one of the short
-        // forms `ok(_)` / `err(_)`, which always have `(`). For the
-        // long form, check what comes after the second Ident.
+        // Pattern shapes covered:
+        //   long  form: `Ident :: Ident { ... }`     (variant_pos = 2, brace_pos = 3)
+        //   short form: `Ident { ... }`              (variant_pos = 0, brace_pos = 1)
+        // For the short form we still want the same disambiguation.
+        // (Wildcard `_` and `ok`/`err` Result short forms never end up
+        // here — they're handled inside parse_pattern.)
         let t0 = &self.tokens[self.pos].kind;
+        if !matches!(t0, TokenKind::Ident(_)) {
+            return false;
+        }
         let t1 = self.tokens.get(self.pos + 1).map(|t| &t.kind);
-        let t2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
-        if !matches!(t0, TokenKind::Ident(_))
-            || !matches!(t1, Some(TokenKind::ColonColon))
-            || !matches!(t2, Some(TokenKind::Ident(_)))
-        {
+        let brace_pos = if matches!(t1, Some(TokenKind::ColonColon)) {
+            // long form
+            let t2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
+            if !matches!(t2, Some(TokenKind::Ident(_))) {
+                return false;
+            }
+            self.pos + 3
+        } else if matches!(t1, Some(TokenKind::LBrace)) {
+            // short form `Ident { ... }`
+            self.pos + 1
+        } else {
+            return false;
+        };
+        if !matches!(self.tokens.get(brace_pos).map(|t| &t.kind), Some(TokenKind::LBrace)) {
             return false;
         }
-        // Token at pos+3: if not `{`, it's already unit (or tuple `(`)
-        // — let parse_pattern handle it.
-        if !matches!(self.tokens.get(self.pos + 3).map(|t| &t.kind), Some(TokenKind::LBrace)) {
-            return false;
-        }
-        // Walk from pos+3 to find the matching `}`. Then check if
+        // Walk from brace_pos to find the matching `}`. Then check if
         // the next token is `{` (struct pattern + arm body) or
         // anything else (the `{` is actually the arm body).
         let mut depth: i32 = 0;
-        let mut i = self.pos + 3;
+        let mut i = brace_pos;
         while i < self.tokens.len() {
             match &self.tokens[i].kind {
                 TokenKind::LBrace => depth += 1,
@@ -770,9 +780,24 @@ impl<'a> Parser<'a> {
     /// a struct payload pattern.
     fn parse_pattern_unit_only(&mut self) -> Result<ilang_ast::Pattern, ParseError> {
         let span = self.peek().span;
-        let enum_name = self.expect_ident("variant name")?;
-        self.expect(&TokenKind::ColonColon, "'::'")?;
-        let variant = self.expect_ident("variant name")?;
+        // Wildcard arm `_ { ... }`.
+        if let TokenKind::Ident(n) = &self.peek().kind {
+            if n == "_" {
+                self.bump();
+                return Ok(ilang_ast::Pattern {
+                    kind: ilang_ast::PatternKind::Wildcard,
+                    span,
+                });
+            }
+        }
+        let first = self.expect_ident("variant name")?;
+        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::ColonColon) {
+            self.bump();
+            let v = self.expect_ident("variant name")?;
+            (Some(first), v)
+        } else {
+            (None, first)
+        };
         Ok(ilang_ast::Pattern {
             kind: ilang_ast::PatternKind::Variant {
                 enum_name,
@@ -809,16 +834,24 @@ impl<'a> Parser<'a> {
             self.expect(&TokenKind::RParen, "')'")?;
             return Ok(ilang_ast::Pattern {
                 kind: ilang_ast::PatternKind::Variant {
-                    enum_name: "Result".into(),
+                    enum_name: Some("Result".into()),
                     variant: variant.into(),
                     bindings: ilang_ast::PatternBindings::Tuple(vec![n]),
                 },
                 span,
             });
         }
-        let enum_name = self.expect_ident("pattern (variant or `_`)")?;
-        self.expect(&TokenKind::ColonColon, "'::'")?;
-        let variant = self.expect_ident("variant name")?;
+        // Long form `EnumName::Variant` vs. short form `Variant` (the
+        // checker fills in the enum name from the scrutinee). Detect
+        // by looking for `::` after the first ident.
+        let first = self.expect_ident("pattern (variant or `_`)")?;
+        let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::ColonColon) {
+            self.bump();
+            let v = self.expect_ident("variant name")?;
+            (Some(first), v)
+        } else {
+            (None, first)
+        };
         let bindings = match self.peek().kind {
             TokenKind::LParen => {
                 self.bump();

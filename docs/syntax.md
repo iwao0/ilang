@@ -365,10 +365,11 @@ a.unwrap()                       // T (none ならランタイム panic)
 enum Color { Red, Green, Blue }
 
 let c = Color::Green
+// match パターンは `Enum::` を省略可 — scrutinee 型から推論
 let name = match c {
-    Color::Red { "red" }
-    Color::Green { "green" }
-    Color::Blue { "blue" }
+    Red { "red" }
+    Green { "green" }
+    Blue { "blue" }
 }
 
 // Phase 2: ペイロード付き (タプル / 名前付きフィールド)
@@ -380,23 +381,24 @@ enum Shape {
 
 fn area(s: Shape): f64 {
     match s {
-        Shape::Circle(r) { 3.14 * r * r }
-        Shape::Rect(w, h) { w * h }
-        Shape::Square { side } { side * side }   // struct shorthand: { side: side }
+        Circle(r) { 3.14 * r * r }
+        Rect(w, h) { w * h }
+        Square { side } { side * side }   // struct shorthand: { side: side }
     }
 }
 
-// `_` ワイルドカードで残りを捕捉
+// `_` ワイルドカードで残りを捕捉。長い形 `Color::Red` も引き続き有効。
 let day = Color::Red
 match day {
-    Color::Red { "alert" }
+    Red { "alert" }
     _ { "ok" }
 }
 ```
 
 - **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`Circle: (f64)`)。ユニットバリアントは `:` なし (`Red`)。
 - **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color::Red { "red" }`)。
-- 構築/パターンは現状維持: `Shape::Circle(3.0)` で構築、`Shape::Circle(r)` でパターン分解。
+- 構築は `Enum::` プレフィクス必須 (`Shape::Circle(3.0)`)。
+- **match のパターン側は `Enum::` を省略可** — scrutinee の静的型から推論される (`Circle(r)` は `Shape::Circle(r)` と同義)。長い形 (`Shape::Circle(r)`) も引き続き有効。
 - 全バリアントを網羅するか `_` が必要 (型チェッカが拒否)
 - 各 arm 値は型が揃う必要あり (if/else と同じ)
 - パターンの束縛: タプルは位置 (`Shape::Circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視

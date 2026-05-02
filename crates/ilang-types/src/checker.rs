@@ -1626,12 +1626,17 @@ impl TypeChecker {
                             variant,
                             bindings,
                         } => {
-                            if pat_enum != &enum_name {
-                                return Err(TypeError::Mismatch {
-                                    expected: Type::Object(enum_name.clone()),
-                                    got: Type::Object(pat_enum.clone()),
-                                    span: arm_kind_span,
-                                });
+                            // Short form (`Variant ...` without `Enum::`)
+                            // borrows the scrutinee's enum name. Long
+                            // form must match it exactly.
+                            if let Some(pe) = pat_enum {
+                                if pe != &enum_name {
+                                    return Err(TypeError::Mismatch {
+                                        expected: Type::Object(enum_name.clone()),
+                                        got: Type::Object(pe.clone()),
+                                        span: arm_kind_span,
+                                    });
+                                }
                             }
                             let v = sig
                                 .variants

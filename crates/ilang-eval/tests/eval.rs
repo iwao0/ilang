@@ -1730,3 +1730,57 @@ fn ok_err_can_mix_with_long_form() {
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(42));
 }
+
+#[test]
+fn match_short_variant_pattern() {
+    use std::rc::Rc;
+    // Drop the `Color::` prefix in match arms; checker resolves it
+    // from the scrutinee's enum.
+    let src = r#"
+        enum Color { Red, Green, Blue }
+        let c = Color::Green
+        match c {
+            Red { "red" }
+            Green { "green" }
+            Blue { "blue" }
+        }
+    "#;
+    assert_eq!(
+        run(src).unwrap(),
+        Value::Str(Rc::new("green".into()))
+    );
+}
+
+#[test]
+fn match_short_variant_with_payload() {
+    let src = r#"
+        enum Shape {
+            Circle: (f64)
+            Rect: (f64, f64)
+            Square: { side: f64 }
+        }
+        fn area(s: Shape): f64 {
+            match s {
+                Circle(r) { 3.14 * r * r }
+                Rect(w, h) { w * h }
+                Square { side } { side * side }
+            }
+        }
+        area(Shape::Square { side: 4.0 })
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Float(16.0));
+}
+
+#[test]
+fn match_long_form_still_works() {
+    // The full `Enum::Variant` form must still parse — we didn't
+    // remove it.
+    let src = r#"
+        enum Color { Red, Green }
+        match Color::Red {
+            Color::Red { 1 }
+            Color::Green { 2 }
+        }
+    "#;
+    assert_eq!(run(src).unwrap(), Value::Int(1));
+}

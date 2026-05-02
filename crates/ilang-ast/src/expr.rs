@@ -208,8 +208,11 @@ pub enum PatternKind {
     /// `_` — matches anything, binds nothing.
     Wildcard,
     /// `EnumName::Variant` (Phase 1) or with bindings (Phase 2).
+    /// `enum_name` is `None` when the user writes the short form
+    /// (just `Variant(...)`); the type checker resolves it from the
+    /// match scrutinee's static type.
     Variant {
-        enum_name: String,
+        enum_name: Option<String>,
         variant: String,
         bindings: PatternBindings,
     },
