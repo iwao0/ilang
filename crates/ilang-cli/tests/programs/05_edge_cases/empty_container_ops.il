@@ -27,7 +27,7 @@ test.expect(m.values().length, 0)
 
 // Empty string.
 test.expect("".length, 0)
-test.expectStr("".toUpperCase(), "")
+test.expectStr("".toUpper(), "")
 test.expectStr("".trim(), "")
 test.expectStr("".charAt(0), "")
 test.expectBool("".startsWith(""), true)

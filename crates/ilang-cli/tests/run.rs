@@ -794,7 +794,7 @@ fn array_foreach_runs_callback() {
 
 #[test]
 fn array_string_map_filter_chain() {
-    let src = "fn upper(s: string): string { s.toUpperCase() }\nfn nonempty(s: string): bool { s.length > 0 }\nlet xs: string[] = [\"\", \"hi\", \"\", \"yo\"]\nlet ys = xs.filter(nonempty).map(upper)\nys.length";
+    let src = "fn upper(s: string): string { s.toUpper() }\nfn nonempty(s: string): bool { s.length > 0 }\nlet xs: string[] = [\"\", \"hi\", \"\", \"yo\"]\nlet ys = xs.filter(nonempty).map(upper)\nys.length";
     for jit in [false, true] {
         let p = write_tmp(&format!("strchain_{jit}.il"), src);
         let mut cmd = Command::new(ilang_bin());

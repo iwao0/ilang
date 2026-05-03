@@ -1247,11 +1247,11 @@ fn string_length_and_methods() {
     assert_eq!(run(r#""hello".startsWith("he")"#).unwrap(), Value::Bool(true));
     assert_eq!(run(r#""hello".endsWith("lo")"#).unwrap(), Value::Bool(true));
     assert_eq!(
-        run(r#""Hi".toUpperCase()"#).unwrap(),
+        run(r#""Hi".toUpper()"#).unwrap(),
         Value::Str(Rc::new("HI".into()))
     );
     assert_eq!(
-        run(r#""Hi".toLowerCase()"#).unwrap(),
+        run(r#""Hi".toLower()"#).unwrap(),
         Value::Str(Rc::new("hi".into()))
     );
     assert_eq!(

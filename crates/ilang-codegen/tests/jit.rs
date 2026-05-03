@@ -1106,8 +1106,8 @@ fn jit_string_predicates() {
 
 #[test]
 fn jit_string_case_and_trim() {
-    assert_eq!(jit(r#""Hi".toUpperCase()"#), JitValue::Str("HI".into()));
-    assert_eq!(jit(r#""Hi".toLowerCase()"#), JitValue::Str("hi".into()));
+    assert_eq!(jit(r#""Hi".toUpper()"#), JitValue::Str("HI".into()));
+    assert_eq!(jit(r#""Hi".toLower()"#), JitValue::Str("hi".into()));
     assert_eq!(jit(r#""  hi  ".trim()"#), JitValue::Str("hi".into()));
 }
 
@@ -1116,7 +1116,7 @@ fn jit_string_method_chain() {
     // Each call returns a fresh rc=1 string; receiver release of the
     // intermediate mustn't free literal storage.
     assert_eq!(
-        jit(r#""  Hello  ".trim().toUpperCase()"#),
+        jit(r#""  Hello  ".trim().toUpper()"#),
         JitValue::Str("HELLO".into())
     );
 }

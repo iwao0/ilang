@@ -616,8 +616,8 @@ pub(crate) fn lower_expr(
                         }
                         return Ok(Some((v, JitTy::Bool)));
                     }
-                    "toUpperCase" => return nullary(lc.strfns.to_upper, JitTy::Str, b, lc),
-                    "toLowerCase" => return nullary(lc.strfns.to_lower, JitTy::Str, b, lc),
+                    "toUpper" => return nullary(lc.strfns.to_upper, JitTy::Str, b, lc),
+                    "toLower" => return nullary(lc.strfns.to_lower, JitTy::Str, b, lc),
                     "trim" => return nullary(lc.strfns.trim, JitTy::Str, b, lc),
                     "replace" => {
                         if args.len() != 2 {

@@ -17,7 +17,7 @@ test.expect(r, 10)
 class StringBox {
     s: string
     init(v: string) { this.s = v }
-    upper(): string { this.s.toUpperCase() }
+    upper(): string { this.s.toUpper() }
     lenPlus(k: i64): i64 { this.s.length + k }
 }
 let sb = new StringBox("hi")

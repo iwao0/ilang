@@ -105,7 +105,7 @@ this.field = v             // メソッド内
 
 文字列に対しては `+` (連結) と `==`/`!=` (構造的等値) のみ。オブジェクトの `==`/`!=` は同一クラスでの参照等値。`%` は浮動小数では未対応。
 
-### 文字列の組み込みメソッド (JS 風)
+### 文字列の組み込みメソッド
 
 ```rust
 "hello".length              // i64 — Unicode コードポイント数 ("あいう".length == 3)
@@ -113,8 +113,8 @@ this.field = v             // メソッド内
 "hello".includes("ell")     // bool
 "hello".startsWith("he")    // bool
 "hello".endsWith("lo")      // bool
-"Hi".toUpperCase()          // string
-"Hi".toLowerCase()          // string
+"Hi".toUpper()          // string
+"Hi".toLower()          // string
 "  hi  ".trim()             // string
 "a,b,c".split(",")          // string[]  ─ 空セパレータでは1文字ずつ
 "abca".replace("a", "_")    // string    ─ 全箇所置換 (Rust流)

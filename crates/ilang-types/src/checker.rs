@@ -1103,7 +1103,7 @@ impl TypeChecker {
                             }
                             return Ok(Type::Bool);
                         }
-                        "toUpperCase" | "toLowerCase" | "trim" => {
+                        "toUpper" | "toLower" | "trim" => {
                             arity_check(0)?;
                             return Ok(Type::Str);
                         }

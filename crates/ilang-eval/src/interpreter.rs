@@ -452,8 +452,8 @@ impl Interpreter {
                             };
                             return Ok(Value::Bool(r));
                         }
-                        "toUpperCase" => return Ok(Value::Str(Rc::new(s.to_uppercase()))),
-                        "toLowerCase" => return Ok(Value::Str(Rc::new(s.to_lowercase()))),
+                        "toUpper" => return Ok(Value::Str(Rc::new(s.to_uppercase()))),
+                        "toLower" => return Ok(Value::Str(Rc::new(s.to_lowercase()))),
                         "trim" => return Ok(Value::Str(Rc::new(s.trim().to_string()))),
                         "replace" => {
                             // Replace ALL occurrences (Rust-style). JS's
