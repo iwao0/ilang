@@ -117,6 +117,14 @@ pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
             other => merged.items.push(other),
         }
     }
+    // Re-normalize the merged program. Each file was normalized in
+    // isolation, so an entry-file reference like `lib.Color.green`
+    // collapses to `Field(Var("lib.Color"), "green")` — at parse time
+    // `lib.Color` wasn't a known enum (it lives in another file). Now
+    // that the loader has merged the prefixed `lib.Color` enum decl
+    // into `merged.items`, a second normalize pass picks it up and
+    // converts the field-access into an `EnumCtor`.
+    let merged = crate::normalize::normalize(merged);
     // Inline `const` declarations: collect every Item::Const in the
     // merged Program, then walk all expressions replacing
     // `Var(const_name)` with the literal value. Item::Const entries
@@ -276,6 +284,16 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
     match item {
         Item::Fn(mut f) => {
             f.name = format!("{prefix}.{}", f.name);
+            f.params = f
+                .params
+                .iter()
+                .map(|p| ilang_ast::Param {
+                    name: p.name.clone(),
+                    ty: prefix_type(&p.ty, prefix),
+                    span: p.span,
+                })
+                .collect();
+            f.ret = f.ret.as_ref().map(|t| prefix_type(t, prefix));
             f.body = prefix_block_calls(f.body, prefix);
             Item::Fn(f)
         }
