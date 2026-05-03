@@ -26,6 +26,13 @@
 //   }
 @extern fn libLoaded(name: string): bool
 
+// Returns the dlopen error message captured for a missing
+// `@extern("name", optional)` library, or "" if the library
+// loaded successfully (or no `@extern` ever attempted to load
+// it). Only useful for diagnostic logging; gating logic should
+// use `os.libLoaded(...)`.
+@extern fn libLoadError(name: string): string
+
 // ─── POSIX error code constants ─────────────────────────────────
 // Values chosen to match macOS / Linux glibc — these 30-something
 // codes have identical numeric values across both platforms. The
@@ -68,3 +75,64 @@ const EMLINK: i32 = 31   // Too many links
 const EPIPE: i32 = 32    // Broken pipe
 const EDOM: i32 = 33     // Numerical argument out of domain
 const ERANGE: i32 = 34   // Numerical result out of range
+
+// ─── Standard file descriptors ──────────────────────────────────
+const STDIN_FILENO: i32 = 0
+const STDOUT_FILENO: i32 = 1
+const STDERR_FILENO: i32 = 2
+
+// ─── Process exit codes ─────────────────────────────────────────
+const EXIT_SUCCESS: i32 = 0
+const EXIT_FAILURE: i32 = 1
+
+// ─── lseek whence ───────────────────────────────────────────────
+const SEEK_SET: i32 = 0   // from start
+const SEEK_CUR: i32 = 1   // from current position
+const SEEK_END: i32 = 2   // from end
+
+// ─── open() flags ───────────────────────────────────────────────
+// Access mode (low 2 bits, mutually exclusive).
+const O_RDONLY: i32 = 0
+const O_WRONLY: i32 = 1
+const O_RDWR: i32 = 2
+// Modifier flags (OR with access mode). NOTE: O_CREAT / O_TRUNC /
+// O_APPEND have **different numeric values on Linux vs macOS**.
+// The constants below are macOS values — programs needing Linux
+// portability should use libc names directly via @extern. Most
+// portable values:
+const O_NONBLOCK: i32 = 4    // both Linux and macOS
+const O_APPEND: i32 = 8      // both Linux and macOS
+
+// ─── File mode bits (POSIX, identical on Linux/macOS) ───────────
+const S_IRUSR: i32 = 256    // 0o400 — owner read
+const S_IWUSR: i32 = 128    // 0o200 — owner write
+const S_IXUSR: i32 = 64     // 0o100 — owner execute
+const S_IRGRP: i32 = 32     // 0o040 — group read
+const S_IWGRP: i32 = 16     // 0o020 — group write
+const S_IXGRP: i32 = 8      // 0o010 — group execute
+const S_IROTH: i32 = 4      // 0o004 — other read
+const S_IWOTH: i32 = 2      // 0o002 — other write
+const S_IXOTH: i32 = 1      // 0o001 — other execute
+
+// ─── Socket address families (AF_*) ─────────────────────────────
+// These differ across BSD/Linux for some, but the common ones agree:
+const AF_UNIX: i32 = 1
+const AF_INET: i32 = 2
+const AF_INET6: i32 = 30   // macOS = 30, Linux = 10 — TODO: gate per OS
+
+// ─── Socket types (SOCK_*) ──────────────────────────────────────
+const SOCK_STREAM: i32 = 1
+const SOCK_DGRAM: i32 = 2
+const SOCK_RAW: i32 = 3
+
+// ─── Common signals (POSIX, identical on Linux/macOS) ───────────
+const SIGINT: i32 = 2     // Ctrl-C
+const SIGQUIT: i32 = 3
+const SIGILL: i32 = 4
+const SIGABRT: i32 = 6
+const SIGFPE: i32 = 8
+const SIGKILL: i32 = 9
+const SIGSEGV: i32 = 11
+const SIGPIPE: i32 = 13
+const SIGALRM: i32 = 14
+const SIGTERM: i32 = 15

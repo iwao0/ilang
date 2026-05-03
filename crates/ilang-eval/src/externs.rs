@@ -115,6 +115,13 @@ pub fn invoke_extern(name: &str, args: &[Value]) -> Option<Value> {
             let _ = match &args[0] { Value::Str(s) => s.clone(), _ => return None };
             Some(Value::Bool(false))
         }
+        "os.libLoadError" => {
+            if args.len() != 1 { return None; }
+            let _ = match &args[0] { Value::Str(s) => s.clone(), _ => return None };
+            // No native lib loading in interpreter — no error to
+            // surface. Mirror the JIT side's empty-string default.
+            Some(Value::Str(std::rc::Rc::new(String::new())))
+        }
         _ => None,
     }
 }
@@ -214,6 +221,6 @@ pub fn known_extern_names() -> &'static [&'static str] {
         "math.log2", "math.floor", "math.ceil", "math.round", "math.abs",
         "test.expect", "test.expectStr", "test.expectBool", "test.expectF64",
         "test.expectTrue", "test.expectFalse", "test.fail",
-        "os.errno", "os.setErrno", "os.libLoaded",
+        "os.errno", "os.setErrno", "os.libLoaded", "os.libLoadError",
     ]
 }

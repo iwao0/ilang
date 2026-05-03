@@ -1071,25 +1071,39 @@ pub(crate) extern "C" fn ilang_optional_extern_stub_abort() -> ! {
     std::process::exit(1);
 }
 
-/// Process-global record of which libraries opened successfully when
-/// the JIT registered `@extern("lib")` declarations. Populated by
-/// `register_native_externs` and queried by `os.libLoaded`. We use a
-/// `OnceLock<Mutex<HashMap>>` so the table is created on first
-/// touch and shared across all JIT runs in the same process.
-fn lib_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, bool>> {
+/// Per-library registry entry. Tracks whether the dlopen succeeded
+/// and (if it failed) why — surfaced through `os.libLoadError(name)`
+/// for diagnostic logging.
+pub(crate) struct LibState {
+    pub loaded: bool,
+    pub error: Option<String>,
+}
+
+/// Process-global record of every library the JIT tried to dlopen.
+/// Populated by `register_native_externs` and queried by `os.libLoaded`
+/// / `os.libLoadError`. `OnceLock<Mutex<...>>` so the table survives
+/// JitCompiler drops and is shared across multiple JIT runs in the
+/// same process.
+fn lib_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, LibState>> {
     static REGISTRY: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, bool>>,
+        std::sync::Mutex<std::collections::HashMap<String, LibState>>,
     > = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-pub(crate) fn record_lib_loaded(name: &str, loaded: bool) {
+pub(crate) fn record_lib_loaded(name: &str, loaded: bool, error: Option<String>) {
     if let Ok(mut map) = lib_registry().lock() {
-        // Don't overwrite a previous `true` with a later `false` —
-        // a successful load earlier in the program is authoritative.
-        let entry = map.entry(name.to_string()).or_insert(loaded);
+        let entry = map.entry(name.to_string()).or_insert(LibState {
+            loaded,
+            error: error.clone(),
+        });
+        // A successful load earlier in the program is authoritative;
+        // don't downgrade to false on a later (re-)attempt.
         if loaded {
-            *entry = true;
+            entry.loaded = true;
+            entry.error = None;
+        } else if !entry.loaded && error.is_some() {
+            entry.error = error;
         }
     }
 }
@@ -1097,6 +1111,13 @@ pub(crate) fn record_lib_loaded(name: &str, loaded: bool) {
 pub(crate) fn is_lib_loaded(name: &str) -> bool {
     lib_registry()
         .lock()
-        .map(|map| map.get(name).copied().unwrap_or(false))
+        .map(|map| map.get(name).map(|s| s.loaded).unwrap_or(false))
         .unwrap_or(false)
+}
+
+pub(crate) fn lib_load_error(name: &str) -> Option<String> {
+    lib_registry()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(name).and_then(|s| s.error.clone()))
 }

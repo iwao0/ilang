@@ -65,13 +65,17 @@ pub(crate) fn register_native_externs(
             a.name == "extern" && a.args.iter().any(|x| matches!(x, AttrArg::Str(_)))
         });
         let Some(extern_attr) = extern_attr else { continue };
-        let mut lib_name: Option<String> = None;
+        // The first Str arg is the canonical library name (the
+        // user's preferred / documented name). Additional Str args
+        // are tried in order if the primary fails — covers dist /
+        // version differences (`libssl.so.3` vs `libssl.so.1.1`).
+        let mut lib_names: Vec<String> = Vec::new();
         let mut flag_owned_return = false;
         let mut flag_optional = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
-                AttrArg::Str(s) => lib_name = Some(s.clone()),
+                AttrArg::Str(s) => lib_names.push(s.clone()),
                 AttrArg::Path(parts) if parts.as_slice() == ["owned_return"] => {
                     flag_owned_return = true;
                 }
@@ -96,7 +100,8 @@ pub(crate) fn register_native_externs(
                 }
             }
         }
-        let lib_name = lib_name.expect("filter above guarantees a Str arg");
+        let lib_name = lib_names.first().cloned().expect("filter above guarantees a Str arg");
+        let fallback_names: &[String] = &lib_names[1..];
         validate_native_signature(f, &opaque_classes)?;
         if flag_owned_return {
             // owned_return only meaningful for string returns. Reject
@@ -167,26 +172,44 @@ pub(crate) fn register_native_externs(
             }
             owned_return_free_with.insert(f.name.clone(), free_fn);
         }
-        // Open (or reuse) the library. Bare names (no `.`) get OS-
-        // specific candidates; literal names like `libc.dylib` are
-        // tried as-is.
+        // Open (or reuse) the library. Try the primary name first,
+        // then any fallback names in order. Bare names (no `.`)
+        // get OS-specific candidate suffixes; literal names like
+        // `libc.dylib` are tried as-is. Whichever name succeeds
+        // becomes the cached entry under the *primary* key — the
+        // user's program references the lib by its primary name in
+        // `os.libLoaded(...)` regardless of which alternate took.
         if !libs.contains_key(&lib_name) {
-            match open_library(&lib_name) {
-                Ok(lib) => {
-                    libs.insert(lib_name.clone(), lib);
-                    crate::runtime::record_lib_loaded(&lib_name, true);
+            let mut last_err: Option<String> = None;
+            let mut opened: Option<Library> = None;
+            for cand in std::iter::once(&lib_name).chain(fallback_names.iter()) {
+                match open_library(cand) {
+                    Ok(lib) => {
+                        opened = Some(lib);
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(format!("{cand}: {e}"));
+                    }
                 }
-                Err(e) => {
+            }
+            match opened {
+                Some(lib) => {
+                    libs.insert(lib_name.clone(), lib);
+                    crate::runtime::record_lib_loaded(&lib_name, true, None);
+                }
+                None => {
+                    let err_msg = last_err.unwrap_or_else(|| "no candidate".into());
                     if flag_optional {
-                        // Mark this lib as missing; subsequent fns
-                        // mapped to it also turn into stubs. Calls
-                        // to those fns at runtime abort with a clear
-                        // message — guard with `os.libLoaded(...)`.
-                        crate::runtime::record_lib_loaded(&lib_name, false);
+                        crate::runtime::record_lib_loaded(
+                            &lib_name,
+                            false,
+                            Some(err_msg),
+                        );
                     } else {
                         return Err(CodegenError::Module(format!(
-                            "@extern(\"{lib_name}\") fn {}: cannot dlopen library: {e}",
-                            f.name
+                            "@extern(\"{lib_name}\") fn {}: cannot dlopen library: {}",
+                            f.name, err_msg
                         )));
                     }
                 }

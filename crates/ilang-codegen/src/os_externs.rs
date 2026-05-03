@@ -65,8 +65,27 @@ extern "C" fn os_lib_loaded(name_ptr: i64) -> i8 {
     }
 }
 
+/// Returns the dlopen error message captured for a missing
+/// `@extern("lib", optional)` library, or an empty string if the
+/// library loaded successfully or was never attempted. Only useful
+/// for diagnostic logging — gating logic should use
+/// `os.libLoaded(...)`.
+extern "C" fn os_lib_load_error(name_ptr: i64) -> i64 {
+    let name = if name_ptr == 0 {
+        String::new()
+    } else {
+        unsafe { (*(name_ptr as *const crate::runtime::StringRc)).s.clone() }
+    };
+    let msg = crate::runtime::lib_load_error(&name).unwrap_or_default();
+    // Hand the caller a fresh StringRc with rc=1; standard ARC
+    // releases it (and frees via Box::from_raw) at scope end.
+    let boxed = Box::new(crate::runtime::StringRc { rc: 1, s: msg });
+    Box::into_raw(boxed) as i64
+}
+
 pub(crate) fn register_os_symbols(builder: &mut JITBuilder) {
     builder.symbol("os.errno", os_errno as *const u8);
     builder.symbol("os.setErrno", os_set_errno as *const u8);
     builder.symbol("os.libLoaded", os_lib_loaded as *const u8);
+    builder.symbol("os.libLoadError", os_lib_load_error as *const u8);
 }
