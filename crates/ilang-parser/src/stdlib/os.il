@@ -16,6 +16,16 @@
 // and "no entries left").
 @extern fn setErrno(code: i32)
 
+// Returns true if `name` was successfully dlopened by any
+// `@extern("name") ...` declaration in this program. Used to gate
+// calls into libraries declared with the `optional` flag — calling
+// a fn whose library failed to load aborts the program, so this
+// check runs first:
+//   if os.libLoaded("libssl.so.3") {
+//       SSL_write(...)
+//   }
+@extern fn libLoaded(name: string): bool
+
 // ─── POSIX error code constants ─────────────────────────────────
 // Values chosen to match macOS / Linux glibc — these 30-something
 // codes have identical numeric values across both platforms. The

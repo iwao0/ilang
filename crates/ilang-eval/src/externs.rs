@@ -105,6 +105,16 @@ pub fn invoke_extern(name: &str, args: &[Value]) -> Option<Value> {
             set_os_errno(code);
             Some(Value::Unit)
         }
+        "os.libLoaded" => {
+            // The interpreter has no `@extern("lib")` machinery —
+            // native libraries are JIT-only — so this always
+            // returns false. Programs run under the interpreter
+            // hit the fallback branch of any `if os.libLoaded(...)`
+            // guard, which is the safe default.
+            if args.len() != 1 { return None; }
+            let _ = match &args[0] { Value::Str(s) => s.clone(), _ => return None };
+            Some(Value::Bool(false))
+        }
         _ => None,
     }
 }
@@ -204,6 +214,6 @@ pub fn known_extern_names() -> &'static [&'static str] {
         "math.log2", "math.floor", "math.ceil", "math.round", "math.abs",
         "test.expect", "test.expectStr", "test.expectBool", "test.expectF64",
         "test.expectTrue", "test.expectFalse", "test.fail",
-        "os.errno", "os.setErrno",
+        "os.errno", "os.setErrno", "os.libLoaded",
     ]
 }

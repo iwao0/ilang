@@ -1054,3 +1054,49 @@ pub(crate) extern "C" fn ilang_jit_panic_unwrap_none() -> ! {
     eprintln!("runtime panic: unwrap on `none`");
     std::process::exit(1);
 }
+
+// ─── @extern(..., optional) support ────────────────────────────────────
+// When a library marked `optional` fails to dlopen (or one of its
+// symbols can't be found), we still need every Cranelift call site
+// to resolve to *some* address — otherwise JIT finalization fails.
+// `ilang_optional_extern_stub_abort` fills that slot: any call to
+// it terminates the program with a clear message. Users guard such
+// calls with `os.libLoaded(...)`.
+
+pub(crate) extern "C" fn ilang_optional_extern_stub_abort() -> ! {
+    eprintln!(
+        "runtime panic: called an `@extern(..., optional)` fn from a missing library — \
+         guard the call with `os.libLoaded(\"<libname>\")` first"
+    );
+    std::process::exit(1);
+}
+
+/// Process-global record of which libraries opened successfully when
+/// the JIT registered `@extern("lib")` declarations. Populated by
+/// `register_native_externs` and queried by `os.libLoaded`. We use a
+/// `OnceLock<Mutex<HashMap>>` so the table is created on first
+/// touch and shared across all JIT runs in the same process.
+fn lib_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, bool>> {
+    static REGISTRY: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    > = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn record_lib_loaded(name: &str, loaded: bool) {
+    if let Ok(mut map) = lib_registry().lock() {
+        // Don't overwrite a previous `true` with a later `false` —
+        // a successful load earlier in the program is authoritative.
+        let entry = map.entry(name.to_string()).or_insert(loaded);
+        if loaded {
+            *entry = true;
+        }
+    }
+}
+
+pub(crate) fn is_lib_loaded(name: &str) -> bool {
+    lib_registry()
+        .lock()
+        .map(|map| map.get(name).copied().unwrap_or(false))
+        .unwrap_or(false)
+}

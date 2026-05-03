@@ -61,16 +61,20 @@ pub(crate) fn register_native_externs(
         let Some(extern_attr) = extern_attr else { continue };
         let mut lib_name: Option<String> = None;
         let mut flag_owned_return = false;
+        let mut flag_optional = false;
         for arg in &extern_attr.args {
             match arg {
                 AttrArg::Str(s) => lib_name = Some(s.clone()),
                 AttrArg::Path(parts) if parts.as_slice() == ["owned_return"] => {
                     flag_owned_return = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
+                    flag_optional = true;
+                }
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`)",
+                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -99,27 +103,61 @@ pub(crate) fn register_native_externs(
         // specific candidates; literal names like `libc.dylib` are
         // tried as-is.
         if !libs.contains_key(&lib_name) {
-            let lib = open_library(&lib_name).map_err(|e| {
-                CodegenError::Module(format!(
-                    "@extern(\"{lib_name}\") fn {}: cannot dlopen library: {e}",
-                    f.name
-                ))
-            })?;
-            libs.insert(lib_name.clone(), lib);
+            match open_library(&lib_name) {
+                Ok(lib) => {
+                    libs.insert(lib_name.clone(), lib);
+                    crate::runtime::record_lib_loaded(&lib_name, true);
+                }
+                Err(e) => {
+                    if flag_optional {
+                        // Mark this lib as missing; subsequent fns
+                        // mapped to it also turn into stubs. Calls
+                        // to those fns at runtime abort with a clear
+                        // message — guard with `os.libLoaded(...)`.
+                        crate::runtime::record_lib_loaded(&lib_name, false);
+                    } else {
+                        return Err(CodegenError::Module(format!(
+                            "@extern(\"{lib_name}\") fn {}: cannot dlopen library: {e}",
+                            f.name
+                        )));
+                    }
+                }
+            }
+        }
+        if !libs.contains_key(&lib_name) {
+            // Library was marked missing via the optional path; bind
+            // this fn's symbol to the abort stub so any call site
+            // surfaces a runtime error instead of an unresolved
+            // symbol crash.
+            builder.symbol(
+                &f.name,
+                crate::runtime::ilang_optional_extern_stub_abort as *const u8,
+            );
+            names.insert(f.name.clone());
+            continue;
         }
         let lib = &libs[&lib_name];
         // Resolve the symbol (the fn's source name is used as the
         // symbol name — same convention as the existing math externs).
         let symbol_bytes = f.name.as_bytes();
-        let sym: libloading::Symbol<*const u8> = unsafe {
-            lib.get(symbol_bytes).map_err(|e| {
-                CodegenError::Module(format!(
-                    "@extern(\"{lib_name}\") fn {}: symbol not found: {e}",
-                    f.name
-                ))
-            })?
+        let sym_result: Result<libloading::Symbol<*const u8>, libloading::Error> =
+            unsafe { lib.get(symbol_bytes) };
+        let ptr = match sym_result {
+            Ok(sym) => unsafe { *sym.into_raw() },
+            Err(e) => {
+                if flag_optional {
+                    // Lib loaded but symbol missing: same stub-abort
+                    // treatment as a missing lib. The user has to
+                    // probe before calling.
+                    crate::runtime::ilang_optional_extern_stub_abort as *const u8
+                } else {
+                    return Err(CodegenError::Module(format!(
+                        "@extern(\"{lib_name}\") fn {}: symbol not found: {e}",
+                        f.name
+                    )));
+                }
+            }
         };
-        let ptr = unsafe { *sym.into_raw() };
         builder.symbol(&f.name, ptr);
         names.insert(f.name.clone());
     }

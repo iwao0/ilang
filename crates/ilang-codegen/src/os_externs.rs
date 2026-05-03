@@ -49,7 +49,24 @@ extern "C" fn os_set_errno(code: i32) {
     // same so behavior stays consistent.
 }
 
+/// Reports whether the named library was successfully dlopened by
+/// any `@extern("lib")` declaration registered earlier. Lets ilang
+/// guard `optional` extern calls with a check before dispatching:
+///   `if os.libLoaded("libssl.so.3") { ... }`
+extern "C" fn os_lib_loaded(name_ptr: i64) -> i8 {
+    if name_ptr == 0 {
+        return 0;
+    }
+    let name = unsafe { (*(name_ptr as *const crate::runtime::StringRc)).s.clone() };
+    if crate::runtime::is_lib_loaded(&name) {
+        1
+    } else {
+        0
+    }
+}
+
 pub(crate) fn register_os_symbols(builder: &mut JITBuilder) {
     builder.symbol("os.errno", os_errno as *const u8);
     builder.symbol("os.setErrno", os_set_errno as *const u8);
+    builder.symbol("os.libLoaded", os_lib_loaded as *const u8);
 }
