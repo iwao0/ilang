@@ -112,6 +112,10 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         let span = expr.span;
         match &expr.kind {
+            ExprKind::Closure { .. } => unreachable!(
+                "ExprKind::Closure is generated only by the JIT hoist pass; \
+                 the interpreter should never see it"
+            ),
             ExprKind::Int(n) => Ok(Value::Int(*n)),
             ExprKind::Float(f) => Ok(Value::Float(*f)),
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),
@@ -1815,6 +1819,7 @@ fn collect_free_vars_in_expr(
             collect_free_vars_in_block(body, bound, frees);
             *bound = snap;
         }
+        ExprKind::Closure { .. } => {} // hoist runs only in JIT pipeline
     }
 }
 

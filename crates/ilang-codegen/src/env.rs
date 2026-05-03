@@ -187,6 +187,24 @@ pub(crate) struct LowerCtx<'a> {
     /// while lowering a method body (so `super` knows whose parent
     /// to look up); `None` for top-level fns and `__main`.
     pub current_class: Option<String>,
+    /// Runtime helper to allocate a closure struct
+    /// (`[fn_ptr | env_field0 | ...]`). Stage A storage is leaked
+    /// (no ARC); Stage B/C will integrate retain/release.
+    pub alloc_closure_id: FuncId,
+    /// `(closure_wrapper_name) -> (param tys + ret ty + capture
+    /// names+tys)`. Set when a closure expression is lowered or
+    /// when a top-level fn ref is auto-trampolined. Used to look
+    /// up signatures and capture offsets.
+    pub closure_meta:
+        &'a std::collections::HashMap<String, ClosureMeta>,
+    /// Cache of trampoline FuncIds for top-level fns whose
+    /// addresses were taken (`let f = some_top_level`). Built
+    /// lazily during lowering and reused on subsequent refs.
+    pub closure_trampolines: &'a mut std::collections::HashMap<String, FuncId>,
+    /// While lowering a closure-wrapper body, this holds the
+    /// `(env_var, capture_offsets)` so a Var(name) lookup can
+    /// emit `load(env + offset)` instead of failing.
+    pub closure_capture_env: Option<ClosureEnv<'a>>,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
     /// Declared return type of the function currently being lowered;
@@ -219,6 +237,25 @@ pub(crate) struct LowerCtx<'a> {
     /// Per-enum drop wrappers, declared lazily during lowering. `None`
     /// means the enum has no heap-typed payload fields anywhere.
     pub enum_drops: &'a mut HashMap<u32, Option<FuncId>>,
+}
+
+/// Per-closure-wrapper metadata: the wrapper's user-facing param
+/// types (env_ptr stripped), the return type, and the capture
+/// list (name + JIT type) in offset order.
+#[derive(Clone, Debug)]
+pub(crate) struct ClosureMeta {
+    pub user_params: Vec<crate::ty::JitTy>,
+    pub ret: crate::ty::JitTy,
+    pub captures: Vec<(String, crate::ty::JitTy)>,
+}
+
+/// Capture environment in scope while lowering a closure body.
+/// `env_var` is the Cranelift Variable holding the env_ptr (the
+/// closure struct itself); `captures` lists each captured name +
+/// (offset_from_env, jit_type).
+pub(crate) struct ClosureEnv<'a> {
+    pub env_var: Variable,
+    pub captures: &'a [(String, u32, crate::ty::JitTy)],
 }
 
 impl<'a> LowerCtx<'a> {

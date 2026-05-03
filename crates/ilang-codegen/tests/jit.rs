@@ -1308,7 +1308,7 @@ fn jit_supports_generic_enum_via_run_with() {
     let prog = parse(&toks).unwrap();
     let mut tc = TypeChecker::new();
     tc.check(&prog).unwrap();
-    let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args(), &tc.loop_break_types(), &tc.class_method_slots(), &tc.class_vtable_lens()).unwrap();
+    let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args(), &tc.loop_break_types(), &tc.class_method_slots(), &tc.class_vtable_lens(), &tc.fn_expr_captures()).unwrap();
     assert_eq!(v, JitValue::I64(42));
 }
 
@@ -1342,6 +1342,7 @@ fn extern_native_libm() {
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .expect("jit");
     assert_eq!(v, JitValue::F64(4.0));
@@ -1368,6 +1369,7 @@ ghost()"#;
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .unwrap_err();
     let msg = format!("{err}");
@@ -1401,6 +1403,7 @@ fn extern_native_string_arg_strlen() {
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .expect("jit");
     assert_eq!(v, JitValue::I64(5));
@@ -1431,6 +1434,7 @@ fn extern_native_string_return_getenv() {
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .expect("jit");
     assert_eq!(v, JitValue::Str("marker_value_42".into()));
@@ -1462,6 +1466,7 @@ fn extern_native_owned_return_strdup() {
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .expect("jit");
     assert_eq!(v, JitValue::Str("hello world".into()));
@@ -1489,6 +1494,7 @@ fn extern_native_owned_return_requires_string() {
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .unwrap_err();
     let msg = format!("{err}");
@@ -1514,6 +1520,7 @@ strlen("x")"#;
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .unwrap_err();
     let msg = format!("{err}");
@@ -1544,6 +1551,7 @@ sqrt(81.0)"#;
         &tc.loop_break_types(),
         &tc.class_method_slots(),
         &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
     )
     .expect("jit");
     assert_eq!(v, JitValue::F64(9.0));

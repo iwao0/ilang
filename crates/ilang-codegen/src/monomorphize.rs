@@ -61,30 +61,71 @@ impl InstKey {
 /// replaced with a `Var(synth_name)` reference. The JIT then sees
 /// only named functions — call sites turn into ordinary indirect
 /// calls (or direct calls when the var is shadowed by a `let`).
-pub(crate) fn hoist_anon_fns(prog: &Program) -> Program {
+/// Per-closure-wrapper metadata produced by the hoist pass and
+/// consumed by the JIT compiler to lay out closure structs.
+#[derive(Debug, Clone)]
+pub(crate) struct ClosureMetaIn {
+    pub user_param_tys: Vec<ilang_ast::Type>,
+    pub ret_ty: Option<ilang_ast::Type>,
+    pub captures: Vec<(String, ilang_ast::Type)>,
+    pub span: ilang_ast::Span,
+}
+
+/// Bundle of state threaded through the hoist walkers.
+pub(crate) struct HoistCtx<'a> {
+    pub counter: &'a mut u32,
+    pub hoisted: &'a mut Vec<Item>,
+    /// FnExpr span → captured (name, type) list (from typechecker).
+    pub captures_map: &'a std::collections::HashMap<
+        ilang_ast::Span,
+        Vec<(String, ilang_ast::Type)>,
+    >,
+    /// wrapper_name → metadata. Filled in as we hoist FnExprs.
+    pub closure_meta:
+        &'a mut std::collections::HashMap<String, ClosureMetaIn>,
+}
+
+pub(crate) fn hoist_anon_fns(
+    prog: &Program,
+    fn_expr_captures: &std::collections::HashMap<
+        ilang_ast::Span,
+        Vec<(String, ilang_ast::Type)>,
+    >,
+) -> (Program, std::collections::HashMap<String, ClosureMetaIn>) {
     let mut counter: u32 = 0;
     let mut hoisted: Vec<Item> = Vec::new();
+    let mut closure_meta: std::collections::HashMap<String, ClosureMetaIn> =
+        std::collections::HashMap::new();
+    let mut ctx = HoistCtx {
+        counter: &mut counter,
+        hoisted: &mut hoisted,
+        captures_map: fn_expr_captures,
+        closure_meta: &mut closure_meta,
+    };
     let new_items: Vec<Item> = prog
         .items
         .iter()
-        .map(|i| hoist_in_item(i, &mut counter, &mut hoisted))
+        .map(|i| hoist_in_item(i, &mut ctx))
         .collect();
     let new_stmts: Vec<Stmt> = prog
         .stmts
         .iter()
-        .map(|s| hoist_in_stmt(s, &mut counter, &mut hoisted))
+        .map(|s| hoist_in_stmt(s, &mut ctx))
         .collect();
     let new_tail = prog
         .tail
         .as_ref()
-        .map(|e| hoist_in_expr(e, &mut counter, &mut hoisted));
+        .map(|e| hoist_in_expr(e, &mut ctx));
     let mut items = new_items;
     items.extend(hoisted);
-    Program {
-        items,
-        stmts: new_stmts,
-        tail: new_tail,
-    }
+    (
+        Program {
+            items,
+            stmts: new_stmts,
+            tail: new_tail,
+        },
+        closure_meta,
+    )
 }
 
 fn fresh_anon_name(counter: &mut u32) -> String {
@@ -93,7 +134,7 @@ fn fresh_anon_name(counter: &mut u32) -> String {
     format!("__anon_fn_{n}")
 }
 
-fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Item {
+fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
     match item {
         Item::Fn(f) => Item::Fn(FnDecl {
             attrs: f.attrs.clone(),
@@ -101,7 +142,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
             type_params: f.type_params.clone(),
             params: f.params.clone(),
             ret: f.ret.clone(),
-            body: hoist_in_block(&f.body, counter, hoisted),
+            body: hoist_in_block(&f.body, ctx),
             span: f.span,
         is_override: f.is_override,
         }),
@@ -119,7 +160,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
                     ret: m.ret.clone(),
-                    body: hoist_in_block(&m.body, counter, hoisted),
+                    body: hoist_in_block(&m.body, ctx),
                     span: m.span,
                 is_override: m.is_override,
                 })
@@ -133,7 +174,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
                     ret: m.ret.clone(),
-                    body: hoist_in_block(&m.body, counter, hoisted),
+                    body: hoist_in_block(&m.body, ctx),
                     span: m.span,
                 is_override: m.is_override,
                 })
@@ -151,7 +192,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         type_params: g.type_params.clone(),
                         params: g.params.clone(),
                         ret: g.ret.clone(),
-                        body: hoist_in_block(&g.body, counter, hoisted),
+                        body: hoist_in_block(&g.body, ctx),
                         span: g.span,
                     is_override: g.is_override,
                     }),
@@ -161,7 +202,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         type_params: s.type_params.clone(),
                         params: s.params.clone(),
                         ret: s.ret.clone(),
-                        body: hoist_in_block(&s.body, counter, hoisted),
+                        body: hoist_in_block(&s.body, ctx),
                         span: s.span,
                     is_override: s.is_override,
                     }),
@@ -176,28 +217,28 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
     }
 }
 
-fn hoist_in_block(b: &Block, counter: &mut u32, hoisted: &mut Vec<Item>) -> Block {
+fn hoist_in_block(b: &Block, ctx: &mut HoistCtx) -> Block {
     Block {
         stmts: b
             .stmts
             .iter()
-            .map(|s| hoist_in_stmt(s, counter, hoisted))
+            .map(|s| hoist_in_stmt(s, ctx))
             .collect(),
         tail: b
             .tail
             .as_ref()
-            .map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+            .map(|e| Box::new(hoist_in_expr(e, ctx))),
     }
 }
 
-fn hoist_in_stmt(s: &Stmt, counter: &mut u32, hoisted: &mut Vec<Item>) -> Stmt {
+fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
             ty: ty.clone(),
-            value: hoist_in_expr(value, counter, hoisted),
+            value: hoist_in_expr(value, ctx),
         },
-        StmtKind::Expr(e) => StmtKind::Expr(hoist_in_expr(e, counter, hoisted)),
+        StmtKind::Expr(e) => StmtKind::Expr(hoist_in_expr(e, ctx)),
     };
     Stmt {
         kind,
@@ -205,79 +246,111 @@ fn hoist_in_stmt(s: &Stmt, counter: &mut u32, hoisted: &mut Vec<Item>) -> Stmt {
     }
 }
 
-fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
+fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
     let kind = match &e.kind {
         ExprKind::FnExpr { params, ret, body } => {
             // First hoist any nested anon fns inside this body.
-            let body = hoist_in_block(body, counter, hoisted);
-            let name = fresh_anon_name(counter);
-            hoisted.push(Item::Fn(FnDecl {
+            let body = hoist_in_block(body, ctx);
+            let name = fresh_anon_name(ctx.counter);
+            // Look up captures recorded by the typechecker for this
+            // FnExpr (keyed by the FnExpr's source span).
+            let captures = ctx
+                .captures_map
+                .get(&e.span)
+                .cloned()
+                .unwrap_or_default();
+            // Wrapper takes a hidden env_ptr first param so the same
+            // calling convention applies to capture-free anon fns and
+            // closures alike. Inside the body, captured Var(name)
+            // references are resolved to env loads at lower-time
+            // (see lower_expr's Var handler).
+            let mut wrapper_params = Vec::with_capacity(params.len() + 1);
+            wrapper_params.push(ilang_ast::Param {
+                name: "__env".to_string(),
+                ty: ilang_ast::Type::I64,
+                span: e.span,
+            });
+            wrapper_params.extend(params.iter().cloned());
+            ctx.hoisted.push(Item::Fn(FnDecl {
                 attrs: Vec::new(),
                 name: name.clone(),
                 type_params: Vec::new(),
-                params: params.clone(),
+                params: wrapper_params,
                 ret: ret.clone(),
                 body,
                 span: e.span,
-            is_override: false,
+                is_override: false,
             }));
-            ExprKind::Var(name)
+            ctx.closure_meta.insert(
+                name.clone(),
+                ClosureMetaIn {
+                    user_param_tys: params.iter().map(|p| p.ty.clone()).collect(),
+                    ret_ty: ret.clone(),
+                    captures: captures.clone(),
+                    span: e.span,
+                },
+            );
+            ExprKind::Closure { fn_name: name, captures }
         }
         // Recurse through anything that might contain expressions.
         ExprKind::Some(inner) => {
-            ExprKind::Some(Box::new(hoist_in_expr(inner, counter, hoisted)))
+            ExprKind::Some(Box::new(hoist_in_expr(inner, ctx)))
         }
         ExprKind::Unary { op, expr } => ExprKind::Unary {
             op: *op,
-            expr: Box::new(hoist_in_expr(expr, counter, hoisted)),
+            expr: Box::new(hoist_in_expr(expr, ctx)),
         },
         ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
             op: *op,
-            lhs: Box::new(hoist_in_expr(lhs, counter, hoisted)),
-            rhs: Box::new(hoist_in_expr(rhs, counter, hoisted)),
+            lhs: Box::new(hoist_in_expr(lhs, ctx)),
+            rhs: Box::new(hoist_in_expr(rhs, ctx)),
         },
         ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
             op: *op,
-            lhs: Box::new(hoist_in_expr(lhs, counter, hoisted)),
-            rhs: Box::new(hoist_in_expr(rhs, counter, hoisted)),
+            lhs: Box::new(hoist_in_expr(lhs, ctx)),
+            rhs: Box::new(hoist_in_expr(rhs, ctx)),
         },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(hoist_in_expr(expr, counter, hoisted)),
+            expr: Box::new(hoist_in_expr(expr, ctx)),
             ty: ty.clone(),
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
-            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
+            args: args.iter().map(|a| hoist_in_expr(a, ctx)).collect(),
         },
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method: method.clone(),
-            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
+            args: args.iter().map(|a| hoist_in_expr(a, ctx)).collect(),
+        },
+        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
-            obj: Box::new(hoist_in_expr(obj, counter, hoisted)),
+            obj: Box::new(hoist_in_expr(obj, ctx)),
             name: name.clone(),
         },
         ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
-            obj: Box::new(hoist_in_expr(obj, counter, hoisted)),
+            obj: Box::new(hoist_in_expr(obj, ctx)),
             method: method.clone(),
-            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
+            args: args.iter().map(|a| hoist_in_expr(a, ctx)).collect(),
         },
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: class.clone(),
             type_args: type_args.clone(),
-            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(), init_method: init_method.clone(),
+            args: args.iter().map(|a| hoist_in_expr(a, ctx)).collect(), init_method: init_method.clone(),
         },
-        ExprKind::Block(b) => ExprKind::Block(hoist_in_block(b, counter, hoisted)),
+        ExprKind::Block(b) => ExprKind::Block(hoist_in_block(b, ctx)),
         ExprKind::If {
             cond,
             then_branch,
             else_branch,
         } => ExprKind::If {
-            cond: Box::new(hoist_in_expr(cond, counter, hoisted)),
-            then_branch: hoist_in_block(then_branch, counter, hoisted),
+            cond: Box::new(hoist_in_expr(cond, ctx)),
+            then_branch: hoist_in_block(then_branch, ctx),
             else_branch: else_branch
                 .as_ref()
-                .map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+                .map(|e| Box::new(hoist_in_expr(e, ctx))),
         },
         ExprKind::IfLet {
             name,
@@ -286,66 +359,66 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
             else_branch,
         } => ExprKind::IfLet {
             name: name.clone(),
-            expr: Box::new(hoist_in_expr(expr, counter, hoisted)),
-            then_branch: hoist_in_block(then_branch, counter, hoisted),
+            expr: Box::new(hoist_in_expr(expr, ctx)),
+            then_branch: hoist_in_block(then_branch, ctx),
             else_branch: else_branch
                 .as_ref()
-                .map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+                .map(|e| Box::new(hoist_in_expr(e, ctx))),
         },
         ExprKind::While { cond, body } => ExprKind::While {
-            cond: Box::new(hoist_in_expr(cond, counter, hoisted)),
-            body: hoist_in_block(body, counter, hoisted),
+            cond: Box::new(hoist_in_expr(cond, ctx)),
+            body: hoist_in_block(body, ctx),
         },
         ExprKind::Loop { body } => ExprKind::Loop {
-            body: hoist_in_block(body, counter, hoisted),
+            body: hoist_in_block(body, ctx),
         },
         ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
             var: var.clone(),
-            iter: Box::new(hoist_in_expr(iter, counter, hoisted)),
-            body: hoist_in_block(body, counter, hoisted),
+            iter: Box::new(hoist_in_expr(iter, ctx)),
+            body: hoist_in_block(body, ctx),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(hoist_in_expr(start, counter, hoisted)),
-            end: Box::new(hoist_in_expr(end, counter, hoisted)),
+            start: Box::new(hoist_in_expr(start, ctx)),
+            end: Box::new(hoist_in_expr(end, ctx)),
             inclusive: *inclusive,
         },
         ExprKind::Return(opt) => ExprKind::Return(
-            opt.as_ref().map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+            opt.as_ref().map(|e| Box::new(hoist_in_expr(e, ctx))),
         ),
         ExprKind::Break(opt) => ExprKind::Break(
-            opt.as_ref().map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+            opt.as_ref().map(|e| Box::new(hoist_in_expr(e, ctx))),
         ),
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target: target.clone(),
-            value: Box::new(hoist_in_expr(value, counter, hoisted)),
+            value: Box::new(hoist_in_expr(value, ctx)),
         },
         ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
             obj: obj.clone(),
             field: field.clone(),
-            value: Box::new(hoist_in_expr(value, counter, hoisted)),
+            value: Box::new(hoist_in_expr(value, ctx)),
         },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: obj.clone(),
             index: index.clone(),
-            value: Box::new(hoist_in_expr(value, counter, hoisted)),
+            value: Box::new(hoist_in_expr(value, ctx)),
         },
         ExprKind::Array(items) => ExprKind::Array(
-            items.iter().map(|i| hoist_in_expr(i, counter, hoisted)).collect(),
+            items.iter().map(|i| hoist_in_expr(i, ctx)).collect(),
         ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
                 .map(|(k, v)| {
                     (
-                        hoist_in_expr(k, counter, hoisted),
-                        hoist_in_expr(v, counter, hoisted),
+                        hoist_in_expr(k, ctx),
+                        hoist_in_expr(v, ctx),
                     )
                 })
                 .collect(),
         ),
         ExprKind::Index { obj, index } => ExprKind::Index {
-            obj: Box::new(hoist_in_expr(obj, counter, hoisted)),
-            index: Box::new(hoist_in_expr(index, counter, hoisted)),
+            obj: Box::new(hoist_in_expr(obj, ctx)),
+            index: Box::new(hoist_in_expr(index, ctx)),
         },
         ExprKind::EnumCtor {
             enum_name,
@@ -357,22 +430,22 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
                 ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.iter().map(|e| hoist_in_expr(e, counter, hoisted)).collect(),
+                    es.iter().map(|e| hoist_in_expr(e, ctx)).collect(),
                 ),
                 ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
                     fs.iter()
-                        .map(|(n, e)| (n.clone(), hoist_in_expr(e, counter, hoisted)))
+                        .map(|(n, e)| (n.clone(), hoist_in_expr(e, ctx)))
                         .collect(),
                 ),
             },
         },
         ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-            scrutinee: Box::new(hoist_in_expr(scrutinee, counter, hoisted)),
+            scrutinee: Box::new(hoist_in_expr(scrutinee, ctx)),
             arms: arms
                 .iter()
                 .map(|arm| ilang_ast::MatchArm {
                     pattern: arm.pattern.clone(),
-                    body: hoist_in_expr(&arm.body, counter, hoisted),
+                    body: hoist_in_expr(&arm.body, ctx),
                     span: arm.span,
                 })
                 .collect(),
@@ -589,6 +662,7 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(a, needed, work);
             }
         }
+        ExprKind::Closure { .. } => {}
         ExprKind::Field { obj, .. } => scan_expr(obj, needed, work),
         ExprKind::MethodCall { obj, args, .. } => {
             scan_expr(obj, needed, work);
@@ -908,6 +982,10 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         ExprKind::SuperCall { method, args: a } => ExprKind::SuperCall {
             method: method.clone(),
             args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
+        },
+        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
             obj: Box::new(subst_expr(obj, params, args)),
@@ -1231,6 +1309,10 @@ fn rewrite_expr(e: &Expr) -> Expr {
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method: method.clone(),
             args: args.iter().map(rewrite_expr).collect(),
+        },
+        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
             obj: Box::new(rewrite_expr(obj)),
@@ -1933,6 +2015,7 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(a);
             }
         }
+        ExprKind::Closure { .. } => {}
         ExprKind::Field { obj, .. } => f(obj),
         ExprKind::MethodCall { obj, args, .. } => {
             f(obj);
@@ -2084,6 +2167,10 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method: method.clone(),
             args: args.iter().map(|a| f(a)).collect(),
+        },
+        ExprKind::Closure { fn_name, captures } => ExprKind::Closure {
+            fn_name: fn_name.clone(),
+            captures: captures.clone(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
             obj: Box::new(f(obj)),

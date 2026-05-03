@@ -46,6 +46,30 @@ pub(crate) fn lower_expr(
             }),
         },
         ExprKind::Var(name) => {
+            // Closure capture: while lowering a wrapper body, a Var
+            // for a captured name resolves to a load from the env
+            // pointer at the recorded offset.
+            if let Some(env) = lc.closure_capture_env.as_ref() {
+                if let Some(entry) = env.captures.iter().find(|(n, _, _)| n == name)
+                {
+                    let offset = entry.1;
+                    let jty = entry.2;
+                    let env_ptr = b.use_var(env.env_var);
+                    let raw = b.ins().load(
+                        I64,
+                        MemFlags::trusted(),
+                        env_ptr,
+                        offset as i32,
+                    );
+                    let v = match jty {
+                        JitTy::I64 | JitTy::U64 => raw,
+                        JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
+                        JitTy::Bool => b.ins().ireduce(I8, raw),
+                        _ => unreachable!("Stage A: only i64/f64/bool captures"),
+                    };
+                    return Ok(Some((v, jty)));
+                }
+            }
             if let Some(&(var, vt)) = lc.env.bindings.get(name) {
                 return Ok(Some((b.use_var(var), vt)));
             }
@@ -70,17 +94,29 @@ pub(crate) fn lower_expr(
                     return Ok(Some((v, fty)));
                 }
             }
-            // First-class function: a bare reference to a top-level fn
-            // becomes its code-address as a function pointer.
+            // First-class function reference to a top-level fn:
+            // construct a no-capture closure whose wrapper is a
+            // trampoline that ignores env_ptr and forwards to the
+            // real fn. The trampoline is generated lazily and
+            // cached per fn name (see `ensure_trampoline`).
             if let Some(entry) = lc.funcs.get(name).cloned() {
                 let (id, params, ret) = entry;
-                let func_ref = lc.module.declare_func_in_func(id, b.func);
-                let addr = b.ins().func_addr(I64, func_ref);
+                let trampoline_id = ensure_trampoline(b, lc, name, id, &params, ret)?;
+                // Allocate a 0-capture closure pointing at the trampoline.
+                let alloc_ref = lc
+                    .module
+                    .declare_func_in_func(lc.alloc_closure_id, b.func);
+                let zero = b.ins().iconst(I64, 0);
+                let call = b.ins().call(alloc_ref, &[zero]);
+                let closure_ptr = b.inst_results(call)[0];
+                let func_ref = lc.module.declare_func_in_func(trampoline_id, b.func);
+                let fn_addr = b.ins().func_addr(I64, func_ref);
+                b.ins().store(MemFlags::trusted(), fn_addr, closure_ptr, 0);
                 let sig_id = crate::ty::intern_fn_sig(
                     lc.fn_signatures,
                     crate::ty::FnSignature { params, ret },
                 );
-                return Ok(Some((addr, JitTy::Fn(sig_id))));
+                return Ok(Some((closure_ptr, JitTy::Fn(sig_id))));
             }
             Err(CodegenError::Unsupported {
                 what: format!("unknown variable {name:?}"),
@@ -88,11 +124,14 @@ pub(crate) fn lower_expr(
             })
         }
         ExprKind::FnExpr { .. } => {
-            // Hoisting pass should have replaced this with Var(synth).
+            // Hoisting pass should have replaced this with Closure.
             Err(CodegenError::Unsupported {
                 what: "anonymous function reached lowering — hoist pass failed".into(),
                 span: e.span,
             })
+        }
+        ExprKind::Closure { fn_name, captures } => {
+            lower_closure_construct(b, lc, fn_name, captures, e.span)
         }
         ExprKind::MapLit(entries) => lower_map_lit(b, lc, entries, e.span),
         ExprKind::Cast { expr, ty } => {
@@ -916,7 +955,14 @@ pub(crate) fn lower_expr(
             // fns of the same name.
             if let Some(&(var, JitTy::Fn(sig_id))) = lc.env.bindings.get(callee) {
                 let sig = lc.fn_signatures[sig_id as usize].clone();
-                let mut arg_vals = Vec::with_capacity(args.len());
+                // Closure protocol: the binding holds a closure
+                // struct pointer. Load fn_ptr from offset 0; call
+                // with (closure_ptr, args). The wrapper signature
+                // has env_ptr (i64) prepended to the user params.
+                let closure_ptr = b.use_var(var);
+                let fn_ptr = b.ins().load(I64, MemFlags::trusted(), closure_ptr, 0);
+                let mut arg_vals = Vec::with_capacity(args.len() + 1);
+                arg_vals.push(closure_ptr);
                 for (i, a) in args.iter().enumerate() {
                     let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
                         CodegenError::Unsupported {
@@ -928,8 +974,11 @@ pub(crate) fn lower_expr(
                     emit_bind_retain(b, lc, &a.kind, at, sig.params[i], coerced);
                     arg_vals.push(coerced);
                 }
-                // Build the Cranelift signature for call_indirect.
+                // Cranelift sig: env_ptr (i64) + user params + ret.
                 let mut cl_sig = lc.module.make_signature();
+                cl_sig
+                    .params
+                    .push(cranelift::prelude::AbiParam::new(I64));
                 for p in &sig.params {
                     cl_sig.params.push(cranelift::prelude::AbiParam::new(
                         p.cl().expect("non-unit param"),
@@ -939,8 +988,7 @@ pub(crate) fn lower_expr(
                     cl_sig.returns.push(cranelift::prelude::AbiParam::new(rt));
                 }
                 let sig_ref = b.import_signature(cl_sig);
-                let callee_v = b.use_var(var);
-                let call = b.ins().call_indirect(sig_ref, callee_v, &arg_vals);
+                let call = b.ins().call_indirect(sig_ref, fn_ptr, &arg_vals);
                 if matches!(sig.ret, JitTy::Unit) {
                     return Ok(None);
                 }
@@ -2995,8 +3043,15 @@ pub(crate) fn lower_array_higher_order(
     }
     let ret_jty = sig.ret;
 
-    // Build cranelift signature for indirect call.
+    // Build cranelift signature for indirect call. Closure
+    // calling convention: env_ptr (i64) is prepended to the user
+    // params. `fv` itself IS the env_ptr (the closure struct
+    // pointer), so we load fn_ptr from offset 0 and call with
+    // (fv, user_arg).
     let mut cl_sig = lc.module.make_signature();
+    cl_sig
+        .params
+        .push(cranelift::prelude::AbiParam::new(I64));
     cl_sig.params.push(cranelift::prelude::AbiParam::new(
         sig.params[0].cl().ok_or_else(|| CodegenError::Unsupported {
             what: format!("{method} fn param has unit type"), span: fn_arg.span,
@@ -3006,6 +3061,7 @@ pub(crate) fn lower_array_higher_order(
         cl_sig.returns.push(cranelift::prelude::AbiParam::new(rt));
     }
     let sig_ref = b.import_signature(cl_sig);
+    let closure_fn_ptr = b.ins().load(I64, MemFlags::trusted(), fv, 0);
 
     let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
     let src_data = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_DATA_OFFSET);
@@ -3064,7 +3120,7 @@ pub(crate) fn lower_array_higher_order(
     if elem_jty.is_heap() {
         crate::arc::emit_retain_heap(b, lc, elem, elem_jty);
     }
-    let call = b.ins().call_indirect(sig_ref, fv, &[elem]);
+    let call = b.ins().call_indirect(sig_ref, closure_fn_ptr, &[fv, elem]);
     let result = if matches!(ret_jty, JitTy::Unit) {
         None
     } else {
@@ -3181,4 +3237,151 @@ fn emit_array_bounds_check(
     b.ins().trap(cranelift_codegen::ir::TrapCode::user(1).expect("trap code"));
     b.switch_to_block(ok);
     b.seal_block(ok);
+}
+
+/// Ensure a trampoline wrapper exists for top-level fn `name` so a
+/// `let f = name` reference can produce a closure value. The
+/// trampoline takes `(env_ptr, ...args)` (ignoring env_ptr) and
+/// tail-calls the real fn. Cached per fn name.
+fn ensure_trampoline(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    name: &str,
+    target_id: cranelift_module::FuncId,
+    target_params: &[JitTy],
+    target_ret: JitTy,
+) -> Result<cranelift_module::FuncId, CodegenError> {
+    use cranelift::prelude::*;
+    use cranelift_codegen::ir::types::I64;
+    use cranelift_module::Module as _;
+    if let Some(&id) = lc.closure_trampolines.get(name) {
+        return Ok(id);
+    }
+    // Build the wrapper Cranelift signature: env_ptr (i64) + target
+    // params, return target ret.
+    let mut sig = lc.module.make_signature();
+    sig.params.push(AbiParam::new(I64)); // env_ptr (ignored)
+    for p in target_params {
+        sig.params
+            .push(AbiParam::new(p.cl().expect("non-unit param")));
+    }
+    if let Some(rt) = target_ret.cl() {
+        sig.returns.push(AbiParam::new(rt));
+    }
+    let symbol = format!("__closure_trampoline_{name}");
+    let id = lc
+        .module
+        .declare_function(
+            &symbol,
+            cranelift_module::Linkage::Local,
+            &sig,
+        )
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    // Define the body — a one-block function that loads each user
+    // param and calls the target directly.
+    let mut ctx = lc.module.make_context();
+    ctx.func.signature = sig.clone();
+    let mut bctx = FunctionBuilderContext::new();
+    {
+        let mut tb = FunctionBuilder::new(&mut ctx.func, &mut bctx);
+        let entry = tb.create_block();
+        tb.append_block_params_for_function_params(entry);
+        tb.switch_to_block(entry);
+        tb.seal_block(entry);
+        let block_params: Vec<Value> = tb.block_params(entry).to_vec();
+        // Skip block_params[0] (env_ptr); pass the rest to target.
+        let target_ref = lc.module.declare_func_in_func(target_id, tb.func);
+        let call = tb.ins().call(target_ref, &block_params[1..]);
+        let results = tb.inst_results(call).to_vec();
+        if matches!(target_ret, JitTy::Unit) {
+            tb.ins().return_(&[]);
+        } else {
+            tb.ins().return_(&results);
+        }
+        tb.finalize();
+    }
+    lc.module
+        .define_function(id, &mut ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    lc.module.clear_context(&mut ctx);
+    lc.closure_trampolines.insert(name.to_string(), id);
+    Ok(id)
+}
+
+/// Allocate a closure struct `[fn_ptr | env_field0 | ...]` and
+/// return its pointer as a `JitTy::Fn(sig_id)` value. Each capture
+/// is read from the current scope (or from an enclosing closure
+/// env), bit-cast to i64, and stored at the appropriate offset.
+fn lower_closure_construct(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    fn_name: &str,
+    captures: &[(String, ilang_ast::Type)],
+    span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    use cranelift_codegen::ir::types::I64;
+    let meta = lc
+        .closure_meta
+        .get(fn_name)
+        .cloned()
+        .ok_or_else(|| CodegenError::Unsupported {
+            what: format!("closure metadata missing for {fn_name:?}"),
+            span,
+        })?;
+    let n = meta.captures.len() as i64;
+    let alloc_ref = lc.module.declare_func_in_func(lc.alloc_closure_id, b.func);
+    let n_v = b.ins().iconst(I64, n);
+    let call = b.ins().call(alloc_ref, &[n_v]);
+    let closure_ptr = b.inst_results(call)[0];
+    // Write the wrapper's function pointer at offset 0.
+    let (wrapper_id, _, _) = lc
+        .funcs
+        .get(fn_name)
+        .cloned()
+        .ok_or_else(|| CodegenError::Unsupported {
+            what: format!("closure wrapper {fn_name:?} not declared"),
+            span,
+        })?;
+    let func_ref = lc.module.declare_func_in_func(wrapper_id, b.func);
+    let fn_addr = b.ins().func_addr(I64, func_ref);
+    b.ins().store(MemFlags::trusted(), fn_addr, closure_ptr, 0);
+    // Write each capture at offset 8, 16, 24, ...
+    for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
+        let offset = 8 + (i as i32) * 8;
+        // Look up the captured value's current binding.
+        let (var, jty) = lc.env.bindings.get(cap_name).copied().ok_or_else(|| {
+            CodegenError::Unsupported {
+                what: format!(
+                    "closure capture {cap_name:?} not in scope at construction site"
+                ),
+                span,
+            }
+        })?;
+        let v = b.use_var(var);
+        // Bit-cast to i64 for storage. f64 → bitcast(i64); bool / i32
+        // / etc. → uextend to i64; i64 stays.
+        let bits = match jty {
+            JitTy::I64 | JitTy::U64 => v,
+            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), v),
+            JitTy::Bool => b.ins().uextend(I64, v),
+            _ => {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "Stage A: closure capture of type {jty:?} not yet supported"
+                    ),
+                    span,
+                });
+            }
+        };
+        b.ins().store(MemFlags::trusted(), bits, closure_ptr, offset);
+    }
+    // Reuse the meta's user-facing signature for the JitTy::Fn id.
+    let sig_id = crate::ty::intern_fn_sig(
+        lc.fn_signatures,
+        crate::ty::FnSignature {
+            params: meta.user_params.clone(),
+            ret: meta.ret,
+        },
+    );
+    Ok(Some((closure_ptr, JitTy::Fn(sig_id))))
 }

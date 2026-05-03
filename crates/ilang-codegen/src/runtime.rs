@@ -315,6 +315,21 @@ pub(crate) extern "C" fn ilang_jit_free_c_str(ptr: i64) {
     }
 }
 
+// ─── Closure structs (Stage A: i64/f64/bool captures only) ───────────
+// Closure layout: `[fn_ptr (i64) | env_field_0 (i64) | env_field_1 | ...]`
+// fn_ptr expects `(env_ptr, ...args)` — env_ptr is the closure
+// struct itself; the wrapper loads captures from `env_ptr + 8`.
+//
+// Stage A doesn't reference-count closures yet — they leak. Stage B/C
+// will integrate ARC + capture release to fix that.
+
+pub(crate) extern "C" fn ilang_jit_alloc_closure(n_env_slots: i64) -> i64 {
+    // 8-byte fn_ptr slot + n_env_slots × 8 bytes for captures.
+    let total = 8 + (n_env_slots as usize) * 8;
+    let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
+    unsafe { std::alloc::alloc_zeroed(layout) as i64 }
+}
+
 /// `libc::free` wrapper for `@extern(..., owned_return)`. Called
 /// after `c_str_to_string` has copied the bytes out of the C-owned
 /// buffer. NULL is a no-op (matches libc's free semantics).

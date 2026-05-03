@@ -382,6 +382,9 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             method,
             args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
         },
+        ExprKind::Closure { fn_name, captures } => {
+            ExprKind::Closure { fn_name, captures }
+        }
         ExprKind::Return(opt) => ExprKind::Return(
             opt.map(|e| Box::new(rewrite_expr(*e, ctx))),
         ),

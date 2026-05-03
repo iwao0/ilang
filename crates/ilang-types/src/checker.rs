@@ -244,6 +244,18 @@ pub struct TypeChecker {
     /// by the JIT lowering so it can allocate the right Cranelift
     /// `Variable` for the loop result.
     loop_break_type: std::cell::RefCell<HashMap<Span, Type>>,
+    /// Per-`FnExpr` span: the list of (name, type) free variables
+    /// the body captures from the enclosing scope. The JIT's hoist
+    /// pass reads this to lay out closure environments. Order is
+    /// stable (insertion order); the JIT uses it as the offset
+    /// order in the closure struct.
+    fn_expr_captures: std::cell::RefCell<HashMap<Span, Vec<(String, Type)>>>,
+    /// Used by the JIT's post-hoist re-typecheck: for each
+    /// closure wrapper FnDecl, the body's "free vars" actually
+    /// resolve to captured values. Pre-populating the body's
+    /// scope with these makes the second-pass check pass without
+    /// special-casing in the type checker proper.
+    pub closure_wrapper_captures: HashMap<String, Vec<(String, Type)>>,
 }
 
 #[derive(Debug)]
@@ -294,6 +306,12 @@ impl TypeChecker {
     /// Consumed by the JIT lowering.
     pub fn loop_break_types(&self) -> HashMap<Span, Type> {
         self.loop_break_type.borrow().clone()
+    }
+
+    /// Per-`FnExpr` span → captured (name, type) list. Empty list
+    /// when the closure is purely top-level / no locals captured.
+    pub fn fn_expr_captures(&self) -> HashMap<Span, Vec<(String, Type)>> {
+        self.fn_expr_captures.borrow().clone()
     }
 
     /// `(class, slot) -> method_name` for every class — used by the
@@ -772,6 +790,15 @@ impl TypeChecker {
             return Ok(());
         }
         let mut env: Vars = HashMap::new();
+        // Closure wrapper: the body's "free" vars actually resolve
+        // to captured values. Pre-populate the env with their
+        // declared types so the body type-checks. Used by the
+        // JIT's post-hoist re-typecheck.
+        if let Some(captures) = self.closure_wrapper_captures.get(&f.name) {
+            for (n, t) in captures {
+                env.insert(n.clone(), t.clone());
+            }
+        }
         for Param { name, ty, .. } in &f.params {
             // Rewrite Object(T) → TypeVar(T) so the body checker treats
             // references to T as the type variable (not an unknown class).
@@ -941,6 +968,25 @@ impl TypeChecker {
             ExprKind::Float(_) => Ok(Type::F64),
             ExprKind::Bool(_) => Ok(Type::Bool),
             ExprKind::Str(_) => Ok(Type::Str),
+            ExprKind::Closure { fn_name, .. } => {
+                // The JIT runs a second typecheck on the post-hoist
+                // program; by then FnExpr has been replaced with
+                // Closure and the wrapper FnDecl is in self.fns.
+                // The wrapper's first param is the synthetic
+                // `__env: i64`; the user-facing fn type is the rest.
+                let sigs = self.fns.get(fn_name).cloned().ok_or_else(|| {
+                    TypeError::UndefinedVariable {
+                        name: fn_name.clone(),
+                        span,
+                    }
+                })?;
+                let sig = sigs.into_iter().next().expect("registered fn has sig");
+                let user_params: Vec<Type> = sig.params.iter().skip(1).cloned().collect();
+                Ok(Type::Fn {
+                    params: user_params,
+                    ret: Box::new(sig.ret),
+                })
+            }
             ExprKind::This => match in_class {
                 Some(name) => Ok(Type::Object(name.to_string())),
                 None => Err(TypeError::ThisOutsideMethod { span }),
@@ -2091,13 +2137,29 @@ impl TypeChecker {
                 if let Some(r) = ret {
                     self.validate_type(r, span, &[])?;
                 }
-                // Closures capture outer locals by value (interpreter
-                // only). The body's local env starts from the outer
-                // env so free variables resolve, then params overlay.
+                // Closures capture outer locals by value. The body's
+                // local env starts from the outer env so free vars
+                // resolve, then params overlay.
                 let mut inner: Vars = env.clone();
                 for Param { name, ty, .. } in params {
                     inner.insert(name.clone(), ty.clone());
                 }
+                // Compute captures: free vars in the body that come
+                // from the OUTER `env` (not the closure's own params,
+                // not top-level fns/classes/enums). Order is
+                // first-encountered for stable JIT layout.
+                let mut bound: std::collections::HashSet<String> =
+                    params.iter().map(|p| p.name.clone()).collect();
+                let mut frees: Vec<String> = Vec::new();
+                let mut seen: std::collections::HashSet<String> = Default::default();
+                collect_fn_expr_free_vars(body, &mut bound, &mut frees, &mut seen);
+                let captures: Vec<(String, Type)> = frees
+                    .into_iter()
+                    .filter_map(|n| env.get(&n).map(|t| (n, t.clone())))
+                    .collect();
+                self.fn_expr_captures
+                    .borrow_mut()
+                    .insert(span, captures);
                 let expected = ret.clone().unwrap_or(Type::Unit);
                 let body_ty =
                     self.check_block(body, &inner, Some(&expected), in_class, 0)?;
@@ -3473,5 +3535,164 @@ fn attach_span(e: TypeError, span: Span) -> TypeError {
             TypeError::MixedSignedness { lhs, rhs, span }
         }
         other => other,
+    }
+}
+
+// ─── Closure capture analysis (used by JIT closure lowering) ──────────
+
+fn collect_fn_expr_free_vars(
+    b: &ilang_ast::Block,
+    bound: &mut std::collections::HashSet<String>,
+    frees: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    let snapshot = bound.clone();
+    for s in &b.stmts {
+        match &s.kind {
+            ilang_ast::StmtKind::Let { name, value, .. } => {
+                cfev_expr(value, bound, frees, seen);
+                bound.insert(name.clone());
+            }
+            ilang_ast::StmtKind::Expr(e) => cfev_expr(e, bound, frees, seen),
+        }
+    }
+    if let Some(t) = &b.tail {
+        cfev_expr(t, bound, frees, seen);
+    }
+    *bound = snapshot;
+}
+
+fn cfev_expr(
+    e: &ilang_ast::Expr,
+    bound: &mut std::collections::HashSet<String>,
+    frees: &mut Vec<String>,
+    seen: &mut std::collections::HashSet<String>,
+) {
+    use ilang_ast::ExprKind;
+    match &e.kind {
+        ExprKind::Var(n) => {
+            if !bound.contains(n) && !seen.contains(n) {
+                seen.insert(n.clone());
+                frees.push(n.clone());
+            }
+        }
+        ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::Str(_)
+        | ExprKind::This | ExprKind::None | ExprKind::Continue => {}
+        ExprKind::Break(opt) | ExprKind::Return(opt) => {
+            if let Some(x) = opt { cfev_expr(x, bound, frees, seen); }
+        }
+        ExprKind::Some(inner) => cfev_expr(inner, bound, frees, seen),
+        ExprKind::Unary { expr, .. } => cfev_expr(expr, bound, frees, seen),
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            cfev_expr(lhs, bound, frees, seen);
+            cfev_expr(rhs, bound, frees, seen);
+        }
+        ExprKind::Cast { expr, .. } => cfev_expr(expr, bound, frees, seen),
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. } => {
+            for a in args { cfev_expr(a, bound, frees, seen); }
+        }
+        ExprKind::Field { obj, .. } => cfev_expr(obj, bound, frees, seen),
+        ExprKind::MethodCall { obj, args, .. } => {
+            cfev_expr(obj, bound, frees, seen);
+            for a in args { cfev_expr(a, bound, frees, seen); }
+        }
+        ExprKind::New { args, .. } => {
+            for a in args { cfev_expr(a, bound, frees, seen); }
+        }
+        ExprKind::Block(b) => collect_fn_expr_free_vars(b, bound, frees, seen),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            cfev_expr(cond, bound, frees, seen);
+            collect_fn_expr_free_vars(then_branch, bound, frees, seen);
+            if let Some(x) = else_branch { cfev_expr(x, bound, frees, seen); }
+        }
+        ExprKind::IfLet { name, expr, then_branch, else_branch } => {
+            cfev_expr(expr, bound, frees, seen);
+            let snap = bound.clone();
+            bound.insert(name.clone());
+            collect_fn_expr_free_vars(then_branch, bound, frees, seen);
+            *bound = snap;
+            if let Some(x) = else_branch { cfev_expr(x, bound, frees, seen); }
+        }
+        ExprKind::While { cond, body } => {
+            cfev_expr(cond, bound, frees, seen);
+            collect_fn_expr_free_vars(body, bound, frees, seen);
+        }
+        ExprKind::Loop { body } => collect_fn_expr_free_vars(body, bound, frees, seen),
+        ExprKind::ForIn { var, iter, body } => {
+            cfev_expr(iter, bound, frees, seen);
+            let snap = bound.clone();
+            bound.insert(var.clone());
+            collect_fn_expr_free_vars(body, bound, frees, seen);
+            *bound = snap;
+        }
+        ExprKind::Range { start, end, .. } => {
+            cfev_expr(start, bound, frees, seen);
+            cfev_expr(end, bound, frees, seen);
+        }
+        ExprKind::Assign { target, value } => {
+            if !bound.contains(target) && !seen.contains(target) {
+                seen.insert(target.clone());
+                frees.push(target.clone());
+            }
+            cfev_expr(value, bound, frees, seen);
+        }
+        ExprKind::AssignField { obj, value, .. } => {
+            cfev_expr(obj, bound, frees, seen);
+            cfev_expr(value, bound, frees, seen);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            cfev_expr(obj, bound, frees, seen);
+            cfev_expr(index, bound, frees, seen);
+            cfev_expr(value, bound, frees, seen);
+        }
+        ExprKind::Array(items) => for i in items { cfev_expr(i, bound, frees, seen); },
+        ExprKind::MapLit(entries) => for (k, v) in entries {
+            cfev_expr(k, bound, frees, seen);
+            cfev_expr(v, bound, frees, seen);
+        },
+        ExprKind::Index { obj, index } => {
+            cfev_expr(obj, bound, frees, seen);
+            cfev_expr(index, bound, frees, seen);
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => for e in es { cfev_expr(e, bound, frees, seen); },
+            ilang_ast::CtorArgs::Struct(fs) => for (_, e) in fs { cfev_expr(e, bound, frees, seen); },
+        },
+        ExprKind::Match { scrutinee, arms } => {
+            cfev_expr(scrutinee, bound, frees, seen);
+            for arm in arms {
+                let snap = bound.clone();
+                cfev_pattern_binds(&arm.pattern, bound);
+                cfev_expr(&arm.body, bound, frees, seen);
+                *bound = snap;
+            }
+        }
+        ExprKind::FnExpr { params, body, .. } => {
+            // Inner closure: its own params shadow, but its captures
+            // become OUR captures (the frees the outer closure must
+            // pass through). Recurse with extended bound set.
+            let snap = bound.clone();
+            for p in params { bound.insert(p.name.clone()); }
+            collect_fn_expr_free_vars(body, bound, frees, seen);
+            *bound = snap;
+        }
+        ExprKind::Closure { .. } => {} // hoist hasn't run yet
+    }
+}
+
+fn cfev_pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<String>) {
+    use ilang_ast::{PatternBindings, PatternKind};
+    if let PatternKind::Variant { bindings, .. } = &p.kind {
+        match bindings {
+            PatternBindings::Unit => {}
+            PatternBindings::Tuple(names) => for n in names {
+                if n != "_" { bound.insert(n.clone()); }
+            },
+            PatternBindings::Struct(fs) => for (_, n) in fs {
+                if n != "_" { bound.insert(n.clone()); }
+            },
+        }
     }
 }

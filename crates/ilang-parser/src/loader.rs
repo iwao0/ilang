@@ -533,6 +533,9 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             end: Box::new(prefix_expr(*end, prefix)),
             inclusive,
         },
+        ExprKind::Closure { fn_name, captures } => {
+            ExprKind::Closure { fn_name, captures }
+        }
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
             args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
@@ -1020,6 +1023,9 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
             end: Box::new(subst_const_expr(*end, consts)),
             inclusive,
         },
+        ExprKind::Closure { fn_name, captures } => {
+            ExprKind::Closure { fn_name, captures }
+        }
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
             args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
