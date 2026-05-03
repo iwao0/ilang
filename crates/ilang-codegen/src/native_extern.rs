@@ -48,6 +48,12 @@ pub(crate) struct NativeExternRegistry {
     /// statics use the addresses pre-registered by host modules
     /// (`test_externs::register_static_addrs`, etc).
     pub static_addrs: std::collections::HashMap<String, i64>,
+    /// Native fns whose declared return type was `slice<T>`. The C
+    /// side returns a 16 B `{ T* ptr; size_t len; }` struct (passed
+    /// in 2 GPRs); the JIT lowers the return as 2 i64 chunks, then
+    /// allocates a fresh ilang `Array<T>` and memcpys the bytes in.
+    /// User declares `T[]` as the ilang return type.
+    pub slice_returns: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -61,6 +67,7 @@ pub(crate) fn register_native_externs(
     let mut owned_return_free_with: HashMap<String, String> = HashMap::new();
     let mut variadic: HashSet<String> = HashSet::new();
     let mut by_value: HashSet<String> = HashSet::new();
+    let mut slice_returns: HashSet<String> = HashSet::new();
     let mut static_addrs: HashMap<String, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
@@ -109,6 +116,7 @@ pub(crate) fn register_native_externs(
         let mut flag_optional = false;
         let mut flag_variadic = false;
         let mut flag_by_value = false;
+        let mut flag_slice_return = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -125,6 +133,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["by_value"] => {
                     flag_by_value = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["slice_return"] => {
+                    flag_slice_return = true;
+                }
                 // `free_with.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
@@ -135,7 +146,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `by_value`, `free_with.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `by_value`, `slice_return`, `free_with.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -153,6 +164,36 @@ pub(crate) fn register_native_externs(
         let fallback_names: &[String] = &lib_names[1..];
         if flag_variadic {
             variadic.insert(f.name.clone());
+        }
+        if flag_slice_return {
+            // Validate: declared return must be `T[]` with primitive
+            // T. The C side is expected to return a `{ T* ptr;
+            // size_t len; }` 16 B struct, which the JIT lowers as
+            // 2 i64 chunks and memcpys into a fresh `T[]`.
+            let elem = match &f.ret {
+                Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
+                _ => None,
+            };
+            let ok = matches!(
+                elem,
+                Some(
+                    Type::I8 | Type::I16 | Type::I32 | Type::I64
+                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                    | Type::F32 | Type::F64
+                    | Type::Bool
+                )
+            );
+            if !ok {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `slice_return` requires a `T[]` \
+                         return type with primitive T (got {:?})",
+                        f.name, f.ret
+                    ),
+                    span: f.span,
+                });
+            }
+            slice_returns.insert(f.name.clone());
         }
         if flag_by_value {
             by_value.insert(f.name.clone());
@@ -330,6 +371,34 @@ pub(crate) fn register_native_externs(
             if let AttrArg::Path(parts) = arg {
                 if parts.as_slice() == ["by_value"] {
                     by_value.insert(f.name.clone());
+                } else if parts.as_slice() == ["slice_return"] {
+                    // Same field-shape validation as the library-arg
+                    // path performs: must be `T[]` with primitive T.
+                    let elem = match &f.ret {
+                        Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
+                        _ => None,
+                    };
+                    let ok = matches!(
+                        elem,
+                        Some(
+                            Type::I8 | Type::I16 | Type::I32 | Type::I64
+                            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                            | Type::F32 | Type::F64
+                            | Type::Bool
+                        )
+                    );
+                    if !ok {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: `slice_return` requires \
+                                 a `T[]` return type with primitive T \
+                                 (got {:?})",
+                                f.name, f.ret
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    slice_returns.insert(f.name.clone());
                 }
             }
         }
@@ -384,6 +453,7 @@ pub(crate) fn register_native_externs(
         owned_return_free_with,
         variadic,
         by_value,
+        slice_returns,
         static_addrs,
     })
 }

@@ -217,6 +217,8 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     // C boundary, which matches `test_byte_at`'s signature exactly.
     builder.symbol("pkt_byte_at", test_byte_at as *const u8);
     builder.symbol("alg_byte_at", test_byte_at as *const u8);
+    builder.symbol("get_byte_slice", test_get_byte_slice as *const u8);
+    builder.symbol("get_i32_slice", test_get_i32_slice as *const u8);
 }
 
 // ─── @extern static globals (test-only) ─────────────────────────────
@@ -227,6 +229,39 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
 // against the registered address.
 static mut TEST_STATIC_I32: i32 = 0;
 static mut TEST_STATIC_F64: f64 = 0.0;
+
+// `slice_return`: C-side helpers return a `{ ptr, len }` 16 B struct
+// that the JIT marshals into a fresh ilang `T[]`. The data they
+// reference lives in static storage so the JIT-side memcpy reads
+// stable bytes after the call returns.
+#[repr(C)]
+struct U8Slice {
+    ptr: *const u8,
+    len: usize,
+}
+
+#[repr(C)]
+struct I32Slice {
+    ptr: *const i32,
+    len: usize,
+}
+
+static TEST_SLICE_BYTES: [u8; 5] = [10, 20, 30, 40, 50];
+static TEST_SLICE_INTS: [i32; 4] = [-1, 100, 200, 300];
+
+extern "C" fn test_get_byte_slice() -> U8Slice {
+    U8Slice {
+        ptr: TEST_SLICE_BYTES.as_ptr(),
+        len: TEST_SLICE_BYTES.len(),
+    }
+}
+
+extern "C" fn test_get_i32_slice() -> I32Slice {
+    I32Slice {
+        ptr: TEST_SLICE_INTS.as_ptr(),
+        len: TEST_SLICE_INTS.len(),
+    }
+}
 
 // Read a raw byte from an address — used by layout tests to verify
 // `@repr(C, packed)` actually packs (no padding bytes inserted).

@@ -1500,8 +1500,43 @@ pub(crate) fn lower_expr(
                 let is_by_value_struct_ret = lc.native_extern_by_value.contains(callee)
                     && matches!(ret_ty, JitTy::Object(_))
                     && sret_ptr.is_none();
+                let is_slice_return = lc.native_extern_slice_returns.contains(callee);
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
+                } else if is_slice_return {
+                    // C side returned `(ptr, len)` in 2 GPRs.
+                    // Allocate an ilang `T[]` of length `len`, then
+                    // memcpy `len * sizeof(T)` bytes into its data
+                    // area. The ilang result is the array header.
+                    let arr_id = match ret_ty {
+                        JitTy::Array(id) => id,
+                        _ => unreachable!("slice_return validated to T[]"),
+                    };
+                    let elem = lc.array_kinds[arr_id as usize].elem;
+                    let elem_size = elem.size_bytes() as i64;
+                    let results: Vec<_> = b.inst_results(call).to_vec();
+                    let src_ptr = results[0];
+                    let len = results[1];
+                    // Allocate the ilang Array<T>. Primitive T → no
+                    // per-element drop_fn.
+                    let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+                    let elem_size_v = b.ins().iconst(I64, elem_size);
+                    let drop_fn_ptr = b.ins().iconst(I64, 0);
+                    let alloc_call = b.ins().call(new_ref, &[elem_size_v, len, drop_fn_ptr]);
+                    let header = b.inst_results(alloc_call)[0];
+                    // Copy bytes: total = len * elem_size. Use the
+                    // memcpy_inline-style chunked loop on len ≤ small,
+                    // or call the runtime helper. Simplest: a
+                    // Cranelift `call_memcpy`-equivalent via an inline
+                    // byte-copy loop. Cranelift offers `b.call_memcpy`
+                    // / `b.emit_small_memory_copy`; use the latter.
+                    let dst = b.ins().load(
+                        I64, MemFlags::trusted(), header,
+                        crate::runtime::ARRAY_DATA_OFFSET,
+                    );
+                    let total_bytes = b.ins().imul_imm(len, elem_size);
+                    b.call_memcpy(lc.module.target_config(), dst, src_ptr, total_bytes);
+                    Some(header)
                 } else if let Some(ptr) = sret_ptr {
                     // sret: the C side wrote into the buffer we
                     // allocated and passed in. The ilang result is

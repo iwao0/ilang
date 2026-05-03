@@ -421,6 +421,11 @@ pub(crate) struct JitCompiler {
     /// Subset of `native_extern_fns` whose `@repr(C)` struct args are
     /// passed by value (split into 1–2 i64 chunks at call lowering).
     pub(crate) native_extern_by_value: std::collections::HashSet<String>,
+    /// Native fns with the `slice_return` flag — declared as `T[]`
+    /// at ilang level but actually return a `{ T* ptr; size_t len; }`
+    /// 16 B struct at the C ABI. The call lowering allocates a fresh
+    /// ilang `T[]` and memcpys.
+    pub(crate) native_extern_slice_returns: std::collections::HashSet<String>,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
@@ -990,6 +995,7 @@ impl JitCompiler {
             native_extern_free_with: native_reg.owned_return_free_with,
             native_extern_variadic: native_reg.variadic,
             native_extern_by_value: native_reg.by_value,
+            native_extern_slice_returns: native_reg.slice_returns,
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
                 .items
@@ -1500,6 +1506,12 @@ impl JitCompiler {
             } else if let Some(t) = ret.cl() {
                 sig.returns.push(AbiParam::new(t));
             }
+        } else if self.native_extern_slice_returns.contains(&f.name) {
+            // `slice_return`: C side returns `{ T* ptr; size_t len; }`,
+            // which fits in a 2-GPR pair just like a 16 B integer
+            // by_value return.
+            sig.returns.push(AbiParam::new(I64));
+            sig.returns.push(AbiParam::new(I64));
         } else if let Some(t) = ret.cl() {
             sig.returns.push(AbiParam::new(t));
         }
@@ -1693,6 +1705,7 @@ impl JitCompiler {
             native_extern_free_with: &self.native_extern_free_with,
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
+            native_extern_slice_returns: &self.native_extern_slice_returns,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
@@ -1898,6 +1911,7 @@ impl JitCompiler {
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
+            native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
