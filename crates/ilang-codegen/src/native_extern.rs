@@ -144,24 +144,9 @@ pub(crate) fn register_native_externs(
         }
         if flag_by_value {
             by_value.insert(f.name.clone());
-            // Reject by-value on a return type for now (sret /
-            // multi-register returns vary too much across ABIs to
-            // ship without per-target work).
-            if let Some(ret_ty) = &f.ret {
-                if let Type::Object(name) = ret_ty {
-                    if repr_c_classes.contains(name) {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: `by_value` does not support \
-                                 struct return types yet — declare the C fn \
-                                 with an out-pointer or a primitive return",
-                                f.name
-                            ),
-                            span: f.span,
-                        });
-                    }
-                }
-            }
+            // Struct returns are supported for ≤ 16 B integer-only
+            // structs (1–2 GPR-chunked return per AArch64 / SysV).
+            // Field-type validation runs later in `validate_by_value_fn`.
             // Validate each by-value struct param: must be `@repr(C)`,
             // numeric/bool fields only, total size ≤ 16 B. The exact
             // size check happens later (the layout is finalized after
@@ -363,23 +348,23 @@ fn validate_by_value_fn(
     repr_c_classes: &HashSet<String>,
     opaque_classes: &HashSet<String>,
 ) -> Result<(), CodegenError> {
-    for p in &f.params {
-        let Type::Object(name) = &p.ty else { continue };
+    let mut check = |ty: &Type, role: &str, span: ilang_ast::Span| -> Result<(), CodegenError> {
+        let Type::Object(name) = ty else { return Ok(()); };
         if !repr_c_classes.contains(name) && !opaque_classes.contains(name) {
             return Err(CodegenError::Unsupported {
                 what: format!(
-                    "@extern fn {}: by_value param {:?} of type {} is \
+                    "@extern fn {}: by_value {} of type {} is \
                      not a `@repr(C)` class",
-                    f.name, p.name, name
+                    f.name, role, name
                 ),
-                span: p.span,
+                span,
             });
         }
         let class_decl = prog.items.iter().find_map(|i| match i {
             Item::Class(c) if &c.name == name => Some(c),
             _ => None,
         });
-        let Some(class_decl) = class_decl else { continue };
+        let Some(class_decl) = class_decl else { return Ok(()); };
         for fld in &class_decl.fields {
             let ok = matches!(
                 fld.ty,
@@ -390,17 +375,24 @@ fn validate_by_value_fn(
             if !ok {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: by_value param {:?} (struct {}) \
+                        "@extern fn {}: by_value {} (struct {}) \
                          contains field {:?} of type {} — only integer \
                          and bool fields are supported (float/double, \
                          nested struct, array, string would need \
                          per-target HFA / aggregate ABI work)",
-                        f.name, p.name, name, fld.name, fld.ty
+                        f.name, role, name, fld.name, fld.ty
                     ),
                     span: fld.span,
                 });
             }
         }
+        Ok(())
+    };
+    for p in &f.params {
+        check(&p.ty, &format!("param {:?}", p.name), p.span)?;
+    }
+    if let Some(ret_ty) = &f.ret {
+        check(ret_ty, "return", f.span)?;
     }
     Ok(())
 }

@@ -126,6 +126,16 @@ extern "C" fn test_tagged_payload_if(t: Tagged, expected_tag: i32) -> i64 {
     if t.tag == expected_tag { t.payload } else { -1 }
 }
 
+// Struct returns by value. 8 B → single GPR (X0 on AArch64,
+// RAX on x86_64 SysV). 16 B → register pair (X0:X1 / RAX:RDX).
+extern "C" fn test_make_point2(x: i32, y: i32) -> Point2 {
+    Point2 { x, y }
+}
+
+extern "C" fn test_make_range64(lo: i64, hi: i64) -> Range64 {
+    Range64 { lo, hi }
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -156,4 +166,6 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("sum_point2", test_sum_point2 as *const u8);
     builder.symbol("range64_width", test_range64_width as *const u8);
     builder.symbol("tagged_payload_if", test_tagged_payload_if as *const u8);
+    builder.symbol("make_point2", test_make_point2 as *const u8);
+    builder.symbol("make_range64", test_make_range64 as *const u8);
 }

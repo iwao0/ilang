@@ -1356,7 +1356,20 @@ impl JitCompiler {
                 }
             })?));
         }
-        if let Some(t) = ret.cl() {
+        // by_value struct return: split into 1–2 i64 chunks the same
+        // way args do. For >16 B we'd need sret (hidden first param);
+        // not implemented yet, so `repr_c_chunk_count` errors there.
+        if is_by_value {
+            if let JitTy::Object(class_id) = ret {
+                let layout = &self.class_layouts[class_id as usize];
+                let chunks = repr_c_chunk_count(layout.size, f.span, &layout.name)?;
+                for _ in 0..chunks {
+                    sig.returns.push(AbiParam::new(I64));
+                }
+            } else if let Some(t) = ret.cl() {
+                sig.returns.push(AbiParam::new(t));
+            }
+        } else if let Some(t) = ret.cl() {
             sig.returns.push(AbiParam::new(t));
         }
         // `@extern` fns are linked as imports — the host registers

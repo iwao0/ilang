@@ -1344,8 +1344,48 @@ pub(crate) fn lower_expr(
                 } else {
                     b.ins().call(func_ref, &arg_vals)
                 };
+                // by_value struct return: the call produces 1 or 2
+                // i64 chunks (per `repr_c_chunk_count`). Allocate a
+                // fresh instance and store the chunks back into its
+                // user area; the caller then sees a normal heap
+                // Object with rc=1.
+                let is_by_value_struct_ret = lc.native_extern_by_value.contains(callee)
+                    && matches!(ret_ty, JitTy::Object(_));
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
+                } else if is_by_value_struct_ret {
+                    let class_id = match ret_ty {
+                        JitTy::Object(id) => id,
+                        _ => unreachable!(),
+                    };
+                    let size = lc.class_layouts[class_id as usize].size as i64;
+                    let drop_fn_ptr = match lc.class_drops[class_id as usize] {
+                        Some(fid) => {
+                            let fr = lc.module.declare_func_in_func(fid, b.func);
+                            b.ins().func_addr(I64, fr)
+                        }
+                        None => b.ins().iconst(I64, 0),
+                    };
+                    let vtable_addr = lc
+                        .class_vtable_addrs
+                        .get(class_id as usize)
+                        .copied()
+                        .unwrap_or(0);
+                    let vtable_ptr = b.ins().iconst(I64, vtable_addr);
+                    let alloc_ref =
+                        lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+                    let size_v = b.ins().iconst(I64, size);
+                    let alloc_call =
+                        b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
+                    let ptr = b.inst_results(alloc_call)[0];
+                    let results: Vec<_> = b.inst_results(call).to_vec();
+                    if !results.is_empty() {
+                        b.ins().store(MemFlags::trusted(), results[0], ptr, 0);
+                    }
+                    if results.len() >= 2 {
+                        b.ins().store(MemFlags::trusted(), results[1], ptr, 8);
+                    }
+                    Some(ptr)
                 } else {
                     Some(b.inst_results(call)[0])
                 };
