@@ -800,14 +800,17 @@ impl TypeChecker {
                     // `i32[4]` etc — are laid out inline (no
                     // heap allocation, no ARC).
                     Type::Array { elem, fixed: Some(_) } if primitive_ok(elem) => true,
+                    // Owned C-string slot (`char *`) — class manages
+                    // the malloc'd buffer on assign / drop.
+                    Type::Str => true,
                     _ => false,
                 };
                 if !ok {
                     return Err(TypeError::Unsupported {
                         what: format!(
                             "@repr(C) class {:?} field {:?}: type {} not supported \
-                             (allowed: numeric primitives / bool / other @repr(C) class / \
-                             fixed-length primitive array `T[N]`)",
+                             (allowed: numeric primitives / bool / str (owned C-string) / \
+                             other @repr(C) class / fixed-length primitive array `T[N]`)",
                             c.name, f.name, f.ty
                         ),
                         span: f.span,

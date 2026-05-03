@@ -1646,6 +1646,25 @@ pub(crate) fn lower_expr(
             let alloc_call =
                 b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
+            // `@repr(C)` `str` fields: alloc_object zero-fills user
+            // bytes, but a NULL StringRc would crash on any read
+            // (length, concat, etc.). Pre-fill each Str slot with an
+            // interned empty string (rc saturated → release is a
+            // no-op, so no leak from later overwrites or class drop).
+            if lc.class_layouts[class_id as usize].is_repr_c {
+                let str_offsets: Vec<u32> = lc.class_layouts[class_id as usize]
+                    .fields
+                    .values()
+                    .filter_map(|(off, jty)| matches!(jty, JitTy::Str).then_some(*off))
+                    .collect();
+                if !str_offsets.is_empty() {
+                    let empty = lc.intern_string("");
+                    let empty_v = b.ins().iconst(I64, empty);
+                    for off in str_offsets {
+                        b.ins().store(MemFlags::trusted(), empty_v, ptr, off as i32);
+                    }
+                }
+            }
             // If init exists, call it. The mangler may have set
             // `init_method` to a specific overload (e.g. "init__i64");
             // fall back to plain "init" otherwise.
