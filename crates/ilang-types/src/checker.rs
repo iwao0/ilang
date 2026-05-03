@@ -2262,19 +2262,41 @@ impl TypeChecker {
             ExprKind::Cast { expr: inner, ty } => {
                 let from = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 self.validate_type(ty, span, &[])?;
-                // Permit any numeric → numeric cast plus `bool → int` for
-                // 0/1 conversion. Other casts (e.g. object → numeric) are
-                // a type error.
+                // Numeric → numeric (any width) and `bool → int`
+                // (0/1 conversion) are the regular path.
                 let from_ok = from.is_numeric() || from == Type::Bool;
                 let to_ok = ty.is_numeric();
-                if !from_ok || !to_ok {
-                    return Err(TypeError::Mismatch {
-                        expected: ty.clone(),
-                        got: from,
-                        span,
-                    });
+                if from_ok && to_ok {
+                    return Ok(ty.clone());
                 }
-                Ok(ty.clone())
+                // FFI escape hatch — `i64 ↔ opaque-extern class
+                // (without deinit)`. Lets out-pointer slots from C
+                // be reinterpreted as an opaque handle and vice
+                // versa. Restricted to the deinit-less form so the
+                // user never accidentally constructs a phantom ARC
+                // box. Cast direction must come from the user (no
+                // implicit conversion elsewhere) so it stays
+                // explicit at every call site.
+                let opaque_no_deinit = |t: &Type| match t {
+                    Type::Object(name) => self
+                        .classes
+                        .get(name)
+                        .map(|cs| {
+                            cs.extern_lib.is_some() && !cs.methods.contains_key("deinit")
+                        })
+                        .unwrap_or(false),
+                    _ => false,
+                };
+                if (from == Type::I64 && opaque_no_deinit(ty))
+                    || (opaque_no_deinit(&from) && *ty == Type::I64)
+                {
+                    return Ok(ty.clone());
+                }
+                Err(TypeError::Mismatch {
+                    expected: ty.clone(),
+                    got: from,
+                    span,
+                })
             }
             ExprKind::AssignField { obj, field, value } => {
                 // Static field write: `ClassName.field = v`.

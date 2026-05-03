@@ -158,6 +158,22 @@ pub(crate) fn lower_expr(
                 lc.map_kinds,
                 lc.tuple_kinds,
             )?;
+            // FFI cast: `i64 ↔ opaque-extern class (no deinit)`.
+            // Both representations are a raw i64 pointer at runtime
+            // — no bit-level conversion required, just retag the
+            // JIT type so subsequent uses pick up the right marshalling.
+            let opaque_no_deinit = |t: JitTy| match t {
+                JitTy::Object(class_id) => {
+                    lc.class_layouts[class_id as usize].extern_lib.is_some()
+                        && !lc.class_methods[class_id as usize].contains_key("deinit")
+                }
+                _ => false,
+            };
+            if (inner.1 == JitTy::I64 && opaque_no_deinit(target))
+                || (opaque_no_deinit(inner.1) && target == JitTy::I64)
+            {
+                return Ok(Some((inner.0, target)));
+            }
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
         }
