@@ -360,6 +360,11 @@ pub(crate) struct ClassLayout {
     /// fields are laid out first (same offsets as in the parent),
     /// the child's added fields follow. `None` for root classes.
     pub parent: Option<String>,
+    /// `Some(libname)` for `@extern("lib") class Foo {}` — the
+    /// runtime value is a raw C pointer (not an ARC-managed
+    /// allocation). retain/release are skipped, fields are empty,
+    /// `new` is rejected by the type checker.
+    pub extern_lib: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

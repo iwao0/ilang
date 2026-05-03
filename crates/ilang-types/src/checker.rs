@@ -188,6 +188,10 @@ struct ClassSig {
     /// Equals parent's `vtable_len` plus this class's newly-added
     /// methods.
     vtable_len: usize,
+    /// `Some(libname)` for `@extern("lib") class Foo {}` — the type
+    /// is an opaque handle whose values come from native extern fns.
+    /// `new`, fields, methods are all rejected on these.
+    extern_lib: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -506,6 +510,7 @@ impl TypeChecker {
                 parent: None,
                 method_slots: HashMap::new(),
                 vtable_len: 0,
+                extern_lib: None,
             },
         );
         self.vars
@@ -575,6 +580,7 @@ impl TypeChecker {
                 parent: None,
                 method_slots: HashMap::new(),
                 vtable_len: 0,
+                extern_lib: None,
             },
         );
 
@@ -1669,6 +1675,15 @@ impl TypeChecker {
                     name: class.clone(),
                     span,
                 })?;
+                if cls.extern_lib.is_some() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "cannot construct opaque extern class {class:?} with `new` — \
+                             values come from native extern fn return values"
+                        ),
+                        span,
+                    });
+                }
                 let class_params = cls.type_params.clone();
                 // After the mangling pass, an overloaded `init` is renamed
                 // to e.g. `init__i64`; New.init_method records which one
@@ -3483,6 +3498,7 @@ fn class_signature(
         parent: c.parent.clone(),
         method_slots,
         vtable_len,
+        extern_lib: c.extern_lib.clone(),
     })
 }
 

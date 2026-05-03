@@ -62,6 +62,13 @@ pub struct FieldDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
+    /// `Some(libname)` for an opaque-handle class declared as
+    /// `@extern("lib") class Foo {}` — the value is a raw C pointer
+    /// returned by a native extern fn, not an ilang-managed instance.
+    /// `new`, fields, and methods are all rejected by the type
+    /// checker for these classes; the type tag exists only to keep
+    /// different libraries' handles from being mixed up.
+    pub extern_lib: Option<String>,
     pub name: String,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be

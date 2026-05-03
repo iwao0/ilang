@@ -21,15 +21,50 @@ impl<'a> Parser<'a> {
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
-                if !attrs.is_empty() {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "'fn' (attributes on classes are not supported yet)".into(),
-                        span: t.span,
-                    });
+                // The only attribute valid on a class is
+                // `@extern("libname")` — declares an opaque handle
+                // type whose values come from native extern fns.
+                let extern_lib = match attrs.as_slice() {
+                    [] => None,
+                    [a] if a.name == "extern" => match a.args.as_slice() {
+                        [ilang_ast::AttrArg::Str(s)] => Some(s.clone()),
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "@extern(\"libname\") (only the string-literal form is valid on classes)".into(),
+                                span: t.span,
+                            });
+                        }
+                    },
+                    _ => {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "'fn' (attributes other than @extern(\"...\") are not supported on classes)".into(),
+                            span: t.span,
+                        });
+                    }
+                };
+                let mut c = self.parse_class_decl()?;
+                if extern_lib.is_some() {
+                    // Opaque handle classes cannot carry user state.
+                    let has_body = !c.fields.is_empty()
+                        || !c.methods.is_empty()
+                        || !c.static_methods.is_empty()
+                        || !c.static_fields.is_empty()
+                        || !c.properties.is_empty()
+                        || c.parent.is_some()
+                        || !c.type_params.is_empty();
+                    if has_body {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::Class,
+                            expected: "an empty body — `@extern(\"lib\") class Foo {}` cannot declare fields, methods, parent, or type parameters".into(),
+                            span: c.span,
+                        });
+                    }
+                    c.extern_lib = extern_lib;
                 }
-                let c = self.parse_class_decl()?;
                 Ok(Item::Class(c))
             }
             TokenKind::Enum => {
@@ -254,6 +289,7 @@ impl<'a> Parser<'a> {
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ClassDecl {
+            extern_lib: None,
             name,
             parent,
             type_params,

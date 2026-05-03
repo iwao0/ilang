@@ -93,8 +93,9 @@
 | **REPL** | `ilang` (引数なし) | 1 行ずつ評価、interpreter のみ |
 
 JIT のみ未対応:
-- ネイティブ extern (`@extern("libname")`) は **JIT 専用** (interp は逆に未対応)
+- ネイティブ extern (`@extern("libname")` fn / class) は **JIT 専用** (interp は逆に未対応)
 - 静的フィールドは `i64` / `f64` / `bool` のみ (string / object 等は Phase 2)
+- opaque ハンドル型 (`@extern("lib") class Foo {}`) は JIT のみ — 自動 close (deinit 連動) は未実装で呼び出し側責任
 - ジェネリッククラスでの **継承** / **静的メンバー** / **プロパティ** は型パラメータ解決の制約により未対応
 
 ## ワークスペース構成

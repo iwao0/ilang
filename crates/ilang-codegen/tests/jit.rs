@@ -1529,6 +1529,82 @@ strlen("x")"#;
 
 #[test]
 #[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_opaque_handle_tmpfile() {
+    // Opaque-handle classes carry raw C pointers between extern fn
+    // calls without exposing the pointer bits to user code. The body
+    // here opens a private tempfile via libc::tmpfile() and closes
+    // it via libc::fclose(); a successful round-trip means the
+    // FILE* survived ARC and the marshalling treated it as a plain
+    // i64 pointer (no retain/release on opaque handles).
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        r#"@extern("{lib}") class FILE {{}}
+@extern("{lib}") fn tmpfile(): FILE?
+@extern("{lib}") fn fclose(stream: FILE)
+
+if let some(f) = tmpfile() {{
+    fclose(f)
+    1
+}} else {{
+    0
+}}"#
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+        &tc.class_method_slots(),
+        &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::I64(1));
+}
+
+#[test]
+fn extern_opaque_class_rejects_new() {
+    // `new` on an opaque-handle class is a static error — the only
+    // way to obtain a value is via an extern fn return.
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"@extern("c") class FILE {}
+let _ = new FILE()"#;
+    let toks = tokenize(src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    let err = tc.check(&prog).unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("opaque extern class") || msg.contains("FILE"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[test]
+fn extern_opaque_class_rejects_body() {
+    // Opaque-handle classes can't carry user state — the parser
+    // rejects fields, methods, parents, type parameters etc.
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    let src = r#"@extern("c") class FILE { data: i64 }"#;
+    let toks = tokenize(src).expect("lex");
+    let err = parse(&toks).unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("empty body"), "unexpected error: {msg}");
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn extern_native_bare_name_resolves() {
     // A name without `.` or `/` is treated as a bare module name —
     // ilang appends the OS-appropriate prefix/suffix and tries

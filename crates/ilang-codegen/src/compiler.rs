@@ -938,6 +938,7 @@ impl JitCompiler {
             fields: HashMap::new(),
             size: 0,
             parent: c.parent.clone(),
+            extern_lib: c.extern_lib.clone(),
         });
         self.class_methods.push(HashMap::new());
         Ok(())

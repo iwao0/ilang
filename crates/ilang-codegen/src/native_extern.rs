@@ -36,6 +36,17 @@ pub(crate) fn register_native_externs(
     let mut libs: HashMap<String, Library> = HashMap::new();
     let mut names: HashSet<String> = HashSet::new();
     let mut owned_return: HashSet<String> = HashSet::new();
+    // Pre-collect names of opaque-handle classes — `@extern("lib")
+    // class Foo {}`. These are valid as native-extern fn parameter
+    // and return types (marshalled as raw i64 pointers).
+    let opaque_classes: HashSet<String> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Class(c) if c.extern_lib.is_some() => Some(c.name.clone()),
+            _ => None,
+        })
+        .collect();
     for item in &prog.items {
         let Item::Fn(f) = item else { continue };
         // Find an `@extern("libname")` attribute (string-arg form).
@@ -68,7 +79,7 @@ pub(crate) fn register_native_externs(
             }
         }
         let lib_name = lib_name.expect("filter above guarantees a Str arg");
-        validate_native_signature(f)?;
+        validate_native_signature(f, &opaque_classes)?;
         if flag_owned_return {
             // owned_return only meaningful for string returns. Reject
             // it on other return types so the user notices the typo.
@@ -119,13 +130,16 @@ pub(crate) fn register_native_externs(
     })
 }
 
-fn validate_native_signature(f: &ilang_ast::FnDecl) -> Result<(), CodegenError> {
+fn validate_native_signature(
+    f: &ilang_ast::FnDecl,
+    opaque_classes: &HashSet<String>,
+) -> Result<(), CodegenError> {
     for p in &f.params {
-        if !is_native_abi_type(&p.ty) {
+        if !is_native_abi_type(&p.ty, opaque_classes) {
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: parameter type {} not supported \
-                     (only i64 / f64 / bool allowed for native externs)",
+                     (only i64 / f64 / bool / string / @extern class are allowed)",
                     f.name, p.ty
                 ),
                 span: p.span,
@@ -133,11 +147,11 @@ fn validate_native_signature(f: &ilang_ast::FnDecl) -> Result<(), CodegenError> 
         }
     }
     if let Some(ret) = &f.ret {
-        if !is_native_abi_type(ret) && *ret != Type::Unit {
+        if !is_native_abi_type(ret, opaque_classes) && *ret != Type::Unit {
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: return type {} not supported \
-                     (only i64 / f64 / bool / () allowed for native externs)",
+                     (only i64 / f64 / bool / string / () / @extern class / T? are allowed)",
                     f.name, ret
                 ),
                 span: f.span,
@@ -147,8 +161,20 @@ fn validate_native_signature(f: &ilang_ast::FnDecl) -> Result<(), CodegenError> 
     Ok(())
 }
 
-fn is_native_abi_type(t: &Type) -> bool {
-    matches!(t, Type::I64 | Type::F64 | Type::Bool | Type::Str)
+fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
+    match t {
+        Type::I64 | Type::F64 | Type::Bool | Type::Str => true,
+        // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
+        // at runtime as a raw i64 C pointer.
+        Type::Object(name) => opaque_classes.contains(name),
+        // `Foo?` where Foo is an opaque handle — same i64 storage
+        // with `0` as the null/none sentinel.
+        Type::Optional(inner) => match inner.as_ref() {
+            Type::Object(name) => opaque_classes.contains(name),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Try to dlopen `lib_name`. If the name contains a `.` or `/`,

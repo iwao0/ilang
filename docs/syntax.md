@@ -819,6 +819,27 @@ strdup("copy me")         // "copy me"            (libc::free 自動)
 @extern("./build/mylib.dylib") fn my_fn(): i64
 ```
 
+#### `@extern("libname") class Foo {}` — opaque ハンドル型
+
+C ライブラリが返す **不透明なハンドル** (`FILE*`、`sqlite3*` など) を ilang から型安全に保持・受け渡しするための仕組み。
+
+```rust
+@extern("c") class FILE {}
+@extern("c") fn tmpfile(): FILE?
+@extern("c") fn fclose(stream: FILE)
+
+if let some(f) = tmpfile() {
+    fclose(f)
+}
+```
+
+- 本体は **空でなければならない** (フィールド・メソッド・継承・型パラメータ・property など一切不可)。状態は C 側のみが持つ
+- `new Foo(...)` は **禁止** (型エラー) — 値は extern fn の戻り値からしか得られない
+- ABI 上は **i64 のポインタ**。`Foo?` の `none` は C の `NULL` に対応、自動マッピング
+- ARC 対象外 — retain/release は走らない。**解放は呼び出し側の責任** (ARC 連動の自動 close は別タスク)
+- 型は名前で区別される: `FILE` と `Sqlite3` は別の型なので `fclose(sqlite_handle)` は型エラー
+- 現状 **JIT のみ** 対応 (native extern と同じ制約)
+
 ### 組み込み `math` モジュール
 
 ```rust
