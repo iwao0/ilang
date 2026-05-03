@@ -19,9 +19,9 @@ use test
     b: f64
 }
 
-@extern(by_value) fn vec3f_dot(a: vec3f, b: vec3f): f32
-@extern(by_value) fn vec3f_make(x: f32, y: f32, z: f32): vec3f
-@extern(by_value) fn pair64_sum(p: pair64): f64
+@extern(byValue) fn vec3f_dot(a: vec3f, b: vec3f): f32
+@extern(byValue) fn vec3f_make(x: f32, y: f32, z: f32): vec3f
+@extern(byValue) fn pair64_sum(p: pair64): f64
 
 let a = new vec3f()
 a.x = 1.0 as f32

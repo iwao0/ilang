@@ -1,5 +1,5 @@
-// `@extern("lib", owned_return, free_with.<fn>)` — direct ilang
-// at the owned_return cleanup site to call a library-specific
+// `@extern("lib", ownedReturn, freeWith.<fn>)` — direct ilang
+// at the ownedReturn cleanup site to call a library-specific
 // deallocator instead of `libc::free`.
 //
 // Many libraries ship their own allocator (sqlite3_free, xmlFree,
@@ -11,7 +11,7 @@
 // interp: skip
 use test
 
-@extern("c", owned_return, free_with.test.countedFree)
+@extern("c", ownedReturn, freeWith.test.countedFree)
 fn strdup(s: string): string
 
 let before = test.countedFreeCount()

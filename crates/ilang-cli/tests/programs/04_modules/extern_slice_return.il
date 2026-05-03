@@ -1,4 +1,4 @@
-// `slice_return` flag: the C side returns a `{ T* ptr; size_t len; }`
+// `sliceReturn` flag: the C side returns a `{ T* ptr; size_t len; }`
 // 16 B struct, the JIT receives the (ptr, len) pair in 2 GPRs,
 // allocates a fresh ilang `T[]` of length `len`, and memcpys the
 // bytes into it. User code never sees a raw pointer — the value
@@ -7,8 +7,8 @@
 // interp: skip
 use test
 
-@extern(slice_return) fn get_byte_slice(): u8[]
-@extern(slice_return) fn get_i32_slice(): i32[]
+@extern(sliceReturn) fn get_byte_slice(): u8[]
+@extern(sliceReturn) fn get_i32_slice(): i32[]
 
 let bytes = get_byte_slice()
 test.expect(bytes.length as i64, 5)
@@ -35,7 +35,7 @@ test.expect(nums2[0] as i64, 999)
 // Failure case: when the C side returns a (NULL, 0) slice, the
 // declared `T[]?` return becomes `None` — no segfault on the
 // would-be memcpy.
-@extern(slice_return) fn maybe_byte_slice(ok: i32): u8[]?
+@extern(sliceReturn) fn maybe_byte_slice(ok: i32): u8[]?
 
 if let some(ok_arr) = maybe_byte_slice(1 as i32) {
     test.expect(ok_arr.length as i64, 5)

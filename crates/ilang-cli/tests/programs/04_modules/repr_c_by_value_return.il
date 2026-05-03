@@ -1,4 +1,4 @@
-// `by_value` extended to **struct returns** (≤ 16 B integer-only).
+// `byValue` extended to **struct returns** (≤ 16 B integer-only).
 // The C side returns the struct in 1–2 GPRs (X0 / X0:X1 on
 // AArch64; RAX / RAX:RDX on x86_64 SysV); the JIT receives the
 // chunks, allocs a fresh ilang instance, and stores the bits
@@ -18,8 +18,8 @@ use test
     hi: i64
 }
 
-@extern(by_value) fn make_point2(x: i32, y: i32): point2
-@extern(by_value) fn make_range64(lo: i64, hi: i64): range64
+@extern(byValue) fn make_point2(x: i32, y: i32): point2
+@extern(byValue) fn make_range64(lo: i64, hi: i64): range64
 
 let p = make_point2(11 as i32, 22 as i32)
 test.expect(p.x as i64, 11)

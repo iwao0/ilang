@@ -1,4 +1,4 @@
-// `by_value` return for **structs > 16 B**: caller allocates the
+// `byValue` return for **structs > 16 B**: caller allocates the
 // destination buffer and passes a hidden pointer to the C fn via
 // the indirect-result register (X8 on AArch64, RDI on x86_64 SysV).
 // Cranelift's `ArgumentPurpose::StructReturn` handles the slot
@@ -16,7 +16,7 @@ use test
     d: i64
 }
 
-@extern(by_value) fn make_big32(a: i64, b: i64, c: i64, d: i64): big32
+@extern(byValue) fn make_big32(a: i64, b: i64, c: i64, d: i64): big32
 
 let g = make_big32(10, 20, 30, 40)
 test.expect(g.a, 10)

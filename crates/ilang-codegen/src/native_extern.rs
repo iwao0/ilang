@@ -24,11 +24,11 @@ pub(crate) struct NativeExternRegistry {
     /// Names of fns whose `string` return value is **owned by the
     /// callee** — i.e. the C side allocated it (e.g. `strdup`) and
     /// it must be freed with `libc::free` after we copy the bytes.
-    /// Set by the `owned_return` flag in `@extern("libname", owned_return)`.
+    /// Set by the `ownedReturn` flag in `@extern("libname", owned_return)`.
     pub owned_return: HashSet<String>,
     /// `caller fn name → free fn name` — overrides the default
-    /// `libc::free` for the `owned_return` cleanup. Set by the
-    /// `free_with.<name>` flag, used when the library has its own
+    /// `libc::free` for the `ownedReturn` cleanup. Set by the
+    /// `freeWith.<name>` flag, used when the library has its own
     /// allocator (`sqlite3_free`, `xmlFree`, `OPENSSL_free`, etc.).
     pub owned_return_free_with: std::collections::HashMap<String, String>,
     /// Names of fns declared with the `variadic` flag — `printf`,
@@ -38,7 +38,7 @@ pub(crate) struct NativeExternRegistry {
     pub variadic: HashSet<String>,
     /// Names of fns whose `@repr(C)` struct parameters are passed
     /// **by value** (split into 1–2 i64 chunks per the AArch64 / SysV
-    /// "integer-only ≤ 16 B" composite rule). Set by the `by_value`
+    /// "integer-only ≤ 16 B" composite rule). Set by the `byValue`
     /// flag in `@extern("libname", by_value)`.
     pub by_value: HashSet<String>,
     /// Resolved address for each `@extern static` declaration: the
@@ -121,7 +121,7 @@ pub(crate) fn register_native_externs(
         for arg in &extern_attr.args {
             match arg {
                 AttrArg::Str(s) => lib_names.push(s.clone()),
-                AttrArg::Path(parts) if parts.as_slice() == ["owned_return"] => {
+                AttrArg::Path(parts) if parts.as_slice() == ["ownedReturn"] => {
                     flag_owned_return = true;
                 }
                 AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
@@ -130,23 +130,23 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["variadic"] => {
                     flag_variadic = true;
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["by_value"] => {
+                AttrArg::Path(parts) if parts.as_slice() == ["byValue"] => {
                     flag_by_value = true;
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["slice_return"] => {
+                AttrArg::Path(parts) if parts.as_slice() == ["sliceReturn"] => {
                     flag_slice_return = true;
                 }
-                // `free_with.<fn_name>` — override the default
+                // `freeWith.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
-                // (`free_with.test.foo` → fn `test.foo`).
-                AttrArg::Path(parts) if parts.len() >= 2 && parts[0] == "free_with" => {
+                // (`freeWith.test.foo` → fn `test.foo`).
+                AttrArg::Path(parts) if parts.len() >= 2 && parts[0] == "freeWith" => {
                     free_with = Some(parts[1..].join("."));
                 }
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `by_value`, `slice_return`, `free_with.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `freeWith.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -191,7 +191,7 @@ pub(crate) fn register_native_externs(
             if !ok {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: `slice_return` requires a `T[]` \
+                        "@extern fn {}: `sliceReturn` requires a `T[]` \
                          return type with primitive T (got {:?})",
                         f.name, f.ret
                     ),
@@ -221,7 +221,7 @@ pub(crate) fn register_native_externs(
             if !ret_is_str {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: `owned_return` requires a `string` return type",
+                        "@extern fn {}: `ownedReturn` requires a `string` return type",
                         f.name
                     ),
                     span: f.span,
@@ -233,7 +233,7 @@ pub(crate) fn register_native_externs(
             if !flag_owned_return {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: `free_with.{}` only makes sense alongside `owned_return`",
+                        "@extern fn {}: `freeWith.{}` only makes sense alongside `ownedReturn`",
                         f.name, free_fn
                     ),
                     span: f.span,
@@ -253,7 +253,7 @@ pub(crate) fn register_native_externs(
             });
             let target = target.ok_or_else(|| CodegenError::Unsupported {
                 what: format!(
-                    "@extern fn {}: `free_with.{}` references unknown extern fn",
+                    "@extern fn {}: `freeWith.{}` references unknown extern fn",
                     f.name, free_fn
                 ),
                 span: f.span,
@@ -261,7 +261,7 @@ pub(crate) fn register_native_externs(
             if target.params.len() != 1 {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: `free_with.{}` must take exactly one i64 / opaque-class parameter",
+                        "@extern fn {}: `freeWith.{}` must take exactly one i64 / opaque-class parameter",
                         f.name, free_fn
                     ),
                     span: f.span,
@@ -275,7 +275,7 @@ pub(crate) fn register_native_externs(
             if !ok_param {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "@extern fn {}: `free_with.{}` parameter must be i64 or an `@extern` class (got {})",
+                        "@extern fn {}: `freeWith.{}` parameter must be i64 or an `@extern` class (got {})",
                         f.name, free_fn, p_ty
                     ),
                     span: f.span,
@@ -363,7 +363,7 @@ pub(crate) fn register_native_externs(
         builder.symbol(&f.name, ptr);
         names.insert(f.name.clone());
     }
-    // `by_value` is also valid on host-side `@extern fn` (no library
+    // `byValue` is also valid on host-side `@extern fn` (no library
     // arg). Sweep again and pick any up that we missed because the
     // library-name filter skipped them, then validate every by_value
     // fn (whether from the main loop or this sweep) once at the end
@@ -374,9 +374,9 @@ pub(crate) fn register_native_externs(
         let Some(extern_attr) = extern_attr else { continue };
         for arg in &extern_attr.args {
             if let AttrArg::Path(parts) = arg {
-                if parts.as_slice() == ["by_value"] {
+                if parts.as_slice() == ["byValue"] {
                     by_value.insert(f.name.clone());
-                } else if parts.as_slice() == ["slice_return"] {
+                } else if parts.as_slice() == ["sliceReturn"] {
                     // Same field-shape validation as the library-arg
                     // path: must be `T[]` or `T[]?` with primitive T.
                     let elem = match &f.ret {
@@ -399,7 +399,7 @@ pub(crate) fn register_native_externs(
                     if !ok {
                         return Err(CodegenError::Unsupported {
                             what: format!(
-                                "@extern fn {}: `slice_return` requires \
+                                "@extern fn {}: `sliceReturn` requires \
                                  a `T[]` return type with primitive T \
                                  (got {:?})",
                                 f.name, f.ret
@@ -467,7 +467,7 @@ pub(crate) fn register_native_externs(
     })
 }
 
-/// Field-level validation for a `by_value` extern fn. Rejects struct
+/// Field-level validation for a `byValue` extern fn. Rejects struct
 /// params whose fields aren't in the GPR-only integer subset that
 /// the call lowering knows how to pack into 1–2 i64 chunks.
 fn validate_by_value_fn(

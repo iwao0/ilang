@@ -1444,7 +1444,7 @@ fn extern_native_string_return_getenv() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn extern_native_owned_return_strdup() {
     // strdup returns a heap-allocated copy that the caller is
-    // responsible for freeing. With `owned_return` the JIT inserts
+    // responsible for freeing. With `ownedReturn` the JIT inserts
     // libc::free(returned_ptr) after copying the bytes into a
     // StringRc, so this loop wouldn't grow RSS.
     use ilang_codegen::{jit_run_with, JitValue};
@@ -1453,7 +1453,7 @@ fn extern_native_owned_return_strdup() {
     use ilang_types::TypeChecker;
     let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
     let src = format!(
-        "@extern(\"{lib}\", owned_return) fn strdup(s: string): string\nstrdup(\"hello world\")"
+        "@extern(\"{lib}\", ownedReturn) fn strdup(s: string): string\nstrdup(\"hello world\")"
     );
     let toks = tokenize(&src).expect("lex");
     let prog = parse(&toks).expect("parse");
@@ -1474,14 +1474,14 @@ fn extern_native_owned_return_strdup() {
 
 #[test]
 fn extern_native_owned_return_requires_string() {
-    // owned_return on a non-string return is rejected at JIT build.
+    // ownedReturn on a non-string return is rejected at JIT build.
     use ilang_codegen::jit_run_with;
     use ilang_lexer::tokenize;
     use ilang_parser::parse;
     use ilang_types::TypeChecker;
     let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
     let src = format!(
-        "@extern(\"{lib}\", owned_return) fn strlen(s: string): i64\nstrlen(\"hi\")"
+        "@extern(\"{lib}\", ownedReturn) fn strlen(s: string): i64\nstrlen(\"hi\")"
     );
     let toks = tokenize(&src).expect("lex");
     let prog = parse(&toks).expect("parse");
@@ -1498,7 +1498,7 @@ fn extern_native_owned_return_requires_string() {
     )
     .unwrap_err();
     let msg = format!("{err}");
-    assert!(msg.contains("owned_return"), "unexpected error: {msg}");
+    assert!(msg.contains("ownedReturn"), "unexpected error: {msg}");
 }
 
 #[test]

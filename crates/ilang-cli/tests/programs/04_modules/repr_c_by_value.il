@@ -23,9 +23,9 @@ use test
     payload: i64
 }
 
-@extern(by_value) fn sum_point2(p: point2): i64
-@extern(by_value) fn range64_width(r: range64): i64
-@extern(by_value) fn tagged_payload_if(t: tagged, expected_tag: i32): i64
+@extern(byValue) fn sum_point2(p: point2): i64
+@extern(byValue) fn range64_width(r: range64): i64
+@extern(byValue) fn tagged_payload_if(t: tagged, expected_tag: i32): i64
 
 // 8 B struct → 1 i64 chunk.
 let p = new point2()

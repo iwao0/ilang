@@ -1,4 +1,4 @@
-// `by_value` for **structs > 16 B**: the JIT marks the param with
+// `byValue` for **structs > 16 B**: the JIT marks the param with
 // Cranelift's `StructArgument(size)` purpose, which delegates to
 // the per-target C ABI (AArch64 AAPCS64 hands the callee a hidden
 // pointer; x86_64 SysV copies onto the stack). The ilang side just
@@ -14,7 +14,7 @@ use test
     d: i64
 }
 
-@extern(by_value) fn big32_sum(big: big32): i64
+@extern(byValue) fn big32_sum(big: big32): i64
 
 let g = new big32()
 g.a = 10
