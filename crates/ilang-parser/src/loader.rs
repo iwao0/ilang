@@ -20,7 +20,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{
-    Block, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind, Type, UseDecl,
+    BinOp, Block, Expr, ExprKind, Item, LogicalOp, MatchArm, Program, Span, Stmt, StmtKind,
+    Type, UnOp, UseDecl,
 };
 
 use crate::ParseError;
@@ -62,6 +63,13 @@ pub enum LoadError {
         module: String,
         name: String,
     },
+    /// `const X = expr` where `expr` couldn't be folded to a literal.
+    /// Carries a human-readable reason and the offending span.
+    BadConst {
+        name: String,
+        reason: String,
+        span: ilang_ast::Span,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -77,6 +85,9 @@ impl std::fmt::Display for LoadError {
             }
             LoadError::UnknownImport { module, name } => {
                 write!(f, "module `{module}` doesn't export `{name}`")
+            }
+            LoadError::BadConst { name, reason, span } => {
+                write!(f, "{span}: `const {name}` is not a constant expression: {reason}")
             }
         }
     }
@@ -130,7 +141,7 @@ pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
     // `Var(const_name)` with the literal value. Item::Const entries
     // are removed afterwards. Downstream stages (type checker /
     // interpreter / JIT) never see consts.
-    Ok(inline_constants(merged))
+    inline_constants(merged)
 }
 
 fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {
@@ -616,25 +627,36 @@ fn is_builtin_type(name: &str) -> bool {
 /// allowed to reference module-prefixed names (e.g. `math.pi` after
 /// the loader's mangling) since the substitution happens by exact
 /// name match.
-fn inline_constants(prog: Program) -> Program {
+fn inline_constants(prog: Program) -> Result<Program, LoadError> {
+    // Walk items in declaration order and fold each `const`'s RHS to a
+    // literal, using already-folded consts as known bindings. The
+    // result becomes the substitution value for every `Var(name)`
+    // reference in the rest of the program.
     let mut consts: HashMap<String, Expr> = HashMap::new();
     let mut items_no_const: Vec<Item> = Vec::new();
     for item in prog.items {
         match item {
             Item::Const(c) => {
-                consts.insert(c.name, c.value);
+                let folded = fold_const_expr(&c.value, &consts).map_err(|reason| {
+                    LoadError::BadConst {
+                        name: c.name.clone(),
+                        reason,
+                        span: c.value.span,
+                    }
+                })?;
+                consts.insert(c.name, folded);
             }
             other => items_no_const.push(other),
         }
     }
     if consts.is_empty() {
-        return Program {
+        return Ok(Program {
             items: items_no_const,
             stmts: prog.stmts,
             tail: prog.tail,
-        };
+        });
     }
-    Program {
+    Ok(Program {
         items: items_no_const
             .into_iter()
             .map(|i| subst_const_item(i, &consts))
@@ -645,6 +667,180 @@ fn inline_constants(prog: Program) -> Program {
             .map(|s| subst_const_stmt(s, &consts))
             .collect(),
         tail: prog.tail.map(|e| subst_const_expr(e, &consts)),
+    })
+}
+
+/// Constant folder. Reduces `e` to a literal `Expr` (Int / Float /
+/// Bool / Str), or returns a human-readable failure reason.
+/// Supported: literals, references to other consts, unary `- ! ~`,
+/// binary arithmetic / comparison / bitwise / logical, `as` casts
+/// between numeric types, string `+` (concat) and `==` / `!=`.
+fn fold_const_expr(e: &Expr, consts: &HashMap<String, Expr>) -> Result<Expr, String> {
+    let span = e.span;
+    let lit = |k: ExprKind| Expr { kind: k, span };
+    match &e.kind {
+        ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::Str(_) => {
+            Ok(e.clone())
+        }
+        ExprKind::Var(name) => consts
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("unknown identifier `{name}` in const expression")),
+        ExprKind::Unary { op, expr } => {
+            let v = fold_const_expr(expr, consts)?;
+            match (op, &v.kind) {
+                (UnOp::Neg, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(-n))),
+                (UnOp::Neg, ExprKind::Float(x)) => Ok(lit(ExprKind::Float(-x))),
+                (UnOp::Not, ExprKind::Bool(b)) => Ok(lit(ExprKind::Bool(!b))),
+                (UnOp::BitNot, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(!n))),
+                _ => Err(format!("unary {op:?} not supported in const expression")),
+            }
+        }
+        ExprKind::Binary { op, lhs, rhs } => {
+            let l = fold_const_expr(lhs, consts)?;
+            let r = fold_const_expr(rhs, consts)?;
+            fold_binary(*op, &l, &r, span)
+        }
+        ExprKind::Logical { op, lhs, rhs } => {
+            let l = fold_const_expr(lhs, consts)?;
+            let lb = match l.kind {
+                ExprKind::Bool(b) => b,
+                _ => return Err("logical operands must be bool".into()),
+            };
+            // Short-circuit, like the runtime would.
+            match op {
+                LogicalOp::And if !lb => Ok(lit(ExprKind::Bool(false))),
+                LogicalOp::Or if lb => Ok(lit(ExprKind::Bool(true))),
+                _ => {
+                    let r = fold_const_expr(rhs, consts)?;
+                    match r.kind {
+                        ExprKind::Bool(b) => Ok(lit(ExprKind::Bool(b))),
+                        _ => Err("logical operands must be bool".into()),
+                    }
+                }
+            }
+        }
+        ExprKind::Cast { expr, ty } => {
+            let v = fold_const_expr(expr, consts)?;
+            cast_const(&v, ty, span)
+        }
+        // Anything else (calls, fields, control flow, ...) is not a
+        // constant expression. Be specific in the error so the user
+        // knows what to fix.
+        other => Err(format!(
+            "expression {} is not allowed in `const`",
+            describe_expr_kind(other)
+        )),
+    }
+}
+
+fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String> {
+    let lit = |k: ExprKind| Expr { kind: k, span };
+    use ExprKind::*;
+    match (&l.kind, &r.kind) {
+        (Int(a), Int(b)) => Ok(lit(match op {
+            BinOp::Add => Int(a.wrapping_add(*b)),
+            BinOp::Sub => Int(a.wrapping_sub(*b)),
+            BinOp::Mul => Int(a.wrapping_mul(*b)),
+            BinOp::Div => {
+                if *b == 0 {
+                    return Err("division by zero in const expression".into());
+                }
+                Int(a / b)
+            }
+            BinOp::Rem => {
+                if *b == 0 {
+                    return Err("modulo by zero in const expression".into());
+                }
+                Int(a % b)
+            }
+            BinOp::BitAnd => Int(a & b),
+            BinOp::BitOr => Int(a | b),
+            BinOp::BitXor => Int(a ^ b),
+            BinOp::Shl => Int(a.wrapping_shl(*b as u32)),
+            BinOp::Shr => Int(a.wrapping_shr(*b as u32)),
+            BinOp::Eq => Bool(a == b),
+            BinOp::Ne => Bool(a != b),
+            BinOp::Lt => Bool(a < b),
+            BinOp::Le => Bool(a <= b),
+            BinOp::Gt => Bool(a > b),
+            BinOp::Ge => Bool(a >= b),
+        })),
+        (Float(a), Float(b)) => Ok(lit(match op {
+            BinOp::Add => Float(a + b),
+            BinOp::Sub => Float(a - b),
+            BinOp::Mul => Float(a * b),
+            BinOp::Div => Float(a / b),
+            BinOp::Eq => Bool(a == b),
+            BinOp::Ne => Bool(a != b),
+            BinOp::Lt => Bool(a < b),
+            BinOp::Le => Bool(a <= b),
+            BinOp::Gt => Bool(a > b),
+            BinOp::Ge => Bool(a >= b),
+            _ => return Err(format!("operator {op:?} not supported on float in const")),
+        })),
+        (Str(a), Str(b)) => Ok(lit(match op {
+            BinOp::Add => Str(format!("{a}{b}")),
+            BinOp::Eq => Bool(a == b),
+            BinOp::Ne => Bool(a != b),
+            _ => return Err(format!("operator {op:?} not supported on string in const")),
+        })),
+        (Bool(a), Bool(b)) => Ok(lit(match op {
+            BinOp::Eq => Bool(a == b),
+            BinOp::Ne => Bool(a != b),
+            BinOp::BitAnd => Bool(a & b),
+            BinOp::BitOr => Bool(a | b),
+            BinOp::BitXor => Bool(a ^ b),
+            _ => return Err(format!("operator {op:?} not supported on bool in const")),
+        })),
+        _ => Err(format!(
+            "type mismatch in const binary {op:?} ({} vs {})",
+            describe_expr_kind(&l.kind),
+            describe_expr_kind(&r.kind)
+        )),
+    }
+}
+
+fn cast_const(v: &Expr, ty: &Type, span: Span) -> Result<Expr, String> {
+    let lit = |k: ExprKind| Expr { kind: k, span };
+    use ExprKind::*;
+    match (&v.kind, ty) {
+        // int → int / int → float / float → int / float → float / bool → int.
+        (Int(n), Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64) => Ok(lit(Int(*n))),
+        (Int(n), Type::F32 | Type::F64) => Ok(lit(Float(*n as f64))),
+        (Float(x), Type::F32 | Type::F64) => Ok(lit(Float(*x))),
+        (Float(x), Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64) => Ok(lit(Int(*x as i64))),
+        (Bool(b), Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64) => {
+            Ok(lit(Int(if *b { 1 } else { 0 })))
+        }
+        _ => Err(format!("cast to {ty} not supported in const expression")),
+    }
+}
+
+fn describe_expr_kind(k: &ExprKind) -> &'static str {
+    match k {
+        ExprKind::Int(_) => "int literal",
+        ExprKind::Float(_) => "float literal",
+        ExprKind::Bool(_) => "bool literal",
+        ExprKind::Str(_) => "string literal",
+        ExprKind::Var(_) => "identifier",
+        ExprKind::Call { .. } => "function call",
+        ExprKind::MethodCall { .. } => "method call",
+        ExprKind::New { .. } => "object construction",
+        ExprKind::Field { .. } => "field access",
+        ExprKind::Index { .. } => "index",
+        ExprKind::Array(_) => "array literal",
+        ExprKind::MapLit(_) => "map literal",
+        ExprKind::If { .. } => "if expression",
+        ExprKind::IfLet { .. } => "if-let expression",
+        ExprKind::Match { .. } => "match",
+        ExprKind::Block(_) => "block",
+        ExprKind::While { .. } | ExprKind::Loop { .. } | ExprKind::ForIn { .. } => "loop",
+        ExprKind::Range { .. } => "range",
+        _ => "non-constant expression",
     }
 }
 

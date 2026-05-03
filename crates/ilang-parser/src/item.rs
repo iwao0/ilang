@@ -1,6 +1,6 @@
 use ilang_ast::{
-    AttrArg, Attribute, ClassDecl, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
-    PropertyDecl, Type, UnOp, Variant, VariantPayload,
+    AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param,
+    PropertyDecl, Type, Variant, VariantPayload,
 };
 use ilang_lexer::TokenKind;
 
@@ -11,20 +11,6 @@ use crate::stmt::parse_block;
 /// True if `e` is a value-only literal — what `const` accepts as its
 /// RHS. Numeric / bool / string literals, optionally with a unary
 /// `-` on numerics. No identifiers, no calls, no expressions.
-fn is_constant_literal(e: &Expr) -> bool {
-    match &e.kind {
-        ExprKind::Int(_)
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Str(_) => true,
-        ExprKind::Unary { op: UnOp::Neg, expr } => {
-            matches!(expr.kind, ExprKind::Int(_) | ExprKind::Float(_))
-        }
-        // `1 as i32` style — keep simple: accept if inner is a literal.
-        ExprKind::Cast { expr, .. } => is_constant_literal(expr),
-        _ => false,
-    }
-}
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_item(&mut self) -> Result<Item, ParseError> {
@@ -109,15 +95,8 @@ impl<'a> Parser<'a> {
         };
         self.expect(&TokenKind::Equals, "'='")?;
         let value = self.parse_expr(0)?;
-        // Consts must be literals at the AST level so we can substitute
-        // them at compile time without an evaluator.
-        if !is_constant_literal(&value) {
-            return Err(ParseError::Unexpected {
-                found: ilang_lexer::TokenKind::Ident(format!("{:?}", value.kind)),
-                expected: "a literal value (number, bool, or string)".into(),
-                span: value.span,
-            });
-        }
+        // The parser accepts any expression here; the loader's
+        // `inline_constants` pass folds it to a literal (or errors).
         Ok(ilang_ast::ConstDecl {
             name,
             ty,
