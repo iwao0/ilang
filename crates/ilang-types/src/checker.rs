@@ -126,6 +126,11 @@ struct Signature {
     /// as `Type::TypeVar(name)`; concrete types are inferred from the
     /// arg expression types at each call site.
     type_params: Vec<String>,
+    /// Span of the original `FnDecl` this signature came from. Used by
+    /// the post-typecheck mangler to find the right declaration when
+    /// rewriting overloaded fn names. `Span::dummy()` for built-ins.
+    #[allow(dead_code)]
+    decl_span: Span,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -166,7 +171,12 @@ type Vars = HashMap<String, Type>;
 
 #[derive(Debug, Default)]
 pub struct TypeChecker {
-    fns: HashMap<String, Signature>,
+    /// Top-level functions, keyed by source name. A name maps to a
+    /// non-empty vec because user code may define multiple
+    /// overloads (`fn print(n: i64)` + `fn print(s: string)`). At each
+    /// call site we pick the best match by arg-type scoring; if a name
+    /// has just one entry we still go through the same path.
+    fns: HashMap<String, Vec<Signature>>,
     classes: HashMap<String, ClassSig>,
     enums: HashMap<String, EnumSig>,
     vars: HashMap<String, Type>,
@@ -181,6 +191,11 @@ pub struct TypeChecker {
     /// Same shape as `fn_call_type_args`; consumed by the JIT's
     /// enum-monomorphization pass.
     enum_ctor_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
+    /// Per-call-site choice when the callee is overloaded:
+    /// `(name, index_into_self.fns[name])`. Used by the post-typecheck
+    /// mangler to rewrite `Call.callee` to the per-overload mangled
+    /// name when the name has more than one overload.
+    fn_overload_pick: std::cell::RefCell<HashMap<Span, (String, usize)>>,
 }
 
 impl TypeChecker {
@@ -201,6 +216,13 @@ impl TypeChecker {
     /// style constructors.
     pub fn enum_ctor_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
         self.enum_ctor_type_args.borrow().clone()
+    }
+
+    /// Per-call-site overload pick: `(callee_name, sig_idx)`. Consumed
+    /// by the post-typecheck `mangle_overloads` pass so it knows which
+    /// of N same-name decls each call should resolve to.
+    pub fn fn_overload_picks(&self) -> HashMap<Span, (String, usize)> {
+        self.fn_overload_pick.borrow().clone()
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
@@ -279,7 +301,7 @@ impl TypeChecker {
                 // `Any` so any introspection still has something to print.
                 params: vec![Type::Any],
                 ret: Type::Unit,
-                variadic: true, type_params: Vec::new(),
+                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(),
             },
         );
         self.classes.insert(
@@ -303,38 +325,38 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            Signature { params: vec![], ret: Type::Unit, variadic: false, type_params: Vec::new() },
+            Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
         );
         map_methods.insert(
             "get".into(),
             Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
-                variadic: false, type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
             },
         );
         map_methods.insert(
             "set".into(),
-            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, type_params: Vec::new() },
+            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
         );
         map_methods.insert(
             "has".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false, type_params: Vec::new() },
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
         );
         map_methods.insert(
             "delete".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false, type_params: Vec::new() },
+            Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
         );
         map_methods.insert(
             "size".into(),
-            Signature { params: vec![], ret: Type::I64, variadic: false, type_params: Vec::new() },
+            Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
         );
         map_methods.insert(
             "keys".into(),
             Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
-                variadic: false, type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
             },
         );
         map_methods.insert(
@@ -342,7 +364,7 @@ impl TypeChecker {
             Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
-                variadic: false, type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
             },
         );
         self.classes.insert(
@@ -400,7 +422,36 @@ impl TypeChecker {
             match item {
                 Item::Fn(f) => {
                     let sig = signature_of(f);
-                    self.fns.insert(f.name.clone(), sig);
+                    let entry = self.fns.entry(f.name.clone()).or_default();
+                    // Reject (a) generic + non-generic same name and
+                    // (b) two overloads with identical param types.
+                    // (a) keeps overload resolution simple — generic
+                    // resolution is already its own special path, so we
+                    // require a name to be EITHER one generic fn OR
+                    // a set of non-generic overloads.
+                    let any_generic = !sig.type_params.is_empty()
+                        || entry.iter().any(|s| !s.type_params.is_empty());
+                    if any_generic && !entry.is_empty() {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "fn {:?} mixes a generic declaration with another overload — \
+                                 generic functions cannot share a name with other fns",
+                                f.name
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    if entry.iter().any(|s| s.params == sig.params) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "fn {:?} has a duplicate overload (same parameter types as a \
+                                 previous declaration)",
+                                f.name
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    entry.push(sig);
                 }
                 Item::Class(c) => {
                     let sig = class_signature(c);
@@ -714,8 +765,22 @@ impl TypeChecker {
                     }
                 }
                 // First-class function: a bare reference to a top-level
-                // `fn` becomes a function value (`Type::Fn(...)`).
-                if let Some(sig) = self.fns.get(n) {
+                // `fn` becomes a function value (`Type::Fn(...)`). For
+                // overloaded names this is ambiguous — disambiguation
+                // would need an explicit type annotation we don't have
+                // syntax for, so reject.
+                if let Some(sigs) = self.fns.get(n) {
+                    if sigs.len() != 1 {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "fn {n:?} has {} overloads — bare references to overloaded \
+                                 fns are ambiguous; call them directly with arguments",
+                                sigs.len()
+                            ),
+                            span,
+                        });
+                    }
+                    let sig = &sigs[0];
                     return Ok(Type::Fn {
                         params: sig.params.clone(),
                         ret: Box::new(sig.ret.clone()),
@@ -767,7 +832,7 @@ impl TypeChecker {
                     let sig = Signature {
                         params,
                         ret: (*ret).clone(),
-                        variadic: false, type_params: Vec::new(),
+                        variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
                     };
                     self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
@@ -780,16 +845,44 @@ impl TypeChecker {
                         }
                     }
                 }
-                let sig = self.fns.get(callee).cloned().ok_or_else(|| {
+                let sigs = self.fns.get(callee).cloned().ok_or_else(|| {
                     TypeError::UndefinedFunction {
                         name: callee.clone(),
                         span,
                     }
                 })?;
-                if sig.type_params.is_empty() {
-                    self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
-                    return Ok(sig.ret);
+                // Generic fns can't share a name with overloads (we
+                // reject that at registration time), so a generic slot
+                // is always exactly one signature. Fall through to the
+                // existing generic-inference path below.
+                let is_generic_slot = sigs.len() == 1 && !sigs[0].type_params.is_empty();
+                if !is_generic_slot {
+                    if sigs.len() == 1 {
+                        // Single non-generic overload: keep the existing
+                        // arity / per-arg validation so error variants
+                        // (Mismatch / ArityMismatch) stay precise.
+                        let sig = sigs.into_iter().next().unwrap();
+                        self.fn_overload_pick
+                            .borrow_mut()
+                            .insert(span, (callee.clone(), 0));
+                        self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                        return Ok(sig.ret);
+                    }
+                    // Multiple overloads — score each viable signature
+                    // and pick the best match.
+                    let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+                    for a in args {
+                        arg_tys.push(self.check_expr(a, env, ret_ty, in_class, loop_depth)?);
+                    }
+                    let chosen = resolve_overload(callee, &sigs, &arg_tys, args, span)?;
+                    let chosen_sig = sigs[chosen].clone();
+                    self.fn_overload_pick
+                        .borrow_mut()
+                        .insert(span, (callee.clone(), chosen));
+                    self.check_args(callee, &chosen_sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                    return Ok(chosen_sig.ret);
                 }
+                let sig = sigs.into_iter().next().unwrap();
                 // Generic fn — see below; we also stash the inferred
                 // type-args vector keyed by call span so the JIT's
                 // monomorphization pass can find it later.
@@ -1190,6 +1283,7 @@ impl TypeChecker {
                     ret: subst_type(&raw_sig.ret, &class_params, &inst_args),
                     variadic: raw_sig.variadic,
                     type_params: Vec::new(),
+                    decl_span: Span::dummy(),
                 };
                 self.check_args(method, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                 Ok(sig.ret)
@@ -1230,6 +1324,7 @@ impl TypeChecker {
                         ret: subst_type(&init.ret, &class_params, &inst_args),
                         variadic: init.variadic,
                         type_params: Vec::new(),
+                        decl_span: Span::dummy(),
                     };
                     self.check_args(
                         &format!("{class}::init"),
@@ -2245,6 +2340,121 @@ fn walk_block_children(b: &ilang_ast::Block, f: &mut dyn FnMut(&Expr)) {
     }
 }
 
+// ─── overload resolution ──────────────────────────────────────────────
+
+/// Score how well an actual arg type fits a parameter type. `None`
+/// means the conversion isn't allowed at all; lower numbers mean a
+/// closer match. Used to rank overloads when multiple are viable.
+fn score_arg(arg: &Expr, arg_ty: &Type, param_ty: &Type) -> Option<u32> {
+    if arg_ty == param_ty {
+        return Some(0);
+    }
+    // `Type::Any` (e.g. inside `console.log(x)` — used elsewhere)
+    // matches every concrete type with cost 1 so concrete overloads win.
+    if matches!(arg_ty, Type::Any) || matches!(param_ty, Type::Any) {
+        return Some(1);
+    }
+    // Same-sign integer widening / narrowing — implicit per syntax.md §2.
+    if arg_ty.is_int() && param_ty.is_int() {
+        let same_sign = arg_ty.is_signed_int() == param_ty.is_signed_int();
+        if same_sign {
+            return Some(1);
+        }
+        // Differing signs need an explicit `as` cast — not viable here.
+        return None;
+    }
+    // Int → float (also widening between f32 / f64) — implicit.
+    if arg_ty.is_int() && param_ty.is_float() {
+        return Some(2);
+    }
+    if matches!((arg_ty, param_ty), (Type::F32, Type::F64) | (Type::F64, Type::F32)) {
+        return Some(1);
+    }
+    // T → T? auto-wrap.
+    if let Type::Optional(inner) = param_ty {
+        if let Some(inner_score) = score_arg(arg, arg_ty, inner) {
+            return Some(inner_score + 3);
+        }
+    }
+    // Object → Weak downgrade (same class).
+    if let (Type::Object(a), Type::Weak(b_inner)) = (arg_ty, param_ty) {
+        if let Type::Object(b) = b_inner.as_ref() {
+            if a == b {
+                return Some(4);
+            }
+        }
+    }
+    // Fall back to literal_assignable: catches int-literal widening
+    // into smaller widths (`1` into `i8`) and similar.
+    if literal_assignable(arg, arg_ty, param_ty) {
+        return Some(2);
+    }
+    None
+}
+
+/// Pick the best matching overload from `sigs`. Returns the index of
+/// the chosen signature, or a TypeError if none is viable / multiple
+/// tie for best score.
+fn resolve_overload(
+    name: &str,
+    sigs: &[Signature],
+    arg_tys: &[Type],
+    args: &[Expr],
+    span: Span,
+) -> Result<usize, TypeError> {
+    // Variadic built-ins live in this slot too — accept the first that
+    // matches arity (which for variadics means "any arg count").
+    let mut viable: Vec<(usize, u32)> = Vec::new();
+    for (i, sig) in sigs.iter().enumerate() {
+        if sig.variadic {
+            // Variadic: any arity, no per-arg scoring needed.
+            viable.push((i, 0));
+            continue;
+        }
+        if sig.params.len() != arg_tys.len() {
+            continue;
+        }
+        let mut total = 0u32;
+        let mut all_ok = true;
+        for ((expected, actual), arg) in sig.params.iter().zip(arg_tys.iter()).zip(args.iter()) {
+            match score_arg(arg, actual, expected) {
+                Some(s) => total += s,
+                None => {
+                    all_ok = false;
+                    break;
+                }
+            }
+        }
+        if all_ok {
+            viable.push((i, total));
+        }
+    }
+    if viable.is_empty() {
+        return Err(TypeError::Unsupported {
+            what: format!(
+                "no matching overload for `{name}` with arg types ({})",
+                arg_tys.iter().map(|t| format!("{t}")).collect::<Vec<_>>().join(", "),
+            ),
+            span,
+        });
+    }
+    // Pick lowest score; tie → ambiguous.
+    viable.sort_by_key(|(_, s)| *s);
+    let best = viable[0].1;
+    let tied: Vec<usize> = viable.iter().take_while(|(_, s)| *s == best).map(|(i, _)| *i).collect();
+    if tied.len() > 1 {
+        return Err(TypeError::Unsupported {
+            what: format!(
+                "ambiguous call to `{name}` — multiple overloads match equally well \
+                 ({} candidates)",
+                tied.len()
+            ),
+            span,
+        });
+    }
+    Ok(tied[0])
+}
+
 fn signature_of(f: &FnDecl) -> Signature {
     // Rewrite the fn's own `<T, U>` type parameters from `Object(T)` to
     // `TypeVar(T)` so call-site inference (which substitutes for
@@ -2263,6 +2473,7 @@ fn signature_of(f: &FnDecl) -> Signature {
         params,
         ret,
         variadic: false,
+        decl_span: f.span,
         type_params: f.type_params.clone(),
     }
 }

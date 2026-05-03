@@ -8,6 +8,7 @@
 
 pub mod checker;
 pub mod error;
+pub mod mangle;
 mod ops;
 
 use ilang_ast::{Program, Type};
