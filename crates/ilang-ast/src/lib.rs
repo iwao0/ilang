@@ -11,7 +11,7 @@ pub use expr::{
 };
 pub use item::{
     AttrArg, Attribute, ClassDecl, ConstDecl, EnumDecl, FieldDecl, FnDecl, Item, Param,
-    UseDecl, Variant, VariantPayload,
+    PropertyDecl, UseDecl, Variant, VariantPayload,
 };
 pub use program::Program;
 pub use span::Span;

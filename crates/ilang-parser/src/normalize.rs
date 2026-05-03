@@ -82,6 +82,27 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                     m
                 })
                 .collect();
+            let properties = std::mem::take(&mut c.properties);
+            c.properties = properties
+                .into_iter()
+                .map(|mut p| {
+                    if let Some(g) = p.getter.as_mut() {
+                        let body = std::mem::replace(
+                            &mut g.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        g.body = rewrite_block(body, ctx);
+                    }
+                    if let Some(s) = p.setter.as_mut() {
+                        let body = std::mem::replace(
+                            &mut s.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        s.body = rewrite_block(body, ctx);
+                    }
+                    p
+                })
+                .collect();
             Item::Class(c)
         }
         Item::Enum(e) => Item::Enum(e),

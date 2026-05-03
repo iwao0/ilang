@@ -58,6 +58,28 @@ pub struct ClassDecl {
     /// (treated as a regular method by the parser; recognised specially by
     /// the type checker and evaluator).
     pub methods: Vec<FnDecl>,
+    /// `get`/`set` accessors. Read/write of `obj.name` is dispatched to
+    /// the corresponding accessor instead of a stored field. Both are
+    /// optional (read-only or write-only OK), but at least one is set.
+    /// Stored separately from `methods` so method-name lookups don't
+    /// trip over property accessors.
+    pub properties: Vec<PropertyDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyDecl {
+    pub name: String,
+    /// The property's value type. For getters it's the return type; for
+    /// setters it's the (single) parameter type. The type checker
+    /// enforces that getter ret == setter param == this `ty`.
+    pub ty: Type,
+    /// Synthetic FnDecl for the getter body: 0 params, returns `ty`.
+    /// `name` field of the FnDecl is the property name itself.
+    pub getter: Option<FnDecl>,
+    /// Synthetic FnDecl for the setter body: 1 param of type `ty`,
+    /// returns `()`. `name` field is the property name.
+    pub setter: Option<FnDecl>,
     pub span: Span,
 }
 

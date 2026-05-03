@@ -1,6 +1,6 @@
 use ilang_ast::{
     AttrArg, Attribute, ClassDecl, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
-    Type, UnOp, Variant, VariantPayload,
+    PropertyDecl, Type, UnOp, Variant, VariantPayload,
 };
 use ilang_lexer::TokenKind;
 
@@ -171,6 +171,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut properties: Vec<PropertyDecl> = Vec::new();
         loop {
             match self.peek().kind {
                 TokenKind::RBrace => break,
@@ -179,7 +180,28 @@ impl<'a> Parser<'a> {
                     let m = self.parse_method(attrs)?;
                     methods.push(m);
                 }
-                TokenKind::Ident(_) => {
+                TokenKind::Ident(ref name) => {
+                    // Contextual keywords `get` / `set` introduce a
+                    // property accessor when followed by `<ident> (`.
+                    // Anything else with that name is treated as a
+                    // regular field/method declaration.
+                    let is_accessor = (name == "get" || name == "set")
+                        && matches!(
+                            self.tokens
+                                .get(self.pos + 1)
+                                .map(|t| &t.kind),
+                            Some(TokenKind::Ident(_))
+                        )
+                        && matches!(
+                            self.tokens
+                                .get(self.pos + 2)
+                                .map(|t| &t.kind),
+                            Some(TokenKind::LParen)
+                        );
+                    if is_accessor {
+                        self.parse_property_accessor(&mut properties)?;
+                        continue;
+                    }
                     let next_kind = self.tokens[(self.pos + 1).min(self.tokens.len() - 1)]
                         .kind
                         .clone();
@@ -218,8 +240,106 @@ impl<'a> Parser<'a> {
             type_params,
             fields,
             methods,
+            properties,
             span,
         })
+    }
+
+    /// Parse one `get name(): T { body }` or `set name(v: T) { body }`
+    /// accessor and merge it into the running properties list. Two
+    /// accessors with the same name share a single PropertyDecl. The
+    /// type checker validates getter ret == setter param later.
+    fn parse_property_accessor(
+        &mut self,
+        properties: &mut Vec<PropertyDecl>,
+    ) -> Result<(), ParseError> {
+        let kw_span = self.peek().span;
+        let kw = match &self.peek().kind {
+            TokenKind::Ident(s) => s.clone(),
+            _ => unreachable!("caller verified kind is Ident(get|set)"),
+        };
+        self.bump(); // get / set
+        let name_span = self.peek().span;
+        let prop_name = self.expect_ident("property name")?;
+        // Re-use the existing parse_method machinery starting from the
+        // `(` — but the method's `name` should be the property name and
+        // we need to inject it. parse_method assumes the name was just
+        // consumed; we'll mimic the body of parse_method here.
+        let fn_decl = self.parse_method_after_name(prop_name.clone(), kw_span)?;
+        // Validate accessor shape eagerly so misuse errors point at the
+        // `get` / `set` keyword rather than at the call site.
+        if kw == "get" {
+            if !fn_decl.params.is_empty() {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::LParen,
+                    expected: "getter takes no parameters".into(),
+                    span: name_span,
+                });
+            }
+            if fn_decl.ret.is_none() {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::LBrace,
+                    expected: "getter must declare a return type".into(),
+                    span: name_span,
+                });
+            }
+        } else {
+            if fn_decl.params.len() != 1 {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::LParen,
+                    expected: "setter takes exactly one parameter".into(),
+                    span: name_span,
+                });
+            }
+            if fn_decl.ret.is_some() {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::Colon,
+                    expected: "setter must not declare a return type".into(),
+                    span: name_span,
+                });
+            }
+        }
+        let prop_ty = if kw == "get" {
+            fn_decl.ret.clone().expect("getter ret checked above")
+        } else {
+            fn_decl.params[0].ty.clone()
+        };
+        // Find existing entry, or create a new one.
+        if let Some(existing) = properties.iter_mut().find(|p| p.name == prop_name) {
+            if kw == "get" {
+                if existing.getter.is_some() {
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Ident("get".into()),
+                        expected: format!("duplicate `get {prop_name}` accessor"),
+                        span: kw_span,
+                    });
+                }
+                existing.getter = Some(fn_decl);
+            } else {
+                if existing.setter.is_some() {
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Ident("set".into()),
+                        expected: format!("duplicate `set {prop_name}` accessor"),
+                        span: kw_span,
+                    });
+                }
+                existing.setter = Some(fn_decl);
+            }
+        } else {
+            let (getter, setter) = if kw == "get" {
+                (Some(fn_decl), None)
+            } else {
+                (None, Some(fn_decl))
+            };
+            properties.push(PropertyDecl {
+                name: prop_name,
+                ty: prop_ty,
+                getter,
+                setter,
+                span: kw_span,
+            });
+        }
+        Ok(())
     }
 
     fn parse_enum_decl(&mut self) -> Result<EnumDecl, ParseError> {
@@ -341,6 +461,26 @@ impl<'a> Parser<'a> {
     fn parse_method(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
         let span = self.peek().span;
         let name = self.expect_ident("method name")?;
+        self.parse_method_after_name_with_attrs(name, span, attrs)
+    }
+
+    /// Like `parse_method`, but called when the caller already consumed
+    /// the method name (e.g. property accessors that consumed `get`/`set`
+    /// + ident first). Used for `get/set` accessor parsing.
+    fn parse_method_after_name(
+        &mut self,
+        name: String,
+        span: ilang_ast::Span,
+    ) -> Result<FnDecl, ParseError> {
+        self.parse_method_after_name_with_attrs(name, span, Vec::new())
+    }
+
+    fn parse_method_after_name_with_attrs(
+        &mut self,
+        name: String,
+        span: ilang_ast::Span,
+        attrs: Vec<Attribute>,
+    ) -> Result<FnDecl, ParseError> {
         // Methods don't take their own type params — they inherit
         // the class's. Always empty here.
         let type_params: Vec<String> = Vec::new();

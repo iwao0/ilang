@@ -144,6 +144,16 @@ struct ClassSig {
     /// at each MethodCall (and `new C(args)` for `init`) site picks
     /// the best match the same way top-level fn overloads do.
     methods: HashMap<String, Vec<Signature>>,
+    /// `get` / `set` accessors. `obj.x` reads dispatch through the
+    /// getter, `obj.x = v` writes through the setter (when present).
+    properties: HashMap<String, PropertySig>,
+}
+
+#[derive(Debug, Clone)]
+struct PropertySig {
+    ty: Type,
+    has_get: bool,
+    has_set: bool,
 }
 
 /// Type-checker view of an enum. Variants preserve declaration order so
@@ -352,6 +362,7 @@ impl TypeChecker {
                 type_params: Vec::new(),
                 fields: HashMap::new(),
                 methods,
+                properties: HashMap::new(),
             },
         );
         self.vars
@@ -415,6 +426,7 @@ impl TypeChecker {
                 type_params: vec!["K".into(), "V".into()],
                 fields: HashMap::new(),
                 methods: map_methods,
+                properties: HashMap::new(),
             },
         );
 
@@ -601,6 +613,15 @@ impl TypeChecker {
                 return Err(TypeError::BadDeinitSignature { span: m.span });
             }
             self.check_fn(m, Some(&c.name))?;
+        }
+        for prop in &c.properties {
+            self.validate_type(&prop.ty, prop.span, &c.type_params)?;
+            if let Some(g) = &prop.getter {
+                self.check_fn(g, Some(&c.name))?;
+            }
+            if let Some(s) = &prop.setter {
+                self.check_fn(s, Some(&c.name))?;
+            }
         }
         Ok(())
     }
@@ -997,6 +1018,26 @@ impl TypeChecker {
                         span,
                     }
                 })?;
+                // Property `get` takes precedence over field lookup —
+                // the parser disallows declaring a property and a
+                // same-named field on one class, but checking properties
+                // first keeps the resolution explicit.
+                if let Some(p) = cls.properties.get(name) {
+                    if !p.has_get {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "property {:?}.{} has no getter (write-only)",
+                                class_name, name
+                            ),
+                            span,
+                        });
+                    }
+                    return Ok(subst_type(
+                        &p.ty,
+                        &cls.type_params,
+                        type_args_of(&ot),
+                    ));
+                }
                 let raw = cls.fields.get(name).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
@@ -1874,6 +1915,31 @@ impl TypeChecker {
                         span: obj.span,
                     }
                 })?;
+                // Property `set` precedes field lookup. Read-only
+                // properties (no setter) reject the assignment.
+                if let Some(p) = cls.properties.get(field) {
+                    if !p.has_set {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "property {:?}.{} has no setter (read-only)",
+                                class_name, field
+                            ),
+                            span,
+                        });
+                    }
+                    let prop_ty =
+                        subst_type(&p.ty, &cls.type_params, type_args_of(&ot));
+                    let v_ty =
+                        self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                    if !literal_assignable(value, &v_ty, &prop_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: prop_ty,
+                            got: v_ty,
+                            span: value.span,
+                        });
+                    }
+                    return Ok(Type::Unit);
+                }
                 let raw_field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
                         class: class_name.to_string(),
@@ -2690,10 +2756,67 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
         }
         entry.push(sig);
     }
+    let mut properties: HashMap<String, PropertySig> = HashMap::new();
+    for prop in &c.properties {
+        // Reject name collisions with fields and methods.
+        if fields.contains_key(&prop.name) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "property {:?} in class {:?} collides with a field of the same name",
+                    prop.name, c.name
+                ),
+                span: prop.span,
+            });
+        }
+        if methods.contains_key(&prop.name) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "property {:?} in class {:?} collides with a method of the same name",
+                    prop.name, c.name
+                ),
+                span: prop.span,
+            });
+        }
+        let prop_ty = rewrite_type_params(&prop.ty, &c.type_params);
+        // Validate getter / setter signatures match the property type.
+        if let Some(g) = &prop.getter {
+            let ret = g
+                .ret
+                .as_ref()
+                .map(|t| rewrite_type_params(t, &c.type_params))
+                .unwrap_or(Type::Unit);
+            if ret != prop_ty {
+                return Err(TypeError::Mismatch {
+                    expected: prop_ty.clone(),
+                    got: ret,
+                    span: g.span,
+                });
+            }
+        }
+        if let Some(s) = &prop.setter {
+            let param = rewrite_type_params(&s.params[0].ty, &c.type_params);
+            if param != prop_ty {
+                return Err(TypeError::Mismatch {
+                    expected: prop_ty.clone(),
+                    got: param,
+                    span: s.span,
+                });
+            }
+        }
+        properties.insert(
+            prop.name.clone(),
+            PropertySig {
+                ty: prop_ty,
+                has_get: prop.getter.is_some(),
+                has_set: prop.setter.is_some(),
+            },
+        );
+    }
     Ok(ClassSig {
         type_params: c.type_params.clone(),
         fields,
         methods,
+        properties,
     })
 }
 

@@ -731,6 +731,32 @@ impl JitCompiler {
                 MethodInfo { id, params, ret },
             );
         }
+        // Property accessors are declared alongside methods, prefixed
+        // with `__prop_get_` / `__prop_set_` so they don't collide with
+        // user method names. lower_field / lower_assign_field look them
+        // up by these prefixed keys.
+        for prop in &c.properties {
+            if let Some(g) = &prop.getter {
+                let key = format!("__prop_get_{}", prop.name);
+                let symbol = format!("__method_{}_{}", c.name, key);
+                let (id, params, ret) =
+                    self.declare_fn_signature(&symbol, g, Some(JitTy::Object(class_id)))?;
+                self.class_methods[class_id as usize].insert(
+                    key,
+                    MethodInfo { id, params, ret },
+                );
+            }
+            if let Some(s) = &prop.setter {
+                let key = format!("__prop_set_{}", prop.name);
+                let symbol = format!("__method_{}_{}", c.name, key);
+                let (id, params, ret) =
+                    self.declare_fn_signature(&symbol, s, Some(JitTy::Object(class_id)))?;
+                self.class_methods[class_id as usize].insert(
+                    key,
+                    MethodInfo { id, params, ret },
+                );
+            }
+        }
         Ok(())
     }
 
@@ -796,6 +822,18 @@ impl JitCompiler {
         for m in &c.methods {
             let info = self.class_methods[class_id as usize][&m.name].clone();
             self.define_function_body(info.id, m, &info.params, info.ret, Some(class_id))?;
+        }
+        for prop in &c.properties {
+            if let Some(g) = &prop.getter {
+                let key = format!("__prop_get_{}", prop.name);
+                let info = self.class_methods[class_id as usize][&key].clone();
+                self.define_function_body(info.id, g, &info.params, info.ret, Some(class_id))?;
+            }
+            if let Some(s) = &prop.setter {
+                let key = format!("__prop_set_{}", prop.name);
+                let info = self.class_methods[class_id as usize][&key].clone();
+                self.define_function_body(info.id, s, &info.params, info.ret, Some(class_id))?;
+            }
         }
         Ok(())
     }

@@ -258,6 +258,26 @@ pub(crate) fn lower_expr(
                     });
                 }
             };
+            // Property setter dispatch — symmetric with the getter
+            // path in lower Field. Coerces the rhs to the setter's
+            // param type, retains as if passing into a normal method.
+            let prop_key = format!("__prop_set_{field}");
+            if let Some(info) =
+                lc.class_methods[class_id as usize].get(&prop_key).cloned()
+            {
+                emit_retain_object(b, lc, obj_v);
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "field value is unit".into(),
+                        span: e.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), info.params[0], e.span)?;
+                emit_bind_retain(b, lc, &value.kind, vt, info.params[0], coerced);
+                let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+                b.ins().call(func_ref, &[obj_v, coerced]);
+                return Ok(None);
+            }
             let layout = &lc.class_layouts[class_id as usize];
             let (offset, fty) = *layout.fields.get(field).ok_or_else(|| {
                 CodegenError::Unsupported {
@@ -330,6 +350,21 @@ pub(crate) fn lower_expr(
                     });
                 }
             };
+            // Property getter dispatch: declare_methods registered any
+            // accessor as `__prop_get_<name>`. Falls through to direct
+            // field load when the class has no such property.
+            let prop_key = format!("__prop_get_{name}");
+            if let Some(info) =
+                lc.class_methods[class_id as usize].get(&prop_key).cloned()
+            {
+                emit_retain_object(b, lc, obj_v);
+                let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+                let call = b.ins().call(func_ref, &[obj_v]);
+                if matches!(info.ret, JitTy::Unit) {
+                    return Ok(None);
+                }
+                return Ok(Some((b.inst_results(call)[0], info.ret)));
+            }
             let layout = &lc.class_layouts[class_id as usize];
             let (offset, fty) = *layout.fields.get(name).ok_or_else(|| {
                 CodegenError::Unsupported {

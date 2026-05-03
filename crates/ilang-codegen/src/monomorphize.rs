@@ -121,6 +121,33 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     span: m.span,
                 })
                 .collect(),
+            properties: c
+                .properties
+                .iter()
+                .map(|p| ilang_ast::PropertyDecl {
+                    name: p.name.clone(),
+                    ty: p.ty.clone(),
+                    getter: p.getter.as_ref().map(|g| FnDecl {
+                        attrs: g.attrs.clone(),
+                        name: g.name.clone(),
+                        type_params: g.type_params.clone(),
+                        params: g.params.clone(),
+                        ret: g.ret.clone(),
+                        body: hoist_in_block(&g.body, counter, hoisted),
+                        span: g.span,
+                    }),
+                    setter: p.setter.as_ref().map(|s| FnDecl {
+                        attrs: s.attrs.clone(),
+                        name: s.name.clone(),
+                        type_params: s.type_params.clone(),
+                        params: s.params.clone(),
+                        ret: s.ret.clone(),
+                        body: hoist_in_block(&s.body, counter, hoisted),
+                        span: s.span,
+                    }),
+                    span: p.span,
+                })
+                .collect(),
             span: c.span,
         }),
         Item::Enum(e) => Item::Enum(e.clone()),
@@ -714,10 +741,22 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         .iter()
         .map(|m| specialize_fn(m, &params, args))
         .collect();
+    let properties = c
+        .properties
+        .iter()
+        .map(|p| ilang_ast::PropertyDecl {
+            name: p.name.clone(),
+            ty: subst_type(&p.ty, &params, args),
+            getter: p.getter.as_ref().map(|g| specialize_fn(g, &params, args)),
+            setter: p.setter.as_ref().map(|s| specialize_fn(s, &params, args)),
+            span: p.span,
+        })
+        .collect();
     ClassDecl {
         name: mangled.to_string(),
         type_params: Vec::new(),
         fields,
+        properties,
         methods,
         span: c.span,
     }
@@ -998,6 +1037,17 @@ fn rewrite_item(item: &Item) -> Item {
                 })
                 .collect(),
             methods: c.methods.iter().map(rewrite_fn).collect(),
+            properties: c
+                .properties
+                .iter()
+                .map(|p| ilang_ast::PropertyDecl {
+                    name: p.name.clone(),
+                    ty: rewrite_type(&p.ty),
+                    getter: p.getter.as_ref().map(rewrite_fn),
+                    setter: p.setter.as_ref().map(rewrite_fn),
+                    span: p.span,
+                })
+                .collect(),
             span: c.span,
         }),
         Item::Fn(f) => Item::Fn(rewrite_fn(f)),
@@ -1597,6 +1647,45 @@ fn rewrite_calls_in_item(
                         generic_fns,
                     ),
                     span: m.span,
+                })
+                .collect(),
+            properties: c
+                .properties
+                .iter()
+                .map(|p| ilang_ast::PropertyDecl {
+                    name: p.name.clone(),
+                    ty: p.ty.clone(),
+                    getter: p.getter.as_ref().map(|g| FnDecl {
+                        attrs: g.attrs.clone(),
+                        name: g.name.clone(),
+                        type_params: g.type_params.clone(),
+                        params: g.params.clone(),
+                        ret: g.ret.clone(),
+                        body: rewrite_calls_in_block(
+                            &g.body,
+                            table,
+                            outer_params,
+                            outer_args,
+                            generic_fns,
+                        ),
+                        span: g.span,
+                    }),
+                    setter: p.setter.as_ref().map(|s| FnDecl {
+                        attrs: s.attrs.clone(),
+                        name: s.name.clone(),
+                        type_params: s.type_params.clone(),
+                        params: s.params.clone(),
+                        ret: s.ret.clone(),
+                        body: rewrite_calls_in_block(
+                            &s.body,
+                            table,
+                            outer_params,
+                            outer_args,
+                            generic_fns,
+                        ),
+                        span: s.span,
+                    }),
+                    span: p.span,
                 })
                 .collect(),
             span: c.span,
@@ -2474,6 +2563,41 @@ fn rewrite_enum_refs_in_item(
                         &m.body, generic_enums, table, outer_params, outer_args,
                     ),
                     span: m.span,
+                })
+                .collect(),
+            properties: c
+                .properties
+                .iter()
+                .map(|p| ilang_ast::PropertyDecl {
+                    name: p.name.clone(),
+                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
+                    getter: p.getter.as_ref().map(|g| FnDecl {
+                        attrs: g.attrs.clone(),
+                        name: g.name.clone(),
+                        type_params: g.type_params.clone(),
+                        params: g.params.iter().map(|q| Param {
+                            name: q.name.clone(),
+                            ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
+                            span: q.span,
+                        }).collect(),
+                        ret: g.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+                        body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
+                        span: g.span,
+                    }),
+                    setter: p.setter.as_ref().map(|s| FnDecl {
+                        attrs: s.attrs.clone(),
+                        name: s.name.clone(),
+                        type_params: s.type_params.clone(),
+                        params: s.params.iter().map(|q| Param {
+                            name: q.name.clone(),
+                            ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
+                            span: q.span,
+                        }).collect(),
+                        ret: s.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+                        body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),
+                        span: s.span,
+                    }),
+                    span: p.span,
                 })
                 .collect(),
             span: c.span,

@@ -183,6 +183,16 @@ impl Interpreter {
                     }
                 }
                 let o = expect_object(v, obj.span)?;
+                // Property getter: dispatch through the synthetic FnDecl.
+                let class_name = o.borrow().class.clone();
+                if let Some(getter) = self
+                    .classes
+                    .get(&class_name)
+                    .and_then(|c| c.properties.iter().find(|p| &p.name == name))
+                    .and_then(|p| p.getter.clone())
+                {
+                    return self.invoke(name, &getter, vec![], Some(o.clone()), span);
+                }
                 let o = o.borrow();
                 o.fields.get(name).cloned().ok_or_else(|| {
                     RuntimeError::UnknownField {
@@ -749,10 +759,25 @@ impl Interpreter {
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
                 let target = expect_object(target, obj.span)?;
+                let class_name = target.borrow().class.clone();
+                // Property setter: dispatch to the synthetic FnDecl
+                // before falling back to direct field write.
+                if let Some(setter) = self
+                    .classes
+                    .get(&class_name)
+                    .and_then(|c| c.properties.iter().find(|p| &p.name == field))
+                    .and_then(|p| p.setter.clone())
+                {
+                    // Cast incoming value to the setter's param type so
+                    // Optional auto-wrap / Weak auto-downgrade rules
+                    // match field-write behavior.
+                    let v = cast_value(v, &setter.params[0].ty);
+                    self.invoke(field, &setter, vec![v], Some(target.clone()), span)?;
+                    return Ok(Value::Unit);
+                }
                 // Apply the field's declared type as an implicit cast,
                 // mirroring `let x: T = ...`. This covers auto-wrap to
                 // Optional and auto-downgrade Object → Weak.
-                let class_name = target.borrow().class.clone();
                 let field_ty = self
                     .classes
                     .get(&class_name)

@@ -319,6 +319,33 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             for f in &mut c.fields {
                 f.ty = prefix_type(&f.ty, prefix);
             }
+            for prop in &mut c.properties {
+                prop.ty = prefix_type(&prop.ty, prefix);
+                if let Some(g) = prop.getter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut g.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    g.body = prefix_block_calls(body, prefix);
+                    g.ret = g.ret.as_ref().map(|t| prefix_type(t, prefix));
+                }
+                if let Some(s) = prop.setter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut s.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    s.body = prefix_block_calls(body, prefix);
+                    s.params = s
+                        .params
+                        .iter()
+                        .map(|p| ilang_ast::Param {
+                            name: p.name.clone(),
+                            ty: prefix_type(&p.ty, prefix),
+                            span: p.span,
+                        })
+                        .collect();
+                }
+            }
             Item::Class(c)
         }
         Item::Enum(mut e) => {
@@ -629,6 +656,22 @@ fn subst_const_item(item: Item, consts: &HashMap<String, Expr>) -> Item {
                     Block { stmts: Vec::new(), tail: None },
                 );
                 m.body = subst_const_block(body, consts);
+            }
+            for prop in &mut c.properties {
+                if let Some(g) = prop.getter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut g.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    g.body = subst_const_block(body, consts);
+                }
+                if let Some(s) = prop.setter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut s.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    s.body = subst_const_block(body, consts);
+                }
             }
             Item::Class(c)
         }

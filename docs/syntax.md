@@ -384,6 +384,31 @@ b.greet(3)                                      // → "hi x3"
 - **ジェネリッククラスのメソッドはオーバーロード不可**: `class Box<T> { f(x: i64): ...  f(x: string): ... }` はエラー (mono とオーバーロード解決パスを混ぜないため)。
 - interpreter / JIT とも対応。型検査後にオーバーロードされたメソッドは `name__<param_types>` にマングルされ、`new C(...)` の AST には選ばれた `init_method` が記録されます。
 
+### `get` / `set` プロパティ
+
+`get name(): T { ... }` と `set name(v: T) { ... }` で計算プロパティを定義できます。呼び出し側はフィールドと区別なく `obj.name` で読み・`obj.name = v` で書きます。バッキング ストアは別フィールドで自前。
+
+```rust
+class Temp {
+    celsius: f64
+    init(c: f64) { this.celsius = c }
+    get fahrenheit(): f64 { this.celsius * 9.0 / 5.0 + 32.0 }
+    set fahrenheit(v: f64) { this.celsius = (v - 32.0) * 5.0 / 9.0 }
+}
+
+let t = new Temp(0.0)
+t.fahrenheit              // 32.0  (getter 呼び出し)
+t.fahrenheit = 100.0      // setter 呼び出し
+t.celsius                 // 37.77...
+```
+
+- getter は引数なし・戻り値型必須、setter は引数 1 個・戻り値なし。型チェッカが強制
+- getter のみ (read-only) / setter のみ (write-only) も可。逆操作はそれぞれ「getter なし」「setter なし」で型エラー
+- getter の戻り値型と setter の引数型はプロパティ型で一致が必要
+- プロパティ名はフィールド名・メソッド名と重複不可
+- `get` / `set` はクラス本体内でのみキーワードとして扱われ、それ以外の場所では普通の識別子として使えます (contextual keyword)
+- interpreter / JIT とも対応
+
 ---
 
 ## 8. 配列

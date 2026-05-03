@@ -186,6 +186,25 @@ fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
                     *idx += 1;
                 }
             }
+            // Property accessor bodies need rewriting too (their bodies
+            // can contain calls to overloaded fns/methods). Properties
+            // themselves aren't overloaded — no name change.
+            for prop in &mut c.properties {
+                if let Some(g) = prop.getter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut g.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    g.body = rewrite_block(body, ctx);
+                }
+                if let Some(s) = prop.setter.as_mut() {
+                    let body = std::mem::replace(
+                        &mut s.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    s.body = rewrite_block(body, ctx);
+                }
+            }
             Item::Class(c)
         }
         Item::Enum(e) => Item::Enum(e),
