@@ -14,6 +14,42 @@ extern "C" fn os_errno() -> i32 {
         .unwrap_or(0)
 }
 
+// Cross-platform errno setter. On Unix we write through the C
+// runtime's per-thread errno location; on Windows we call
+// `SetLastError`. Both compile down to a single store/call.
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    fn __errno_location() -> *mut i32;
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn __error() -> *mut i32;
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" {
+    fn SetLastError(dwErrCode: u32);
+}
+
+extern "C" fn os_set_errno(code: i32) {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        *__errno_location() = code;
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        *__error() = code;
+    }
+    #[cfg(target_os = "windows")]
+    unsafe {
+        SetLastError(code as u32);
+    }
+    // Other platforms: silently no-op. The interpreter side does the
+    // same so behavior stays consistent.
+}
+
 pub(crate) fn register_os_symbols(builder: &mut JITBuilder) {
     builder.symbol("os.errno", os_errno as *const u8);
+    builder.symbol("os.setErrno", os_set_errno as *const u8);
 }

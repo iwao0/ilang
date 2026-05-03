@@ -96,8 +96,50 @@ pub fn invoke_extern(name: &str, args: &[Value]) -> Option<Value> {
                 .unwrap_or(0);
             Some(Value::Int32(n))
         }
+        "os.setErrno" => {
+            if args.len() != 1 { return None; }
+            // Accept any integer width — the type checker enforces
+            // the declared `i32` param, but const-inlined values
+            // can arrive as untyped i64 literals.
+            let code = as_i64(&args[0])? as i32;
+            set_os_errno(code);
+            Some(Value::Unit)
+        }
         _ => None,
     }
+}
+
+/// Cross-platform errno write. Mirrors the JIT-side helper in
+/// `crates/ilang-codegen/src/os_externs.rs` so interpreter and JIT
+/// behave identically for `os.setErrno`.
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+    fn __errno_location() -> *mut i32;
+}
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn __error() -> *mut i32;
+}
+#[cfg(target_os = "windows")]
+unsafe extern "system" {
+    fn SetLastError(dwErrCode: u32);
+}
+
+fn set_os_errno(code: i32) {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        *__errno_location() = code;
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        *__error() = code;
+    }
+    #[cfg(target_os = "windows")]
+    unsafe {
+        SetLastError(code as u32);
+    }
+    // Other platforms: silent no-op (matches JIT side).
+    let _ = code;
 }
 
 fn test_fail(msg: &str) -> ! {
@@ -162,6 +204,6 @@ pub fn known_extern_names() -> &'static [&'static str] {
         "math.log2", "math.floor", "math.ceil", "math.round", "math.abs",
         "test.expect", "test.expectStr", "test.expectBool", "test.expectF64",
         "test.expectTrue", "test.expectFalse", "test.fail",
-        "os.errno",
+        "os.errno", "os.setErrno",
     ]
 }
