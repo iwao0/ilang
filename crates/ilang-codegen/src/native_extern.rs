@@ -31,6 +31,11 @@ pub(crate) struct NativeExternRegistry {
     /// `free_with.<name>` flag, used when the library has its own
     /// allocator (`sqlite3_free`, `xmlFree`, `OPENSSL_free`, etc.).
     pub owned_return_free_with: std::collections::HashMap<String, String>,
+    /// Names of fns declared with the `variadic` flag — `printf`,
+    /// `fprintf`, etc. The declared param list is the fixed prefix;
+    /// the call site can supply any number of extra args, each
+    /// type-checked permissively and marshalled by its actual type.
+    pub variadic: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -42,6 +47,7 @@ pub(crate) fn register_native_externs(
     let mut names: HashSet<String> = HashSet::new();
     let mut owned_return: HashSet<String> = HashSet::new();
     let mut owned_return_free_with: HashMap<String, String> = HashMap::new();
+    let mut variadic: HashSet<String> = HashSet::new();
     // Pre-collect names of opaque-handle classes — `@extern("lib")
     // class Foo {}`. These are valid as native-extern fn parameter
     // and return types (marshalled as raw i64 pointers).
@@ -72,6 +78,7 @@ pub(crate) fn register_native_externs(
         let mut lib_names: Vec<String> = Vec::new();
         let mut flag_owned_return = false;
         let mut flag_optional = false;
+        let mut flag_variadic = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -81,6 +88,9 @@ pub(crate) fn register_native_externs(
                 }
                 AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
                     flag_optional = true;
+                }
+                AttrArg::Path(parts) if parts.as_slice() == ["variadic"] => {
+                    flag_variadic = true;
                 }
                 // `free_with.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
@@ -92,7 +102,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `free_with.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `free_with.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -102,6 +112,9 @@ pub(crate) fn register_native_externs(
         }
         let lib_name = lib_names.first().cloned().expect("filter above guarantees a Str arg");
         let fallback_names: &[String] = &lib_names[1..];
+        if flag_variadic {
+            variadic.insert(f.name.clone());
+        }
         validate_native_signature(f, &opaque_classes)?;
         if flag_owned_return {
             // owned_return only meaningful for string returns. Reject
@@ -257,6 +270,7 @@ pub(crate) fn register_native_externs(
         names,
         owned_return,
         owned_return_free_with,
+        variadic,
     })
 }
 

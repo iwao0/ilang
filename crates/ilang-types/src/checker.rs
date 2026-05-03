@@ -491,9 +491,9 @@ impl TypeChecker {
         methods.insert(
             "log".to_string(),
             vec![Signature {
-                // The `params` slot is unused for variadics; left as a single
-                // `Any` so any introspection still has something to print.
-                params: vec![Type::Any],
+                // No fixed prefix — variadic with arity 0+. Any
+                // arg flows through unchecked.
+                params: vec![],
                 ret: Type::Unit,
                 variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
             }],
@@ -2777,9 +2777,35 @@ impl TypeChecker {
         call_span: Span,
     ) -> Result<(), TypeError> {
         if sig.variadic {
-            // Variadic: any arity, every arg type-checks but acts as `Any`.
-            for arg in args {
-                self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+            // Variadic: the declared params are the **fixed prefix**;
+            // each arg before that index is type-checked against the
+            // declared type (so e.g. `printf`'s `fmt: string` is
+            // enforced). Extra args after the prefix are checked
+            // permissively — they flow through to the C side at
+            // their actual JIT-time types.
+            if args.len() < sig.params.len() {
+                return Err(TypeError::ArityMismatch {
+                    name: name.to_string(),
+                    expected: sig.params.len(),
+                    got: args.len(),
+                    span: call_span,
+                });
+            }
+            for (i, arg) in args.iter().enumerate() {
+                let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+                if i < sig.params.len() {
+                    let p = &sig.params[i];
+                    if !matches!(p, Type::Any)
+                        && !literal_assignable(arg, &at, p)
+                        && !self.assignable_obj(&at, p)
+                    {
+                        return Err(TypeError::Mismatch {
+                            expected: p.clone(),
+                            got: at,
+                            span: arg.span,
+                        });
+                    }
+                }
             }
             return Ok(());
         }
@@ -3159,10 +3185,18 @@ fn signature_of(f: &FnDecl) -> Signature {
         &f.ret.clone().unwrap_or(Type::Unit),
         &f.type_params,
     );
+    // `@extern("...", variadic)` propagates to the signature so the
+    // type checker accepts trailing args of any type at call sites.
+    let is_variadic = f.attrs.iter().any(|a| {
+        a.name == "extern"
+            && a.args
+                .iter()
+                .any(|x| matches!(x, ilang_ast::AttrArg::Path(p) if p.as_slice() == ["variadic"]))
+    });
     Signature {
         params,
         ret,
-        variadic: false,
+        variadic: is_variadic,
         decl_span: f.span,
         type_params: f.type_params.clone(),
         defaults: f.params.iter().map(|p| p.default.clone()).collect(),

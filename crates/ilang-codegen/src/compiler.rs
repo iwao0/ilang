@@ -404,6 +404,10 @@ pub(crate) struct JitCompiler {
     /// extern fn's name to the user-named free fn (also declared as
     /// `@extern`), used at `owned_return` cleanup sites.
     pub(crate) native_extern_free_with: std::collections::HashMap<String, String>,
+    /// Names declared with the `variadic` flag. The Cranelift call
+    /// site builds a fresh per-call signature for these so trailing
+    /// args flow through with their actual types.
+    pub(crate) native_extern_variadic: std::collections::HashSet<String>,
     /// Every `@extern fn` (host or native lib). The fn-pointer arg
     /// marshalling at Call sites uses this to know whether to pass
     /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
@@ -838,6 +842,7 @@ impl JitCompiler {
             native_extern_fns: native_reg.names,
             native_extern_owned_return: native_reg.owned_return,
             native_extern_free_with: native_reg.owned_return_free_with,
+            native_extern_variadic: native_reg.variadic,
             extern_fn_names: prog
                 .items
                 .iter()
@@ -1323,6 +1328,7 @@ impl JitCompiler {
             extern_fn_names: &self.extern_fn_names,
             native_extern_owned_return: &self.native_extern_owned_return,
             native_extern_free_with: &self.native_extern_free_with,
+            native_extern_variadic: &self.native_extern_variadic,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
@@ -1523,6 +1529,7 @@ impl JitCompiler {
             extern_fn_names: &self.extern_fn_names,
             native_extern_owned_return: &self.native_extern_owned_return,
             native_extern_free_with: &self.native_extern_free_with,
+            native_extern_variadic: &self.native_extern_variadic,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,

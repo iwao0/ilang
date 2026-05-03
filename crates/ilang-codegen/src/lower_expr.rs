@@ -1022,6 +1022,8 @@ pub(crate) fn lower_expr(
             if let Some(entry) = lc.funcs.get(callee).cloned() {
                 let (id, param_tys, ret_ty) = entry;
                 let is_native = lc.native_extern_fns.contains(callee);
+                let is_variadic = lc.native_extern_variadic.contains(callee);
+                let n_fixed = param_tys.len();
                 let mut arg_vals = Vec::with_capacity(args.len());
                 // For native externs, every `string` arg is converted
                 // to a freshly-malloc'd C string via the runtime
@@ -1030,6 +1032,49 @@ pub(crate) fn lower_expr(
                 // sees the right Values.
                 let mut c_str_temps: Vec<cranelift::prelude::Value> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
+                    // Variadic tail: the declared param list is the
+                    // fixed prefix (`fmt: string` for printf); extras
+                    // pass through with their actual JIT types and
+                    // get the same per-type marshalling (string →
+                    // C-string, array → data ptr, managed opaque →
+                    // unwrap).
+                    if is_variadic && i >= n_fixed {
+                        let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                            CodegenError::Unsupported {
+                                what: "argument is unit".into(),
+                                span: a.span,
+                            }
+                        })?;
+                        let raw = match at {
+                            JitTy::Str => {
+                                let f = lc
+                                    .module
+                                    .declare_func_in_func(lc.strfns.to_c_str, b.func);
+                                let c = b.ins().call(f, &[av]);
+                                let c_ptr = b.inst_results(c)[0];
+                                c_str_temps.push(c_ptr);
+                                c_ptr
+                            }
+                            JitTy::Array(_) => b.ins().load(
+                                I64,
+                                MemFlags::trusted(),
+                                av,
+                                ARRAY_DATA_OFFSET,
+                            ),
+                            JitTy::Object(class_id)
+                                if lc.class_layouts[class_id as usize]
+                                    .extern_lib
+                                    .is_some()
+                                    && lc.class_methods[class_id as usize]
+                                        .contains_key("deinit") =>
+                            {
+                                b.ins().load(I64, MemFlags::trusted(), av, 0)
+                            }
+                            _ => av,
+                        };
+                        arg_vals.push(raw);
+                        continue;
+                    }
                     // C callback: a `fn(...)` parameter on any
                     // `@extern` fn (host or native lib) accepts a
                     // *raw function pointer*, not a closure box.
@@ -1119,7 +1164,11 @@ pub(crate) fn lower_expr(
                     }
                 }
                 let func_ref = lc.module.declare_func_in_func(id, b.func);
-                let call = b.ins().call(func_ref, &arg_vals);
+                let call = if is_variadic {
+                    build_variadic_call(b, lc, func_ref, &arg_vals, n_fixed, ret_ty)
+                } else {
+                    b.ins().call(func_ref, &arg_vals)
+                };
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
                 } else {
@@ -2348,6 +2397,80 @@ fn emit_print_value(
 
 /// Print a static string literal by interning it and routing through
 /// `print_str`. Cheap — each unique fragment is interned once.
+/// Emit a call to a `@extern("...", variadic)` fn. The declared
+/// fixed prefix flows through registers per the host C ABI; the
+/// trailing args are passed by their actual JIT-time types.
+///
+/// On Apple AArch64 the platform variadic ABI requires *all*
+/// trailing args to live on the stack regardless of type, but
+/// Cranelift's calling convention puts them in X0–X7 / V0–V7
+/// like fixed args. To spill them to the stack we pad the
+/// signature with dummy I64/F64 args that fill the remaining
+/// register slots, so Cranelift's reg allocation runs out and
+/// stores the real variadic args on the stack — exactly where
+/// the C function's `va_list` reads from. Linux x86_64 (System V)
+/// passes variadic args in registers anyway, so the padding is
+/// skipped there.
+fn build_variadic_call(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    func_ref: cranelift::prelude::codegen::ir::FuncRef,
+    arg_vals: &[cranelift::prelude::Value],
+    n_fixed: usize,
+    ret_ty: JitTy,
+) -> cranelift::prelude::codegen::ir::Inst {
+    use cranelift::prelude::AbiParam;
+    let needs_apple_pad =
+        cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
+    let mut cl_sig = lc.module.make_signature();
+    let fixed = &arg_vals[..n_fixed];
+    let varargs = &arg_vals[n_fixed..];
+    for v in fixed {
+        cl_sig
+            .params
+            .push(AbiParam::new(b.func.dfg.value_type(*v)));
+    }
+    let mut padded: Vec<cranelift::prelude::Value> = fixed.to_vec();
+    if needs_apple_pad && !varargs.is_empty() {
+        let n_int_fixed = fixed
+            .iter()
+            .filter(|v| b.func.dfg.value_type(**v).is_int())
+            .count();
+        let n_fp_fixed = fixed
+            .iter()
+            .filter(|v| b.func.dfg.value_type(**v).is_float())
+            .count();
+        let n_int_pad = 8usize.saturating_sub(n_int_fixed);
+        let n_fp_pad = 8usize.saturating_sub(n_fp_fixed);
+        for _ in 0..n_int_pad {
+            cl_sig.params.push(AbiParam::new(I64));
+        }
+        for _ in 0..n_fp_pad {
+            cl_sig.params.push(AbiParam::new(F64));
+        }
+        let zero_i = b.ins().iconst(I64, 0);
+        let zero_f = b.ins().f64const(0.0);
+        for _ in 0..n_int_pad {
+            padded.push(zero_i);
+        }
+        for _ in 0..n_fp_pad {
+            padded.push(zero_f);
+        }
+    }
+    for v in varargs {
+        cl_sig
+            .params
+            .push(AbiParam::new(b.func.dfg.value_type(*v)));
+        padded.push(*v);
+    }
+    if let Some(rt) = ret_ty.cl() {
+        cl_sig.returns.push(AbiParam::new(rt));
+    }
+    let sig_ref = b.import_signature(cl_sig);
+    let func_addr = b.ins().func_addr(I64, func_ref);
+    b.ins().call_indirect(sig_ref, func_addr, &padded)
+}
+
 /// True when `ty` is `Object(class_id)` for a managed opaque-handle
 /// class — `@extern("lib") class Foo { deinit { ... } }`. These
 /// values are wrapped in an ARC box at the native-extern boundary.
