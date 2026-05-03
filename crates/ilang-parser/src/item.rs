@@ -131,6 +131,49 @@ impl<'a> Parser<'a> {
                 let c = self.parse_const_decl()?;
                 Ok(Item::Const(c))
             }
+            TokenKind::Ident(ref name) if name == "static" && !attrs.is_empty() => {
+                // `@extern[(\"lib\")] static <name>: <ty>` — read/
+                // write reference to a C global resolved via dlsym.
+                let span = self.peek().span;
+                self.bump(); // consume `static`
+                let s_name = self.expect_ident("static name")?;
+                self.expect(&TokenKind::Colon, "':'")?;
+                let ty = self.parse_type()?;
+                self.consume_stmt_terminator()?;
+                let mut lib: Option<String> = None;
+                let mut saw_extern = false;
+                for a in &attrs {
+                    match (a.name.as_str(), a.args.as_slice()) {
+                        ("extern", []) => {
+                            saw_extern = true;
+                        }
+                        ("extern", [AttrArg::Str(s)]) => {
+                            saw_extern = true;
+                            lib = Some(s.clone());
+                        }
+                        _ => {
+                            return Err(ParseError::Unexpected {
+                                found: TokenKind::At,
+                                expected: "@extern or @extern(\"libname\") on a top-level static (no other attributes are recognised)".into(),
+                                span,
+                            });
+                        }
+                    }
+                }
+                if !saw_extern {
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Ident("static".into()),
+                        expected: "top-level `static` requires `@extern` (only extern globals are supported)".into(),
+                        span,
+                    });
+                }
+                Ok(Item::ExternStatic(ilang_ast::ExternStaticDecl {
+                    name: s_name,
+                    ty,
+                    lib,
+                    span,
+                }))
+            }
             _ => {
                 let t = self.peek();
                 Err(ParseError::Unexpected {

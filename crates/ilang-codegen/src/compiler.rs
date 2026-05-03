@@ -206,7 +206,7 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.declare_fn(f)?,
             Item::Class(c) => compiler.declare_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) => {}
+            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
         }
     }
     // 2b. Declare per-class drop wrappers so `new` lowering can embed
@@ -231,7 +231,7 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.define_fn(f)?,
             Item::Class(c) => compiler.define_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) => {}
+            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
         }
     }
     let main_ret = compiler.define_main(prog)?;
@@ -421,6 +421,13 @@ pub(crate) struct JitCompiler {
     /// Subset of `native_extern_fns` whose `@repr(C)` struct args are
     /// passed by value (split into 1–2 i64 chunks at call lowering).
     pub(crate) native_extern_by_value: std::collections::HashSet<String>,
+    /// Resolved address per `@extern static` name, embedded as
+    /// `iconst` at every read/write site so the load/store goes
+    /// straight to the C global's storage.
+    pub(crate) extern_static_addrs: std::collections::HashMap<String, i64>,
+    /// Declared type per `@extern static` name. The lower path uses
+    /// it to pick the right Cranelift load/store width.
+    pub(crate) extern_static_types: std::collections::HashMap<String, ilang_ast::Type>,
     /// Every `@extern fn` (host or native lib). The fn-pointer arg
     /// marshalling at Call sites uses this to know whether to pass
     /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
@@ -983,6 +990,15 @@ impl JitCompiler {
             native_extern_free_with: native_reg.owned_return_free_with,
             native_extern_variadic: native_reg.variadic,
             native_extern_by_value: native_reg.by_value,
+            extern_static_addrs: native_reg.static_addrs,
+            extern_static_types: prog
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::ExternStatic(s) => Some((s.name.clone(), s.ty.clone())),
+                    _ => None,
+                })
+                .collect(),
             extern_fn_names: prog
                 .items
                 .iter()
@@ -1667,6 +1683,8 @@ impl JitCompiler {
             native_extern_free_with: &self.native_extern_free_with,
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
+            extern_static_addrs: &self.extern_static_addrs,
+            extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
@@ -1867,6 +1885,8 @@ impl JitCompiler {
             extern_fn_names: &self.extern_fn_names,
             native_extern_owned_return: &self.native_extern_owned_return,
             native_extern_free_with: &self.native_extern_free_with,
+            extern_static_addrs: &self.extern_static_addrs,
+            extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,

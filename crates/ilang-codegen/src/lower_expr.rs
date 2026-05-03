@@ -82,6 +82,19 @@ pub(crate) fn lower_expr(
             if let Some(&(var, vt)) = lc.env.bindings.get(name) {
                 return Ok(Some((b.use_var(var), vt)));
             }
+            // `@extern static`: load the value through the resolved
+            // C address. The width follows the declared type.
+            if let Some(&addr) = lc.extern_static_addrs.get(name) {
+                let ast_ty = lc
+                    .extern_static_types
+                    .get(name)
+                    .expect("static type recorded alongside addr");
+                let jty = jit_ty_from_primitive(ast_ty);
+                let cl_ty = jty.cl().expect("primitive static");
+                let addr_v = b.ins().iconst(I64, addr);
+                let v = b.ins().load(cl_ty, MemFlags::trusted(), addr_v, 0);
+                return Ok(Some((v, jty)));
+            }
             // Unit-typed bindings (`let x = loop {...}`) carry no
             // Cranelift value — return Ok(None), letting void-tolerant
             // contexts (statement positions, further `let` RHS) handle
@@ -338,6 +351,26 @@ pub(crate) fn lower_expr(
                 if let Some(old) = old_val {
                     emit_release_heap(b, lc, old, var_ty);
                 }
+                return Ok(None);
+            }
+            // `@extern static` write: store the (coerced) value at
+            // the resolved address.
+            if let Some(&addr) = lc.extern_static_addrs.get(target) {
+                let ast_ty = lc
+                    .extern_static_types
+                    .get(target)
+                    .expect("static type recorded alongside addr")
+                    .clone();
+                let jty = jit_ty_from_primitive(&ast_ty);
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "assigning unit".into(),
+                        span: e.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), jty, e.span)?;
+                let addr_v = b.ins().iconst(I64, addr);
+                b.ins().store(MemFlags::trusted(), coerced, addr_v, 0);
                 return Ok(None);
             }
             if let Some((this_var, class_id)) = lc.this {
@@ -4125,6 +4158,27 @@ fn emit_inline_bounds_check(
 /// `let f = name` reference can produce a closure value. The
 /// trampoline takes `(env_ptr, ...args)` (ignoring env_ptr) and
 /// tail-calls the real fn. Cached per fn name.
+/// Map an AST primitive type to its `JitTy`. Used by `@extern static`
+/// where the AST type is known but `JitTy::from_ast`'s class-id /
+/// generic plumbing is overkill.
+fn jit_ty_from_primitive(t: &ilang_ast::Type) -> JitTy {
+    use ilang_ast::Type as T;
+    match t {
+        T::I8 => JitTy::I8,
+        T::I16 => JitTy::I16,
+        T::I32 => JitTy::I32,
+        T::I64 => JitTy::I64,
+        T::U8 => JitTy::U8,
+        T::U16 => JitTy::U16,
+        T::U32 => JitTy::U32,
+        T::U64 => JitTy::U64,
+        T::F32 => JitTy::F32,
+        T::F64 => JitTy::F64,
+        T::Bool => JitTy::Bool,
+        _ => unreachable!("type checker restricts @extern static to primitives"),
+    }
+}
+
 fn ensure_trampoline(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,

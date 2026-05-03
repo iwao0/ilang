@@ -227,6 +227,7 @@ fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
         Item::Enum(e) => Item::Enum(e),
         Item::Use(u) => Item::Use(u),
         Item::Const(c) => Item::Const(c),
+        Item::ExternStatic(s) => Item::ExternStatic(s),
     }
 }
 

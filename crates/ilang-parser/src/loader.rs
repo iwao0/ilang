@@ -288,6 +288,7 @@ fn item_name_of(item: &Item) -> Option<String> {
         Item::Class(c) => Some(c.name.clone()),
         Item::Enum(e) => Some(e.name.clone()),
         Item::Const(c) => Some(c.name.clone()),
+        Item::ExternStatic(s) => Some(s.name.clone()),
         Item::Use(_) => None,
     }
 }
@@ -391,6 +392,14 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             c.name = format!("{prefix}.{}", c.name);
             // The value is a literal — no inner refs to rewrite.
             Item::Const(c)
+        }
+        Item::ExternStatic(mut s) => {
+            // Module-prefix the ilang-side name (so `use mymod` lets
+            // callers write `mymod.errno`). The C symbol resolved
+            // via dlsym uses the original unprefixed name, so we
+            // stash that for the dlsym pass to find.
+            s.name = format!("{prefix}.{}", s.name);
+            Item::ExternStatic(s)
         }
     }
 }

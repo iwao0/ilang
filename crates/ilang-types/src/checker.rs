@@ -696,6 +696,33 @@ impl TypeChecker {
                 // pass — they shouldn't appear here in the normal
                 // pipeline. Skip if any survives.
                 Item::Const(_) => {}
+                Item::ExternStatic(s) => {
+                    // Restrict to numeric / bool. The dlsym address
+                    // gives back a raw pointer; the JIT loads/stores
+                    // a fixed-width value through it. Strings, arrays,
+                    // structs would need marshalling we don't ship
+                    // for globals yet.
+                    let ok = matches!(
+                        &s.ty,
+                        Type::I8 | Type::I16 | Type::I32 | Type::I64
+                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                        | Type::F32 | Type::F64
+                        | Type::Bool
+                    );
+                    if !ok {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "@extern static {:?}: type {} not supported \
+                                 (allowed: numeric primitives or bool)",
+                                s.name, s.ty
+                            ),
+                            span: s.span,
+                        });
+                    }
+                    // Register as a typed global so `errno = 5` and
+                    // `let x = errno` resolve.
+                    self.vars.insert(s.name.clone(), s.ty.clone());
+                }
             }
         }
         for item in &prog.items {
@@ -703,7 +730,7 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
-                Item::Use(_) | Item::Const(_) => {}
+                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
             }
         }
 

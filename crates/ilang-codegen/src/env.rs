@@ -164,6 +164,8 @@ pub(crate) struct LowerCtx<'a> {
     pub native_extern_free_with: &'a std::collections::HashMap<String, String>,
     pub native_extern_variadic: &'a std::collections::HashSet<String>,
     pub native_extern_by_value: &'a std::collections::HashSet<String>,
+    pub extern_static_addrs: &'a std::collections::HashMap<String, i64>,
+    pub extern_static_types: &'a std::collections::HashMap<String, ilang_ast::Type>,
     /// `(class, field) -> slot index` into `static_field_base_addr`.
     /// Read by Field / AssignField lowering on `ClassName.field`.
     pub static_field_slots:

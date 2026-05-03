@@ -57,6 +57,11 @@ impl Interpreter {
                 Item::Fn(f) => {
                     self.fns.insert(f.name.clone(), f.clone());
                 }
+                Item::ExternStatic(_) => {
+                    // JIT-only: the interpreter has no dlsym path to
+                    // a real C global. References resolve at the call
+                    // site (where the interpreter would error).
+                }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), c.clone());
                     // Initialise each static field. The loader has

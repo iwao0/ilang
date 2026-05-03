@@ -212,3 +212,25 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("pair64_sum", test_pair64_sum as *const u8);
     builder.symbol("make_big32", test_make_big32 as *const u8);
 }
+
+// ─── @extern static globals (test-only) ─────────────────────────────
+// Real C globals (`errno`, `stdin`, ...) are resolved by dlsym on the
+// platform libc. For self-contained tests we expose plain Rust statics
+// at fixed addresses; test fixtures declare `@extern static <name>: T`
+// with the same name and the JIT lowers reads/writes to load/store
+// against the registered address.
+static mut TEST_STATIC_I32: i32 = 0;
+static mut TEST_STATIC_F64: f64 = 0.0;
+
+pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<String, i64>) {
+    unsafe {
+        out.insert(
+            "test_static_i32".into(),
+            std::ptr::addr_of_mut!(TEST_STATIC_I32) as i64,
+        );
+        out.insert(
+            "test_static_f64".into(),
+            std::ptr::addr_of_mut!(TEST_STATIC_F64) as i64,
+        );
+    }
+}

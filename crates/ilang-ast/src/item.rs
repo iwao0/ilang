@@ -189,6 +189,22 @@ pub enum Item {
     /// substituted with the literal directly, so type checker /
     /// interpreter / JIT never see Item::Const themselves.
     Const(ConstDecl),
+    /// `@extern("libname") static name: T` — read/write reference to
+    /// a C global variable resolved via dlsym at JIT init. The host
+    /// stores the symbol address; reads/writes lower to a load/store
+    /// against that address. Type is restricted to numeric / bool.
+    ExternStatic(ExternStaticDecl),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternStaticDecl {
+    pub name: String,
+    pub ty: crate::types::Type,
+    /// `Some("libfoo")` for `@extern("libfoo") static …`. `None` for
+    /// host-side `@extern static …` (the host pre-registers the
+    /// symbol with `JITBuilder::symbol`).
+    pub lib: Option<String>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
