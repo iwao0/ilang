@@ -1275,8 +1275,9 @@ pub(crate) fn lower_expr(
                             JitTy::Object(id) => id,
                             _ => unreachable!(),
                         };
-                        let size = lc.class_layouts[class_id as usize].size;
-                        match crate::compiler::repr_c_by_value_kind(size) {
+                        let layout = &lc.class_layouts[class_id as usize];
+                        let size = layout.size;
+                        match crate::compiler::repr_c_by_value_kind(layout) {
                             crate::compiler::ByValueKind::Chunks(n) => {
                                 if n >= 1 {
                                     let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
@@ -1302,6 +1303,26 @@ pub(crate) fn lower_expr(
                                     };
                                     arg_vals.push(hi);
                                 }
+                            }
+                            crate::compiler::ByValueKind::Hfa { elem, count } => {
+                                // Each HFA element loads as F32 / F64
+                                // and goes to its own FP register
+                                // (Cranelift's calling-conv handles
+                                // V0..V3 / XMM assignment when the
+                                // AbiParam type is F32 / F64).
+                                let cl_ty = elem.cl().expect("HFA elem cl");
+                                let elem_size = elem.size_bytes();
+                                let mut entries: Vec<(u32, JitTy)> = layout
+                                    .fields
+                                    .values()
+                                    .map(|&(off, ty)| (off, ty))
+                                    .collect();
+                                entries.sort_by_key(|(off, _)| *off);
+                                for (off, _) in entries.iter().take(count as usize) {
+                                    let v = b.ins().load(cl_ty, MemFlags::trusted(), coerced, *off as i32);
+                                    arg_vals.push(v);
+                                }
+                                let _ = elem_size;
                             }
                             crate::compiler::ByValueKind::Indirect => {
                                 // x86_64: the signature param is
@@ -1421,11 +1442,30 @@ pub(crate) fn lower_expr(
                         b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
                     let ptr = b.inst_results(alloc_call)[0];
                     let results: Vec<_> = b.inst_results(call).to_vec();
-                    if !results.is_empty() {
-                        b.ins().store(MemFlags::trusted(), results[0], ptr, 0);
-                    }
-                    if results.len() >= 2 {
-                        b.ins().store(MemFlags::trusted(), results[1], ptr, 8);
+                    let layout = &lc.class_layouts[class_id as usize];
+                    match crate::compiler::repr_c_by_value_kind(layout) {
+                        crate::compiler::ByValueKind::Hfa { count, .. } => {
+                            // Store each FP element back at its own
+                            // field offset.
+                            let mut entries: Vec<(u32, JitTy)> = layout
+                                .fields
+                                .values()
+                                .map(|&(off, ty)| (off, ty))
+                                .collect();
+                            entries.sort_by_key(|(off, _)| *off);
+                            for (i, (off, _)) in entries.iter().take(count as usize).enumerate() {
+                                b.ins().store(MemFlags::trusted(), results[i], ptr, *off as i32);
+                            }
+                        }
+                        _ => {
+                            // Chunks(1|2): store at offset 0 (and 8).
+                            if !results.is_empty() {
+                                b.ins().store(MemFlags::trusted(), results[0], ptr, 0);
+                            }
+                            if results.len() >= 2 {
+                                b.ins().store(MemFlags::trusted(), results[1], ptr, 8);
+                            }
+                        }
                     }
                     Some(ptr)
                 } else {

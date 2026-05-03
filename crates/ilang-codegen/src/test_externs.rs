@@ -146,6 +146,27 @@ extern "C" fn test_big32_sum(big: Big32) -> i64 {
     big.a + big.b + big.c + big.d
 }
 
+// HFA: homogeneous floating-point aggregates flow through FP regs.
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Vec3f { x: f32, y: f32, z: f32 }
+
+extern "C" fn test_vec3f_dot(a: Vec3f, b: Vec3f) -> f32 {
+    a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+extern "C" fn test_vec3f_make(x: f32, y: f32, z: f32) -> Vec3f {
+    Vec3f { x, y, z }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Pair64 { a: f64, b: f64 }
+
+extern "C" fn test_pair64_sum(p: Pair64) -> f64 {
+    p.a + p.b
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -179,4 +200,7 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("make_point2", test_make_point2 as *const u8);
     builder.symbol("make_range64", test_make_range64 as *const u8);
     builder.symbol("big32_sum", test_big32_sum as *const u8);
+    builder.symbol("vec3f_dot", test_vec3f_dot as *const u8);
+    builder.symbol("vec3f_make", test_vec3f_make as *const u8);
+    builder.symbol("pair64_sum", test_pair64_sum as *const u8);
 }

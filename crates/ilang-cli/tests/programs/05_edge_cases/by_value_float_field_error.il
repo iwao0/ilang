@@ -5,7 +5,7 @@
 //
 // jit run only — interp doesn't see this validation step.
 // interp: skip
-// expect-error: only integer and bool fields are supported
+// expect-error: supported shapes are integer/bool fields or homogeneous float aggregates
 
 @repr(C) class mixed {
     x: i32

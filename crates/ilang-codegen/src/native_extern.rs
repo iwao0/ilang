@@ -365,6 +365,16 @@ fn validate_by_value_fn(
             _ => None,
         });
         let Some(class_decl) = class_decl else { return Ok(()); };
+        // HFA: 1..=4 fields all of the same float type — passes via
+        // FP registers per AArch64 AAPCS64 / SysV.
+        let all_f32 = !class_decl.fields.is_empty()
+            && class_decl.fields.iter().all(|fl| matches!(fl.ty, Type::F32));
+        let all_f64 = !class_decl.fields.is_empty()
+            && class_decl.fields.iter().all(|fl| matches!(fl.ty, Type::F64));
+        let is_hfa = (all_f32 || all_f64) && class_decl.fields.len() <= 4;
+        if is_hfa {
+            return Ok(());
+        }
         for fld in &class_decl.fields {
             let ok = matches!(
                 fld.ty,
@@ -376,10 +386,10 @@ fn validate_by_value_fn(
                 return Err(CodegenError::Unsupported {
                     what: format!(
                         "@extern fn {}: by_value {} (struct {}) \
-                         contains field {:?} of type {} — only integer \
-                         and bool fields are supported (float/double, \
-                         nested struct, array, string would need \
-                         per-target HFA / aggregate ABI work)",
+                         contains field {:?} of type {} — supported \
+                         shapes are integer/bool fields or homogeneous \
+                         float aggregates (1..=4 same-type f32 / f64 \
+                         fields, HFA)",
                         f.name, role, name, fld.name, fld.ty
                     ),
                     span: fld.span,

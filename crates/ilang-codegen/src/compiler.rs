@@ -490,15 +490,40 @@ pub(crate) struct JitCompiler {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ByValueKind {
     Chunks(u32),
+    /// Homogeneous Floating-point Aggregate: 1..=4 fields all of the
+    /// same float type (`f32` or `f64`). Passed/returned in FP
+    /// registers per AArch64 AAPCS64 (V0..V3) and x86_64 SysV (XMM
+    /// regs for doubles, with f32 packed pairs).
+    Hfa { elem: JitTy, count: u32 },
     Indirect,
 }
 
-pub(crate) fn repr_c_by_value_kind(size: u32) -> ByValueKind {
-    if size == 0 {
+pub(crate) fn repr_c_by_value_kind(layout: &crate::ty::ClassLayout) -> ByValueKind {
+    // HFA: all fields are the same float type, 1..=4 of them, and
+    // the size matches `count * elem_size` (no padding). Sort by
+    // offset so we read the layout consistently.
+    let mut entries: Vec<(u32, JitTy)> = layout
+        .fields
+        .values()
+        .map(|&(off, ty)| (off, ty))
+        .collect();
+    entries.sort_by_key(|(off, _)| *off);
+    let all_f32 = !entries.is_empty()
+        && entries.iter().all(|(_, t)| matches!(t, JitTy::F32));
+    let all_f64 = !entries.is_empty()
+        && entries.iter().all(|(_, t)| matches!(t, JitTy::F64));
+    if (all_f32 || all_f64) && entries.len() >= 1 && entries.len() <= 4 {
+        let elem = if all_f32 { JitTy::F32 } else { JitTy::F64 };
+        let count = entries.len() as u32;
+        if layout.size == count * elem.size_bytes() {
+            return ByValueKind::Hfa { elem, count };
+        }
+    }
+    if layout.size == 0 {
         ByValueKind::Chunks(0)
-    } else if size <= 8 {
+    } else if layout.size <= 8 {
         ByValueKind::Chunks(1)
-    } else if size <= 16 {
+    } else if layout.size <= 16 {
         ByValueKind::Chunks(2)
     } else {
         ByValueKind::Indirect
@@ -1341,10 +1366,21 @@ impl JitCompiler {
             if is_by_value {
                 if let JitTy::Object(class_id) = *p {
                     let layout = &self.class_layouts[class_id as usize];
-                    match repr_c_by_value_kind(layout.size) {
+                    match repr_c_by_value_kind(layout) {
                         ByValueKind::Chunks(n) => {
                             for _ in 0..n {
                                 sig.params.push(AbiParam::new(I64));
+                            }
+                        }
+                        ByValueKind::Hfa { elem, count } => {
+                            // HFA: each element flows in its own FP
+                            // register (V0..V3 / XMM0..XMM3).
+                            // Cranelift's calling-conv assignment does
+                            // the slot mapping when AbiParam types
+                            // are F32/F64.
+                            let cl_ty = elem.cl().expect("HFA elem has cl type");
+                            for _ in 0..count {
+                                sig.params.push(AbiParam::new(cl_ty));
                             }
                         }
                         ByValueKind::Indirect => {
@@ -1393,10 +1429,16 @@ impl JitCompiler {
         if is_by_value {
             if let JitTy::Object(class_id) = ret {
                 let layout = &self.class_layouts[class_id as usize];
-                match repr_c_by_value_kind(layout.size) {
+                match repr_c_by_value_kind(layout) {
                     ByValueKind::Chunks(n) => {
                         for _ in 0..n {
                             sig.returns.push(AbiParam::new(I64));
+                        }
+                    }
+                    ByValueKind::Hfa { elem, count } => {
+                        let cl_ty = elem.cl().expect("HFA elem has cl type");
+                        for _ in 0..count {
+                            sig.returns.push(AbiParam::new(cl_ty));
                         }
                     }
                     ByValueKind::Indirect => {
