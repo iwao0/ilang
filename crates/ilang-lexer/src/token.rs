@@ -75,6 +75,8 @@ pub enum TokenKind {
     GtGtEq,
     Bang,
     Dot,
+    DotDot,
+    DotDotEq,
     At,
     Question,
     Eof,

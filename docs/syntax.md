@@ -143,9 +143,13 @@ loop {
     i += 1
 }
 
-// for-in (配列を回す)
+// for-in (配列 or 範囲を回す)
 let xs: i64[] = [10, 20, 30]
 for x in xs { console.log(x) }     // break / continue 可
+
+// 範囲 (Rust 風) — 排他 `..` と包含 `..=`
+for i in 1..5 { console.log(i) }   // 1, 2, 3, 4
+for i in 1..=5 { console.log(i) }  // 1, 2, 3, 4, 5
 
 // if let — Optional のパターンマッチ (`match` 以外で使える唯一の pattern 形)
 let x: i64? = some(42)
@@ -157,6 +161,8 @@ if let some(v) = x {
 ```
 
 `break` / `continue` はループ内のみ (型チェッカーが範囲外を拒否)。
+
+範囲式 `a..b` / `a..=b` は **`for-in` のイテレータ位置でのみ** 使えます。`let r = 1..10` のように値として保持しようとするのは型エラー。両端は同じ整数型である必要があり、ループ変数はその型にバインドされます。
 
 `loop` は `break v` で値を持って抜けられ、その値が `loop` 式自身の型/値になります (Rust と同じ)。`while` / `for` には条件で完走するパスがあるため `break v` は使えません (型チェッカーが拒否)。
 

@@ -121,6 +121,11 @@ pub(crate) fn lower_for_in(
     use crate::runtime::{ARRAY_DATA_OFFSET, ARRAY_LEN_OFFSET};
     use crate::ty::JitTy;
 
+    // Range iter: emit a counter loop, no array allocation needed.
+    if let ilang_ast::ExprKind::Range { start, end, inclusive } = &iter.kind {
+        return lower_for_in_range(b, lc, var, start, end, *inclusive, body);
+    }
+
     let (iter_v, iter_t) = lower_expr(b, lc, iter)?.ok_or_else(|| {
         CodegenError::Unsupported {
             what: "for-in iter is unit".into(),
@@ -221,6 +226,94 @@ pub(crate) fn lower_for_in(
     if release_iter {
         let p = b.use_var(arr_var);
         emit_release_heap(b, lc, p, iter_t);
+    }
+    Ok(())
+}
+
+/// `for x in a..b { body }` / `for x in a..=b { body }`. Emits a
+/// counter loop. The loop variable is bound to the same int type as
+/// the endpoints (the type checker has already enforced both
+/// endpoints share that type).
+fn lower_for_in_range(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    var: &str,
+    start: &Expr,
+    end: &Expr,
+    inclusive: bool,
+    body: &ilang_ast::Block,
+) -> Result<(), CodegenError> {
+    let (s_v, s_t) = lower_expr(b, lc, start)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "range start is unit".into(),
+        span: start.span,
+    })?;
+    let (e_v, _e_t) = lower_expr(b, lc, end)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "range end is unit".into(),
+        span: end.span,
+    })?;
+    let cl = s_t.cl().ok_or_else(|| CodegenError::Unsupported {
+        what: "range over unit type".into(),
+        span: start.span,
+    })?;
+    // Counter (the loop variable). Bound for the body via env.
+    let i_var = Variable::new(lc.env.next_var_id());
+    b.declare_var(i_var, cl);
+    b.def_var(i_var, s_v);
+    // Stash the end value so each iteration reads it back from a
+    // Variable rather than depending on the original Value living
+    // through the loop.
+    let end_var = Variable::new(lc.env.next_var_id());
+    b.declare_var(end_var, cl);
+    b.def_var(end_var, e_v);
+    let prev_binding = lc.env.bindings.insert(var.to_string(), (i_var, s_t));
+
+    let header = b.create_block();
+    let body_block = b.create_block();
+    let cont = b.create_block();
+    let after = b.create_block();
+
+    b.ins().jump(header, &[]);
+    b.switch_to_block(header);
+    let i = b.use_var(i_var);
+    let e = b.use_var(end_var);
+    // Use signed comparison; ilang's int types are signed by default.
+    // Unsigned ranges use the same compare for now (the type checker
+    // prevents mixing signed/unsigned, so the bit pattern is what the
+    // user asked for either way).
+    let cond_op = if inclusive {
+        IntCC::SignedGreaterThan
+    } else {
+        IntCC::SignedGreaterThanOrEqual
+    };
+    let done = b.ins().icmp(cond_op, i, e);
+    b.ins().brif(done, after, &[], body_block, &[]);
+
+    b.switch_to_block(body_block);
+    b.seal_block(body_block);
+    lc.loops.push((cont, after, None));
+    let _ = lower_block_value(b, lc, body)?;
+    lc.loops.pop();
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    b.seal_block(cont);
+    let i_now = b.use_var(i_var);
+    let one = b.ins().iconst(cl, 1);
+    let next_i = b.ins().iadd(i_now, one);
+    b.def_var(i_var, next_i);
+    b.ins().jump(header, &[]);
+    b.seal_block(header);
+
+    b.switch_to_block(after);
+    b.seal_block(after);
+
+    match prev_binding {
+        Some(prev) => {
+            lc.env.bindings.insert(var.to_string(), prev);
+        }
+        None => {
+            lc.env.bindings.remove(var);
+        }
     }
     Ok(())
 }

@@ -87,11 +87,21 @@ pub enum ExprKind {
         body: Block,
     },
     /// `for x in iter { body }` — iterates over an array, binding each
-    /// element to `var` for the body. Always evaluates to `Unit`.
+    /// element to `var` for the body. Always evaluates to `Unit`. The
+    /// iter slot also accepts `Range` (`a..b` / `a..=b`) — see
+    /// `ExprKind::Range`.
     ForIn {
         var: String,
         iter: Box<Expr>,
         body: Block,
+    },
+    /// Integer range `start..end` (exclusive) or `start..=end`
+    /// (inclusive). Currently only valid as a `for-in` iterator —
+    /// using a range expression elsewhere is a type error.
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
     },
     /// Infinite loop. Exits only via `break` (or returning from the
     /// enclosing function once `return` exists). The expression's type

@@ -586,6 +586,50 @@ impl Interpreter {
                 }
             },
             ExprKind::ForIn { var, iter, body } => {
+                // Range iter is special-cased: don't eval it as a value
+                // (Range has no Value representation by design).
+                if let ExprKind::Range { start, end, inclusive } = &iter.kind {
+                    let s = match self.eval_expr(start)? {
+                        Value::Int(n) => n,
+                        other => {
+                            return Err(RuntimeError::TypeError {
+                                msg: format!("range start must be integer, got {other:?}"),
+                                span: start.span,
+                            });
+                        }
+                    };
+                    let e = match self.eval_expr(end)? {
+                        Value::Int(n) => n,
+                        other => {
+                            return Err(RuntimeError::TypeError {
+                                msg: format!("range end must be integer, got {other:?}"),
+                                span: end.span,
+                            });
+                        }
+                    };
+                    let prev = self.vars.remove(var);
+                    let mut result: Result<Value, RuntimeError> = Ok(Value::Unit);
+                    let mut i = s;
+                    let limit_open = if *inclusive { e + 1 } else { e };
+                    while i < limit_open {
+                        self.vars.insert(var.clone(), Value::Int(i));
+                        match self.eval_block(body) {
+                            Ok(_) => {}
+                            Err(RuntimeError::Break(_)) => break,
+                            Err(RuntimeError::Continue) => {}
+                            Err(err) => {
+                                result = Err(err);
+                                break;
+                            }
+                        }
+                        i += 1;
+                    }
+                    self.vars.remove(var);
+                    if let Some(p) = prev {
+                        self.vars.insert(var.clone(), p);
+                    }
+                    return result;
+                }
                 let it = self.eval_expr(iter)?;
                 let arr = match it {
                     Value::Array(a) => a,
@@ -618,6 +662,10 @@ impl Interpreter {
                 }
                 result
             }
+            ExprKind::Range { .. } => Err(RuntimeError::TypeError {
+                msg: "range expression is only valid as a `for-in` iterator".into(),
+                span,
+            }),
             ExprKind::Break(opt) => {
                 let v = match opt {
                     Some(e) => self.eval_expr(e)?,

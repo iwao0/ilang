@@ -101,6 +101,32 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            // Range: `a..b` (exclusive) / `a..=b` (inclusive). Lowest
+            // precedence among non-assignment operators so `1..n+1`
+            // parses as `1..(n+1)` and `for i in 1..len(xs)` works.
+            // Standalone use (anything outside a `for-in` iter slot)
+            // is rejected by the type checker.
+            if matches!(self.peek().kind, TokenKind::DotDot | TokenKind::DotDotEq) {
+                let l_bp = 3u8;
+                let r_bp = 4u8;
+                if l_bp < min_bp {
+                    break;
+                }
+                let inclusive = matches!(self.peek().kind, TokenKind::DotDotEq);
+                let r_span = self.peek().span;
+                self.bump();
+                let rhs = self.parse_expr(r_bp)?;
+                lhs = Expr::new(
+                    ExprKind::Range {
+                        start: Box::new(lhs),
+                        end: Box::new(rhs),
+                        inclusive,
+                    },
+                    r_span,
+                );
+                continue;
+            }
+
             // Short-circuit logical operators.
             if let Some((logop, l_bp, r_bp)) = match self.peek().kind {
                 TokenKind::PipePipe => Some((LogicalOp::Or, 3u8, 4u8)),

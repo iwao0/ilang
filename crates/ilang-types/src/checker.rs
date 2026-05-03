@@ -1559,18 +1559,47 @@ impl TypeChecker {
                 Ok(break_ty)
             }
             ExprKind::ForIn { var, iter, body } => {
-                let it = self.check_expr(iter, env, ret_ty, in_class, loop_depth)?;
-                let elem = match &it {
-                    Type::Array { elem, .. } => (**elem).clone(),
-                    other => {
+                // Range iter: check both endpoints are integer types of
+                // a single common int type, bind `var` to that type.
+                let elem = if let ExprKind::Range { start, end, .. } = &iter.kind {
+                    let st = self.check_expr(start, env, ret_ty, in_class, loop_depth)?;
+                    let et = self.check_expr(end, env, ret_ty, in_class, loop_depth)?;
+                    if !st.is_int() {
                         return Err(TypeError::Mismatch {
-                            expected: Type::Array {
-                                elem: Box::new(Type::Any),
-                                fixed: None,
-                            },
-                            got: other.clone(),
-                            span: iter.span,
+                            expected: Type::I64,
+                            got: st,
+                            span: start.span,
                         });
+                    }
+                    if !et.is_int() {
+                        return Err(TypeError::Mismatch {
+                            expected: st.clone(),
+                            got: et,
+                            span: end.span,
+                        });
+                    }
+                    if st != et {
+                        return Err(TypeError::Mismatch {
+                            expected: st,
+                            got: et,
+                            span: end.span,
+                        });
+                    }
+                    st
+                } else {
+                    let it = self.check_expr(iter, env, ret_ty, in_class, loop_depth)?;
+                    match &it {
+                        Type::Array { elem, .. } => (**elem).clone(),
+                        other => {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Array {
+                                    elem: Box::new(Type::Any),
+                                    fixed: None,
+                                },
+                                got: other.clone(),
+                                span: iter.span,
+                            });
+                        }
                     }
                 };
                 let mut inner = env.clone();
@@ -1634,6 +1663,10 @@ impl TypeChecker {
                 }
                 Ok(Type::Unit)
             }
+            ExprKind::Range { .. } => Err(TypeError::Unsupported {
+                what: "range expression `a..b` is only valid as a `for-in` iterator".into(),
+                span,
+            }),
             ExprKind::Return(value) => {
                 let expected = match ret_ty {
                     Some(t) => t.clone(),
@@ -2503,6 +2536,10 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         ExprKind::ForIn { iter, body, .. } => {
             f(iter);
             walk_block_children(body, f);
+        }
+        ExprKind::Range { start, end, .. } => {
+            f(start);
+            f(end);
         }
         ExprKind::Return(Some(x)) => f(x),
         ExprKind::Assign { value, .. }

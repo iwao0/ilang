@@ -344,7 +344,17 @@ impl<'a> Lexer<'a> {
             }
             '.' => {
                 self.bump();
-                TokenKind::Dot
+                if self.peek() == Some('.') {
+                    self.bump();
+                    if self.peek() == Some('=') {
+                        self.bump();
+                        TokenKind::DotDotEq
+                    } else {
+                        TokenKind::DotDot
+                    }
+                } else {
+                    TokenKind::Dot
+                }
             }
             '@' => {
                 self.bump();
@@ -567,7 +577,13 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // `1..5` and `1..=5` are range tokens — don't grab the `.` as
+        // part of a float. Look one char past `.` and bail if it's
+        // also `.` (the start of the `..` operator).
         if let Some('.') = self.peek() {
+            if matches!(self.peek_second(), Some('.')) {
+                // It's a range — leave both dots for the next token.
+            } else {
             is_float = true;
             buf.push('.');
             self.bump();
@@ -580,6 +596,7 @@ impl<'a> Lexer<'a> {
                 } else {
                     break;
                 }
+            }
             }
         }
 

@@ -363,6 +363,11 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             iter: Box::new(rewrite_expr(*iter, ctx)),
             body: rewrite_block(body, ctx),
         },
+        ExprKind::Range { start, end, inclusive } => ExprKind::Range {
+            start: Box::new(rewrite_expr(*start, ctx)),
+            end: Box::new(rewrite_expr(*end, ctx)),
+            inclusive,
+        },
         ExprKind::Return(opt) => ExprKind::Return(
             opt.map(|e| Box::new(rewrite_expr(*e, ctx))),
         ),

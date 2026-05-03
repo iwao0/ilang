@@ -135,6 +135,10 @@ pub(crate) fn lower_expr(
             lower_for_in(b, lc, var, iter, body)?;
             Ok(None)
         }
+        ExprKind::Range { .. } => Err(CodegenError::Unsupported {
+            what: "range expression `a..b` is only valid as a `for-in` iterator".into(),
+            span: e.span,
+        }),
         ExprKind::Break(value) => {
             // Snapshot the innermost loop frame's after-block + slot
             // before lowering `value`, so the lowering of `value` can
