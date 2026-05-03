@@ -1014,6 +1014,33 @@ pub(crate) fn lower_expr(
                 // sees the right Values.
                 let mut c_str_temps: Vec<cranelift::prelude::Value> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
+                    // C callback: a `fn(...)` parameter on any
+                    // `@extern` fn (host or native lib) accepts a
+                    // *raw function pointer*, not a closure box.
+                    // Support direct top-level fn references
+                    // (capture-free) and reject closure values —
+                    // the C side has no env-ptr slot to thread
+                    // through. Regular ilang fns continue to box.
+                    if lc.extern_fn_names.contains(callee)
+                        && matches!(param_tys[i], JitTy::Fn(_))
+                    {
+                        let name = match &a.kind {
+                            ExprKind::Var(n) if lc.funcs.contains_key(n) => n.clone(),
+                            _ => {
+                                return Err(CodegenError::Unsupported {
+                                    what: "C callback argument must be a direct \
+                                           top-level fn name (closures and let-bound \
+                                           fn values can't be passed)".into(),
+                                    span: a.span,
+                                });
+                            }
+                        };
+                        let (id, _, _) = lc.funcs.get(&name).cloned().unwrap();
+                        let func_ref = lc.module.declare_func_in_func(id, b.func);
+                        let addr = b.ins().func_addr(I64, func_ref);
+                        arg_vals.push(addr);
+                        continue;
+                    }
                     let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
                         CodegenError::Unsupported {
                             what: "argument is unit".into(),

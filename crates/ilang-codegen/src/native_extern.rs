@@ -163,6 +163,20 @@ fn validate_native_signature(
     Ok(())
 }
 
+/// Subset of types valid inside a callback `fn(...)` param/ret. Tighter
+/// than `is_native_abi_type` because the C ABI for the inner call has
+/// no place for ARC / closures — only fixed-width primitives and raw
+/// C pointers ride the registers cleanly.
+fn is_callback_arg_type(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::I8 | Type::I16 | Type::I32 | Type::I64
+        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+        | Type::F32 | Type::F64
+        | Type::Bool
+    )
+}
+
 fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
     match t {
         // Numeric primitives — every width that maps to a concrete
@@ -174,6 +188,16 @@ fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
         | Type::U8 | Type::U16 | Type::U32 | Type::U64
         | Type::F32 | Type::F64
         | Type::Bool | Type::Str => true,
+        // C function pointer (`int (*)(int, int)` etc.) — a fn
+        // type whose params and return are themselves native ABI
+        // (primitive widths only; no nested fn / opaque / string
+        // for now). Capture-free top-level fns can be passed via
+        // `func_addr` at the call site; closure values aren't
+        // supported yet (the C side has no env-ptr slot).
+        Type::Fn { params, ret } => {
+            params.iter().all(|p| is_callback_arg_type(p))
+                && (matches!(ret.as_ref(), Type::Unit) || is_callback_arg_type(ret))
+        }
         // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
         // at runtime as a raw i64 C pointer.
         Type::Object(name) => opaque_classes.contains(name),

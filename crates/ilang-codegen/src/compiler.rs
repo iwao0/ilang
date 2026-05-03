@@ -400,6 +400,12 @@ pub(crate) struct JitCompiler {
     /// freed with `libc::free` after we copy the bytes into a fresh
     /// StringRc. Marked by `@extern("lib", owned_return)`.
     pub(crate) native_extern_owned_return: std::collections::HashSet<String>,
+    /// Every `@extern fn` (host or native lib). The fn-pointer arg
+    /// marshalling at Call sites uses this to know whether to pass
+    /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
+    /// box (regular ilang fn → trampoline). Includes the names in
+    /// `native_extern_fns` plus all host-side `@extern fn` names.
+    pub(crate) extern_fn_names: std::collections::HashSet<String>,
     /// Storage backing every `static` field: each slot is one i64
     /// (for f64 / bool we bit-reinterpret). Allocated as a `Box<[i64]>`
     /// for pointer stability — the JITed code embeds slot addresses as
@@ -827,6 +833,16 @@ impl JitCompiler {
             native_libs: native_reg.libs,
             native_extern_fns: native_reg.names,
             native_extern_owned_return: native_reg.owned_return,
+            extern_fn_names: prog
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    Item::Fn(f) if f.attrs.iter().any(|a| a.name == "extern") => {
+                        Some(f.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
             static_field_storage,
             static_field_slots,
             static_field_types,
@@ -1299,6 +1315,7 @@ impl JitCompiler {
             enum_drops: &mut self.enum_drops,
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
+            extern_fn_names: &self.extern_fn_names,
             native_extern_owned_return: &self.native_extern_owned_return,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
@@ -1497,6 +1514,7 @@ impl JitCompiler {
             enum_drops: &mut self.enum_drops,
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
+            extern_fn_names: &self.extern_fn_names,
             native_extern_owned_return: &self.native_extern_owned_return,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,

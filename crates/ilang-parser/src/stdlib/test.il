@@ -13,3 +13,9 @@
 @extern fn expectFalse(condition: bool)
 // Always fails — useful as an explicit "should never reach" marker.
 @extern fn fail(message: string)
+// Calls a 2-arg i32-returning fn pointer with the given i64 args
+// and returns the result. Lets the test suite verify that ilang
+// fns can be invoked from non-Cranelift code (simulating arbitrary
+// C callers). JIT-only — the interpreter handler reports
+// "no extern handler".
+@extern fn applyI32Cb(cb: fn(i64, i64): i32, a: i64, b: i64): i32

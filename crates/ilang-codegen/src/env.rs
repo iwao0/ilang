@@ -156,6 +156,7 @@ pub(crate) struct LowerCtx<'a> {
     /// Names of `@extern("libname")` fns. Read by Call lowering to
     /// decide whether to insert string ↔ C-string conversions.
     pub native_extern_fns: &'a std::collections::HashSet<String>,
+    pub extern_fn_names: &'a std::collections::HashSet<String>,
     /// Subset of `native_extern_fns` whose `string` return is
     /// callee-owned (`strdup`-style). The Call lowering emits
     /// `libc::free` on the C pointer after copying it.

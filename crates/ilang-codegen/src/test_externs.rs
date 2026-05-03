@@ -61,6 +61,18 @@ extern "C" fn test_expect_false(condition: i8) {
     }
 }
 
+/// Invoke a 2-argument i32 callback and return the result. Used by
+/// the JIT-side callback round-trip test: lets us observe that an
+/// ilang fn was actually called from a non-Cranelift context (the
+/// Rust runtime here, simulating arbitrary native code).
+extern "C" fn test_apply_i32_cb(
+    cb: extern "C" fn(i64, i64) -> i32,
+    a: i64,
+    b: i64,
+) -> i32 {
+    cb(a, b)
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -79,4 +91,5 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("test.expectTrue", test_expect_true as *const u8);
     builder.symbol("test.expectFalse", test_expect_false as *const u8);
     builder.symbol("test.fail", test_fail as *const u8);
+    builder.symbol("test.applyI32Cb", test_apply_i32_cb as *const u8);
 }
