@@ -926,4 +926,4 @@ JIT で `Unsupported` になる主なケース:
 
 ---
 
-詳細な内部設計やフェーズごとの経緯は [`HANDOFF.md`](../HANDOFF.md) と `docs/phaseN-plan.md` 参照。
+詳細な内部設計やフェーズごとの経緯は [`HANDOFF.md`](HANDOFF.md) と `docs/phaseN-plan.md` 参照。

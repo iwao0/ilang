@@ -17,7 +17,7 @@
 
 `let` / `fn` / 型チェック / capability アノテーション (パースのみ) に加えて、`bool`・比較演算子・短絡論理演算子・`if`/`else`/`while` / `loop` / `break` / `continue`・代入・複合代入・全 10 数値型 + `as` キャスト・文字列・配列 (動的/固定長)・JS 風クラス (`class` / `new` / `this` / `init` / `deinit`)・`console.log`・Optional (`T?` / `some` / `none` / `if let`)・弱参照 (`T.weak` / `.get()`) を実装済み。Cranelift JIT (`ilang run --jit`) も Optional / Weak まで含めて全機能対応。所有権/`mut`/借用は採用せず、変数はすべて再代入可能。エラーは `filename [row:col]: message` の統一形式。
 
-詳細な経緯: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md), [docs/phase3-plan.md](docs/phase3-plan.md), [docs/phase4-plan.md](docs/phase4-plan.md), [HANDOFF.md](HANDOFF.md)
+詳細な経緯: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md), [docs/phase3-plan.md](docs/phase3-plan.md), [docs/phase4-plan.md](docs/phase4-plan.md), [docs/HANDOFF.md](docs/HANDOFF.md)
 
 ```sh
 # REPL (let / fn が永続化)
