@@ -185,10 +185,20 @@ fn jit_run_inner(
     // 1b. Compute field offsets now that every class id is in
     //     `class_ids`. Enums were finalized at declaration time
     //     (variants don't refer to other types in Phase 1).
-    for item in &prog.items {
-        if let Item::Class(c) = item {
-            compiler.finalize_class_layout(c)?;
-        }
+    //
+    //     `@repr(C)` classes can embed each other inline (nested
+    //     struct field), so the inner must be laid out before the
+    //     outer. We sort the classes into dependency order with a
+    //     small DFS topological sort — declaration order then no
+    //     longer matters. A cycle is reported as an error.
+    let class_decls: Vec<&ClassDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| if let Item::Class(c) = i { Some(c) } else { None })
+        .collect();
+    let order = topo_sort_classes(&class_decls)?;
+    for idx in order {
+        compiler.finalize_class_layout(class_decls[idx])?;
     }
     // 2. Declare every fn / method signature so cross-references resolve.
     for item in &prog.items {
@@ -466,6 +476,83 @@ pub(crate) struct JitCompiler {
     /// types.
     pub(crate) closure_ast_captures:
         std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
+}
+
+/// Topological sort of class declarations by inline-embedding edges.
+///
+/// A `@repr(C)` class that embeds another `@repr(C)` class must be
+/// laid out *after* the embedded one (we need `inner.size` to assign
+/// the field offset and grow the outer's size). Inheritance also
+/// creates a parent-before-child dependency. The sort lets users
+/// declare classes in any order; a cycle (which would mean an
+/// infinite-size struct) is reported as an error.
+fn topo_sort_classes(classes: &[&ClassDecl]) -> Result<Vec<usize>, CodegenError> {
+    use std::collections::HashSet;
+    let mut name_to_idx = HashMap::with_capacity(classes.len());
+    for (i, c) in classes.iter().enumerate() {
+        name_to_idx.insert(c.name.clone(), i);
+    }
+    let deps_of = |c: &ClassDecl| -> Vec<usize> {
+        let mut out = Vec::new();
+        if let Some(p) = &c.parent {
+            if let Some(&i) = name_to_idx.get(p) {
+                out.push(i);
+            }
+        }
+        for f in &c.fields {
+            // Only nested-by-value fields create a layout dependency.
+            // `@repr(C)` -> `@repr(C)` Object, or any fixed-length
+            // array of a class type, embeds bytes inline.
+            let referenced_class = match &f.ty {
+                ilang_ast::Type::Object(name) => Some(name),
+                _ => None,
+            };
+            if let Some(name) = referenced_class {
+                if let Some(&i) = name_to_idx.get(name) {
+                    if c.is_repr_c && classes[i].is_repr_c {
+                        out.push(i);
+                    }
+                }
+            }
+        }
+        out
+    };
+    let mut order = Vec::with_capacity(classes.len());
+    let mut visited = vec![false; classes.len()];
+    let mut on_stack = HashSet::new();
+    fn dfs(
+        i: usize,
+        classes: &[&ClassDecl],
+        deps_of: &dyn Fn(&ClassDecl) -> Vec<usize>,
+        visited: &mut [bool],
+        on_stack: &mut std::collections::HashSet<usize>,
+        order: &mut Vec<usize>,
+    ) -> Result<(), CodegenError> {
+        if visited[i] {
+            return Ok(());
+        }
+        if !on_stack.insert(i) {
+            return Err(CodegenError::Unsupported {
+                what: format!(
+                    "@repr(C) class {:?} participates in a cyclic embedding \
+                     (would require an infinite-size struct)",
+                    classes[i].name
+                ),
+                span: classes[i].span,
+            });
+        }
+        for d in deps_of(classes[i]) {
+            dfs(d, classes, deps_of, visited, on_stack, order)?;
+        }
+        on_stack.remove(&i);
+        visited[i] = true;
+        order.push(i);
+        Ok(())
+    }
+    for i in 0..classes.len() {
+        dfs(i, classes, &deps_of, &mut visited, &mut on_stack, &mut order)?;
+    }
+    Ok(order)
 }
 
 impl JitCompiler {
@@ -1014,18 +1101,11 @@ impl JitCompiler {
             let (size, align, recorded_jty) = if let JitTy::Object(inner_id) = jty {
                 let inner = &self.class_layouts[inner_id as usize];
                 if c.is_repr_c && inner.is_repr_c {
-                    if inner.size == 0 {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@repr(C) class {:?} embeds {:?} which has not \
-                                 been laid out yet — declare nested structs in \
-                                 dependency order (innermost first)",
-                                c.name, inner.name
-                            ),
-                            span: field.span,
-                        });
-                    }
-                    (inner.size, inner.align, jty)
+                    // The topo sort guarantees the inner is laid out
+                    // first. A zero-size inner here means the struct
+                    // genuinely has no fields, which is allowed but
+                    // unusual — fall through with size 0.
+                    (inner.size.max(0), inner.align.max(1), jty)
                 } else {
                     (jty.size_bytes(), jty.size_bytes().max(1), jty)
                 }
