@@ -1058,6 +1058,18 @@ pub(crate) fn lower_expr(
                         let c_ptr = b.inst_results(c)[0];
                         c_str_temps.push(c_ptr);
                         arg_vals.push(c_ptr);
+                    } else if is_native && matches!(param_tys[i], JitTy::Array(_)) {
+                        // Numeric array → `void *` buffer pointer.
+                        // Hand the C side the raw data slot from
+                        // the array's heap header; ARC keeps the
+                        // ilang allocation alive across the call.
+                        let data = b.ins().load(
+                            I64,
+                            MemFlags::trusted(),
+                            coerced,
+                            ARRAY_DATA_OFFSET,
+                        );
+                        arg_vals.push(data);
                     } else if is_native && is_managed_opaque(lc, param_tys[i]) {
                         // Managed opaque handle (`@extern class Foo {
                         // deinit { ... } }`): the user value is the

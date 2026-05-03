@@ -198,6 +198,17 @@ fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
             params.iter().all(|p| is_callback_arg_type(p))
                 && (matches!(ret.as_ref(), Type::Unit) || is_callback_arg_type(ret))
         }
+        // Numeric arrays passed as a `void *` buffer pointer. The
+        // C side reads or writes bytes within `len * sizeof(elem)`;
+        // ilang keeps the ARC header and the buffer survives the
+        // call. Both fixed and dynamic arrays share the same heap
+        // layout, so both are allowed.
+        Type::Array { elem, .. } => matches!(
+            elem.as_ref(),
+            Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+            | Type::F32 | Type::F64,
+        ),
         // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
         // at runtime as a raw i64 C pointer.
         Type::Object(name) => opaque_classes.contains(name),
