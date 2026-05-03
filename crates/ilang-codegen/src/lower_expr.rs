@@ -247,6 +247,38 @@ pub(crate) fn lower_expr(
             })
         }
         ExprKind::AssignField { obj, field, value } => {
+            // Static field write: `ClassName.field = v`.
+            if let ExprKind::Var(rname) = &obj.kind {
+                if !lc.env.bindings.contains_key(rname) {
+                    let key = (rname.clone(), field.clone());
+                    if let Some(&slot) = lc.static_field_slots.get(&key) {
+                        let ty = lc.static_field_types.get(&key).cloned().unwrap();
+                        let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                            CodegenError::Unsupported {
+                                what: "static field value is unit".into(),
+                                span: value.span,
+                            }
+                        })?;
+                        let target_jty = match ty {
+                            ilang_ast::Type::I64 => JitTy::I64,
+                            ilang_ast::Type::F64 => JitTy::F64,
+                            ilang_ast::Type::Bool => JitTy::Bool,
+                            _ => unreachable!("checker rejects other types"),
+                        };
+                        let coerced = coerce(b, (val, vt), target_jty, value.span)?;
+                        let bits = match target_jty {
+                            JitTy::I64 => coerced,
+                            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), coerced),
+                            JitTy::Bool => b.ins().uextend(I64, coerced),
+                            _ => unreachable!(),
+                        };
+                        let addr = lc.static_field_base_addr + (slot as i64) * 8;
+                        let addr_v = b.ins().iconst(I64, addr);
+                        b.ins().store(MemFlags::trusted(), bits, addr_v, 0);
+                        return Ok(None);
+                    }
+                }
+            }
             let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "field assignment receiver is unit".into(),
@@ -318,6 +350,31 @@ pub(crate) fn lower_expr(
             Ok(None)
         }
         ExprKind::Field { obj, name } => {
+            // Static field read: `ClassName.field`. Loads the slot
+            // from the JIT compiler's static-field storage and bit-
+            // reinterprets to the declared type.
+            if let ExprKind::Var(rname) = &obj.kind {
+                if !lc.env.bindings.contains_key(rname) {
+                    let key = (rname.clone(), name.clone());
+                    if let Some(&slot) = lc.static_field_slots.get(&key) {
+                        let ty = lc.static_field_types.get(&key).cloned().unwrap();
+                        let addr = lc.static_field_base_addr + (slot as i64) * 8;
+                        let addr_v = b.ins().iconst(I64, addr);
+                        let raw = b.ins().load(I64, MemFlags::trusted(), addr_v, 0);
+                        let (v, jty) = match ty {
+                            ilang_ast::Type::I64 => (raw, JitTy::I64),
+                            ilang_ast::Type::F64 => {
+                                (b.ins().bitcast(F64, MemFlags::new(), raw), JitTy::F64)
+                            }
+                            ilang_ast::Type::Bool => {
+                                (b.ins().ireduce(I8, raw), JitTy::Bool)
+                            }
+                            _ => unreachable!("checker rejects other types"),
+                        };
+                        return Ok(Some((v, jty)));
+                    }
+                }
+            }
             let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "field receiver is unit".into(),

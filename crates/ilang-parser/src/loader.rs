@@ -650,6 +650,23 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
             other => items_no_const.push(other),
         }
     }
+    // Fold each class's static-field initializers using the same
+    // rules. The folded literal sits on the AST until the
+    // interpreter / JIT pulls it for storage init.
+    for item in items_no_const.iter_mut() {
+        if let Item::Class(c) = item {
+            for sf in c.static_fields.iter_mut() {
+                let folded = fold_const_expr(&sf.value, &consts).map_err(|reason| {
+                    LoadError::BadConst {
+                        name: format!("{}.{}", c.name, sf.name),
+                        reason,
+                        span: sf.value.span,
+                    }
+                })?;
+                sf.value = folded;
+            }
+        }
+    }
     if consts.is_empty() {
         return Ok(Program {
             items: items_no_const,

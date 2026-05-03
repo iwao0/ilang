@@ -1,6 +1,6 @@
 use ilang_ast::{
     AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param,
-    PropertyDecl, Type, Variant, VariantPayload,
+    PropertyDecl, StaticFieldDecl, Type, Variant, VariantPayload,
 };
 use ilang_lexer::TokenKind;
 
@@ -151,6 +151,7 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut static_methods = Vec::new();
+        let mut static_fields: Vec<StaticFieldDecl> = Vec::new();
         let mut properties: Vec<PropertyDecl> = Vec::new();
         loop {
             match self.peek().kind {
@@ -182,21 +183,29 @@ impl<'a> Parser<'a> {
                         self.parse_property_accessor(&mut properties)?;
                         continue;
                     }
-                    // `static <ident>(` — a class-level method.
-                    let is_static = name == "static"
+                    // `static <ident> (` → class-level method.
+                    // `static <ident> :` → class-level (mutable) field.
+                    if name == "static"
                         && matches!(
                             self.tokens.get(self.pos + 1).map(|t| &t.kind),
                             Some(TokenKind::Ident(_))
                         )
-                        && matches!(
-                            self.tokens.get(self.pos + 2).map(|t| &t.kind),
-                            Some(TokenKind::LParen)
-                        );
-                    if is_static {
-                        self.bump(); // consume `static`
-                        let m = self.parse_method(Vec::new())?;
-                        static_methods.push(m);
-                        continue;
+                    {
+                        match self.tokens.get(self.pos + 2).map(|t| &t.kind) {
+                            Some(TokenKind::LParen) => {
+                                self.bump(); // consume `static`
+                                let m = self.parse_method(Vec::new())?;
+                                static_methods.push(m);
+                                continue;
+                            }
+                            Some(TokenKind::Colon) => {
+                                self.bump(); // consume `static`
+                                let f = self.parse_static_field()?;
+                                static_fields.push(f);
+                                continue;
+                            }
+                            _ => {}
+                        }
                     }
                     let next_kind = self.tokens[(self.pos + 1).min(self.tokens.len() - 1)]
                         .kind
@@ -237,9 +246,22 @@ impl<'a> Parser<'a> {
             fields,
             methods,
             static_methods,
+            static_fields,
             properties,
             span,
         })
+    }
+
+    /// `static <name>: <type> = <expr>` — caller has already
+    /// consumed the `static` keyword; we start at the field name.
+    fn parse_static_field(&mut self) -> Result<StaticFieldDecl, ParseError> {
+        let span = self.peek().span;
+        let name = self.expect_ident("static field name")?;
+        self.expect(&TokenKind::Colon, "':'")?;
+        let ty = self.parse_type()?;
+        self.expect(&TokenKind::Equals, "'='")?;
+        let value = self.parse_expr(0)?;
+        Ok(StaticFieldDecl { name, ty, value, span })
     }
 
     /// Parse one `get name(): T { body }` or `set name(v: T) { body }`

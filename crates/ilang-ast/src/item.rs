@@ -66,12 +66,27 @@ pub struct ClassDecl {
     /// don't trip over them, and so the JIT can register each as a
     /// plain top-level fn (no receiver param).
     pub static_methods: Vec<FnDecl>,
+    /// `static` fields — class-level mutable storage. The initial
+    /// `value` must fold to a literal at compile time (same rules
+    /// as top-level `const`). Allowed types are `i64` / `f64` /
+    /// `bool` for now; heap types await a Phase-2 design.
+    pub static_fields: Vec<StaticFieldDecl>,
     /// `get`/`set` accessors. Read/write of `obj.name` is dispatched to
     /// the corresponding accessor instead of a stored field. Both are
     /// optional (read-only or write-only OK), but at least one is set.
     /// Stored separately from `methods` so method-name lookups don't
     /// trip over property accessors.
     pub properties: Vec<PropertyDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaticFieldDecl {
+    pub name: String,
+    pub ty: crate::types::Type,
+    /// Compile-time-evaluable initializer. After the loader's
+    /// `inline_constants` pass this is a literal Expr.
+    pub value: crate::expr::Expr,
     pub span: Span,
 }
 

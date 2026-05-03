@@ -150,6 +150,9 @@ struct ClassSig {
     /// `static` methods — single sig per name (no overloading yet).
     /// Resolved at `ClassName.method(args)` call sites.
     static_methods: HashMap<String, Signature>,
+    /// `static` fields — class-level mutable storage. Read/write
+    /// dispatched at `ClassName.field` field expressions.
+    static_fields: HashMap<String, Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -367,6 +370,7 @@ impl TypeChecker {
                 methods,
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
+                static_fields: HashMap::new(),
             },
         );
         self.vars
@@ -432,6 +436,7 @@ impl TypeChecker {
                 methods: map_methods,
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
+                static_fields: HashMap::new(),
             },
         );
 
@@ -632,6 +637,20 @@ impl TypeChecker {
         // their bodies fail to resolve `this` / implicit field refs.
         for m in &c.static_methods {
             self.check_fn(m, None)?;
+        }
+        // Static field initializers were already folded to literals
+        // by the loader. Just verify each one's type matches.
+        let env: Vars = HashMap::new();
+        for sf in &c.static_fields {
+            self.validate_type(&sf.ty, sf.span, &c.type_params)?;
+            let vt = self.check_expr(&sf.value, &env, None, None, 0)?;
+            if !literal_assignable(&sf.value, &vt, &sf.ty) {
+                return Err(TypeError::Mismatch {
+                    expected: sf.ty.clone(),
+                    got: vt,
+                    span: sf.value.span,
+                });
+            }
         }
         Ok(())
     }
@@ -1011,6 +1030,19 @@ impl TypeChecker {
                 Ok(subst_type(&sig.ret, &sig.type_params, &inferred_args))
             }
             ExprKind::Field { obj, name } => {
+                // Static field read: `ClassName.field` when there's
+                // no shadowing local and the class declares a
+                // static field by that name.
+                if let ExprKind::Var(rname) = &obj.kind {
+                    let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
+                    if !is_local_shadow {
+                        if let Some(cls) = self.classes.get(rname) {
+                            if let Some(t) = cls.static_fields.get(name) {
+                                return Ok(t.clone());
+                            }
+                        }
+                    }
+                }
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 // Built-in property: every array exposes `length: i64`.
                 if matches!(ot, Type::Array { .. }) && name == "length" {
@@ -1967,6 +1999,26 @@ impl TypeChecker {
                 Ok(ty.clone())
             }
             ExprKind::AssignField { obj, field, value } => {
+                // Static field write: `ClassName.field = v`.
+                if let ExprKind::Var(rname) = &obj.kind {
+                    let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
+                    if !is_local_shadow {
+                        if let Some(cls) = self.classes.get(rname) {
+                            if let Some(ft) = cls.static_fields.get(field).cloned() {
+                                let vt =
+                                    self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                                if !literal_assignable(value, &vt, &ft) {
+                                    return Err(TypeError::Mismatch {
+                                        expected: ft,
+                                        got: vt,
+                                        span: value.span,
+                                    });
+                                }
+                                return Ok(Type::Unit);
+                            }
+                        }
+                    }
+                }
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let class_name = expect_object(&ot, obj.span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
@@ -2877,12 +2929,12 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
         );
     }
     let mut static_methods: HashMap<String, Signature> = HashMap::new();
-    if !c.type_params.is_empty() && !c.static_methods.is_empty() {
+    if !c.type_params.is_empty()
+        && (!c.static_methods.is_empty() || !c.static_fields.is_empty())
+    {
         return Err(TypeError::Unsupported {
             what: format!(
-                "class {:?}: static methods on generic classes are not supported \
-                 (the class type parameters cannot be referenced from a static \
-                 context)",
+                "class {:?}: static members on generic classes are not supported",
                 c.name
             ),
             span: c.span,
@@ -2920,12 +2972,44 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
         sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
         static_methods.insert(m.name.clone(), sig);
     }
+    let mut static_fields: HashMap<String, Type> = HashMap::new();
+    for sf in &c.static_fields {
+        if static_fields.contains_key(&sf.name)
+            || fields.contains_key(&sf.name)
+            || methods.contains_key(&sf.name)
+            || properties.contains_key(&sf.name)
+            || static_methods.contains_key(&sf.name)
+        {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "static field {:?} in class {:?} collides with a field / \
+                     method / property / static method of the same name",
+                    sf.name, c.name
+                ),
+                span: sf.span,
+            });
+        }
+        // Restrict to primitives in this initial cut. Heap types
+        // (string / arrays / objects) need ARC integration first.
+        if !matches!(sf.ty, Type::I64 | Type::F64 | Type::Bool) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "static field {:?} in class {:?}: type {} not yet \
+                     supported (only i64 / f64 / bool for now)",
+                    sf.name, c.name, sf.ty
+                ),
+                span: sf.span,
+            });
+        }
+        static_fields.insert(sf.name.clone(), sf.ty.clone());
+    }
     Ok(ClassSig {
         type_params: c.type_params.clone(),
         fields,
         methods,
         properties,
         static_methods,
+        static_fields,
     })
 }
 

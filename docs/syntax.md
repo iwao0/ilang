@@ -434,13 +434,38 @@ let p = Vec2.of(3.0, 4.0)
 let d = Vec2.dot(z, p)
 ```
 
-- 静的フィールド (クラスレベル変数) は **未対応** — メソッドのみ
 - オーバーロード不可 (`static foo` を 2 つ以上書くとエラー)
 - フィールド / インスタンスメソッド / プロパティと同名は不可
 - ジェネリッククラスでの静的メソッドは未対応 (型パラメータが静的コンテキストで参照できないため)
 - `static` はクラス本体内のみキーワード (contextual keyword)
 - ローカル変数 `let Vec2 = ...` がある場合はそちら優先 (シャドウ)
 - interpreter / JIT とも対応
+
+#### `static` フィールド
+
+`static name: T = const_expr` でクラスレベルの可変ストレージを宣言できます。全インスタンスで共有され、`ClassName.field` で読み書き。
+
+```rust
+class Counter {
+    n: i64
+    init() { this.n = 0 }
+    bump() { this.n = this.n + 1; Counter.total = Counter.total + 1 }
+
+    static total: i64 = 0
+    static threshold: i64 = 1 + 2 * 5      // 11 (const 折りたたみ)
+}
+
+let a = new Counter(); let b = new Counter()
+a.bump(); a.bump(); b.bump()
+Counter.total              // 3
+```
+
+- 型は **`i64` / `f64` / `bool`** のみ (Phase 1)。string / オブジェクトなどヒープ型は ARC 設計が確定するまで未対応
+- 初期値は **コンパイル時定数式** 限定 (top-level `const` と同じ folder で評価)。関数呼び出し等のランタイム式は不可
+- mutable: `Counter.total = 100` で書き換え可
+- 同名の他フィールド・メソッド・プロパティ・静的メソッドとは衝突不可
+- ジェネリッククラスでの静的フィールドは未対応 (静的メソッドと同じ理由)
+- 内部実装: JIT は `Box<[i64]>` を確保してスロット割り当て、アクセスは絶対アドレスの load/store で f64/bool は bitcast / truncate
 
 ---
 

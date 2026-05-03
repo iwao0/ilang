@@ -134,6 +134,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     span: m.span,
                 })
                 .collect(),
+            static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()
@@ -786,6 +787,10 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         properties,
         methods,
         static_methods,
+        // Generic class + static fields shouldn't reach here (the
+        // type checker forbids static members on generic classes for
+        // now), but pass them through verbatim for completeness.
+        static_fields: c.static_fields.clone(),
         span: c.span,
     }
 }
@@ -1071,6 +1076,7 @@ fn rewrite_item(item: &Item) -> Item {
                 .collect(),
             methods: c.methods.iter().map(rewrite_fn).collect(),
             static_methods: c.static_methods.iter().map(rewrite_fn).collect(),
+            static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()
@@ -1707,6 +1713,7 @@ fn rewrite_calls_in_item(
                     span: m.span,
                 })
                 .collect(),
+            static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()
@@ -2651,6 +2658,7 @@ fn rewrite_enum_refs_in_item(
                     span: m.span,
                 })
                 .collect(),
+            static_fields: c.static_fields.clone(),
             properties: c
                 .properties
                 .iter()

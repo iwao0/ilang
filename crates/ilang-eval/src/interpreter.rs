@@ -18,6 +18,10 @@ pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
     classes: HashMap<String, ClassDecl>,
     enums: HashMap<String, EnumDecl>,
+    /// Per-class static field storage: `(ClassName, field) -> Value`.
+    /// Initialised from each class's `static_fields` initializer at
+    /// `run()` startup; read/written by `ClassName.field` access.
+    static_fields: HashMap<(String, String), Value>,
     vars: HashMap<String, Value>,
     this: Option<ObjectRef>,
     depth: usize,
@@ -50,6 +54,15 @@ impl Interpreter {
                 }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), c.clone());
+                    // Initialise each static field. The loader has
+                    // already folded its initializer to a literal,
+                    // so this can never fail to evaluate.
+                    for sf in &c.static_fields {
+                        let v = self.eval_expr(&sf.value)?;
+                        let v = cast_value(v, &sf.ty);
+                        self.static_fields
+                            .insert((c.name.clone(), sf.name.clone()), v);
+                    }
                 }
                 Item::Enum(e) => {
                     self.enums.insert(e.name.clone(), e.clone());
@@ -171,6 +184,19 @@ impl Interpreter {
                 self.call_fn(callee, args, span)
             }
             ExprKind::Field { obj, name } => {
+                // Static field read: `ClassName.field` when there's
+                // no shadowing local of that name.
+                if let ExprKind::Var(rname) = &obj.kind {
+                    if !self.vars.contains_key(rname) {
+                        if let Some(v) = self
+                            .static_fields
+                            .get(&(rname.clone(), name.clone()))
+                            .cloned()
+                        {
+                            return Ok(v);
+                        }
+                    }
+                }
                 let v = self.eval_expr(obj)?;
                 if let Value::Array(arr) = &v {
                     if name == "length" {
@@ -823,6 +849,28 @@ impl Interpreter {
                 Ok(Value::Unit)
             }
             ExprKind::AssignField { obj, field, value } => {
+                // Static field write: `ClassName.field = v`. Cast to
+                // the declared type so widths line up.
+                if let ExprKind::Var(rname) = &obj.kind {
+                    if !self.vars.contains_key(rname)
+                        && self
+                            .static_fields
+                            .contains_key(&(rname.clone(), field.clone()))
+                    {
+                        let v = self.eval_expr(value)?;
+                        let ty = self
+                            .classes
+                            .get(rname)
+                            .and_then(|c| {
+                                c.static_fields.iter().find(|f| &f.name == field).map(|f| f.ty.clone())
+                            })
+                            .expect("static field exists");
+                        let v = cast_value(v, &ty);
+                        self.static_fields
+                            .insert((rname.clone(), field.clone()), v);
+                        return Ok(Value::Unit);
+                    }
+                }
                 let v = self.eval_expr(value)?;
                 let target = self.eval_expr(obj)?;
                 let target = expect_object(target, obj.span)?;

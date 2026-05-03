@@ -134,6 +134,45 @@ fn jit_run_inner(
     Ok(compiler.run_main(main_ret))
 }
 
+/// Walk every class's `static_fields`, assign slot indices, and
+/// pack initial values (folded literals) into a `Box<[i64]>`.
+/// Returns `(storage, slot_map, type_map)`. The storage is i64-wide
+/// per slot — f64 is bit-cast, bool is 0/1.
+fn init_static_field_storage(
+    prog: &Program,
+) -> (
+    Box<[i64]>,
+    std::collections::HashMap<(String, String), usize>,
+    std::collections::HashMap<(String, String), ilang_ast::Type>,
+) {
+    use ilang_ast::ExprKind;
+    let mut slots: std::collections::HashMap<(String, String), usize> =
+        std::collections::HashMap::new();
+    let mut types: std::collections::HashMap<(String, String), ilang_ast::Type> =
+        std::collections::HashMap::new();
+    let mut values: Vec<i64> = Vec::new();
+    for item in &prog.items {
+        if let Item::Class(c) = item {
+            for sf in &c.static_fields {
+                let bits = match &sf.value.kind {
+                    ExprKind::Int(n) => *n,
+                    ExprKind::Float(x) => x.to_bits() as i64,
+                    ExprKind::Bool(b) => *b as i64,
+                    // The loader already folded; if anything else
+                    // shows up the typechecker will reject the
+                    // declaration before we get here.
+                    _ => 0,
+                };
+                let idx = values.len();
+                values.push(bits);
+                slots.insert((c.name.clone(), sf.name.clone()), idx);
+                types.insert((c.name.clone(), sf.name.clone()), sf.ty.clone());
+            }
+        }
+    }
+    (values.into_boxed_slice(), slots, types)
+}
+
 pub(crate) struct JitCompiler {
     pub(crate) module: JITModule,
     pub(crate) ctx: cranelift_codegen::Context,
@@ -249,6 +288,18 @@ pub(crate) struct JitCompiler {
     /// freed with `libc::free` after we copy the bytes into a fresh
     /// StringRc. Marked by `@extern("lib", owned_return)`.
     pub(crate) native_extern_owned_return: std::collections::HashSet<String>,
+    /// Storage backing every `static` field: each slot is one i64
+    /// (for f64 / bool we bit-reinterpret). Allocated as a `Box<[i64]>`
+    /// for pointer stability — the JITed code embeds slot addresses as
+    /// `iconst`s, and the storage must outlive the JIT module.
+    pub(crate) static_field_storage: Box<[i64]>,
+    /// `(class, field) -> slot index` into `static_field_storage`.
+    pub(crate) static_field_slots:
+        std::collections::HashMap<(String, String), usize>,
+    /// `(class, field) -> declared type`, kept on the JIT side so
+    /// the lowering knows whether to bitcast / truncate.
+    pub(crate) static_field_types:
+        std::collections::HashMap<(String, String), ilang_ast::Type>,
 }
 
 impl JitCompiler {
@@ -372,6 +423,11 @@ impl JitCompiler {
         // The Library handles must outlive the JITModule, so we stash
         // them on the JitCompiler.
         let native_reg = crate::native_extern::register_native_externs(&mut builder, prog)?;
+        // Pre-allocate static-field storage. Each slot is i64 wide
+        // and covers i64/f64/bool (the latter two via bitcast). The
+        // initial value comes from each field's folded literal.
+        let (static_field_storage, static_field_slots, static_field_types) =
+            init_static_field_storage(prog);
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -604,6 +660,9 @@ impl JitCompiler {
             native_libs: native_reg.libs,
             native_extern_fns: native_reg.names,
             native_extern_owned_return: native_reg.owned_return,
+            static_field_storage,
+            static_field_slots,
+            static_field_types,
         })
     }
 
@@ -1028,6 +1087,9 @@ impl JitCompiler {
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
             native_extern_owned_return: &self.native_extern_owned_return,
+            static_field_slots: &self.static_field_slots,
+            static_field_types: &self.static_field_types,
+            static_field_base_addr: self.static_field_storage.as_ptr() as i64,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -1178,6 +1240,9 @@ impl JitCompiler {
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
             native_extern_owned_return: &self.native_extern_owned_return,
+            static_field_slots: &self.static_field_slots,
+            static_field_types: &self.static_field_types,
+            static_field_base_addr: self.static_field_storage.as_ptr() as i64,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.

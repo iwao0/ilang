@@ -160,6 +160,17 @@ pub(crate) struct LowerCtx<'a> {
     /// callee-owned (`strdup`-style). The Call lowering emits
     /// `libc::free` on the C pointer after copying it.
     pub native_extern_owned_return: &'a std::collections::HashSet<String>,
+    /// `(class, field) -> slot index` into `static_field_base_addr`.
+    /// Read by Field / AssignField lowering on `ClassName.field`.
+    pub static_field_slots:
+        &'a std::collections::HashMap<(String, String), usize>,
+    /// `(class, field) -> declared type` (i64/f64/bool). Lowering
+    /// uses it to bitcast / truncate after loading the i64 slot.
+    pub static_field_types:
+        &'a std::collections::HashMap<(String, String), ilang_ast::Type>,
+    /// Base address of the `Box<[i64]>` static-field storage,
+    /// embedded as an iconst in lowered field accesses.
+    pub static_field_base_addr: i64,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
     /// Declared return type of the function currently being lowered;
