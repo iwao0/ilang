@@ -1268,13 +1268,31 @@ impl JitCompiler {
             } else {
                 (jty.size_bytes(), jty.size_bytes().max(1), jty)
             };
+            // `@repr(C, union)`: every field sits at offset 0; the
+            // class size becomes the maximum field size and the
+            // alignment becomes the maximum field alignment. Writing
+            // one field overwrites the others — the type checker
+            // already restricted fields to non-heap primitives so
+            // ARC integrity isn't at risk.
+            //
             // `@repr(C, packed)`: every field sits at the next byte
             // (no alignment padding). Bitfield runs ignore packed —
             // they already use the storage unit width directly.
-            let effective_align = if c.is_packed { 1 } else { align };
-            offset = align_up(offset, effective_align);
-            fields.insert(field.name.clone(), (offset, recorded_jty));
-            offset += size;
+            let (field_offset, advance) = if c.is_union {
+                (0u32, 0u32)
+            } else {
+                let effective_align = if c.is_packed { 1 } else { align };
+                let aligned = align_up(offset, effective_align);
+                (aligned, aligned + size - offset)
+            };
+            let effective_align = if c.is_packed && !c.is_union { 1 } else { align };
+            fields.insert(field.name.clone(), (field_offset, recorded_jty));
+            if c.is_union {
+                // union size = max(field sizes). Track via offset.
+                offset = offset.max(size);
+            } else {
+                offset += advance;
+            }
             max_align = max_align.max(effective_align);
         }
         // Close any trailing bitfield run.

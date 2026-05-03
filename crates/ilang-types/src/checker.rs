@@ -826,6 +826,59 @@ impl TypeChecker {
             }
         }
         if c.is_repr_c {
+            // `@repr(C, union)` extra restrictions: every field
+            // shares offset 0 so writing one overwrites the others.
+            // Heap fields (string / object / array) would leak or
+            // dangle when the storage is reused, so reject them.
+            // FAM / bitfields don't make sense for unions.
+            if c.is_union {
+                if c.fields.is_empty() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "@repr(C, union) class {:?}: union must have at \
+                             least one field",
+                            c.name
+                        ),
+                        span: c.span,
+                    });
+                }
+                for f in &c.fields {
+                    if f.bits.is_some() {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "@bits on union field {:?}: bitfields aren't \
+                                 supported inside `@repr(C, union)` classes",
+                                f.name
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    let union_ok = matches!(
+                        &f.ty,
+                        Type::I8 | Type::I16 | Type::I32 | Type::I64
+                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                        | Type::F32 | Type::F64
+                        | Type::Bool
+                    ) || matches!(&f.ty, Type::Array { elem, fixed: Some(_) }
+                        if matches!(elem.as_ref(),
+                            Type::I8 | Type::I16 | Type::I32 | Type::I64
+                            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                            | Type::F32 | Type::F64 | Type::Bool));
+                    if !union_ok {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "@repr(C, union) class {:?} field {:?}: type {} \
+                                 not supported (allowed inside a union: numeric \
+                                 primitives / bool / fixed-length numeric array \
+                                 `T[N]`. Heap types and nested aggregates aren't \
+                                 safe under shared storage)",
+                                c.name, f.name, f.ty
+                            ),
+                            span: f.span,
+                        });
+                    }
+                }
+            }
             for (i, f) in c.fields.iter().enumerate() {
                 let is_last = i + 1 == c.fields.len();
                 let primitive_ok = |t: &Type| {

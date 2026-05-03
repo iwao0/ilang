@@ -27,6 +27,7 @@ impl<'a> Parser<'a> {
                 let mut extern_lib: Option<String> = None;
                 let mut is_repr_c = false;
                 let mut is_packed = false;
+                let mut is_union = false;
                 for a in &attrs {
                     match (a.name.as_str(), a.args.as_slice()) {
                         ("extern", [ilang_ast::AttrArg::Str(s)]) => {
@@ -50,11 +51,16 @@ impl<'a> Parser<'a> {
                                     {
                                         is_packed = true;
                                     }
+                                    ilang_ast::AttrArg::Path(p)
+                                        if p.as_slice() == ["union"] =>
+                                    {
+                                        is_union = true;
+                                    }
                                     _ => {
                                         let t = self.peek();
                                         return Err(ParseError::Unexpected {
                                             found: t.kind.clone(),
-                                            expected: "@repr(C) or @repr(C, packed) (other repr modifiers are not supported)".into(),
+                                            expected: "@repr(C), @repr(C, packed), or @repr(C, union) (other repr modifiers are not supported)".into(),
                                             span: t.span,
                                         });
                                     }
@@ -102,11 +108,19 @@ impl<'a> Parser<'a> {
                     }
                     c.is_repr_c = true;
                     c.is_packed = is_packed;
-                } else if is_packed {
+                    c.is_union = is_union;
+                    if is_packed && is_union {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::Class,
+                            expected: "`packed` and `union` cannot be combined — packed implies struct semantics".into(),
+                            span: c.span,
+                        });
+                    }
+                } else if is_packed || is_union {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "`packed` requires `C` — use `@repr(C, packed)`".into(),
+                        expected: "`packed` / `union` require `C` — use `@repr(C, packed)` / `@repr(C, union)`".into(),
                         span: t.span,
                     });
                 }
@@ -442,6 +456,7 @@ impl<'a> Parser<'a> {
             extern_lib: None,
             is_repr_c: false,
             is_packed: false,
+            is_union: false,
             name,
             parent,
             type_params,

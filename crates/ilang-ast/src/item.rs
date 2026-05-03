@@ -88,6 +88,10 @@ pub struct ClassDecl {
     /// struct's overall alignment is 1. Mirrors C's
     /// `__attribute__((packed))`. Only meaningful with `is_repr_c`.
     pub is_packed: bool,
+    /// `@repr(C, union)` — every field shares the same offset (0)
+    /// and the struct size is the maximum field size. C union
+    /// semantics: writing one field overwrites the others.
+    pub is_union: bool,
     pub name: String,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be
