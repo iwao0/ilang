@@ -2091,10 +2091,10 @@ impl TypeChecker {
                 if let Some(r) = ret {
                     self.validate_type(r, span, &[])?;
                 }
-                // Closures aren't supported yet — the anon body sees
-                // only its own parameters (plus top-level fns/classes
-                // resolved through `self.*` tables), not outer locals.
-                let mut inner: Vars = HashMap::new();
+                // Closures capture outer locals by value (interpreter
+                // only). The body's local env starts from the outer
+                // env so free variables resolve, then params overlay.
+                let mut inner: Vars = env.clone();
                 for Param { name, ty, .. } in params {
                     inner.insert(name.clone(), ty.clone());
                 }

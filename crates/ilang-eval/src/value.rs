@@ -50,9 +50,12 @@ pub enum Value {
         payload: EnumPayload,
     },
     /// First-class function value. Wraps a `FnDecl` (named or
-    /// anonymous) with no captured environment — closures aren't
-    /// implemented yet. Cheap to clone (just bumps the Rc).
-    Fn(Rc<ilang_ast::FnDecl>),
+    /// anonymous) plus an optional captured environment. The
+    /// environment is a snapshot of every free variable in the body
+    /// at the moment the closure was created (capture-by-value:
+    /// later mutations to the outer binding aren't visible here).
+    /// Cheap to clone — both Rcs.
+    Fn(Rc<ilang_ast::FnDecl>, Rc<HashMap<String, Value>>),
     /// Built-in `Map<K, V>`. Keys are restricted to hashable
     /// primitives (string / int / bool) at the type-checker level.
     /// Wrapped in `Rc<RefCell>` so passing/cloning is cheap and
@@ -221,7 +224,7 @@ impl std::fmt::Display for Value {
                     write!(f, "}}")
                 }
             },
-            Value::Fn(decl) => {
+            Value::Fn(decl, _captures) => {
                 if decl.name.is_empty() {
                     write!(f, "<fn>")
                 } else {

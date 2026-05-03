@@ -1466,17 +1466,10 @@ fn fn_returned_from_fn() {
 }
 
 #[test]
-fn anon_fn_no_capture_rejected() {
-    use ilang_types::TypeChecker;
-    use ilang_lexer::tokenize;
-    use ilang_parser::parse;
-    // Closures aren't supported — referencing an outer `let` from
-    // inside the anon body should fail type-checking (the body's env
-    // doesn't include outer locals).
+fn anon_fn_captures_outer_let() {
+    // Closures capture outer locals by value at creation time.
     let src = "let n = 10; let f = fn(x: i64): i64 { x + n }; f(1)";
-    let toks = tokenize(src).unwrap();
-    let prog = parse(&toks).unwrap();
-    assert!(TypeChecker::new().check(&prog).is_err());
+    assert_eq!(run(src).unwrap(), Value::Int(11));
 }
 
 #[test]

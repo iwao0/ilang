@@ -167,7 +167,7 @@ impl Interpreter {
                 // First-class function: bare reference to a top-level
                 // `fn` becomes a function value.
                 if let Some(decl) = self.fns.get(name) {
-                    return Ok(Value::Fn(Rc::new(decl.clone())));
+                    return Ok(Value::Fn(Rc::new(decl.clone()), Rc::new(HashMap::new())));
                 }
                 Err(RuntimeError::UndefinedVariable {
                     name: name.clone(),
@@ -209,8 +209,8 @@ impl Interpreter {
                 // Indirect call through a function-typed local first
                 // (matches the type checker's lookup order — locals
                 // shadow methods and top-level fns).
-                if let Some(Value::Fn(f)) = self.vars.get(callee).cloned() {
-                    return self.invoke_fn_value(&f, args, span);
+                if let Some(Value::Fn(f, env)) = self.vars.get(callee).cloned() {
+                    return self.invoke_fn_value(&f, &env, args, span);
                 }
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();
@@ -381,8 +381,8 @@ impl Interpreter {
                     }
                     if method == "map" || method == "filter" || method == "forEach" {
                         let f = self.eval_expr(&args[0])?;
-                        let decl = match &f {
-                            Value::Fn(d) => d.clone(),
+                        let (decl, captures) = match &f {
+                            Value::Fn(d, env) => (d.clone(), env.clone()),
                             other => return Err(RuntimeError::TypeError {
                                 msg: format!("{method} expects a function, got {other:?}"),
                                 span: args[0].span,
@@ -393,7 +393,7 @@ impl Interpreter {
                             "map" => {
                                 let mut out = Vec::with_capacity(snapshot.len());
                                 for x in snapshot {
-                                    let r = self.invoke(&decl.name, &decl, vec![x], None, span)?;
+                                    let r = self.invoke_closure(&decl, &captures, vec![x], span)?;
                                     out.push(r);
                                 }
                                 return Ok(Value::Array(Rc::new(RefCell::new(out))));
@@ -401,7 +401,7 @@ impl Interpreter {
                             "filter" => {
                                 let mut out = Vec::new();
                                 for x in snapshot {
-                                    let r = self.invoke(&decl.name, &decl, vec![x.clone()], None, span)?;
+                                    let r = self.invoke_closure(&decl, &captures, vec![x.clone()], span)?;
                                     match r {
                                         Value::Bool(true) => out.push(x),
                                         Value::Bool(false) => {}
@@ -415,7 +415,7 @@ impl Interpreter {
                             }
                             "forEach" => {
                                 for x in snapshot {
-                                    self.invoke(&decl.name, &decl, vec![x], None, span)?;
+                                    self.invoke_closure(&decl, &captures, vec![x], span)?;
                                 }
                                 return Ok(Value::Unit);
                             }
@@ -791,9 +791,11 @@ impl Interpreter {
                 Ok(cast_value(v, ty))
             }
             ExprKind::FnExpr { params, ret, body } => {
-                // Build a synthetic FnDecl on the fly — empty name +
-                // no captures. Cheap because the body is moved into
-                // an Rc once.
+                // Build a synthetic FnDecl on the fly. Free variables
+                // in `body` (referenced but not declared inside, and
+                // not the closure's own params) are snapshot-captured
+                // by value: the closure value bundles a `HashMap` of
+                // their current bindings.
                 let decl = ilang_ast::FnDecl {
                     attrs: Vec::new(),
                     name: String::new(),
@@ -804,7 +806,17 @@ impl Interpreter {
                     span,
                     is_override: false,
                 };
-                Ok(Value::Fn(Rc::new(decl)))
+                let mut bound: std::collections::HashSet<String> =
+                    params.iter().map(|p| p.name.clone()).collect();
+                let mut frees: std::collections::HashSet<String> = Default::default();
+                collect_free_vars_in_block(body, &mut bound, &mut frees);
+                let mut env: HashMap<String, Value> = HashMap::new();
+                for name in frees {
+                    if let Some(v) = self.vars.get(&name) {
+                        env.insert(name, v.clone());
+                    }
+                }
+                Ok(Value::Fn(Rc::new(decl), Rc::new(env)))
             }
             ExprKind::Array(elements) => {
                 let mut vals = Vec::with_capacity(elements.len());
@@ -1263,16 +1275,65 @@ impl Interpreter {
     fn invoke_fn_value(
         &mut self,
         decl: &ilang_ast::FnDecl,
+        captures: &HashMap<String, Value>,
         args: &[Expr],
         span: Span,
     ) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
-        let name = if decl.name.is_empty() {
-            "<closure>"
-        } else {
-            decl.name.as_str()
-        };
-        self.invoke(name, decl, evaluated, None, span)
+        self.invoke_closure(decl, captures, evaluated, span)
+    }
+
+    /// Invoke a closure with already-evaluated arguments. The
+    /// captured environment is dropped into the body's scope before
+    /// the parameters, so a same-named parameter shadows a capture
+    /// (matches Rust / JS / Python semantics).
+    fn invoke_closure(
+        &mut self,
+        decl: &ilang_ast::FnDecl,
+        captures: &HashMap<String, Value>,
+        evaluated: Vec<Value>,
+        span: Span,
+    ) -> Result<Value, RuntimeError> {
+        if decl.params.len() != evaluated.len() {
+            return Err(RuntimeError::ArityMismatch {
+                name: if decl.name.is_empty() { "<closure>" } else { decl.name.as_str() }.to_string(),
+                expected: decl.params.len(),
+                got: evaluated.len(),
+                span,
+            });
+        }
+        if self.depth >= MAX_DEPTH {
+            return Err(RuntimeError::StackOverflow { span });
+        }
+        self.depth += 1;
+        let saved_vars = std::mem::take(&mut self.vars);
+        let saved_this = std::mem::replace(&mut self.this, None);
+        let saved_this_class = std::mem::replace(&mut self.this_class, None);
+        // Captures land first, then params (so param shadowing
+        // wins).
+        for (k, v) in captures.iter() {
+            self.vars.insert(k.clone(), v.clone());
+        }
+        for (p, v) in decl.params.iter().zip(evaluated.into_iter()) {
+            self.vars.insert(p.name.clone(), cast_value(v, &p.ty));
+        }
+        let result = self.eval_block(&decl.body);
+        self.vars = saved_vars;
+        self.this = saved_this;
+        self.this_class = saved_this_class;
+        self.depth -= 1;
+        match result {
+            Err(RuntimeError::Break(_)) => Err(RuntimeError::TypeError {
+                msg: "`break` escaped closure body".into(),
+                span,
+            }),
+            Err(RuntimeError::Continue) => Err(RuntimeError::TypeError {
+                msg: "`continue` escaped closure body".into(),
+                span,
+            }),
+            Err(RuntimeError::Return(v)) => Ok(v),
+            other => other,
+        }
     }
 
     fn call_method(
@@ -1571,5 +1632,212 @@ fn default_value(t: &ilang_ast::Type) -> Value {
         // value the interpreter can synthesize — leave as Unit so a
         // field read before assignment fails loudly elsewhere.
         _ => Value::Unit,
+    }
+}
+
+/// Walk a block looking for `Var(name)` references that aren't
+/// declared inside the block (or in `bound`, the set of names
+/// already in scope at entry — typically the closure's own params).
+/// Inserts each free name into `frees`.
+fn collect_free_vars_in_block(
+    b: &ilang_ast::Block,
+    bound: &mut std::collections::HashSet<String>,
+    frees: &mut std::collections::HashSet<String>,
+) {
+    let snapshot = bound.clone();
+    for s in &b.stmts {
+        match &s.kind {
+            ilang_ast::StmtKind::Let { name, value, .. } => {
+                collect_free_vars_in_expr(value, bound, frees);
+                bound.insert(name.clone());
+            }
+            ilang_ast::StmtKind::Expr(e) => {
+                collect_free_vars_in_expr(e, bound, frees);
+            }
+        }
+    }
+    if let Some(t) = &b.tail {
+        collect_free_vars_in_expr(t, bound, frees);
+    }
+    *bound = snapshot;
+}
+
+fn collect_free_vars_in_expr(
+    e: &ilang_ast::Expr,
+    bound: &mut std::collections::HashSet<String>,
+    frees: &mut std::collections::HashSet<String>,
+) {
+    use ilang_ast::ExprKind;
+    match &e.kind {
+        ExprKind::Var(n) => {
+            if !bound.contains(n) {
+                frees.insert(n.clone());
+            }
+        }
+        ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Bool(_) | ExprKind::Str(_)
+        | ExprKind::This | ExprKind::None | ExprKind::Continue => {}
+        ExprKind::Break(opt) => {
+            if let Some(x) = opt {
+                collect_free_vars_in_expr(x, bound, frees);
+            }
+        }
+        ExprKind::Return(opt) => {
+            if let Some(x) = opt {
+                collect_free_vars_in_expr(x, bound, frees);
+            }
+        }
+        ExprKind::Some(inner) => collect_free_vars_in_expr(inner, bound, frees),
+        ExprKind::Unary { expr, .. } => collect_free_vars_in_expr(expr, bound, frees),
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            collect_free_vars_in_expr(lhs, bound, frees);
+            collect_free_vars_in_expr(rhs, bound, frees);
+        }
+        ExprKind::Cast { expr, .. } => collect_free_vars_in_expr(expr, bound, frees),
+        ExprKind::Call { args, .. } => {
+            for a in args {
+                collect_free_vars_in_expr(a, bound, frees);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
+            for a in args {
+                collect_free_vars_in_expr(a, bound, frees);
+            }
+        }
+        ExprKind::Field { obj, .. } => collect_free_vars_in_expr(obj, bound, frees),
+        ExprKind::MethodCall { obj, args, .. } => {
+            collect_free_vars_in_expr(obj, bound, frees);
+            for a in args {
+                collect_free_vars_in_expr(a, bound, frees);
+            }
+        }
+        ExprKind::New { args, .. } => {
+            for a in args {
+                collect_free_vars_in_expr(a, bound, frees);
+            }
+        }
+        ExprKind::Block(b) => collect_free_vars_in_block(b, bound, frees),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            collect_free_vars_in_expr(cond, bound, frees);
+            collect_free_vars_in_block(then_branch, bound, frees);
+            if let Some(e) = else_branch {
+                collect_free_vars_in_expr(e, bound, frees);
+            }
+        }
+        ExprKind::IfLet { name, expr, then_branch, else_branch } => {
+            collect_free_vars_in_expr(expr, bound, frees);
+            let snap = bound.clone();
+            bound.insert(name.clone());
+            collect_free_vars_in_block(then_branch, bound, frees);
+            *bound = snap;
+            if let Some(e) = else_branch {
+                collect_free_vars_in_expr(e, bound, frees);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            collect_free_vars_in_expr(cond, bound, frees);
+            collect_free_vars_in_block(body, bound, frees);
+        }
+        ExprKind::Loop { body } => {
+            collect_free_vars_in_block(body, bound, frees);
+        }
+        ExprKind::ForIn { var, iter, body } => {
+            collect_free_vars_in_expr(iter, bound, frees);
+            let snap = bound.clone();
+            bound.insert(var.clone());
+            collect_free_vars_in_block(body, bound, frees);
+            *bound = snap;
+        }
+        ExprKind::Range { start, end, .. } => {
+            collect_free_vars_in_expr(start, bound, frees);
+            collect_free_vars_in_expr(end, bound, frees);
+        }
+        ExprKind::Assign { target, value } => {
+            // `target = value` reads the previous binding for ARC
+            // release (interpreter behavior), and the var must already
+            // be in scope. Treat target as a free var if not bound.
+            if !bound.contains(target) {
+                frees.insert(target.clone());
+            }
+            collect_free_vars_in_expr(value, bound, frees);
+        }
+        ExprKind::AssignField { obj, value, .. } => {
+            collect_free_vars_in_expr(obj, bound, frees);
+            collect_free_vars_in_expr(value, bound, frees);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            collect_free_vars_in_expr(obj, bound, frees);
+            collect_free_vars_in_expr(index, bound, frees);
+            collect_free_vars_in_expr(value, bound, frees);
+        }
+        ExprKind::Array(items) => {
+            for i in items {
+                collect_free_vars_in_expr(i, bound, frees);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                collect_free_vars_in_expr(k, bound, frees);
+                collect_free_vars_in_expr(v, bound, frees);
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            collect_free_vars_in_expr(obj, bound, frees);
+            collect_free_vars_in_expr(index, bound, frees);
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for e in es {
+                    collect_free_vars_in_expr(e, bound, frees);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, e) in fs {
+                    collect_free_vars_in_expr(e, bound, frees);
+                }
+            }
+        },
+        ExprKind::Match { scrutinee, arms } => {
+            collect_free_vars_in_expr(scrutinee, bound, frees);
+            for arm in arms {
+                let snap = bound.clone();
+                pattern_binds(&arm.pattern, bound);
+                collect_free_vars_in_expr(&arm.body, bound, frees);
+                *bound = snap;
+            }
+        }
+        ExprKind::FnExpr { params, body, .. } => {
+            // Nested closure — extend bound with its params and recurse.
+            let snap = bound.clone();
+            for p in params {
+                bound.insert(p.name.clone());
+            }
+            collect_free_vars_in_block(body, bound, frees);
+            *bound = snap;
+        }
+    }
+}
+
+fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<String>) {
+    use ilang_ast::{PatternBindings, PatternKind};
+    match &p.kind {
+        PatternKind::Wildcard => {}
+        PatternKind::Variant { bindings, .. } => match bindings {
+            PatternBindings::Unit => {}
+            PatternBindings::Tuple(names) => {
+                for n in names {
+                    if n != "_" {
+                        bound.insert(n.clone());
+                    }
+                }
+            }
+            PatternBindings::Struct(fs) => {
+                for (_, n) in fs {
+                    if n != "_" {
+                        bound.insert(n.clone());
+                    }
+                }
+            }
+        },
     }
 }
