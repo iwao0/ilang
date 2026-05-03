@@ -341,6 +341,29 @@ let nested = new Box<Box<i64>>(new Box<i64>(99))   // ネストも可 (>> 自動
 - 関数のジェネリクスは [§6 ジェネリック関数](#ジェネリック関数) 参照 — interpreter / JIT とも対応
 - 型変数同士の演算 (例: `class Pair<A, B> { ... a + b ... }`) は型チェッカが拒否 (制約がないため)
 
+### メソッド / `init` のオーバーロード
+
+同名で異なるパラメータ型・個数のメソッドを複数宣言できます。`init` も同様で、`new C(...)` の引数から最良の `init` が選ばれます。スコアリングと曖昧性ルールは [§6 関数のオーバーロード](#関数のオーバーロード) と完全に同じです。
+
+```rust
+class Greeter {
+    init() {}
+    init(name: string) { this.name = name }     // init オーバーロード OK
+    name: string
+    greet(): string { "hi" }
+    greet(n: i64): string { "hi x" + (n as string) }   // メソッドオーバーロード OK
+}
+
+let a = new Greeter()
+let b = new Greeter("ada")
+b.greet()                                       // → "hi"
+b.greet(3)                                      // → "hi x3"
+```
+
+- **`deinit` はオーバーロード不可**: 常にランタイムから引数 0 で呼ばれるため、複数宣言はエラー。
+- **ジェネリッククラスのメソッドはオーバーロード不可**: `class Box<T> { f(x: i64): ...  f(x: string): ... }` はエラー (mono とオーバーロード解決パスを混ぜないため)。
+- interpreter / JIT とも対応。型検査後にオーバーロードされたメソッドは `name__<param_types>` にマングルされ、`new C(...)` の AST には選ばれた `init_method` が記録されます。
+
 ---
 
 ## 8. 配列

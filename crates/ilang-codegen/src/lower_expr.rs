@@ -916,7 +916,7 @@ pub(crate) fn lower_expr(
             }
             Ok(None)
         }
-        ExprKind::New { class, type_args, args } => {
+        ExprKind::New { class, type_args, args, init_method } => {
             // Built-in `Map<K, V>` — no class layout, just a header
             // alloc. K and V come in via type_args (kept by the
             // monomorphization pass for built-in generics).
@@ -960,9 +960,12 @@ pub(crate) fn lower_expr(
             let size_v = b.ins().iconst(I64, size);
             let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
-            // If init exists, call it.
-            if lc.class_methods[class_id as usize].contains_key("init") {
-                let _ = call_method(b, lc, class_id, "init", ptr, args, e.span)?;
+            // If init exists, call it. The mangler may have set
+            // `init_method` to a specific overload (e.g. "init__i64");
+            // fall back to plain "init" otherwise.
+            let init_lookup: &str = init_method.as_deref().unwrap_or("init");
+            if lc.class_methods[class_id as usize].contains_key(init_lookup) {
+                let _ = call_method(b, lc, class_id, init_lookup, ptr, args, e.span)?;
             } else if !args.is_empty() {
                 return Err(CodegenError::Unsupported {
                     what: format!("no `init` for class {class}, but args were given"),

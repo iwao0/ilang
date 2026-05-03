@@ -210,14 +210,10 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
             method: method.clone(),
             args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => ExprKind::New {
+        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: class.clone(),
             type_args: type_args.clone(),
-            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
+            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(), init_method: init_method.clone(),
         },
         ExprKind::Block(b) => ExprKind::Block(hoist_in_block(b, counter, hoisted)),
         ExprKind::If {
@@ -532,7 +528,7 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(a, needed, work);
             }
         }
-        ExprKind::New { type_args, args, class } => {
+        ExprKind::New { type_args, args, class, init_method: _ } => {
             for t in type_args {
                 scan_type(t, needed, work);
             }
@@ -826,10 +822,12 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
             class,
             type_args,
             args: a,
+            init_method,
         } => ExprKind::New {
             class: class.clone(),
             type_args: type_args.iter().map(|t| subst_type(t, params, args)).collect(),
             args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
+            init_method: init_method.clone(),
         },
         ExprKind::Block(b) => ExprKind::Block(subst_block(b, params, args)),
         ExprKind::If {
@@ -1063,11 +1061,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
             ret: ret.as_ref().map(rewrite_type),
             body: rewrite_block(body),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => {
+        ExprKind::New { class, type_args, args, init_method } => {
             // Concrete generic instantiation → call into the
             // monomorphized class by its mangled name. Built-in generic
             // classes (Map) skip mangling — the JIT lowers `new Map<..>()`
@@ -1078,7 +1072,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
                 ExprKind::New {
                     class: class.clone(),
                     type_args: new_type_args,
-                    args: new_args,
+                    args: new_args, init_method: init_method.clone(),
                 }
             } else {
                 let mangled = InstKey {
@@ -1089,7 +1083,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
                 ExprKind::New {
                     class: mangled,
                     type_args: Vec::new(),
-                    args: new_args,
+                    args: new_args, init_method: init_method.clone(),
                 }
             }
         }
@@ -1889,14 +1883,10 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             method: method.clone(),
             args: args.iter().map(|a| f(a)).collect(),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => ExprKind::New {
+        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: class.clone(),
             type_args: type_args.clone(),
-            args: args.iter().map(|a| f(a)).collect(),
+            args: args.iter().map(|a| f(a)).collect(), init_method: init_method.clone(),
         },
         ExprKind::Block(b) => ExprKind::Block(map_block_children(b, f)),
         ExprKind::If {

@@ -391,14 +391,11 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             callee: format!("{prefix}.{}", callee),
             args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => ExprKind::New {
+        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: format!("{prefix}.{}", class),
             type_args: type_args.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
             args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+            init_method,
         },
         ExprKind::EnumCtor {
             enum_name,
@@ -713,14 +710,11 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
             method,
             args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => ExprKind::New {
+        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class,
             type_args,
             args: args.into_iter().map(|a| subst_const_expr(a, consts)).collect(),
+            init_method,
         },
         ExprKind::Block(b) => ExprKind::Block(subst_const_block(b, consts)),
         ExprKind::If {

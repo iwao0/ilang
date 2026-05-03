@@ -206,14 +206,11 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             callee,
             args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
         },
-        ExprKind::New {
-            class,
-            type_args,
-            args,
-        } => ExprKind::New {
+        ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class,
             type_args,
             args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            init_method,
         },
         ExprKind::Block(b) => ExprKind::Block(rewrite_block(b, ctx)),
         ExprKind::If {

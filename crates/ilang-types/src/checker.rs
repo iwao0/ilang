@@ -140,7 +140,10 @@ struct ClassSig {
     /// `Type::TypeVar(name)`; instantiation substitutes them.
     type_params: Vec<String>,
     fields: HashMap<String, Type>,
-    methods: HashMap<String, Signature>,
+    /// Methods grouped by source name, allowing overloads. Resolution
+    /// at each MethodCall (and `new C(args)` for `init`) site picks
+    /// the best match the same way top-level fn overloads do.
+    methods: HashMap<String, Vec<Signature>>,
 }
 
 /// Type-checker view of an enum. Variants preserve declaration order so
@@ -196,6 +199,11 @@ pub struct TypeChecker {
     /// mangler to rewrite `Call.callee` to the per-overload mangled
     /// name when the name has more than one overload.
     fn_overload_pick: std::cell::RefCell<HashMap<Span, (String, usize)>>,
+    /// Per-call-site method overload pick. Same idea as
+    /// `fn_overload_pick` but keyed for class methods. The triple is
+    /// `(class_name, method_name, sig_idx)`. Includes both regular
+    /// MethodCall sites and the `init` resolved at `new C(args)`.
+    method_overload_pick: std::cell::RefCell<HashMap<Span, (String, String, usize)>>,
 }
 
 impl TypeChecker {
@@ -223,6 +231,13 @@ impl TypeChecker {
     /// of N same-name decls each call should resolve to.
     pub fn fn_overload_picks(&self) -> HashMap<Span, (String, usize)> {
         self.fn_overload_pick.borrow().clone()
+    }
+
+    /// Per-call-site method overload pick:
+    /// `(class_name, method_name, sig_idx)`. Used by the mangler to
+    /// rewrite `MethodCall.method` and `New.init_method`.
+    pub fn method_overload_picks(&self) -> HashMap<Span, (String, String, usize)> {
+        self.method_overload_pick.borrow().clone()
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
@@ -296,13 +311,13 @@ impl TypeChecker {
         let mut methods = HashMap::new();
         methods.insert(
             "log".to_string(),
-            Signature {
+            vec![Signature {
                 // The `params` slot is unused for variadics; left as a single
                 // `Any` so any introspection still has something to print.
                 params: vec![Type::Any],
                 ret: Type::Unit,
                 variadic: true, decl_span: Span::dummy(), type_params: Vec::new(),
-            },
+            }],
         );
         self.classes.insert(
             "Console".to_string(),
@@ -325,47 +340,47 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
         );
         map_methods.insert(
             "get".into(),
-            Signature {
+            vec![Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-            },
+            }],
         );
         map_methods.insert(
             "set".into(),
-            Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
+            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
         );
         map_methods.insert(
             "has".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
         );
         map_methods.insert(
             "delete".into(),
-            Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
         );
         map_methods.insert(
             "size".into(),
-            Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() },
+            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
         );
         map_methods.insert(
             "keys".into(),
-            Signature {
+            vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-            },
+            }],
         );
         map_methods.insert(
             "values".into(),
-            Signature {
+            vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-            },
+            }],
         );
         self.classes.insert(
             "Map".into(),
@@ -454,7 +469,7 @@ impl TypeChecker {
                     entry.push(sig);
                 }
                 Item::Class(c) => {
-                    let sig = class_signature(c);
+                    let sig = class_signature(c)?;
                     self.classes.insert(c.name.clone(), sig);
                 }
                 Item::Enum(e) => {
@@ -839,9 +854,13 @@ impl TypeChecker {
                 }
                 if let Some(class_name) = in_class {
                     if let Some(cls) = self.classes.get(class_name) {
-                        if let Some(sig) = cls.methods.get(callee).cloned() {
-                            self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
-                            return Ok(sig.ret);
+                        if let Some(sigs) = cls.methods.get(callee).cloned() {
+                            // Implicit-this method call. Resolve overload
+                            // exactly like a top-level fn call.
+                            let chosen = self.resolve_method_call(
+                                class_name, callee, &sigs, args, env, ret_ty, in_class, loop_depth, span,
+                            )?;
+                            return Ok(chosen.ret);
                         }
                     }
                 }
@@ -1265,7 +1284,7 @@ impl TypeChecker {
                         span,
                     }
                 })?;
-                let raw_sig = cls.methods.get(method).cloned().ok_or_else(|| {
+                let raw_sigs = cls.methods.get(method).cloned().ok_or_else(|| {
                     TypeError::UnknownMethod {
                         class: class_name.to_string(),
                         method: method.clone(),
@@ -1274,27 +1293,40 @@ impl TypeChecker {
                 })?;
                 let class_params = cls.type_params.clone();
                 let inst_args: Vec<Type> = type_args_of(&ot).to_vec();
-                let sig = Signature {
-                    params: raw_sig
-                        .params
-                        .iter()
-                        .map(|t| subst_type(t, &class_params, &inst_args))
-                        .collect(),
-                    ret: subst_type(&raw_sig.ret, &class_params, &inst_args),
-                    variadic: raw_sig.variadic,
-                    type_params: Vec::new(),
-                    decl_span: Span::dummy(),
-                };
-                self.check_args(method, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
-                Ok(sig.ret)
+                // Substitute generic type args once per overload, then
+                // resolve which overload matches the call.
+                let class_name_owned = class_name.to_string();
+                let substituted: Vec<Signature> = raw_sigs
+                    .iter()
+                    .map(|raw| Signature {
+                        params: raw
+                            .params
+                            .iter()
+                            .map(|t| subst_type(t, &class_params, &inst_args))
+                            .collect(),
+                        ret: subst_type(&raw.ret, &class_params, &inst_args),
+                        variadic: raw.variadic,
+                        type_params: Vec::new(),
+                        decl_span: raw.decl_span,
+                    })
+                    .collect();
+                let chosen = self.resolve_method_call(
+                    &class_name_owned, method, &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                )?;
+                Ok(chosen.ret)
             }
-            ExprKind::New { class, type_args, args } => {
+            ExprKind::New { class, type_args, args, init_method } => {
                 let cls = self.classes.get(class).ok_or_else(|| TypeError::UndefinedClass {
                     name: class.clone(),
                     span,
                 })?;
                 let class_params = cls.type_params.clone();
-                let init_raw = cls.methods.get("init").cloned();
+                // After the mangling pass, an overloaded `init` is renamed
+                // to e.g. `init__i64`; New.init_method records which one
+                // was picked. Look that up first so a re-typecheck on the
+                // mangled program still resolves correctly.
+                let init_lookup: &str = init_method.as_deref().unwrap_or("init");
+                let init_raw = cls.methods.get(init_lookup).cloned();
                 // Generic instantiation: arity check on type args.
                 if !class_params.is_empty() && type_args.len() != class_params.len() {
                     return Err(TypeError::ArityMismatch {
@@ -1314,27 +1346,25 @@ impl TypeChecker {
                     });
                 }
                 let inst_args: Vec<Type> = type_args.clone();
-                if let Some(init) = init_raw {
-                    let sig = Signature {
-                        params: init
-                            .params
-                            .iter()
-                            .map(|t| subst_type(t, &class_params, &inst_args))
-                            .collect(),
-                        ret: subst_type(&init.ret, &class_params, &inst_args),
-                        variadic: init.variadic,
-                        type_params: Vec::new(),
-                        decl_span: Span::dummy(),
-                    };
-                    self.check_args(
-                        &format!("{class}::init"),
-                        &sig,
-                        args,
-                        env,
-                        ret_ty,
-                        in_class,
-                        loop_depth,
-                        span,
+                if let Some(init_overloads) = init_raw {
+                    // Substitute generic type-args once per init
+                    // overload, then resolve which init to call.
+                    let substituted: Vec<Signature> = init_overloads
+                        .iter()
+                        .map(|init| Signature {
+                            params: init
+                                .params
+                                .iter()
+                                .map(|t| subst_type(t, &class_params, &inst_args))
+                                .collect(),
+                            ret: subst_type(&init.ret, &class_params, &inst_args),
+                            variadic: init.variadic,
+                            type_params: Vec::new(),
+                            decl_span: init.decl_span,
+                        })
+                        .collect();
+                    self.resolve_method_call(
+                        class, "init", &substituted, args, env, ret_ty, in_class, loop_depth, span,
                     )?;
                 } else if !args.is_empty() {
                     return Err(TypeError::ArityMismatch {
@@ -2135,6 +2165,45 @@ impl TypeChecker {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Resolve which method overload (or init) a call site invokes.
+    /// Returns the chosen Signature; records the pick in the side
+    /// table so the post-typecheck mangler can rewrite the call.
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_method_call(
+        &self,
+        class_name: &str,
+        method: &str,
+        sigs: &[Signature],
+        args: &[Expr],
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<&str>,
+        loop_depth: u32,
+        span: Span,
+    ) -> Result<Signature, TypeError> {
+        // Single overload: keep the precise check_args path so error
+        // variants (Mismatch / ArityMismatch) match what users expect.
+        if sigs.len() == 1 {
+            self.method_overload_pick
+                .borrow_mut()
+                .insert(span, (class_name.to_string(), method.to_string(), 0));
+            self.check_args(method, &sigs[0], args, env, ret_ty, in_class, loop_depth, span)?;
+            return Ok(sigs[0].clone());
+        }
+        // Multiple overloads: score and pick.
+        let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+        for a in args {
+            arg_tys.push(self.check_expr(a, env, ret_ty, in_class, loop_depth)?);
+        }
+        let chosen = resolve_overload(method, sigs, &arg_tys, args, span)?;
+        let cs = sigs[chosen].clone();
+        self.method_overload_pick
+            .borrow_mut()
+            .insert(span, (class_name.to_string(), method.to_string(), chosen));
+        self.check_args(method, &cs, args, env, ret_ty, in_class, loop_depth, span)?;
+        Ok(cs)
+    }
+
     fn check_args(
         &self,
         name: &str,
@@ -2478,25 +2547,71 @@ fn signature_of(f: &FnDecl) -> Signature {
     }
 }
 
-fn class_signature(c: &ClassDecl) -> ClassSig {
+fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
     let mut fields = HashMap::new();
     for f in &c.fields {
         fields.insert(f.name.clone(), rewrite_type_params(&f.ty, &c.type_params));
     }
-    let mut methods = HashMap::new();
+    let mut methods: HashMap<String, Vec<Signature>> = HashMap::new();
     for m in &c.methods {
         let mut sig = signature_of(m);
         for p in sig.params.iter_mut() {
             *p = rewrite_type_params(p, &c.type_params);
         }
         sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
-        methods.insert(m.name.clone(), sig);
+        let entry = methods.entry(m.name.clone()).or_default();
+        // `deinit` can't be overloaded — it's always called by the
+        // runtime with no args. Reject any second decl.
+        if m.name == "deinit" && !entry.is_empty() {
+            return Err(TypeError::Unsupported {
+                what: format!("class {:?} declares `deinit` more than once", c.name),
+                span: m.span,
+            });
+        }
+        // Generic + non-generic same name: forbidden (same rule as
+        // top-level fns).
+        let any_generic = !sig.type_params.is_empty()
+            || entry.iter().any(|s| !s.type_params.is_empty());
+        if any_generic && !entry.is_empty() {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in class {:?} mixes a generic declaration with another \
+                     overload — generic methods cannot share a name with other methods",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        if entry.iter().any(|s| s.params == sig.params) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in class {:?} has a duplicate overload (same parameter \
+                     types as a previous declaration)",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        // Generic class + method overload: forbidden. Mono and overload
+        // resolution paths are kept separate to avoid having to score
+        // overloads after type-param substitution per instantiation.
+        if !c.type_params.is_empty() && !entry.is_empty() {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in generic class {:?} cannot be overloaded \
+                     (generic classes do not support method overloading)",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        entry.push(sig);
     }
-    ClassSig {
+    Ok(ClassSig {
         type_params: c.type_params.clone(),
         fields,
         methods,
-    }
+    })
 }
 
 /// The parser produces `Type::Object(name)` for any user-defined type

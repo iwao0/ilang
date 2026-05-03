@@ -384,7 +384,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                Ok(Expr::new(ExprKind::New { class, type_args, args }, span))
+                Ok(Expr::new(ExprKind::New { class, type_args, args, init_method: None }, span))
             }
             TokenKind::If => self.parse_if(),
             TokenKind::Fn => self.parse_fn_expr(),

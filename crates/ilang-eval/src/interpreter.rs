@@ -537,7 +537,9 @@ impl Interpreter {
                 let o = expect_object(v, obj.span)?;
                 self.call_method(o, method, args, span)
             }
-            ExprKind::New { class, type_args: _, args } => self.new_object(class, args, span),
+            ExprKind::New { class, type_args: _, args, init_method } => {
+                self.new_object(class, args, init_method.as_deref(), span)
+            }
             ExprKind::Block(b) => self.eval_block(b),
             ExprKind::If {
                 cond,
@@ -1129,6 +1131,7 @@ impl Interpreter {
         &mut self,
         class: &str,
         args: &[Expr],
+        init_method: Option<&str>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         // Built-in `new Map<K, V>()` — returns an empty Value::Map.
@@ -1168,8 +1171,13 @@ impl Interpreter {
             class: class.to_string(),
             fields,
         }));
-        if let Some(init) = decl.methods.iter().find(|m| m.name == "init").cloned() {
-            self.invoke("init", &init, evaluated, Some(obj.clone()), span)?;
+        // Pick the init to run. The mangler may have set
+        // `init_method` to a specific overload mangle (e.g.
+        // `init__i64`); fall back to plain `"init"` for the common
+        // non-overloaded case.
+        let init_lookup = init_method.unwrap_or("init");
+        if let Some(init) = decl.methods.iter().find(|m| m.name == init_lookup).cloned() {
+            self.invoke(init_lookup, &init, evaluated, Some(obj.clone()), span)?;
         } else if !evaluated.is_empty() {
             return Err(RuntimeError::ArityMismatch {
                 name: format!("{class}::init"),

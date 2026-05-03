@@ -65,11 +65,15 @@ pub enum ExprKind {
     },
     /// `new ClassName(args)` or `new ClassName<T, U>(args)` for
     /// generic instantiations. `type_args` is empty for non-generic
-    /// classes.
+    /// classes. `init_method` is set by the post-typecheck mangler
+    /// when the class has overloaded `init`s — it names the specific
+    /// init that runtime should dispatch to. `None` means "look up
+    /// `init` by name as before" (the common, non-overloaded case).
     New {
         class: String,
         type_args: Vec<crate::Type>,
         args: Vec<Expr>,
+        init_method: Option<String>,
     },
     Block(Block),
     If {

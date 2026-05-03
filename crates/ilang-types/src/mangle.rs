@@ -34,10 +34,13 @@ fn mangled_name(base: &str, params: &[Type]) -> String {
 }
 
 /// Apply the mangling pass. `picks[span] = (callee_name, sig_idx)`
-/// gives the typechecker's chosen overload for each non-generic call.
+/// gives the typechecker's chosen overload for each non-generic
+/// **fn** call. `method_picks[span] = (class, method, sig_idx)` does
+/// the same for class methods (including `init` selected at `new`).
 pub fn mangle_overloads(
     prog: Program,
     picks: &HashMap<Span, (String, usize)>,
+    method_picks: &HashMap<Span, (String, String, usize)>,
 ) -> Program {
     // 1. Group Item::Fn entries by source name to see which ones are
     //    actually overloaded.
@@ -53,17 +56,31 @@ pub fn mangle_overloads(
         .filter(|(_, v)| v.len() > 1)
         .map(|(k, _)| k.clone())
         .collect();
-    if overloaded.is_empty() {
+
+    // Same idea for class methods. `(class_name, method_name) → Vec<method-position-in-class.methods>`.
+    let mut method_indices: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    for item in &prog.items {
+        if let Item::Class(c) = item {
+            for (i, m) in c.methods.iter().enumerate() {
+                method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
+            }
+        }
+    }
+    let overloaded_methods: HashSet<(String, String)> = method_indices
+        .iter()
+        .filter(|(_, v)| v.len() > 1)
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    if overloaded.is_empty() && overloaded_methods.is_empty() {
         return prog;
     }
 
-    // 2. Build a per-(name, sig_idx) → mangled-name table. The
-    //    typechecker registers fns in program order, so sig_idx N
-    //    corresponds to the N-th Item::Fn with that name.
+    // 2. Build per-(name, sig_idx) → mangled-name tables for both
+    //    fns and class methods. Sig_idx is the index in the
+    //    typechecker's overload list, which matches declaration
+    //    order.
     let mut new_names: HashMap<(String, usize), String> = HashMap::new();
-    // Also build a parallel item-position → new-name map so the
-    // rewrite_item pass below can find the right new name without
-    // re-deriving sig_idx from item position.
     let mut item_new_name: HashMap<usize, String> = HashMap::new();
     for name in &overloaded {
         for (idx, item_pos) in fn_indices[name].iter().enumerate() {
@@ -75,20 +92,45 @@ pub fn mangle_overloads(
         }
     }
 
-    // 3. Rewrite Items: rename matching FnDecls; recurse into other
-    //    items' bodies to rewrite Calls.
+    let mut new_method_names: HashMap<(String, String, usize), String> = HashMap::new();
+    for (class_name, method_name) in &overloaded_methods {
+        // Find the class and walk its methods in declaration order;
+        // sig_idx is the order they appear with the same name.
+        if let Some(Item::Class(c)) = prog.items.iter().find(|it| matches!(it, Item::Class(c) if c.name == *class_name)) {
+            let mut sig_idx = 0;
+            for m in &c.methods {
+                if m.name == *method_name {
+                    let mangled = mangled_name(method_name, &param_types(m));
+                    new_method_names.insert(
+                        (class_name.clone(), method_name.clone(), sig_idx),
+                        mangled,
+                    );
+                    sig_idx += 1;
+                }
+            }
+        }
+    }
+
+    let ctx = Ctx {
+        overloaded: &overloaded,
+        new_names: &new_names,
+        item_new_name: &item_new_name,
+        overloaded_methods: &overloaded_methods,
+        new_method_names: &new_method_names,
+        picks,
+        method_picks,
+    };
+
+    // 3. Rewrite Items: rename matching FnDecls + class methods;
+    //    recurse into bodies to rewrite Calls and MethodCalls.
     let new_items: Vec<Item> = prog
         .items
         .into_iter()
         .enumerate()
-        .map(|(i, item)| rewrite_item(i, item, &item_new_name, &overloaded, &new_names, picks))
+        .map(|(i, item)| rewrite_item(i, item, &ctx))
         .collect();
-    let new_stmts: Vec<Stmt> = prog
-        .stmts
-        .into_iter()
-        .map(|s| rewrite_stmt(s, &overloaded, &new_names, picks))
-        .collect();
-    let new_tail = prog.tail.map(|e| rewrite_expr(e, &overloaded, &new_names, picks));
+    let new_stmts: Vec<Stmt> = prog.stmts.into_iter().map(|s| rewrite_stmt(s, &ctx)).collect();
+    let new_tail = prog.tail.map(|e| rewrite_expr(e, &ctx));
 
     Program {
         items: new_items,
@@ -97,33 +139,52 @@ pub fn mangle_overloads(
     }
 }
 
+struct Ctx<'a> {
+    overloaded: &'a HashSet<String>,
+    new_names: &'a HashMap<(String, usize), String>,
+    item_new_name: &'a HashMap<usize, String>,
+    overloaded_methods: &'a HashSet<(String, String)>,
+    new_method_names: &'a HashMap<(String, String, usize), String>,
+    picks: &'a HashMap<Span, (String, usize)>,
+    method_picks: &'a HashMap<Span, (String, String, usize)>,
+}
+
 fn param_types(f: &FnDecl) -> Vec<Type> {
     f.params.iter().map(|p| p.ty.clone()).collect()
 }
 
-fn rewrite_item(
-    item_pos: usize,
-    item: Item,
-    item_new_name: &HashMap<usize, String>,
-    overloaded: &HashSet<String>,
-    new_names: &HashMap<(String, usize), String>,
-    picks: &HashMap<Span, (String, usize)>,
-) -> Item {
+fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
     match item {
         Item::Fn(mut f) => {
-            if let Some(mangled) = item_new_name.get(&item_pos) {
+            if let Some(mangled) = ctx.item_new_name.get(&item_pos) {
                 f.name = mangled.clone();
             }
-            f.body = rewrite_block(f.body, overloaded, new_names, picks);
+            f.body = rewrite_block(f.body, ctx);
             Item::Fn(f)
         }
         Item::Class(mut c) => {
+            // Rename overloaded methods. Walk in declaration order so
+            // sig_idx matches what the typechecker recorded.
+            let class_name = c.name.clone();
+            let mut sig_counter: HashMap<String, usize> = HashMap::new();
             for m in &mut c.methods {
                 let body = std::mem::replace(
                     &mut m.body,
                     Block { stmts: Vec::new(), tail: None },
                 );
-                m.body = rewrite_block(body, overloaded, new_names, picks);
+                m.body = rewrite_block(body, ctx);
+                let key = (class_name.clone(), m.name.clone());
+                if ctx.overloaded_methods.contains(&key) {
+                    let idx = sig_counter.entry(m.name.clone()).or_insert(0);
+                    let mangled = ctx
+                        .new_method_names
+                        .get(&(class_name.clone(), m.name.clone(), *idx))
+                        .cloned();
+                    if let Some(new_name) = mangled {
+                        m.name = new_name;
+                    }
+                    *idx += 1;
+                }
             }
             Item::Class(c)
         }
@@ -133,48 +194,33 @@ fn rewrite_item(
     }
 }
 
-fn rewrite_block(
-    b: Block,
-    overloaded: &HashSet<String>,
-    new_names: &HashMap<(String, usize), String>,
-    picks: &HashMap<Span, (String, usize)>,
-) -> Block {
+fn rewrite_block(b: Block, ctx: &Ctx) -> Block {
     Block {
-        stmts: b.stmts.into_iter().map(|s| rewrite_stmt(s, overloaded, new_names, picks)).collect(),
-        tail: b.tail.map(|e| Box::new(rewrite_expr(*e, overloaded, new_names, picks))),
+        stmts: b.stmts.into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
+        tail: b.tail.map(|e| Box::new(rewrite_expr(*e, ctx))),
     }
 }
 
-fn rewrite_stmt(
-    s: Stmt,
-    overloaded: &HashSet<String>,
-    new_names: &HashMap<(String, usize), String>,
-    picks: &HashMap<Span, (String, usize)>,
-) -> Stmt {
+fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
     let kind = match s.kind {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name,
             ty,
-            value: rewrite_expr(value, overloaded, new_names, picks),
+            value: rewrite_expr(value, ctx),
         },
-        StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, overloaded, new_names, picks)),
+        StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, ctx)),
     };
     Stmt { kind, span: s.span }
 }
 
-fn rewrite_expr(
-    e: Expr,
-    overloaded: &HashSet<String>,
-    new_names: &HashMap<(String, usize), String>,
-    picks: &HashMap<Span, (String, usize)>,
-) -> Expr {
+fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
     let span = e.span;
     let kind = match e.kind {
         ExprKind::Call { callee, args } => {
-            let new_callee = if overloaded.contains(&callee) {
-                if let Some((name, idx)) = picks.get(&span) {
+            let new_callee = if ctx.overloaded.contains(&callee) {
+                if let Some((name, idx)) = ctx.picks.get(&span) {
                     if name == &callee {
-                        new_names
+                        ctx.new_names
                             .get(&(callee.clone(), *idx))
                             .cloned()
                             .unwrap_or(callee)
@@ -189,7 +235,7 @@ fn rewrite_expr(
             };
             ExprKind::Call {
                 callee: new_callee,
-                args: args.into_iter().map(|a| rewrite_expr(a, overloaded, new_names, picks)).collect(),
+                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
             }
         }
         // Mechanical recursion through every other expression shape.
@@ -202,100 +248,134 @@ fn rewrite_expr(
         ExprKind::None => ExprKind::None,
         ExprKind::Break => ExprKind::Break,
         ExprKind::Continue => ExprKind::Continue,
-        ExprKind::Some(x) => ExprKind::Some(Box::new(rewrite_expr(*x, overloaded, new_names, picks))),
+        ExprKind::Some(x) => ExprKind::Some(Box::new(rewrite_expr(*x, ctx))),
         ExprKind::Unary { op, expr } => ExprKind::Unary {
             op,
-            expr: Box::new(rewrite_expr(*expr, overloaded, new_names, picks)),
+            expr: Box::new(rewrite_expr(*expr, ctx)),
         },
         ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary {
             op,
-            lhs: Box::new(rewrite_expr(*lhs, overloaded, new_names, picks)),
-            rhs: Box::new(rewrite_expr(*rhs, overloaded, new_names, picks)),
+            lhs: Box::new(rewrite_expr(*lhs, ctx)),
+            rhs: Box::new(rewrite_expr(*rhs, ctx)),
         },
         ExprKind::Logical { op, lhs, rhs } => ExprKind::Logical {
             op,
-            lhs: Box::new(rewrite_expr(*lhs, overloaded, new_names, picks)),
-            rhs: Box::new(rewrite_expr(*rhs, overloaded, new_names, picks)),
+            lhs: Box::new(rewrite_expr(*lhs, ctx)),
+            rhs: Box::new(rewrite_expr(*rhs, ctx)),
         },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
-            expr: Box::new(rewrite_expr(*expr, overloaded, new_names, picks)),
+            expr: Box::new(rewrite_expr(*expr, ctx)),
             ty,
         },
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
             params,
             ret,
-            body: rewrite_block(body, overloaded, new_names, picks),
+            body: rewrite_block(body, ctx),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
-            obj: Box::new(rewrite_expr(*obj, overloaded, new_names, picks)),
+            obj: Box::new(rewrite_expr(*obj, ctx)),
             name,
         },
-        ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
-            obj: Box::new(rewrite_expr(*obj, overloaded, new_names, picks)),
-            method,
-            args: args.into_iter().map(|a| rewrite_expr(a, overloaded, new_names, picks)).collect(),
-        },
-        ExprKind::New { class, type_args, args } => ExprKind::New {
-            class,
-            type_args,
-            args: args.into_iter().map(|a| rewrite_expr(a, overloaded, new_names, picks)).collect(),
-        },
-        ExprKind::Block(b) => ExprKind::Block(rewrite_block(b, overloaded, new_names, picks)),
+        ExprKind::MethodCall { obj, method, args } => {
+            // Look up the typechecker's chosen overload for this site;
+            // if the method is overloaded, rename to the mangled form.
+            let new_method = if let Some((cls, m, idx)) = ctx.method_picks.get(&span) {
+                if m == &method && ctx.overloaded_methods.contains(&(cls.clone(), m.clone())) {
+                    ctx.new_method_names
+                        .get(&(cls.clone(), m.clone(), *idx))
+                        .cloned()
+                        .unwrap_or(method)
+                } else {
+                    method
+                }
+            } else {
+                method
+            };
+            ExprKind::MethodCall {
+                obj: Box::new(rewrite_expr(*obj, ctx)),
+                method: new_method,
+                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            }
+        }
+        ExprKind::New { class, type_args, args, init_method: existing } => {
+            // If `init` for this class is overloaded, set init_method
+            // to the mangled name the typechecker selected. Otherwise
+            // preserve any existing value (None for fresh AST).
+            let new_init = if let Some((cls, m, idx)) = ctx.method_picks.get(&span) {
+                if m == "init" && ctx.overloaded_methods.contains(&(cls.clone(), "init".to_string())) {
+                    ctx.new_method_names
+                        .get(&(cls.clone(), "init".to_string(), *idx))
+                        .cloned()
+                        .or(existing)
+                } else {
+                    existing
+                }
+            } else {
+                existing
+            };
+            ExprKind::New {
+                class,
+                type_args,
+                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+                init_method: new_init,
+            }
+        }
+        ExprKind::Block(b) => ExprKind::Block(rewrite_block(b, ctx)),
         ExprKind::If { cond, then_branch, else_branch } => ExprKind::If {
-            cond: Box::new(rewrite_expr(*cond, overloaded, new_names, picks)),
-            then_branch: rewrite_block(then_branch, overloaded, new_names, picks),
-            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, overloaded, new_names, picks))),
+            cond: Box::new(rewrite_expr(*cond, ctx)),
+            then_branch: rewrite_block(then_branch, ctx),
+            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, ctx))),
         },
         ExprKind::IfLet { name, expr, then_branch, else_branch } => ExprKind::IfLet {
             name,
-            expr: Box::new(rewrite_expr(*expr, overloaded, new_names, picks)),
-            then_branch: rewrite_block(then_branch, overloaded, new_names, picks),
-            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, overloaded, new_names, picks))),
+            expr: Box::new(rewrite_expr(*expr, ctx)),
+            then_branch: rewrite_block(then_branch, ctx),
+            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, ctx))),
         },
         ExprKind::While { cond, body } => ExprKind::While {
-            cond: Box::new(rewrite_expr(*cond, overloaded, new_names, picks)),
-            body: rewrite_block(body, overloaded, new_names, picks),
+            cond: Box::new(rewrite_expr(*cond, ctx)),
+            body: rewrite_block(body, ctx),
         },
         ExprKind::Loop { body } => ExprKind::Loop {
-            body: rewrite_block(body, overloaded, new_names, picks),
+            body: rewrite_block(body, ctx),
         },
         ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
             var,
-            iter: Box::new(rewrite_expr(*iter, overloaded, new_names, picks)),
-            body: rewrite_block(body, overloaded, new_names, picks),
+            iter: Box::new(rewrite_expr(*iter, ctx)),
+            body: rewrite_block(body, ctx),
         },
         ExprKind::Return(opt) => ExprKind::Return(
-            opt.map(|e| Box::new(rewrite_expr(*e, overloaded, new_names, picks))),
+            opt.map(|e| Box::new(rewrite_expr(*e, ctx))),
         ),
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target,
-            value: Box::new(rewrite_expr(*value, overloaded, new_names, picks)),
+            value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
             obj,
             field,
-            value: Box::new(rewrite_expr(*value, overloaded, new_names, picks)),
+            value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj,
             index,
-            value: Box::new(rewrite_expr(*value, overloaded, new_names, picks)),
+            value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::Array(items) => ExprKind::Array(
-            items.into_iter().map(|e| rewrite_expr(e, overloaded, new_names, picks)).collect(),
+            items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .into_iter()
                 .map(|(k, v)| (
-                    rewrite_expr(k, overloaded, new_names, picks),
-                    rewrite_expr(v, overloaded, new_names, picks),
+                    rewrite_expr(k, ctx),
+                    rewrite_expr(v, ctx),
                 ))
                 .collect(),
         ),
         ExprKind::Index { obj, index } => ExprKind::Index {
-            obj: Box::new(rewrite_expr(*obj, overloaded, new_names, picks)),
-            index: Box::new(rewrite_expr(*index, overloaded, new_names, picks)),
+            obj: Box::new(rewrite_expr(*obj, ctx)),
+            index: Box::new(rewrite_expr(*index, ctx)),
         },
         ExprKind::EnumCtor { enum_name, variant, args } => ExprKind::EnumCtor {
             enum_name,
@@ -303,20 +383,20 @@ fn rewrite_expr(
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
                 ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.into_iter().map(|e| rewrite_expr(e, overloaded, new_names, picks)).collect(),
+                    es.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
                 ),
                 ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
-                    fs.into_iter().map(|(n, e)| (n, rewrite_expr(e, overloaded, new_names, picks))).collect(),
+                    fs.into_iter().map(|(n, e)| (n, rewrite_expr(e, ctx))).collect(),
                 ),
             },
         },
         ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-            scrutinee: Box::new(rewrite_expr(*scrutinee, overloaded, new_names, picks)),
+            scrutinee: Box::new(rewrite_expr(*scrutinee, ctx)),
             arms: arms
                 .into_iter()
                 .map(|arm| ilang_ast::MatchArm {
                     pattern: arm.pattern,
-                    body: rewrite_expr(arm.body, overloaded, new_names, picks),
+                    body: rewrite_expr(arm.body, ctx),
                     span: arm.span,
                 })
                 .collect(),
