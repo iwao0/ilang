@@ -573,6 +573,7 @@ impl JitCompiler {
         // form produced by the loader (`math.sin`, etc.).
         crate::math_externs::register_math_symbols(&mut builder);
         crate::test_externs::register_test_symbols(&mut builder);
+        crate::os_externs::register_os_symbols(&mut builder);
         // User `@extern("libfoo")` fns: dlopen each named library
         // (deduplicated) and register each symbol the program names.
         // The Library handles must outlive the JITModule, so we stash

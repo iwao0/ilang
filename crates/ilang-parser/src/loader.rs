@@ -32,6 +32,7 @@ fn builtin_module_source(name: &str) -> Option<&'static str> {
     match name {
         "math" => Some(include_str!("stdlib/math.il")),
         "test" => Some(include_str!("stdlib/test.il")),
+        "os" => Some(include_str!("stdlib/os.il")),
         _ => None,
     }
 }

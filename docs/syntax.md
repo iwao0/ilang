@@ -879,6 +879,28 @@ test.fail("should not reach here")    // 強制失敗
 
 interpreter / JIT 両対応。`crates/ilang-cli/tests/programs/*.il` に置いた `.il` ファイルは、ハーネス (`programs.rs`) が両方で実行 + 終了コードを比較してくれる。
 
+### 組み込み `os` モジュール
+
+OS レベルの状態にアクセスするための薄いヘルパー。現状 `errno()` のみ。
+
+```rust
+use os
+@extern("c") class FILE {}
+@extern("c") fn fopen(path: string, mode: string): FILE?
+
+if let some(f) = fopen("/missing", "r") {
+    // 成功時の処理
+} else {
+    let code = os.errno()
+    // 例: 2 (ENOENT) — ファイルが見つからない
+    // 13 (EACCES) — 権限エラー
+}
+```
+
+- `os.errno(): i32` — 現在のスレッドの `errno` を返す (Windows では `GetLastError()`)。失敗を示す値 (NULL / -1 / 0 など) を返した libc 呼び出しの直後に読むのが慣例
+- 値はエラーが起きるまで持続する。次の libc 呼び出しが成功してもクリアされない (POSIX 仕様)
+- interpreter / JIT 両対応 (Rust 側で `std::io::Error::last_os_error().raw_os_error()` を呼ぶ実装で共通)
+
 ### `const` (定数宣言)
 
 トップレベルで不変の定数を宣言できます。RHS には **コンパイル時に値が決まる式** が書けます。loader の inline pass で folding され、参照箇所はリテラルに置換されます。

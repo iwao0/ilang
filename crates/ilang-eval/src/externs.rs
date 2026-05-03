@@ -87,6 +87,15 @@ pub fn invoke_extern(name: &str, args: &[Value]) -> Option<Value> {
             test_fail(&msg);
             #[allow(unreachable_code)] Some(Value::Unit)
         }
+        // `os.errno()` — current thread's errno (or `GetLastError`
+        // on Windows). Same Rust impl as the JIT side.
+        "os.errno" => {
+            if !args.is_empty() { return None; }
+            let n = std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or(0);
+            Some(Value::Int32(n))
+        }
         _ => None,
     }
 }
@@ -153,5 +162,6 @@ pub fn known_extern_names() -> &'static [&'static str] {
         "math.log2", "math.floor", "math.ceil", "math.round", "math.abs",
         "test.expect", "test.expectStr", "test.expectBool", "test.expectF64",
         "test.expectTrue", "test.expectFalse", "test.fail",
+        "os.errno",
     ]
 }
