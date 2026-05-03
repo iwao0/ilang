@@ -1276,35 +1276,77 @@ pub(crate) fn lower_expr(
                             _ => unreachable!(),
                         };
                         let size = lc.class_layouts[class_id as usize].size;
-                        if size == 0 {
-                            // Zero-sized struct: nothing to push.
-                        } else if size <= 8 {
-                            // Single chunk. Mask to actual bytes so
-                            // unused upper bits are zero (matches what
-                            // a real C-side load of a smaller type
-                            // would see). For exactly 8 B, no mask.
-                            let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
-                            let chunk = if size == 8 {
-                                raw
-                            } else {
-                                let mask = if size == 8 { -1i64 }
-                                    else { (1i64 << (size as i64 * 8)) - 1 };
-                                b.ins().band_imm(raw, mask)
-                            };
-                            arg_vals.push(chunk);
-                        } else {
-                            // Two chunks: low 8 B then the upper N B.
-                            let lo = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
-                            arg_vals.push(lo);
-                            let upper_size = size - 8;
-                            let raw_hi = b.ins().load(I64, MemFlags::trusted(), coerced, 8);
-                            let hi = if upper_size == 8 {
-                                raw_hi
-                            } else {
-                                let mask = (1i64 << (upper_size as i64 * 8)) - 1;
-                                b.ins().band_imm(raw_hi, mask)
-                            };
-                            arg_vals.push(hi);
+                        match crate::compiler::repr_c_by_value_kind(size) {
+                            crate::compiler::ByValueKind::Chunks(n) => {
+                                if n >= 1 {
+                                    let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
+                                    let lo_size = size.min(8);
+                                    let chunk = if lo_size == 8 {
+                                        raw
+                                    } else {
+                                        let mask = (1i64 << (lo_size as i64 * 8)) - 1;
+                                        b.ins().band_imm(raw, mask)
+                                    };
+                                    arg_vals.push(chunk);
+                                }
+                                if n >= 2 {
+                                    let upper_size = size - 8;
+                                    let raw_hi = b.ins().load(
+                                        I64, MemFlags::trusted(), coerced, 8,
+                                    );
+                                    let hi = if upper_size == 8 {
+                                        raw_hi
+                                    } else {
+                                        let mask = (1i64 << (upper_size as i64 * 8)) - 1;
+                                        b.ins().band_imm(raw_hi, mask)
+                                    };
+                                    arg_vals.push(hi);
+                                }
+                            }
+                            crate::compiler::ByValueKind::Indirect => {
+                                // x86_64: the signature param is
+                                // `StructArgument(size)` and Cranelift
+                                // copies the struct onto the stack
+                                // per SysV when given the user
+                                // pointer.
+                                //
+                                // aarch64: AAPCS64 wants a caller-
+                                // allocated copy whose address we
+                                // pass in the next GPR. Allocate a
+                                // stack slot, chunk-copy the struct
+                                // bytes in, and hand over the slot
+                                // address (it's only valid for the
+                                // duration of this call, so it's
+                                // safe to reuse the same slot for
+                                // every indirect by_value site).
+                                #[cfg(target_arch = "x86_64")]
+                                {
+                                    arg_vals.push(coerced);
+                                }
+                                #[cfg(target_arch = "aarch64")]
+                                {
+                                    use cranelift::prelude::{StackSlotData, StackSlotKind};
+                                    let slot = b.create_sized_stack_slot(StackSlotData::new(
+                                        StackSlotKind::ExplicitSlot,
+                                        size,
+                                        3, // 8-byte aligned
+                                    ));
+                                    let dst = b.ins().stack_addr(I64, slot, 0);
+                                    // 8 / 4 / 2 / 1 byte chunk copy.
+                                    let chunks: [(u32, cranelift::prelude::Type); 4] =
+                                        [(8, I64), (4, I32), (2, I16), (1, I8)];
+                                    let mut copied: u32 = 0;
+                                    for (w, cl_ty) in chunks {
+                                        while size - copied >= w {
+                                            let off = copied as i32;
+                                            let v = b.ins().load(cl_ty, MemFlags::trusted(), coerced, off);
+                                            b.ins().store(MemFlags::trusted(), v, dst, off);
+                                            copied += w;
+                                        }
+                                    }
+                                    arg_vals.push(dst);
+                                }
+                            }
                         }
                     } else if is_native && is_managed_opaque(lc, param_tys[i]) {
                         // Managed opaque handle (`@extern class Foo {

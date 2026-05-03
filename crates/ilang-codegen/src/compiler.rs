@@ -481,29 +481,28 @@ pub(crate) struct JitCompiler {
         std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
 }
 
-/// Number of i64 chunks used to pass a `@repr(C)` struct by value.
-/// Caps at 2 (16 bytes) — the universal "composite ≤ 16 B" boundary
-/// shared by AArch64 AAPCS64 and x86_64 SysV. Larger structs would
-/// need indirect passing (sret / by-ref) which we don't implement.
-pub(crate) fn repr_c_chunk_count(
-    size: u32,
-    span: ilang_ast::Span,
-    name: &str,
-) -> Result<u32, CodegenError> {
+/// How a `@repr(C)` struct flows across a `by_value` call boundary.
+/// `Chunks(n)` means "split into `n` i64 GPR slots" (≤ 16 B integer
+/// struct, AArch64 / SysV composite rule). `Indirect` means "pass a
+/// pointer per the platform's struct-by-value ABI" — Cranelift's
+/// `ArgumentPurpose::StructArgument(size)` handles the per-target
+/// detail (AArch64: hidden pointer; SysV: copy onto stack).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ByValueKind {
+    Chunks(u32),
+    Indirect,
+}
+
+pub(crate) fn repr_c_by_value_kind(size: u32) -> ByValueKind {
     if size == 0 {
-        return Ok(0);
+        ByValueKind::Chunks(0)
+    } else if size <= 8 {
+        ByValueKind::Chunks(1)
+    } else if size <= 16 {
+        ByValueKind::Chunks(2)
+    } else {
+        ByValueKind::Indirect
     }
-    if size > 16 {
-        return Err(CodegenError::Unsupported {
-            what: format!(
-                "@extern by_value: struct {:?} is {} B (> 16 B); larger \
-                 structs need indirect passing which is not implemented yet",
-                name, size
-            ),
-            span,
-        });
-    }
-    Ok(if size <= 8 { 1 } else { 2 })
 }
 
 /// Topological sort of class declarations by inline-embedding edges.
@@ -1342,9 +1341,44 @@ impl JitCompiler {
             if is_by_value {
                 if let JitTy::Object(class_id) = *p {
                     let layout = &self.class_layouts[class_id as usize];
-                    let chunks = repr_c_chunk_count(layout.size, f.span, &layout.name)?;
-                    for _ in 0..chunks {
-                        sig.params.push(AbiParam::new(I64));
+                    match repr_c_by_value_kind(layout.size) {
+                        ByValueKind::Chunks(n) => {
+                            for _ in 0..n {
+                                sig.params.push(AbiParam::new(I64));
+                            }
+                        }
+                        ByValueKind::Indirect => {
+                            // Cranelift's StructArgument purpose is
+                            // only implemented on x86_64 — AArch64 /
+                            // riscv64 / s390x panic on it. So:
+                            //   - x86_64: StructArgument(size) (Cranelift copies onto stack per SysV)
+                            //   - aarch64: regular i64 pointer (AAPCS64 passes >16 B
+                            //     aggregates as a caller-allocated copy via pointer);
+                            //     the call lowering allocates a stack slot and memcpys.
+                            //   - other: error
+                            #[cfg(target_arch = "x86_64")]
+                            {
+                                sig.params.push(AbiParam::special(
+                                    I64,
+                                    cranelift_codegen::ir::ArgumentPurpose::StructArgument(layout.size),
+                                ));
+                            }
+                            #[cfg(target_arch = "aarch64")]
+                            {
+                                sig.params.push(AbiParam::new(I64));
+                            }
+                            #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+                            {
+                                return Err(CodegenError::Unsupported {
+                                    what: format!(
+                                        "@extern fn {}: by_value param of struct {} > 16 B \
+                                         is not supported on this target",
+                                        f.name, layout.name
+                                    ),
+                                    span: f.span,
+                                });
+                            }
+                        }
                     }
                     continue;
                 }
@@ -1356,15 +1390,26 @@ impl JitCompiler {
                 }
             })?));
         }
-        // by_value struct return: split into 1–2 i64 chunks the same
-        // way args do. For >16 B we'd need sret (hidden first param);
-        // not implemented yet, so `repr_c_chunk_count` errors there.
         if is_by_value {
             if let JitTy::Object(class_id) = ret {
                 let layout = &self.class_layouts[class_id as usize];
-                let chunks = repr_c_chunk_count(layout.size, f.span, &layout.name)?;
-                for _ in 0..chunks {
-                    sig.returns.push(AbiParam::new(I64));
+                match repr_c_by_value_kind(layout.size) {
+                    ByValueKind::Chunks(n) => {
+                        for _ in 0..n {
+                            sig.returns.push(AbiParam::new(I64));
+                        }
+                    }
+                    ByValueKind::Indirect => {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: by_value struct return {} B \
+                                 needs the sret ABI which is not implemented \
+                                 yet — declare the C fn with an out-pointer",
+                                f.name, layout.size
+                            ),
+                            span: f.span,
+                        });
+                    }
                 }
             } else if let Some(t) = ret.cl() {
                 sig.returns.push(AbiParam::new(t));

@@ -136,6 +136,16 @@ extern "C" fn test_make_range64(lo: i64, hi: i64) -> Range64 {
     Range64 { lo, hi }
 }
 
+// 32-byte struct: indirect pass via Cranelift's StructArgument
+// purpose (AArch64 AAPCS64: hidden pointer; x86_64 SysV: stack).
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Big32 { a: i64, b: i64, c: i64, d: i64 }
+
+extern "C" fn test_big32_sum(big: Big32) -> i64 {
+    big.a + big.b + big.c + big.d
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -168,4 +178,5 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("tagged_payload_if", test_tagged_payload_if as *const u8);
     builder.symbol("make_point2", test_make_point2 as *const u8);
     builder.symbol("make_range64", test_make_range64 as *const u8);
+    builder.symbol("big32_sum", test_big32_sum as *const u8);
 }
