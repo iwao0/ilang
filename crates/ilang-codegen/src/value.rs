@@ -155,6 +155,9 @@ unsafe fn read_field(
             size: 0,
         },
         JitTy::Tuple(_) => JitValue::Tuple { ptr: *(addr as *const i64) },
+        JitTy::EmbeddedArray(_) => unreachable!(
+            "embedded arrays are inline bytes — not surfaced through read paths"
+        ),
         JitTy::Unit => JitValue::Unit,
     }
 }
@@ -453,6 +456,9 @@ pub(crate) unsafe fn read_array(
                 size: 0,
             },
             JitTy::Tuple(_) => JitValue::Tuple { ptr: *(p as *const i64) },
+            JitTy::EmbeddedArray(_) => unreachable!(
+                "embedded arrays are inline bytes — not surfaced through read paths"
+            ),
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

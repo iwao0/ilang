@@ -780,23 +780,34 @@ impl TypeChecker {
         // classes (heap-managed), arrays, optional, etc.
         if c.is_repr_c {
             for f in &c.fields {
+                let primitive_ok = |t: &Type| {
+                    matches!(
+                        t,
+                        Type::I8 | Type::I16 | Type::I32 | Type::I64
+                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                        | Type::F32 | Type::F64
+                        | Type::Bool
+                    )
+                };
                 let ok = match &f.ty {
-                    Type::I8 | Type::I16 | Type::I32 | Type::I64
-                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                    | Type::F32 | Type::F64
-                    | Type::Bool => true,
+                    t if primitive_ok(t) => true,
                     Type::Object(name) => self
                         .classes
                         .get(name)
                         .map(|cs| cs.is_repr_c)
                         .unwrap_or(false),
+                    // Fixed-length numeric arrays — `u8[64]`,
+                    // `i32[4]` etc — are laid out inline (no
+                    // heap allocation, no ARC).
+                    Type::Array { elem, fixed: Some(_) } if primitive_ok(elem) => true,
                     _ => false,
                 };
                 if !ok {
                     return Err(TypeError::Unsupported {
                         what: format!(
                             "@repr(C) class {:?} field {:?}: type {} not supported \
-                             (allowed: numeric primitives / bool / other @repr(C) class)",
+                             (allowed: numeric primitives / bool / other @repr(C) class / \
+                             fixed-length primitive array `T[N]`)",
                             c.name, f.name, f.ty
                         ),
                         span: f.span,

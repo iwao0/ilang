@@ -64,6 +64,13 @@ pub(crate) enum JitTy {
     /// reuse the object helpers. The id indexes the compiler's
     /// `tuple_kinds` side table for per-element layout.
     Tuple(u32),
+    /// Fixed-length numeric array embedded inline in a `@repr(C)`
+    /// class. Unlike `JitTy::Array`, there is no heap header —
+    /// the value carried at runtime is the **base address of the
+    /// element bytes** (i.e. `outer_ptr + field_offset`). Only
+    /// reachable via field access on a `@repr(C)` class; the id
+    /// indexes `array_kinds` for the element type and length.
+    EmbeddedArray(u32),
     Unit,
 }
 
@@ -266,7 +273,8 @@ impl JitTy {
             | JitTy::EnumHeap(_)
             | JitTy::Fn(_)
             | JitTy::Map(_)
-            | JitTy::Tuple(_) => I64,
+            | JitTy::Tuple(_)
+            | JitTy::EmbeddedArray(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -289,7 +297,8 @@ impl JitTy {
             | JitTy::Weak(_)
             | JitTy::Fn(_)
             | JitTy::Map(_)
-            | JitTy::Tuple(_) => 8,
+            | JitTy::Tuple(_)
+            | JitTy::EmbeddedArray(_) => 8,
             JitTy::Unit => 0,
         }
     }

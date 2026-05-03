@@ -627,6 +627,19 @@ pub(crate) fn lower_expr(
                     return Ok(Some((v, fty)));
                 }
             }
+            // Embedded fixed-length numeric array — same idea: the
+            // bytes live inline, so the value carries the base
+            // address of the array slot. Index lowering recognises
+            // `JitTy::EmbeddedArray` and computes per-element
+            // offsets directly (no heap header indirection).
+            if matches!(fty, JitTy::EmbeddedArray(_)) {
+                let v = if offset == 0 {
+                    obj_v
+                } else {
+                    b.ins().iadd_imm(obj_v, offset as i64)
+                };
+                return Ok(Some((v, fty)));
+            }
             let v = b.ins().load(
                 fty.cl().expect("non-unit field"),
                 MemFlags::trusted(),
@@ -1397,6 +1410,36 @@ pub(crate) fn lower_expr(
             if let JitTy::Map(map_id) = obj_t {
                 return lower_map_index_get(b, lc, map_id, obj_v, index);
             }
+            // Embedded array (`@repr(C)` field of fixed numeric
+            // type). `obj_v` holds the base address; compute
+            // `base + i * elem_size` and load. Bounds check uses
+            // the kind's known length.
+            if let JitTy::EmbeddedArray(arr_id) = obj_t {
+                let kind = lc.array_kinds[arr_id as usize];
+                let len = kind
+                    .fixed
+                    .expect("embedded array always has a fixed length") as i64;
+                let elem_jty = kind.elem;
+                let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "index is unit".into(),
+                        span: index.span,
+                    }
+                })?;
+                let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+                let len_v = b.ins().iconst(I64, len);
+                emit_inline_bounds_check(b, lc, idx_i64, len_v);
+                let elem_size = elem_jty.size_bytes() as i64;
+                let off = b.ins().imul_imm(idx_i64, elem_size);
+                let addr = b.ins().iadd(obj_v, off);
+                let v = b.ins().load(
+                    elem_jty.cl().expect("non-unit elem"),
+                    MemFlags::trusted(),
+                    addr,
+                    0,
+                );
+                return Ok(Some((v, elem_jty)));
+            }
             // Tuple indexing: index is a constant integer literal
             // (the type checker enforces this so the element type
             // resolves statically). Load directly from the offset.
@@ -1465,6 +1508,38 @@ pub(crate) fn lower_expr(
             // Map[k] = v: dispatch to ilang_jit_map_set; returns Unit.
             if let JitTy::Map(map_id) = obj_t {
                 return lower_map_index_set(b, lc, map_id, obj_v, index, value, &value.kind);
+            }
+            // Embedded array element write — `obj_v` is the base
+            // address of the inline bytes; compute element addr and
+            // store. No old-value release because primitive elements
+            // aren't heap-managed.
+            if let JitTy::EmbeddedArray(arr_id) = obj_t {
+                let kind = lc.array_kinds[arr_id as usize];
+                let len = kind
+                    .fixed
+                    .expect("embedded array always has a fixed length") as i64;
+                let elem_jty = kind.elem;
+                let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "index is unit".into(),
+                        span: index.span,
+                    }
+                })?;
+                let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+                let len_v = b.ins().iconst(I64, len);
+                emit_inline_bounds_check(b, lc, idx_i64, len_v);
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "assigned value is unit".into(),
+                        span: value.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), elem_jty, value.span)?;
+                let elem_size = elem_jty.size_bytes() as i64;
+                let off = b.ins().imul_imm(idx_i64, elem_size);
+                let addr = b.ins().iadd(obj_v, off);
+                b.ins().store(MemFlags::trusted(), coerced, addr, 0);
+                return Ok(None);
             }
             let array_id = match obj_t {
                 JitTy::Array(id) => id,
@@ -2454,6 +2529,18 @@ fn emit_print_value(
         JitTy::Unit => {
             return Err(CodegenError::Unsupported {
                 what: "console.log of () (unit)".into(),
+                span,
+            });
+        }
+        JitTy::EmbeddedArray(_) => {
+            // Embedded arrays only flow through `Index` access; a
+            // bare `outer.arr` value reaching this print path
+            // means the user used the field as a value, which we
+            // don't support yet.
+            return Err(CodegenError::Unsupported {
+                what: "printing an embedded `T[N]` field directly is not supported \
+                       — index it (e.g. `arr[0]`) instead"
+                    .into(),
                 span,
             });
         }
@@ -3711,6 +3798,18 @@ fn emit_array_bounds_check(
     idx_i64: cranelift::prelude::Value,
 ) {
     let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
+    emit_inline_bounds_check(b, lc, idx_i64, len);
+}
+
+/// Same panic dispatch as `emit_array_bounds_check`, but the length
+/// comes from a caller-provided i64 Value (e.g. an iconst for an
+/// embedded fixed-length array).
+fn emit_inline_bounds_check(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    idx_i64: cranelift::prelude::Value,
+    len: cranelift::prelude::Value,
+) {
     let zero = b.ins().iconst(I64, 0);
     let neg = b.ins().icmp(IntCC::SignedLessThan, idx_i64, zero);
     let too_big = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, idx_i64, len);
@@ -3722,8 +3821,6 @@ fn emit_array_bounds_check(
     b.seal_block(oob);
     let r = lc.module.declare_func_in_func(lc.panic_index_oob_id, b.func);
     b.ins().call(r, &[idx_i64, len]);
-    // The panic helper is `extern "C" fn(...) -> !` but Cranelift can't
-    // see that — emit a trap so the verifier knows we don't fall through.
     b.ins().trap(cranelift_codegen::ir::TrapCode::user(1).expect("trap code"));
     b.switch_to_block(ok);
     b.seal_block(ok);

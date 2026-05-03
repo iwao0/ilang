@@ -1675,6 +1675,16 @@ fn default_value(t: &ilang_ast::Type) -> Value {
         T::Bool => Value::Bool(false),
         T::Str => Value::Str(Rc::new(String::new())),
         T::Optional(_) => Value::None,
+        T::Array { elem, fixed: Some(n) } => {
+            // Fixed-length array: prefill with element defaults so
+            // index access immediately works (mirrors the JIT
+            // `EmbeddedArray` zero-init layout).
+            let mut v: Vec<Value> = Vec::with_capacity(*n);
+            for _ in 0..*n {
+                v.push(default_value(elem));
+            }
+            Value::Array(Rc::new(RefCell::new(v)))
+        }
         T::Array { .. } => Value::Array(Rc::new(RefCell::new(Vec::new()))),
         // Heap reference / Map / Weak / Object / Enum: no safe blank
         // value the interpreter can synthesize — leave as Unit so a

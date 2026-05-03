@@ -1004,13 +1004,14 @@ impl JitCompiler {
             )?;
             // Embedded nested struct: a `@repr(C)` field of another
             // `@repr(C)` class lays its bytes inline (same as C
-            // `struct A { struct B b; }`). Layout uses the inner's
-            // size and alignment; the field's JitTy still resolves
-            // to `Object(inner_id)` so name lookups behave the same,
-            // but the JIT lowering detects the embedded case and
-            // returns a *pointer into the embedded slot* rather
-            // than loading 8 bytes.
-            let (size, align) = if let JitTy::Object(inner_id) = jty {
+            // `struct A { struct B b; }`).
+            //
+            // Embedded numeric array: a `T[N]` field of a `@repr(C)`
+            // class lays its bytes inline (same as C `T arr[N];`)
+            // and the field's JIT type becomes `EmbeddedArray` so
+            // index access knows to compute `base + i * elem_size`
+            // rather than dereferencing a heap header.
+            let (size, align, recorded_jty) = if let JitTy::Object(inner_id) = jty {
                 let inner = &self.class_layouts[inner_id as usize];
                 if c.is_repr_c && inner.is_repr_c {
                     if inner.size == 0 {
@@ -1024,15 +1025,28 @@ impl JitCompiler {
                             span: field.span,
                         });
                     }
-                    (inner.size, inner.align)
+                    (inner.size, inner.align, jty)
                 } else {
-                    (jty.size_bytes(), jty.size_bytes().max(1))
+                    (jty.size_bytes(), jty.size_bytes().max(1), jty)
+                }
+            } else if let JitTy::Array(arr_id) = jty {
+                let kind = self.array_kinds[arr_id as usize];
+                if c.is_repr_c {
+                    let n = kind.fixed.expect(
+                        "type checker already restricted repr_c arrays to fixed-length",
+                    );
+                    let elem_size = kind.elem.size_bytes();
+                    let total = n * elem_size;
+                    let align = elem_size.max(1);
+                    (total, align, JitTy::EmbeddedArray(arr_id))
+                } else {
+                    (jty.size_bytes(), jty.size_bytes().max(1), jty)
                 }
             } else {
-                (jty.size_bytes(), jty.size_bytes().max(1))
+                (jty.size_bytes(), jty.size_bytes().max(1), jty)
             };
             offset = align_up(offset, align);
-            fields.insert(field.name.clone(), (offset, jty));
+            fields.insert(field.name.clone(), (offset, recorded_jty));
             offset += size;
             max_align = max_align.max(align);
         }
@@ -1814,6 +1828,10 @@ impl JitCompiler {
                     let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
                     JitValue::Tuple { ptr: p }
                 }
+                JitTy::EmbeddedArray(_) => unreachable!(
+                    "embedded arrays only flow through chained access; the program's \
+                     tail value would need to be a heap-managed type, not an inline slot"
+                ),
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit
