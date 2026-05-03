@@ -84,9 +84,11 @@ pub(crate) fn register_native_externs(
             }
             owned_return.insert(f.name.clone());
         }
-        // Open (or reuse) the library.
+        // Open (or reuse) the library. Bare names (no `.`) get OS-
+        // specific candidates; literal names like `libc.dylib` are
+        // tried as-is.
         if !libs.contains_key(&lib_name) {
-            let lib = unsafe { Library::new(&lib_name) }.map_err(|e| {
+            let lib = open_library(&lib_name).map_err(|e| {
                 CodegenError::Module(format!(
                     "@extern(\"{lib_name}\") fn {}: cannot dlopen library: {e}",
                     f.name
@@ -147,4 +149,39 @@ fn validate_native_signature(f: &ilang_ast::FnDecl) -> Result<(), CodegenError> 
 
 fn is_native_abi_type(t: &Type) -> bool {
     matches!(t, Type::I64 | Type::F64 | Type::Bool | Type::Str)
+}
+
+/// Try to dlopen `lib_name`. If the name contains a `.` or `/`,
+/// treat it as a literal filename (the user knows the exact form
+/// they want — e.g. `libc.dylib`, `libm.so.6`, `./build/foo.so`).
+/// Otherwise it's a bare module name like `m` / `c` / `sqlite3` and
+/// we try the OS-specific candidates in order until one opens.
+fn open_library(lib_name: &str) -> Result<Library, libloading::Error> {
+    if lib_name.contains('.') || lib_name.contains('/') || lib_name.contains('\\') {
+        return unsafe { Library::new(lib_name) };
+    }
+    let mut last_err: Option<libloading::Error> = None;
+    for cand in candidates_for(lib_name) {
+        match unsafe { Library::new(&cand) } {
+            Ok(lib) => return Ok(lib),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.expect("candidates_for returns at least one entry"))
+}
+
+fn candidates_for(name: &str) -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        vec![format!("lib{name}.dylib"), format!("{name}.dylib")]
+    } else if cfg!(target_os = "windows") {
+        vec![format!("{name}.dll"), format!("lib{name}.dll")]
+    } else {
+        // Linux / *BSD / others: try the unversioned `.so` first
+        // (development symlink), then common SONAME suffixes.
+        let mut out = vec![format!("lib{name}.so")];
+        for n in [6, 5, 4, 3, 2, 1, 0] {
+            out.push(format!("lib{name}.so.{n}"));
+        }
+        out
+    }
 }

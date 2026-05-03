@@ -1505,3 +1505,30 @@ strlen("x")"#;
     let msg = format!("{err}");
     assert!(msg.contains("unknown flag"), "unexpected error: {msg}");
 }
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_bare_name_resolves() {
+    // A name without `.` or `/` is treated as a bare module name —
+    // ilang appends the OS-appropriate prefix/suffix and tries
+    // candidates until one opens. This is the cross-platform form
+    // (no `libm.dylib` vs `libm.so.6` choice in the source).
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"@extern("m") fn sqrt(x: f64): f64
+sqrt(81.0)"#;
+    let toks = tokenize(src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::F64(9.0));
+}
