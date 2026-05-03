@@ -161,6 +161,7 @@ pub(crate) struct LowerCtx<'a> {
     /// callee-owned (`strdup`-style). The Call lowering emits
     /// `libc::free` on the C pointer after copying it.
     pub native_extern_owned_return: &'a std::collections::HashSet<String>,
+    pub native_extern_free_with: &'a std::collections::HashMap<String, String>,
     /// `(class, field) -> slot index` into `static_field_base_addr`.
     /// Read by Field / AssignField lowering on `ClassName.field`.
     pub static_field_slots:

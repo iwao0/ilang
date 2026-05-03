@@ -1143,11 +1143,23 @@ pub(crate) fn lower_expr(
                     // `@extern("lib", owned_return)` — the C side
                     // gave us a heap pointer (e.g. strdup). Free it
                     // now that the bytes are copied into StringRc.
+                    // `free_with.<name>` overrides the default
+                    // `libc::free` with a library-specific
+                    // deallocator (e.g. `sqlite3_free`, `xmlFree`).
                     if lc.native_extern_owned_return.contains(callee) {
-                        let free_ref = lc
-                            .module
-                            .declare_func_in_func(lc.strfns.libc_free, b.func);
-                        b.ins().call(free_ref, &[raw]);
+                        if let Some(free_fn) = lc.native_extern_free_with.get(callee) {
+                            let entry = lc.funcs.get(free_fn).cloned().expect(
+                                "native_extern validation guarantees free fn is declared",
+                            );
+                            let free_ref =
+                                lc.module.declare_func_in_func(entry.0, b.func);
+                            b.ins().call(free_ref, &[raw]);
+                        } else {
+                            let free_ref = lc
+                                .module
+                                .declare_func_in_func(lc.strfns.libc_free, b.func);
+                            b.ins().call(free_ref, &[raw]);
+                        }
                     }
                     Some(copied)
                 } else if is_native && is_managed_opaque(lc, ret_ty) {

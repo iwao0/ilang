@@ -26,6 +26,11 @@ pub(crate) struct NativeExternRegistry {
     /// it must be freed with `libc::free` after we copy the bytes.
     /// Set by the `owned_return` flag in `@extern("libname", owned_return)`.
     pub owned_return: HashSet<String>,
+    /// `caller fn name → free fn name` — overrides the default
+    /// `libc::free` for the `owned_return` cleanup. Set by the
+    /// `free_with.<name>` flag, used when the library has its own
+    /// allocator (`sqlite3_free`, `xmlFree`, `OPENSSL_free`, etc.).
+    pub owned_return_free_with: std::collections::HashMap<String, String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -36,6 +41,7 @@ pub(crate) fn register_native_externs(
     let mut libs: HashMap<String, Library> = HashMap::new();
     let mut names: HashSet<String> = HashSet::new();
     let mut owned_return: HashSet<String> = HashSet::new();
+    let mut owned_return_free_with: HashMap<String, String> = HashMap::new();
     // Pre-collect names of opaque-handle classes — `@extern("lib")
     // class Foo {}`. These are valid as native-extern fn parameter
     // and return types (marshalled as raw i64 pointers).
@@ -62,6 +68,7 @@ pub(crate) fn register_native_externs(
         let mut lib_name: Option<String> = None;
         let mut flag_owned_return = false;
         let mut flag_optional = false;
+        let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
                 AttrArg::Str(s) => lib_name = Some(s.clone()),
@@ -71,10 +78,17 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
                     flag_optional = true;
                 }
+                // `free_with.<fn_name>` — override the default
+                // libc::free with a library-specific deallocator.
+                // The fn name can be a module-qualified path
+                // (`free_with.test.foo` → fn `test.foo`).
+                AttrArg::Path(parts) if parts.len() >= 2 && parts[0] == "free_with" => {
+                    free_with = Some(parts[1..].join("."));
+                }
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`)",
+                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `free_with.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -98,6 +112,60 @@ pub(crate) fn register_native_externs(
                 });
             }
             owned_return.insert(f.name.clone());
+        }
+        if let Some(free_fn) = free_with {
+            if !flag_owned_return {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `free_with.{}` only makes sense alongside `owned_return`",
+                        f.name, free_fn
+                    ),
+                    span: f.span,
+                });
+            }
+            // Verify the named fn is declared as an `@extern` fn in
+            // the same program with the right shape (one i64 / Str
+            // / opaque-class param, no return).
+            let target = prog.items.iter().find_map(|i| match i {
+                Item::Fn(g)
+                    if g.name == free_fn
+                        && g.attrs.iter().any(|a| a.name == "extern") =>
+                {
+                    Some(g)
+                }
+                _ => None,
+            });
+            let target = target.ok_or_else(|| CodegenError::Unsupported {
+                what: format!(
+                    "@extern fn {}: `free_with.{}` references unknown extern fn",
+                    f.name, free_fn
+                ),
+                span: f.span,
+            })?;
+            if target.params.len() != 1 {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `free_with.{}` must take exactly one i64 / opaque-class parameter",
+                        f.name, free_fn
+                    ),
+                    span: f.span,
+                });
+            }
+            // Accept i64 or an opaque-extern class type. The C-side
+            // ABI for both is just a raw pointer.
+            let p_ty = &target.params[0].ty;
+            let ok_param = matches!(p_ty, Type::I64)
+                || matches!(p_ty, Type::Object(name) if opaque_classes.contains(name));
+            if !ok_param {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `free_with.{}` parameter must be i64 or an `@extern` class (got {})",
+                        f.name, free_fn, p_ty
+                    ),
+                    span: f.span,
+                });
+            }
+            owned_return_free_with.insert(f.name.clone(), free_fn);
         }
         // Open (or reuse) the library. Bare names (no `.`) get OS-
         // specific candidates; literal names like `libc.dylib` are
@@ -165,6 +233,7 @@ pub(crate) fn register_native_externs(
         libs: libs.into_values().collect(),
         names,
         owned_return,
+        owned_return_free_with,
     })
 }
 

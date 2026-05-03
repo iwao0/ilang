@@ -19,3 +19,9 @@
 // C callers). JIT-only — the interpreter handler reports
 // "no extern handler".
 @extern fn applyI32Cb(cb: fn(i64, i64): i32, a: i64, b: i64): i32
+// Counter-wrapped libc::free. Calling this counts toward
+// `countedFreeCount`. Used by `free_with` tests to confirm a
+// custom free fn fires at owned_return cleanup. JIT-only — the
+// interpreter has no native free pipeline.
+@extern fn countedFree(ptr: i64)
+@extern fn countedFreeCount(): i32

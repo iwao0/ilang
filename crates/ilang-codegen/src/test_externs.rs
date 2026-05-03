@@ -61,6 +61,29 @@ extern "C" fn test_expect_false(condition: i8) {
     }
 }
 
+/// Counter-wrapped libc::free. Each invocation bumps an atomic
+/// counter so a test can observe how many times it was called.
+/// Pair with `test.countedFreeCount` to check counts before/after
+/// a section of code.
+static FREE_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+extern "C" fn test_counted_free(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    FREE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    unsafe { libc_free_for_test(ptr) };
+}
+
+extern "C" fn test_counted_free_count() -> i32 {
+    FREE_COUNT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+unsafe extern "C" {
+    #[link_name = "free"]
+    fn libc_free_for_test(ptr: i64);
+}
+
 /// Invoke a 2-argument i32 callback and return the result. Used by
 /// the JIT-side callback round-trip test: lets us observe that an
 /// ilang fn was actually called from a non-Cranelift context (the
@@ -92,4 +115,6 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("test.expectFalse", test_expect_false as *const u8);
     builder.symbol("test.fail", test_fail as *const u8);
     builder.symbol("test.applyI32Cb", test_apply_i32_cb as *const u8);
+    builder.symbol("test.countedFree", test_counted_free as *const u8);
+    builder.symbol("test.countedFreeCount", test_counted_free_count as *const u8);
 }
