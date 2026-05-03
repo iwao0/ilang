@@ -778,6 +778,20 @@ impl TypeChecker {
         // Allowed: numeric primitives, bool, and other `@repr(C)`
         // classes (which embed inline). Reject ARC types, regular
         // classes (heap-managed), arrays, optional, etc.
+        if !c.is_repr_c {
+            for f in &c.fields {
+                if f.bits.is_some() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "@bits on field {:?} of class {:?}: bitfields are \
+                             only supported inside `@repr(C)` classes",
+                            f.name, c.name
+                        ),
+                        span: f.span,
+                    });
+                }
+            }
+        }
         if c.is_repr_c {
             for f in &c.fields {
                 let primitive_ok = |t: &Type| {
@@ -805,6 +819,35 @@ impl TypeChecker {
                     Type::Str => true,
                     _ => false,
                 };
+                if let Some(bits) = f.bits {
+                    let max = match &f.ty {
+                        Type::U8 => 8u32,
+                        Type::U16 => 16,
+                        Type::U32 => 32,
+                        Type::U64 => 64,
+                        _ => {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "@bits on field {:?} of class {:?}: bitfields are \
+                                     only supported on unsigned integer types \
+                                     (u8/u16/u32/u64), got {}",
+                                    f.name, c.name, f.ty
+                                ),
+                                span: f.span,
+                            });
+                        }
+                    };
+                    if bits == 0 || bits > max {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "@bits({}) on field {:?} of class {:?}: width must be \
+                                 in 1..={} for {}",
+                                bits, f.name, c.name, max, f.ty
+                            ),
+                            span: f.span,
+                        });
+                    }
+                }
                 if !ok {
                     return Err(TypeError::Unsupported {
                         what: format!(

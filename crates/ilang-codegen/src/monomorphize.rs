@@ -869,7 +869,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         .map(|f| FieldDecl {
             name: f.name.clone(),
             ty: subst_type(&f.ty, &params, args),
-            span: f.span,
+            span: f.span, bits: f.bits,
         })
         .collect();
     let methods = c
@@ -1211,7 +1211,7 @@ fn rewrite_item(item: &Item) -> Item {
                 .map(|f| FieldDecl {
                     name: f.name.clone(),
                     ty: rewrite_type(&f.ty),
-                    span: f.span,
+                    span: f.span, bits: f.bits,
                 })
                 .collect(),
             methods: c.methods.iter().map(rewrite_fn).collect(),
@@ -2593,7 +2593,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
                             .map(|f| FieldDecl {
                                 name: f.name.clone(),
                                 ty: subst_type(&f.ty, &params, &args),
-                                span: f.span,
+                                span: f.span, bits: f.bits,
                             })
                             .collect(),
                     ),
@@ -2813,7 +2813,7 @@ fn rewrite_enum_refs_in_item(
                 .map(|f| FieldDecl {
                     name: f.name.clone(),
                     ty: rewrite_enum_refs_in_type(&f.ty, generic_enums),
-                    span: f.span,
+                    span: f.span, bits: f.bits,
                 })
                 .collect(),
             methods: c
@@ -2925,7 +2925,7 @@ fn rewrite_enum_refs_in_item(
                                 .map(|f| FieldDecl {
                                     name: f.name.clone(),
                                     ty: rewrite_enum_refs_in_type(&f.ty, generic_enums),
-                                    span: f.span,
+                                    span: f.span, bits: f.bits,
                                 })
                                 .collect(),
                         ),

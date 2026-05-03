@@ -382,6 +382,22 @@ pub(crate) struct ClassLayout {
     /// (max of field-type sizes for primitives, recursive for
     /// nested repr_c). Total `size` is rounded up to this.
     pub align: u32,
+    /// Per-field bitfield metadata. Present for fields declared with
+    /// `@bits(N)` inside a `@repr(C)` class. The field's `(offset,
+    /// JitTy)` entry in `fields` already points at the **shared
+    /// storage unit** that all consecutive bitfields of the same
+    /// underlying type pack into; this map adds the bit-level
+    /// position within that unit.
+    pub bitfields: HashMap<String, BitfieldInfo>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BitfieldInfo {
+    /// Bit position of the field's LSB within the storage unit
+    /// (little-endian: bit 0 is the lowest-addressed bit).
+    pub bit_offset: u32,
+    /// Width of the field in bits.
+    pub width: u32,
 }
 
 #[derive(Debug, Clone, Copy)]

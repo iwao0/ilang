@@ -30,6 +30,9 @@ pub enum AttrArg {
     /// A quoted string literal — used by `@extern("libname")` to
     /// name the dynamic library to dlopen at JIT init.
     Str(String),
+    /// An integer literal — used by `@bits(N)` to declare a bitfield
+    /// width.
+    Int(i64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +61,10 @@ pub struct FieldDecl {
     pub name: String,
     pub ty: Type,
     pub span: Span,
+    /// Bitfield width in bits, set by `@bits(N)` on the field. Only
+    /// valid inside `@repr(C)` classes on unsigned integer types.
+    /// `None` means a normal full-width field.
+    pub bits: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

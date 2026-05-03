@@ -970,14 +970,34 @@ impl Interpreter {
                 // Apply the field's declared type as an implicit cast,
                 // mirroring `let x: T = ...`. This covers auto-wrap to
                 // Optional and auto-downgrade Object → Weak.
-                let field_ty = self
+                let (field_ty, bits) = self
                     .classes
                     .get(&class_name)
                     .and_then(|c| c.fields.iter().find(|f| f.name == *field))
-                    .map(|f| f.ty.clone());
+                    .map(|f| (Some(f.ty.clone()), f.bits))
+                    .unwrap_or((None, None));
                 let v = match field_ty {
                     Some(t) => cast_value(v, &t),
                     None => v,
+                };
+                // `@bits(N)` truncates the stored value to N bits so a
+                // subsequent read returns within range — matches what
+                // the JIT does at the storage-unit RMW step.
+                let v = if let Some(w) = bits {
+                    let mask: u64 = if w >= 64 { u64::MAX } else { (1u64 << w) - 1 };
+                    match v {
+                        Value::Int(n) => Value::Int((n as u64 & mask) as i64),
+                        Value::Int8(n) => Value::Int8((n as u64 & mask) as i8),
+                        Value::Int16(n) => Value::Int16((n as u64 & mask) as i16),
+                        Value::Int32(n) => Value::Int32((n as u64 & mask) as i32),
+                        Value::UInt8(n) => Value::UInt8((n as u64 & mask) as u8),
+                        Value::UInt16(n) => Value::UInt16((n as u64 & mask) as u16),
+                        Value::UInt32(n) => Value::UInt32((n as u64 & mask) as u32),
+                        Value::UInt64(n) => Value::UInt64(n & mask),
+                        other => other,
+                    }
+                } else {
+                    v
                 };
                 let old = target.borrow_mut().fields.insert(field.clone(), v);
                 if let Some(o) = old {

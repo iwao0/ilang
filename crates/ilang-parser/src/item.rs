@@ -228,8 +228,45 @@ impl<'a> Parser<'a> {
                 TokenKind::RBrace => break,
                 TokenKind::At => {
                     let attrs = self.parse_attributes()?;
-                    let m = self.parse_method(attrs)?;
-                    methods.push(m);
+                    // Attributes can apply to either a method or a
+                    // field. Look two tokens ahead: `ident :` →
+                    // field (with attrs), `ident (` → method.
+                    let next_kind = self
+                        .tokens
+                        .get(self.pos + 1)
+                        .map(|t| t.kind.clone());
+                    if matches!(next_kind, Some(TokenKind::Colon)) {
+                        let mut f = self.parse_field()?;
+                        // `@bits(N)` is the only field attr today.
+                        for a in &attrs {
+                            if a.name == "bits" {
+                                let bits = match a.args.as_slice() {
+                                    [ilang_ast::AttrArg::Int(n)] if *n >= 1 && *n <= 64 => {
+                                        *n as u32
+                                    }
+                                    _ => return Err(ParseError::Unexpected {
+                                        found: TokenKind::At,
+                                        expected: "@bits(N) with 1 ≤ N ≤ 64".into(),
+                                        span: f.span,
+                                    }),
+                                };
+                                f.bits = Some(bits);
+                            } else {
+                                return Err(ParseError::Unexpected {
+                                    found: TokenKind::At,
+                                    expected: format!(
+                                        "unknown field attribute @{} (only @bits is recognised)",
+                                        a.name
+                                    ),
+                                    span: f.span,
+                                });
+                            }
+                        }
+                        fields.push(f);
+                    } else {
+                        let m = self.parse_method(attrs)?;
+                        methods.push(m);
+                    }
                 }
                 TokenKind::Override => {
                     self.bump(); // consume `override`
@@ -489,6 +526,7 @@ impl<'a> Parser<'a> {
                                 name: f_name,
                                 ty: f_ty,
                                 span: f_span,
+                                bits: None,
                             });
                             if matches!(self.peek().kind, TokenKind::Comma) {
                                 self.bump();
@@ -553,7 +591,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Colon, "':'")?;
         let ty = self.parse_type()?;
         self.consume_stmt_terminator()?;
-        Ok(FieldDecl { name, ty, span })
+        Ok(FieldDecl { name, ty, span, bits: None })
     }
 
     fn parse_method(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
@@ -632,6 +670,10 @@ impl<'a> Parser<'a> {
                             let s = s.clone();
                             self.bump();
                             args.push(AttrArg::Str(s));
+                        } else if let TokenKind::Int(n) = &self.peek().kind {
+                            let n = *n;
+                            self.bump();
+                            args.push(AttrArg::Int(n));
                         } else {
                             let path = self.parse_attr_path()?;
                             args.push(AttrArg::Path(path));

@@ -462,6 +462,41 @@ pub(crate) fn lower_expr(
             } else {
                 false
             };
+            // Bitfield write: read-modify-write on the storage unit.
+            //   old = load unit
+            //   cleared = old & ~(mask << bit_offset)
+            //   newbits = (value & mask) << bit_offset
+            //   store(cleared | newbits)
+            // Higher bits of `value` are silently truncated to the
+            // declared width — matches C's bitfield assignment.
+            if let Some(bf) = layout.bitfields.get(field).copied() {
+                let unit_ty = fty.cl().expect("non-unit bitfield underlying");
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "bitfield value is unit".into(),
+                        span: e.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), fty, e.span)?;
+                let width_mask: i64 =
+                    if bf.width >= 64 { -1 } else { (1i64 << bf.width) - 1 };
+                let shifted_mask: i64 = if bf.width >= 64 {
+                    -1
+                } else {
+                    width_mask << bf.bit_offset
+                };
+                let old = b.ins().load(unit_ty, MemFlags::trusted(), obj_v, offset as i32);
+                let cleared = b.ins().band_imm(old, !shifted_mask);
+                let val_masked = b.ins().band_imm(coerced, width_mask);
+                let val_shifted = if bf.bit_offset == 0 {
+                    val_masked
+                } else {
+                    b.ins().ishl_imm(val_masked, bf.bit_offset as i64)
+                };
+                let merged = b.ins().bor(cleared, val_shifted);
+                b.ins().store(MemFlags::trusted(), merged, obj_v, offset as i32);
+                return Ok(None);
+            }
             if is_embedded_struct {
                 let inner_id = match fty {
                     JitTy::Object(id) => id,
@@ -639,6 +674,24 @@ pub(crate) fn lower_expr(
                     b.ins().iadd_imm(obj_v, offset as i64)
                 };
                 return Ok(Some((v, fty)));
+            }
+            // Bitfield read: load the storage unit, shift down to the
+            // field's bit position, mask to its width. The underlying
+            // type is unsigned, so a logical shift / mask gives the
+            // correctly zero-extended value. (Signed bitfields would
+            // need an arithmetic shift to sign-extend; rejected at
+            // type-check.)
+            if let Some(bf) = layout.bitfields.get(name).copied() {
+                let unit_ty = fty.cl().expect("non-unit bitfield underlying");
+                let raw = b.ins().load(unit_ty, MemFlags::trusted(), obj_v, offset as i32);
+                let shifted = if bf.bit_offset == 0 {
+                    raw
+                } else {
+                    b.ins().ushr_imm(raw, bf.bit_offset as i64)
+                };
+                let mask: i64 = if bf.width >= 64 { -1 } else { (1i64 << bf.width) - 1 };
+                let masked = b.ins().band_imm(shifted, mask);
+                return Ok(Some((masked, fty)));
             }
             let v = b.ins().load(
                 fty.cl().expect("non-unit field"),

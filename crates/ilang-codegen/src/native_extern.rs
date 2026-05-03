@@ -129,6 +129,12 @@ pub(crate) fn register_native_externs(
                         span: f.span,
                     });
                 }
+                AttrArg::Int(_) => {
+                    return Err(CodegenError::Unsupported {
+                        what: "@extern: integer arg not allowed".into(),
+                        span: f.span,
+                    });
+                }
             }
         }
         let lib_name = lib_names.first().cloned().expect("filter above guarantees a Str arg");

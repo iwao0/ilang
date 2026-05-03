@@ -1084,6 +1084,7 @@ impl JitCompiler {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             align: 1,
+            bitfields: HashMap::new(),
         });
         self.class_methods.push(HashMap::new());
         Ok(())
@@ -1108,6 +1109,15 @@ impl JitCompiler {
             } else {
                 (0u32, 1u32, HashMap::new())
             };
+        let mut bitfields: HashMap<String, crate::ty::BitfieldInfo> = HashMap::new();
+        // Active bitfield run state (GCC-style packing): consecutive
+        // `@bits` fields of the same underlying integer width share
+        // one storage unit at `bf_unit_offset`. The run closes when
+        // a non-bitfield arrives, the underlying type changes, or
+        // the next field's width wouldn't fit in the remaining bits.
+        let mut bf_unit_offset: u32 = 0;
+        let mut bf_unit_size: u32 = 0; // 0 = no open run
+        let mut bf_used_bits: u32 = 0;
         for field in &c.fields {
             let jty = JitTy::from_ast(
                 &field.ty,
@@ -1118,6 +1128,43 @@ impl JitCompiler {
                 &mut self.array_kinds,
                 &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds,
             )?;
+            // Bitfield: pack into a shared storage unit. The
+            // type-checker restricts these to unsigned ints inside a
+            // `@repr(C)` class, so jty here is one of U8/U16/U32/U64.
+            if let Some(width) = field.bits {
+                let unit = jty.size_bytes();
+                let unit_bits = unit * 8;
+                let need_new_unit = bf_unit_size == 0
+                    || bf_unit_size != unit
+                    || bf_used_bits + width > unit_bits;
+                if need_new_unit {
+                    // Close any previous run first.
+                    if bf_unit_size != 0 {
+                        offset = bf_unit_offset + bf_unit_size;
+                    }
+                    offset = align_up(offset, unit);
+                    bf_unit_offset = offset;
+                    bf_unit_size = unit;
+                    bf_used_bits = 0;
+                    max_align = max_align.max(unit);
+                }
+                fields.insert(field.name.clone(), (bf_unit_offset, jty));
+                bitfields.insert(
+                    field.name.clone(),
+                    crate::ty::BitfieldInfo {
+                        bit_offset: bf_used_bits,
+                        width,
+                    },
+                );
+                bf_used_bits += width;
+                continue;
+            }
+            // Non-bitfield: close any open bitfield run before placing.
+            if bf_unit_size != 0 {
+                offset = bf_unit_offset + bf_unit_size;
+                bf_unit_size = 0;
+                bf_used_bits = 0;
+            }
             // Embedded nested struct: a `@repr(C)` field of another
             // `@repr(C)` class lays its bytes inline (same as C
             // `struct A { struct B b; }`).
@@ -1159,9 +1206,14 @@ impl JitCompiler {
             offset += size;
             max_align = max_align.max(align);
         }
+        // Close any trailing bitfield run.
+        if bf_unit_size != 0 {
+            offset = bf_unit_offset + bf_unit_size;
+        }
         let size = align_up(offset.max(1), max_align);
         self.class_layouts[id].fields = fields;
         self.class_layouts[id].align = max_align;
+        self.class_layouts[id].bitfields = bitfields;
         // Opaque-handle classes with a `deinit` get one hidden i64
         // slot at offset 0 — the wrapped C pointer. Without `deinit`
         // the value flows as a raw C pointer (no ilang allocation).
