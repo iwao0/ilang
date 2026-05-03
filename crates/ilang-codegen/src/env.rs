@@ -229,6 +229,10 @@ pub(crate) struct LowerCtx<'a> {
     pub optional_inners: &'a mut Vec<JitTy>,
     pub fn_signatures: &'a mut Vec<FnSignature>,
     pub map_kinds: &'a mut Vec<crate::ty::MapKind>,
+    pub tuple_kinds: &'a mut Vec<crate::ty::TupleKind>,
+    /// Per-tuple-kind drop wrapper, lazily declared during lowering.
+    /// `None` means no element is heap so no drop is needed.
+    pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,
     /// Per-(K, V) drop helper for Map values; lazily generated.
     pub map_drops: &'a mut HashMap<u32, Option<FuncId>>,
     /// Per-class drop wrappers, indexed by class id. `None` for trivial

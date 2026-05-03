@@ -589,9 +589,21 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LParen => {
                 self.bump();
-                let e = self.parse_expr(0)?;
+                let first = self.parse_expr(0)?;
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    let mut elems = vec![first];
+                    while matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                        if matches!(self.peek().kind, TokenKind::RParen) {
+                            break;
+                        }
+                        elems.push(self.parse_expr(0)?);
+                    }
+                    self.expect(&TokenKind::RParen, "')'")?;
+                    return Ok(Expr::new(ExprKind::Tuple(elems), span));
+                }
                 self.expect(&TokenKind::RParen, "')'")?;
-                Ok(e)
+                Ok(first)
             }
             TokenKind::LBrace => {
                 // Map literal vs. block disambiguation. A `{` followed by

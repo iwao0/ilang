@@ -31,6 +31,10 @@ pub enum Value {
     /// mutable in place — mutation through one binding is visible to all
     /// aliases, matching the JS array model.
     Array(Rc<RefCell<Vec<Value>>>),
+    /// Anonymous tuple `(a, b, ...)`. Heterogeneous and immutable —
+    /// indexing requires a constant integer literal at the type-check
+    /// stage. Wrapped in `Rc` so passing/cloning is cheap.
+    Tuple(Rc<Vec<Value>>),
     Unit,
     Object(ObjectRef),
     /// `T?` — `None` is the absent state, `Some(v)` wraps a present value.
@@ -127,6 +131,7 @@ impl PartialEq for Value {
             (Bool(a), Bool(b)) => a == b,
             (Str(a), Str(b)) => a == b,
             (Array(a), Array(b)) => a == b,
+            (Tuple(a), Tuple(b)) => a == b,
             (Unit, Unit) => true,
             (Object(a), Object(b)) => Rc::ptr_eq(a, b),
             (None, None) => true,
@@ -186,6 +191,16 @@ impl std::fmt::Display for Value {
                     write!(f, "{v}")?;
                 }
                 write!(f, "]")
+            }
+            Value::Tuple(elems) => {
+                write!(f, "(")?;
+                for (i, v) in elems.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
             }
             Value::Unit => write!(f, "()"),
             Value::None => write!(f, "none"),

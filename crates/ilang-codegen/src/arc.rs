@@ -142,6 +142,9 @@ pub(crate) fn emit_retain_heap(
         JitTy::Weak(_) => emit_retain_weak(b, lc, ptr),
         JitTy::EnumHeap(_) => emit_retain_object(b, lc, ptr),
         JitTy::Map(_) => emit_retain_map(b, lc, ptr),
+        // Tuples share the object header (alloc_object); retain via
+        // the same i64-rc helper.
+        JitTy::Tuple(_) => emit_retain_object(b, lc, ptr),
         // Closure structs have their own ARC helpers.
         JitTy::Fn(_) => {
             let r = lc.module.declare_func_in_func(lc.retain_closure_id, b.func);
@@ -185,6 +188,12 @@ pub(crate) fn emit_release_heap(
         JitTy::Weak(class_id) => emit_release_weak(b, lc, ptr, class_id),
         JitTy::EnumHeap(enum_id) => emit_release_enum_heap(b, lc, ptr, enum_id),
         JitTy::Map(_) => emit_release_map(b, lc, ptr),
+        JitTy::Tuple(tuple_id) => {
+            let size = lc.tuple_kinds[tuple_id as usize].size as i64;
+            let size_v = b.ins().iconst(I64, size);
+            let r = lc.module.declare_func_in_func(lc.release_object_id, b.func);
+            b.ins().call(r, &[ptr, size_v]);
+        }
         JitTy::Fn(_) => {
             let r = lc
                 .module

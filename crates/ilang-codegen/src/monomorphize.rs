@@ -405,6 +405,9 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
         ExprKind::Array(items) => ExprKind::Array(
             items.iter().map(|i| hoist_in_expr(i, ctx)).collect(),
         ),
+        ExprKind::Tuple(items) => ExprKind::Tuple(
+            items.iter().map(|i| hoist_in_expr(i, ctx)).collect(),
+        ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
@@ -739,6 +742,11 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(i, needed, work);
             }
         }
+        ExprKind::Tuple(items) => {
+            for i in items {
+                scan_expr(i, needed, work);
+            }
+        }
         ExprKind::MapLit(entries) => {
             for (k, v) in entries {
                 scan_expr(k, needed, work);
@@ -1065,6 +1073,9 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         ExprKind::Array(items) => ExprKind::Array(
             items.iter().map(|e| subst_expr(e, params, args)).collect(),
         ),
+        ExprKind::Tuple(items) => ExprKind::Tuple(
+            items.iter().map(|e| subst_expr(e, params, args)).collect(),
+        ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
@@ -1380,6 +1391,9 @@ fn rewrite_expr(e: &Expr) -> Expr {
         },
         ExprKind::Array(items) => {
             ExprKind::Array(items.iter().map(rewrite_expr).collect())
+        }
+        ExprKind::Tuple(items) => {
+            ExprKind::Tuple(items.iter().map(rewrite_expr).collect())
         }
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
@@ -2078,6 +2092,11 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(i);
             }
         }
+        ExprKind::Tuple(items) => {
+            for i in items {
+                f(i);
+            }
+        }
         ExprKind::MapLit(entries) => {
             for (k, v) in entries {
                 f(k);
@@ -2240,6 +2259,7 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             value: Box::new(f(value)),
         },
         ExprKind::Array(items) => ExprKind::Array(items.iter().map(|e| f(e)).collect()),
+        ExprKind::Tuple(items) => ExprKind::Tuple(items.iter().map(|e| f(e)).collect()),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries.iter().map(|(k, v)| (f(k), f(v))).collect(),
         ),

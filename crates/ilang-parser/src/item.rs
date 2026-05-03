@@ -764,6 +764,27 @@ impl<'a> Parser<'a> {
                 ret: Box::new(ret),
             });
         }
+        // Tuple type: `(T1, T2, ...)`. A single `(T)` is grouping and
+        // returns `T` itself; `()` would be unit but is not currently
+        // emitted by the type parser.
+        if matches!(t.kind, TokenKind::LParen) {
+            self.bump();
+            let first = self.parse_type()?;
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                let mut elems = vec![first];
+                while matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    if matches!(self.peek().kind, TokenKind::RParen) {
+                        break;
+                    }
+                    elems.push(self.parse_type()?);
+                }
+                self.expect(&TokenKind::RParen, "')'")?;
+                return Ok(Type::Tuple(elems));
+            }
+            self.expect(&TokenKind::RParen, "')'")?;
+            return Ok(first);
+        }
         let mut ty = match t.kind {
             TokenKind::Ident(n) => {
                 self.bump();

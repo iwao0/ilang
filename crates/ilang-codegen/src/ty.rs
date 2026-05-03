@@ -59,6 +59,11 @@ pub(crate) enum JitTy {
     /// side table for the key / value JitTys; storage is an `i64`
     /// pointer to a `MapHeader` (see runtime.rs).
     Map(u32),
+    /// Anonymous tuple `(T1, T2, ...)`. Heap-allocated like an Object —
+    /// shares the strong/weak/drop/vtable header so retain/release can
+    /// reuse the object helpers. The id indexes the compiler's
+    /// `tuple_kinds` side table for per-element layout.
+    Tuple(u32),
     Unit,
 }
 
@@ -74,6 +79,7 @@ impl JitTy {
         optional_inners: &mut Vec<JitTy>,
         fn_signatures: &mut Vec<FnSignature>,
         map_kinds: &mut Vec<MapKind>,
+        tuple_kinds: &mut Vec<TupleKind>,
     ) -> Result<Self, CodegenError> {
         if let Type::Fn { params, ret } = t {
             let mut p = Vec::with_capacity(params.len());
@@ -88,6 +94,7 @@ impl JitTy {
                     optional_inners,
                     fn_signatures,
                     map_kinds,
+                    tuple_kinds,
                 )?);
             }
             let r = Self::from_ast(
@@ -100,9 +107,29 @@ impl JitTy {
                 optional_inners,
                 fn_signatures,
                 map_kinds,
+                tuple_kinds,
             )?;
             let id = intern_fn_sig(fn_signatures, FnSignature { params: p, ret: r });
             return Ok(JitTy::Fn(id));
+        }
+        if let Type::Tuple(elems) = t {
+            let mut jtys = Vec::with_capacity(elems.len());
+            for et in elems {
+                jtys.push(Self::from_ast(
+                    et,
+                    span,
+                    class_ids,
+                    enum_ids,
+                    enum_layouts,
+                    array_kinds,
+                    optional_inners,
+                    fn_signatures,
+                    map_kinds,
+                    tuple_kinds,
+                )?);
+            }
+            let id = intern_tuple_kind(tuple_kinds, jtys);
+            return Ok(JitTy::Tuple(id));
         }
         // Built-in `Map<K, V>` flows through monomorphization as
         // `Type::Generic { base: "Map", args: [K, V] }`. Resolve K and V
@@ -111,11 +138,11 @@ impl JitTy {
             if base == "Map" && args.len() == 2 {
                 let key = Self::from_ast(
                     &args[0], span, class_ids, enum_ids, enum_layouts,
-                    array_kinds, optional_inners, fn_signatures, map_kinds,
+                    array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds,
                 )?;
                 let val = Self::from_ast(
                     &args[1], span, class_ids, enum_ids, enum_layouts,
-                    array_kinds, optional_inners, fn_signatures, map_kinds,
+                    array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds,
                 )?;
                 let id = intern_map_kind(map_kinds, MapKind { key, val });
                 return Ok(JitTy::Map(id));
@@ -179,7 +206,7 @@ impl JitTy {
                 }
             }
             Type::Array { elem, fixed } => {
-                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
+                let elem_jty = JitTy::from_ast(elem, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds)?;
                 let id = intern_array_kind(
                     array_kinds,
                     ArrayKind {
@@ -190,7 +217,7 @@ impl JitTy {
                 JitTy::Array(id)
             }
             Type::Optional(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds)?;
                 // Heap inner: nullable pointer (0 = None). Primitive
                 // inner: heap-boxed payload (see runtime.rs for the
                 // [rc, payload] layout). Either way it stores as i64.
@@ -204,7 +231,7 @@ impl JitTy {
                 JitTy::Optional(id)
             }
             Type::Weak(inner) => {
-                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds)?;
+                let inner_jty = JitTy::from_ast(inner, span, class_ids, enum_ids, enum_layouts, array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds)?;
                 match inner_jty {
                     JitTy::Object(class_id) => JitTy::Weak(class_id),
                     _ => {
@@ -238,7 +265,8 @@ impl JitTy {
             | JitTy::Weak(_)
             | JitTy::EnumHeap(_)
             | JitTy::Fn(_)
-            | JitTy::Map(_) => I64,
+            | JitTy::Map(_)
+            | JitTy::Tuple(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -260,7 +288,8 @@ impl JitTy {
             | JitTy::Optional(_)
             | JitTy::Weak(_)
             | JitTy::Fn(_)
-            | JitTy::Map(_) => 8,
+            | JitTy::Map(_)
+            | JitTy::Tuple(_) => 8,
             JitTy::Unit => 0,
         }
     }
@@ -279,6 +308,7 @@ impl JitTy {
                 | JitTy::EnumHeap(_)
                 | JitTy::Map(_)
                 | JitTy::Fn(_)
+                | JitTy::Tuple(_)
         )
     }
 
@@ -336,6 +366,39 @@ pub(crate) struct ClassLayout {
 pub(crate) struct ArrayKind {
     pub elem: JitTy,
     pub fixed: Option<u32>,
+}
+
+/// Layout of a tuple kind. `offsets` and `size` are computed once at
+/// intern time using the same `align_up` rule as `ClassLayout` so the
+/// runtime ARC helpers (which expect the standard object header) work
+/// unchanged.
+#[derive(Debug, Clone)]
+pub(crate) struct TupleKind {
+    pub elems: Vec<JitTy>,
+    pub offsets: Vec<u32>,
+    pub size: u32,
+}
+
+pub(crate) fn intern_tuple_kind(
+    table: &mut Vec<TupleKind>,
+    elems: Vec<JitTy>,
+) -> u32 {
+    if let Some(idx) = table.iter().position(|t| t.elems == elems) {
+        return idx as u32;
+    }
+    let mut offsets = Vec::with_capacity(elems.len());
+    let mut off: u32 = 0;
+    for ty in &elems {
+        let sz = ty.size_bytes();
+        let align = sz.max(1);
+        off = align_up(off, align);
+        offsets.push(off);
+        off += sz;
+    }
+    let size = align_up(off, 8).max(8);
+    let id = table.len() as u32;
+    table.push(TupleKind { elems, offsets, size });
+    id
 }
 
 /// Per-(K, V) info for a `Map<K, V>` instantiation. Indexed by

@@ -326,6 +326,15 @@ pub(crate) fn coerce(
     if matches!(from, JitTy::Array(_)) && matches!(to, JitTy::Array(_)) {
         return Ok(v);
     }
+    // Tuples share runtime representation across kinds (the offsets
+    // depend only on element widths, and tuple element widths are
+    // either i64 for heap pointers or the primitive's natural width;
+    // the type checker has already accepted the structural shape).
+    // The kind id may legitimately differ when one element is a
+    // fixed-array literal and the annotation asked for dynamic, etc.
+    if matches!(from, JitTy::Tuple(_)) && matches!(to, JitTy::Tuple(_)) {
+        return Ok(v);
+    }
     // Optional<X> values share runtime representation (i64 nullable
     // pointer) regardless of inner. Auto-wrap T → T? also lands here:
     // a heap pointer is identical to its Optional-wrapped form.

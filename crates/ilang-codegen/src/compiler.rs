@@ -139,6 +139,7 @@ fn jit_run_inner(
                 &mut compiler.optional_inners,
                 &mut compiler.fn_signatures,
                 &mut compiler.map_kinds,
+                &mut compiler.tuple_kinds,
             ))
             .collect::<Result<_, _>>()?;
         let ret = if let Some(rt) = &meta.ret_ty {
@@ -152,6 +153,7 @@ fn jit_run_inner(
                 &mut compiler.optional_inners,
                 &mut compiler.fn_signatures,
                 &mut compiler.map_kinds,
+                &mut compiler.tuple_kinds,
             )?
         } else {
             crate::ty::JitTy::Unit
@@ -168,6 +170,7 @@ fn jit_run_inner(
                 &mut compiler.optional_inners,
                 &mut compiler.fn_signatures,
                 &mut compiler.map_kinds,
+                &mut compiler.tuple_kinds,
             )?;
             captures.push((cn.clone(), jty));
         }
@@ -229,6 +232,7 @@ fn jit_run_inner(
     crate::drops::define_enum_drops(&mut compiler)?;
     crate::drops::define_map_drops(&mut compiler)?;
     crate::drops::define_map_value_retains(&mut compiler)?;
+    crate::drops::define_tuple_drops(&mut compiler)?;
     crate::drops::define_closure_drops(&mut compiler)?;
     compiler.finalize()?;
     Ok(compiler.run_main(main_ret))
@@ -287,6 +291,11 @@ pub(crate) struct JitCompiler {
     pub(crate) optional_inners: Vec<JitTy>,
     pub(crate) fn_signatures: Vec<FnSignature>,
     pub(crate) map_kinds: Vec<crate::ty::MapKind>,
+    pub(crate) tuple_kinds: Vec<crate::ty::TupleKind>,
+    /// Per-tuple-kind drop helper: walks heap-typed elements and
+    /// releases each. Lazily generated; absent when no element is
+    /// heap (the runtime sees drop_fn=0 and skips the call).
+    pub(crate) tuple_drops: HashMap<u32, Option<FuncId>>,
     /// Per-(K, V) drop helper: a JIT-generated extern "C" fn that the
     /// runtime calls back to release one heap-typed value when a Map
     /// entry is overwritten or the map dies. Lazily generated; absent
@@ -745,6 +754,8 @@ impl JitCompiler {
             map_kinds: Vec::new(),
             map_drops: HashMap::new(),
             map_value_retains: HashMap::new(),
+            tuple_kinds: Vec::new(),
+            tuple_drops: HashMap::new(),
             alloc_object_id,
             retain_object_id,
             release_object_id,
@@ -871,7 +882,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
+                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -893,7 +904,7 @@ impl JitCompiler {
                             &self.enum_ids,
                             &self.enum_layouts,
                             &mut self.array_kinds,
-                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
+                            &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds,
                         )?;
                         let size = jty.size_bytes();
                         let align = size.max(1);
@@ -959,7 +970,7 @@ impl JitCompiler {
                 &self.enum_ids,
                 &self.enum_layouts,
                 &mut self.array_kinds,
-                &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds,
+                &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds,
             )?;
             let size = jty.size_bytes();
             let align = size.max(1);
@@ -1074,10 +1085,10 @@ impl JitCompiler {
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
         let mut params = Vec::with_capacity(f.params.len());
         for p in &f.params {
-            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?);
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?);
         }
         let ret = match &f.ret {
-            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?,
+            Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?,
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
@@ -1272,6 +1283,8 @@ impl JitCompiler {
             optional_inners: &mut self.optional_inners,
             fn_signatures: &mut self.fn_signatures,
             map_kinds: &mut self.map_kinds,
+            tuple_kinds: &mut self.tuple_kinds,
+            tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
@@ -1366,7 +1379,7 @@ impl JitCompiler {
                 .insert(name.clone(), ast_caps.clone());
         }
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
-        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?;
+        let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?;
 
         let mut sig = self.module.make_signature();
         if let Some(t) = ret_ty.cl() {
@@ -1468,6 +1481,8 @@ impl JitCompiler {
             optional_inners: &mut self.optional_inners,
             fn_signatures: &mut self.fn_signatures,
             map_kinds: &mut self.map_kinds,
+            tuple_kinds: &mut self.tuple_kinds,
+            tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
@@ -1724,6 +1739,10 @@ impl JitCompiler {
                         val_ty: format!("{:?}", kind.val),
                         size,
                     }
+                }
+                JitTy::Tuple(_) => {
+                    let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    JitValue::Tuple { ptr: p }
                 }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();

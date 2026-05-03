@@ -154,6 +154,7 @@ unsafe fn read_field(
             val_ty: "?".into(),
             size: 0,
         },
+        JitTy::Tuple(_) => JitValue::Tuple { ptr: *(addr as *const i64) },
         JitTy::Unit => JitValue::Unit,
     }
 }
@@ -269,6 +270,10 @@ pub enum JitValue {
     /// Two `Fn(p)` values compare equal iff they point at the same
     /// JITed function.
     Fn(i64),
+    /// Tuple result surfaced as a raw heap pointer. Element-level
+    /// unwrap isn't done here — tests print individual elements via
+    /// `console.log(t[i])` from inside the JIT program.
+    Tuple { ptr: i64 },
     /// Built-in `Map<K, V>` surfaced to the host. Internals are
     /// summarized; full key/value enumeration would require dispatching
     /// on K/V kinds and is out of scope for the simple Display.
@@ -314,6 +319,7 @@ impl std::fmt::Display for JitValue {
             JitValue::Weak { class, alive: true } => write!(f, "<weak {class} alive>"),
             JitValue::Weak { class, alive: false } => write!(f, "<weak {class} dead>"),
             JitValue::Fn(p) => write!(f, "<fn @ {p:#x}>"),
+            JitValue::Tuple { ptr } => write!(f, "<tuple @ {ptr:#x}>"),
             JitValue::Map { key_ty, val_ty, size } => {
                 write!(f, "<Map<{key_ty}, {val_ty}> size={size}>")
             }
@@ -446,6 +452,7 @@ pub(crate) unsafe fn read_array(
                 val_ty: "?".into(),
                 size: 0,
             },
+            JitTy::Tuple(_) => JitValue::Tuple { ptr: *(p as *const i64) },
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

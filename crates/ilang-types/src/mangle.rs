@@ -405,6 +405,9 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Array(items) => ExprKind::Array(
             items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
+        ExprKind::Tuple(items) => ExprKind::Tuple(
+            items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
+        ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .into_iter()

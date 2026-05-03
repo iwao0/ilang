@@ -559,6 +559,9 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         ExprKind::Array(items) => {
             ExprKind::Array(items.into_iter().map(|e| prefix_expr(e, prefix)).collect())
         }
+        ExprKind::Tuple(items) => {
+            ExprKind::Tuple(items.into_iter().map(|e| prefix_expr(e, prefix)).collect())
+        }
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .into_iter()
@@ -1051,6 +1054,9 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
             value: Box::new(subst_const_expr(*value, consts)),
         },
         ExprKind::Array(items) => ExprKind::Array(
+            items.into_iter().map(|e| subst_const_expr(e, consts)).collect(),
+        ),
+        ExprKind::Tuple(items) => ExprKind::Tuple(
             items.into_iter().map(|e| subst_const_expr(e, consts)).collect(),
         ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(

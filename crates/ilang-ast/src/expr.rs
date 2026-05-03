@@ -164,6 +164,10 @@ pub enum ExprKind {
     },
     /// Array literal: `[a, b, c]`.
     Array(Vec<Expr>),
+    /// Tuple literal `(a, b, ...)` — always 2+ elements (`(x)` is
+    /// grouping). Heterogeneous; indexed via `t[N]` with a constant
+    /// integer literal.
+    Tuple(Vec<Expr>),
     /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
     /// expressions (string / int / bool literals at parse time;
     /// validated against the inferred K by the type checker).

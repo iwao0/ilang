@@ -341,6 +341,7 @@ pub(crate) fn lower_loop(
                 lc.optional_inners,
                 lc.fn_signatures,
                 lc.map_kinds,
+                lc.tuple_kinds,
             )
             .ok()?;
             let cl = jty.cl()?;

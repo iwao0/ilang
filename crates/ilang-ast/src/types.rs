@@ -37,6 +37,10 @@ pub enum Type {
         elem: Box<Type>,
         fixed: Option<usize>,
     },
+    /// Anonymous product type `(T1, T2, ...)`. Always 2+ elements
+    /// (`(T)` parses as grouping; `()` is `Unit`). Heterogeneous —
+    /// indexing requires a constant integer literal.
+    Tuple(Vec<Type>),
     /// `T?` — value that may be present (`some(v)`) or absent (`none`).
     /// Construction auto-wraps a `T` in any context expecting a `T?`.
     Optional(Box<Type>),
@@ -123,6 +127,16 @@ impl std::fmt::Display for Type {
             Type::Enum(name) => write!(f, "{name}"),
             Type::Array { elem, fixed: None } => write!(f, "{elem}[]"),
             Type::Array { elem, fixed: Some(n) } => write!(f, "{elem}[{n}]"),
+            Type::Tuple(elems) => {
+                write!(f, "(")?;
+                for (i, t) in elems.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{t}")?;
+                }
+                write!(f, ")")
+            }
             Type::Optional(inner) => write!(f, "{inner}?"),
             Type::Weak(inner) => write!(f, "{inner}.weak"),
             Type::Any => write!(f, "any"),

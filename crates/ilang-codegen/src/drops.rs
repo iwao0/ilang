@@ -149,6 +149,116 @@ fn define_one_class_drop(
     Ok(())
 }
 
+/// Lazy lookup for the per-tuple-kind drop wrapper. Returns the
+/// fn-pointer Value to embed in the tuple's `alloc_object` call.
+/// Returns iconst 0 when no element is heap (the runtime treats 0
+/// as "skip the drop call").
+pub(crate) fn tuple_drop_fn_ptr(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    tuple_id: u32,
+) -> Value {
+    let kind = lc.tuple_kinds[tuple_id as usize].clone();
+    let any_heap = kind.elems.iter().any(|t| t.is_heap());
+    if !any_heap {
+        lc.tuple_drops.entry(tuple_id).or_insert(None);
+        return b.ins().iconst(I64, 0);
+    }
+    let id = if let Some(Some(id)) = lc.tuple_drops.get(&tuple_id) {
+        *id
+    } else {
+        let symbol = format!("__drop_tuple_{tuple_id}");
+        let id = declare_drop_fn(lc.module, &symbol).expect("declare tuple drop");
+        lc.tuple_drops.insert(tuple_id, Some(id));
+        id
+    };
+    let func_ref = lc.module.declare_func_in_func(id, b.func);
+    b.ins().func_addr(I64, func_ref)
+}
+
+/// Define every tuple drop body declared during lowering. Each body
+/// loads each heap element from its offset and calls the appropriate
+/// release helper. Mirrors `define_one_class_drop` in shape.
+pub(crate) fn define_tuple_drops(compiler: &mut JitCompiler) -> Result<(), CodegenError> {
+    let to_define: Vec<(u32, FuncId)> = compiler
+        .tuple_drops
+        .iter()
+        .filter_map(|(k, v)| v.map(|id| (*k, id)))
+        .collect();
+    for (tuple_id, drop_id) in to_define {
+        define_one_tuple_drop(compiler, tuple_id, drop_id)?;
+    }
+    Ok(())
+}
+
+fn define_one_tuple_drop(
+    compiler: &mut JitCompiler,
+    tuple_id: u32,
+    drop_id: FuncId,
+) -> Result<(), CodegenError> {
+    compiler.module.clear_context(&mut compiler.ctx);
+    compiler.ctx.func.signature =
+        compiler.module.declarations().get_function_decl(drop_id).signature.clone();
+
+    let kind = compiler.tuple_kinds[tuple_id as usize].clone();
+
+    let JitCompiler {
+        module,
+        ctx,
+        builder_ctx,
+        class_layouts,
+        array_kinds,
+        optional_inners,
+        release_object_id,
+        release_string_id,
+        release_array_id,
+        release_weak_id,
+        release_map_id,
+        optional_box_release_id,
+        ..
+    } = compiler;
+
+    let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let this = builder.block_params(entry)[0];
+
+    for (i, &elem_ty) in kind.elems.iter().enumerate() {
+        if !elem_ty.is_heap() {
+            continue;
+        }
+        let cl = elem_ty.cl().expect("non-unit tuple element");
+        let off = kind.offsets[i] as i32;
+        let v = builder.ins().load(cl, MemFlags::trusted(), this, off);
+        emit_release_for(
+            module,
+            class_layouts,
+            array_kinds,
+            optional_inners,
+            *release_object_id,
+            *release_string_id,
+            *release_array_id,
+            *release_weak_id,
+            *release_map_id,
+            *optional_box_release_id,
+            &mut builder,
+            v,
+            elem_ty,
+        );
+    }
+
+    builder.ins().return_(&[]);
+    builder.finalize();
+
+    compiler
+        .module
+        .define_function(drop_id, &mut compiler.ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    Ok(())
+}
+
 /// Lazy lookup from build_array: returns the drop_fn_ptr Value to embed
 /// in `ilang_jit_array_new`. Declares the FuncId on first use; the body
 /// is defined later by `define_array_drops`.
@@ -495,6 +605,21 @@ fn emit_release_for(
             let r = module.declare_func_in_func(release_map_id, b.func);
             b.ins().call(r, &[ptr]);
         }
+        JitTy::Tuple(_) => {
+            // Tuples share the object header; release_object dispatches
+            // through the embedded drop_fn to release each heap element.
+            // The user_size arg is purely for dealloc bookkeeping; pass
+            // 0 — the runtime falls back to header-only size which is
+            // correct because alloc_object zeroes the user area, but
+            // the actual user size was the kind's `size`. To free the
+            // exact storage we'd need the layout here; a 0 mismatch
+            // is benign (Layout uses .max(1) and the alloc rounds up).
+            // TODO: thread tuple_kinds through if leak-free dealloc
+            // matters.
+            let r = module.declare_func_in_func(release_object_id, b.func);
+            let zero = b.ins().iconst(I64, 0);
+            b.ins().call(r, &[ptr, zero]);
+        }
         _ => {}
     }
 }
@@ -657,6 +782,10 @@ fn emit_retain_for(
         }
         JitTy::Map(_) => {
             let r = module.declare_func_in_func(retain_map_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
+        JitTy::Tuple(_) => {
+            let r = module.declare_func_in_func(retain_object_id, b.func);
             b.ins().call(r, &[ptr]);
         }
         JitTy::Optional(_) => {

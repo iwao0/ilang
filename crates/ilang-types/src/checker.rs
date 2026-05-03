@@ -87,6 +87,23 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
             .iter()
             .all(|e| literal_assignable(e, &vt_elem, target_elem));
     }
+    // Tuple literal → tuple type. Pairwise check so element-level
+    // literal coercions (int width narrowing, fixed → dynamic array)
+    // apply inside tuples just like they do at the top level.
+    if let (ExprKind::Tuple(elements), Type::Tuple(target_elems)) = (&value.kind, target) {
+        if elements.len() != target_elems.len() {
+            return false;
+        }
+        let vt_elems = match vt {
+            Type::Tuple(es) => es,
+            _ => return false,
+        };
+        return elements
+            .iter()
+            .zip(vt_elems.iter())
+            .zip(target_elems.iter())
+            .all(|((e, vt_e), tt_e)| literal_assignable(e, vt_e, tt_e));
+    }
     if let ExprKind::Int(n) = &value.kind {
         if target.is_int() {
             return int_literal_fits(*n, target);
@@ -2003,6 +2020,13 @@ impl TypeChecker {
                     fixed: Some(elements.len()),
                 })
             }
+            ExprKind::Tuple(elements) => {
+                let mut tys = Vec::with_capacity(elements.len());
+                for e in elements {
+                    tys.push(self.check_expr(e, env, ret_ty, in_class, loop_depth)?);
+                }
+                Ok(Type::Tuple(tys))
+            }
             ExprKind::MapLit(entries) => {
                 // The parser only ever emits MapLit when there's at least
                 // one `key: value` entry; `{}` parses as an empty block.
@@ -2056,6 +2080,28 @@ impl TypeChecker {
                         }
                         return Ok(args[1].clone());
                     }
+                }
+                // Tuple indexing: index must be a non-negative integer
+                // literal so the element type is statically known.
+                if let Type::Tuple(elems) = &ot {
+                    let n = match &index.kind {
+                        ExprKind::Int(n) if *n >= 0 => *n as usize,
+                        _ => {
+                            return Err(TypeError::Unsupported {
+                                what: "tuple index must be a non-negative integer literal".into(),
+                                span: index.span,
+                            });
+                        }
+                    };
+                    if n >= elems.len() {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "tuple index {n} out of bounds for {ot}"
+                            ),
+                            span: index.span,
+                        });
+                    }
+                    return Ok(elems[n].clone());
                 }
                 if !it.is_int() {
                     return Err(TypeError::Mismatch {
@@ -2822,6 +2868,11 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         | ExprKind::AssignField { value, .. }
         | ExprKind::AssignIndex { value, .. } => f(value),
         ExprKind::Array(items) => {
+            for i in items {
+                f(i);
+            }
+        }
+        ExprKind::Tuple(items) => {
             for i in items {
                 f(i);
             }
@@ -3647,6 +3698,7 @@ fn cfev_expr(
             cfev_expr(value, bound, frees, seen);
         }
         ExprKind::Array(items) => for i in items { cfev_expr(i, bound, frees, seen); },
+        ExprKind::Tuple(items) => for i in items { cfev_expr(i, bound, frees, seen); },
         ExprKind::MapLit(entries) => for (k, v) in entries {
             cfev_expr(k, bound, frees, seen);
             cfev_expr(v, bound, frees, seen);

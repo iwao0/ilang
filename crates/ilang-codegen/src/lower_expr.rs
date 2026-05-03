@@ -156,6 +156,7 @@ pub(crate) fn lower_expr(
                 lc.optional_inners,
                 lc.fn_signatures,
                 lc.map_kinds,
+                lc.tuple_kinds,
             )?;
             let v = coerce(b, inner, target, e.span)?;
             Ok(Some((v, target)))
@@ -1087,6 +1088,31 @@ pub(crate) fn lower_expr(
                 span: e.span,
             })
         }
+        ExprKind::Tuple(elements) => {
+            let mut vals: Vec<TV> = Vec::with_capacity(elements.len());
+            for el in elements {
+                let v = lower_expr(b, lc, el)?.ok_or_else(|| CodegenError::Unsupported {
+                    what: "tuple element is unit".into(),
+                    span: el.span,
+                })?;
+                vals.push(v);
+            }
+            let elem_jtys: Vec<JitTy> = vals.iter().map(|(_, t)| *t).collect();
+            let tuple_id = crate::ty::intern_tuple_kind(lc.tuple_kinds, elem_jtys);
+            let kind = lc.tuple_kinds[tuple_id as usize].clone();
+            let size_v = b.ins().iconst(I64, kind.size as i64);
+            let drop_fn_ptr = crate::drops::tuple_drop_fn_ptr(b, lc, tuple_id);
+            let zero_vt = b.ins().iconst(I64, 0);
+            let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+            let call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, zero_vt]);
+            let ptr = b.inst_results(call)[0];
+            for ((val, vt), &offset) in vals.iter().zip(kind.offsets.iter()) {
+                let cl = vt.cl().expect("non-unit tuple element");
+                let _ = cl;
+                b.ins().store(MemFlags::trusted(), *val, ptr, offset as i32);
+            }
+            Ok(Some((ptr, JitTy::Tuple(tuple_id))))
+        }
         ExprKind::Array(elements) => {
             if elements.is_empty() {
                 return Err(CodegenError::Unsupported {
@@ -1131,6 +1157,32 @@ pub(crate) fn lower_expr(
             // when the key is missing (mirrors interpreter).
             if let JitTy::Map(map_id) = obj_t {
                 return lower_map_index_get(b, lc, map_id, obj_v, index);
+            }
+            // Tuple indexing: index is a constant integer literal
+            // (the type checker enforces this so the element type
+            // resolves statically). Load directly from the offset.
+            if let JitTy::Tuple(tuple_id) = obj_t {
+                let n = match index.kind {
+                    ExprKind::Int(n) if n >= 0 => n as usize,
+                    _ => {
+                        return Err(CodegenError::Unsupported {
+                            what: "tuple index must be a non-negative integer literal".into(),
+                            span: index.span,
+                        });
+                    }
+                };
+                let kind = lc.tuple_kinds[tuple_id as usize].clone();
+                if n >= kind.elems.len() {
+                    return Err(CodegenError::Unsupported {
+                        what: format!("tuple index {n} out of bounds"),
+                        span: index.span,
+                    });
+                }
+                let elem_jty = kind.elems[n];
+                let off = kind.offsets[n] as i32;
+                let cl = elem_jty.cl().expect("tuple element is non-unit");
+                let v = b.ins().load(cl, MemFlags::trusted(), obj_v, off);
+                return Ok(Some((v, elem_jty)));
             }
             let array_id = match obj_t {
                 JitTy::Array(id) => id,
@@ -2132,6 +2184,9 @@ fn emit_print_value(
             let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
             b.ins().call(r, &[v]);
         }
+        JitTy::Tuple(tuple_id) => {
+            emit_print_tuple(b, lc, v, tuple_id, span)?;
+        }
         JitTy::Unit => {
             return Err(CodegenError::Unsupported {
                 what: "console.log of () (unit)".into(),
@@ -2258,6 +2313,30 @@ fn emit_print_array(
     b.switch_to_block(after_block);
     b.seal_block(after_block);
     emit_print_literal(b, lc, "]");
+    Ok(())
+}
+
+/// Emit `(e0, e1, ...)` for a tuple. Each element loads from its
+/// statically-known offset and recursively prints.
+fn emit_print_tuple(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    ptr: Value,
+    tuple_id: u32,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    let kind = lc.tuple_kinds[tuple_id as usize].clone();
+    emit_print_literal(b, lc, "(");
+    for (i, &elem_ty) in kind.elems.iter().enumerate() {
+        if i > 0 {
+            emit_print_literal(b, lc, ", ");
+        }
+        let cl = elem_ty.cl().expect("tuple element is non-unit");
+        let off = kind.offsets[i] as i32;
+        let v = b.ins().load(cl, MemFlags::trusted(), ptr, off);
+        emit_print_value(b, lc, v, elem_ty, span)?;
+    }
+    emit_print_literal(b, lc, ")");
     Ok(())
 }
 
@@ -2509,11 +2588,11 @@ pub(crate) fn lower_new_map(
     let enum_ids = crate::env::enum_ids_from(lc);
     let key_jty = JitTy::from_ast(
         &type_args[0], span, &class_ids, &enum_ids, lc.enum_layouts,
-        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds,
+        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds, lc.tuple_kinds,
     )?;
     let val_jty = JitTy::from_ast(
         &type_args[1], span, &class_ids, &enum_ids, lc.enum_layouts,
-        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds,
+        lc.array_kinds, lc.optional_inners, lc.fn_signatures, lc.map_kinds, lc.tuple_kinds,
     )?;
     let map_id = intern_map_kind(lc.map_kinds, MapKind { key: key_jty, val: val_jty });
     let key_kind = map_key_kind_tag(key_jty, span)?;

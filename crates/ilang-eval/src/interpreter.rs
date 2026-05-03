@@ -829,6 +829,13 @@ impl Interpreter {
                 }
                 Ok(Value::Array(Rc::new(RefCell::new(vals))))
             }
+            ExprKind::Tuple(elements) => {
+                let mut vals = Vec::with_capacity(elements.len());
+                for e in elements {
+                    vals.push(self.eval_expr(e)?);
+                }
+                Ok(Value::Tuple(Rc::new(vals)))
+            }
             ExprKind::MapLit(entries) => {
                 let mut m: std::collections::HashMap<crate::value::MapKey, Value> =
                     std::collections::HashMap::with_capacity(entries.len());
@@ -858,6 +865,16 @@ impl Interpreter {
                     return m.borrow().get(&key).cloned().ok_or_else(|| {
                         RuntimeError::TypeError {
                             msg: "map key not found".into(),
+                            span,
+                        }
+                    });
+                }
+                if let Value::Tuple(elems) = target {
+                    let i = index_to_usize(idx, index.span)?;
+                    return elems.get(i).cloned().ok_or_else(|| {
+                        RuntimeError::IndexOutOfBounds {
+                            index: i as i64,
+                            len: elems.len() as i64,
                             span,
                         }
                     });
@@ -1774,6 +1791,11 @@ fn collect_free_vars_in_expr(
             collect_free_vars_in_expr(value, bound, frees);
         }
         ExprKind::Array(items) => {
+            for i in items {
+                collect_free_vars_in_expr(i, bound, frees);
+            }
+        }
+        ExprKind::Tuple(items) => {
             for i in items {
                 collect_free_vars_in_expr(i, bound, frees);
             }
