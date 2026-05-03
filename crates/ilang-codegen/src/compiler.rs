@@ -87,7 +87,7 @@ fn jit_run_inner(
     //     is declared after Child, and likewise for enum forward-refs.
     for item in &prog.items {
         match item {
-            Item::Class(c) => compiler.declare_class_name(c),
+            Item::Class(c) => compiler.declare_class_name(c)?,
             Item::Enum(e) => compiler.declare_enum_layout(e)?,
             _ => {}
         }
@@ -755,7 +755,17 @@ impl JitCompiler {
     /// First pass: register the class name → id mapping with an empty
     /// layout, so other classes' field types can refer to this one
     /// (`Parent.weak`, `Child?`, etc.) regardless of declaration order.
-    fn declare_class_name(&mut self, c: &ClassDecl) {
+    fn declare_class_name(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
+        if c.parent.is_some() {
+            return Err(CodegenError::Unsupported {
+                what: format!(
+                    "class {:?}: inheritance (`extends`) is not yet supported by the JIT \
+                     (interpreter only); use `--no-jit` or run via the interpreter",
+                    c.name
+                ),
+                span: c.span,
+            });
+        }
         let id = self.class_layouts.len() as u32;
         self.class_ids.insert(c.name.clone(), id);
         self.class_layouts.push(ClassLayout {
@@ -764,6 +774,7 @@ impl JitCompiler {
             size: 0,
         });
         self.class_methods.push(HashMap::new());
+        Ok(())
     }
 
     /// Second pass: compute field offsets/sizes now that every class

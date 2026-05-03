@@ -147,6 +147,13 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
+        // `extends Parent` (single inheritance, optional).
+        let parent = if matches!(self.peek().kind, TokenKind::Extends) {
+            self.bump();
+            Some(self.expect_ident("parent class name")?)
+        } else {
+            None
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
@@ -159,6 +166,12 @@ impl<'a> Parser<'a> {
                 TokenKind::At => {
                     let attrs = self.parse_attributes()?;
                     let m = self.parse_method(attrs)?;
+                    methods.push(m);
+                }
+                TokenKind::Override => {
+                    self.bump(); // consume `override`
+                    let mut m = self.parse_method(Vec::new())?;
+                    m.is_override = true;
                     methods.push(m);
                 }
                 TokenKind::Ident(ref name) => {
@@ -242,6 +255,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ClassDecl {
             name,
+            parent,
             type_params,
             fields,
             methods,
@@ -545,6 +559,7 @@ impl<'a> Parser<'a> {
             ret,
             body,
             span,
+            is_override: false,
         })
     }
 
@@ -652,6 +667,7 @@ impl<'a> Parser<'a> {
             ret,
             body,
             span,
+            is_override: false,
         })
     }
 

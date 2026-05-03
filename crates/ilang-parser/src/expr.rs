@@ -378,6 +378,34 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Ok(Expr::new(ExprKind::This, span))
             }
+            TokenKind::Super => {
+                // `super.method(args)` → SuperCall { method: Some, args }
+                // `super(args)` → SuperCall { method: None, args }
+                self.bump();
+                let (method, args) = match self.peek().kind {
+                    TokenKind::Dot => {
+                        self.bump();
+                        let m = self.expect_ident("method name after `super.`")?;
+                        self.expect(&TokenKind::LParen, "'('")?;
+                        let args = self.parse_call_args()?;
+                        (Some(m), args)
+                    }
+                    TokenKind::LParen => {
+                        self.bump();
+                        let args = self.parse_call_args()?;
+                        (None, args)
+                    }
+                    _ => {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "'.' (super.method) or '(' (super(args))".into(),
+                            span: t.span,
+                        });
+                    }
+                };
+                Ok(Expr::new(ExprKind::SuperCall { method, args }, span))
+            }
             TokenKind::New => {
                 self.bump();
                 // Class name is either bare `Counter` or
@@ -492,18 +520,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 if matches!(self.peek().kind, TokenKind::LParen) {
                     self.bump();
-                    let mut args = Vec::new();
-                    if !matches!(self.peek().kind, TokenKind::RParen) {
-                        loop {
-                            args.push(self.parse_expr(0)?);
-                            if matches!(self.peek().kind, TokenKind::Comma) {
-                                self.bump();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    self.expect(&TokenKind::RParen, "')'")?;
+                    let args = self.parse_call_args()?;
                     Ok(Expr::new(ExprKind::Call { callee: name, args }, span))
                 } else {
                     Ok(Expr::new(ExprKind::Var(name), span))
@@ -1036,5 +1053,25 @@ impl<'a> Parser<'a> {
             },
             span,
         ))
+    }
+
+    /// Parse a comma-separated `expr, expr, ...)` list. The opening
+    /// `(` must have been consumed; the closing `)` is consumed
+    /// here. Trailing comma is allowed (matches the rest of the
+    /// language's punctuation flexibility).
+    fn parse_call_args(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let mut args = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                args.push(self.parse_expr(0)?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(&TokenKind::RParen, "')'")?;
+        Ok(args)
     }
 }

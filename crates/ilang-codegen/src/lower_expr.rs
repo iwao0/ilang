@@ -169,6 +169,10 @@ pub(crate) fn lower_expr(
             b.seal_block(dead);
             Ok(None)
         }
+        ExprKind::SuperCall { .. } => Err(CodegenError::Unsupported {
+            what: "`super` calls are not yet supported in the JIT".into(),
+            span: e.span,
+        }),
         ExprKind::Continue => {
             let target = lc.loops.last().ok_or_else(|| CodegenError::Unsupported {
                 what: "continue outside loop".into(),

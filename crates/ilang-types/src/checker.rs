@@ -153,6 +153,19 @@ struct ClassSig {
     /// `static` fields — class-level mutable storage. Read/write
     /// dispatched at `ClassName.field` field expressions.
     static_fields: HashMap<String, Type>,
+    /// `extends Parent` — single-inheritance parent. None for root
+    /// classes (or built-ins). Used by `is_subclass`, super
+    /// resolution, and vtable layout.
+    parent: Option<String>,
+    /// Per-method vtable slot index. Inherited methods keep the
+    /// parent's slot; overrides reuse the same slot; new methods
+    /// added in this class get fresh slots after the parent's last
+    /// slot. The JIT reads this to lay out vtables.
+    method_slots: HashMap<String, usize>,
+    /// Total number of vtable slots (= max slot index + 1, or 0).
+    /// Equals parent's `vtable_len` plus this class's newly-added
+    /// methods.
+    vtable_len: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +296,71 @@ impl TypeChecker {
         self.loop_break_type.borrow().clone()
     }
 
+    /// `(class, slot) -> method_name` for every class — used by the
+    /// JIT to lay out per-class vtables. Empty for root classes
+    /// without methods.
+    pub fn class_method_slots(&self) -> HashMap<String, HashMap<String, usize>> {
+        self.classes
+            .iter()
+            .map(|(n, sig)| (n.clone(), sig.method_slots.clone()))
+            .collect()
+    }
+
+    /// `class -> vtable size` (max slot index + 1). Used by the JIT
+    /// when allocating vtables.
+    pub fn class_vtable_lens(&self) -> HashMap<String, usize> {
+        self.classes
+            .iter()
+            .map(|(n, sig)| (n.clone(), sig.vtable_len))
+            .collect()
+    }
+
+    /// `class -> parent` (single-inheritance only). Empty for root
+    /// classes. The JIT walks this for super-call resolution and
+    /// vtable inheritance.
+    pub fn class_parents(&self) -> HashMap<String, String> {
+        self.classes
+            .iter()
+            .filter_map(|(n, sig)| sig.parent.as_ref().map(|p| (n.clone(), p.clone())))
+            .collect()
+    }
+
+    /// True iff `child` is `parent` or transitively descends from
+    /// `parent` via `extends` chains. False if either name is
+    /// unknown.
+    fn is_subclass(&self, child: &str, parent: &str) -> bool {
+        if child == parent {
+            return true;
+        }
+        let mut cur = self
+            .classes
+            .get(child)
+            .and_then(|c| c.parent.clone());
+        while let Some(name) = cur {
+            if name == parent {
+                return true;
+            }
+            cur = self
+                .classes
+                .get(&name)
+                .and_then(|c| c.parent.clone());
+        }
+        false
+    }
+
+    /// Object-aware extension of `assignable`: returns true if the
+    /// plain assignable check passes OR `from` is an object whose
+    /// class is a (transitive) subclass of `to`'s class.
+    fn assignable_obj(&self, from: &Type, to: &Type) -> bool {
+        if assignable(from, to) {
+            return true;
+        }
+        if let (Type::Object(c), Type::Object(p)) = (from, to) {
+            return self.is_subclass(c, p);
+        }
+        false
+    }
+
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
     /// only some of T/E were resolvable from the args alone), use the
     /// surrounding context's expected type to fill in the holes. This
@@ -371,6 +449,9 @@ impl TypeChecker {
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
                 static_fields: HashMap::new(),
+                parent: None,
+                method_slots: HashMap::new(),
+                vtable_len: 0,
             },
         );
         self.vars
@@ -437,6 +518,9 @@ impl TypeChecker {
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
                 static_fields: HashMap::new(),
+                parent: None,
+                method_slots: HashMap::new(),
+                vtable_len: 0,
             },
         );
 
@@ -518,7 +602,18 @@ impl TypeChecker {
                     entry.push(sig);
                 }
                 Item::Class(c) => {
-                    let sig = class_signature(c)?;
+                    // Resolve parent (must be already registered).
+                    let parent_sig = if let Some(pname) = &c.parent {
+                        Some(self.classes.get(pname).cloned().ok_or_else(|| {
+                            TypeError::UndefinedClass {
+                                name: pname.clone(),
+                                span: c.span,
+                            }
+                        })?)
+                    } else {
+                        None
+                    };
+                    let sig = class_signature(c, parent_sig.as_ref())?;
                     self.classes.insert(c.name.clone(), sig);
                 }
                 Item::Enum(e) => {
@@ -644,7 +739,7 @@ impl TypeChecker {
         for sf in &c.static_fields {
             self.validate_type(&sf.ty, sf.span, &c.type_params)?;
             let vt = self.check_expr(&sf.value, &env, None, None, 0)?;
-            if !literal_assignable(&sf.value, &vt, &sf.ty) {
+            if !literal_assignable(&sf.value, &vt, &sf.ty) && !self.assignable_obj(&vt, &sf.ty) {
                 return Err(TypeError::Mismatch {
                     expected: sf.ty.clone(),
                     got: vt,
@@ -692,7 +787,7 @@ impl TypeChecker {
         let body_res = self.check_block(&f.body, &env, Some(&expected), in_class, 0);
         *self.loop_stack.borrow_mut() = saved_loops;
         let body_ty = body_res?;
-        if !assignable(&body_ty, &expected) {
+        if !assignable(&body_ty, &expected) && !self.assignable_obj(&body_ty, &expected) {
             return Err(TypeError::BadReturn {
                 name: f.name.clone(),
                 expected,
@@ -850,6 +945,44 @@ impl TypeChecker {
                 Some(name) => Ok(Type::Object(name.to_string())),
                 None => Err(TypeError::ThisOutsideMethod { span }),
             },
+            ExprKind::SuperCall { method, args } => {
+                let class_name = in_class.ok_or_else(|| TypeError::Unsupported {
+                    what: "`super` is only valid inside a class method".into(),
+                    span,
+                })?;
+                let parent_name = self
+                    .classes
+                    .get(class_name)
+                    .and_then(|c| c.parent.clone())
+                    .ok_or_else(|| TypeError::Unsupported {
+                        what: format!(
+                            "`super` used in class {:?}, which has no parent",
+                            class_name
+                        ),
+                        span,
+                    })?;
+                let parent_sig = self.classes.get(&parent_name).cloned().expect("parent registered");
+                let lookup = method.as_deref().unwrap_or("init");
+                let sigs = parent_sig.methods.get(lookup).cloned().ok_or_else(|| {
+                    TypeError::UnknownMethod {
+                        class: parent_name.clone(),
+                        method: lookup.to_string(),
+                        span,
+                    }
+                })?;
+                if sigs.len() != 1 {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "super.{lookup}: parent's method is overloaded; \
+                             super-calls require a single signature"
+                        ),
+                        span,
+                    });
+                }
+                let sig = sigs.into_iter().next().unwrap();
+                self.check_args(lookup, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                Ok(sig.ret)
+            }
             ExprKind::Var(n) => {
                 if let Some(t) = env.get(n) {
                     return Ok(t.clone());
@@ -1019,7 +1152,7 @@ impl TypeChecker {
                     .insert(span, (callee.clone(), inferred_args.clone()));
                 for ((param_ty, arg), at) in sig.params.iter().zip(args.iter()).zip(arg_tys.iter()) {
                     let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
-                    if !literal_assignable(arg, at, &actual) {
+                    if !literal_assignable(arg, at, &actual) && !self.assignable_obj(at, &actual) {
                         return Err(TypeError::Mismatch {
                             expected: actual,
                             got: at.clone(),
@@ -1343,7 +1476,7 @@ impl TypeChecker {
                         }
                         for a in args {
                             let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
-                            if !literal_assignable(a, &at, &Type::I64) {
+                            if !literal_assignable(a, &at, &Type::I64) && !self.assignable_obj(&at, &Type::I64) {
                                 return Err(TypeError::Mismatch {
                                     expected: Type::I64,
                                     got: at,
@@ -1374,7 +1507,7 @@ impl TypeChecker {
                                 span: args[0].span,
                             }),
                         };
-                        if params.len() != 1 || !assignable(elem, &params[0]) {
+                        if params.len() != 1 || !assignable(elem, &params[0]) && !self.assignable_obj(elem, &params[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: Type::Fn {
                                     params: vec![(**elem).clone()],
@@ -1739,7 +1872,7 @@ impl TypeChecker {
                 match value {
                     Some(v) => {
                         let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(v, &vt, &expected) {
+                        if !literal_assignable(v, &vt, &expected) && !self.assignable_obj(&vt, &expected) {
                             return Err(TypeError::Mismatch {
                                 expected,
                                 got: vt,
@@ -1767,7 +1900,7 @@ impl TypeChecker {
             ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(value, &v_ty, &var_ty) {
+                    if !literal_assignable(value, &v_ty, &var_ty) && !self.assignable_obj(&v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
                             got: v_ty,
@@ -1780,7 +1913,7 @@ impl TypeChecker {
                     if let Some(cls) = self.classes.get(class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
                             let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                            if !literal_assignable(value, &v_ty, &field_ty) {
+                            if !literal_assignable(value, &v_ty, &field_ty) && !self.assignable_obj(&v_ty, &field_ty) {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,
                                     got: v_ty,
@@ -1811,7 +1944,7 @@ impl TypeChecker {
                 let first_ty = self.check_expr(&elements[0], env, ret_ty, in_class, loop_depth)?;
                 for e in &elements[1..] {
                     let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(e, &et, &first_ty) {
+                    if !literal_assignable(e, &et, &first_ty) && !self.assignable_obj(&et, &first_ty) {
                         return Err(TypeError::Mismatch {
                             expected: first_ty.clone(),
                             got: et,
@@ -1840,7 +1973,7 @@ impl TypeChecker {
                 let v_ty = self.check_expr(v0, env, ret_ty, in_class, loop_depth)?;
                 for (k, v) in &entries[1..] {
                     let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(k, &kt, &k_ty) {
+                    if !literal_assignable(k, &kt, &k_ty) && !self.assignable_obj(&kt, &k_ty) {
                         return Err(TypeError::Mismatch {
                             expected: k_ty.clone(),
                             got: kt,
@@ -1848,7 +1981,7 @@ impl TypeChecker {
                         });
                     }
                     let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(v, &vt, &v_ty) {
+                    if !literal_assignable(v, &vt, &v_ty) && !self.assignable_obj(&vt, &v_ty) {
                         return Err(TypeError::Mismatch {
                             expected: v_ty.clone(),
                             got: vt,
@@ -1868,7 +2001,7 @@ impl TypeChecker {
                 // if missing — use `.get(k)` for `V?`).
                 if let Type::Generic { base, args } = &ot {
                     if base == "Map" && args.len() == 2 {
-                        if !literal_assignable(index, &it, &args[0]) {
+                        if !literal_assignable(index, &it, &args[0]) && !self.assignable_obj(&it, &args[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: args[0].clone(),
                                 got: it,
@@ -1903,7 +2036,7 @@ impl TypeChecker {
                 // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
                 if let Type::Generic { base, args } = &ot {
                     if base == "Map" && args.len() == 2 {
-                        if !literal_assignable(index, &it, &args[0]) {
+                        if !literal_assignable(index, &it, &args[0]) && !self.assignable_obj(&it, &args[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: args[0].clone(),
                                 got: it,
@@ -1911,7 +2044,7 @@ impl TypeChecker {
                             });
                         }
                         let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(value, &vt, &args[1]) {
+                        if !literal_assignable(value, &vt, &args[1]) && !self.assignable_obj(&vt, &args[1]) {
                             return Err(TypeError::Mismatch {
                                 expected: args[1].clone(),
                                 got: vt,
@@ -1942,7 +2075,7 @@ impl TypeChecker {
                     }
                 };
                 let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                if !literal_assignable(value, &vt, &elem_ty) {
+                if !literal_assignable(value, &vt, &elem_ty) && !self.assignable_obj(&vt, &elem_ty) {
                     return Err(TypeError::Mismatch {
                         expected: elem_ty,
                         got: vt,
@@ -1968,7 +2101,7 @@ impl TypeChecker {
                 let expected = ret.clone().unwrap_or(Type::Unit);
                 let body_ty =
                     self.check_block(body, &inner, Some(&expected), in_class, 0)?;
-                if !assignable(&body_ty, &expected) {
+                if !assignable(&body_ty, &expected) && !self.assignable_obj(&body_ty, &expected) {
                     return Err(TypeError::BadReturn {
                         name: "<closure>".into(),
                         expected,
@@ -2007,7 +2140,7 @@ impl TypeChecker {
                             if let Some(ft) = cls.static_fields.get(field).cloned() {
                                 let vt =
                                     self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                                if !literal_assignable(value, &vt, &ft) {
+                                if !literal_assignable(value, &vt, &ft) && !self.assignable_obj(&vt, &ft) {
                                     return Err(TypeError::Mismatch {
                                         expected: ft,
                                         got: vt,
@@ -2043,7 +2176,7 @@ impl TypeChecker {
                         subst_type(&p.ty, &cls.type_params, type_args_of(&ot));
                     let v_ty =
                         self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(value, &v_ty, &prop_ty) {
+                    if !literal_assignable(value, &v_ty, &prop_ty) && !self.assignable_obj(&v_ty, &prop_ty) {
                         return Err(TypeError::Mismatch {
                             expected: prop_ty,
                             got: v_ty,
@@ -2064,7 +2197,7 @@ impl TypeChecker {
                 // Mirrors the substitution done by the Field read path.
                 let field_ty = subst_type(&raw_field_ty, &cls.type_params, type_args_of(&ot));
                 let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                if !literal_assignable(value, &v_ty, &field_ty) {
+                if !literal_assignable(value, &v_ty, &field_ty) && !self.assignable_obj(&v_ty, &field_ty) {
                     return Err(TypeError::Mismatch {
                         expected: field_ty,
                         got: v_ty,
@@ -2231,7 +2364,7 @@ impl TypeChecker {
                     (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
                         for ((e, t), et) in elems.iter().zip(tys.iter()).zip(arg_tys_tuple.iter()) {
                             let actual = subst_type(t, &type_params, &inferred_args);
-                            if !literal_assignable(e, et, &actual) {
+                            if !literal_assignable(e, et, &actual) && !self.assignable_obj(et, &actual) {
                                 return Err(TypeError::Mismatch {
                                     expected: actual,
                                     got: et.clone(),
@@ -2249,7 +2382,7 @@ impl TypeChecker {
                                 .map(|(_, t)| t.clone())
                                 .unwrap();
                             let actual = subst_type(fty, &type_params, &inferred_args);
-                            if !literal_assignable(&supplied.1, &st, &actual) {
+                            if !literal_assignable(&supplied.1, &st, &actual) && !self.assignable_obj(&st, &actual) {
                                 return Err(TypeError::Mismatch {
                                     expected: actual,
                                     got: st,
@@ -2493,7 +2626,9 @@ impl TypeChecker {
         }
         for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
             let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
-            if !literal_assignable(arg, &at, param_ty) {
+            if !literal_assignable(arg, &at, param_ty)
+                && !self.assignable_obj(&at, param_ty)
+            {
                 return Err(TypeError::Mismatch {
                     expected: param_ty.clone(),
                     got: at,
@@ -2812,13 +2947,152 @@ fn signature_of(f: &FnDecl) -> Signature {
     }
 }
 
-fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
-    let mut fields = HashMap::new();
+fn class_signature(
+    c: &ClassDecl,
+    parent: Option<&ClassSig>,
+) -> Result<ClassSig, TypeError> {
+    // Inheritance restrictions: the parent must not be generic
+    // (we don't substitute type params across the boundary), and
+    // the child can't add type params either if it inherits.
+    if let Some(p) = parent {
+        if !p.type_params.is_empty() || !c.type_params.is_empty() {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "class {:?}: inheritance with generic classes is not supported",
+                    c.name
+                ),
+                span: c.span,
+            });
+        }
+    }
+    // Start from the parent's tables and overlay this class's
+    // declarations. Fields and methods are inherited; same-named
+    // child decl overrides (must be explicitly marked `override`
+    // for methods).
+    let mut fields: HashMap<String, Type> = parent
+        .map(|p| p.fields.clone())
+        .unwrap_or_default();
     for f in &c.fields {
+        if fields.contains_key(&f.name) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "class {:?}: field {:?} shadows an inherited field of the same name",
+                    c.name, f.name
+                ),
+                span: f.span,
+            });
+        }
         fields.insert(f.name.clone(), rewrite_type_params(&f.ty, &c.type_params));
     }
-    let mut methods: HashMap<String, Vec<Signature>> = HashMap::new();
+    let mut methods: HashMap<String, Vec<Signature>> = parent
+        .map(|p| p.methods.clone())
+        .unwrap_or_default();
+    let mut method_slots: HashMap<String, usize> = parent
+        .map(|p| p.method_slots.clone())
+        .unwrap_or_default();
+    let mut vtable_len: usize = parent.map(|p| p.vtable_len).unwrap_or(0);
+    let has_parent = parent.is_some();
+    // Pass 1: handle inheritance interactions (override / hiding / no-overload).
     for m in &c.methods {
+        // `init` and `deinit` are per-class — they're NOT inherited
+        // in the override sense. Pass 1 just overwrites whatever the
+        // parent had (without requiring `override`); pass 2 skips
+        // them since `has_parent` is true.
+        if m.name == "init" || m.name == "deinit" {
+            if has_parent {
+                let mut sig = signature_of(m);
+                for p in sig.params.iter_mut() {
+                    *p = rewrite_type_params(p, &c.type_params);
+                }
+                sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
+                methods.insert(m.name.clone(), vec![sig]);
+            }
+            continue;
+        }
+        let inherited = parent
+            .map(|p| p.methods.contains_key(&m.name))
+            .unwrap_or(false);
+        if m.is_override && !inherited {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in class {:?} is `override` but no parent \
+                     declares a method by that name",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        if inherited && !m.is_override {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "method {:?} in class {:?} hides a parent method without \
+                     the `override` keyword",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        if inherited {
+            // Override: replace parent's entry, reuse parent's slot.
+            let parent_sigs = parent.unwrap().methods.get(&m.name).unwrap();
+            if parent_sigs.len() != 1 {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "method {:?} in parent of class {:?} is overloaded; \
+                         cannot be overridden",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            let parent_sig = &parent_sigs[0];
+            let mut sig = signature_of(m);
+            for p in sig.params.iter_mut() {
+                *p = rewrite_type_params(p, &c.type_params);
+            }
+            sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
+            if sig.params != parent_sig.params || sig.ret != parent_sig.ret {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "override of method {:?} in class {:?} has a different \
+                         signature than the parent's declaration",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            methods.insert(m.name.clone(), vec![sig]);
+            continue;
+        }
+        // Not inherited. With a parent, single-sig only.
+        if has_parent {
+            if methods.contains_key(&m.name) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "method {:?} in class {:?} cannot be overloaded \
+                         (overloading is not supported in inheritance hierarchies)",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            let mut sig = signature_of(m);
+            for p in sig.params.iter_mut() {
+                *p = rewrite_type_params(p, &c.type_params);
+            }
+            sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
+            methods.insert(m.name.clone(), vec![sig]);
+            if m.name != "init" && m.name != "deinit" {
+                method_slots.insert(m.name.clone(), vtable_len);
+                vtable_len += 1;
+            }
+        }
+    }
+    // Pass 2: legacy overload-aware loop for root classes only.
+    for m in &c.methods {
+        if has_parent {
+            continue;
+        }
         let mut sig = signature_of(m);
         for p in sig.params.iter_mut() {
             *p = rewrite_type_params(p, &c.type_params);
@@ -2871,6 +3145,17 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
             });
         }
         entry.push(sig);
+        // Slot for the first sig of each method name. Overloaded
+        // methods reuse the same slot — but they can't be overridden
+        // anyway (forbidden in inheriting classes), so the slot is
+        // effectively unused for them. `init` / `deinit` skip slots.
+        if m.name != "init"
+            && m.name != "deinit"
+            && !method_slots.contains_key(&m.name)
+        {
+            method_slots.insert(m.name.clone(), vtable_len);
+            vtable_len += 1;
+        }
     }
     let mut properties: HashMap<String, PropertySig> = HashMap::new();
     for prop in &c.properties {
@@ -3010,6 +3295,9 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
         properties,
         static_methods,
         static_fields,
+        parent: c.parent.clone(),
+        method_slots,
+        vtable_len,
     })
 }
 

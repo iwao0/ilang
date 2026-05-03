@@ -103,9 +103,11 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
             ret: f.ret.clone(),
             body: hoist_in_block(&f.body, counter, hoisted),
             span: f.span,
+        is_override: false,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
+            parent: c.parent.clone(),
             type_params: c.type_params.clone(),
             fields: c.fields.clone(),
             methods: c
@@ -119,6 +121,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     ret: m.ret.clone(),
                     body: hoist_in_block(&m.body, counter, hoisted),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_methods: c
@@ -132,6 +135,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     ret: m.ret.clone(),
                     body: hoist_in_block(&m.body, counter, hoisted),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -149,6 +153,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         ret: g.ret.clone(),
                         body: hoist_in_block(&g.body, counter, hoisted),
                         span: g.span,
+                    is_override: false,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -158,6 +163,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         ret: s.ret.clone(),
                         body: hoist_in_block(&s.body, counter, hoisted),
                         span: s.span,
+                    is_override: false,
                     }),
                     span: p.span,
                 })
@@ -213,6 +219,7 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
                 ret: ret.clone(),
                 body,
                 span: e.span,
+            is_override: false,
             }));
             ExprKind::Var(name)
         }
@@ -240,6 +247,10 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
+            args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
+        },
+        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
+            method: method.clone(),
             args: args.iter().map(|a| hoist_in_expr(a, counter, hoisted)).collect(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
@@ -573,6 +584,11 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(a, needed, work);
             }
         }
+        ExprKind::SuperCall { args, .. } => {
+            for a in args {
+                scan_expr(a, needed, work);
+            }
+        }
         ExprKind::Field { obj, .. } => scan_expr(obj, needed, work),
         ExprKind::MethodCall { obj, args, .. } => {
             scan_expr(obj, needed, work);
@@ -783,6 +799,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
     ClassDecl {
         name: mangled.to_string(),
         type_params: Vec::new(),
+        parent: c.parent.clone(),
         fields,
         properties,
         methods,
@@ -812,6 +829,7 @@ fn specialize_fn(f: &FnDecl, params: &[String], args: &[Type]) -> FnDecl {
         body: subst_block(&f.body, params, args),
         attrs: f.attrs.clone(),
         span: f.span,
+        is_override: f.is_override,
     }
 }
 
@@ -885,6 +903,10 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         },
         ExprKind::Call { callee, args: a } => ExprKind::Call {
             callee: callee.clone(),
+            args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
+        },
+        ExprKind::SuperCall { method, args: a } => ExprKind::SuperCall {
+            method: method.clone(),
             args: a.iter().map(|x| subst_expr(x, params, args)).collect(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
@@ -1064,6 +1086,7 @@ fn rewrite_item(item: &Item) -> Item {
     match item {
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
+            parent: c.parent.clone(),
             type_params: c.type_params.clone(),
             fields: c
                 .fields
@@ -1114,6 +1137,7 @@ fn rewrite_fn(f: &FnDecl) -> FnDecl {
         body: rewrite_block(&f.body),
         attrs: f.attrs.clone(),
         span: f.span,
+        is_override: f.is_override,
     }
 }
 
@@ -1202,6 +1226,10 @@ fn rewrite_expr(e: &Expr) -> Expr {
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
+            args: args.iter().map(rewrite_expr).collect(),
+        },
+        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
+            method: method.clone(),
             args: args.iter().map(rewrite_expr).collect(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
@@ -1670,9 +1698,11 @@ fn rewrite_calls_in_item(
             ret: f.ret.clone(),
             body: rewrite_calls_in_block(&f.body, table, outer_params, outer_args, generic_fns),
             span: f.span,
+        is_override: false,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
+            parent: c.parent.clone(),
             type_params: c.type_params.clone(),
             fields: c.fields.clone(),
             methods: c
@@ -1692,6 +1722,7 @@ fn rewrite_calls_in_item(
                         generic_fns,
                     ),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_methods: c
@@ -1711,6 +1742,7 @@ fn rewrite_calls_in_item(
                         generic_fns,
                     ),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -1734,6 +1766,7 @@ fn rewrite_calls_in_item(
                             generic_fns,
                         ),
                         span: g.span,
+                    is_override: false,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -1749,6 +1782,7 @@ fn rewrite_calls_in_item(
                             generic_fns,
                         ),
                         span: s.span,
+                    is_override: false,
                     }),
                     span: p.span,
                 })
@@ -1890,6 +1924,11 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             // Anonymous fns are hoisted out before this pass; nothing to do.
         }
         ExprKind::Call { args, .. } => {
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
             for a in args {
                 f(a);
             }
@@ -2040,6 +2079,10 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
+            args: args.iter().map(|a| f(a)).collect(),
+        },
+        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
+            method: method.clone(),
             args: args.iter().map(|a| f(a)).collect(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
@@ -2603,9 +2646,11 @@ fn rewrite_enum_refs_in_item(
                 &f.body, generic_enums, table, outer_params, outer_args,
             ),
             span: f.span,
+        is_override: false,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
+            parent: c.parent.clone(),
             type_params: c.type_params.clone(),
             fields: c
                 .fields
@@ -2637,6 +2682,7 @@ fn rewrite_enum_refs_in_item(
                         &m.body, generic_enums, table, outer_params, outer_args,
                     ),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_methods: c
@@ -2656,6 +2702,7 @@ fn rewrite_enum_refs_in_item(
                         &m.body, generic_enums, table, outer_params, outer_args,
                     ),
                     span: m.span,
+                is_override: false,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -2677,6 +2724,7 @@ fn rewrite_enum_refs_in_item(
                         ret: g.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
                         span: g.span,
+                    is_override: false,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -2690,6 +2738,7 @@ fn rewrite_enum_refs_in_item(
                         ret: s.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),
                         span: s.span,
+                    is_override: false,
                     }),
                     span: p.span,
                 })

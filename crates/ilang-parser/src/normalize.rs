@@ -283,6 +283,10 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             end: Box::new(rewrite_expr(*end, ctx)),
             inclusive,
         },
+        ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
+            method,
+            args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+        },
         ExprKind::Return(opt) => {
             ExprKind::Return(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
         }

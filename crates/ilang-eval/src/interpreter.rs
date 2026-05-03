@@ -17,6 +17,11 @@ const MAX_DEPTH: usize = 256;
 pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
     classes: HashMap<String, ClassDecl>,
+    /// Lexical class of the currently-executing method body. Set
+    /// before each method invoke and saved/restored across nested
+    /// calls. Read by `super.method(...)` to find the parent class.
+    /// `None` when not inside a class method body.
+    this_class: Option<String>,
     enums: HashMap<String, EnumDecl>,
     /// Per-class static field storage: `(ClassName, field) -> Value`.
     /// Initialised from each class's `static_fields` initializer at
@@ -115,6 +120,40 @@ impl Interpreter {
                 Some(o) => Ok(Value::Object(o.clone())),
                 None => Err(RuntimeError::ThisOutsideMethod { span }),
             },
+            ExprKind::SuperCall { method, args } => {
+                let this_cls = self.this_class.clone().ok_or_else(|| {
+                    RuntimeError::TypeError {
+                        msg: "`super` outside of a class method".into(),
+                        span,
+                    }
+                })?;
+                let parent = self
+                    .classes
+                    .get(&this_cls)
+                    .and_then(|c| c.parent.clone())
+                    .ok_or_else(|| RuntimeError::TypeError {
+                        msg: format!("class {this_cls:?} has no parent for `super`"),
+                        span,
+                    })?;
+                let lookup = method.as_deref().unwrap_or("init");
+                let (decl, decl_class) = self
+                    .lookup_method_with_class(&parent, lookup)
+                    .ok_or_else(|| RuntimeError::UnknownMethod {
+                        class: parent.clone(),
+                        method: lookup.to_string(),
+                        span,
+                    })?;
+                let evaluated = self.eval_args(args)?;
+                let receiver = self.this.clone();
+                self.invoke_with_class(
+                    lookup,
+                    &decl,
+                    evaluated,
+                    receiver,
+                    Some(decl_class),
+                    span,
+                )
+            }
             ExprKind::Var(name) => {
                 if let Some(v) = self.vars.get(name) {
                     return Ok(v.clone());
@@ -763,6 +802,7 @@ impl Interpreter {
                     ret: ret.clone(),
                     body: body.clone(),
                     span,
+                    is_override: false,
                 };
                 Ok(Value::Fn(Rc::new(decl)))
             }
@@ -1252,25 +1292,47 @@ impl Interpreter {
             println!("{}", parts.join(" "));
             return Ok(Value::Unit);
         }
-        let class = self
-            .classes
-            .get(&class_name)
-            .cloned()
-            .ok_or_else(|| RuntimeError::UndefinedClass {
-                name: class_name.clone(),
-                span,
-            })?;
-        let decl = class
-            .methods
-            .iter()
-            .find(|m| m.name == method)
-            .cloned()
+        // Walk the class hierarchy to find the most-derived method
+        // by this name. The lexical class (where the body lives) is
+        // the one we record as `this_class` so super.method() can
+        // find its parent.
+        let (decl, decl_class) = self
+            .lookup_method_with_class(&class_name, method)
             .ok_or_else(|| RuntimeError::UnknownMethod {
-                class: class_name,
+                class: class_name.clone(),
                 method: method.to_string(),
                 span,
             })?;
-        self.invoke(method, &decl, evaluated, Some(receiver), span)
+        self.invoke_with_class(
+            method,
+            &decl,
+            evaluated,
+            Some(receiver),
+            Some(decl_class),
+            span,
+        )
+    }
+
+    /// Walk the inheritance chain starting at `class_name`, looking
+    /// for the first ancestor that declares a method by `name`.
+    /// Returns the FnDecl plus the lexical class it came from.
+    fn lookup_method_with_class(
+        &self,
+        class_name: &str,
+        name: &str,
+    ) -> Option<(FnDecl, String)> {
+        let mut cur = Some(class_name.to_string());
+        while let Some(cn) = cur {
+            if let Some(c) = self.classes.get(&cn) {
+                if let Some(m) = c.methods.iter().find(|m| m.name == name) {
+                    return Some((m.clone(), cn));
+                }
+                cur = c.parent.clone();
+            } else {
+                return None;
+            }
+        }
+        None
     }
 
     fn new_object(
@@ -1305,13 +1367,23 @@ impl Interpreter {
                 name: class.to_string(),
                 span,
             })?;
-        // Default-initialize every declared field. Mirrors the JIT's
-        // `alloc_zeroed`: primitive fields get 0/false/"" defaults so
-        // a class without an explicit init is still safe to read from.
-        // The `init` (if any) overwrites these immediately.
+        // Default-initialize every declared field, walking the
+        // ancestor chain so inherited fields are present too.
         let mut fields = HashMap::new();
-        for f in &decl.fields {
-            fields.insert(f.name.clone(), default_value(&f.ty));
+        let mut chain: Vec<String> = Vec::new();
+        let mut cur = Some(class.to_string());
+        while let Some(cn) = cur {
+            chain.push(cn.clone());
+            cur = self.classes.get(&cn).and_then(|c| c.parent.clone());
+        }
+        // Walk parent → child so child's field decls (if they
+        // shadowed — currently rejected by checker) win in the map.
+        for cn in chain.iter().rev() {
+            if let Some(c) = self.classes.get(cn) {
+                for f in &c.fields {
+                    fields.insert(f.name.clone(), default_value(&f.ty));
+                }
+            }
         }
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: class.to_string(),
@@ -1320,10 +1392,20 @@ impl Interpreter {
         // Pick the init to run. The mangler may have set
         // `init_method` to a specific overload mangle (e.g.
         // `init__i64`); fall back to plain `"init"` for the common
-        // non-overloaded case.
+        // non-overloaded case. Walk the parent chain — an inherited
+        // init is fine if the child doesn't redeclare one.
         let init_lookup = init_method.unwrap_or("init");
-        if let Some(init) = decl.methods.iter().find(|m| m.name == init_lookup).cloned() {
-            self.invoke(init_lookup, &init, evaluated, Some(obj.clone()), span)?;
+        if let Some((init, decl_class)) =
+            self.lookup_method_with_class(class, init_lookup)
+        {
+            self.invoke_with_class(
+                init_lookup,
+                &init,
+                evaluated,
+                Some(obj.clone()),
+                Some(decl_class),
+                span,
+            )?;
         } else if !evaluated.is_empty() {
             return Err(RuntimeError::ArityMismatch {
                 name: format!("{class}::init"),
@@ -1345,6 +1427,22 @@ impl Interpreter {
         decl: &FnDecl,
         evaluated: Vec<Value>,
         receiver: Option<ObjectRef>,
+        call_span: Span,
+    ) -> Result<Value, RuntimeError> {
+        // `decl_class` (the lexical class the method came from) is
+        // tracked separately via `invoke_with_class`; this default
+        // entry point preserves the existing top-level / extern call
+        // path with no class context.
+        self.invoke_with_class(name, decl, evaluated, receiver, None, call_span)
+    }
+
+    fn invoke_with_class(
+        &mut self,
+        name: &str,
+        decl: &FnDecl,
+        evaluated: Vec<Value>,
+        receiver: Option<ObjectRef>,
+        decl_class: Option<String>,
         call_span: Span,
     ) -> Result<Value, RuntimeError> {
         if decl.params.len() != evaluated.len() {
@@ -1370,6 +1468,7 @@ impl Interpreter {
         self.depth += 1;
         let saved_vars = std::mem::take(&mut self.vars);
         let saved_this = std::mem::replace(&mut self.this, receiver);
+        let saved_this_class = std::mem::replace(&mut self.this_class, decl_class);
         for (p, v) in decl.params.iter().zip(evaluated.into_iter()) {
             // Coerce arguments to the parameter's declared type so the
             // body sees the right runtime variant (i32 vs i64, etc.).
@@ -1378,6 +1477,7 @@ impl Interpreter {
         let result = self.eval_block(&decl.body);
         self.vars = saved_vars;
         self.this = saved_this;
+        self.this_class = saved_this_class;
         self.depth -= 1;
         match result {
             Err(RuntimeError::Break(_)) => Err(RuntimeError::TypeError {

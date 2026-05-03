@@ -40,6 +40,11 @@ pub struct FnDecl {
     pub ret: Option<Type>,
     pub body: Block,
     pub span: Span,
+    /// `true` for `override <method>(...)` declarations inside a
+    /// class body — the method must replace a same-named one from
+    /// an ancestor class (signature must match). Always `false` for
+    /// top-level fns and non-override methods.
+    pub is_override: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +57,10 @@ pub struct FieldDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClassDecl {
     pub name: String,
+    /// `class Child extends Parent { ... }` — single-inheritance
+    /// parent. `None` for root classes. The parent class must be
+    /// declared before the child (no forward references for now).
+    pub parent: Option<String>,
     /// Generic type parameters declared on the class (e.g. `<T, U>`).
     /// Empty for non-generic classes. Inside the class body, references
     /// to these names parse as `Type::TypeVar`.

@@ -467,6 +467,45 @@ Counter.total              // 3
 - ジェネリッククラスでの静的フィールドは未対応 (静的メソッドと同じ理由)
 - 内部実装: JIT は `Box<[i64]>` を確保してスロット割り当て、アクセスは絶対アドレスの load/store で f64/bool は bitcast / truncate
 
+### 継承 (`extends`) — interpreter のみ
+
+`class Child extends Parent { ... }` で単一継承できます (Phase B: 仮想ディスパッチ + override + super)。**現状 interpreter のみ対応** — JIT は `extends` を持つクラスを拒否します (vtable 設計が未実装)。
+
+```rust
+class Animal {
+    name: string
+    init(n: string) { this.name = n }
+    speak(): string { "generic sound" }
+    describe(): string { this.name + " says " + this.speak() }
+}
+
+class Dog extends Animal {
+    init(n: string) { super(n) }              // 親の init を super(...) で呼ぶ
+    override speak(): string { "woof" }       // override 必須
+}
+
+let d = new Dog("rex")
+d.speak()                                      // "woof"
+d.describe()                                   // "rex says woof" — Animal.describe が
+                                               // 呼ぶ speak() が Dog のものに dispatch (仮想)
+
+fn introduce(a: Animal): string { a.describe() }
+introduce(d)                                   // OK — Dog is-a Animal (subtyping)
+```
+
+- 単一継承のみ (多重継承なし)
+- 親はすでに宣言済み必須 (前方参照不可)
+- `override` キーワード必須。親に同名メソッドがないのに `override` を付けるとエラー、親にあるのに `override` を付けないとエラー (hides parent)
+- override のシグネチャは親と完全一致が必要 (現状)
+- `super.method(args)` で親のバージョンを呼ぶ (静的解決、自分のクラスの親を遡る)
+- `super(args)` は子の `init` 内で親の `init` を呼ぶ
+- インスタンスフィールド継承: 親のフィールドが先、子の追加フィールドが後
+- メソッドのオーバーロードは継承階層では未対応 (ルートクラスのみ)
+- `init` / `deinit` は per-class (継承の override 対象外)
+- 静的メソッド・静的フィールドの継承は未対応
+- ジェネリッククラスでの継承は未対応
+- サブタイプ: `Child` を `Parent` 型の binding / 引数 / 戻り値に渡せる
+
 ---
 
 ## 8. 配列

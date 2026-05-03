@@ -31,6 +31,14 @@ pub enum ExprKind {
     Var(String),
     /// The implicit receiver `this` inside a method body.
     This,
+    /// `super.method(args)` — call the parent class's version of
+    /// `method` directly (no virtual dispatch). `method = None`
+    /// means `super(args)`, the parent's `init`, valid only inside
+    /// a child class's own `init` body.
+    SuperCall {
+        method: Option<String>,
+        args: Vec<Expr>,
+    },
     Unary {
         op: UnOp,
         expr: Box<Expr>,

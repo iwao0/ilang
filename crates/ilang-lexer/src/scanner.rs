@@ -530,6 +530,9 @@ impl<'a> Lexer<'a> {
             "in" => TokenKind::In,
             "use" => TokenKind::Use,
             "const" => TokenKind::Const,
+            "extends" => TokenKind::Extends,
+            "override" => TokenKind::Override,
+            "super" => TokenKind::Super,
             _ => TokenKind::Ident(buf),
         }
     }
