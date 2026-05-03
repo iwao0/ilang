@@ -219,6 +219,7 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("alg_byte_at", test_byte_at as *const u8);
     builder.symbol("get_byte_slice", test_get_byte_slice as *const u8);
     builder.symbol("get_i32_slice", test_get_i32_slice as *const u8);
+    builder.symbol("maybe_byte_slice", test_maybe_byte_slice as *const u8);
 }
 
 // ─── @extern static globals (test-only) ─────────────────────────────
@@ -260,6 +261,22 @@ extern "C" fn test_get_i32_slice() -> I32Slice {
     I32Slice {
         ptr: TEST_SLICE_INTS.as_ptr(),
         len: TEST_SLICE_INTS.len(),
+    }
+}
+
+// Conditional slice return — drives the NULL-ptr branch the JIT
+// inserts when the declared return is `T[]?`.
+extern "C" fn test_maybe_byte_slice(ok: i32) -> U8Slice {
+    if ok != 0 {
+        U8Slice {
+            ptr: TEST_SLICE_BYTES.as_ptr(),
+            len: TEST_SLICE_BYTES.len(),
+        }
+    } else {
+        U8Slice {
+            ptr: std::ptr::null(),
+            len: 0,
+        }
     }
 }
 

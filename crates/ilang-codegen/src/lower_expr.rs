@@ -1504,39 +1504,69 @@ pub(crate) fn lower_expr(
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
                 } else if is_slice_return {
-                    // C side returned `(ptr, len)` in 2 GPRs.
-                    // Allocate an ilang `T[]` of length `len`, then
-                    // memcpy `len * sizeof(T)` bytes into its data
-                    // area. The ilang result is the array header.
-                    let arr_id = match ret_ty {
-                        JitTy::Array(id) => id,
-                        _ => unreachable!("slice_return validated to T[]"),
+                    // C side returned `(ptr, len)` in 2 GPRs. NULL
+                    // ptr maps to `None` when the declared return is
+                    // `T[]?`; otherwise it's treated as a 0-length
+                    // array (valid call, no data).
+                    //
+                    // Lower as: if ptr == 0 → result = 0 (None or
+                    // empty 0-arr is decided by the static return
+                    // type the caller asks for); else alloc + memcpy.
+                    let (arr_id, is_optional) = match ret_ty {
+                        JitTy::Array(id) => (id, false),
+                        JitTy::Optional(opt_id) => match lc.optional_inners[opt_id as usize] {
+                            JitTy::Array(id) => (id, true),
+                            _ => unreachable!("slice_return optional must wrap T[]"),
+                        },
+                        _ => unreachable!("slice_return validated to T[] or T[]?"),
                     };
                     let elem = lc.array_kinds[arr_id as usize].elem;
                     let elem_size = elem.size_bytes() as i64;
                     let results: Vec<_> = b.inst_results(call).to_vec();
                     let src_ptr = results[0];
                     let len = results[1];
-                    // Allocate the ilang Array<T>. Primitive T → no
-                    // per-element drop_fn.
+                    let zero = b.ins().iconst(I64, 0);
+                    let is_null = b.ins().icmp(IntCC::Equal, src_ptr, zero);
+                    let null_bb = b.create_block();
+                    let some_bb = b.create_block();
+                    let merge = b.create_block();
+                    b.append_block_param(merge, I64);
+                    b.ins().brif(is_null, null_bb, &[], some_bb, &[]);
+                    // NULL branch: optional → None (0 ptr); non-
+                    // optional → empty array allocation so the caller
+                    // can still safely walk it.
+                    b.switch_to_block(null_bb);
+                    b.seal_block(null_bb);
+                    let null_result = if is_optional {
+                        zero
+                    } else {
+                        let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+                        let elem_size_v = b.ins().iconst(I64, elem_size);
+                        let zero_len = b.ins().iconst(I64, 0);
+                        let drop_fn_ptr = b.ins().iconst(I64, 0);
+                        let alloc_call = b.ins().call(new_ref, &[elem_size_v, zero_len, drop_fn_ptr]);
+                        b.inst_results(alloc_call)[0]
+                    };
+                    b.ins().jump(merge, &[null_result.into()]);
+                    // non-NULL branch: allocate ilang Array<T> and
+                    // memcpy len * elem_size bytes.
+                    b.switch_to_block(some_bb);
+                    b.seal_block(some_bb);
                     let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
                     let elem_size_v = b.ins().iconst(I64, elem_size);
                     let drop_fn_ptr = b.ins().iconst(I64, 0);
                     let alloc_call = b.ins().call(new_ref, &[elem_size_v, len, drop_fn_ptr]);
                     let header = b.inst_results(alloc_call)[0];
-                    // Copy bytes: total = len * elem_size. Use the
-                    // memcpy_inline-style chunked loop on len ≤ small,
-                    // or call the runtime helper. Simplest: a
-                    // Cranelift `call_memcpy`-equivalent via an inline
-                    // byte-copy loop. Cranelift offers `b.call_memcpy`
-                    // / `b.emit_small_memory_copy`; use the latter.
                     let dst = b.ins().load(
                         I64, MemFlags::trusted(), header,
                         crate::runtime::ARRAY_DATA_OFFSET,
                     );
                     let total_bytes = b.ins().imul_imm(len, elem_size);
                     b.call_memcpy(lc.module.target_config(), dst, src_ptr, total_bytes);
-                    Some(header)
+                    b.ins().jump(merge, &[header.into()]);
+                    b.switch_to_block(merge);
+                    b.seal_block(merge);
+                    Some(b.block_params(merge)[0])
                 } else if let Some(ptr) = sret_ptr {
                     // sret: the C side wrote into the buffer we
                     // allocated and passed in. The ilang result is

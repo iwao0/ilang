@@ -166,12 +166,17 @@ pub(crate) fn register_native_externs(
             variadic.insert(f.name.clone());
         }
         if flag_slice_return {
-            // Validate: declared return must be `T[]` with primitive
-            // T. The C side is expected to return a `{ T* ptr;
-            // size_t len; }` 16 B struct, which the JIT lowers as
-            // 2 i64 chunks and memcpys into a fresh `T[]`.
+            // Validate: declared return must be `T[]` (or `T[]?`)
+            // with primitive T. The C side is expected to return a
+            // `{ T* ptr; size_t len; }` 16 B struct, which the JIT
+            // lowers as 2 i64 chunks and memcpys into a fresh `T[]`.
+            // Optional return: NULL ptr → None; non-NULL → Some(T[]).
             let elem = match &f.ret {
                 Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
+                Some(Type::Optional(inner)) => match inner.as_ref() {
+                    Type::Array { elem, .. } => Some(elem.as_ref()),
+                    _ => None,
+                },
                 _ => None,
             };
             let ok = matches!(
@@ -373,9 +378,13 @@ pub(crate) fn register_native_externs(
                     by_value.insert(f.name.clone());
                 } else if parts.as_slice() == ["slice_return"] {
                     // Same field-shape validation as the library-arg
-                    // path performs: must be `T[]` with primitive T.
+                    // path: must be `T[]` or `T[]?` with primitive T.
                     let elem = match &f.ret {
                         Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
+                        Some(Type::Optional(inner)) => match inner.as_ref() {
+                            Type::Array { elem, .. } => Some(elem.as_ref()),
+                            _ => None,
+                        },
                         _ => None,
                     };
                     let ok = matches!(

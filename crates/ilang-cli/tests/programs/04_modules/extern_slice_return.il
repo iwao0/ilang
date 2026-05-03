@@ -31,3 +31,21 @@ let nums2 = get_i32_slice()
 nums2[0] = 999 as i32
 test.expect(nums[0] as i64, -1)
 test.expect(nums2[0] as i64, 999)
+
+// Failure case: when the C side returns a (NULL, 0) slice, the
+// declared `T[]?` return becomes `None` — no segfault on the
+// would-be memcpy.
+@extern(slice_return) fn maybe_byte_slice(ok: i32): u8[]?
+
+if let some(ok_arr) = maybe_byte_slice(1 as i32) {
+    test.expect(ok_arr.length as i64, 5)
+    test.expect(ok_arr[0] as i64, 10)
+} else {
+    test.fail("expected Some on ok=1")
+}
+
+if let some(err_arr) = maybe_byte_slice(0 as i32) {
+    test.fail("expected None on ok=0")
+    // Touch a field so the compiler doesn't drop the binding.
+    test.expect(err_arr.length as i64, -1)
+}
