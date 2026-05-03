@@ -226,6 +226,16 @@ fn binary_literal() {
 }
 
 #[test]
+fn octal_literal() {
+    assert_eq!(kinds("0o17"), vec![TokenKind::Int(15), TokenKind::Eof]);
+    assert_eq!(kinds("0O755"), vec![TokenKind::Int(0o755), TokenKind::Eof]);
+    assert_eq!(
+        kinds("0o1_234"),
+        vec![TokenKind::Int(0o1234), TokenKind::Eof]
+    );
+}
+
+#[test]
 fn underscore_separators() {
     assert_eq!(
         kinds("1_000_000"),
@@ -254,6 +264,15 @@ fn empty_radix_literal_errors() {
     ));
     assert!(matches!(
         tokenize("0b"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+    assert!(matches!(
+        tokenize("0o"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+    // 0o8 / 0o9 are not valid octal digits.
+    assert!(matches!(
+        tokenize("0o9"),
         Err(LexError::InvalidNumber { .. })
     ));
 }

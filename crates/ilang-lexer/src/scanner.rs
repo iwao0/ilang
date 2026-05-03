@@ -543,6 +543,11 @@ impl<'a> Lexer<'a> {
                     self.bump(); // 'b' / 'B'
                     return self.read_radix_int(span, 2, "binary");
                 }
+                if prefix == 'o' || prefix == 'O' {
+                    self.bump(); // '0'
+                    self.bump(); // 'o' / 'O'
+                    return self.read_radix_int(span, 8, "octal");
+                }
             }
         }
 
