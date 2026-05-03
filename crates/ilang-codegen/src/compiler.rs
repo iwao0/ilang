@@ -80,7 +80,7 @@ fn jit_run_inner(
     prog: &Program,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
 ) -> Result<JitValue, CodegenError> {
-    let mut compiler = JitCompiler::new()?;
+    let mut compiler = JitCompiler::new(prog)?;
     compiler.loop_break_types = loop_break_types.clone();
     // 1a. Register every class / enum name → id, with empty layouts.
     //     This way `Child { p: Parent.weak }` resolves even when Parent
@@ -231,10 +231,16 @@ pub(crate) struct JitCompiler {
     /// outer `TypeChecker`). Empty when no `break v` appears anywhere.
     pub(crate) loop_break_types:
         HashMap<ilang_ast::Span, ilang_ast::Type>,
+    /// Open `libloading::Library` handles for every dlopen'd
+    /// `@extern("libname")` library. Held here so the symbols stay
+    /// valid as long as the JIT module does. Never read directly —
+    /// just keeps the libraries alive.
+    #[allow(dead_code)]
+    pub(crate) native_libs: Vec<libloading::Library>,
 }
 
 impl JitCompiler {
-    fn new() -> Result<Self, CodegenError> {
+    fn new(prog: &Program) -> Result<Self, CodegenError> {
         let flag_builder = settings::builder();
         let isa_builder = cranelift_native::builder()
             .map_err(|e| CodegenError::Cranelift(format!("isa builder: {e}")))?;
@@ -345,6 +351,11 @@ impl JitCompiler {
         // form produced by the loader (`math.sin`, etc.).
         crate::math_externs::register_math_symbols(&mut builder);
         crate::test_externs::register_test_symbols(&mut builder);
+        // User `@extern("libfoo")` fns: dlopen each named library
+        // (deduplicated) and register each symbol the program names.
+        // The Library handles must outlive the JITModule, so we stash
+        // them on the JitCompiler.
+        let loaded_libs = crate::native_extern::register_native_externs(&mut builder, prog)?;
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -562,6 +573,7 @@ impl JitCompiler {
             array_drops: HashMap::new(),
             enum_drops: HashMap::new(),
             loop_break_types: HashMap::new(),
+            native_libs: loaded_libs,
         })
     }
 

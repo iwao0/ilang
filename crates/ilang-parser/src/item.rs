@@ -524,8 +524,16 @@ impl<'a> Parser<'a> {
                 let mut args = Vec::new();
                 if !matches!(self.peek().kind, TokenKind::RParen) {
                     loop {
-                        let path = self.parse_attr_path()?;
-                        args.push(AttrArg::Path(path));
+                        // String literal arg (`@extern("libm")`) or a
+                        // capability path (`@requires(net)`).
+                        if let TokenKind::Str(s) = &self.peek().kind {
+                            let s = s.clone();
+                            self.bump();
+                            args.push(AttrArg::Str(s));
+                        } else {
+                            let path = self.parse_attr_path()?;
+                            args.push(AttrArg::Path(path));
+                        }
                         if matches!(self.peek().kind, TokenKind::Comma) {
                             self.bump();
                         } else {

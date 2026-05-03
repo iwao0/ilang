@@ -1311,3 +1311,64 @@ fn jit_supports_generic_enum_via_run_with() {
     let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args(), &tc.loop_break_types()).unwrap();
     assert_eq!(v, JitValue::I64(42));
 }
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_libm() {
+    // Verify that `@extern("libm.dylib") fn sqrt(x: f64): f64` (or
+    // its Linux equivalent) actually dlopens libm and the JITed call
+    // hits the real C implementation. Restricted to f64/i64/bool
+    // signatures by the native_extern validator.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") {
+        "libm.dylib"
+    } else {
+        "libm.so.6"
+    };
+    let src = format!(
+        "@extern(\"{lib}\") fn sqrt(x: f64): f64\nsqrt(16.0)"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::F64(4.0));
+}
+
+#[test]
+fn extern_native_unknown_lib_errors() {
+    // dlopen failure should surface as a Module error (with the
+    // library name in the message), not a panic.
+    use ilang_codegen::jit_run_with;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"@extern("definitely_not_a_real_lib_42xyz.so") fn ghost(): i64
+ghost()"#;
+    let toks = tokenize(src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let err = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("definitely_not_a_real_lib_42xyz") || msg.contains("dlopen") || msg.contains("library"),
+        "unexpected error: {msg}"
+    );
+}

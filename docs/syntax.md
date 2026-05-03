@@ -668,7 +668,23 @@ utils.double(c.get())            // → 22
 - interpreter: ホスト側のレジストリ (`crates/ilang-eval/src/externs.rs`) に名前 → Rust 関数を登録、実行時にディスパッチ
 - JIT: `Linkage::Import` で宣言、`JITBuilder::symbol("math.sin", ...)` で関数アドレスを供給 (cranelift が直接 Rust 関数を呼び出す)
 - 名前は loader でマングル後の qualified 形 (`math.sin`) でレジストリに登録
-- 現状ユーザ定義 extern は無対応 — 内部メカニズムとして `math` モジュールに使われている
+
+#### `@extern("libname")` — ネイティブ動的ライブラリの呼び出し (JIT 専用)
+
+属性に文字列引数を渡すと、`libloading` でその名前のダイナミックライブラリを `dlopen` し、関数名と同じシンボルを引いて呼び出します。
+
+```rust
+@extern("libm.dylib") fn sqrt(x: f64): f64    // macOS
+// @extern("libm.so.6") fn sqrt(x: f64): f64  // Linux
+
+sqrt(16.0)                                     // 4.0 (libm の C 関数を直接実行)
+```
+
+- 対応する型は **`i64` / `f64` / `bool` (+ 戻り値の `()`)** のみ。`string` / オブジェクト / 配列等のマーシャリングは未対応
+- ライブラリ名は OS の dlopen 規約そのまま (macOS なら `.dylib`、Linux なら `.so.x`)
+- ライブラリ open 失敗 / シンボル未存在 はコンパイル時 (JIT 構築時) エラー
+- **JIT のみ** 対応 — interpreter からは呼び出せない (`@extern("libname")` 付きの fn を interpreter で実行すると未定義シンボルとして失敗)
+- 同じライブラリは 1 回だけ `dlopen` され、ハンドルは JIT モジュールが生きている間維持される
 
 ### 組み込み `math` モジュール
 

@@ -14,6 +14,7 @@ mod lower_expr;
 mod lower_op;
 mod lower_stmt;
 mod math_externs;
+mod native_extern;
 mod test_externs;
 mod monomorphize;
 mod runtime;

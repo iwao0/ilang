@@ -21,6 +21,9 @@ pub struct Attribute {
 pub enum AttrArg {
     /// A capability path like `net` or `file::read`.
     Path(Vec<String>),
+    /// A quoted string literal — used by `@extern("libname")` to
+    /// name the dynamic library to dlopen at JIT init.
+    Str(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

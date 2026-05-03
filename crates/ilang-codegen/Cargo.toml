@@ -15,6 +15,7 @@ cranelift-frontend = "0.115"
 cranelift-codegen = "0.115"
 cranelift-native = "0.115"
 target-lexicon = "0.13"
+libloading = "0.8"
 
 [dev-dependencies]
 ilang-lexer = { path = "../ilang-lexer" }
