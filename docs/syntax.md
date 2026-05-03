@@ -680,11 +680,26 @@ utils.double(c.get())            // → 22
 sqrt(16.0)                                     // 4.0 (libm の C 関数を直接実行)
 ```
 
-- 対応する型は **`i64` / `f64` / `bool` (+ 戻り値の `()`)** のみ。`string` / オブジェクト / 配列等のマーシャリングは未対応
+- 対応する型は **`i64` / `f64` / `bool` / `string` (+ 戻り値の `()`)**。オブジェクト / 配列 / Optional 等のマーシャリングは未対応
+- `string` 引数は呼び出し時に **NUL 終端 UTF-8 のコピーを `malloc`** して C 側に渡し、関数復帰後に解放
+- `string` 戻り値はデフォルトで C 側のポインタを **静的 / 永続と仮定** して新しい `StringRc` にコピー (`getenv` などはこれで OK)
+- C 側が **ヒープに確保した文字列を返す** 場合は `@extern("lib", owned_return)` を付けると、JIT がコピー後に `libc::free(ptr)` を呼んでメモリを解放する (`strdup` 等)。`owned_return` は `string` 戻り値の fn にしか付けられない (型チェック)
+- 文字列内の NUL バイトは最初の出現で切り捨て (C のセマンティクスに合わせる)
 - ライブラリ名は OS の dlopen 規約そのまま (macOS なら `.dylib`、Linux なら `.so.x`)
 - ライブラリ open 失敗 / シンボル未存在 はコンパイル時 (JIT 構築時) エラー
 - **JIT のみ** 対応 — interpreter からは呼び出せない (`@extern("libname")` 付きの fn を interpreter で実行すると未定義シンボルとして失敗)
 - 同じライブラリは 1 回だけ `dlopen` され、ハンドルは JIT モジュールが生きている間維持される
+
+例:
+```rust
+@extern("libc.dylib") fn strlen(s: string): i64
+@extern("libc.dylib") fn getenv(name: string): string
+@extern("libc.dylib", owned_return) fn strdup(s: string): string
+
+strlen("hello")           // 5
+getenv("HOME")            // "/Users/..."        (静的、free しない)
+strdup("copy me")         // "copy me" (libc::free 自動)
+```
 
 ### 組み込み `math` モジュール
 

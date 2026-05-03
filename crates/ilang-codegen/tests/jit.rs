@@ -1372,3 +1372,136 @@ ghost()"#;
         "unexpected error: {msg}"
     );
 }
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_string_arg_strlen() {
+    // libc's strlen returns the byte length up to the first NUL,
+    // exercising the StringRc → C-string conversion path.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\") fn strlen(s: string): i64\nstrlen(\"hello\")"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::I64(5));
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_string_return_getenv() {
+    // getenv(NULL_terminated_name) → static *const c_char (or NULL).
+    // We pre-set HOME to a known value so the test is deterministic.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    std::env::set_var("ILANG_TEST_VAR", "marker_value_42");
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\") fn getenv(name: string): string\ngetenv(\"ILANG_TEST_VAR\")"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::Str("marker_value_42".into()));
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_owned_return_strdup() {
+    // strdup returns a heap-allocated copy that the caller is
+    // responsible for freeing. With `owned_return` the JIT inserts
+    // libc::free(returned_ptr) after copying the bytes into a
+    // StringRc, so this loop wouldn't grow RSS.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\", owned_return) fn strdup(s: string): string\nstrdup(\"hello world\")"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::Str("hello world".into()));
+}
+
+#[test]
+fn extern_native_owned_return_requires_string() {
+    // owned_return on a non-string return is rejected at JIT build.
+    use ilang_codegen::jit_run_with;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\", owned_return) fn strlen(s: string): i64\nstrlen(\"hi\")"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let err = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("owned_return"), "unexpected error: {msg}");
+}
+
+#[test]
+fn extern_native_unknown_flag_rejected() {
+    use ilang_codegen::jit_run_with;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let src = r#"@extern("libc.dylib", do_what_now) fn strlen(s: string): i64
+strlen("x")"#;
+    let toks = tokenize(src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let err = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+    )
+    .unwrap_err();
+    let msg = format!("{err}");
+    assert!(msg.contains("unknown flag"), "unexpected error: {msg}");
+}

@@ -81,6 +81,16 @@ pub(crate) struct StrFns {
     pub slice: FuncId,
     pub split: FuncId,
     pub trim: FuncId,
+    /// `string` ↔ `*const c_char` marshalling used by
+    /// `@extern("libname")` calls. `to_c_str` allocates a NUL-
+    /// terminated copy, `free_c_str` frees it after the call,
+    /// `c_str_to_string` copies a C-owned pointer back into a
+    /// fresh StringRc.
+    pub to_c_str: FuncId,
+    pub free_c_str: FuncId,
+    pub c_str_to_string: FuncId,
+    /// `libc::free` for `@extern(..., owned_return)` returns.
+    pub libc_free: FuncId,
 }
 
 /// FFI helpers for the heap array runtime. `push_<width>` is picked by
@@ -143,6 +153,13 @@ pub(crate) struct LowerCtx<'a> {
     /// Per-`loop` expression span → result type, populated by the
     /// typechecker. Read by `lower_loop` to allocate the result slot.
     pub loop_break_types: &'a HashMap<Span, ilang_ast::Type>,
+    /// Names of `@extern("libname")` fns. Read by Call lowering to
+    /// decide whether to insert string ↔ C-string conversions.
+    pub native_extern_fns: &'a std::collections::HashSet<String>,
+    /// Subset of `native_extern_fns` whose `string` return is
+    /// callee-owned (`strdup`-style). The Call lowering emits
+    /// `libc::free` on the C pointer after copying it.
+    pub native_extern_owned_return: &'a std::collections::HashSet<String>,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
     /// Declared return type of the function currently being lowered;

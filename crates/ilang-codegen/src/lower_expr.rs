@@ -799,7 +799,14 @@ pub(crate) fn lower_expr(
             // Free function first.
             if let Some(entry) = lc.funcs.get(callee).cloned() {
                 let (id, param_tys, ret_ty) = entry;
+                let is_native = lc.native_extern_fns.contains(callee);
                 let mut arg_vals = Vec::with_capacity(args.len());
+                // For native externs, every `string` arg is converted
+                // to a freshly-malloc'd C string via the runtime
+                // helper; the resulting pointer is freed after the
+                // call. Track them here so the post-call cleanup loop
+                // sees the right Values.
+                let mut c_str_temps: Vec<cranelift::prelude::Value> = Vec::new();
                 for (i, a) in args.iter().enumerate() {
                     let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
                         CodegenError::Unsupported {
@@ -809,14 +816,59 @@ pub(crate) fn lower_expr(
                     })?;
                     let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
                     emit_bind_retain(b, lc, &a.kind, at, param_tys[i], coerced);
-                    arg_vals.push(coerced);
+                    if is_native && matches!(param_tys[i], JitTy::Str) {
+                        // StringRc* → malloc'd C string. Save the
+                        // temp pointer so we can free it after the
+                        // foreign call returns.
+                        let f = lc.module.declare_func_in_func(lc.strfns.to_c_str, b.func);
+                        let c = b.ins().call(f, &[coerced]);
+                        let c_ptr = b.inst_results(c)[0];
+                        c_str_temps.push(c_ptr);
+                        arg_vals.push(c_ptr);
+                    } else {
+                        arg_vals.push(coerced);
+                    }
                 }
                 let func_ref = lc.module.declare_func_in_func(id, b.func);
                 let call = b.ins().call(func_ref, &arg_vals);
-                if matches!(ret_ty, JitTy::Unit) {
-                    return Ok(None);
+                let raw_ret = if matches!(ret_ty, JitTy::Unit) {
+                    None
+                } else {
+                    Some(b.inst_results(call)[0])
+                };
+                // Free the C-string temps now that the foreign function
+                // has consumed them. Done before result conversion so
+                // even an early-`return` doesn't leak (we don't have
+                // unwinding here).
+                for c_ptr in c_str_temps {
+                    let f = lc.module.declare_func_in_func(lc.strfns.free_c_str, b.func);
+                    b.ins().call(f, &[c_ptr]);
                 }
-                return Ok(Some((b.inst_results(call)[0], ret_ty)));
+                let result = if is_native && matches!(ret_ty, JitTy::Str) {
+                    let raw = raw_ret.expect("native string return is non-unit");
+                    let f = lc
+                        .module
+                        .declare_func_in_func(lc.strfns.c_str_to_string, b.func);
+                    let c = b.ins().call(f, &[raw]);
+                    let copied = b.inst_results(c)[0];
+                    // `@extern("lib", owned_return)` — the C side
+                    // gave us a heap pointer (e.g. strdup). Free it
+                    // now that the bytes are copied into StringRc.
+                    if lc.native_extern_owned_return.contains(callee) {
+                        let free_ref = lc
+                            .module
+                            .declare_func_in_func(lc.strfns.libc_free, b.func);
+                        b.ins().call(free_ref, &[raw]);
+                    }
+                    Some(copied)
+                } else {
+                    raw_ret
+                };
+                return match (result, ret_ty) {
+                    (None, JitTy::Unit) => Ok(None),
+                    (Some(v), t) => Ok(Some((v, t))),
+                    _ => unreachable!(),
+                };
             }
             // Implicit method call on `this`.
             if let Some((this_var, class_id)) = lc.this {

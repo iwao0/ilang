@@ -256,6 +256,88 @@ fn alloc_str(s: String) -> i64 {
     Box::into_raw(Box::new(StringRc { rc: 1, s })) as i64
 }
 
+// ─── Native extern string marshalling ──────────────────────────────────
+// `@extern("libfoo") fn f(s: string)` needs to hand C the
+// `*const c_char` it expects, not our StringRc pointer. The JIT
+// inserts calls to these helpers around each native-extern call:
+//   ilang_jit_str_to_c_str  →  malloc'd null-terminated copy
+//   ilang_jit_free_c_str    →  free that copy after the call returns
+//   ilang_jit_c_str_to_string → copy a C-returned pointer into a fresh
+//                               StringRc (assumes the C side owns the
+//                               memory and won't free it under us)
+
+/// Allocate a null-terminated copy of `s` and return its pointer as i64.
+/// Returns 0 if `ptr` is 0 (caller checks).
+pub(crate) extern "C" fn ilang_jit_str_to_c_str(ptr: i64) -> i64 {
+    if ptr == 0 {
+        return 0;
+    }
+    let sr = unsafe { &*(ptr as *const StringRc) };
+    // CString rejects interior NULs — fall back to truncating at the
+    // first NUL so we never panic on user strings. C land treats them
+    // as terminators anyway.
+    let bytes = sr.s.as_bytes();
+    let len_to_nul = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    let mut buf = Vec::with_capacity(len_to_nul + 1);
+    buf.extend_from_slice(&bytes[..len_to_nul]);
+    buf.push(0);
+    let boxed = buf.into_boxed_slice();
+    Box::into_raw(boxed) as *mut u8 as i64
+}
+
+/// Free a buffer previously returned by `ilang_jit_str_to_c_str`.
+/// The buffer was allocated as `Box<[u8]>` with the trailing NUL
+/// included in its length — `len_to_nul` here recomputes that length
+/// by walking to the NUL.
+pub(crate) extern "C" fn ilang_jit_free_c_str(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let p = ptr as *mut u8;
+        let mut n = 0usize;
+        while *p.add(n) != 0 {
+            n += 1;
+        }
+        // +1 for the NUL byte (matches what str_to_c_str pushed).
+        let slice = std::slice::from_raw_parts_mut(p, n + 1);
+        drop(Box::from_raw(slice as *mut [u8]));
+    }
+}
+
+/// `libc::free` wrapper for `@extern(..., owned_return)`. Called
+/// after `c_str_to_string` has copied the bytes out of the C-owned
+/// buffer. NULL is a no-op (matches libc's free semantics).
+pub(crate) extern "C" fn ilang_jit_libc_free(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    extern "C" {
+        fn free(ptr: *mut std::ffi::c_void);
+    }
+    unsafe {
+        free(ptr as *mut std::ffi::c_void);
+    }
+}
+
+/// Copy a C-owned `*const c_char` (null-terminated UTF-8) into a fresh
+/// StringRc. The C-side memory is **not** freed by this helper alone —
+/// the JIT separately calls `ilang_jit_libc_free` when the fn was
+/// declared `@extern(..., owned_return)`.
+pub(crate) extern "C" fn ilang_jit_c_str_to_string(ptr: i64) -> i64 {
+    if ptr == 0 {
+        // Empty string fallback — null pointer in StringRc world is
+        // undefined behaviour for downstream string ops.
+        return alloc_str(String::new());
+    }
+    unsafe {
+        let cstr = std::ffi::CStr::from_ptr(ptr as *const i8);
+        // Lossy so any invalid UTF-8 becomes U+FFFD instead of panicking.
+        let s = cstr.to_string_lossy().into_owned();
+        alloc_str(s)
+    }
+}
+
 /// Unicode code-point count, matching JS-style `.length` semantics for
 /// non-BMP characters (each surrogate pair counts as one in `chars()`).
 pub(crate) extern "C" fn ilang_jit_str_length(ptr: i64) -> i64 {

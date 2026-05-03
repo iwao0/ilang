@@ -182,6 +182,10 @@ pub(crate) struct JitCompiler {
     pub(crate) str_replace_id: FuncId,
     pub(crate) str_slice_id: FuncId,
     pub(crate) str_split_id: FuncId,
+    pub(crate) str_to_c_str_id: FuncId,
+    pub(crate) free_c_str_id: FuncId,
+    pub(crate) c_str_to_string_id: FuncId,
+    pub(crate) libc_free_id: FuncId,
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
@@ -237,6 +241,14 @@ pub(crate) struct JitCompiler {
     /// just keeps the libraries alive.
     #[allow(dead_code)]
     pub(crate) native_libs: Vec<libloading::Library>,
+    /// Names of fns declared with `@extern("libname")` — looked up at
+    /// each Call site so the lowering can wrap string args / return
+    /// in C-string conversions.
+    pub(crate) native_extern_fns: std::collections::HashSet<String>,
+    /// Subset of `native_extern_fns` whose `string` return must be
+    /// freed with `libc::free` after we copy the bytes into a fresh
+    /// StringRc. Marked by `@extern("lib", owned_return)`.
+    pub(crate) native_extern_owned_return: std::collections::HashSet<String>,
 }
 
 impl JitCompiler {
@@ -293,6 +305,10 @@ impl JitCompiler {
         builder.symbol("ilang_jit_str_replace", crate::runtime::ilang_jit_str_replace as *const u8);
         builder.symbol("ilang_jit_str_slice", crate::runtime::ilang_jit_str_slice as *const u8);
         builder.symbol("ilang_jit_str_split", crate::runtime::ilang_jit_str_split as *const u8);
+        builder.symbol("ilang_jit_str_to_c_str", crate::runtime::ilang_jit_str_to_c_str as *const u8);
+        builder.symbol("ilang_jit_free_c_str", crate::runtime::ilang_jit_free_c_str as *const u8);
+        builder.symbol("ilang_jit_c_str_to_string", crate::runtime::ilang_jit_c_str_to_string as *const u8);
+        builder.symbol("ilang_jit_libc_free", crate::runtime::ilang_jit_libc_free as *const u8);
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
         builder.symbol(
             "ilang_jit_retain_array",
@@ -355,7 +371,7 @@ impl JitCompiler {
         // (deduplicated) and register each symbol the program names.
         // The Library handles must outlive the JITModule, so we stash
         // them on the JitCompiler.
-        let loaded_libs = crate::native_extern::register_native_externs(&mut builder, prog)?;
+        let native_reg = crate::native_extern::register_native_externs(&mut builder, prog)?;
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -433,6 +449,14 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_str_slice", &[I64, I64, I64], Some(I64))?;
         let str_split_id =
             declare_import(&mut module, "ilang_jit_str_split", &[I64, I64, I64], Some(I64))?;
+        let str_to_c_str_id =
+            declare_import(&mut module, "ilang_jit_str_to_c_str", &[I64], Some(I64))?;
+        let free_c_str_id =
+            declare_import(&mut module, "ilang_jit_free_c_str", &[I64], None)?;
+        let c_str_to_string_id =
+            declare_import(&mut module, "ilang_jit_c_str_to_string", &[I64], Some(I64))?;
+        let libc_free_id =
+            declare_import(&mut module, "ilang_jit_libc_free", &[I64], None)?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
@@ -539,6 +563,10 @@ impl JitCompiler {
             str_replace_id,
             str_slice_id,
             str_split_id,
+            str_to_c_str_id,
+            free_c_str_id,
+            c_str_to_string_id,
+            libc_free_id,
             array_new,
             retain_array_id,
             release_array_id,
@@ -573,7 +601,9 @@ impl JitCompiler {
             array_drops: HashMap::new(),
             enum_drops: HashMap::new(),
             loop_break_types: HashMap::new(),
-            native_libs: loaded_libs,
+            native_libs: native_reg.libs,
+            native_extern_fns: native_reg.names,
+            native_extern_owned_return: native_reg.owned_return,
         })
     }
 
@@ -930,6 +960,10 @@ impl JitCompiler {
                 replace: self.str_replace_id,
                 slice: self.str_slice_id,
                 split: self.str_split_id,
+                to_c_str: self.str_to_c_str_id,
+                free_c_str: self.free_c_str_id,
+                c_str_to_string: self.c_str_to_string_id,
+                libc_free: self.libc_free_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
@@ -976,6 +1010,8 @@ impl JitCompiler {
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
             loop_break_types: &self.loop_break_types,
+            native_extern_fns: &self.native_extern_fns,
+            native_extern_owned_return: &self.native_extern_owned_return,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -1074,6 +1110,10 @@ impl JitCompiler {
                 replace: self.str_replace_id,
                 slice: self.str_slice_id,
                 split: self.str_split_id,
+                to_c_str: self.str_to_c_str_id,
+                free_c_str: self.free_c_str_id,
+                c_str_to_string: self.c_str_to_string_id,
+                libc_free: self.libc_free_id,
             },
             arrfns: ArrayFns {
                 new: self.array_new,
@@ -1120,6 +1160,8 @@ impl JitCompiler {
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
             loop_break_types: &self.loop_break_types,
+            native_extern_fns: &self.native_extern_fns,
+            native_extern_owned_return: &self.native_extern_owned_return,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.
