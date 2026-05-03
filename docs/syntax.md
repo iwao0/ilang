@@ -158,6 +158,26 @@ if let some(v) = x {
 
 `break` / `continue` はループ内のみ (型チェッカーが範囲外を拒否)。
 
+`loop` は `break v` で値を持って抜けられ、その値が `loop` 式自身の型/値になります (Rust と同じ)。`while` / `for` には条件で完走するパスがあるため `break v` は使えません (型チェッカーが拒否)。
+
+```rust
+let n = loop {
+    if ready() { break compute() }     // loop は break の型 i64 を持つ
+}
+
+let i = 0
+let first_even = loop {
+    if i % 2 == 0 && i > 0 { break i }
+    i = i + 1
+}
+
+loop { break }                          // 値なし break — loop の型は Unit
+```
+
+- 同じ `loop` 内の `break v` はすべて型一致が必要 (型チェッカーが mismatch を拒否)
+- `break` (値なし) は常に許容、`break v` は `loop` 内のみ
+- interpreter / JIT とも対応
+
 ```rust
 // return — 関数/メソッドからの早期脱出。値ありと値なし両対応。
 fn abs(n: i64): i64 {

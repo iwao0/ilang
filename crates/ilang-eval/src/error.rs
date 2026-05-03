@@ -46,9 +46,10 @@ pub enum RuntimeError {
     NegativeShift { amount: i64, span: Span },
     /// Internal control-flow signal carried by `Result::Err` so `?` propagates
     /// it to the enclosing loop. The type checker rejects `break` outside a
-    /// loop, so this never escapes a well-typed program.
+    /// loop, so this never escapes a well-typed program. The payload is the
+    /// `break v` value (or `Value::Unit` for bare `break`).
     #[error("`break` outside of a loop")]
-    Break,
+    Break(crate::Value),
     /// Carries an early `return value` out of the enclosing function.
     /// Caught by `Interpreter::invoke`; the type checker keeps it from
     /// surfacing outside a function body.
@@ -137,7 +138,7 @@ impl RuntimeError {
             | RuntimeError::NotAnObject { span, .. }
             | RuntimeError::IndexOutOfBounds { span, .. }
             | RuntimeError::NegativeShift { span, .. } => *span,
-            RuntimeError::Break | RuntimeError::Continue | RuntimeError::Return(_) => {
+            RuntimeError::Break(_) | RuntimeError::Continue | RuntimeError::Return(_) => {
                 Span::dummy()
             }
         }

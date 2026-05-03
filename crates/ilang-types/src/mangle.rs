@@ -246,7 +246,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Var(n) => ExprKind::Var(n),
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
-        ExprKind::Break => ExprKind::Break,
+        ExprKind::Break(opt) => ExprKind::Break(opt.map(|e| Box::new(rewrite_expr(*e, ctx)))),
         ExprKind::Continue => ExprKind::Continue,
         ExprKind::Some(x) => ExprKind::Some(Box::new(rewrite_expr(*x, ctx))),
         ExprKind::Unary { op, expr } => ExprKind::Unary {

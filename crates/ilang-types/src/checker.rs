@@ -204,6 +204,26 @@ pub struct TypeChecker {
     /// `(class_name, method_name, sig_idx)`. Includes both regular
     /// MethodCall sites and the `init` resolved at `new C(args)`.
     method_overload_pick: std::cell::RefCell<HashMap<Span, (String, String, usize)>>,
+    /// Stack of currently-open loops, with the kind that controls
+    /// whether `break v` is allowed and the accumulated break-value
+    /// type so a `loop { ... break v }` expression can take the type of
+    /// `v`. `LoopKind::Loop` collects break types; `LoopKind::Other`
+    /// (while / for) rejects `break v` outright.
+    loop_stack: std::cell::RefCell<Vec<LoopFrame>>,
+    /// Per-`loop` expression: the unified break-value type that the
+    /// loop evaluates to. Unit means no `break v` was seen. Consumed
+    /// by the JIT lowering so it can allocate the right Cranelift
+    /// `Variable` for the loop result.
+    loop_break_type: std::cell::RefCell<HashMap<Span, Type>>,
+}
+
+#[derive(Debug)]
+enum LoopFrame {
+    /// `loop { ... }` — `break v` allowed; `Option<Type>` is the
+    /// (unified) value type recorded so far, `None` until first break.
+    Loop(Option<Type>),
+    /// `while` / `for` — only bare `break` allowed.
+    Other,
 }
 
 impl TypeChecker {
@@ -238,6 +258,13 @@ impl TypeChecker {
     /// rewrite `MethodCall.method` and `New.init_method`.
     pub fn method_overload_picks(&self) -> HashMap<Span, (String, String, usize)> {
         self.method_overload_pick.borrow().clone()
+    }
+
+    /// Map of `loop` expression span → the loop's result type (the
+    /// unified `break v` value type, or `Unit` if no `break v`).
+    /// Consumed by the JIT lowering.
+    pub fn loop_break_types(&self) -> HashMap<Span, Type> {
+        self.loop_break_type.borrow().clone()
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
@@ -609,7 +636,12 @@ impl TypeChecker {
             &f.ret.clone().unwrap_or(Type::Unit),
             &class_params,
         );
-        let body_ty = self.check_block(&f.body, &env, Some(&expected), in_class, 0)?;
+        // Function bodies start a fresh loop-stack: a `break` inside a
+        // closure / nested fn body never refers to an outer loop.
+        let saved_loops = std::mem::take(&mut *self.loop_stack.borrow_mut());
+        let body_res = self.check_block(&f.body, &env, Some(&expected), in_class, 0);
+        *self.loop_stack.borrow_mut() = saved_loops;
+        let body_ty = body_res?;
         if !assignable(&body_ty, &expected) {
             return Err(TypeError::BadReturn {
                 name: f.name.clone(),
@@ -1449,7 +1481,10 @@ impl TypeChecker {
                         span: cond.span,
                     });
                 }
-                let body_ty = self.check_block(body, env, ret_ty, in_class, loop_depth + 1)?;
+                self.loop_stack.borrow_mut().push(LoopFrame::Other);
+                let body_res = self.check_block(body, env, ret_ty, in_class, loop_depth + 1);
+                self.loop_stack.borrow_mut().pop();
+                let body_ty = body_res?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -1460,7 +1495,10 @@ impl TypeChecker {
                 Ok(Type::Unit)
             }
             ExprKind::Loop { body } => {
-                let body_ty = self.check_block(body, env, ret_ty, in_class, loop_depth + 1)?;
+                self.loop_stack.borrow_mut().push(LoopFrame::Loop(None));
+                let body_res = self.check_block(body, env, ret_ty, in_class, loop_depth + 1);
+                let frame = self.loop_stack.borrow_mut().pop();
+                let body_ty = body_res?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -1468,7 +1506,16 @@ impl TypeChecker {
                         span,
                     });
                 }
-                Ok(Type::Unit)
+                // The loop's own type is the unified break-value type, or
+                // Unit if no `break v` was seen.
+                let break_ty = match frame {
+                    Some(LoopFrame::Loop(Some(t))) => t,
+                    _ => Type::Unit,
+                };
+                self.loop_break_type
+                    .borrow_mut()
+                    .insert(span, break_ty.clone());
+                Ok(break_ty)
             }
             ExprKind::ForIn { var, iter, body } => {
                 let it = self.check_expr(iter, env, ret_ty, in_class, loop_depth)?;
@@ -1487,8 +1534,11 @@ impl TypeChecker {
                 };
                 let mut inner = env.clone();
                 inner.insert(var.clone(), elem);
-                let body_ty =
-                    self.check_block(body, &inner, ret_ty, in_class, loop_depth + 1)?;
+                self.loop_stack.borrow_mut().push(LoopFrame::Other);
+                let body_res =
+                    self.check_block(body, &inner, ret_ty, in_class, loop_depth + 1);
+                self.loop_stack.borrow_mut().pop();
+                let body_ty = body_res?;
                 if body_ty != Type::Unit {
                     return Err(TypeError::Mismatch {
                         expected: Type::Unit,
@@ -1498,9 +1548,42 @@ impl TypeChecker {
                 }
                 Ok(Type::Unit)
             }
-            ExprKind::Break => {
+            ExprKind::Break(value) => {
                 if loop_depth == 0 {
                     return Err(TypeError::BreakOutsideLoop { span });
+                }
+                let val_ty = match value {
+                    Some(e) => Some((self.check_expr(e, env, ret_ty, in_class, loop_depth)?, e.span)),
+                    None => None,
+                };
+                // The innermost loop frame governs whether `break v` is
+                // allowed and (for `loop`) collects its value type.
+                let mut stack = self.loop_stack.borrow_mut();
+                let frame = stack.last_mut().expect("loop_depth > 0 implies non-empty stack");
+                match frame {
+                    LoopFrame::Other => {
+                        if value.is_some() {
+                            return Err(TypeError::Unsupported {
+                                what: "`break value` is only allowed inside `loop` (not `while` / `for`)".into(),
+                                span,
+                            });
+                        }
+                    }
+                    LoopFrame::Loop(acc) => {
+                        let new_ty = val_ty.as_ref().map(|(t, _)| t.clone()).unwrap_or(Type::Unit);
+                        match acc {
+                            None => *acc = Some(new_ty),
+                            Some(prev) => {
+                                if *prev != new_ty {
+                                    return Err(TypeError::Mismatch {
+                                        expected: prev.clone(),
+                                        got: new_ty,
+                                        span: val_ty.map(|(_, s)| s).unwrap_or(span),
+                                    });
+                                }
+                            }
+                        }
+                    }
                 }
                 Ok(Type::Unit)
             }

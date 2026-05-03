@@ -562,7 +562,7 @@ impl Interpreter {
                 }
                 match self.eval_block(body) {
                     Ok(_) => {}
-                    Err(RuntimeError::Break) => break Ok(Value::Unit),
+                    Err(RuntimeError::Break(_)) => break Ok(Value::Unit),
                     Err(RuntimeError::Continue) => {}
                     Err(e) => break Err(e),
                 }
@@ -570,7 +570,7 @@ impl Interpreter {
             ExprKind::Loop { body } => loop {
                 match self.eval_block(body) {
                     Ok(_) => {}
-                    Err(RuntimeError::Break) => break Ok(Value::Unit),
+                    Err(RuntimeError::Break(v)) => break Ok(v),
                     Err(RuntimeError::Continue) => {}
                     Err(e) => break Err(e),
                 }
@@ -594,7 +594,7 @@ impl Interpreter {
                     self.vars.insert(var.clone(), v);
                     match self.eval_block(body) {
                         Ok(_) => {}
-                        Err(RuntimeError::Break) => break,
+                        Err(RuntimeError::Break(_)) => break,
                         Err(RuntimeError::Continue) => {}
                         Err(e) => {
                             result = Err(e);
@@ -608,7 +608,13 @@ impl Interpreter {
                 }
                 result
             }
-            ExprKind::Break => Err(RuntimeError::Break),
+            ExprKind::Break(opt) => {
+                let v = match opt {
+                    Some(e) => self.eval_expr(e)?,
+                    None => Value::Unit,
+                };
+                Err(RuntimeError::Break(v))
+            }
             ExprKind::Continue => Err(RuntimeError::Continue),
             ExprKind::Return(value) => {
                 let v = match value {
@@ -1234,7 +1240,7 @@ impl Interpreter {
         self.this = saved_this;
         self.depth -= 1;
         match result {
-            Err(RuntimeError::Break) => Err(RuntimeError::TypeError {
+            Err(RuntimeError::Break(_)) => Err(RuntimeError::TypeError {
                 msg: "`break` escaped function body".into(),
                 span: call_span,
             }),

@@ -98,7 +98,7 @@ pub(crate) fn lower_while(
 
     b.switch_to_block(body_block);
     b.seal_block(body_block);
-    lc.loops.push((header, after));
+    lc.loops.push((header, after, None));
     let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(header, &[]);
@@ -192,7 +192,7 @@ pub(crate) fn lower_for_in(
 
     // `continue` must jump to `cont` (which increments) — NOT directly
     // back to `header`, otherwise i never advances and the loop spins.
-    lc.loops.push((cont, after));
+    lc.loops.push((cont, after, None));
     let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(cont, &[]);
@@ -229,17 +229,49 @@ pub(crate) fn lower_loop(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     body: &ilang_ast::Block,
-) -> Result<(), CodegenError> {
+    span: ilang_ast::Span,
+) -> Result<Option<(Value, crate::ty::JitTy)>, CodegenError> {
+    use crate::ty::JitTy;
+    // Did the typechecker discover a non-Unit `break v` type for this
+    // loop? If so, allocate a slot the break paths can store into.
+    let result_slot: Option<(Variable, JitTy)> = lc
+        .loop_break_types
+        .get(&span)
+        .and_then(|t| {
+            let jty = JitTy::from_ast(
+                t,
+                span,
+                &crate::env::class_ids_from(lc),
+                &crate::env::enum_ids_from(lc),
+                lc.enum_layouts,
+                lc.array_kinds,
+                lc.optional_inners,
+                lc.fn_signatures,
+                lc.map_kinds,
+            )
+            .ok()?;
+            let cl = jty.cl()?;
+            let var = Variable::new(lc.env.next_var_id());
+            b.declare_var(var, cl);
+            Some((var, jty))
+        });
+
     let header = b.create_block();
     let after = b.create_block();
     b.ins().jump(header, &[]);
     b.switch_to_block(header);
-    lc.loops.push((header, after));
+    lc.loops.push((header, after, result_slot));
     let _ = lower_block_value(b, lc, body)?;
-    lc.loops.pop();
+    let frame = lc.loops.pop().expect("we just pushed a frame");
     b.ins().jump(header, &[]);
     b.seal_block(header);
     b.switch_to_block(after);
     b.seal_block(after);
-    Ok(())
+    Ok(match frame.2 {
+        Some((var, jty)) => {
+            let v = b.use_var(var);
+            Some((v, jty))
+        }
+        None => None,
+    })
 }

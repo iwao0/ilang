@@ -248,6 +248,9 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Return(opt) => {
             ExprKind::Return(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
         }
+        ExprKind::Break(opt) => {
+            ExprKind::Break(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
+        }
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target,
             value: Box::new(rewrite_expr(*value, ctx)),
@@ -314,7 +317,6 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         | ExprKind::Var(_)
         | ExprKind::This
         | ExprKind::None
-        | ExprKind::Break
         | ExprKind::Continue) => other,
     };
     let _ = std::any::type_name::<Pattern>(); // silence unused import on Pattern

@@ -97,6 +97,7 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             &prog,
             &tc.fn_call_type_args(),
             &tc.enum_ctor_type_args(),
+            &tc.loop_break_types(),
         ) {
             Ok(v) => {
                 let s = format!("{v}");

@@ -255,6 +255,9 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
         ExprKind::Return(opt) => ExprKind::Return(
             opt.as_ref().map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
         ),
+        ExprKind::Break(opt) => ExprKind::Break(
+            opt.as_ref().map(|e| Box::new(hoist_in_expr(e, counter, hoisted))),
+        ),
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target: target.clone(),
             value: Box::new(hoist_in_expr(value, counter, hoisted)),
@@ -324,7 +327,6 @@ fn hoist_in_expr(e: &Expr, counter: &mut u32, hoisted: &mut Vec<Item>) -> Expr {
         ExprKind::Var(n) => ExprKind::Var(n.clone()),
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
-        ExprKind::Break => ExprKind::Break,
         ExprKind::Continue => ExprKind::Continue,
     };
     Expr {
@@ -495,8 +497,12 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
         | ExprKind::Var(_)
         | ExprKind::This
         | ExprKind::None
-        | ExprKind::Break
         | ExprKind::Continue => {}
+        ExprKind::Break(opt) => {
+            if let Some(e) = opt {
+                scan_expr(e, needed, work);
+            }
+        }
         ExprKind::Some(inner) => scan_expr(inner, needed, work),
         ExprKind::Unary { expr, .. } => scan_expr(expr, needed, work),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
@@ -769,7 +775,7 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
         ExprKind::Some(inner) => ExprKind::Some(Box::new(subst_expr(inner, params, args))),
-        ExprKind::Break => ExprKind::Break,
+        ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(subst_expr(e, params, args)))),
         ExprKind::Continue => ExprKind::Continue,
         ExprKind::Unary { op, expr } => ExprKind::Unary {
             op: *op,
@@ -1217,7 +1223,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
         ExprKind::Var(n) => ExprKind::Var(n.clone()),
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
-        ExprKind::Break => ExprKind::Break,
+        ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(rewrite_expr(e)))),
         ExprKind::Continue => ExprKind::Continue,
     };
     Expr {
@@ -1714,8 +1720,12 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         | ExprKind::Var(_)
         | ExprKind::This
         | ExprKind::None
-        | ExprKind::Break
         | ExprKind::Continue => {}
+        ExprKind::Break(opt) => {
+            if let Some(x) = opt {
+                f(x);
+            }
+        }
         ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             f(lhs);
@@ -1844,7 +1854,7 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
         ExprKind::Var(n) => ExprKind::Var(n.clone()),
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
-        ExprKind::Break => ExprKind::Break,
+        ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(f(e)))),
         ExprKind::Continue => ExprKind::Continue,
         ExprKind::Some(x) => ExprKind::Some(Box::new(f(x))),
         ExprKind::Unary { op, expr } => ExprKind::Unary {

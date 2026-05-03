@@ -94,13 +94,16 @@ pub enum ExprKind {
         body: Block,
     },
     /// Infinite loop. Exits only via `break` (or returning from the
-    /// enclosing function once `return` exists). Always evaluates to `Unit`.
+    /// enclosing function once `return` exists). The expression's type
+    /// is the type of the `break` value (or `Unit` for bare `break`).
     Loop {
         body: Block,
     },
-    /// Exit the innermost enclosing `loop`/`while`. Type checker rejects
-    /// occurrences outside any loop, including across function boundaries.
-    Break,
+    /// Exit the innermost enclosing `loop`/`while`. With an optional
+    /// value (`break v`) the value becomes the result of the enclosing
+    /// `loop`. `break v` is only valid inside `loop` (not `while`/`for`).
+    /// Type checker rejects occurrences outside any loop.
+    Break(Option<Box<Expr>>),
     /// Skip to the next iteration of the innermost enclosing loop.
     Continue,
     /// `return` (with or without a value) — early exit from the

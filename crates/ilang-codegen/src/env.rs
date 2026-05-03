@@ -8,6 +8,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 
 use crate::error::CodegenError;
+use ilang_ast::Span;
 use crate::runtime::{StringRc, STRING_RC_SATURATED};
 use crate::ty::{ArrayKind, ClassLayout, EnumLayout, FnSignature, JitTy, MethodInfo};
 
@@ -133,7 +134,15 @@ pub(crate) struct LowerCtx<'a> {
     pub map_value_retains: &'a mut HashMap<u32, Option<FuncId>>,
     pub module: &'a mut JITModule,
     pub env: &'a mut Env,
-    pub loops: Vec<(Block, Block)>,
+    /// Stack of currently-open loops. Each entry is
+    /// `(continue_block, after_block, break_value_slot)`. The slot is
+    /// `Some((var, jit_ty))` when this is a `loop` whose result type is
+    /// non-Unit (so `break v` stores `v` into `var` before jumping to
+    /// `after`); `None` for `while` / `for` / Unit-result `loop`.
+    pub loops: Vec<(Block, Block, Option<(cranelift::prelude::Variable, crate::ty::JitTy)>)>,
+    /// Per-`loop` expression span → result type, populated by the
+    /// typechecker. Read by `lower_loop` to allocate the result slot.
+    pub loop_break_types: &'a HashMap<Span, ilang_ast::Type>,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
     /// Declared return type of the function currently being lowered;

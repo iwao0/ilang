@@ -42,6 +42,7 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         prog,
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
 }
 
@@ -61,6 +62,7 @@ pub fn jit_run_with(
         ilang_ast::Span,
         (String, Vec<ilang_ast::Type>),
     >,
+    loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
 ) -> Result<JitValue, CodegenError> {
     // Pipeline:
     //   hoist anon fns → monomorphize classes → monomorphize enums
@@ -71,11 +73,15 @@ pub fn jit_run_with(
     let mono = crate::monomorphize::monomorphize(&hoisted);
     let mono = crate::monomorphize::monomorphize_enums(&mono, enum_ctor_type_args);
     let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
-    jit_run_inner(&mono)
+    jit_run_inner(&mono, loop_break_types)
 }
 
-fn jit_run_inner(prog: &Program) -> Result<JitValue, CodegenError> {
+fn jit_run_inner(
+    prog: &Program,
+    loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
+) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new()?;
+    compiler.loop_break_types = loop_break_types.clone();
     // 1a. Register every class / enum name → id, with empty layouts.
     //     This way `Child { p: Parent.weak }` resolves even when Parent
     //     is declared after Child, and likewise for enum forward-refs.
@@ -221,6 +227,10 @@ pub(crate) struct JitCompiler {
     /// Per-enum drop wrappers, declared lazily during lowering.
     /// `None` means the enum has no heap-typed payload anywhere.
     pub(crate) enum_drops: HashMap<u32, Option<FuncId>>,
+    /// Per-`loop` expression span → result type (forwarded from the
+    /// outer `TypeChecker`). Empty when no `break v` appears anywhere.
+    pub(crate) loop_break_types:
+        HashMap<ilang_ast::Span, ilang_ast::Type>,
 }
 
 impl JitCompiler {
@@ -551,6 +561,7 @@ impl JitCompiler {
             class_drops: Vec::new(),
             array_drops: HashMap::new(),
             enum_drops: HashMap::new(),
+            loop_break_types: HashMap::new(),
         })
     }
 
@@ -914,6 +925,7 @@ impl JitCompiler {
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
+            loop_break_types: &self.loop_break_types,
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -1057,6 +1069,7 @@ impl JitCompiler {
             class_drops: &self.class_drops,
             array_drops: &mut self.array_drops,
             enum_drops: &mut self.enum_drops,
+            loop_break_types: &self.loop_break_types,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.

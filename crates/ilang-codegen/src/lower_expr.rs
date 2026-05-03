@@ -130,19 +130,35 @@ pub(crate) fn lower_expr(
             lower_while(b, lc, cond, body)?;
             Ok(None)
         }
-        ExprKind::Loop { body } => {
-            lower_loop(b, lc, body)?;
-            Ok(None)
-        }
+        ExprKind::Loop { body } => Ok(lower_loop(b, lc, body, e.span)?),
         ExprKind::ForIn { var, iter, body } => {
             lower_for_in(b, lc, var, iter, body)?;
             Ok(None)
         }
-        ExprKind::Break => {
-            let target = lc.loops.last().ok_or_else(|| CodegenError::Unsupported {
-                what: "break outside loop".into(),
-                span: e.span,
-            })?.1;
+        ExprKind::Break(value) => {
+            // Snapshot the innermost loop frame's after-block + slot
+            // before lowering `value`, so the lowering of `value` can
+            // see the right `lc.loops` state if it does anything weird.
+            let frame = lc
+                .loops
+                .last()
+                .ok_or_else(|| CodegenError::Unsupported {
+                    what: "break outside loop".into(),
+                    span: e.span,
+                })?
+                .clone();
+            let target = frame.1;
+            if let Some(v_expr) = value {
+                let (v, _vt) = lower_expr(b, lc, v_expr)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "break value is unit".into(),
+                        span: v_expr.span,
+                    }
+                })?;
+                if let Some((slot, _jty)) = frame.2 {
+                    b.def_var(slot, v);
+                }
+            }
             b.ins().jump(target, &[]);
             let dead = b.create_block();
             b.switch_to_block(dead);

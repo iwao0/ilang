@@ -1308,6 +1308,6 @@ fn jit_supports_generic_enum_via_run_with() {
     let prog = parse(&toks).unwrap();
     let mut tc = TypeChecker::new();
     tc.check(&prog).unwrap();
-    let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args()).unwrap();
+    let v = jit_run_with(&prog, &tc.fn_call_type_args(), &tc.enum_ctor_type_args(), &tc.loop_break_types()).unwrap();
     assert_eq!(v, JitValue::I64(42));
 }

@@ -490,6 +490,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             body: prefix_block_calls(body, prefix),
         },
         ExprKind::Return(opt) => ExprKind::Return(opt.map(|e| Box::new(prefix_expr(*e, prefix)))),
+        ExprKind::Break(opt) => ExprKind::Break(opt.map(|e| Box::new(prefix_expr(*e, prefix)))),
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target,
             value: Box::new(prefix_expr(*value, prefix)),
@@ -537,7 +538,6 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         | ExprKind::Var(_)
         | ExprKind::This
         | ExprKind::None
-        | ExprKind::Break
         | ExprKind::Continue) => other,
     };
     Expr { kind, span }
@@ -752,6 +752,9 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
         ExprKind::Return(opt) => {
             ExprKind::Return(opt.map(|e| Box::new(subst_const_expr(*e, consts))))
         }
+        ExprKind::Break(opt) => {
+            ExprKind::Break(opt.map(|e| Box::new(subst_const_expr(*e, consts))))
+        }
         ExprKind::Assign { target, value } => ExprKind::Assign {
             target,
             value: Box::new(subst_const_expr(*value, consts)),
@@ -817,7 +820,6 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
         | ExprKind::Str(_)
         | ExprKind::This
         | ExprKind::None
-        | ExprKind::Break
         | ExprKind::Continue) => other,
     };
     Expr { kind, span }

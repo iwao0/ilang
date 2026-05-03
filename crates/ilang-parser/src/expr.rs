@@ -404,7 +404,20 @@ impl<'a> Parser<'a> {
             TokenKind::For => self.parse_for(),
             TokenKind::Break => {
                 self.bump();
-                Ok(Expr::new(ExprKind::Break, span))
+                // `break` alone vs `break expr`. Same heuristic as `return`:
+                // operand is omitted when the next token is a statement
+                // terminator or starts a new logical line.
+                let next = self.peek();
+                let no_value = matches!(
+                    next.kind,
+                    TokenKind::Semicolon | TokenKind::RBrace | TokenKind::Eof
+                ) || next.leading_newline;
+                let value = if no_value {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expr(0)?))
+                };
+                Ok(Expr::new(ExprKind::Break(value), span))
             }
             TokenKind::Continue => {
                 self.bump();
