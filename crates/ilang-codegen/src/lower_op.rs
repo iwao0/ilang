@@ -220,6 +220,7 @@ pub(crate) fn lower_binary(
             BinOp::Sub => b.ins().isub(lv, rv),
             BinOp::Mul => b.ins().imul(lv, rv),
             BinOp::Div => {
+                emit_div_zero_check(b, lc, rv);
                 if signed {
                     b.ins().sdiv(lv, rv)
                 } else {
@@ -227,6 +228,7 @@ pub(crate) fn lower_binary(
                 }
             }
             BinOp::Rem => {
+                emit_div_zero_check(b, lc, rv);
                 if signed {
                     b.ins().srem(lv, rv)
                 } else {
@@ -393,4 +395,27 @@ fn widen_int(
 fn narrow_int(b: &mut FunctionBuilder, v: Value, _to_width: u32, to: JitTy) -> Value {
     let to_cl = to.cl().expect("non-unit");
     b.ins().ireduce(to_cl, v)
+}
+
+/// Emit `if rhs == 0 { panic_div_zero() }` before integer div / mod.
+/// Float div by zero is intentionally NOT checked (IEEE 754 yields
+/// inf / NaN, which is what users expect).
+fn emit_div_zero_check(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    rv: cranelift::prelude::Value,
+) {
+    let ty = b.func.dfg.value_type(rv);
+    let zero = b.ins().iconst(ty, 0);
+    let is_zero = b.ins().icmp(IntCC::Equal, rv, zero);
+    let oob = b.create_block();
+    let ok = b.create_block();
+    b.ins().brif(is_zero, oob, &[], ok, &[]);
+    b.switch_to_block(oob);
+    b.seal_block(oob);
+    let r = lc.module.declare_func_in_func(lc.panic_div_zero_id, b.func);
+    b.ins().call(r, &[]);
+    b.ins().trap(cranelift_codegen::ir::TrapCode::user(2).expect("trap code"));
+    b.switch_to_block(ok);
+    b.seal_block(ok);
 }

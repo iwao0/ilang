@@ -872,3 +872,25 @@ pub(crate) extern "C" fn ilang_jit_str_split(s: i64, sep: i64, drop_fn: i64) -> 
     }
     arr
 }
+
+// ─── runtime panic helpers ───────────────────────────────────────────
+
+/// Abort with a fixed message + exit non-zero. Used by JIT-emitted
+/// bounds checks, division-by-zero checks, and unwrap-on-none checks.
+/// Tagged with `#[unsafe(no_mangle)]` would be needed if Cranelift
+/// linked symbolically, but we register via JITBuilder::symbol so the
+/// raw fn pointer is enough.
+pub(crate) extern "C" fn ilang_jit_panic_index_oob(idx: i64, len: i64) -> ! {
+    eprintln!("runtime panic: array index {idx} out of bounds (length {len})");
+    std::process::exit(1);
+}
+
+pub(crate) extern "C" fn ilang_jit_panic_div_zero() -> ! {
+    eprintln!("runtime panic: integer division by zero");
+    std::process::exit(1);
+}
+
+pub(crate) extern "C" fn ilang_jit_panic_unwrap_none() -> ! {
+    eprintln!("runtime panic: unwrap on `none`");
+    std::process::exit(1);
+}

@@ -377,9 +377,21 @@ pub(crate) fn lower_expr(
                         return Ok(Some((v, JitTy::Bool)));
                     }
                     "unwrap" => {
-                        // No null-check codegen — relies on the user
-                        // having checked `isSome()` first. Calling on
-                        // `none` reads address 0 downstream (segfault).
+                        // Null-check the box pointer. On none, panic
+                        // matching the interpreter's "unwrap on `none`"
+                        // error rather than dereferencing 0.
+                        let zero = b.ins().iconst(I64, 0);
+                        let is_none = b.ins().icmp(IntCC::Equal, obj_v, zero);
+                        let panic_blk = b.create_block();
+                        let ok_blk = b.create_block();
+                        b.ins().brif(is_none, panic_blk, &[], ok_blk, &[]);
+                        b.switch_to_block(panic_blk);
+                        b.seal_block(panic_blk);
+                        let r = lc.module.declare_func_in_func(lc.panic_unwrap_none_id, b.func);
+                        b.ins().call(r, &[]);
+                        b.ins().trap(cranelift_codegen::ir::TrapCode::user(3).expect("trap"));
+                        b.switch_to_block(ok_blk);
+                        b.seal_block(ok_blk);
                         let inner = lc.optional_inners[id as usize];
                         if inner.is_heap() {
                             return Ok(Some((obj_v, inner)));
@@ -824,8 +836,10 @@ pub(crate) fn lower_expr(
                     span: index.span,
                 }
             })?;
-            // Coerce index to i64; bounds-checking elided in MVP.
             let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+            // Bounds check: panic if idx < 0 or idx >= len. Matches the
+            // interpreter's "array index N out of bounds" error.
+            emit_array_bounds_check(b, lc, obj_v, idx_i64);
             let elem_size = b.ins().iconst(I64, elem_jty.size_bytes() as i64);
             let off = b.ins().imul(idx_i64, elem_size);
             let data = b.ins().load(I64, MemFlags::trusted(), obj_v, ARRAY_DATA_OFFSET);
@@ -866,6 +880,9 @@ pub(crate) fn lower_expr(
                 }
             })?;
             let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+            // Bounds check on assignment too. Match the interpreter:
+            // `xs[10] = v` on a length-3 array aborts.
+            emit_array_bounds_check(b, lc, obj_v, idx_i64);
             let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "assigned value is unit".into(),
@@ -2816,4 +2833,32 @@ pub(crate) fn lower_array_higher_order(
         "forEach" => None,
         _ => unreachable!(),
     })
+}
+
+/// Emit `if idx < 0 || idx >= len { panic_index_oob(idx, len) }` so
+/// out-of-range array reads / writes match the interpreter's runtime
+/// error rather than silently corrupting memory.
+fn emit_array_bounds_check(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    arr_v: cranelift::prelude::Value,
+    idx_i64: cranelift::prelude::Value,
+) {
+    let len = b.ins().load(I64, MemFlags::trusted(), arr_v, ARRAY_LEN_OFFSET);
+    let zero = b.ins().iconst(I64, 0);
+    let neg = b.ins().icmp(IntCC::SignedLessThan, idx_i64, zero);
+    let too_big = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, idx_i64, len);
+    let bad = b.ins().bor(neg, too_big);
+    let oob = b.create_block();
+    let ok = b.create_block();
+    b.ins().brif(bad, oob, &[], ok, &[]);
+    b.switch_to_block(oob);
+    b.seal_block(oob);
+    let r = lc.module.declare_func_in_func(lc.panic_index_oob_id, b.func);
+    b.ins().call(r, &[idx_i64, len]);
+    // The panic helper is `extern "C" fn(...) -> !` but Cranelift can't
+    // see that — emit a trap so the verifier knows we don't fall through.
+    b.ins().trap(cranelift_codegen::ir::TrapCode::user(1).expect("trap code"));
+    b.switch_to_block(ok);
+    b.seal_block(ok);
 }

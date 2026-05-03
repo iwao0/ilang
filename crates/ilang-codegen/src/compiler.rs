@@ -203,6 +203,9 @@ pub(crate) struct JitCompiler {
     pub(crate) optional_box_new_id: FuncId,
     pub(crate) optional_box_retain_id: FuncId,
     pub(crate) optional_box_release_id: FuncId,
+    pub(crate) panic_index_oob_id: FuncId,
+    pub(crate) panic_div_zero_id: FuncId,
+    pub(crate) panic_unwrap_none_id: FuncId,
     /// Each string literal is interned at compile time as a `Box<StringRc>`
     /// with a saturated rc. The pointer is embedded as an `iconst` when
     /// the literal is referenced. Holding the boxes here keeps them alive
@@ -325,6 +328,9 @@ impl JitCompiler {
         builder.symbol("ilang_jit_optional_box_new", crate::runtime::ilang_jit_optional_box_new as *const u8);
         builder.symbol("ilang_jit_optional_box_retain", crate::runtime::ilang_jit_optional_box_retain as *const u8);
         builder.symbol("ilang_jit_optional_box_release", crate::runtime::ilang_jit_optional_box_release as *const u8);
+        builder.symbol("ilang_jit_panic_index_oob", crate::runtime::ilang_jit_panic_index_oob as *const u8);
+        builder.symbol("ilang_jit_panic_div_zero", crate::runtime::ilang_jit_panic_div_zero as *const u8);
+        builder.symbol("ilang_jit_panic_unwrap_none", crate::runtime::ilang_jit_panic_unwrap_none as *const u8);
         // Built-in `@extern` math fns. The names match the qualified
         // form produced by the loader (`math.sin`, etc.).
         crate::math_externs::register_math_symbols(&mut builder);
@@ -463,6 +469,12 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_optional_box_retain", &[I64], None)?;
         let optional_box_release_id =
             declare_import(&mut module, "ilang_jit_optional_box_release", &[I64, I64], None)?;
+        let panic_index_oob_id =
+            declare_import(&mut module, "ilang_jit_panic_index_oob", &[I64, I64], None)?;
+        let panic_div_zero_id =
+            declare_import(&mut module, "ilang_jit_panic_div_zero", &[], None)?;
+        let panic_unwrap_none_id =
+            declare_import(&mut module, "ilang_jit_panic_unwrap_none", &[], None)?;
 
         Ok(Self {
             module,
@@ -532,6 +544,9 @@ impl JitCompiler {
             optional_box_new_id,
             optional_box_retain_id,
             optional_box_release_id,
+            panic_index_oob_id,
+            panic_div_zero_id,
+            panic_unwrap_none_id,
             interned_strings: Vec::new(),
             class_drops: Vec::new(),
             array_drops: HashMap::new(),
@@ -880,6 +895,9 @@ impl JitCompiler {
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,
             optional_box_release_id: self.optional_box_release_id,
+            panic_index_oob_id: self.panic_index_oob_id,
+            panic_div_zero_id: self.panic_div_zero_id,
+            panic_unwrap_none_id: self.panic_unwrap_none_id,
             map_value_retains: &mut self.map_value_retains,
             module: &mut self.module,
             env: &mut env,
@@ -1020,6 +1038,9 @@ impl JitCompiler {
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,
             optional_box_release_id: self.optional_box_release_id,
+            panic_index_oob_id: self.panic_index_oob_id,
+            panic_div_zero_id: self.panic_div_zero_id,
+            panic_unwrap_none_id: self.panic_unwrap_none_id,
             map_value_retains: &mut self.map_value_retains,
             module: &mut self.module,
             env: &mut env,
