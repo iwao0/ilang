@@ -833,12 +833,21 @@ if let some(f) = tmpfile() {
 }
 ```
 
-- 本体は **空でなければならない** (フィールド・メソッド・継承・型パラメータ・property など一切不可)。状態は C 側のみが持つ
+- 本体は **空 or `deinit { ... }` のみ** 許される。フィールド・init・継承・型パラメータ・property などは不可
 - `new Foo(...)` は **禁止** (型エラー) — 値は extern fn の戻り値からしか得られない
-- ABI 上は **i64 のポインタ**。`Foo?` の `none` は C の `NULL` に対応、自動マッピング
-- ARC 対象外 — retain/release は走らない。**解放は呼び出し側の責任** (ARC 連動の自動 close は別タスク)
 - 型は名前で区別される: `FILE` と `Sqlite3` は別の型なので `fclose(sqlite_handle)` は型エラー
 - 現状 **JIT のみ** 対応 (native extern と同じ制約)
+
+**deinit 無し** (`class FILE {}`):
+- ABI 上は **i64 の C ポインタそのもの** (ilang 側のヘッダ無し)。`Foo?` の `none` は `NULL` に対応
+- ARC 対象外 — retain/release は走らない。**解放は呼び出し側の責任** (`fclose(handle)` などを明示的に呼ぶ)
+- 低レベル FFI で「ハンドルは別の C コードが管理する」場合に向く
+
+**deinit 付き** (`class FILE { deinit() { fclose(this) } }`):
+- ilang が **1 スロットの ARC ボックス** で C ポインタを包む。型 `FILE` の値はそのボックスへのポインタ
+- 通常のクラス同様 ARC が動く。最後の参照が消えると `deinit` が自動実行 (RAII)
+- ネイティブ extern 境界で **自動ラップ/アンラップ**: `tmpfile()` の戻り値はラップ、`fclose(this)` の引数はアンラップして C に渡す
+- `deinit` 本体に書くべきは「C 側ハンドルの解放呼び出し」のみ (例: `fclose(this)`、`sqlite3_close(this)`)
 
 ### 組み込み `math` モジュール
 

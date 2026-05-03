@@ -1031,6 +1031,34 @@ pub(crate) fn lower_expr(
                         let c_ptr = b.inst_results(c)[0];
                         c_str_temps.push(c_ptr);
                         arg_vals.push(c_ptr);
+                    } else if is_native && is_managed_opaque(lc, param_tys[i]) {
+                        // Managed opaque handle (`@extern class Foo {
+                        // deinit { ... } }`): the user value is the
+                        // ARC box pointer; the C function expects the
+                        // raw C pointer at offset 0 of that box.
+                        let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
+                        arg_vals.push(raw);
+                    } else if is_native && is_managed_opaque_optional(lc, param_tys[i]) {
+                        // `Foo?` for a managed opaque: 0 → 0 (NULL),
+                        // box → load *(box+0). Branch so we never
+                        // dereference a null pointer.
+                        let zero = b.ins().iconst(I64, 0);
+                        let is_null = b.ins().icmp(IntCC::Equal, coerced, zero);
+                        let null_bb = b.create_block();
+                        let some_bb = b.create_block();
+                        let merge = b.create_block();
+                        b.append_block_param(merge, I64);
+                        b.ins().brif(is_null, null_bb, &[], some_bb, &[]);
+                        b.switch_to_block(null_bb);
+                        b.seal_block(null_bb);
+                        b.ins().jump(merge, &[zero.into()]);
+                        b.switch_to_block(some_bb);
+                        b.seal_block(some_bb);
+                        let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
+                        b.ins().jump(merge, &[raw.into()]);
+                        b.switch_to_block(merge);
+                        b.seal_block(merge);
+                        arg_vals.push(b.block_params(merge)[0]);
                     } else {
                         arg_vals.push(coerced);
                     }
@@ -1067,6 +1095,35 @@ pub(crate) fn lower_expr(
                         b.ins().call(free_ref, &[raw]);
                     }
                     Some(copied)
+                } else if is_native && is_managed_opaque(lc, ret_ty) {
+                    // Wrap the C pointer in a fresh ARC box so deinit
+                    // fires when the last reference dies.
+                    let raw = raw_ret.expect("non-unit return");
+                    let boxed = wrap_managed_opaque(b, lc, raw, opaque_class_id_of(ret_ty));
+                    Some(boxed)
+                } else if is_native && is_managed_opaque_optional(lc, ret_ty) {
+                    // `Foo?` from a managed opaque extern: NULL → 0
+                    // (none), non-null → wrap in ARC box.
+                    let raw = raw_ret.expect("non-unit return");
+                    let zero = b.ins().iconst(I64, 0);
+                    let is_null = b.ins().icmp(IntCC::Equal, raw, zero);
+                    let null_bb = b.create_block();
+                    let some_bb = b.create_block();
+                    let merge = b.create_block();
+                    b.append_block_param(merge, I64);
+                    b.ins().brif(is_null, null_bb, &[], some_bb, &[]);
+                    b.switch_to_block(null_bb);
+                    b.seal_block(null_bb);
+                    b.ins().jump(merge, &[zero.into()]);
+                    b.switch_to_block(some_bb);
+                    b.seal_block(some_bb);
+                    let class_id = managed_opaque_optional_class_id(lc, ret_ty)
+                        .expect("checked above");
+                    let boxed = wrap_managed_opaque(b, lc, raw, class_id);
+                    b.ins().jump(merge, &[boxed.into()]);
+                    b.switch_to_block(merge);
+                    b.seal_block(merge);
+                    Some(b.block_params(merge)[0])
                 } else {
                     raw_ret
                 };
@@ -2199,6 +2256,72 @@ fn emit_print_value(
 
 /// Print a static string literal by interning it and routing through
 /// `print_str`. Cheap — each unique fragment is interned once.
+/// True when `ty` is `Object(class_id)` for a managed opaque-handle
+/// class — `@extern("lib") class Foo { deinit { ... } }`. These
+/// values are wrapped in an ARC box at the native-extern boundary.
+fn is_managed_opaque(lc: &LowerCtx, ty: JitTy) -> bool {
+    match ty {
+        JitTy::Object(class_id) => {
+            lc.class_layouts[class_id as usize].extern_lib.is_some()
+                && lc.class_methods[class_id as usize].contains_key("deinit")
+        }
+        _ => false,
+    }
+}
+
+/// True when `ty` is `Optional<Object(managed-opaque)>`.
+fn is_managed_opaque_optional(lc: &LowerCtx, ty: JitTy) -> bool {
+    matches!(ty, JitTy::Optional(id) if is_managed_opaque(lc, lc.optional_inners[id as usize]))
+}
+
+fn opaque_class_id_of(ty: JitTy) -> u32 {
+    match ty {
+        JitTy::Object(class_id) => class_id,
+        _ => unreachable!("caller checked is_managed_opaque"),
+    }
+}
+
+fn managed_opaque_optional_class_id(lc: &LowerCtx, ty: JitTy) -> Option<u32> {
+    match ty {
+        JitTy::Optional(id) => match lc.optional_inners[id as usize] {
+            JitTy::Object(class_id) => Some(class_id),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Allocate an ilang ARC box for a managed opaque class, store the
+/// raw C pointer at offset 0, return the box's user pointer. The
+/// `drop_fn_ptr` slot is filled with the class's `__drop_<name>`
+/// wrapper so the deinit body fires when the last reference dies.
+fn wrap_managed_opaque(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    c_ptr: cranelift::prelude::Value,
+    class_id: u32,
+) -> cranelift::prelude::Value {
+    let size_v = b.ins().iconst(I64, lc.class_layouts[class_id as usize].size as i64);
+    let drop_fn_ptr = match lc.class_drops[class_id as usize] {
+        Some(fid) => {
+            let func_ref = lc.module.declare_func_in_func(fid, b.func);
+            b.ins().func_addr(I64, func_ref)
+        }
+        None => b.ins().iconst(I64, 0),
+    };
+    let vtable_addr = lc
+        .class_vtable_addrs
+        .get(class_id as usize)
+        .copied()
+        .unwrap_or(0);
+    let vtable_ptr = b.ins().iconst(I64, vtable_addr);
+    let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+    let call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
+    let box_ptr = b.inst_results(call)[0];
+    b.ins().store(MemFlags::trusted(), c_ptr, box_ptr, 0);
+    box_ptr
+}
+
 fn emit_print_literal(b: &mut FunctionBuilder, lc: &mut LowerCtx, s: &str) {
     let ptr = lc.intern_string(s);
     let v = b.ins().iconst(I64, ptr);

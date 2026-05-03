@@ -982,6 +982,12 @@ impl JitCompiler {
         }
         let size = align_up(offset.max(1), max_align);
         self.class_layouts[id].fields = fields;
+        // Opaque-handle classes with a `deinit` get one hidden i64
+        // slot at offset 0 — the wrapped C pointer. Without `deinit`
+        // the value flows as a raw C pointer (no ilang allocation).
+        let opaque_managed = c.extern_lib.is_some()
+            && c.methods.iter().any(|m| m.name == "deinit");
+        let size = if opaque_managed { 8 } else { size };
         self.class_layouts[id].size = size;
         Ok(())
     }

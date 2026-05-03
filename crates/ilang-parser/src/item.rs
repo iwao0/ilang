@@ -48,18 +48,25 @@ impl<'a> Parser<'a> {
                 };
                 let mut c = self.parse_class_decl()?;
                 if extern_lib.is_some() {
-                    // Opaque handle classes cannot carry user state.
-                    let has_body = !c.fields.is_empty()
-                        || !c.methods.is_empty()
+                    // Opaque handle classes carry no user state and
+                    // can declare at most one method: `deinit`. The
+                    // deinit body runs when the last reference is
+                    // dropped (RAII auto-close).
+                    let only_deinit_methods = c
+                        .methods
+                        .iter()
+                        .all(|m| m.name == "deinit" && m.params.is_empty());
+                    let has_disallowed = !c.fields.is_empty()
+                        || !only_deinit_methods
                         || !c.static_methods.is_empty()
                         || !c.static_fields.is_empty()
                         || !c.properties.is_empty()
                         || c.parent.is_some()
                         || !c.type_params.is_empty();
-                    if has_body {
+                    if has_disallowed {
                         return Err(ParseError::Unexpected {
                             found: TokenKind::Class,
-                            expected: "an empty body — `@extern(\"lib\") class Foo {}` cannot declare fields, methods, parent, or type parameters".into(),
+                            expected: "an empty body or only `deinit { ... }` — `@extern(\"lib\") class Foo` cannot declare fields, init, parent, type parameters, or non-deinit methods".into(),
                             span: c.span,
                         });
                     }

@@ -95,7 +95,7 @@
 JIT のみ未対応:
 - ネイティブ extern (`@extern("libname")` fn / class) は **JIT 専用** (interp は逆に未対応)
 - 静的フィールドは `i64` / `f64` / `bool` のみ (string / object 等は Phase 2)
-- opaque ハンドル型 (`@extern("lib") class Foo {}`) は JIT のみ — 自動 close (deinit 連動) は未実装で呼び出し側責任
+- opaque ハンドル型 (`@extern("lib") class Foo {}`) は JIT のみ。`deinit` 無しなら raw C ポインタ (手動 close)、付きなら ARC ボックスでラップして自動 close
 - ジェネリッククラスでの **継承** / **静的メンバー** / **プロパティ** は型パラメータ解決の制約により未対応
 
 ## ワークスペース構成

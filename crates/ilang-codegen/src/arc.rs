@@ -136,10 +136,13 @@ pub(crate) fn emit_retain_heap(
     ty: JitTy,
 ) {
     match ty {
-        // Opaque-extern handles are raw C pointers — they don't have
-        // the ilang ARC header so we mustn't touch them.
+        // Opaque-extern handles without `deinit` are raw C pointers —
+        // they don't have the ilang ARC header so we mustn't touch
+        // them. Opaque classes that *do* declare a deinit are wrapped
+        // in an ilang-allocated box and participate in normal ARC.
         JitTy::Object(class_id)
-            if lc.class_layouts[class_id as usize].extern_lib.is_some() => {}
+            if lc.class_layouts[class_id as usize].extern_lib.is_some()
+                && !lc.class_methods[class_id as usize].contains_key("deinit") => {}
         JitTy::Object(_) => emit_retain_object(b, lc, ptr),
         JitTy::Str => emit_retain_string(b, lc, ptr),
         JitTy::Array(_) => emit_retain_array(b, lc, ptr),
@@ -187,7 +190,8 @@ pub(crate) fn emit_release_heap(
 ) {
     match ty {
         JitTy::Object(class_id)
-            if lc.class_layouts[class_id as usize].extern_lib.is_some() => {}
+            if lc.class_layouts[class_id as usize].extern_lib.is_some()
+                && !lc.class_methods[class_id as usize].contains_key("deinit") => {}
         JitTy::Object(id) => emit_release_object(b, lc, ptr, id),
         JitTy::Str => emit_release_string(b, lc, ptr),
         JitTy::Array(id) => emit_release_array(b, lc, ptr, id),
