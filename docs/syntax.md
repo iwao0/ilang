@@ -352,7 +352,7 @@ c.count                                 // フィールド読み取り
 - `init` は唯一のコンストラクタ (Swift 風)。`init() {}` を省略するとデフォルトで引数なし `new` 可。
 - `deinit` は引数なし・戻り値 () 限定。明示呼び出し不可 (`c.deinit()` はエラー)。
 - 暗黙 `this`: メソッド本体内で `this.` を省略可。ただしローカル変数や引数があればそちら優先。
-- 継承・`static`・`private` はスコープ外 (未実装)。
+- 継承 (`extends`) / `static` / `get`/`set` プロパティは下記の節で詳述。`private` 修飾子は未実装。
 - 同一行に複数のクラスメンバーは書けない (ASI が効かないので `;` か改行必須)。
 
 ### ジェネリッククラス
@@ -540,7 +540,7 @@ xs.indexOf(20)                   // i64 を返す (見つからなければ -1)
 xs.includes(20)                  // bool を返す
 ```
 
-高階メソッドもサポート: `xs.map(fn)` / `xs.filter(pred)` / `xs.forEach(fn)` / `xs.slice(start, end)`。コールバックは **第一級関数** (名前参照または匿名 `fn`) を渡す形 — クロージャ未対応のため fn 本体は外側のローカル変数を参照不可。`length` / `push` / `pop` / `indexOf` / `includes` / `for-in` 含めて **interpreter / JIT とも同等** — 要素型の制限はありません。
+高階メソッドもサポート: `xs.map(fn)` / `xs.filter(pred)` / `xs.forEach(fn)` / `xs.slice(start, end)`。コールバックは **第一級関数** または **クロージャ** (匿名 `fn` で外側のローカル変数を value-capture できる — §6 参照)。`length` / `push` / `pop` / `indexOf` / `includes` / `for-in` 含めて **interpreter / JIT とも同等** — 要素型の制限はありません。
 
 ---
 
@@ -898,17 +898,26 @@ double(21)                          // 42
 | REPL | `ilang` (引数なし) | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
 
 JIT で `Unsupported` になる主なケース:
-- 継承 / 動的ディスパッチ (interpreter にも未実装)
+- ネイティブ extern (`@extern("libname")`) は **JIT 専用** — interpreter からは "no extern handler" エラー
+- 静的フィールドの **`string` / オブジェクト型** (現状は `i64` / `f64` / `bool` のみ — 継承の vtable とは別の Phase)
 
 ---
 
 ## 17. 未実装 (今後の TODO)
 
-- 継承 (`extends`, `super`)
-- 文字列補間 (バッククォート + `${expr}` などのテンプレート構文)
-- ジェネリック制約 (bounds)
-- クロージャ (関数のキャプチャ。ファーストクラス関数 + 匿名関数のキャプチャなしは実装済 — §6 参照)
-- Rust 風 `?` 演算子 (Result の早期 return — エルゴノミクス向上、いつか追加するかも)
+- **タプル** (`(i64, string)` のような匿名 product 型)
+- **`?` 演算子** (Result short-circuit。`let v = parse(s)?` で `Result.err` を即 return)
+- **文字列補間** (バッククォート + `${expr}` などのテンプレート構文)
+- **Iterator プロトコル** (ユーザ型に `next()` を実装させて `for-in` に乗せる)
+- **デフォルト引数 / 名前付き引数** (`fn open(path: string, mode: string = "r")`)
+- **演算子オーバーロード** (`class Vec2 { + (other: Vec2): Vec2 { ... } }`)
+- **Trait / Interface** (型シェイプによる抽象化)
+- **デストラクチャリング** (`let (a, b) = pair` / `let { x, y } = point`)
+- **Async / await** (並行性)
+- **ジェネリック制約 (bounds)**
+- **継承の階層メソッドオーバーロード** (現状はルートクラスのみオーバーロード可)
+- **静的フィールド/メソッドの継承** (Phase 2)
+- **ジェネリッククラスでの継承 / 静的メンバー / プロパティ** (型パラメータ解決の制約により未対応)
 
 ### 採用しない方針
 
