@@ -59,6 +59,17 @@ pub(crate) fn register_native_externs(
             _ => None,
         })
         .collect();
+    // Pre-collect names of `@repr(C) class Foo { ... }` — C-compat
+    // structs that flow into native fns as `T *` (a pointer to the
+    // user data area).
+    let repr_c_classes: HashSet<String> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Class(c) if c.is_repr_c => Some(c.name.clone()),
+            _ => None,
+        })
+        .collect();
     for item in &prog.items {
         let Item::Fn(f) = item else { continue };
         // Find an `@extern("libname")` attribute (string-arg form).
@@ -115,7 +126,7 @@ pub(crate) fn register_native_externs(
         if flag_variadic {
             variadic.insert(f.name.clone());
         }
-        validate_native_signature(f, &opaque_classes)?;
+        validate_native_signature(f, &opaque_classes, &repr_c_classes)?;
         if flag_owned_return {
             // owned_return only meaningful for string returns. Reject
             // it on other return types so the user notices the typo.
@@ -277,9 +288,10 @@ pub(crate) fn register_native_externs(
 fn validate_native_signature(
     f: &ilang_ast::FnDecl,
     opaque_classes: &HashSet<String>,
+    repr_c_classes: &HashSet<String>,
 ) -> Result<(), CodegenError> {
     for p in &f.params {
-        if !is_native_abi_type(&p.ty, opaque_classes) {
+        if !is_native_abi_type(&p.ty, opaque_classes, repr_c_classes) {
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: parameter type {} not supported \
@@ -292,7 +304,7 @@ fn validate_native_signature(
         }
     }
     if let Some(ret) = &f.ret {
-        if !is_native_abi_type(ret, opaque_classes) && *ret != Type::Unit {
+        if !is_native_abi_type(ret, opaque_classes, repr_c_classes) && *ret != Type::Unit {
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: return type {} not supported \
@@ -321,7 +333,11 @@ fn is_callback_arg_type(t: &Type) -> bool {
     )
 }
 
-fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
+fn is_native_abi_type(
+    t: &Type,
+    opaque_classes: &HashSet<String>,
+    repr_c_classes: &HashSet<String>,
+) -> bool {
     match t {
         // Numeric primitives — every width that maps to a concrete
         // Cranelift type. Sub-int-width args/returns rely on the
@@ -355,7 +371,12 @@ fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
         ),
         // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
         // at runtime as a raw i64 C pointer.
-        Type::Object(name) => opaque_classes.contains(name),
+        // C-compat structs: `@repr(C) class Foo { ... }`. Marshalled
+        // as a `T *` to the user-data area (ARC header sits before
+        // the pointer; C only sees the field bytes).
+        Type::Object(name) => {
+            opaque_classes.contains(name) || repr_c_classes.contains(name)
+        }
         // `Foo?` where Foo is an opaque handle — same i64 storage
         // with `0` as the null/none sentinel.
         Type::Optional(inner) => match inner.as_ref() {

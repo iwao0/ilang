@@ -69,6 +69,13 @@ pub struct ClassDecl {
     /// checker for these classes; the type tag exists only to keep
     /// different libraries' handles from being mixed up.
     pub extern_lib: Option<String>,
+    /// `true` for `@repr(C) class Foo { ... }` — the class is laid
+    /// out with C-compatible field offsets (each field at its
+    /// natural alignment, no ilang-specific padding) so native
+    /// extern fns can marshal it as a `T *`. Methods, init, and
+    /// inheritance are forbidden for these classes; `new ClassName`
+    /// (no args) zero-initializes the storage.
+    pub is_repr_c: bool,
     pub name: String,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be

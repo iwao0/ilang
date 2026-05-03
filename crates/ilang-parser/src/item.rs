@@ -21,32 +21,53 @@ impl<'a> Parser<'a> {
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
-                // The only attribute valid on a class is
-                // `@extern("libname")` — declares an opaque handle
-                // type whose values come from native extern fns.
-                let extern_lib = match attrs.as_slice() {
-                    [] => None,
-                    [a] if a.name == "extern" => match a.args.as_slice() {
-                        [ilang_ast::AttrArg::Str(s)] => Some(s.clone()),
+                // Class-level attributes:
+                //   `@extern("libname")` — opaque handle type
+                //   `@repr(C)` — C-compatible struct layout for FFI
+                let mut extern_lib: Option<String> = None;
+                let mut is_repr_c = false;
+                for a in &attrs {
+                    match (a.name.as_str(), a.args.as_slice()) {
+                        ("extern", [ilang_ast::AttrArg::Str(s)]) => {
+                            extern_lib = Some(s.clone());
+                        }
+                        ("repr", [ilang_ast::AttrArg::Path(p)])
+                            if p.as_slice() == ["C"] =>
+                        {
+                            is_repr_c = true;
+                        }
                         _ => {
                             let t = self.peek();
                             return Err(ParseError::Unexpected {
                                 found: t.kind.clone(),
-                                expected: "@extern(\"libname\") (only the string-literal form is valid on classes)".into(),
+                                expected:
+                                    "@extern(\"libname\") or @repr(C) (other attributes are not supported on classes)"
+                                        .into(),
                                 span: t.span,
                             });
                         }
-                    },
-                    _ => {
-                        let t = self.peek();
+                    }
+                }
+                let mut c = self.parse_class_decl()?;
+                if is_repr_c {
+                    // C-compat struct: only fields, no methods/init/
+                    // properties/inheritance. New (no args) zero-
+                    // initializes the storage.
+                    let has_disallowed = !c.methods.is_empty()
+                        || !c.static_methods.is_empty()
+                        || !c.static_fields.is_empty()
+                        || !c.properties.is_empty()
+                        || c.parent.is_some()
+                        || !c.type_params.is_empty();
+                    if has_disallowed {
                         return Err(ParseError::Unexpected {
-                            found: t.kind.clone(),
-                            expected: "'fn' (attributes other than @extern(\"...\") are not supported on classes)".into(),
-                            span: t.span,
+                            found: TokenKind::Class,
+                            expected: "fields only — `@repr(C) class Foo` cannot declare init, methods, parent, type parameters, properties, or static members".into(),
+                            span: c.span,
                         });
                     }
-                };
-                let mut c = self.parse_class_decl()?;
+                    c.is_repr_c = true;
+                }
                 if extern_lib.is_some() {
                     // Opaque handle classes carry no user state and
                     // can declare at most one method: `deinit`. The
@@ -297,6 +318,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ClassDecl {
             extern_lib: None,
+            is_repr_c: false,
             name,
             parent,
             type_params,
