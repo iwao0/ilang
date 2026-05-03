@@ -121,6 +121,19 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     span: m.span,
                 })
                 .collect(),
+            static_methods: c
+                .static_methods
+                .iter()
+                .map(|m| FnDecl {
+                    attrs: m.attrs.clone(),
+                    name: m.name.clone(),
+                    type_params: m.type_params.clone(),
+                    params: m.params.clone(),
+                    ret: m.ret.clone(),
+                    body: hoist_in_block(&m.body, counter, hoisted),
+                    span: m.span,
+                })
+                .collect(),
             properties: c
                 .properties
                 .iter()
@@ -750,6 +763,11 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         .iter()
         .map(|m| specialize_fn(m, &params, args))
         .collect();
+    let static_methods = c
+        .static_methods
+        .iter()
+        .map(|m| specialize_fn(m, &params, args))
+        .collect();
     let properties = c
         .properties
         .iter()
@@ -767,6 +785,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         fields,
         properties,
         methods,
+        static_methods,
         span: c.span,
     }
 }
@@ -1051,6 +1070,7 @@ fn rewrite_item(item: &Item) -> Item {
                 })
                 .collect(),
             methods: c.methods.iter().map(rewrite_fn).collect(),
+            static_methods: c.static_methods.iter().map(rewrite_fn).collect(),
             properties: c
                 .properties
                 .iter()
@@ -1651,6 +1671,25 @@ fn rewrite_calls_in_item(
             fields: c.fields.clone(),
             methods: c
                 .methods
+                .iter()
+                .map(|m| FnDecl {
+                    attrs: m.attrs.clone(),
+                    name: m.name.clone(),
+                    type_params: m.type_params.clone(),
+                    params: m.params.clone(),
+                    ret: m.ret.clone(),
+                    body: rewrite_calls_in_block(
+                        &m.body,
+                        table,
+                        outer_params,
+                        outer_args,
+                        generic_fns,
+                    ),
+                    span: m.span,
+                })
+                .collect(),
+            static_methods: c
+                .static_methods
                 .iter()
                 .map(|m| FnDecl {
                     attrs: m.attrs.clone(),
@@ -2586,6 +2625,25 @@ fn rewrite_enum_refs_in_item(
                             span: p.span,
                         })
                         .collect(),
+                    ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+                    body: rewrite_enum_refs_in_block(
+                        &m.body, generic_enums, table, outer_params, outer_args,
+                    ),
+                    span: m.span,
+                })
+                .collect(),
+            static_methods: c
+                .static_methods
+                .iter()
+                .map(|m| FnDecl {
+                    attrs: m.attrs.clone(),
+                    name: m.name.clone(),
+                    type_params: m.type_params.clone(),
+                    params: m.params.iter().map(|p| Param {
+                        name: p.name.clone(),
+                        ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
+                        span: p.span,
+                    }).collect(),
                     ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                     body: rewrite_enum_refs_in_block(
                         &m.body, generic_enums, table, outer_params, outer_args,

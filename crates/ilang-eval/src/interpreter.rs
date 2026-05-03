@@ -203,6 +203,25 @@ impl Interpreter {
                 })
             }
             ExprKind::MethodCall { obj, method, args } => {
+                // Static method dispatch: `ClassName.method(args)`.
+                // The receiver is a Var matching a class with no
+                // shadowing local of the same name. No `this` is bound.
+                if let ExprKind::Var(name) = &obj.kind {
+                    let is_local_shadow = self.vars.contains_key(name);
+                    if !is_local_shadow {
+                        if let Some(cls) = self.classes.get(name).cloned() {
+                            if let Some(decl) = cls
+                                .static_methods
+                                .iter()
+                                .find(|m| m.name == *method)
+                                .cloned()
+                            {
+                                let evaluated = self.eval_args(args)?;
+                                return self.invoke(method, &decl, evaluated, None, span);
+                            }
+                        }
+                    }
+                }
                 let v = self.eval_expr(obj)?;
                 // Weak.get(): try to upgrade to a strong Object ref;
                 // returns Optional<T>.

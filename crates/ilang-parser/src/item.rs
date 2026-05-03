@@ -150,6 +150,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut static_methods = Vec::new();
         let mut properties: Vec<PropertyDecl> = Vec::new();
         loop {
             match self.peek().kind {
@@ -179,6 +180,22 @@ impl<'a> Parser<'a> {
                         );
                     if is_accessor {
                         self.parse_property_accessor(&mut properties)?;
+                        continue;
+                    }
+                    // `static <ident>(` — a class-level method.
+                    let is_static = name == "static"
+                        && matches!(
+                            self.tokens.get(self.pos + 1).map(|t| &t.kind),
+                            Some(TokenKind::Ident(_))
+                        )
+                        && matches!(
+                            self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                            Some(TokenKind::LParen)
+                        );
+                    if is_static {
+                        self.bump(); // consume `static`
+                        let m = self.parse_method(Vec::new())?;
+                        static_methods.push(m);
                         continue;
                     }
                     let next_kind = self.tokens[(self.pos + 1).min(self.tokens.len() - 1)]
@@ -219,6 +236,7 @@ impl<'a> Parser<'a> {
             type_params,
             fields,
             methods,
+            static_methods,
             properties,
             span,
         })

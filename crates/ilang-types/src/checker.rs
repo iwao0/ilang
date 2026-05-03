@@ -147,6 +147,9 @@ struct ClassSig {
     /// `get` / `set` accessors. `obj.x` reads dispatch through the
     /// getter, `obj.x = v` writes through the setter (when present).
     properties: HashMap<String, PropertySig>,
+    /// `static` methods — single sig per name (no overloading yet).
+    /// Resolved at `ClassName.method(args)` call sites.
+    static_methods: HashMap<String, Signature>,
 }
 
 #[derive(Debug, Clone)]
@@ -363,6 +366,7 @@ impl TypeChecker {
                 fields: HashMap::new(),
                 methods,
                 properties: HashMap::new(),
+                static_methods: HashMap::new(),
             },
         );
         self.vars
@@ -427,6 +431,7 @@ impl TypeChecker {
                 fields: HashMap::new(),
                 methods: map_methods,
                 properties: HashMap::new(),
+                static_methods: HashMap::new(),
             },
         );
 
@@ -622,6 +627,11 @@ impl TypeChecker {
             if let Some(s) = &prop.setter {
                 self.check_fn(s, Some(&c.name))?;
             }
+        }
+        // Static methods don't have `this` — pass `in_class=None` so
+        // their bodies fail to resolve `this` / implicit field refs.
+        for m in &c.static_methods {
+            self.check_fn(m, None)?;
         }
         Ok(())
     }
@@ -1050,6 +1060,23 @@ impl TypeChecker {
             ExprKind::MethodCall { obj, method, args } => {
                 if method == "deinit" {
                     return Err(TypeError::CannotCallDeinit { span });
+                }
+                // Static method dispatch: `ClassName.method(args)` —
+                // the receiver is a Var matching a known class name
+                // that has a static method by that name, and there's
+                // no shadowing local of the same name.
+                if let ExprKind::Var(name) = &obj.kind {
+                    let is_local_shadow = env.contains_key(name) || self.vars.contains_key(name);
+                    if !is_local_shadow {
+                        if let Some(cls) = self.classes.get(name) {
+                            if let Some(sig) = cls.static_methods.get(method).cloned() {
+                                self.check_args(
+                                    method, &sig, args, env, ret_ty, in_class, loop_depth, span,
+                                )?;
+                                return Ok(sig.ret);
+                            }
+                        }
+                    }
                 }
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 // Built-in Weak method: get(): T?.
@@ -2849,11 +2876,56 @@ fn class_signature(c: &ClassDecl) -> Result<ClassSig, TypeError> {
             },
         );
     }
+    let mut static_methods: HashMap<String, Signature> = HashMap::new();
+    if !c.type_params.is_empty() && !c.static_methods.is_empty() {
+        return Err(TypeError::Unsupported {
+            what: format!(
+                "class {:?}: static methods on generic classes are not supported \
+                 (the class type parameters cannot be referenced from a static \
+                 context)",
+                c.name
+            ),
+            span: c.span,
+        });
+    }
+    for m in &c.static_methods {
+        if static_methods.contains_key(&m.name) {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "static method {:?} in class {:?} is declared more than once \
+                     (static methods cannot be overloaded)",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        // No name collisions with instance fields / methods / properties.
+        if fields.contains_key(&m.name)
+            || methods.contains_key(&m.name)
+            || properties.contains_key(&m.name)
+        {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "static method {:?} in class {:?} collides with an instance \
+                     field / method / property of the same name",
+                    m.name, c.name
+                ),
+                span: m.span,
+            });
+        }
+        let mut sig = signature_of(m);
+        for p in sig.params.iter_mut() {
+            *p = rewrite_type_params(p, &c.type_params);
+        }
+        sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
+        static_methods.insert(m.name.clone(), sig);
+    }
     Ok(ClassSig {
         type_params: c.type_params.clone(),
         fields,
         methods,
         properties,
+        static_methods,
     })
 }
 

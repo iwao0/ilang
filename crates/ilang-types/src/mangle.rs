@@ -186,6 +186,16 @@ fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
                     *idx += 1;
                 }
             }
+            // Static method bodies need rewriting (calls to overloaded
+            // fns) but the static methods themselves aren't currently
+            // overloadable — no name munging.
+            for m in &mut c.static_methods {
+                let body = std::mem::replace(
+                    &mut m.body,
+                    Block { stmts: Vec::new(), tail: None },
+                );
+                m.body = rewrite_block(body, ctx);
+            }
             // Property accessor bodies need rewriting too (their bodies
             // can contain calls to overloaded fns/methods). Properties
             // themselves aren't overloaded — no name change.

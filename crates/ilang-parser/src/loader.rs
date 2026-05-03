@@ -310,7 +310,8 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
         }
         Item::Class(mut c) => {
             c.name = format!("{prefix}.{}", c.name);
-            for m in &mut c.methods {
+            // Apply the same prefix transform to static methods.
+            for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
                 let body = std::mem::replace(
                     &mut m.body,
                     Block { stmts: Vec::new(), tail: None },
@@ -851,7 +852,7 @@ fn subst_const_item(item: Item, consts: &HashMap<String, Expr>) -> Item {
             Item::Fn(f)
         }
         Item::Class(mut c) => {
-            for m in &mut c.methods {
+            for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
                 let body = std::mem::replace(
                     &mut m.body,
                     Block { stmts: Vec::new(), tail: None },

@@ -799,6 +799,16 @@ impl JitCompiler {
                 );
             }
         }
+        // Static methods are registered as plain top-level fns under
+        // `<ClassName>.<method>` (matching how the typechecker
+        // resolves the call) so the existing `lc.funcs` lookup path
+        // can find them without a separate dispatch mechanism.
+        for m in &c.static_methods {
+            let qualified = format!("{}.{}", c.name, m.name);
+            let symbol = format!("__static_{}_{}", c.name, m.name);
+            let (id, params, ret) = self.declare_fn_signature(&symbol, m, None)?;
+            self.funcs.insert(qualified, (id, params, ret));
+        }
         Ok(())
     }
 
@@ -876,6 +886,12 @@ impl JitCompiler {
                 let info = self.class_methods[class_id as usize][&key].clone();
                 self.define_function_body(info.id, s, &info.params, info.ret, Some(class_id))?;
             }
+        }
+        for m in &c.static_methods {
+            let qualified = format!("{}.{}", c.name, m.name);
+            let (id, params, ret) = self.funcs[&qualified].clone();
+            // `this_class = None` — static methods don't get a `this`.
+            self.define_function_body(id, m, &params, ret, None)?;
         }
         Ok(())
     }

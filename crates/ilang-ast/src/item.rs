@@ -61,6 +61,11 @@ pub struct ClassDecl {
     /// (treated as a regular method by the parser; recognised specially by
     /// the type checker and evaluator).
     pub methods: Vec<FnDecl>,
+    /// `static` methods — callable via `ClassName.method(args)` with
+    /// no `this`. Stored in their own Vec so instance-method lookups
+    /// don't trip over them, and so the JIT can register each as a
+    /// plain top-level fn (no receiver param).
+    pub static_methods: Vec<FnDecl>,
     /// `get`/`set` accessors. Read/write of `obj.name` is dispatched to
     /// the corresponding accessor instead of a stored field. Both are
     /// optional (read-only or write-only OK), but at least one is set.

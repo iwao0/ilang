@@ -415,6 +415,33 @@ t.celsius                 // 37.77...
 - `get` / `set` はクラス本体内でのみキーワードとして扱われ、それ以外の場所では普通の識別子として使えます (contextual keyword)
 - interpreter / JIT とも対応
 
+### `static` メソッド
+
+`static` を付けるとインスタンスなしで `ClassName.method(args)` で呼べる **クラスレベル メソッド** になります。本体内で `this` は使えません (型エラー)。
+
+```rust
+class Vec2 {
+    x: f64; y: f64
+    init(x: f64, y: f64) { this.x = x; this.y = y }
+
+    static zero(): Vec2 { new Vec2(0.0, 0.0) }
+    static of(x: f64, y: f64): Vec2 { new Vec2(x, y) }
+    static dot(a: Vec2, b: Vec2): f64 { a.x * b.x + a.y * b.y }
+}
+
+let z = Vec2.zero()
+let p = Vec2.of(3.0, 4.0)
+let d = Vec2.dot(z, p)
+```
+
+- 静的フィールド (クラスレベル変数) は **未対応** — メソッドのみ
+- オーバーロード不可 (`static foo` を 2 つ以上書くとエラー)
+- フィールド / インスタンスメソッド / プロパティと同名は不可
+- ジェネリッククラスでの静的メソッドは未対応 (型パラメータが静的コンテキストで参照できないため)
+- `static` はクラス本体内のみキーワード (contextual keyword)
+- ローカル変数 `let Vec2 = ...` がある場合はそちら優先 (シャドウ)
+- interpreter / JIT とも対応
+
 ---
 
 ## 8. 配列

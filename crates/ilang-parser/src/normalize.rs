@@ -82,6 +82,18 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                     m
                 })
                 .collect();
+            let static_methods = std::mem::take(&mut c.static_methods);
+            c.static_methods = static_methods
+                .into_iter()
+                .map(|mut m| {
+                    let body = std::mem::replace(
+                        &mut m.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    m.body = rewrite_block(body, ctx);
+                    m
+                })
+                .collect();
             let properties = std::mem::take(&mut c.properties);
             c.properties = properties
                 .into_iter()

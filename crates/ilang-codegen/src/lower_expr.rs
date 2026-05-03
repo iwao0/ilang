@@ -393,6 +393,34 @@ pub(crate) fn lower_expr(
                 if name == "console" && method == "log" {
                     return lower_console_log(b, lc, args).map(|_| None);
                 }
+                // Static method dispatch: `ClassName.method(args)` is
+                // registered in `lc.funcs` under the qualified name
+                // `ClassName.method` (no receiver). Variables shadow
+                // class names — the env lookup wins if both exist.
+                if !lc.env.bindings.contains_key(name) {
+                    let qualified = format!("{name}.{method}");
+                    if let Some(entry) = lc.funcs.get(&qualified).cloned() {
+                        let (id, param_tys, ret_ty) = entry;
+                        let mut arg_vals = Vec::with_capacity(args.len());
+                        for (i, a) in args.iter().enumerate() {
+                            let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                                CodegenError::Unsupported {
+                                    what: "argument is unit".into(),
+                                    span: a.span,
+                                }
+                            })?;
+                            let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
+                            emit_bind_retain(b, lc, &a.kind, at, param_tys[i], coerced);
+                            arg_vals.push(coerced);
+                        }
+                        let func_ref = lc.module.declare_func_in_func(id, b.func);
+                        let call = b.ins().call(func_ref, &arg_vals);
+                        if matches!(ret_ty, JitTy::Unit) {
+                            return Ok(None);
+                        }
+                        return Ok(Some((b.inst_results(call)[0], ret_ty)));
+                    }
+                }
             }
             let (obj_v, obj_t) = lower_expr(b, lc, obj)?.ok_or_else(|| {
                 CodegenError::Unsupported {
