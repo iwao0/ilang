@@ -26,14 +26,48 @@ impl<'a> Parser<'a> {
                 //   `@repr(C)` — C-compatible struct layout for FFI
                 let mut extern_lib: Option<String> = None;
                 let mut is_repr_c = false;
+                let mut is_packed = false;
                 for a in &attrs {
                     match (a.name.as_str(), a.args.as_slice()) {
                         ("extern", [ilang_ast::AttrArg::Str(s)]) => {
                             extern_lib = Some(s.clone());
                         }
-                        ("repr", [ilang_ast::AttrArg::Path(p)])
-                            if p.as_slice() == ["C"] =>
-                        {
+                        ("repr", args) => {
+                            // `@repr(C)` or `@repr(C, packed)`. Each
+                            // arg must be a single-segment path; `C`
+                            // is required and the only other accepted
+                            // modifier today is `packed`.
+                            let mut saw_c = false;
+                            for arg in args {
+                                match arg {
+                                    ilang_ast::AttrArg::Path(p)
+                                        if p.as_slice() == ["C"] =>
+                                    {
+                                        saw_c = true;
+                                    }
+                                    ilang_ast::AttrArg::Path(p)
+                                        if p.as_slice() == ["packed"] =>
+                                    {
+                                        is_packed = true;
+                                    }
+                                    _ => {
+                                        let t = self.peek();
+                                        return Err(ParseError::Unexpected {
+                                            found: t.kind.clone(),
+                                            expected: "@repr(C) or @repr(C, packed) (other repr modifiers are not supported)".into(),
+                                            span: t.span,
+                                        });
+                                    }
+                                }
+                            }
+                            if !saw_c {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected: "@repr(C) — bare @repr or @repr(packed) without C is not supported".into(),
+                                    span: t.span,
+                                });
+                            }
                             is_repr_c = true;
                         }
                         _ => {
@@ -41,7 +75,7 @@ impl<'a> Parser<'a> {
                             return Err(ParseError::Unexpected {
                                 found: t.kind.clone(),
                                 expected:
-                                    "@extern(\"libname\") or @repr(C) (other attributes are not supported on classes)"
+                                    "@extern(\"libname\") or @repr(C[, packed]) (other attributes are not supported on classes)"
                                         .into(),
                                 span: t.span,
                             });
@@ -67,6 +101,14 @@ impl<'a> Parser<'a> {
                         });
                     }
                     c.is_repr_c = true;
+                    c.is_packed = is_packed;
+                } else if is_packed {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "`packed` requires `C` — use `@repr(C, packed)`".into(),
+                        span: t.span,
+                    });
                 }
                 if extern_lib.is_some() {
                     // Opaque handle classes carry no user state and
@@ -399,6 +441,7 @@ impl<'a> Parser<'a> {
         Ok(ClassDecl {
             extern_lib: None,
             is_repr_c: false,
+            is_packed: false,
             name,
             parent,
             type_params,

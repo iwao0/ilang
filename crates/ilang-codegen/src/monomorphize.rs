@@ -149,6 +149,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
         Item::Class(c) => Item::Class(ClassDecl {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
+            is_packed: c.is_packed,
             name: c.name.clone(),
             parent: c.parent.clone(),
             type_params: c.type_params.clone(),
@@ -897,6 +898,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
     ClassDecl {
         extern_lib: c.extern_lib.clone(),
         is_repr_c: c.is_repr_c,
+            is_packed: c.is_packed,
         name: mangled.to_string(),
         type_params: Vec::new(),
         parent: c.parent.clone(),
@@ -1203,6 +1205,7 @@ fn rewrite_item(item: &Item) -> Item {
         Item::Class(c) => Item::Class(ClassDecl {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
+            is_packed: c.is_packed,
             name: c.name.clone(),
             parent: c.parent.clone(),
             type_params: c.type_params.clone(),
@@ -1835,6 +1838,7 @@ fn rewrite_calls_in_item(
         Item::Class(c) => Item::Class(ClassDecl {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
+            is_packed: c.is_packed,
             name: c.name.clone(),
             parent: c.parent.clone(),
             type_params: c.type_params.clone(),
@@ -2807,6 +2811,7 @@ fn rewrite_enum_refs_in_item(
         Item::Class(c) => Item::Class(ClassDecl {
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
+            is_packed: c.is_packed,
             name: c.name.clone(),
             parent: c.parent.clone(),
             type_params: c.type_params.clone(),

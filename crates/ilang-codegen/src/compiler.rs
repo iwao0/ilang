@@ -1241,16 +1241,26 @@ impl JitCompiler {
             } else {
                 (jty.size_bytes(), jty.size_bytes().max(1), jty)
             };
-            offset = align_up(offset, align);
+            // `@repr(C, packed)`: every field sits at the next byte
+            // (no alignment padding). Bitfield runs ignore packed —
+            // they already use the storage unit width directly.
+            let effective_align = if c.is_packed { 1 } else { align };
+            offset = align_up(offset, effective_align);
             fields.insert(field.name.clone(), (offset, recorded_jty));
             offset += size;
-            max_align = max_align.max(align);
+            max_align = max_align.max(effective_align);
         }
         // Close any trailing bitfield run.
         if bf_unit_size != 0 {
             offset = bf_unit_offset + bf_unit_size;
         }
-        let size = align_up(offset.max(1), max_align);
+        // Packed structs have no end padding either: total size is
+        // the sum of field sizes (already in `offset`).
+        let size = if c.is_packed {
+            offset.max(1)
+        } else {
+            align_up(offset.max(1), max_align)
+        };
         self.class_layouts[id].fields = fields;
         self.class_layouts[id].align = max_align;
         self.class_layouts[id].bitfields = bitfields;

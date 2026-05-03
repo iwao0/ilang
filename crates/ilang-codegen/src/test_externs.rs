@@ -211,6 +211,12 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("vec3f_make", test_vec3f_make as *const u8);
     builder.symbol("pair64_sum", test_pair64_sum as *const u8);
     builder.symbol("make_big32", test_make_big32 as *const u8);
+    // Bare-name aliases for layout-test fixtures that declare per-
+    // struct extern fns of the form `(p: SomeStruct, off: i64): i32`.
+    // The JIT auto-passes the struct's user pointer as an i64 at the
+    // C boundary, which matches `test_byte_at`'s signature exactly.
+    builder.symbol("pkt_byte_at", test_byte_at as *const u8);
+    builder.symbol("alg_byte_at", test_byte_at as *const u8);
 }
 
 // ─── @extern static globals (test-only) ─────────────────────────────
@@ -221,6 +227,15 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
 // against the registered address.
 static mut TEST_STATIC_I32: i32 = 0;
 static mut TEST_STATIC_F64: f64 = 0.0;
+
+// Read a raw byte from an address — used by layout tests to verify
+// `@repr(C, packed)` actually packs (no padding bytes inserted).
+extern "C" fn test_byte_at(ptr: i64, offset: i64) -> i32 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe { *((ptr + offset) as *const u8) as i32 }
+}
 
 pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<String, i64>) {
     unsafe {

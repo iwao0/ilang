@@ -83,6 +83,11 @@ pub struct ClassDecl {
     /// inheritance are forbidden for these classes; `new ClassName`
     /// (no args) zero-initializes the storage.
     pub is_repr_c: bool,
+    /// `@repr(C, packed)` — drop natural alignment so every field
+    /// sits at offset = sum-of-prior-sizes (no padding) and the
+    /// struct's overall alignment is 1. Mirrors C's
+    /// `__attribute__((packed))`. Only meaningful with `is_repr_c`.
+    pub is_packed: bool,
     pub name: String,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be
