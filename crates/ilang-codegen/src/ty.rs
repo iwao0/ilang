@@ -325,6 +325,10 @@ pub(crate) struct ClassLayout {
     pub name: String,
     pub fields: HashMap<String, (u32, JitTy)>,
     pub size: u32,
+    /// `extends Parent` — name of the parent class. The parent's
+    /// fields are laid out first (same offsets as in the parent),
+    /// the child's added fields follow. `None` for root classes.
+    pub parent: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]

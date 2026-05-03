@@ -43,6 +43,8 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
 }
 
@@ -63,6 +65,11 @@ pub fn jit_run_with(
         (String, Vec<ilang_ast::Type>),
     >,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
+    class_method_slots: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, usize>,
+    >,
+    class_vtable_lens: &std::collections::HashMap<String, usize>,
 ) -> Result<JitValue, CodegenError> {
     // Pipeline:
     //   hoist anon fns → monomorphize classes → monomorphize enums
@@ -73,15 +80,22 @@ pub fn jit_run_with(
     let mono = crate::monomorphize::monomorphize(&hoisted);
     let mono = crate::monomorphize::monomorphize_enums(&mono, enum_ctor_type_args);
     let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
-    jit_run_inner(&mono, loop_break_types)
+    jit_run_inner(&mono, loop_break_types, class_method_slots, class_vtable_lens)
 }
 
 fn jit_run_inner(
     prog: &Program,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
+    class_method_slots: &std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, usize>,
+    >,
+    class_vtable_lens: &std::collections::HashMap<String, usize>,
 ) -> Result<JitValue, CodegenError> {
     let mut compiler = JitCompiler::new(prog)?;
     compiler.loop_break_types = loop_break_types.clone();
+    compiler.class_method_slots = class_method_slots.clone();
+    compiler.class_vtable_lens = class_vtable_lens.clone();
     // 1a. Register every class / enum name → id, with empty layouts.
     //     This way `Child { p: Parent.weak }` resolves even when Parent
     //     is declared after Child, and likewise for enum forward-refs.
@@ -113,6 +127,18 @@ fn jit_run_inner(
     //     their function pointers in the allocation header. Bodies are
     //     defined later (need user methods to be defined first).
     crate::drops::declare_class_drops(&mut compiler)?;
+    // 2c. Allocate per-class vtable storage (zeroed for now). Stable
+    //     addresses are needed before lowering since `new` and
+    //     virtual call sites embed them as `iconst`. Actual function
+    //     pointers are written in by `populate_vtables` after
+    //     `module.finalize_definitions()`.
+    compiler.allocate_vtables();
+    // 2d. Build the parent map now that class layouts exist.
+    for layout in compiler.class_layouts.clone() {
+        if let Some(p) = layout.parent {
+            compiler.class_parents.insert(layout.name, p);
+        }
+    }
     // 3. Define every body.
     for item in &prog.items {
         match item {
@@ -300,6 +326,26 @@ pub(crate) struct JitCompiler {
     /// the lowering knows whether to bitcast / truncate.
     pub(crate) static_field_types:
         std::collections::HashMap<(String, String), ilang_ast::Type>,
+    /// `(class_name, method_name) -> vtable slot` table forwarded
+    /// from the typechecker. Used at virtual-call sites to compute
+    /// the per-method index into a class's vtable.
+    pub(crate) class_method_slots:
+        std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+    /// `class_name -> vtable size` (= max slot index + 1, or 0).
+    /// Used to allocate the per-class vtable storage upfront.
+    pub(crate) class_vtable_lens: std::collections::HashMap<String, usize>,
+    /// Per-class vtable storage. Each `Box<[i64]>` holds function
+    /// pointers indexed by slot. Allocated zeroed before lowering;
+    /// the actual addresses are written in by `populate_vtables`
+    /// after `module.finalize_definitions()`.
+    pub(crate) class_vtable_storage: Vec<Box<[i64]>>,
+    /// Stable address of each class's vtable storage, indexed by
+    /// class_id. Embedded as `iconst` in lowered `new` (passed to
+    /// `alloc_object`) and at virtual-call sites.
+    pub(crate) class_vtable_addrs: Vec<i64>,
+    /// `class -> parent` (single inheritance). Forwarded from the
+    /// typechecker so `super.method()` lowering can find the parent.
+    pub(crate) class_parents: std::collections::HashMap<String, String>,
 }
 
 impl JitCompiler {
@@ -435,7 +481,7 @@ impl JitCompiler {
         let alloc_object_id = declare_import(
             &mut module,
             "ilang_jit_alloc_object",
-            &[I64, I64],
+            &[I64, I64, I64],
             Some(I64),
         )?;
         let retain_object_id =
@@ -663,6 +709,11 @@ impl JitCompiler {
             static_field_storage,
             static_field_slots,
             static_field_types,
+            class_method_slots: std::collections::HashMap::new(),
+            class_vtable_lens: std::collections::HashMap::new(),
+            class_vtable_storage: Vec::new(),
+            class_vtable_addrs: Vec::new(),
+            class_parents: std::collections::HashMap::new(),
         })
     }
 
@@ -756,22 +807,13 @@ impl JitCompiler {
     /// layout, so other classes' field types can refer to this one
     /// (`Parent.weak`, `Child?`, etc.) regardless of declaration order.
     fn declare_class_name(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
-        if c.parent.is_some() {
-            return Err(CodegenError::Unsupported {
-                what: format!(
-                    "class {:?}: inheritance (`extends`) is not yet supported by the JIT \
-                     (interpreter only); use `--no-jit` or run via the interpreter",
-                    c.name
-                ),
-                span: c.span,
-            });
-        }
         let id = self.class_layouts.len() as u32;
         self.class_ids.insert(c.name.clone(), id);
         self.class_layouts.push(ClassLayout {
             name: c.name.clone(),
             fields: HashMap::new(),
             size: 0,
+            parent: c.parent.clone(),
         });
         self.class_methods.push(HashMap::new());
         Ok(())
@@ -783,9 +825,19 @@ impl JitCompiler {
     /// Child in source order.
     fn finalize_class_layout(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
         let id = self.class_ids[&c.name] as usize;
-        let mut offset = 0u32;
-        let mut max_align = 1u32;
-        let mut fields = HashMap::new();
+        // Inheritance: start the child's layout from the parent's
+        // field map and end-of-fields offset. Inherited fields keep
+        // their parent's offsets (so a `Parent*` reading a `Child`
+        // sees the same memory) and the child's added fields go
+        // after.
+        let (mut offset, mut max_align, mut fields) =
+            if let Some(parent_name) = &c.parent {
+                let pid = self.class_ids[parent_name] as usize;
+                let parent = &self.class_layouts[pid];
+                (parent.size, 1u32, parent.fields.clone())
+            } else {
+                (0u32, 1u32, HashMap::new())
+            };
         for field in &c.fields {
             let jty = JitTy::from_ast(
                 &field.ty,
@@ -834,6 +886,22 @@ impl JitCompiler {
     /// lives in the `new` lowering.
     fn declare_methods(&mut self, c: &ClassDecl) -> Result<(), CodegenError> {
         let class_id = self.class_ids[&c.name];
+        // Inheritance: prepopulate this class's method table from
+        // the parent's. Inherited methods that aren't overridden
+        // resolve to the parent's compiled function (param ty stays
+        // Object(parent_id) — the JIT pointer to a Child is layout-
+        // compatible since headers and inherited fields match).
+        // `init` and `deinit` are per-class — don't inherit them.
+        if let Some(parent_name) = &c.parent {
+            let pid = self.class_ids[parent_name] as usize;
+            let parent_methods = self.class_methods[pid].clone();
+            for (k, info) in parent_methods {
+                if k == "init" || k == "deinit" {
+                    continue;
+                }
+                self.class_methods[class_id as usize].insert(k, info);
+            }
+        }
         for m in &c.methods {
             let symbol = format!("__method_{}_{}", c.name, m.name);
             let (id, params, ret) =
@@ -1101,6 +1169,12 @@ impl JitCompiler {
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
+            class_vtable_addrs: &self.class_vtable_addrs,
+            class_method_slots: &self.class_method_slots,
+            class_parents: &self.class_parents,
+            current_class: this_class.map(|cid| {
+                self.class_layouts[cid as usize].name.clone()
+            }),
         };
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
         // Release heap-typed params (and `this` for methods) at function
@@ -1254,6 +1328,10 @@ impl JitCompiler {
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
+            class_vtable_addrs: &self.class_vtable_addrs,
+            class_method_slots: &self.class_method_slots,
+            class_parents: &self.class_parents,
+            current_class: None,
         };
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.
@@ -1313,7 +1391,57 @@ impl JitCompiler {
         self.module
             .finalize_definitions()
             .map_err(|e| CodegenError::Module(e.to_string()))?;
+        // Vtable storage was zero-allocated; now that function
+        // addresses are resolved, write each method's host pointer
+        // into the appropriate slot.
+        self.populate_vtables();
         Ok(())
+    }
+
+    /// Allocate one zero-initialised `Box<[i64]>` per class, sized
+    /// according to the typechecker's `class_vtable_lens` table.
+    /// Stable address per class lands in `class_vtable_addrs`.
+    fn allocate_vtables(&mut self) {
+        let n = self.class_layouts.len();
+        self.class_vtable_storage = Vec::with_capacity(n);
+        self.class_vtable_addrs = Vec::with_capacity(n);
+        for layout in &self.class_layouts {
+            let len = self
+                .class_vtable_lens
+                .get(&layout.name)
+                .copied()
+                .unwrap_or(0);
+            let buf: Box<[i64]> = vec![0i64; len].into_boxed_slice();
+            let addr = if buf.is_empty() {
+                0
+            } else {
+                buf.as_ptr() as i64
+            };
+            self.class_vtable_storage.push(buf);
+            self.class_vtable_addrs.push(addr);
+        }
+    }
+
+    /// After finalize: for each class, write each (method, slot)
+    /// entry's resolved function pointer into the vtable slot. The
+    /// per-class `class_methods` table already contains inherited
+    /// method entries (from the parent's table) for methods this
+    /// class doesn't override, so the lookup is a single map hit.
+    fn populate_vtables(&mut self) {
+        for (class_idx, layout) in self.class_layouts.iter().enumerate() {
+            let slots = match self.class_method_slots.get(&layout.name) {
+                Some(s) => s.clone(),
+                None => continue,
+            };
+            for (method_name, slot) in slots {
+                let info = match self.class_methods[class_idx].get(&method_name) {
+                    Some(i) => i.clone(),
+                    None => continue,
+                };
+                let ptr = self.module.get_finalized_function(info.id) as i64;
+                self.class_vtable_storage[class_idx][slot] = ptr;
+            }
+        }
     }
 
     fn run_main(&mut self, ret: JitTy) -> JitValue {

@@ -467,9 +467,9 @@ Counter.total              // 3
 - ジェネリッククラスでの静的フィールドは未対応 (静的メソッドと同じ理由)
 - 内部実装: JIT は `Box<[i64]>` を確保してスロット割り当て、アクセスは絶対アドレスの load/store で f64/bool は bitcast / truncate
 
-### 継承 (`extends`) — interpreter のみ
+### 継承 (`extends`)
 
-`class Child extends Parent { ... }` で単一継承できます (Phase B: 仮想ディスパッチ + override + super)。**現状 interpreter のみ対応** — JIT は `extends` を持つクラスを拒否します (vtable 設計が未実装)。
+`class Child extends Parent { ... }` で単一継承できます (Phase B: 仮想ディスパッチ + override + super)。interpreter / JIT とも対応。
 
 ```rust
 class Animal {
@@ -505,6 +505,7 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
 - 静的メソッド・静的フィールドの継承は未対応
 - ジェネリッククラスでの継承は未対応
 - サブタイプ: `Child` を `Parent` 型の binding / 引数 / 戻り値に渡せる
+- JIT: object header に vtable ポインタを足し (`[strong | weak | drop_fn | vtable | fields...]`、32 byte ヘッダ)、各クラスに `Box<[i64]>` vtable を確保。仮想呼び出しは `obj.vtable[slot]` の load → call_indirect。`super.method` は親の特定関数への直接呼び出し
 
 ---
 

@@ -7,9 +7,9 @@
 
 // ─── ARC for objects (Phase A/D/E) ────────────────────────────────────
 // Each `new` allocation lays out memory as:
-//   [ strong_rc | weak_rc | drop_fn_ptr | field0 | field1 | ... ]
+//   [ strong_rc | weak_rc | drop_fn_ptr | vtable_ptr | field0 | ... ]
 // (each header slot is i64). The pointer surfaced to JITed code points
-// at field0; the three header slots sit at offsets -24, -16, -8.
+// at field0; the four header slots sit at offsets -32 / -24 / -16 / -8.
 // Field offsets stay the same as before, so user-pointer arithmetic in
 // generated code is unchanged.
 //
@@ -22,13 +22,22 @@
 //
 // `drop_fn` is a JIT-generated wrapper (see drops.rs). Trivial classes
 // (no deinit, no heap fields) use 0 to skip the call.
+//
+// `vtable_ptr` points at the start of a `Box<[i64]>` whose i64 entries
+// are method function pointers indexed by slot (see compiler.rs's
+// vtable construction). Trivial classes with no methods use 0.
 
-const STRONG_OFFSET: i64 = -24;
-const WEAK_OFFSET: i64 = -16;
-const DROP_OFFSET: i64 = -8;
-const HEADER_SIZE: usize = 24;
+const STRONG_OFFSET: i64 = -32;
+const WEAK_OFFSET: i64 = -24;
+const DROP_OFFSET: i64 = -16;
+pub(crate) const VTABLE_OFFSET: i64 = -8;
+const HEADER_SIZE: usize = 32;
 
-pub(crate) extern "C" fn ilang_jit_alloc_object(user_size: i64, drop_fn_ptr: i64) -> i64 {
+pub(crate) extern "C" fn ilang_jit_alloc_object(
+    user_size: i64,
+    drop_fn_ptr: i64,
+    vtable_ptr: i64,
+) -> i64 {
     let total = HEADER_SIZE + (user_size as usize);
     let layout = std::alloc::Layout::from_size_align(total.max(1), 8).unwrap();
     unsafe {
@@ -36,6 +45,7 @@ pub(crate) extern "C" fn ilang_jit_alloc_object(user_size: i64, drop_fn_ptr: i64
         *(raw as *mut i64) = 1; // strong
         *(raw.add(8) as *mut i64) = 0; // weak
         *(raw.add(16) as *mut i64) = drop_fn_ptr;
+        *(raw.add(24) as *mut i64) = vtable_ptr;
         raw.add(HEADER_SIZE) as i64
     }
 }

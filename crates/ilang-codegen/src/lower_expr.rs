@@ -169,10 +169,71 @@ pub(crate) fn lower_expr(
             b.seal_block(dead);
             Ok(None)
         }
-        ExprKind::SuperCall { .. } => Err(CodegenError::Unsupported {
-            what: "`super` calls are not yet supported in the JIT".into(),
-            span: e.span,
-        }),
+        ExprKind::SuperCall { method, args } => {
+            // Direct (non-virtual) call to the parent class's
+            // specific method. The lexical class is recorded in
+            // `lc.current_class` while lowering a method body.
+            let cur = lc.current_class.clone().ok_or_else(|| CodegenError::Unsupported {
+                what: "`super` outside a class method body".into(),
+                span: e.span,
+            })?;
+            let parent_name = lc
+                .class_parents
+                .get(&cur)
+                .cloned()
+                .ok_or_else(|| CodegenError::Unsupported {
+                    what: format!("class {cur:?} has no parent for `super`"),
+                    span: e.span,
+                })?;
+            let parent_id = *crate::env::class_ids_from(lc)
+                .get(&parent_name)
+                .ok_or_else(|| CodegenError::Unsupported {
+                    what: format!("unknown parent class {parent_name:?}"),
+                    span: e.span,
+                })?;
+            let lookup: &str = method.as_deref().unwrap_or("init");
+            let info = lc.class_methods[parent_id as usize]
+                .get(lookup)
+                .cloned()
+                .ok_or_else(|| CodegenError::Unsupported {
+                    what: format!(
+                        "super.{lookup}: parent class {parent_name:?} has no method"
+                    ),
+                    span: e.span,
+                })?;
+            // Receiver = `this` (must exist; the type checker
+            // already enforced super only inside a class method).
+            let this_v = match lc.this {
+                Some((var, _)) => b.use_var(var),
+                None => {
+                    return Err(CodegenError::Unsupported {
+                        what: "`super` requires a `this` receiver".into(),
+                        span: e.span,
+                    });
+                }
+            };
+            emit_retain_object(b, lc, this_v);
+            let mut arg_vals = Vec::with_capacity(args.len() + 1);
+            arg_vals.push(this_v);
+            for (i, a) in args.iter().enumerate() {
+                let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "argument is unit".into(),
+                        span: a.span,
+                    }
+                })?;
+                let coerced = coerce(b, (av, at), info.params[i], a.span)?;
+                emit_bind_retain(b, lc, &a.kind, at, info.params[i], coerced);
+                arg_vals.push(coerced);
+            }
+            let func_ref = lc.module.declare_func_in_func(info.id, b.func);
+            let call = b.ins().call(func_ref, &arg_vals);
+            if matches!(info.ret, JitTy::Unit) {
+                Ok(None)
+            } else {
+                Ok(Some((b.inst_results(call)[0], info.ret)))
+            }
+        }
         ExprKind::Continue => {
             let target = lc.loops.last().ok_or_else(|| CodegenError::Unsupported {
                 what: "continue outside loop".into(),
@@ -1154,7 +1215,15 @@ pub(crate) fn lower_expr(
             let alloc_ref =
                 lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
             let size_v = b.ins().iconst(I64, size);
-            let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr]);
+            // Per-class vtable pointer (or 0 if none was built).
+            let vtable_addr = lc
+                .class_vtable_addrs
+                .get(class_id as usize)
+                .copied()
+                .unwrap_or(0);
+            let vtable_ptr = b.ins().iconst(I64, vtable_addr);
+            let alloc_call =
+                b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
             // If init exists, call it. The mangler may have set
             // `init_method` to a specific overload (e.g. "init__i64");
@@ -1348,7 +1417,9 @@ fn lower_enum_ctor(
     let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
     let size_v = b.ins().iconst(I64, user_size);
     let drop_fn_v = enum_drop_fn_ptr(b, lc, id);
-    let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_v]);
+    // Enums don't have user-defined methods, so no vtable.
+    let zero_vt = b.ins().iconst(I64, 0);
+    let alloc_call = b.ins().call(alloc_ref, &[size_v, drop_fn_v, zero_vt]);
     let ptr = b.inst_results(alloc_call)[0];
     // Write tag.
     let tag_v = b.ins().iconst(I32, tag);
@@ -2200,6 +2271,56 @@ fn call_method(
         let coerced = coerce(b, (av, at), info.params[i], a.span)?;
         emit_bind_retain(b, lc, &a.kind, at, info.params[i], coerced);
         arg_vals.push(coerced);
+    }
+    // Virtual dispatch: if the typechecker assigned a vtable slot
+    // for (class, method), load the function pointer from the
+    // object's vtable and call_indirect through it. Inherited
+    // overrides are reflected in the object's vtable, so a
+    // `Parent` reference holding a `Child` calls the override.
+    let class_name = lc.class_layouts[class_id as usize].name.clone();
+    let slot = lc
+        .class_method_slots
+        .get(&class_name)
+        .and_then(|m| m.get(method))
+        .copied();
+    if let Some(slot) = slot {
+        // Build the Cranelift signature for call_indirect from
+        // info's param/ret types (same wire-format for inherited
+        // methods that expect Object(parent_id) — both are i64).
+        let mut cl_sig = lc.module.make_signature();
+        cl_sig
+            .params
+            .push(cranelift::prelude::AbiParam::new(I64)); // this
+        for p in &info.params {
+            cl_sig.params.push(cranelift::prelude::AbiParam::new(
+                p.cl().expect("non-unit param"),
+            ));
+        }
+        if let Some(rt) = info.ret.cl() {
+            cl_sig.returns.push(cranelift::prelude::AbiParam::new(rt));
+        }
+        let sig_ref = b.import_signature(cl_sig);
+        // Load vtable pointer from object header (offset -8 from
+        // user pointer; see runtime::VTABLE_OFFSET).
+        let vt_ptr = b.ins().load(
+            I64,
+            MemFlags::trusted(),
+            this_v,
+            crate::runtime::VTABLE_OFFSET as i32,
+        );
+        // Load fn pointer at vtable[slot].
+        let fn_ptr = b.ins().load(
+            I64,
+            MemFlags::trusted(),
+            vt_ptr,
+            (slot * 8) as i32,
+        );
+        let call = b.ins().call_indirect(sig_ref, fn_ptr, &arg_vals);
+        return if matches!(info.ret, JitTy::Unit) {
+            Ok(None)
+        } else {
+            Ok(Some((b.inst_results(call)[0], info.ret)))
+        };
     }
     let func_ref = lc.module.declare_func_in_func(info.id, b.func);
     let call = b.ins().call(func_ref, &arg_vals);

@@ -311,6 +311,12 @@ pub(crate) fn coerce(
     if from == to {
         return Ok(v);
     }
+    // Object → Object across class IDs: subtype upcast (Child →
+    // Parent). Same wire format (i64 pointer); the typechecker
+    // already verified the relation. The id mismatch is fine.
+    if matches!(from, JitTy::Object(_)) && matches!(to, JitTy::Object(_)) {
+        return Ok(v);
+    }
     // Array values share runtime representation regardless of fixed-vs-
     // dynamic; allow assignment between them as long as the element type
     // matches. Need access to the kinds table — the helper passes it via

@@ -98,6 +98,8 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             &tc.fn_call_type_args(),
             &tc.enum_ctor_type_args(),
             &tc.loop_break_types(),
+            &tc.class_method_slots(),
+            &tc.class_vtable_lens(),
         ) {
             Ok(v) => {
                 let s = format!("{v}");

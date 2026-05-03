@@ -1,5 +1,4 @@
 // Override must have the same signature as the parent.
-// jit: skip
 // expect-error: different signature
 class A {
     init() {}

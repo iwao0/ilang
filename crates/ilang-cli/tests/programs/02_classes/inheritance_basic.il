@@ -1,5 +1,4 @@
 // Single inheritance with method override + super dispatch.
-// jit: skip
 use test
 
 class Animal {

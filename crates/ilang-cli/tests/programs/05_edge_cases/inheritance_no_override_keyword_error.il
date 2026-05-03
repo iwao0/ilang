@@ -1,5 +1,4 @@
 // Hiding a parent's method without `override` is an error.
-// jit: skip
 // expect-error: hides a parent method without the `override`
 class A {
     init() {}

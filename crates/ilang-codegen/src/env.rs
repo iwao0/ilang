@@ -171,6 +171,22 @@ pub(crate) struct LowerCtx<'a> {
     /// Base address of the `Box<[i64]>` static-field storage,
     /// embedded as an iconst in lowered field accesses.
     pub static_field_base_addr: i64,
+    /// Per-class vtable base addresses, indexed by class id. Used
+    /// at virtual-method call sites and at `new` (passed to
+    /// `alloc_object`). 0 if a class has no vtable.
+    pub class_vtable_addrs: &'a [i64],
+    /// `(class, method) -> slot index` into the vtable. Forwarded
+    /// from the typechecker. The lowering uses `(class.name, method)`
+    /// as key (class name resolved from receiver's JitTy::Object id).
+    pub class_method_slots:
+        &'a std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+    /// `class -> parent` map. Used by `super.method(...)` lowering
+    /// (resolved at compile time to the parent's specific function).
+    pub class_parents: &'a std::collections::HashMap<String, String>,
+    /// Lexical class for the body currently being lowered. `Some`
+    /// while lowering a method body (so `super` knows whose parent
+    /// to look up); `None` for top-level fns and `__main`.
+    pub current_class: Option<String>,
     /// `(this var, class id)` while compiling a method body.
     pub this: Option<(Variable, u32)>,
     /// Declared return type of the function currently being lowered;

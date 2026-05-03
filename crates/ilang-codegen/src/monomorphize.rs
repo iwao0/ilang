@@ -103,7 +103,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
             ret: f.ret.clone(),
             body: hoist_in_block(&f.body, counter, hoisted),
             span: f.span,
-        is_override: false,
+        is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
@@ -121,7 +121,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     ret: m.ret.clone(),
                     body: hoist_in_block(&m.body, counter, hoisted),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_methods: c
@@ -135,7 +135,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                     ret: m.ret.clone(),
                     body: hoist_in_block(&m.body, counter, hoisted),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -153,7 +153,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         ret: g.ret.clone(),
                         body: hoist_in_block(&g.body, counter, hoisted),
                         span: g.span,
-                    is_override: false,
+                    is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -163,7 +163,7 @@ fn hoist_in_item(item: &Item, counter: &mut u32, hoisted: &mut Vec<Item>) -> Ite
                         ret: s.ret.clone(),
                         body: hoist_in_block(&s.body, counter, hoisted),
                         span: s.span,
-                    is_override: false,
+                    is_override: s.is_override,
                     }),
                     span: p.span,
                 })
@@ -1698,7 +1698,7 @@ fn rewrite_calls_in_item(
             ret: f.ret.clone(),
             body: rewrite_calls_in_block(&f.body, table, outer_params, outer_args, generic_fns),
             span: f.span,
-        is_override: false,
+        is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
@@ -1722,7 +1722,7 @@ fn rewrite_calls_in_item(
                         generic_fns,
                     ),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_methods: c
@@ -1742,7 +1742,7 @@ fn rewrite_calls_in_item(
                         generic_fns,
                     ),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -1766,7 +1766,7 @@ fn rewrite_calls_in_item(
                             generic_fns,
                         ),
                         span: g.span,
-                    is_override: false,
+                    is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -1782,7 +1782,7 @@ fn rewrite_calls_in_item(
                             generic_fns,
                         ),
                         span: s.span,
-                    is_override: false,
+                    is_override: s.is_override,
                     }),
                     span: p.span,
                 })
@@ -2646,7 +2646,7 @@ fn rewrite_enum_refs_in_item(
                 &f.body, generic_enums, table, outer_params, outer_args,
             ),
             span: f.span,
-        is_override: false,
+        is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             name: c.name.clone(),
@@ -2682,7 +2682,7 @@ fn rewrite_enum_refs_in_item(
                         &m.body, generic_enums, table, outer_params, outer_args,
                     ),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_methods: c
@@ -2702,7 +2702,7 @@ fn rewrite_enum_refs_in_item(
                         &m.body, generic_enums, table, outer_params, outer_args,
                     ),
                     span: m.span,
-                is_override: false,
+                is_override: m.is_override,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -2724,7 +2724,7 @@ fn rewrite_enum_refs_in_item(
                         ret: g.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
                         span: g.span,
-                    is_override: false,
+                    is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         attrs: s.attrs.clone(),
@@ -2738,7 +2738,7 @@ fn rewrite_enum_refs_in_item(
                         ret: s.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),
                         span: s.span,
-                    is_override: false,
+                    is_override: s.is_override,
                     }),
                     span: p.span,
                 })
