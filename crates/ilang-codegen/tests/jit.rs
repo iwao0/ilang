@@ -1593,9 +1593,11 @@ fn extern_opaque_handle_deinit_runs_on_drop() {
 @extern("{lib}") fn tmpfile(): FILE?
 @extern("{lib}") fn fclose(stream: FILE)
 
-{{
-    let _f = tmpfile()
-}}
+// `if let` binds the unwrapped FILE; the binding's lifetime ends
+// at the then-branch exit, and the Optional value is freed when
+// the if-let merges. Both sites must release for the deinit to
+// fire.
+let _opened = if let some(f) = tmpfile() {{ 1 }} else {{ 0 }}
 Tracker.count"#
     );
     let toks = tokenize(&src).expect("lex");

@@ -1891,6 +1891,15 @@ fn lower_if_let(
     };
     let inner_jty = lc.optional_inners[inner_id as usize];
 
+    // The scrutinee carries +1 ownership iff it's a fresh heap
+    // producer (call result, `new`, etc.). When that's the case we
+    // must release it after the if-let merges, otherwise the
+    // allocation leaks (Optional<heap> with no surviving binding).
+    // Borrowed scrutinees (Var/Field/Index/This) read someone
+    // else's slot and own no rc — releasing would over-free.
+    let release_scrut = scrut_t.is_heap()
+        && !crate::arc::is_aliased_heap_source(&scrut.kind);
+
     let then_block = b.create_block();
     let else_block = b.create_block();
 
@@ -1900,7 +1909,7 @@ fn lower_if_let(
 
     // Then branch: bind `name` to the unwrapped value.
     //   heap inner: scrut_v IS the pointer; retain so the binding owns
-    //               its own +1 (block-end release balances).
+    //               its own +1, then release at then-branch exit.
     //   primitive inner: scrut_v is a Box<[rc | payload]>; load the
     //                    payload at OPT_PRIM_PAYLOAD_OFFSET. No ARC on
     //                    the binding (it's a primitive copy).
@@ -1932,6 +1941,15 @@ fn lower_if_let(
             lc.env.bindings.remove(name);
         }
     }
+    // Release the +1 we took on entry. lower_block_value already
+    // retained the tail when it borrows from the binding (so the
+    // returned Value carries its own rc), so this release just
+    // discards the binding-local copy without disturbing the merge
+    // result.
+    if inner_jty.is_heap() {
+        let p = b.use_var(var);
+        crate::arc::emit_release_heap(b, lc, p, inner_jty);
+    }
 
     // Merge block: gather a value from both branches if the type is
     // non-unit. Mirrors lower_if.
@@ -1952,7 +1970,7 @@ fn lower_if_let(
         Some(e) => lower_expr(b, lc, e)?,
         None => None,
     };
-    match (then_val, else_val) {
+    let result = match (then_val, else_val) {
         (Some((_, tt)), Some((ev, _et))) => {
             let ev_coerced = coerce(b, (ev, _et), tt, scrut.span)?;
             b.ins().jump(merge, &[ev_coerced]);
@@ -1969,7 +1987,7 @@ fn lower_if_let(
             b.ins().jump(merge, &[zero]);
             b.switch_to_block(merge);
             b.seal_block(merge);
-            Ok(None)
+            Ok(merge_param.map(|p| (p, tt)))
         }
         (None, _) => {
             b.ins().jump(merge, &[]);
@@ -1977,7 +1995,14 @@ fn lower_if_let(
             b.seal_block(merge);
             Ok(None)
         }
+    };
+    // Drop the scrutinee's +1 now that both branches have rejoined.
+    // emit_release_heap on Optional<heap> is null-safe — the else
+    // path's NULL pointer flows through fine.
+    if release_scrut {
+        crate::arc::emit_release_heap(b, lc, scrut_v, scrut_t);
     }
+    result
 }
 
 /// Lower an array literal forcing each element to `target_elem_jty`.
