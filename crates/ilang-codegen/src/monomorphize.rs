@@ -269,6 +269,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 name: "__env".to_string(),
                 ty: ilang_ast::Type::I64,
                 span: e.span,
+                default: None,
             });
             wrapper_params.extend(params.iter().cloned());
             ctx.hoisted.push(Item::Fn(FnDecl {
@@ -905,6 +906,7 @@ fn specialize_fn(f: &FnDecl, params: &[String], args: &[Type]) -> FnDecl {
                 name: p.name.clone(),
                 ty: subst_type(&p.ty, params, args),
                 span: p.span,
+                default: p.default.clone(),
             })
             .collect(),
         ret: f.ret.as_ref().map(|t| subst_type(t, params, args)),
@@ -978,6 +980,7 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
                     name: p.name.clone(),
                     ty: subst_type(&p.ty, params, args),
                     span: p.span,
+                    default: p.default.clone(),
                 })
                 .collect(),
             ret: ret.as_ref().map(|t| subst_type(t, params, args)),
@@ -1220,6 +1223,7 @@ fn rewrite_fn(f: &FnDecl) -> FnDecl {
                 name: p.name.clone(),
                 ty: rewrite_type(&p.ty),
                 span: p.span,
+                default: p.default.clone(),
             })
             .collect(),
         ret: f.ret.as_ref().map(rewrite_type),
@@ -1265,6 +1269,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
                     name: p.name.clone(),
                     ty: rewrite_type(&p.ty),
                     span: p.span,
+                    default: p.default.clone(),
                 })
                 .collect(),
             ret: ret.as_ref().map(rewrite_type),
@@ -2746,6 +2751,7 @@ fn rewrite_enum_refs_in_item(
                     name: p.name.clone(),
                     ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
                     span: p.span,
+                    default: p.default.clone(),
                 })
                 .collect(),
             ret: f.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
@@ -2782,6 +2788,7 @@ fn rewrite_enum_refs_in_item(
                             name: p.name.clone(),
                             ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
                             span: p.span,
+                            default: p.default.clone(),
                         })
                         .collect(),
                     ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
@@ -2803,6 +2810,7 @@ fn rewrite_enum_refs_in_item(
                         name: p.name.clone(),
                         ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
                         span: p.span,
+                        default: p.default.clone(),
                     }).collect(),
                     ret: m.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                     body: rewrite_enum_refs_in_block(
@@ -2827,6 +2835,7 @@ fn rewrite_enum_refs_in_item(
                             name: q.name.clone(),
                             ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
                             span: q.span,
+                            default: q.default.clone(),
                         }).collect(),
                         ret: g.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
@@ -2841,6 +2850,7 @@ fn rewrite_enum_refs_in_item(
                             name: q.name.clone(),
                             ty: rewrite_enum_refs_in_type(&q.ty, generic_enums),
                             span: q.span,
+                            default: q.default.clone(),
                         }).collect(),
                         ret: s.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
                         body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),

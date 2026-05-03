@@ -1003,29 +1003,10 @@ impl<'a> Parser<'a> {
     /// Anonymous function expression: `fn(p: T, ...): R { body }`. The
     /// shape mirrors `fn name(...) { ... }` minus the name.
     fn parse_fn_expr(&mut self) -> Result<Expr, ParseError> {
-        use ilang_ast::Param;
         let span = self.peek().span;
         self.expect(&TokenKind::Fn, "'fn'")?;
         self.expect(&TokenKind::LParen, "'('")?;
-        let mut params = Vec::new();
-        if !matches!(self.peek().kind, TokenKind::RParen) {
-            loop {
-                let pspan = self.peek().span;
-                let pname = self.expect_ident("parameter name")?;
-                self.expect(&TokenKind::Colon, "':'")?;
-                let pty = self.parse_type()?;
-                params.push(Param {
-                    name: pname,
-                    ty: pty,
-                    span: pspan,
-                });
-                if matches!(self.peek().kind, TokenKind::Comma) {
-                    self.bump();
-                } else {
-                    break;
-                }
-            }
-        }
+        let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen, "')'")?;
         let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();

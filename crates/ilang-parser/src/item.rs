@@ -518,25 +518,7 @@ impl<'a> Parser<'a> {
         // the class's. Always empty here.
         let type_params: Vec<String> = Vec::new();
         self.expect(&TokenKind::LParen, "'('")?;
-        let mut params = Vec::new();
-        if !matches!(self.peek().kind, TokenKind::RParen) {
-            loop {
-                let pspan = self.peek().span;
-                let pname = self.expect_ident("parameter name")?;
-                self.expect(&TokenKind::Colon, "':'")?;
-                let pty = self.parse_type()?;
-                params.push(Param {
-                    name: pname,
-                    ty: pty,
-                    span: pspan,
-                });
-                if matches!(self.peek().kind, TokenKind::Comma) {
-                    self.bump();
-                } else {
-                    break;
-                }
-            }
-        }
+        let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen, "')'")?;
         let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
@@ -626,25 +608,7 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
         self.expect(&TokenKind::LParen, "'('")?;
-        let mut params = Vec::new();
-        if !matches!(self.peek().kind, TokenKind::RParen) {
-            loop {
-                let pspan = self.peek().span;
-                let pname = self.expect_ident("parameter name")?;
-                self.expect(&TokenKind::Colon, "':'")?;
-                let pty = self.parse_type()?;
-                params.push(Param {
-                    name: pname,
-                    ty: pty,
-                    span: pspan,
-                });
-                if matches!(self.peek().kind, TokenKind::Comma) {
-                    self.bump();
-                } else {
-                    break;
-                }
-            }
-        }
+        let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen, "')'")?;
         let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
@@ -686,6 +650,53 @@ impl<'a> Parser<'a> {
         }
         self.expect_close_gt()?;
         Ok(names)
+    }
+
+    /// Parse a comma-separated parameter list `name: T` or
+    /// `name: T = default_expr`. The opening `(` and closing `)` are
+    /// expected to be handled by the caller. Validates that defaults
+    /// only appear on trailing parameters (once one parameter has a
+    /// default, every later one must too).
+    pub(crate) fn parse_param_list(&mut self) -> Result<Vec<Param>, ParseError> {
+        let mut params = Vec::new();
+        if matches!(self.peek().kind, TokenKind::RParen) {
+            return Ok(params);
+        }
+        let mut seen_default_at: Option<ilang_ast::Span> = None;
+        loop {
+            let pspan = self.peek().span;
+            let pname = self.expect_ident("parameter name")?;
+            self.expect(&TokenKind::Colon, "':'")?;
+            let pty = self.parse_type()?;
+            let default = if matches!(self.peek().kind, TokenKind::Equals) {
+                self.bump();
+                let expr = self.parse_expr(0)?;
+                seen_default_at = Some(pspan);
+                Some(expr)
+            } else {
+                if let Some(_first) = seen_default_at {
+                    return Err(ParseError::Unexpected {
+                        found: self.peek().kind.clone(),
+                        expected: "'=' (parameter without default cannot follow one with a default)"
+                            .into(),
+                        span: pspan,
+                    });
+                }
+                None
+            };
+            params.push(Param {
+                name: pname,
+                ty: pty,
+                span: pspan,
+                default,
+            });
+            if matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        Ok(params)
     }
 
     /// Parse `<T, U, ...>` of concrete type arguments (used in generic

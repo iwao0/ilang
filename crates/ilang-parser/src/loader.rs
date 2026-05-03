@@ -302,6 +302,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                     name: p.name.clone(),
                     ty: prefix_type(&p.ty, prefix),
                     span: p.span,
+                    default: p.default.clone(),
                 })
                 .collect();
             f.ret = f.ret.as_ref().map(|t| prefix_type(t, prefix));
@@ -324,6 +325,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         name: p.name.clone(),
                         ty: prefix_type(&p.ty, prefix),
                         span: p.span,
+                        default: p.default.clone(),
                     })
                     .collect();
                 m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
@@ -354,6 +356,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                             name: p.name.clone(),
                             ty: prefix_type(&p.ty, prefix),
                             span: p.span,
+                            default: p.default.clone(),
                         })
                         .collect();
                 }
@@ -466,6 +469,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
                     name: p.name,
                     ty: prefix_type(&p.ty, prefix),
                     span: p.span,
+                    default: p.default,
                 })
                 .collect(),
             ret: ret.map(|t| prefix_type(&t, prefix)),

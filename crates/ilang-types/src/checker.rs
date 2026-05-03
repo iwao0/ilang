@@ -148,6 +148,11 @@ struct Signature {
     /// rewriting overloaded fn names. `Span::dummy()` for built-ins.
     #[allow(dead_code)]
     decl_span: Span,
+    /// Default-value expressions for each parameter (`None` when the
+    /// parameter has no default). Used at call sites to fill in
+    /// missing trailing arguments. Always empty for built-ins and for
+    /// the indirect-call path (no FnDecl behind it).
+    defaults: Vec<Option<Expr>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -273,6 +278,11 @@ pub struct TypeChecker {
     /// scope with these makes the second-pass check pass without
     /// special-casing in the type checker proper.
     pub closure_wrapper_captures: HashMap<String, Vec<(String, Type)>>,
+    /// Per-call-site default-arg fills: the trailing default
+    /// expressions (already type-checked) that the post-typecheck
+    /// pass must append to the Call's `args`. Keyed by the call
+    /// expression's span.
+    call_default_fills: std::cell::RefCell<HashMap<Span, Vec<Expr>>>,
 }
 
 #[derive(Debug)]
@@ -309,6 +319,15 @@ impl TypeChecker {
     /// of N same-name decls each call should resolve to.
     pub fn fn_overload_picks(&self) -> HashMap<Span, (String, usize)> {
         self.fn_overload_pick.borrow().clone()
+    }
+
+    /// Per-call-site default-arg fills. Each entry is the (already
+    /// type-checked) trailing default expressions to append to the
+    /// Call's `args`. The post-typecheck mangler walks this to
+    /// rewrite the AST so downstream passes see fully-positional
+    /// calls.
+    pub fn call_default_fills(&self) -> HashMap<Span, Vec<Expr>> {
+        self.call_default_fills.borrow().clone()
     }
 
     /// Per-call-site method overload pick:
@@ -472,7 +491,7 @@ impl TypeChecker {
                 // `Any` so any introspection still has something to print.
                 params: vec![Type::Any],
                 ret: Type::Unit,
-                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(),
+                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
             }],
         );
         self.classes.insert(
@@ -502,38 +521,38 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
         );
         map_methods.insert(
             "get".into(),
             vec![Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
             }],
         );
         map_methods.insert(
             "set".into(),
-            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
+            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
         );
         map_methods.insert(
             "has".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
         );
         map_methods.insert(
             "delete".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
         );
         map_methods.insert(
             "size".into(),
-            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new() }],
+            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
         );
         map_methods.insert(
             "keys".into(),
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
             }],
         );
         map_methods.insert(
@@ -541,7 +560,7 @@ impl TypeChecker {
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
             }],
         );
         self.classes.insert(
@@ -1126,6 +1145,7 @@ impl TypeChecker {
                         params,
                         ret: (*ret).clone(),
                         variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
+                        defaults: Vec::new(),
                     };
                     self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
@@ -1636,6 +1656,7 @@ impl TypeChecker {
                         variadic: raw.variadic,
                         type_params: Vec::new(),
                         decl_span: raw.decl_span,
+                        defaults: raw.defaults.clone(),
                     })
                     .collect();
                 let chosen = self.resolve_method_call(
@@ -1689,6 +1710,7 @@ impl TypeChecker {
                             variadic: init.variadic,
                             type_params: Vec::new(),
                             decl_span: init.decl_span,
+                            defaults: init.defaults.clone(),
                         })
                         .collect();
                     self.resolve_method_call(
@@ -2724,7 +2746,36 @@ impl TypeChecker {
             }
             return Ok(());
         }
-        if sig.params.len() != args.len() {
+        // Default-arg fill: when args are short, try to append the
+        // trailing defaults stored on the signature. If any required
+        // (no-default) trailing slot is missing, fall through to the
+        // normal arity-mismatch error below.
+        let filled: Vec<Expr> = if args.len() < sig.params.len() {
+            let missing = sig.params.len() - args.len();
+            let mut appended: Vec<Expr> = Vec::with_capacity(missing);
+            let mut ok = true;
+            for d in sig.defaults.iter().skip(args.len()).take(missing) {
+                match d {
+                    Some(e) => appended.push(e.clone()),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                self.call_default_fills
+                    .borrow_mut()
+                    .insert(call_span, appended.clone());
+                args.iter().cloned().chain(appended.into_iter()).collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        let effective: &[Expr] = if filled.is_empty() { args } else { &filled };
+        if sig.params.len() != effective.len() {
             return Err(TypeError::ArityMismatch {
                 name: name.to_string(),
                 expected: sig.params.len(),
@@ -2732,7 +2783,7 @@ impl TypeChecker {
                 span: call_span,
             });
         }
-        for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
+        for (param_ty, arg) in sig.params.iter().zip(effective.iter()) {
             let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
             if !literal_assignable(arg, &at, param_ty)
                 && !self.assignable_obj(&at, param_ty)
@@ -2993,8 +3044,24 @@ fn resolve_overload(
             viable.push((i, 0));
             continue;
         }
-        if sig.params.len() != arg_tys.len() {
+        if sig.params.len() < arg_tys.len() {
             continue;
+        }
+        // Default-arg fill: a sig with more params than args is
+        // viable iff every unfilled trailing slot has a default.
+        // Each filled-by-default slot adds a flat penalty so an
+        // exact-arity overload always beats a default-filled one.
+        let missing = sig.params.len() - arg_tys.len();
+        if missing > 0 {
+            let have_defaults = sig
+                .defaults
+                .iter()
+                .skip(arg_tys.len())
+                .take(missing)
+                .all(|d| d.is_some());
+            if !have_defaults {
+                continue;
+            }
         }
         let mut total = 0u32;
         let mut all_ok = true;
@@ -3008,6 +3075,10 @@ fn resolve_overload(
             }
         }
         if all_ok {
+            // Penalty: each defaulted slot costs 1000, dwarfing any
+            // implicit-conversion delta so an exact-arity match wins
+            // first.
+            total += (missing as u32) * 1000;
             viable.push((i, total));
         }
     }
@@ -3057,6 +3128,7 @@ fn signature_of(f: &FnDecl) -> Signature {
         variadic: false,
         decl_span: f.span,
         type_params: f.type_params.clone(),
+        defaults: f.params.iter().map(|p| p.default.clone()).collect(),
     }
 }
 

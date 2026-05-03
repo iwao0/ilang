@@ -41,6 +41,7 @@ pub fn mangle_overloads(
     prog: Program,
     picks: &HashMap<Span, (String, usize)>,
     method_picks: &HashMap<Span, (String, String, usize)>,
+    default_fills: &HashMap<Span, Vec<Expr>>,
 ) -> Program {
     // 1. Group Item::Fn entries by source name to see which ones are
     //    actually overloaded.
@@ -72,7 +73,7 @@ pub fn mangle_overloads(
         .map(|(k, _)| k.clone())
         .collect();
 
-    if overloaded.is_empty() && overloaded_methods.is_empty() {
+    if overloaded.is_empty() && overloaded_methods.is_empty() && default_fills.is_empty() {
         return prog;
     }
 
@@ -119,6 +120,7 @@ pub fn mangle_overloads(
         new_method_names: &new_method_names,
         picks,
         method_picks,
+        default_fills,
     };
 
     // 3. Rewrite Items: rename matching FnDecls + class methods;
@@ -147,6 +149,11 @@ struct Ctx<'a> {
     new_method_names: &'a HashMap<(String, String, usize), String>,
     picks: &'a HashMap<Span, (String, usize)>,
     method_picks: &'a HashMap<Span, (String, String, usize)>,
+    /// Per-call-site default-arg fills produced by the type checker.
+    /// Each entry is the list of (already type-checked) trailing
+    /// default expressions appended to the call's args during this
+    /// rewrite. Empty for calls without missing trailing args.
+    default_fills: &'a HashMap<Span, Vec<Expr>>,
 }
 
 fn param_types(f: &FnDecl) -> Vec<Type> {
@@ -262,9 +269,16 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             } else {
                 callee
             };
+            let mut new_args: Vec<Expr> =
+                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+            if let Some(fills) = ctx.default_fills.get(&span) {
+                for d in fills {
+                    new_args.push(rewrite_expr(d.clone(), ctx));
+                }
+            }
             ExprKind::Call {
                 callee: new_callee,
-                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+                args: new_args,
             }
         }
         // Mechanical recursion through every other expression shape.
@@ -320,10 +334,17 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             } else {
                 method
             };
+            let mut new_args: Vec<Expr> =
+                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+            if let Some(fills) = ctx.default_fills.get(&span) {
+                for d in fills {
+                    new_args.push(rewrite_expr(d.clone(), ctx));
+                }
+            }
             ExprKind::MethodCall {
                 obj: Box::new(rewrite_expr(*obj, ctx)),
                 method: new_method,
-                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+                args: new_args,
             }
         }
         ExprKind::New { class, type_args, args, init_method: existing } => {
@@ -342,10 +363,17 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             } else {
                 existing
             };
+            let mut new_args: Vec<Expr> =
+                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+            if let Some(fills) = ctx.default_fills.get(&span) {
+                for d in fills {
+                    new_args.push(rewrite_expr(d.clone(), ctx));
+                }
+            }
             ExprKind::New {
                 class,
                 type_args,
-                args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+                args: new_args,
                 init_method: new_init,
             }
         }

@@ -7,6 +7,12 @@ pub struct Param {
     pub name: String,
     pub ty: Type,
     pub span: Span,
+    /// `Some(expr)` when the parameter has a default (e.g.
+    /// `mode: string = "r"`). Defaults are valid only on trailing
+    /// parameters — once a parameter has one, every later parameter
+    /// must too. The type checker fills these in at call sites whose
+    /// arity is short of the declared count.
+    pub default: Option<crate::expr::Expr>,
 }
 
 /// Attribute on a function declaration, e.g. `#[requires(net, file::read)]`.

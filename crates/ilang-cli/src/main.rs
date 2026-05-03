@@ -92,7 +92,7 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
         // Mangle overloaded fn names (no-op when no name is overloaded).
-        let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks());
+        let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
         return match ilang_codegen::jit_run_with(
             &prog,
             &tc.fn_call_type_args(),
@@ -120,7 +120,7 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
         eprintln!("{display_path} {e}");
         return ExitCode::FAILURE;
     }
-    let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks());
+    let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
     let mut interp = Interpreter::new();
     match interp.run(&prog) {
         Ok(Value::Unit) => ExitCode::SUCCESS,
