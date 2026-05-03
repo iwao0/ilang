@@ -61,6 +61,14 @@ pub(crate) struct NativeExternRegistry {
     /// `i32?` / `i64?`. errno itself is read separately via
     /// `os.errno()` once the caller has decided to investigate.
     pub errno_check: HashSet<String>,
+    /// Native fns that opt into the Windows x64 calling convention
+    /// via the `winFastcall` flag. Sets `sig.call_conv =
+    /// CallConv::WindowsFastcall` instead of the platform default
+    /// (SystemV / AppleAarch64). Only effective when actually
+    /// running on Windows; on macOS / Linux the dlopen of the
+    /// referenced DLL will fail before the calling convention
+    /// matters.
+    pub win_fastcall: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -76,6 +84,7 @@ pub(crate) fn register_native_externs(
     let mut by_value: HashSet<String> = HashSet::new();
     let mut slice_returns: HashSet<String> = HashSet::new();
     let mut errno_check: HashSet<String> = HashSet::new();
+    let mut win_fastcall: HashSet<String> = HashSet::new();
     let mut static_addrs: HashMap<String, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
@@ -126,6 +135,7 @@ pub(crate) fn register_native_externs(
         let mut flag_by_value = false;
         let mut flag_slice_return = false;
         let mut flag_errno_check = false;
+        let mut flag_win_fastcall = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -148,6 +158,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["errnoCheck"] => {
                     flag_errno_check = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["winFastcall"] => {
+                    flag_win_fastcall = true;
+                }
                 // `freeWith.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
@@ -158,7 +171,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `freeWith.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `winFastcall`, `freeWith.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -211,6 +224,9 @@ pub(crate) fn register_native_externs(
                 });
             }
             slice_returns.insert(f.name.clone());
+        }
+        if flag_win_fastcall {
+            win_fastcall.insert(f.name.clone());
         }
         if flag_errno_check {
             // Return must be `i32?` or `i64?`. The C side returns
@@ -440,6 +456,8 @@ pub(crate) fn register_native_externs(
                         });
                     }
                     slice_returns.insert(f.name.clone());
+                } else if parts.as_slice() == ["winFastcall"] {
+                    win_fastcall.insert(f.name.clone());
                 } else if parts.as_slice() == ["errnoCheck"] {
                     let inner = match &f.ret {
                         Some(Type::Optional(inner)) => Some(inner.as_ref()),
@@ -513,6 +531,7 @@ pub(crate) fn register_native_externs(
         by_value,
         slice_returns,
         errno_check,
+        win_fastcall,
         static_addrs,
     })
 }

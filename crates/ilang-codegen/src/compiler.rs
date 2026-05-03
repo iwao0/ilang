@@ -431,6 +431,12 @@ pub(crate) struct JitCompiler {
     /// None, success → Some(boxed result). `os.errno()` reads the
     /// reason if the caller cares.
     pub(crate) native_extern_errno_check: std::collections::HashSet<String>,
+    /// Native fns flagged with `winFastcall`. The signature's
+    /// `call_conv` is overridden to `WindowsFastcall`. Only
+    /// meaningful when actually running on Windows; on other hosts
+    /// the dlopen of the referenced DLL fails before the calling
+    /// convention takes effect.
+    pub(crate) native_extern_win_fastcall: std::collections::HashSet<String>,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
@@ -1002,6 +1008,7 @@ impl JitCompiler {
             native_extern_by_value: native_reg.by_value,
             native_extern_slice_returns: native_reg.slice_returns,
             native_extern_errno_check: native_reg.errno_check,
+            native_extern_win_fastcall: native_reg.win_fastcall,
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
                 .items
@@ -1411,6 +1418,13 @@ impl JitCompiler {
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
+        // `@extern(..., winFastcall)`: override the calling
+        // convention so the signature matches Windows x64 ABI. Only
+        // takes effect when running on Windows; on macOS / Linux
+        // the DLL load fails before the call_conv is consulted.
+        if self.native_extern_win_fastcall.contains(&f.name) {
+            sig.call_conv = cranelift_codegen::isa::CallConv::WindowsFastcall;
+        }
         if let Some(t) = this_ty {
             sig.params.push(AbiParam::new(t.cl().expect("object pointer")));
         }
