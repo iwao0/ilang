@@ -790,7 +790,8 @@ utils.double(c.get())            // → 22
 sqrt(16.0)                                     // 4.0 (libm の C 関数を直接実行)
 ```
 
-- 対応する型は **`i64` / `f64` / `bool` / `string` (+ 戻り値の `()`)**。オブジェクト / 配列 / Optional 等のマーシャリングは未対応
+- 対応する型は **整数全幅 (`i8`〜`i64` / `u8`〜`u64`) / `f32` / `f64` / `bool` / `string` / opaque extern class** (+ 戻り値の `()`、+ opaque class の `T?`)。配列 / 通常 Object / Map / Optional<primitive> 等のマーシャリングは未対応
+- 整数の **符号拡張は Cranelift の C 呼出規約が自動処理** — `int abs(int)` を `fn abs(x: i32): i32` で宣言した場合、負の値も正しく行き来する
 - `string` 引数は呼び出し時に **NUL 終端 UTF-8 のコピーを `malloc`** して C 側に渡し、関数復帰後に解放
 - `string` 戻り値はデフォルトで C 側のポインタを **静的 / 永続と仮定** して新しい `StringRc` にコピー (`getenv` などはこれで OK)
 - C 側が **ヒープに確保した文字列を返す** 場合は `@extern("lib", owned_return)` を付けると、JIT がコピー後に `libc::free(ptr)` を呼んでメモリを解放する (`strdup` 等)。`owned_return` は `string` 戻り値の fn にしか付けられない (型チェック)

@@ -139,7 +139,8 @@ fn validate_native_signature(
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: parameter type {} not supported \
-                     (only i64 / f64 / bool / string / @extern class are allowed)",
+                     (allowed: any int width i8..i64 / u8..u64 / f32 / f64 / \
+                     bool / string / @extern class)",
                     f.name, p.ty
                 ),
                 span: p.span,
@@ -151,7 +152,8 @@ fn validate_native_signature(
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: return type {} not supported \
-                     (only i64 / f64 / bool / string / () / @extern class / T? are allowed)",
+                     (allowed: any int width i8..i64 / u8..u64 / f32 / f64 / \
+                     bool / string / () / @extern class / T?)",
                     f.name, ret
                 ),
                 span: f.span,
@@ -163,7 +165,15 @@ fn validate_native_signature(
 
 fn is_native_abi_type(t: &Type, opaque_classes: &HashSet<String>) -> bool {
     match t {
-        Type::I64 | Type::F64 | Type::Bool | Type::Str => true,
+        // Numeric primitives — every width that maps to a concrete
+        // Cranelift type. Sub-int-width args/returns rely on the
+        // calling convention to extend; AbiParam picks the right
+        // sext/uext flag from the source type's signedness (see
+        // `extern_signature_param` in compiler.rs).
+        Type::I8 | Type::I16 | Type::I32 | Type::I64
+        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+        | Type::F32 | Type::F64
+        | Type::Bool | Type::Str => true,
         // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
         // at runtime as a raw i64 C pointer.
         Type::Object(name) => opaque_classes.contains(name),

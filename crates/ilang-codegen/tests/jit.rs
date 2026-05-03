@@ -1646,10 +1646,10 @@ fn extern_opaque_handle_deinit_auto_close() {
 }}
 @extern("{lib}") fn tmpfile(): FILE?
 @extern("{lib}") fn fclose(stream: FILE)
-@extern("{lib}") fn feof(stream: FILE): i64
+@extern("{lib}") fn feof(stream: FILE): i32
 
 if let some(f) = tmpfile() {{
-    feof(f)
+    feof(f) as i64
 }} else {{
     -1
 }}"#
@@ -1703,6 +1703,69 @@ fn extern_opaque_class_rejects_body() {
     let err = parse(&toks).unwrap_err();
     let msg = format!("{err}");
     assert!(msg.contains("empty body"), "unexpected error: {msg}");
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_int_widths_abs() {
+    // libc::abs takes and returns C `int` (i32). Negative inputs
+    // exercise sign extension across the call boundary — a missing
+    // sext on the i32 arg/return would surface as garbage upper
+    // bits when the value is widened to i64.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\") fn abs(x: i32): i32\nabs(-7) as i64"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+        &tc.class_method_slots(),
+        &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::I64(7));
+}
+
+#[test]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn extern_native_atoi_returns_int() {
+    // `int atoi(const char *)` — string in, i32 out. Confirms the
+    // string→C-string conversion still works alongside the new
+    // narrower return type.
+    use ilang_codegen::{jit_run_with, JitValue};
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+    use ilang_types::TypeChecker;
+    let lib = if cfg!(target_os = "macos") { "libc.dylib" } else { "libc.so.6" };
+    let src = format!(
+        "@extern(\"{lib}\") fn atoi(s: string): i32\natoi(\"42\")"
+    );
+    let toks = tokenize(&src).expect("lex");
+    let prog = parse(&toks).expect("parse");
+    let mut tc = TypeChecker::new();
+    tc.check(&prog).expect("typecheck");
+    let v = jit_run_with(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+        &tc.loop_break_types(),
+        &tc.class_method_slots(),
+        &tc.class_vtable_lens(),
+        &tc.fn_expr_captures(),
+    )
+    .expect("jit");
+    assert_eq!(v, JitValue::I32(42));
 }
 
 #[test]
