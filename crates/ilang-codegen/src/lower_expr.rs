@@ -1157,6 +1157,58 @@ pub(crate) fn lower_expr(
                 let is_variadic = lc.native_extern_variadic.contains(callee);
                 let n_fixed = param_tys.len();
                 let mut arg_vals = Vec::with_capacity(args.len());
+                // sret return: the C ABI wants a pointer to caller-
+                // allocated storage as the hidden first arg. Alloc
+                // the destination ilang instance up front (its user
+                // area becomes the C struct's home), and remember the
+                // pointer so we can return it after the call. The
+                // signature's first AbiParam is StructReturn; the
+                // calling-conv assigns it to X8 / RDI.
+                let sret_ptr: Option<cranelift::prelude::Value> =
+                    if lc.native_extern_by_value.contains(callee) {
+                        if let JitTy::Object(class_id) = ret_ty {
+                            let layout = &lc.class_layouts[class_id as usize];
+                            if matches!(
+                                crate::compiler::repr_c_by_value_kind(layout),
+                                crate::compiler::ByValueKind::Indirect
+                            ) {
+                                let size = layout.size as i64;
+                                let drop_fn_ptr =
+                                    match lc.class_drops[class_id as usize] {
+                                        Some(fid) => {
+                                            let fr = lc
+                                                .module
+                                                .declare_func_in_func(fid, b.func);
+                                            b.ins().func_addr(I64, fr)
+                                        }
+                                        None => b.ins().iconst(I64, 0),
+                                    };
+                                let vtable_addr = lc
+                                    .class_vtable_addrs
+                                    .get(class_id as usize)
+                                    .copied()
+                                    .unwrap_or(0);
+                                let vtable_ptr = b.ins().iconst(I64, vtable_addr);
+                                let alloc_ref = lc
+                                    .module
+                                    .declare_func_in_func(lc.alloc_object_id, b.func);
+                                let size_v = b.ins().iconst(I64, size);
+                                let alloc_call = b.ins().call(
+                                    alloc_ref,
+                                    &[size_v, drop_fn_ptr, vtable_ptr],
+                                );
+                                let ptr = b.inst_results(alloc_call)[0];
+                                arg_vals.push(ptr);
+                                Some(ptr)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                 // For native externs, every `string` arg is converted
                 // to a freshly-malloc'd C string via the runtime
                 // helper; the resulting pointer is freed after the
@@ -1413,9 +1465,15 @@ pub(crate) fn lower_expr(
                 // user area; the caller then sees a normal heap
                 // Object with rc=1.
                 let is_by_value_struct_ret = lc.native_extern_by_value.contains(callee)
-                    && matches!(ret_ty, JitTy::Object(_));
+                    && matches!(ret_ty, JitTy::Object(_))
+                    && sret_ptr.is_none();
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
+                } else if let Some(ptr) = sret_ptr {
+                    // sret: the C side wrote into the buffer we
+                    // allocated and passed in. The ilang result is
+                    // that buffer's user pointer.
+                    Some(ptr)
                 } else if is_by_value_struct_ret {
                     let class_id = match ret_ty {
                         JitTy::Object(id) => id,

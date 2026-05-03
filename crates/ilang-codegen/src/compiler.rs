@@ -1362,6 +1362,27 @@ impl JitCompiler {
         // into 1–2 i64 chunks per the integer-only ≤ 16 B composite
         // rule (AArch64 AAPCS64 / x86_64 SysV).
         let is_by_value = self.native_extern_by_value.contains(&f.name);
+        // sret: when the by_value return is too big for register
+        // packing, the C ABI passes a pointer to caller-allocated
+        // storage in a hidden first parameter. Insert that param
+        // *before* the user-visible ones so the calling-conv slot
+        // assignment lines up (X8 on AArch64, RDI on SysV).
+        let is_sret_return = is_by_value
+            && matches!(ret, JitTy::Object(_))
+            && {
+                let class_id = match ret {
+                    JitTy::Object(id) => id,
+                    _ => unreachable!(),
+                };
+                let layout = &self.class_layouts[class_id as usize];
+                matches!(repr_c_by_value_kind(layout), ByValueKind::Indirect)
+            };
+        if is_sret_return {
+            sig.params.push(AbiParam::special(
+                I64,
+                cranelift_codegen::ir::ArgumentPurpose::StructReturn,
+            ));
+        }
         for p in &params {
             if is_by_value {
                 if let JitTy::Object(class_id) = *p {
@@ -1442,15 +1463,12 @@ impl JitCompiler {
                         }
                     }
                     ByValueKind::Indirect => {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: by_value struct return {} B \
-                                 needs the sret ABI which is not implemented \
-                                 yet — declare the C fn with an out-pointer",
-                                f.name, layout.size
-                            ),
-                            span: f.span,
-                        });
+                        // sret: the hidden pointer is already in
+                        // params; the call has no register return.
+                        // (Some ABIs additionally return the same
+                        // pointer in a register; Cranelift handles
+                        // that internally for the targets we care
+                        // about.)
                     }
                 }
             } else if let Some(t) = ret.cl() {

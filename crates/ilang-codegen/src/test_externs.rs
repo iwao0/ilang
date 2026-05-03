@@ -167,6 +167,13 @@ extern "C" fn test_pair64_sum(p: Pair64) -> f64 {
     p.a + p.b
 }
 
+// sret return: the caller passes a hidden pointer in the indirect-
+// result register (X8 on AArch64, RDI on x86_64 SysV); the callee
+// writes the struct there.
+extern "C" fn test_make_big32(a: i64, b: i64, c: i64, d: i64) -> Big32 {
+    Big32 { a, b, c, d }
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -203,4 +210,5 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("vec3f_dot", test_vec3f_dot as *const u8);
     builder.symbol("vec3f_make", test_vec3f_make as *const u8);
     builder.symbol("pair64_sum", test_pair64_sum as *const u8);
+    builder.symbol("make_big32", test_make_big32 as *const u8);
 }
