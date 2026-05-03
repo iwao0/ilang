@@ -168,6 +168,15 @@ pub enum ExprKind {
     /// grouping). Heterogeneous; indexed via `t[N]` with a constant
     /// integer literal.
     Tuple(Vec<Expr>),
+    /// `Foo { f1: v1, f2: v2 }` — aggregate literal for an
+    /// `@repr(C) class`. The post-typecheck mangling pass desugars
+    /// this into `new Foo()` plus a sequence of field assignments,
+    /// so downstream stages (interpreter / JIT) never see this
+    /// node directly.
+    StructLit {
+        class: String,
+        fields: Vec<(String, Expr)>,
+    },
     /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
     /// expressions (string / int / bool literals at parse time;
     /// validated against the inferred K by the type checker).

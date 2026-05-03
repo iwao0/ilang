@@ -966,6 +966,8 @@ impl JitCompiler {
             size: 0,
             parent: c.parent.clone(),
             extern_lib: c.extern_lib.clone(),
+            is_repr_c: c.is_repr_c,
+            align: 1,
         });
         self.class_methods.push(HashMap::new());
         Ok(())
@@ -1000,8 +1002,35 @@ impl JitCompiler {
                 &mut self.array_kinds,
                 &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds,
             )?;
-            let size = jty.size_bytes();
-            let align = size.max(1);
+            // Embedded nested struct: a `@repr(C)` field of another
+            // `@repr(C)` class lays its bytes inline (same as C
+            // `struct A { struct B b; }`). Layout uses the inner's
+            // size and alignment; the field's JitTy still resolves
+            // to `Object(inner_id)` so name lookups behave the same,
+            // but the JIT lowering detects the embedded case and
+            // returns a *pointer into the embedded slot* rather
+            // than loading 8 bytes.
+            let (size, align) = if let JitTy::Object(inner_id) = jty {
+                let inner = &self.class_layouts[inner_id as usize];
+                if c.is_repr_c && inner.is_repr_c {
+                    if inner.size == 0 {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@repr(C) class {:?} embeds {:?} which has not \
+                                 been laid out yet — declare nested structs in \
+                                 dependency order (innermost first)",
+                                c.name, inner.name
+                            ),
+                            span: field.span,
+                        });
+                    }
+                    (inner.size, inner.align)
+                } else {
+                    (jty.size_bytes(), jty.size_bytes().max(1))
+                }
+            } else {
+                (jty.size_bytes(), jty.size_bytes().max(1))
+            };
             offset = align_up(offset, align);
             fields.insert(field.name.clone(), (offset, jty));
             offset += size;
@@ -1009,6 +1038,7 @@ impl JitCompiler {
         }
         let size = align_up(offset.max(1), max_align);
         self.class_layouts[id].fields = fields;
+        self.class_layouts[id].align = max_align;
         // Opaque-handle classes with a `deinit` get one hidden i64
         // slot at offset 0 — the wrapped C pointer. Without `deinit`
         // the value flows as a raw C pointer (no ilang allocation).

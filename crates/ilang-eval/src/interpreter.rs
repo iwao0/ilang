@@ -116,6 +116,10 @@ impl Interpreter {
                 "ExprKind::Closure is generated only by the JIT hoist pass; \
                  the interpreter should never see it"
             ),
+            ExprKind::StructLit { .. } => unreachable!(
+                "ExprKind::StructLit is desugared by the parser's normalize \
+                 pass before the interpreter runs"
+            ),
             ExprKind::Int(n) => Ok(Value::Int(*n)),
             ExprKind::Float(f) => Ok(Value::Float(*f)),
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),
@@ -1460,12 +1464,35 @@ impl Interpreter {
         }
         // Walk parent → child so child's field decls (if they
         // shadowed — currently rejected by checker) win in the map.
+        // Pre-collect (name, ty, recurse_class) tuples to avoid
+        // borrowing `self.classes` while we recurse below.
+        let mut field_specs: Vec<(String, ilang_ast::Type, Option<String>)> = Vec::new();
         for cn in chain.iter().rev() {
             if let Some(c) = self.classes.get(cn) {
                 for f in &c.fields {
-                    fields.insert(f.name.clone(), default_value(&f.ty));
+                    let recurse = match &f.ty {
+                        ilang_ast::Type::Object(name) => self
+                            .classes
+                            .get(name)
+                            .filter(|inner| inner.is_repr_c)
+                            .map(|_| name.clone()),
+                        _ => None,
+                    };
+                    field_specs.push((f.name.clone(), f.ty.clone(), recurse));
                 }
             }
+        }
+        for (name, ty, recurse) in field_specs {
+            // Embedded `@repr(C)` field: recursively allocate so
+            // chained `outer.inner.x` writes have a real Object to
+            // mutate. Skipping this leaves the field as `Unit`,
+            // tripping the next field access.
+            let v = if let Some(inner_class) = recurse {
+                self.new_object(&inner_class, &[], None, span)?
+            } else {
+                default_value(&ty)
+            };
+            fields.insert(name, v);
         }
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: class.to_string(),
@@ -1798,6 +1825,11 @@ fn collect_free_vars_in_expr(
         ExprKind::Tuple(items) => {
             for i in items {
                 collect_free_vars_in_expr(i, bound, frees);
+            }
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, e) in fields {
+                collect_free_vars_in_expr(e, bound, frees);
             }
         }
         ExprKind::MapLit(entries) => {

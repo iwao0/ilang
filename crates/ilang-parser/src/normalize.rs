@@ -316,6 +316,51 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Tuple(items) => {
             ExprKind::Tuple(items.into_iter().map(|e| rewrite_expr(e, ctx)).collect())
         }
+        // Struct literal: `Foo { a: 1, b: 2 }` desugars to a block
+        // `{ let __sl = new Foo(); __sl.a = 1; __sl.b = 2; __sl }`.
+        // The temp name embeds the source position so nested struct
+        // literals don't collide.
+        ExprKind::StructLit { class, fields } => {
+            let tmp = format!("__struct_lit_{}_{}", span.line, span.col);
+            let mut stmts: Vec<ilang_ast::Stmt> = Vec::with_capacity(fields.len() + 1);
+            stmts.push(ilang_ast::Stmt {
+                kind: ilang_ast::StmtKind::Let {
+                    name: tmp.clone(),
+                    ty: None,
+                    value: Expr::new(
+                        ExprKind::New {
+                            class: class.clone(),
+                            type_args: Vec::new(),
+                            args: Vec::new(),
+                            init_method: None,
+                        },
+                        span,
+                    ),
+                },
+                span,
+            });
+            for (fname, fval) in fields {
+                let assign = Expr::new(
+                    ExprKind::AssignField {
+                        obj: Box::new(Expr::new(ExprKind::Var(tmp.clone()), span)),
+                        field: fname,
+                        value: Box::new(rewrite_expr(fval, ctx)),
+                    },
+                    span,
+                );
+                stmts.push(ilang_ast::Stmt {
+                    kind: ilang_ast::StmtKind::Expr(assign),
+                    span,
+                });
+            }
+            return Expr::new(
+                ExprKind::Block(ilang_ast::Block {
+                    stmts,
+                    tail: Some(Box::new(Expr::new(ExprKind::Var(tmp), span))),
+                }),
+                span,
+            );
+        }
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .into_iter()

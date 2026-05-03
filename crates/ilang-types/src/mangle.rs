@@ -436,6 +436,13 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class,
+            fields: fields
+                .into_iter()
+                .map(|(n, e)| (n, rewrite_expr(e, ctx)))
+                .collect(),
+        },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .into_iter()

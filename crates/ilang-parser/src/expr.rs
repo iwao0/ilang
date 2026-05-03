@@ -230,6 +230,57 @@ impl<'a> Parser<'a> {
                 TokenKind::Dot => {
                     expr = self.parse_dot_postfix(expr)?;
                 }
+                // Struct literal: `Foo { f1: v1, f2: v2 }`. Only
+                // accepted when the receiver is a bare class name
+                // (`Var(_)`) and the body has the `{ ident :` shape
+                // — disambiguating from blocks and map literals.
+                // Lowered as `new Foo()` plus a sequence of field
+                // assignments at the type-checker / codegen stage.
+                TokenKind::LBrace
+                    if matches!(&expr.kind, ExprKind::Var(_))
+                        && matches!(
+                            self.peek_n(1).map(|t| &t.kind),
+                            Some(TokenKind::Ident(_))
+                        )
+                        && matches!(
+                            self.peek_n(2).map(|t| &t.kind),
+                            Some(TokenKind::Colon)
+                        ) =>
+                {
+                    self.bump();
+                    let mut fs: Vec<(String, Expr)> = Vec::new();
+                    while !matches!(self.peek().kind, TokenKind::RBrace) {
+                        let fname = self.expect_ident("field name")?;
+                        self.expect(&TokenKind::Colon, "':'")?;
+                        let fval = self.parse_expr(0)?;
+                        fs.push((fname, fval));
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                            && !self.peek().leading_newline
+                        {
+                            let p = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: p.kind.clone(),
+                                expected: "',' or newline between fields".into(),
+                                span: p.span,
+                            });
+                        }
+                    }
+                    self.expect(&TokenKind::RBrace, "'}'")?;
+                    let class_name = match expr.kind {
+                        ExprKind::Var(n) => n,
+                        _ => unreachable!(),
+                    };
+                    let span = expr.span;
+                    expr = Expr::new(
+                        ExprKind::StructLit {
+                            class: class_name,
+                            fields: fs,
+                        },
+                        span,
+                    );
+                }
                 _ => break,
             }
         }

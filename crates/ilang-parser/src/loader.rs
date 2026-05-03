@@ -598,6 +598,16 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         | ExprKind::This
         | ExprKind::None
         | ExprKind::Continue) => other,
+        // Struct literals are desugared by `normalize` before the
+        // loader walks anything; reaching this arm means a module
+        // skipped that pass.
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class,
+            fields: fields
+                .into_iter()
+                .map(|(n, e)| (n, prefix_expr(e, prefix)))
+                .collect(),
+        },
     };
     Expr { kind, span }
 }
@@ -1113,6 +1123,13 @@ fn subst_const_expr(e: Expr, consts: &HashMap<String, Expr>) -> Expr {
         | ExprKind::This
         | ExprKind::None
         | ExprKind::Continue) => other,
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class,
+            fields: fields
+                .into_iter()
+                .map(|(n, e)| (n, subst_const_expr(e, consts)))
+                .collect(),
+        },
     };
     Expr { kind, span }
 }

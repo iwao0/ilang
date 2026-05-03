@@ -31,6 +31,9 @@ pub(crate) fn lower_expr(
     e: &Expr,
 ) -> Result<Option<TV>, CodegenError> {
     match &e.kind {
+        ExprKind::StructLit { .. } => unreachable!(
+            "ExprKind::StructLit is desugared by the parser's normalize pass"
+        ),
         ExprKind::Int(n) => Ok(Some((b.ins().iconst(I64, *n), JitTy::I64))),
         ExprKind::Float(f) => Ok(Some((b.ins().f64const(*f), JitTy::F64))),
         ExprKind::Bool(v) => Ok(Some((b.ins().iconst(I8, if *v { 1 } else { 0 }), JitTy::Bool))),
@@ -449,6 +452,52 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
+            // Embedded `@repr(C)` field: writing a struct value
+            // means COPYING the inner's bytes into the embedded
+            // slot, not storing the pointer (which is what a heap
+            // class field would do).
+            let is_embedded_struct = if let JitTy::Object(inner_id) = fty {
+                layout.is_repr_c
+                    && lc.class_layouts[inner_id as usize].is_repr_c
+            } else {
+                false
+            };
+            if is_embedded_struct {
+                let inner_id = match fty {
+                    JitTy::Object(id) => id,
+                    _ => unreachable!(),
+                };
+                let copy_size =
+                    lc.class_layouts[inner_id as usize].size as usize;
+                let (val, _vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "field value is unit".into(),
+                        span: e.span,
+                    }
+                })?;
+                // Bytewise copy: 8-byte chunks first, then taper
+                // down to 4 / 2 / 1 for the trailing remainder.
+                // Source and dest are both struct user-pointers
+                // aligned to at least the struct's max alignment,
+                // so MemFlags::trusted is fine.
+                let mut copied = 0usize;
+                let dst_base = if offset == 0 {
+                    obj_v
+                } else {
+                    b.ins().iadd_imm(obj_v, offset as i64)
+                };
+                let chunks: [(usize, cranelift::prelude::Type); 4] =
+                    [(8, I64), (4, I32), (2, I16), (1, I8)];
+                for &(width, cl_ty) in &chunks {
+                    while copy_size - copied >= width {
+                        let off = copied as i32;
+                        let v = b.ins().load(cl_ty, MemFlags::trusted(), val, off);
+                        b.ins().store(MemFlags::trusted(), v, dst_base, off);
+                        copied += width;
+                    }
+                }
+                return Ok(None);
+            }
             let is_heap = fty.is_heap();
             // Read the old field value first so we can release it after
             // the new one is in place.
@@ -561,6 +610,23 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
+            // Nested embedded `@repr(C)` field: the inner struct's
+            // bytes live inline in the outer's allocation. Return a
+            // pointer into the embedded slot (no load) so chain
+            // access `outer.inner.x` reads/writes the right slot.
+            // No retain — the pointer borrows from `obj_v`.
+            if let (true, JitTy::Object(inner_id)) =
+                (layout.is_repr_c, fty)
+            {
+                if lc.class_layouts[inner_id as usize].is_repr_c {
+                    let v = if offset == 0 {
+                        obj_v
+                    } else {
+                        b.ins().iadd_imm(obj_v, offset as i64)
+                    };
+                    return Ok(Some((v, fty)));
+                }
+            }
             let v = b.ins().load(
                 fty.cl().expect("non-unit field"),
                 MemFlags::trusted(),

@@ -411,6 +411,13 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             items.iter().map(|i| hoist_in_expr(i, ctx)).collect(),
         ),
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class: class.clone(),
+            fields: fields
+                .iter()
+                .map(|(n, e)| (n.clone(), hoist_in_expr(e, ctx)))
+                .collect(),
+        },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
@@ -750,6 +757,11 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
                 scan_expr(i, needed, work);
             }
         }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, e) in fields {
+                scan_expr(e, needed, work);
+            }
+        }
         ExprKind::MapLit(entries) => {
             for (k, v) in entries {
                 scan_expr(k, needed, work);
@@ -1083,6 +1095,13 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             items.iter().map(|e| subst_expr(e, params, args)).collect(),
         ),
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class: class.clone(),
+            fields: fields
+                .iter()
+                .map(|(n, e)| (n.clone(), subst_expr(e, params, args)))
+                .collect(),
+        },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
@@ -1406,6 +1425,10 @@ fn rewrite_expr(e: &Expr) -> Expr {
         ExprKind::Tuple(items) => {
             ExprKind::Tuple(items.iter().map(rewrite_expr).collect())
         }
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class: class.clone(),
+            fields: fields.iter().map(|(n, e)| (n.clone(), rewrite_expr(e))).collect(),
+        },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
                 .iter()
@@ -2110,6 +2133,11 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(i);
             }
         }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, e) in fields {
+                f(e);
+            }
+        }
         ExprKind::MapLit(entries) => {
             for (k, v) in entries {
                 f(k);
@@ -2273,6 +2301,10 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
         },
         ExprKind::Array(items) => ExprKind::Array(items.iter().map(|e| f(e)).collect()),
         ExprKind::Tuple(items) => ExprKind::Tuple(items.iter().map(|e| f(e)).collect()),
+        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+            class: class.clone(),
+            fields: fields.iter().map(|(n, e)| (n.clone(), f(e))).collect(),
+        },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries.iter().map(|(k, v)| (f(k), f(v))).collect(),
         ),

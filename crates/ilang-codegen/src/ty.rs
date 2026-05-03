@@ -365,6 +365,14 @@ pub(crate) struct ClassLayout {
     /// allocation). retain/release are skipped, fields are empty,
     /// `new` is rejected by the type checker.
     pub extern_lib: Option<String>,
+    /// `true` for `@repr(C) class Foo { ... }`. Field offsets use
+    /// natural C alignment, no methods/init, and nested repr_c
+    /// fields are embedded inline.
+    pub is_repr_c: bool,
+    /// Strictest alignment requirement of any field in the class
+    /// (max of field-type sizes for primitives, recursive for
+    /// nested repr_c). Total `size` is rounded up to this.
+    pub align: u32,
 }
 
 #[derive(Debug, Clone, Copy)]

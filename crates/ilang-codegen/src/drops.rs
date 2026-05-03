@@ -24,13 +24,31 @@ use crate::ty::{
 
 
 
+/// True when `(outer_class, fty)` is an embedded `@repr(C)`
+/// struct — the inner's bytes live inline in the outer's
+/// allocation, so it must NOT be ARC-released as a heap pointer.
+fn is_embedded_repr_c_field(
+    compiler: &JitCompiler,
+    outer_class_id: u32,
+    fty: JitTy,
+) -> bool {
+    if !compiler.class_layouts[outer_class_id as usize].is_repr_c {
+        return false;
+    }
+    match fty {
+        JitTy::Object(inner_id) => {
+            compiler.class_layouts[inner_id as usize].is_repr_c
+        }
+        _ => false,
+    }
+}
+
 /// True when a class needs a drop wrapper at all (heap field or deinit).
 fn class_needs_drop(compiler: &JitCompiler, class_id: u32) -> bool {
     let layout = &compiler.class_layouts[class_id as usize];
-    let has_heap_field = layout
-        .fields
-        .values()
-        .any(|(_, fty)| fty.is_heap());
+    let has_heap_field = layout.fields.values().any(|(_, fty)| {
+        fty.is_heap() && !is_embedded_repr_c_field(compiler, class_id, *fty)
+    });
     let has_deinit = compiler.class_methods[class_id as usize].contains_key("deinit");
     has_heap_field || has_deinit
 }
@@ -80,7 +98,9 @@ fn define_one_class_drop(
     let heap_fields: Vec<(u32, JitTy)> = compiler.class_layouts[class_id as usize]
         .fields
         .values()
-        .filter(|(_, fty)| fty.is_heap())
+        .filter(|(_, fty)| {
+            fty.is_heap() && !is_embedded_repr_c_field(compiler, class_id, *fty)
+        })
         .copied()
         .collect();
 

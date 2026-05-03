@@ -192,6 +192,10 @@ struct ClassSig {
     /// is an opaque handle whose values come from native extern fns.
     /// `new`, fields, methods are all rejected on these.
     extern_lib: Option<String>,
+    /// `true` for `@repr(C) class Foo { ... }`. Field-type validation
+    /// (primitives + repr_c only) and embedded-struct layout depend
+    /// on this flag.
+    is_repr_c: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -511,6 +515,7 @@ impl TypeChecker {
                 method_slots: HashMap::new(),
                 vtable_len: 0,
                 extern_lib: None,
+                is_repr_c: false,
             },
         );
         self.vars
@@ -581,6 +586,7 @@ impl TypeChecker {
                 method_slots: HashMap::new(),
                 vtable_len: 0,
                 extern_lib: None,
+                is_repr_c: false,
             },
         );
 
@@ -766,6 +772,37 @@ impl TypeChecker {
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
         for FieldDecl { ty, span, .. } in &c.fields {
             self.validate_type(ty, *span, &c.type_params)?;
+        }
+        // `@repr(C)` classes must have C-compatible field types so
+        // the in-memory bytes line up with what native code expects.
+        // Allowed: numeric primitives, bool, and other `@repr(C)`
+        // classes (which embed inline). Reject ARC types, regular
+        // classes (heap-managed), arrays, optional, etc.
+        if c.is_repr_c {
+            for f in &c.fields {
+                let ok = match &f.ty {
+                    Type::I8 | Type::I16 | Type::I32 | Type::I64
+                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                    | Type::F32 | Type::F64
+                    | Type::Bool => true,
+                    Type::Object(name) => self
+                        .classes
+                        .get(name)
+                        .map(|cs| cs.is_repr_c)
+                        .unwrap_or(false),
+                    _ => false,
+                };
+                if !ok {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "@repr(C) class {:?} field {:?}: type {} not supported \
+                             (allowed: numeric primitives / bool / other @repr(C) class)",
+                            c.name, f.name, f.ty
+                        ),
+                        span: f.span,
+                    });
+                }
+            }
         }
         for m in &c.methods {
             // `deinit` is the destructor: zero params, no return value (or
@@ -1006,6 +1043,14 @@ impl TypeChecker {
     ) -> Result<Type, TypeError> {
         let span = expr.span;
         match &expr.kind {
+            // The parser produces `StructLit`, but normalize desugars
+            // it into `{ let __sl = new Foo(); __sl.f = v; ...; __sl }`
+            // before type checking runs — reaching here means a
+            // pipeline shortcut bypassed normalize.
+            ExprKind::StructLit { .. } => Err(TypeError::Unsupported {
+                what: "internal: struct literal reached type checker (normalize was skipped)".into(),
+                span,
+            }),
             ExprKind::Int(_) => Ok(Type::I64),
             ExprKind::Float(_) => Ok(Type::F64),
             ExprKind::Bool(_) => Ok(Type::Bool),
@@ -3555,6 +3600,7 @@ fn class_signature(
         method_slots,
         vtable_len,
         extern_lib: c.extern_lib.clone(),
+        is_repr_c: c.is_repr_c,
     })
 }
 
@@ -3843,6 +3889,9 @@ fn cfev_expr(
         }
         ExprKind::Array(items) => for i in items { cfev_expr(i, bound, frees, seen); },
         ExprKind::Tuple(items) => for i in items { cfev_expr(i, bound, frees, seen); },
+        ExprKind::StructLit { fields, .. } => {
+            for (_, e) in fields { cfev_expr(e, bound, frees, seen); }
+        }
         ExprKind::MapLit(entries) => for (k, v) in entries {
             cfev_expr(k, bound, frees, seen);
             cfev_expr(v, bound, frees, seen);
