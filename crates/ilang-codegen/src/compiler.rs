@@ -1137,6 +1137,7 @@ impl JitCompiler {
             is_repr_c: c.is_repr_c,
             align: 1,
             bitfields: HashMap::new(),
+            flex_array: None,
         });
         self.class_methods.push(HashMap::new());
         Ok(())
@@ -1240,13 +1241,20 @@ impl JitCompiler {
             } else if let JitTy::Array(arr_id) = jty {
                 let kind = self.array_kinds[arr_id as usize];
                 if c.is_repr_c {
-                    let n = kind.fixed.expect(
-                        "type checker already restricted repr_c arrays to fixed-length",
-                    );
-                    let elem_size = kind.elem.size_bytes();
-                    let total = n * elem_size;
-                    let align = elem_size.max(1);
-                    (total, align, JitTy::EmbeddedArray(arr_id))
+                    if let Some(n) = kind.fixed {
+                        let elem_size = kind.elem.size_bytes();
+                        let total = n * elem_size;
+                        let align = elem_size.max(1);
+                        (total, align, JitTy::EmbeddedArray(arr_id))
+                    } else {
+                        // Flexible array member — last field, no
+                        // fixed length. Size is 0 in the layout;
+                        // `new` widens the allocation by `n *
+                        // elem_size` at runtime.
+                        let elem_size = kind.elem.size_bytes();
+                        let align = elem_size.max(1);
+                        (0u32, align, JitTy::FlexArray(arr_id))
+                    }
                 } else {
                     (jty.size_bytes(), jty.size_bytes().max(1), jty)
                 }
@@ -1276,6 +1284,16 @@ impl JitCompiler {
         self.class_layouts[id].fields = fields;
         self.class_layouts[id].align = max_align;
         self.class_layouts[id].bitfields = bitfields;
+        // Record FAM: scan the fields map for any FlexArray entry.
+        // (At most one — type checker enforces it as the last field.)
+        let flex_array = self.class_layouts[id]
+            .fields
+            .values()
+            .find_map(|(_, ty)| match ty {
+                JitTy::FlexArray(arr_id) => Some(*arr_id),
+                _ => None,
+            });
+        self.class_layouts[id].flex_array = flex_array;
         // Opaque-handle classes with a `deinit` get one hidden i64
         // slot at offset 0 — the wrapped C pointer. Without `deinit`
         // the value flows as a raw C pointer (no ilang allocation).
@@ -2189,7 +2207,7 @@ impl JitCompiler {
                     let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
                     JitValue::Tuple { ptr: p }
                 }
-                JitTy::EmbeddedArray(_) => unreachable!(
+                JitTy::EmbeddedArray(_) | JitTy::FlexArray(_) => unreachable!(
                     "embedded arrays only flow through chained access; the program's \
                      tail value would need to be a heap-managed type, not an inline slot"
                 ),

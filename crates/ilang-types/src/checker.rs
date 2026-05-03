@@ -196,6 +196,10 @@ struct ClassSig {
     /// (primitives + repr_c only) and embedded-struct layout depend
     /// on this flag.
     is_repr_c: bool,
+    /// `true` when the class ends in a C99 flexible array member
+    /// (`T[]` last field). `new ClassName(n)` accepts a single i64
+    /// arg (the trailing element count) for these.
+    has_fam: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -516,6 +520,7 @@ impl TypeChecker {
                 vtable_len: 0,
                 extern_lib: None,
                 is_repr_c: false,
+                has_fam: false,
             },
         );
         self.vars
@@ -587,6 +592,7 @@ impl TypeChecker {
                 vtable_len: 0,
                 extern_lib: None,
                 is_repr_c: false,
+                has_fam: false,
             },
         );
 
@@ -820,7 +826,8 @@ impl TypeChecker {
             }
         }
         if c.is_repr_c {
-            for f in &c.fields {
+            for (i, f) in c.fields.iter().enumerate() {
+                let is_last = i + 1 == c.fields.len();
                 let primitive_ok = |t: &Type| {
                     matches!(
                         t,
@@ -841,6 +848,11 @@ impl TypeChecker {
                     // `i32[4]` etc — are laid out inline (no
                     // heap allocation, no ARC).
                     Type::Array { elem, fixed: Some(_) } if primitive_ok(elem) => true,
+                    // C99 flexible array member: `T[]` (no length) as
+                    // the **last** field. Allocation size is set by
+                    // `new ClassName(n)`. Bounds checks are skipped
+                    // (the user maintains the count, just like in C).
+                    Type::Array { elem, fixed: None } if is_last && primitive_ok(elem) => true,
                     // Owned C-string slot (`char *`) — class manages
                     // the malloc'd buffer on assign / drop.
                     Type::Str => true,
@@ -1861,12 +1873,32 @@ impl TypeChecker {
                         class, "init", &substituted, args, env, ret_ty, in_class, loop_depth, span,
                     )?;
                 } else if !args.is_empty() {
-                    return Err(TypeError::ArityMismatch {
-                        name: format!("{class}::init"),
-                        expected: 0,
-                        got: args.len(),
-                        span,
-                    });
+                    // C99 flexible array member: `@repr(C)` class
+                    // ending in `T[]` accepts exactly one i64 arg
+                    // (the trailing element count) at construction.
+                    if cls.has_fam && args.len() == 1 {
+                        let t = self.check_expr(
+                            &args[0], env, ret_ty, in_class, loop_depth,
+                        )?;
+                        if !matches!(
+                            t,
+                            Type::I8 | Type::I16 | Type::I32 | Type::I64
+                            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                        ) {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::I64,
+                                got: t,
+                                span: args[0].span,
+                            });
+                        }
+                    } else {
+                        return Err(TypeError::ArityMismatch {
+                            name: format!("{class}::init"),
+                            expected: 0,
+                            got: args.len(),
+                            span,
+                        });
+                    }
                 }
                 Ok(if class_params.is_empty() {
                     Type::Object(class.clone())
@@ -3685,6 +3717,10 @@ fn class_signature(
         vtable_len,
         extern_lib: c.extern_lib.clone(),
         is_repr_c: c.is_repr_c,
+        has_fam: c.is_repr_c
+            && c.fields.last().map_or(false, |f| matches!(
+                &f.ty, Type::Array { fixed: None, .. }
+            )),
     })
 }
 

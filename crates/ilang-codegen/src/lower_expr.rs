@@ -700,7 +700,7 @@ pub(crate) fn lower_expr(
             // address of the array slot. Index lowering recognises
             // `JitTy::EmbeddedArray` and computes per-element
             // offsets directly (no heap header indirection).
-            if matches!(fty, JitTy::EmbeddedArray(_)) {
+            if matches!(fty, JitTy::EmbeddedArray(_) | JitTy::FlexArray(_)) {
                 let v = if offset == 0 {
                     obj_v
                 } else {
@@ -1862,6 +1862,31 @@ pub(crate) fn lower_expr(
                 );
                 return Ok(Some((v, elem_jty)));
             }
+            // Flexible array member: same offset math as
+            // `EmbeddedArray`, but no static length so no bounds
+            // check (matches C's FAM semantics; the user maintains
+            // the count themselves).
+            if let JitTy::FlexArray(arr_id) = obj_t {
+                let kind = lc.array_kinds[arr_id as usize];
+                let elem_jty = kind.elem;
+                let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "index is unit".into(),
+                        span: index.span,
+                    }
+                })?;
+                let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+                let elem_size = elem_jty.size_bytes() as i64;
+                let off = b.ins().imul_imm(idx_i64, elem_size);
+                let addr = b.ins().iadd(obj_v, off);
+                let v = b.ins().load(
+                    elem_jty.cl().expect("non-unit elem"),
+                    MemFlags::trusted(),
+                    addr,
+                    0,
+                );
+                return Ok(Some((v, elem_jty)));
+            }
             // Tuple indexing: index is a constant integer literal
             // (the type checker enforces this so the element type
             // resolves statically). Load directly from the offset.
@@ -1963,6 +1988,31 @@ pub(crate) fn lower_expr(
                 b.ins().store(MemFlags::trusted(), coerced, addr, 0);
                 return Ok(None);
             }
+            // Flexible array member write — same offset math, no
+            // bounds check (FAM length isn't known statically).
+            if let JitTy::FlexArray(arr_id) = obj_t {
+                let kind = lc.array_kinds[arr_id as usize];
+                let elem_jty = kind.elem;
+                let (idx_v, idx_t) = lower_expr(b, lc, index)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "index is unit".into(),
+                        span: index.span,
+                    }
+                })?;
+                let idx_i64 = coerce(b, (idx_v, idx_t), JitTy::I64, index.span)?;
+                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "assigned value is unit".into(),
+                        span: value.span,
+                    }
+                })?;
+                let coerced = coerce(b, (val, vt), elem_jty, value.span)?;
+                let elem_size = elem_jty.size_bytes() as i64;
+                let off = b.ins().imul_imm(idx_i64, elem_size);
+                let addr = b.ins().iadd(obj_v, off);
+                b.ins().store(MemFlags::trusted(), coerced, addr, 0);
+                return Ok(None);
+            }
             let array_id = match obj_t {
                 JitTy::Array(id) => id,
                 _ => {
@@ -2044,6 +2094,7 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 })?;
             let size = lc.class_layouts[class_id as usize].size as i64;
+            let flex_arr_id = lc.class_layouts[class_id as usize].flex_array;
             // Embed the class's drop wrapper (if non-trivial) in the
             // allocation header. The runtime release_object dispatches
             // to it on rc=0 to run user `deinit` and recursively
@@ -2057,7 +2108,33 @@ pub(crate) fn lower_expr(
             };
             let alloc_ref =
                 lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
-            let size_v = b.ins().iconst(I64, size);
+            // FAM: `new ClassName(n)` widens the allocation by
+            // `n * elem_size` bytes for the trailing flexible array.
+            // The single argument is the trailing element count.
+            let size_v = if let Some(arr_id) = flex_arr_id {
+                if args.len() != 1 {
+                    return Err(CodegenError::Unsupported {
+                        what: format!(
+                            "FAM class {class}: `new {class}(n)` requires exactly \
+                             one i64 argument (the trailing element count)"
+                        ),
+                        span: e.span,
+                    });
+                }
+                let (n_v, n_t) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "FAM count argument is unit".into(),
+                        span: args[0].span,
+                    }
+                })?;
+                let n_i64 = coerce(b, (n_v, n_t), JitTy::I64, args[0].span)?;
+                let elem_size = lc.array_kinds[arr_id as usize].elem.size_bytes() as i64;
+                let trailing = b.ins().imul_imm(n_i64, elem_size);
+                let base = b.ins().iconst(I64, size);
+                b.ins().iadd(base, trailing)
+            } else {
+                b.ins().iconst(I64, size)
+            };
             // Per-class vtable pointer (or 0 if none was built).
             let vtable_addr = lc
                 .class_vtable_addrs
@@ -2087,17 +2164,21 @@ pub(crate) fn lower_expr(
                     }
                 }
             }
-            // If init exists, call it. The mangler may have set
-            // `init_method` to a specific overload (e.g. "init__i64");
-            // fall back to plain "init" otherwise.
-            let init_lookup: &str = init_method.as_deref().unwrap_or("init");
-            if lc.class_methods[class_id as usize].contains_key(init_lookup) {
-                let _ = call_method(b, lc, class_id, init_lookup, ptr, args, e.span)?;
-            } else if !args.is_empty() {
-                return Err(CodegenError::Unsupported {
-                    what: format!("no `init` for class {class}, but args were given"),
-                    span: e.span,
-                });
+            // FAM consumed its single arg above; otherwise dispatch
+            // to init / reject stray args.
+            if flex_arr_id.is_none() {
+                // If init exists, call it. The mangler may have set
+                // `init_method` to a specific overload (e.g.
+                // "init__i64"); fall back to plain "init" otherwise.
+                let init_lookup: &str = init_method.as_deref().unwrap_or("init");
+                if lc.class_methods[class_id as usize].contains_key(init_lookup) {
+                    let _ = call_method(b, lc, class_id, init_lookup, ptr, args, e.span)?;
+                } else if !args.is_empty() {
+                    return Err(CodegenError::Unsupported {
+                        what: format!("no `init` for class {class}, but args were given"),
+                        span: e.span,
+                    });
+                }
             }
             Ok(Some((ptr, JitTy::Object(class_id))))
         }
@@ -2973,13 +3054,13 @@ fn emit_print_value(
                 span,
             });
         }
-        JitTy::EmbeddedArray(_) => {
-            // Embedded arrays only flow through `Index` access; a
-            // bare `outer.arr` value reaching this print path
-            // means the user used the field as a value, which we
-            // don't support yet.
+        JitTy::EmbeddedArray(_) | JitTy::FlexArray(_) => {
+            // Embedded / flex arrays only flow through `Index`
+            // access; a bare `outer.arr` value reaching this print
+            // path means the user used the field as a value, which
+            // we don't support yet.
             return Err(CodegenError::Unsupported {
-                what: "printing an embedded `T[N]` field directly is not supported \
+                what: "printing an embedded `T[N]` / FAM field directly is not supported \
                        — index it (e.g. `arr[0]`) instead"
                     .into(),
                 span,

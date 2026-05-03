@@ -1541,12 +1541,50 @@ impl Interpreter {
                 span,
             )?;
         } else if !evaluated.is_empty() {
-            return Err(RuntimeError::ArityMismatch {
-                name: format!("{class}::init"),
-                expected: 0,
-                got: evaluated.len(),
-                span,
-            });
+            // C99 flexible array member: `@repr(C)` class ending in
+            // `T[]` accepts a single i64 arg (the trailing element
+            // count). Initialise that field with `n` zero-valued
+            // elements so subsequent index access works.
+            let has_fam = decl.is_repr_c
+                && decl.fields.last().map_or(false, |f| matches!(
+                    &f.ty,
+                    ilang_ast::Type::Array { fixed: None, .. }
+                ));
+            if has_fam && evaluated.len() == 1 {
+                let n = match evaluated[0] {
+                    Value::Int(n) => n,
+                    Value::Int8(n) => n as i64,
+                    Value::Int16(n) => n as i64,
+                    Value::Int32(n) => n as i64,
+                    Value::UInt8(n) => n as i64,
+                    Value::UInt16(n) => n as i64,
+                    Value::UInt32(n) => n as i64,
+                    Value::UInt64(n) => n as i64,
+                    _ => return Err(RuntimeError::TypeError {
+                        msg: "FAM count must be an integer".into(),
+                        span,
+                    }),
+                };
+                let last = decl.fields.last().expect("has_fam implies fields non-empty");
+                let elem_ty = match &last.ty {
+                    ilang_ast::Type::Array { elem, .. } => (**elem).clone(),
+                    _ => unreachable!("has_fam matched"),
+                };
+                let mut elems = Vec::with_capacity(n as usize);
+                for _ in 0..n {
+                    elems.push(default_value(&elem_ty));
+                }
+                obj.borrow_mut()
+                    .fields
+                    .insert(last.name.clone(), Value::Array(Rc::new(RefCell::new(elems))));
+            } else {
+                return Err(RuntimeError::ArityMismatch {
+                    name: format!("{class}::init"),
+                    expected: 0,
+                    got: evaluated.len(),
+                    span,
+                });
+            }
         }
         Ok(Value::Object(obj))
     }

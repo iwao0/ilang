@@ -71,6 +71,14 @@ pub(crate) enum JitTy {
     /// reachable via field access on a `@repr(C)` class; the id
     /// indexes `array_kinds` for the element type and length.
     EmbeddedArray(u32),
+    /// C99 flexible array member: `T[]` as the **last** field of a
+    /// `@repr(C)` class. Like `EmbeddedArray` the value carries the
+    /// base address of the trailing element bytes (`outer_ptr +
+    /// field_offset`), but the element count isn't statically known —
+    /// allocation size is set at `new ClassName(n)`. Index access
+    /// computes `base + i * elem_size` with no bounds check (matches
+    /// C's FAM idiom; the user maintains the count themselves).
+    FlexArray(u32),
     Unit,
 }
 
@@ -274,7 +282,8 @@ impl JitTy {
             | JitTy::Fn(_)
             | JitTy::Map(_)
             | JitTy::Tuple(_)
-            | JitTy::EmbeddedArray(_) => I64,
+            | JitTy::EmbeddedArray(_)
+            | JitTy::FlexArray(_) => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -299,6 +308,7 @@ impl JitTy {
             | JitTy::Map(_)
             | JitTy::Tuple(_)
             | JitTy::EmbeddedArray(_) => 8,
+            JitTy::FlexArray(_) => 0,
             JitTy::Unit => 0,
         }
     }
@@ -389,6 +399,12 @@ pub(crate) struct ClassLayout {
     /// underlying type pack into; this map adds the bit-level
     /// position within that unit.
     pub bitfields: HashMap<String, BitfieldInfo>,
+    /// If this `@repr(C)` class ends in a C99-style flexible array
+    /// member (`T[]` last field), `Some` records the array kind id
+    /// for the trailing element. `new ClassName(n)` allocates
+    /// `size + n * elem_size` bytes; field access on the FAM
+    /// returns a base pointer at `instance + size`.
+    pub flex_array: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
