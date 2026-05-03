@@ -220,6 +220,8 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("get_byte_slice", test_get_byte_slice as *const u8);
     builder.symbol("get_i32_slice", test_get_i32_slice as *const u8);
     builder.symbol("maybe_byte_slice", test_maybe_byte_slice as *const u8);
+    builder.symbol("maybe_succeed", test_maybe_succeed as *const u8);
+    builder.symbol("maybe_succeed_i64", test_maybe_succeed_i64 as *const u8);
 }
 
 // ─── @extern static globals (test-only) ─────────────────────────────
@@ -266,6 +268,16 @@ extern "C" fn test_get_i32_slice() -> I32Slice {
 
 // Conditional slice return — drives the NULL-ptr branch the JIT
 // inserts when the declared return is `T[]?`.
+// Mimics a POSIX call that returns -1 on failure (and would set
+// errno). Used to drive the `errnoCheck` flag's branch.
+extern "C" fn test_maybe_succeed(ok: i32) -> i32 {
+    if ok != 0 { 42 } else { -1 }
+}
+
+extern "C" fn test_maybe_succeed_i64(ok: i32) -> i64 {
+    if ok != 0 { 1_234_567_890_123 } else { -1 }
+}
+
 extern "C" fn test_maybe_byte_slice(ok: i32) -> U8Slice {
     if ok != 0 {
         U8Slice {

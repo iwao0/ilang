@@ -426,6 +426,11 @@ pub(crate) struct JitCompiler {
     /// 16 B struct at the C ABI. The call lowering allocates a fresh
     /// ilang `T[]` and memcpys.
     pub(crate) native_extern_slice_returns: std::collections::HashSet<String>,
+    /// Native fns with `errnoCheck` — POSIX-style failure detection.
+    /// The JIT branches on `result < 0` after the call: failure →
+    /// None, success → Some(boxed result). `os.errno()` reads the
+    /// reason if the caller cares.
+    pub(crate) native_extern_errno_check: std::collections::HashSet<String>,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
@@ -996,6 +1001,7 @@ impl JitCompiler {
             native_extern_variadic: native_reg.variadic,
             native_extern_by_value: native_reg.by_value,
             native_extern_slice_returns: native_reg.slice_returns,
+            native_extern_errno_check: native_reg.errno_check,
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
                 .items
@@ -1507,11 +1513,25 @@ impl JitCompiler {
                 sig.returns.push(AbiParam::new(t));
             }
         } else if self.native_extern_slice_returns.contains(&f.name) {
-            // `slice_return`: C side returns `{ T* ptr; size_t len; }`,
+            // `sliceReturn`: C side returns `{ T* ptr; size_t len; }`,
             // which fits in a 2-GPR pair just like a 16 B integer
             // by_value return.
             sig.returns.push(AbiParam::new(I64));
             sig.returns.push(AbiParam::new(I64));
+        } else if self.native_extern_errno_check.contains(&f.name) {
+            // `errnoCheck`: C side returns the raw int; failure is
+            // detected post-call as `result < 0`. The ilang return
+            // type is `i32?` / `i64?` but the AbiParam matches the
+            // C int width so the calling-conv stays accurate.
+            let inner_cl = match ret {
+                JitTy::Optional(id) => match self.optional_inners[id as usize] {
+                    JitTy::I32 => I32,
+                    JitTy::I64 => I64,
+                    _ => unreachable!("errnoCheck validated to i32?/i64?"),
+                },
+                _ => unreachable!("errnoCheck validated to Optional"),
+            };
+            sig.returns.push(AbiParam::new(inner_cl));
         } else if let Some(t) = ret.cl() {
             sig.returns.push(AbiParam::new(t));
         }
@@ -1706,6 +1726,7 @@ impl JitCompiler {
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
             native_extern_slice_returns: &self.native_extern_slice_returns,
+            native_extern_errno_check: &self.native_extern_errno_check,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
@@ -1911,6 +1932,7 @@ impl JitCompiler {
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
+            native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,

@@ -1501,8 +1501,56 @@ pub(crate) fn lower_expr(
                     && matches!(ret_ty, JitTy::Object(_))
                     && sret_ptr.is_none();
                 let is_slice_return = lc.native_extern_slice_returns.contains(callee);
+                let is_errno_check = lc.native_extern_errno_check.contains(callee);
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
+                } else if is_errno_check {
+                    // Branch on `raw < 0`:
+                    //   failure → None (0 — heap-boxed Optional uses 0 as null)
+                    //   success → heap-box the int and return Some-pointer
+                    let raw = b.inst_results(call)[0];
+                    let opt_id = match ret_ty {
+                        JitTy::Optional(id) => id,
+                        _ => unreachable!("errnoCheck validated to Optional"),
+                    };
+                    let inner_jty = lc.optional_inners[opt_id as usize];
+                    // Compare against 0 in the inner's natural width so
+                    // the sign bit is correct for both i32 and i64.
+                    let zero_inner = match inner_jty {
+                        JitTy::I32 => b.ins().iconst(I32, 0),
+                        JitTy::I64 => b.ins().iconst(I64, 0),
+                        _ => unreachable!(),
+                    };
+                    let is_fail = b.ins().icmp(IntCC::SignedLessThan, raw, zero_inner);
+                    let fail_bb = b.create_block();
+                    let ok_bb = b.create_block();
+                    let merge = b.create_block();
+                    b.append_block_param(merge, I64);
+                    b.ins().brif(is_fail, fail_bb, &[], ok_bb, &[]);
+                    // Failure: None sentinel = 0.
+                    b.switch_to_block(fail_bb);
+                    b.seal_block(fail_bb);
+                    let none_v = b.ins().iconst(I64, 0);
+                    b.ins().jump(merge, &[none_v.into()]);
+                    // Success: heap-box the int and return its pointer.
+                    b.switch_to_block(ok_bb);
+                    b.seal_block(ok_bb);
+                    let size_v = b.ins().iconst(I64, inner_jty.size_bytes() as i64);
+                    let new_ref = lc
+                        .module
+                        .declare_func_in_func(lc.optional_box_new_id, b.func);
+                    let alloc_call = b.ins().call(new_ref, &[size_v]);
+                    let box_ptr = b.inst_results(alloc_call)[0];
+                    b.ins().store(
+                        MemFlags::trusted(),
+                        raw,
+                        box_ptr,
+                        crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+                    );
+                    b.ins().jump(merge, &[box_ptr.into()]);
+                    b.switch_to_block(merge);
+                    b.seal_block(merge);
+                    Some(b.block_params(merge)[0])
                 } else if is_slice_return {
                     // C side returned `(ptr, len)` in 2 GPRs. NULL
                     // ptr maps to `None` when the declared return is

@@ -54,6 +54,13 @@ pub(crate) struct NativeExternRegistry {
     /// allocates a fresh ilang `Array<T>` and memcpys the bytes in.
     /// User declares `T[]` as the ilang return type.
     pub slice_returns: HashSet<String>,
+    /// Native fns with the `errnoCheck` flag — POSIX-style "negative
+    /// means failure, errno tells you why". After the C call, the
+    /// JIT branches on `result < 0` (signed); failure → None, success
+    /// → Some(result). The user-visible return type must be
+    /// `i32?` / `i64?`. errno itself is read separately via
+    /// `os.errno()` once the caller has decided to investigate.
+    pub errno_check: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -68,6 +75,7 @@ pub(crate) fn register_native_externs(
     let mut variadic: HashSet<String> = HashSet::new();
     let mut by_value: HashSet<String> = HashSet::new();
     let mut slice_returns: HashSet<String> = HashSet::new();
+    let mut errno_check: HashSet<String> = HashSet::new();
     let mut static_addrs: HashMap<String, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
@@ -117,6 +125,7 @@ pub(crate) fn register_native_externs(
         let mut flag_variadic = false;
         let mut flag_by_value = false;
         let mut flag_slice_return = false;
+        let mut flag_errno_check = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -136,6 +145,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["sliceReturn"] => {
                     flag_slice_return = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["errnoCheck"] => {
+                    flag_errno_check = true;
+                }
                 // `freeWith.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
@@ -146,7 +158,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `freeWith.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `freeWith.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -199,6 +211,26 @@ pub(crate) fn register_native_externs(
                 });
             }
             slice_returns.insert(f.name.clone());
+        }
+        if flag_errno_check {
+            // Return must be `i32?` or `i64?`. The C side returns
+            // a plain int; failure is detected as `result < 0`.
+            let inner = match &f.ret {
+                Some(Type::Optional(inner)) => Some(inner.as_ref()),
+                _ => None,
+            };
+            let ok = matches!(inner, Some(Type::I32 | Type::I64));
+            if !ok {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `errnoCheck` requires an `i32?` \
+                         or `i64?` return type (got {:?})",
+                        f.name, f.ret
+                    ),
+                    span: f.span,
+                });
+            }
+            errno_check.insert(f.name.clone());
         }
         if flag_by_value {
             by_value.insert(f.name.clone());
@@ -408,6 +440,23 @@ pub(crate) fn register_native_externs(
                         });
                     }
                     slice_returns.insert(f.name.clone());
+                } else if parts.as_slice() == ["errnoCheck"] {
+                    let inner = match &f.ret {
+                        Some(Type::Optional(inner)) => Some(inner.as_ref()),
+                        _ => None,
+                    };
+                    let ok = matches!(inner, Some(Type::I32 | Type::I64));
+                    if !ok {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: `errnoCheck` requires an \
+                                 `i32?` or `i64?` return type (got {:?})",
+                                f.name, f.ret
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    errno_check.insert(f.name.clone());
                 }
             }
         }
@@ -463,6 +512,7 @@ pub(crate) fn register_native_externs(
         variadic,
         by_value,
         slice_returns,
+        errno_check,
         static_addrs,
     })
 }
