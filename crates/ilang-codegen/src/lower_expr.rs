@@ -1210,6 +1210,49 @@ pub(crate) fn lower_expr(
                             ARRAY_DATA_OFFSET,
                         );
                         arg_vals.push(data);
+                    } else if lc.native_extern_by_value.contains(callee)
+                        && matches!(param_tys[i], JitTy::Object(_))
+                    {
+                        // Pass-by-value `@repr(C)` struct: load the
+                        // user data area as 1–2 i64 chunks (per the
+                        // integer-only ≤ 16 B composite rule). The
+                        // sig was built with the same chunk count so
+                        // the ABI lines up on AArch64 / SysV.
+                        let class_id = match param_tys[i] {
+                            JitTy::Object(id) => id,
+                            _ => unreachable!(),
+                        };
+                        let size = lc.class_layouts[class_id as usize].size;
+                        if size == 0 {
+                            // Zero-sized struct: nothing to push.
+                        } else if size <= 8 {
+                            // Single chunk. Mask to actual bytes so
+                            // unused upper bits are zero (matches what
+                            // a real C-side load of a smaller type
+                            // would see). For exactly 8 B, no mask.
+                            let raw = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
+                            let chunk = if size == 8 {
+                                raw
+                            } else {
+                                let mask = if size == 8 { -1i64 }
+                                    else { (1i64 << (size as i64 * 8)) - 1 };
+                                b.ins().band_imm(raw, mask)
+                            };
+                            arg_vals.push(chunk);
+                        } else {
+                            // Two chunks: low 8 B then the upper N B.
+                            let lo = b.ins().load(I64, MemFlags::trusted(), coerced, 0);
+                            arg_vals.push(lo);
+                            let upper_size = size - 8;
+                            let raw_hi = b.ins().load(I64, MemFlags::trusted(), coerced, 8);
+                            let hi = if upper_size == 8 {
+                                raw_hi
+                            } else {
+                                let mask = (1i64 << (upper_size as i64 * 8)) - 1;
+                                b.ins().band_imm(raw_hi, mask)
+                            };
+                            arg_vals.push(hi);
+                        }
                     } else if is_native && is_managed_opaque(lc, param_tys[i]) {
                         // Managed opaque handle (`@extern class Foo {
                         // deinit { ... } }`): the user value is the

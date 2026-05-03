@@ -36,6 +36,11 @@ pub(crate) struct NativeExternRegistry {
     /// the call site can supply any number of extra args, each
     /// type-checked permissively and marshalled by its actual type.
     pub variadic: HashSet<String>,
+    /// Names of fns whose `@repr(C)` struct parameters are passed
+    /// **by value** (split into 1–2 i64 chunks per the AArch64 / SysV
+    /// "integer-only ≤ 16 B" composite rule). Set by the `by_value`
+    /// flag in `@extern("libname", by_value)`.
+    pub by_value: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -48,6 +53,7 @@ pub(crate) fn register_native_externs(
     let mut owned_return: HashSet<String> = HashSet::new();
     let mut owned_return_free_with: HashMap<String, String> = HashMap::new();
     let mut variadic: HashSet<String> = HashSet::new();
+    let mut by_value: HashSet<String> = HashSet::new();
     // Pre-collect names of opaque-handle classes — `@extern("lib")
     // class Foo {}`. These are valid as native-extern fn parameter
     // and return types (marshalled as raw i64 pointers).
@@ -90,6 +96,7 @@ pub(crate) fn register_native_externs(
         let mut flag_owned_return = false;
         let mut flag_optional = false;
         let mut flag_variadic = false;
+        let mut flag_by_value = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -103,6 +110,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["variadic"] => {
                     flag_variadic = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["by_value"] => {
+                    flag_by_value = true;
+                }
                 // `free_with.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
@@ -113,7 +123,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `free_with.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `owned_return`, `optional`, `variadic`, `by_value`, `free_with.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -125,6 +135,45 @@ pub(crate) fn register_native_externs(
         let fallback_names: &[String] = &lib_names[1..];
         if flag_variadic {
             variadic.insert(f.name.clone());
+        }
+        if flag_by_value {
+            by_value.insert(f.name.clone());
+            // Reject by-value on a return type for now (sret /
+            // multi-register returns vary too much across ABIs to
+            // ship without per-target work).
+            if let Some(ret_ty) = &f.ret {
+                if let Type::Object(name) = ret_ty {
+                    if repr_c_classes.contains(name) {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: `by_value` does not support \
+                                 struct return types yet — declare the C fn \
+                                 with an out-pointer or a primitive return",
+                                f.name
+                            ),
+                            span: f.span,
+                        });
+                    }
+                }
+            }
+            // Validate each by-value struct param: must be `@repr(C)`,
+            // numeric/bool fields only, total size ≤ 16 B. The exact
+            // size check happens later (the layout is finalized after
+            // this pass), but we can already reject obvious misuse.
+            for p in &f.params {
+                if let Type::Object(name) = &p.ty {
+                    if !repr_c_classes.contains(name) && !opaque_classes.contains(name) {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: by_value param {:?} of type {} is \
+                                 not a `@repr(C)` class",
+                                f.name, p.name, name
+                            ),
+                            span: p.span,
+                        });
+                    }
+                }
+            }
         }
         validate_native_signature(f, &opaque_classes, &repr_c_classes)?;
         if flag_owned_return {
@@ -276,12 +325,28 @@ pub(crate) fn register_native_externs(
         builder.symbol(&f.name, ptr);
         names.insert(f.name.clone());
     }
+    // `by_value` is also valid on host-side `@extern fn` (no library
+    // arg). Sweep again and pick any up that we missed because the
+    // library-name filter skipped them.
+    for item in &prog.items {
+        let Item::Fn(f) = item else { continue };
+        let extern_attr = f.attrs.iter().find(|a| a.name == "extern");
+        let Some(extern_attr) = extern_attr else { continue };
+        for arg in &extern_attr.args {
+            if let AttrArg::Path(parts) = arg {
+                if parts.as_slice() == ["by_value"] {
+                    by_value.insert(f.name.clone());
+                }
+            }
+        }
+    }
     Ok(NativeExternRegistry {
         libs: libs.into_values().collect(),
         names,
         owned_return,
         owned_return_free_with,
         variadic,
+        by_value,
     })
 }
 

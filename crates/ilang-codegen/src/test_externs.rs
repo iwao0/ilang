@@ -96,6 +96,36 @@ extern "C" fn test_apply_i32_cb(
     cb(a, b)
 }
 
+// ─── pass-by-value `@repr(C)` struct (by_value flag) ─────────────────
+// 8-byte struct: passes in a single GPR on AArch64 / SysV.
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Point2 { x: i32, y: i32 }
+
+extern "C" fn test_sum_point2(p: Point2) -> i64 {
+    (p.x as i64) + (p.y as i64)
+}
+
+// 16-byte struct: passes in 2 GPRs on the same ABIs.
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Range64 { lo: i64, hi: i64 }
+
+extern "C" fn test_range64_width(r: Range64) -> i64 {
+    r.hi - r.lo
+}
+
+// 12-byte struct (i32 + i64): two chunks — first chunk holds tag (low
+// 4 B) plus the low 4 B of payload, second chunk holds the upper 4 B
+// of payload. The C side reassembles via natural field reads.
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct Tagged { tag: i32, payload: i64 }
+
+extern "C" fn test_tagged_payload_if(t: Tagged, expected_tag: i32) -> i64 {
+    if t.tag == expected_tag { t.payload } else { -1 }
+}
+
 extern "C" fn test_fail(msg_ptr: i64) {
     let msg = if msg_ptr == 0 {
         "<empty>".to_string()
@@ -117,4 +147,13 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("test.applyI32Cb", test_apply_i32_cb as *const u8);
     builder.symbol("test.countedFree", test_counted_free as *const u8);
     builder.symbol("test.countedFreeCount", test_counted_free_count as *const u8);
+    builder.symbol("test.sumPoint2", test_sum_point2 as *const u8);
+    builder.symbol("test.range64Width", test_range64_width as *const u8);
+    builder.symbol("test.taggedPayloadIf", test_tagged_payload_if as *const u8);
+    // Bare names too so test fixtures can declare the extern fn
+    // locally (`@extern(by_value) fn sum_point2(...)`) without
+    // having to add a class type to the global `test` module.
+    builder.symbol("sum_point2", test_sum_point2 as *const u8);
+    builder.symbol("range64_width", test_range64_width as *const u8);
+    builder.symbol("tagged_payload_if", test_tagged_payload_if as *const u8);
 }

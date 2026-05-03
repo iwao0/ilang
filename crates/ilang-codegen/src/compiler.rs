@@ -418,6 +418,9 @@ pub(crate) struct JitCompiler {
     /// site builds a fresh per-call signature for these so trailing
     /// args flow through with their actual types.
     pub(crate) native_extern_variadic: std::collections::HashSet<String>,
+    /// Subset of `native_extern_fns` whose `@repr(C)` struct args are
+    /// passed by value (split into 1–2 i64 chunks at call lowering).
+    pub(crate) native_extern_by_value: std::collections::HashSet<String>,
     /// Every `@extern fn` (host or native lib). The fn-pointer arg
     /// marshalling at Call sites uses this to know whether to pass
     /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
@@ -476,6 +479,31 @@ pub(crate) struct JitCompiler {
     /// types.
     pub(crate) closure_ast_captures:
         std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
+}
+
+/// Number of i64 chunks used to pass a `@repr(C)` struct by value.
+/// Caps at 2 (16 bytes) — the universal "composite ≤ 16 B" boundary
+/// shared by AArch64 AAPCS64 and x86_64 SysV. Larger structs would
+/// need indirect passing (sret / by-ref) which we don't implement.
+pub(crate) fn repr_c_chunk_count(
+    size: u32,
+    span: ilang_ast::Span,
+    name: &str,
+) -> Result<u32, CodegenError> {
+    if size == 0 {
+        return Ok(0);
+    }
+    if size > 16 {
+        return Err(CodegenError::Unsupported {
+            what: format!(
+                "@extern by_value: struct {:?} is {} B (> 16 B); larger \
+                 structs need indirect passing which is not implemented yet",
+                name, size
+            ),
+            span,
+        });
+    }
+    Ok(if size <= 8 { 1 } else { 2 })
 }
 
 /// Topological sort of class declarations by inline-embedding edges.
@@ -930,6 +958,7 @@ impl JitCompiler {
             native_extern_owned_return: native_reg.owned_return,
             native_extern_free_with: native_reg.owned_return_free_with,
             native_extern_variadic: native_reg.variadic,
+            native_extern_by_value: native_reg.by_value,
             extern_fn_names: prog
                 .items
                 .iter()
@@ -1253,7 +1282,21 @@ impl JitCompiler {
         if let Some(t) = this_ty {
             sig.params.push(AbiParam::new(t.cl().expect("object pointer")));
         }
+        // `@extern("c", by_value)`: each `@repr(C)` struct param expands
+        // into 1–2 i64 chunks per the integer-only ≤ 16 B composite
+        // rule (AArch64 AAPCS64 / x86_64 SysV).
+        let is_by_value = self.native_extern_by_value.contains(&f.name);
         for p in &params {
+            if is_by_value {
+                if let JitTy::Object(class_id) = *p {
+                    let layout = &self.class_layouts[class_id as usize];
+                    let chunks = repr_c_chunk_count(layout.size, f.span, &layout.name)?;
+                    for _ in 0..chunks {
+                        sig.params.push(AbiParam::new(I64));
+                    }
+                    continue;
+                }
+            }
             sig.params.push(AbiParam::new(p.cl().ok_or_else(|| {
                 CodegenError::Unsupported {
                     what: "unit-typed parameter".into(),
@@ -1453,6 +1496,7 @@ impl JitCompiler {
             native_extern_owned_return: &self.native_extern_owned_return,
             native_extern_free_with: &self.native_extern_free_with,
             native_extern_variadic: &self.native_extern_variadic,
+            native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
@@ -1654,6 +1698,7 @@ impl JitCompiler {
             native_extern_owned_return: &self.native_extern_owned_return,
             native_extern_free_with: &self.native_extern_free_with,
             native_extern_variadic: &self.native_extern_variadic,
+            native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
