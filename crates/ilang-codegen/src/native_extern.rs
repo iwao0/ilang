@@ -166,20 +166,9 @@ pub(crate) fn register_native_externs(
             // numeric/bool fields only, total size ≤ 16 B. The exact
             // size check happens later (the layout is finalized after
             // this pass), but we can already reject obvious misuse.
-            for p in &f.params {
-                if let Type::Object(name) = &p.ty {
-                    if !repr_c_classes.contains(name) && !opaque_classes.contains(name) {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: by_value param {:?} of type {} is \
-                                 not a `@repr(C)` class",
-                                f.name, p.name, name
-                            ),
-                            span: p.span,
-                        });
-                    }
-                }
-            }
+            // Field-level validation runs in `validate_by_value_fn`
+            // at the end of this pass so the host-extern sweep also
+            // gets covered.
         }
         validate_native_signature(f, &opaque_classes, &repr_c_classes)?;
         if flag_owned_return {
@@ -333,7 +322,9 @@ pub(crate) fn register_native_externs(
     }
     // `by_value` is also valid on host-side `@extern fn` (no library
     // arg). Sweep again and pick any up that we missed because the
-    // library-name filter skipped them.
+    // library-name filter skipped them, then validate every by_value
+    // fn (whether from the main loop or this sweep) once at the end
+    // so both code paths share the same field-type check.
     for item in &prog.items {
         let Item::Fn(f) = item else { continue };
         let extern_attr = f.attrs.iter().find(|a| a.name == "extern");
@@ -346,6 +337,13 @@ pub(crate) fn register_native_externs(
             }
         }
     }
+    for item in &prog.items {
+        let Item::Fn(f) = item else { continue };
+        if !by_value.contains(&f.name) {
+            continue;
+        }
+        validate_by_value_fn(f, prog, &repr_c_classes, &opaque_classes)?;
+    }
     Ok(NativeExternRegistry {
         libs: libs.into_values().collect(),
         names,
@@ -354,6 +352,57 @@ pub(crate) fn register_native_externs(
         variadic,
         by_value,
     })
+}
+
+/// Field-level validation for a `by_value` extern fn. Rejects struct
+/// params whose fields aren't in the GPR-only integer subset that
+/// the call lowering knows how to pack into 1–2 i64 chunks.
+fn validate_by_value_fn(
+    f: &ilang_ast::FnDecl,
+    prog: &Program,
+    repr_c_classes: &HashSet<String>,
+    opaque_classes: &HashSet<String>,
+) -> Result<(), CodegenError> {
+    for p in &f.params {
+        let Type::Object(name) = &p.ty else { continue };
+        if !repr_c_classes.contains(name) && !opaque_classes.contains(name) {
+            return Err(CodegenError::Unsupported {
+                what: format!(
+                    "@extern fn {}: by_value param {:?} of type {} is \
+                     not a `@repr(C)` class",
+                    f.name, p.name, name
+                ),
+                span: p.span,
+            });
+        }
+        let class_decl = prog.items.iter().find_map(|i| match i {
+            Item::Class(c) if &c.name == name => Some(c),
+            _ => None,
+        });
+        let Some(class_decl) = class_decl else { continue };
+        for fld in &class_decl.fields {
+            let ok = matches!(
+                fld.ty,
+                Type::I8 | Type::I16 | Type::I32 | Type::I64
+                | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                | Type::Bool
+            );
+            if !ok {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: by_value param {:?} (struct {}) \
+                         contains field {:?} of type {} — only integer \
+                         and bool fields are supported (float/double, \
+                         nested struct, array, string would need \
+                         per-target HFA / aggregate ABI work)",
+                        f.name, p.name, name, fld.name, fld.ty
+                    ),
+                    span: fld.span,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_native_signature(
