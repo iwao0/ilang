@@ -112,6 +112,18 @@ fn jit_run_inner(
     compiler.loop_break_types = loop_break_types.clone();
     compiler.class_method_slots = class_method_slots.clone();
     compiler.class_vtable_lens = class_vtable_lens.clone();
+    // 1a. Register every class / enum name → id, with empty layouts.
+    //     This way `Child { p: Parent.weak }` resolves even when Parent
+    //     is declared after Child, and likewise for enum forward-refs.
+    //     This must happen BEFORE closure-meta conversion so captures
+    //     of class types resolve to the correct JIT class id.
+    for item in &prog.items {
+        match item {
+            Item::Class(c) => compiler.declare_class_name(c)?,
+            Item::Enum(e) => compiler.declare_enum_layout(e)?,
+            _ => {}
+        }
+    }
     // Convert each AST-level closure meta to JitTy form.
     for (name, meta) in closure_meta_in {
         let user_params: Vec<crate::ty::JitTy> = meta
@@ -146,16 +158,6 @@ fn jit_run_inner(
         };
         let mut captures: Vec<(String, crate::ty::JitTy)> = Vec::new();
         for (cn, ct) in &meta.captures {
-            // Stage A: only i64 / f64 / bool captures supported.
-            if !matches!(ct, ilang_ast::Type::I64 | ilang_ast::Type::F64 | ilang_ast::Type::Bool) {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "closure captures of type {ct} are not yet supported by the JIT \
-                         (only i64 / f64 / bool in Stage A); capture: {cn}"
-                    ),
-                    span: meta.span,
-                });
-            }
             let jty = crate::ty::JitTy::from_ast(
                 ct,
                 meta.span,
@@ -169,20 +171,13 @@ fn jit_run_inner(
             )?;
             captures.push((cn.clone(), jty));
         }
+        compiler
+            .closure_ast_captures
+            .insert(name.clone(), meta.captures.clone());
         compiler.closure_meta.insert(
             name.clone(),
             crate::env::ClosureMeta { user_params, ret, captures },
         );
-    }
-    // 1a. Register every class / enum name → id, with empty layouts.
-    //     This way `Child { p: Parent.weak }` resolves even when Parent
-    //     is declared after Child, and likewise for enum forward-refs.
-    for item in &prog.items {
-        match item {
-            Item::Class(c) => compiler.declare_class_name(c)?,
-            Item::Enum(e) => compiler.declare_enum_layout(e)?,
-            _ => {}
-        }
     }
     // 1b. Compute field offsets now that every class id is in
     //     `class_ids`. Enums were finalized at declaration time
@@ -234,6 +229,7 @@ fn jit_run_inner(
     crate::drops::define_enum_drops(&mut compiler)?;
     crate::drops::define_map_drops(&mut compiler)?;
     crate::drops::define_map_value_retains(&mut compiler)?;
+    crate::drops::define_closure_drops(&mut compiler)?;
     compiler.finalize()?;
     Ok(compiler.run_main(main_ret))
 }
@@ -330,6 +326,8 @@ pub(crate) struct JitCompiler {
     pub(crate) c_str_to_string_id: FuncId,
     pub(crate) libc_free_id: FuncId,
     pub(crate) alloc_closure_id: FuncId,
+    pub(crate) retain_closure_id: FuncId,
+    pub(crate) release_closure_id: FuncId,
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
@@ -433,6 +431,18 @@ pub(crate) struct JitCompiler {
     /// Lazy cache of trampoline FuncIds for top-level fns whose
     /// addresses are taken at runtime. Built on first encounter.
     pub(crate) closure_trampolines: std::collections::HashMap<String, FuncId>,
+    /// Per-closure-wrapper drop fn. `None` if the closure has no
+    /// heap captures (no work to do, drop_fn_ptr is 0). Declared
+    /// lazily by `closure_drop_fn_ptr`; bodies emitted by
+    /// `define_closure_drops` after all closure-construct sites
+    /// have been lowered.
+    pub(crate) closure_drops: std::collections::HashMap<String, Option<FuncId>>,
+    /// Per-wrapper captured names + AST types. The JIT's
+    /// post-hoist re-typecheck reads this so wrapper bodies type-
+    /// check with captured names pre-bound to their original AST
+    /// types.
+    pub(crate) closure_ast_captures:
+        std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
 }
 
 impl JitCompiler {
@@ -494,6 +504,8 @@ impl JitCompiler {
         builder.symbol("ilang_jit_c_str_to_string", crate::runtime::ilang_jit_c_str_to_string as *const u8);
         builder.symbol("ilang_jit_libc_free", crate::runtime::ilang_jit_libc_free as *const u8);
         builder.symbol("ilang_jit_alloc_closure", crate::runtime::ilang_jit_alloc_closure as *const u8);
+        builder.symbol("ilang_jit_retain_closure", crate::runtime::ilang_jit_retain_closure as *const u8);
+        builder.symbol("ilang_jit_release_closure", crate::runtime::ilang_jit_release_closure as *const u8);
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
         builder.symbol(
             "ilang_jit_retain_array",
@@ -648,7 +660,11 @@ impl JitCompiler {
         let libc_free_id =
             declare_import(&mut module, "ilang_jit_libc_free", &[I64], None)?;
         let alloc_closure_id =
-            declare_import(&mut module, "ilang_jit_alloc_closure", &[I64], Some(I64))?;
+            declare_import(&mut module, "ilang_jit_alloc_closure", &[I64, I64], Some(I64))?;
+        let retain_closure_id =
+            declare_import(&mut module, "ilang_jit_retain_closure", &[I64], None)?;
+        let release_closure_id =
+            declare_import(&mut module, "ilang_jit_release_closure", &[I64], None)?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
@@ -760,6 +776,8 @@ impl JitCompiler {
             c_str_to_string_id,
             libc_free_id,
             alloc_closure_id,
+            retain_closure_id,
+            release_closure_id,
             array_new,
             retain_array_id,
             release_array_id,
@@ -807,6 +825,8 @@ impl JitCompiler {
             class_parents: std::collections::HashMap::new(),
             closure_meta: std::collections::HashMap::new(),
             closure_trampolines: std::collections::HashMap::new(),
+            closure_drops: std::collections::HashMap::new(),
+            closure_ast_captures: std::collections::HashMap::new(),
         })
     }
 
@@ -1266,8 +1286,11 @@ impl JitCompiler {
             class_method_slots: &self.class_method_slots,
             class_parents: &self.class_parents,
             alloc_closure_id: self.alloc_closure_id,
+            retain_closure_id: self.retain_closure_id,
+            release_closure_id: self.release_closure_id,
             closure_meta: &self.closure_meta,
             closure_trampolines: &mut self.closure_trampolines,
+            closure_drops: &mut self.closure_drops,
             closure_capture_env: None,
             current_class: this_class.map(|cid| {
                 self.class_layouts[cid as usize].name.clone()
@@ -1338,22 +1361,9 @@ impl JitCompiler {
         // Tell the type checker about closure wrappers' captures
         // so their bodies type-check (free vars in the body
         // resolve to captured names).
-        for (name, meta) in &self.closure_meta {
-            let captures: Vec<(String, ilang_ast::Type)> = meta
-                .captures
-                .iter()
-                .map(|(n, jty)| {
-                    let t = match jty {
-                        crate::ty::JitTy::I64 => ilang_ast::Type::I64,
-                        crate::ty::JitTy::F64 => ilang_ast::Type::F64,
-                        crate::ty::JitTy::Bool => ilang_ast::Type::Bool,
-                        // Stage B/C add string / object etc. when supported.
-                        _ => ilang_ast::Type::Any,
-                    };
-                    (n.clone(), t)
-                })
-                .collect();
-            tc.closure_wrapper_captures.insert(name.clone(), captures);
+        for (name, ast_caps) in &self.closure_ast_captures {
+            tc.closure_wrapper_captures
+                .insert(name.clone(), ast_caps.clone());
         }
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
         let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds)?;
@@ -1472,8 +1482,11 @@ impl JitCompiler {
             class_method_slots: &self.class_method_slots,
             class_parents: &self.class_parents,
             alloc_closure_id: self.alloc_closure_id,
+            retain_closure_id: self.retain_closure_id,
+            release_closure_id: self.release_closure_id,
             closure_meta: &self.closure_meta,
             closure_trampolines: &mut self.closure_trampolines,
+            closure_drops: &mut self.closure_drops,
             closure_capture_env: None,
             current_class: None,
         };

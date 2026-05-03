@@ -315,19 +315,72 @@ pub(crate) extern "C" fn ilang_jit_free_c_str(ptr: i64) {
     }
 }
 
-// ─── Closure structs (Stage A: i64/f64/bool captures only) ───────────
-// Closure layout: `[fn_ptr (i64) | env_field_0 (i64) | env_field_1 | ...]`
-// fn_ptr expects `(env_ptr, ...args)` — env_ptr is the closure
-// struct itself; the wrapper loads captures from `env_ptr + 8`.
+// ─── Closure structs (Stages A/B/C) ──────────────────────────────────
+// Closure header (24 bytes, hidden behind the user pointer):
+//   [ rc: i64 | drop_fn_ptr: i64 | total_size: i64 ]
+// User-visible layout (what the JIT pointer addresses):
+//   [ fn_ptr (i64) | env_field_0 (i64) | env_field_1 | ... ]
+// fn_ptr expects `(env_ptr, ...args)` where env_ptr is the user
+// pointer; the wrapper loads captures from `env_ptr + 8`.
 //
-// Stage A doesn't reference-count closures yet — they leak. Stage B/C
-// will integrate ARC + capture release to fix that.
+// `total_size` records the allocation size (header + user data) so
+// release can rebuild the Layout for dealloc without a separate
+// per-closure size table.
 
-pub(crate) extern "C" fn ilang_jit_alloc_closure(n_env_slots: i64) -> i64 {
+const CLOSURE_RC_OFFSET: i64 = -24;
+const CLOSURE_DROP_OFFSET: i64 = -16;
+const CLOSURE_SIZE_OFFSET: i64 = -8;
+const CLOSURE_HEADER_SIZE: usize = 24;
+
+pub(crate) extern "C" fn ilang_jit_alloc_closure(
+    n_env_slots: i64,
+    drop_fn_ptr: i64,
+) -> i64 {
     // 8-byte fn_ptr slot + n_env_slots × 8 bytes for captures.
-    let total = 8 + (n_env_slots as usize) * 8;
+    let user_size = 8 + (n_env_slots as usize) * 8;
+    let total = CLOSURE_HEADER_SIZE + user_size;
     let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
-    unsafe { std::alloc::alloc_zeroed(layout) as i64 }
+    unsafe {
+        let raw = std::alloc::alloc_zeroed(layout);
+        *(raw as *mut i64) = 1; // rc
+        *(raw.add(8) as *mut i64) = drop_fn_ptr;
+        *(raw.add(16) as *mut i64) = total as i64;
+        raw.add(CLOSURE_HEADER_SIZE) as i64
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_retain_closure(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = (ptr + CLOSURE_RC_OFFSET) as *mut i64;
+        *rc += 1;
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_release_closure(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = (ptr + CLOSURE_RC_OFFSET) as *mut i64;
+        *rc -= 1;
+        if *rc != 0 {
+            return;
+        }
+        let drop_ptr = *((ptr + CLOSURE_DROP_OFFSET) as *const i64);
+        if drop_ptr != 0 {
+            let f: extern "C" fn(i64) = std::mem::transmute(drop_ptr);
+            f(ptr);
+        }
+        let total = *((ptr + CLOSURE_SIZE_OFFSET) as *const i64) as usize;
+        let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
+        std::alloc::dealloc(
+            (ptr - CLOSURE_HEADER_SIZE as i64) as *mut u8,
+            layout,
+        );
+    }
 }
 
 /// `libc::free` wrapper for `@extern(..., owned_return)`. Called

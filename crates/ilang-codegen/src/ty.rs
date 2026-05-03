@@ -278,6 +278,7 @@ impl JitTy {
                 | JitTy::Weak(_)
                 | JitTy::EnumHeap(_)
                 | JitTy::Map(_)
+                | JitTy::Fn(_)
         )
     }
 

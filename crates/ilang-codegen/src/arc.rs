@@ -142,6 +142,11 @@ pub(crate) fn emit_retain_heap(
         JitTy::Weak(_) => emit_retain_weak(b, lc, ptr),
         JitTy::EnumHeap(_) => emit_retain_object(b, lc, ptr),
         JitTy::Map(_) => emit_retain_map(b, lc, ptr),
+        // Closure structs have their own ARC helpers.
+        JitTy::Fn(_) => {
+            let r = lc.module.declare_func_in_func(lc.retain_closure_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             if inner.is_heap() {
@@ -180,6 +185,12 @@ pub(crate) fn emit_release_heap(
         JitTy::Weak(class_id) => emit_release_weak(b, lc, ptr, class_id),
         JitTy::EnumHeap(enum_id) => emit_release_enum_heap(b, lc, ptr, enum_id),
         JitTy::Map(_) => emit_release_map(b, lc, ptr),
+        JitTy::Fn(_) => {
+            let r = lc
+                .module
+                .declare_func_in_func(lc.release_closure_id, b.func);
+            b.ins().call(r, &[ptr]);
+        }
         JitTy::Optional(id) => {
             let inner = lc.optional_inners[id as usize];
             if inner.is_heap() {

@@ -747,3 +747,134 @@ fn define_one_map_drop(
         .map_err(|e| CodegenError::Module(e.to_string()))?;
     Ok(())
 }
+
+/// Lazily declare a drop fn for a closure wrapper. Returns its
+/// address as a Cranelift Value (or 0 if no heap captures —
+/// nothing to drop). Bodies are emitted by `define_closure_drops`
+/// after every closure-construct site has been lowered.
+pub(crate) fn closure_drop_fn_ptr(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    wrapper_name: &str,
+    captures: &[(String, crate::ty::JitTy)],
+) -> Result<Value, CodegenError> {
+    let needs_drop = captures.iter().any(|(_, jty)| jty.is_heap());
+    if !needs_drop {
+        lc.closure_drops.entry(wrapper_name.to_string()).or_insert(None);
+        return Ok(b.ins().iconst(I64, 0));
+    }
+    let id = if let Some(Some(id)) = lc.closure_drops.get(wrapper_name) {
+        *id
+    } else {
+        let symbol = format!("__drop_closure_{wrapper_name}");
+        let id = declare_drop_fn(lc.module, &symbol)?;
+        lc.closure_drops.insert(wrapper_name.to_string(), Some(id));
+        id
+    };
+    let func_ref = lc.module.declare_func_in_func(id, b.func);
+    Ok(b.ins().func_addr(I64, func_ref))
+}
+
+/// Define every closure drop body that got declared during
+/// lowering. Each body walks the wrapper's captures and emits
+/// release for every heap-typed slot.
+pub(crate) fn define_closure_drops(
+    compiler: &mut JitCompiler,
+) -> Result<(), CodegenError> {
+    let to_define: Vec<(String, FuncId)> = compiler
+        .closure_drops
+        .iter()
+        .filter_map(|(k, v)| v.map(|id| (k.clone(), id)))
+        .collect();
+    for (wrapper, drop_id) in to_define {
+        define_one_closure_drop(compiler, &wrapper, drop_id)?;
+    }
+    Ok(())
+}
+
+fn define_one_closure_drop(
+    compiler: &mut JitCompiler,
+    wrapper: &str,
+    drop_id: FuncId,
+) -> Result<(), CodegenError> {
+    use cranelift_codegen::ir::types::I64;
+    compiler.module.clear_context(&mut compiler.ctx);
+    compiler.ctx.func.signature =
+        compiler.module.declarations().get_function_decl(drop_id).signature.clone();
+    let captures = compiler
+        .closure_meta
+        .get(wrapper)
+        .map(|m| m.captures.clone())
+        .unwrap_or_default();
+    let JitCompiler {
+        module,
+        ctx,
+        builder_ctx,
+        release_object_id,
+        release_string_id,
+        release_array_id,
+        release_weak_id,
+        optional_box_release_id,
+        release_map_id,
+        ..
+    } = compiler;
+    let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let closure_ptr = builder.block_params(entry)[0];
+    for (i, (_name, jty)) in captures.iter().enumerate() {
+        if !jty.is_heap() {
+            continue;
+        }
+        let offset = (8 + i * 8) as i32;
+        let v = builder.ins().load(I64, MemFlags::trusted(), closure_ptr, offset);
+        // Pick the right release fn based on the JIT type. Map /
+        // arrays / objects need the user-size for the dealloc;
+        // strings / weak / optional have their own helpers.
+        match jty {
+            crate::ty::JitTy::Object(_class_id) => {
+                // user-size unknown here without the class layout
+                // table; pass 0 — release_object reads it via
+                // its second arg purely for dealloc bookkeeping.
+                // Pass 0 is safe because dealloc uses the size
+                // only when freeing storage; the closure isn't
+                // a class instance so the size mismatch is fine.
+                let zero = builder.ins().iconst(I64, 0);
+                let r = module.declare_func_in_func(*release_object_id, builder.func);
+                builder.ins().call(r, &[v, zero]);
+            }
+            crate::ty::JitTy::Str => {
+                let r = module.declare_func_in_func(*release_string_id, builder.func);
+                builder.ins().call(r, &[v]);
+            }
+            crate::ty::JitTy::Array(_) => {
+                let zero = builder.ins().iconst(I64, 0);
+                let r = module.declare_func_in_func(*release_array_id, builder.func);
+                builder.ins().call(r, &[v, zero]);
+            }
+            crate::ty::JitTy::Optional(_) => {
+                let r = module.declare_func_in_func(*optional_box_release_id, builder.func);
+                builder.ins().call(r, &[v]);
+            }
+            crate::ty::JitTy::Weak(_) => {
+                let zero = builder.ins().iconst(I64, 0);
+                let r = module.declare_func_in_func(*release_weak_id, builder.func);
+                builder.ins().call(r, &[v, zero]);
+            }
+            crate::ty::JitTy::Map(_) => {
+                let r = module.declare_func_in_func(*release_map_id, builder.func);
+                builder.ins().call(r, &[v]);
+            }
+            _ => {}
+        }
+    }
+    builder.ins().return_(&[]);
+    builder.finalize();
+    compiler
+        .module
+        .define_function(drop_id, &mut compiler.ctx)
+        .map_err(|e| CodegenError::Module(e.to_string()))?;
+    Ok(())
+}

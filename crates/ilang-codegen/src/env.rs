@@ -191,6 +191,8 @@ pub(crate) struct LowerCtx<'a> {
     /// (`[fn_ptr | env_field0 | ...]`). Stage A storage is leaked
     /// (no ARC); Stage B/C will integrate retain/release.
     pub alloc_closure_id: FuncId,
+    pub retain_closure_id: FuncId,
+    pub release_closure_id: FuncId,
     /// `(closure_wrapper_name) -> (param tys + ret ty + capture
     /// names+tys)`. Set when a closure expression is lowered or
     /// when a top-level fn ref is auto-trampolined. Used to look
@@ -201,6 +203,9 @@ pub(crate) struct LowerCtx<'a> {
     /// addresses were taken (`let f = some_top_level`). Built
     /// lazily during lowering and reused on subsequent refs.
     pub closure_trampolines: &'a mut std::collections::HashMap<String, FuncId>,
+    /// Per-wrapper drop FuncId cache (closure_drops in JitCompiler).
+    /// `None` value = no heap captures, drop_fn_ptr is 0.
+    pub closure_drops: &'a mut std::collections::HashMap<String, Option<FuncId>>,
     /// While lowering a closure-wrapper body, this holds the
     /// `(env_var, capture_offsets)` so a Var(name) lookup can
     /// emit `load(env + offset)` instead of failing.

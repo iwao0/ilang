@@ -65,7 +65,13 @@ pub(crate) fn lower_expr(
                         JitTy::I64 | JitTy::U64 => raw,
                         JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
                         JitTy::Bool => b.ins().ireduce(I8, raw),
-                        _ => unreachable!("Stage A: only i64/f64/bool captures"),
+                        // Heap pointer captures: load i64 ptr; the
+                        // type itself just labels it for downstream
+                        // ARC handling.
+                        t if t.is_heap() => raw,
+                        _ => unreachable!(
+                            "unhandled closure capture type {jty:?}"
+                        ),
                     };
                     return Ok(Some((v, jty)));
                 }
@@ -103,11 +109,12 @@ pub(crate) fn lower_expr(
                 let (id, params, ret) = entry;
                 let trampoline_id = ensure_trampoline(b, lc, name, id, &params, ret)?;
                 // Allocate a 0-capture closure pointing at the trampoline.
+                // No captures → no drop fn needed (drop_fn_ptr=0).
                 let alloc_ref = lc
                     .module
                     .declare_func_in_func(lc.alloc_closure_id, b.func);
                 let zero = b.ins().iconst(I64, 0);
-                let call = b.ins().call(alloc_ref, &[zero]);
+                let call = b.ins().call(alloc_ref, &[zero, zero]);
                 let closure_ptr = b.inst_results(call)[0];
                 let func_ref = lc.module.declare_func_in_func(trampoline_id, b.func);
                 let fn_addr = b.ins().func_addr(I64, func_ref);
@@ -3308,10 +3315,10 @@ fn ensure_trampoline(
     Ok(id)
 }
 
-/// Allocate a closure struct `[fn_ptr | env_field0 | ...]` and
-/// return its pointer as a `JitTy::Fn(sig_id)` value. Each capture
-/// is read from the current scope (or from an enclosing closure
-/// env), bit-cast to i64, and stored at the appropriate offset.
+/// Allocate a closure struct via the standard object allocator
+/// (so it gets ARC + a drop fn) and write `[fn_ptr | env_field0 |
+/// ...]`. The drop fn (one per wrapper) releases each heap-typed
+/// capture. Returns the closure pointer as `JitTy::Fn(sig_id)`.
 fn lower_closure_construct(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
@@ -3329,9 +3336,10 @@ fn lower_closure_construct(
             span,
         })?;
     let n = meta.captures.len() as i64;
+    let drop_fn_ptr = crate::drops::closure_drop_fn_ptr(b, lc, fn_name, &meta.captures)?;
     let alloc_ref = lc.module.declare_func_in_func(lc.alloc_closure_id, b.func);
     let n_v = b.ins().iconst(I64, n);
-    let call = b.ins().call(alloc_ref, &[n_v]);
+    let call = b.ins().call(alloc_ref, &[n_v, drop_fn_ptr]);
     let closure_ptr = b.inst_results(call)[0];
     // Write the wrapper's function pointer at offset 0.
     let (wrapper_id, _, _) = lc
@@ -3348,26 +3356,55 @@ fn lower_closure_construct(
     // Write each capture at offset 8, 16, 24, ...
     for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
         let offset = 8 + (i as i32) * 8;
-        // Look up the captured value's current binding.
-        let (var, jty) = lc.env.bindings.get(cap_name).copied().ok_or_else(|| {
-            CodegenError::Unsupported {
+        // Look in regular env first, then in the surrounding
+        // closure's capture env (so a nested closure can re-capture
+        // an outer closure's captured value).
+        let (v, jty) = if let Some(&(var, vt)) = lc.env.bindings.get(cap_name) {
+            (b.use_var(var), vt)
+        } else if let Some(env) = lc.closure_capture_env.as_ref() {
+            if let Some(entry) = env.captures.iter().find(|(n, _, _)| n == cap_name) {
+                let outer_offset = entry.1 as i32;
+                let outer_jty = entry.2;
+                let env_ptr = b.use_var(env.env_var);
+                let raw = b.ins().load(I64, MemFlags::trusted(), env_ptr, outer_offset);
+                let v = match outer_jty {
+                    JitTy::I64 | JitTy::U64 => raw,
+                    JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
+                    JitTy::Bool => b.ins().ireduce(I8, raw),
+                    t if t.is_heap() => raw,
+                    _ => unreachable!(),
+                };
+                (v, outer_jty)
+            } else {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "closure capture {cap_name:?} not in scope at construction site"
+                    ),
+                    span,
+                });
+            }
+        } else {
+            return Err(CodegenError::Unsupported {
                 what: format!(
                     "closure capture {cap_name:?} not in scope at construction site"
                 ),
                 span,
-            }
-        })?;
-        let v = b.use_var(var);
-        // Bit-cast to i64 for storage. f64 → bitcast(i64); bool / i32
-        // / etc. → uextend to i64; i64 stays.
+            });
+        };
         let bits = match jty {
             JitTy::I64 | JitTy::U64 => v,
             JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), v),
             JitTy::Bool => b.ins().uextend(I64, v),
+            t if t.is_heap() => {
+                // Heap capture: retain so the closure owns a
+                // reference. The drop fn will release on close.
+                crate::arc::emit_retain_heap(b, lc, v, t);
+                v
+            }
             _ => {
                 return Err(CodegenError::Unsupported {
                     what: format!(
-                        "Stage A: closure capture of type {jty:?} not yet supported"
+                        "closure capture of type {jty:?} not yet supported"
                     ),
                     span,
                 });
@@ -3375,7 +3412,6 @@ fn lower_closure_construct(
         };
         b.ins().store(MemFlags::trusted(), bits, closure_ptr, offset);
     }
-    // Reuse the meta's user-facing signature for the JitTy::Fn id.
     let sig_id = crate::ty::intern_fn_sig(
         lc.fn_signatures,
         crate::ty::FnSignature {

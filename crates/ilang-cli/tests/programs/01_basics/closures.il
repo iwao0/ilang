@@ -1,5 +1,5 @@
-// Closures capture outer variables by value at creation time.
-// jit: skip
+// Closures capture outer variables by value at creation time
+// (interpreter + JIT — Stage C handles all capture types).
 use test
 
 let factor = 10
