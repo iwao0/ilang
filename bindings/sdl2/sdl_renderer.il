@@ -150,6 +150,7 @@
         present() {
             SDL_RenderPresent(this.handle as *SDL_Renderer)
         }
+
     }
 
     // ARC-managed sprite. Holds an SDL_Texture sized at construction
