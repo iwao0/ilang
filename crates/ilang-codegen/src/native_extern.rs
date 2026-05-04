@@ -110,6 +110,8 @@ pub(crate) fn register_native_externs(
     // Pre-collect names of `@repr(C) class Foo { ... }` — C-compat
     // structs that flow into native fns as `T *` (a pointer to the
     // user data area).
+    let synth_classes = crate::compiler::synthesize_extern_c_classes(prog);
+    let synth_fns = crate::compiler::synthesize_extern_c_fns(prog);
     let repr_c_classes: HashSet<String> = prog
         .items
         .iter()
@@ -117,9 +119,17 @@ pub(crate) fn register_native_externs(
             Item::Class(c) if c.is_repr_c => Some(c.name.clone()),
             _ => None,
         })
+        .chain(synth_classes.iter().filter_map(|c| {
+            c.is_repr_c.then(|| c.name.clone())
+        }))
         .collect();
-    for item in &prog.items {
-        let Item::Fn(f) = item else { continue };
+    let mut all_extern_fns: Vec<&ilang_ast::FnDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| if let Item::Fn(f) = i { Some(f) } else { None })
+        .collect();
+    all_extern_fns.extend(synth_fns.iter());
+    for f in &all_extern_fns {
         // Find an `@extern("libname")` attribute (string-arg form).
         // `@extern` with no args is the legacy host-side form, which
         // is registered separately by math_externs / test_externs and
@@ -446,8 +456,7 @@ pub(crate) fn register_native_externs(
     // library-name filter skipped them, then validate every by_value
     // fn (whether from the main loop or this sweep) once at the end
     // so both code paths share the same field-type check.
-    for item in &prog.items {
-        let Item::Fn(f) = item else { continue };
+    for f in &all_extern_fns {
         let extern_attr = f.attrs.iter().find(|a| a.name == "extern");
         let Some(extern_attr) = extern_attr else { continue };
         for arg in &extern_attr.args {
@@ -525,8 +534,7 @@ pub(crate) fn register_native_externs(
             }
         }
     }
-    for item in &prog.items {
-        let Item::Fn(f) = item else { continue };
+    for f in &all_extern_fns {
         if !by_value.contains(&f.name) {
             continue;
         }

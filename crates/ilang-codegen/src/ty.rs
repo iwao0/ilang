@@ -177,6 +177,15 @@ impl JitTy {
             Type::Bool => JitTy::Bool,
             Type::Str => JitTy::Str,
             Type::Unit => JitTy::Unit,
+            // C ABI types (only nameable inside @extern(C) blocks).
+            // Raw pointers / void / char map to fixed widths: pointer
+            // = 8 B i64, char = i8, size_t / ssize_t = 64-bit on the
+            // currently supported targets.
+            Type::RawPtr { .. } => JitTy::I64,
+            Type::CVoid => JitTy::Unit,
+            Type::CChar => JitTy::I8,
+            Type::Size => JitTy::U64,
+            Type::SSize => JitTy::I64,
             Type::Object(name) => {
                 // The parser produces Object(name) for any user-defined
                 // type — could be a class or an enum. Enum lookup wins

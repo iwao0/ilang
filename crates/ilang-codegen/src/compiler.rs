@@ -112,6 +112,12 @@ fn jit_run_inner(
     compiler.loop_break_types = loop_break_types.clone();
     compiler.class_method_slots = class_method_slots.clone();
     compiler.class_vtable_lens = class_vtable_lens.clone();
+    // Materialise synthetic Class/Fn decls from `@extern(C) { ... }`
+    // blocks once, up front. Subsequent phases iterate over both
+    // `prog.items` and these synthesised decls so the existing
+    // pipeline keeps working unchanged.
+    let extern_c_classes = synthesize_extern_c_classes(prog);
+    let extern_c_fns = synthesize_extern_c_fns(prog);
     // 1a. Register every class / enum name → id, with empty layouts.
     //     This way `Child { p: Parent.weak }` resolves even when Parent
     //     is declared after Child, and likewise for enum forward-refs.
@@ -123,6 +129,9 @@ fn jit_run_inner(
             Item::Enum(e) => compiler.declare_enum_layout(e)?,
             _ => {}
         }
+    }
+    for c in &extern_c_classes {
+        compiler.declare_class_name(c)?;
     }
     // Convert each AST-level closure meta to JitTy form.
     for (name, meta) in closure_meta_in {
@@ -191,11 +200,12 @@ fn jit_run_inner(
     //     outer. We sort the classes into dependency order with a
     //     small DFS topological sort — declaration order then no
     //     longer matters. A cycle is reported as an error.
-    let class_decls: Vec<&ClassDecl> = prog
+    let mut class_decls: Vec<&ClassDecl> = prog
         .items
         .iter()
         .filter_map(|i| if let Item::Class(c) = i { Some(c) } else { None })
         .collect();
+    class_decls.extend(extern_c_classes.iter());
     let order = topo_sort_classes(&class_decls)?;
     for idx in order {
         compiler.finalize_class_layout(class_decls[idx])?;
@@ -206,8 +216,11 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.declare_fn(f)?,
             Item::Class(c) => compiler.declare_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
         }
+    }
+    for f in &extern_c_fns {
+        compiler.declare_fn(f)?;
     }
     // 2b. Declare per-class drop wrappers so `new` lowering can embed
     //     their function pointers in the allocation header. Bodies are
@@ -231,8 +244,11 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.define_fn(f)?,
             Item::Class(c) => compiler.define_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
         }
+    }
+    for f in &extern_c_fns {
+        compiler.define_fn(f)?;
     }
     let main_ret = compiler.define_main(prog)?;
     // 4. Define drop wrappers. Class drops can reference user deinit;
@@ -566,6 +582,109 @@ pub(crate) fn repr_c_by_value_kind(layout: &crate::ty::ClassLayout) -> ByValueKi
 /// creates a parent-before-child dependency. The sort lets users
 /// declare classes in any order; a cycle (which would mean an
 /// infinite-size struct) is reported as an error.
+/// Materialise a `ClassDecl` for every `struct` / `union` declared
+/// inside an `@extern(C) { ... }` block. The synthesised decls go
+/// through the same layout / drop / vtable pipeline as user-written
+/// `@repr(C) class` decls — `is_repr_c` is always set, and `is_packed`
+/// / `is_union` flow through from the block's attributes.
+pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
+    let mut out = Vec::new();
+    for item in &prog.items {
+        let Item::ExternC(block) = item else { continue };
+        for inner in &block.items {
+            match inner {
+                ilang_ast::ExternCItem::Struct {
+                    name, fields, is_packed, span,
+                } => {
+                    out.push(ClassDecl {
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        parent: None,
+                        fields: fields.clone(),
+                        methods: Vec::new(),
+                        static_methods: Vec::new(),
+                        static_fields: Vec::new(),
+                        properties: Vec::new(),
+                        extern_lib: None,
+                        is_repr_c: true,
+                        is_packed: *is_packed,
+                        is_union: false,
+                        span: *span,
+                    });
+                }
+                ilang_ast::ExternCItem::Union { name, fields, span } => {
+                    out.push(ClassDecl {
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        parent: None,
+                        fields: fields.clone(),
+                        methods: Vec::new(),
+                        static_methods: Vec::new(),
+                        static_fields: Vec::new(),
+                        properties: Vec::new(),
+                        extern_lib: None,
+                        is_repr_c: true,
+                        is_packed: false,
+                        is_union: true,
+                        span: *span,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+/// Materialise a `FnDecl` for every fn declared inside an
+/// `@extern(C) { ... }` block. Decl-only items become `@extern(C[,
+/// "lib"])` fns (no body, dlsym'd / host-registered); definitions
+/// reuse the parsed body unchanged with a synthetic `@extern(C)`
+/// attribute so the JIT applies the C calling convention.
+pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> {
+    use ilang_ast::AttrArg;
+    let mut out = Vec::new();
+    for item in &prog.items {
+        let Item::ExternC(block) = item else { continue };
+        for inner in &block.items {
+            match inner {
+                ilang_ast::ExternCItem::FnDecl {
+                    name, params, ret, lib, span,
+                } => {
+                    // `@extern("libname")` for the dlsym path; bare
+                    // `@extern` for host-side. Mirrors how user
+                    // code wrote it before the block syntax.
+                    let attr_args = match lib {
+                        Some(s) => vec![AttrArg::Str(s.clone())],
+                        None => Vec::new(),
+                    };
+                    out.push(ilang_ast::FnDecl {
+                        attrs: vec![ilang_ast::Attribute {
+                            name: "extern".to_string(),
+                            args: attr_args,
+                        }],
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        params: params.clone(),
+                        ret: ret.clone(),
+                        body: ilang_ast::Block {
+                            stmts: Vec::new(),
+                            tail: None,
+                        },
+                        span: *span,
+                        is_override: false,
+                    });
+                }
+                ilang_ast::ExternCItem::FnDef(f) => {
+                    out.push(f.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 fn topo_sort_classes(classes: &[&ClassDecl]) -> Result<Vec<usize>, CodegenError> {
     use std::collections::HashSet;
     let mut name_to_idx = HashMap::with_capacity(classes.len());
