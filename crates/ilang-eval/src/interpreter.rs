@@ -191,10 +191,22 @@ impl Interpreter {
         }
         let mut last = Value::Unit;
         for s in &prog.stmts {
-            last = self.exec_stmt(s)?;
+            match self.exec_stmt(s) {
+                Ok(v) => last = v,
+                // Top-level `return` exits the program with the
+                // last produced value — not the returned value
+                // itself, since top-level return carries no value
+                // (rejected by the type checker).
+                Err(RuntimeError::Return(_)) => return Ok(last),
+                Err(e) => return Err(e),
+            }
         }
         if let Some(tail) = &prog.tail {
-            last = self.eval_expr(tail)?;
+            match self.eval_expr(tail) {
+                Ok(v) => last = v,
+                Err(RuntimeError::Return(_)) => return Ok(last),
+                Err(e) => return Err(e),
+            }
         }
         Ok(last)
     }

@@ -66,120 +66,117 @@ fn make_beep(freq_hz: f64, ms: i32): i16[] {
     buf
 }
 
-fn main() {
-    let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO)
-    if rc < 0 {
-        console.log("SDL_Init failed: " + sdl.getError())
-        return
-    }
-
-    let win = new sdl.Window("ilang × SDL2", WIN_W, WIN_H)
-    if win.handle == 0 {
-        console.log("SDL_CreateWindow failed: " + sdl.getError())
-        sdl.quit()
-        return
-    }
-
-    let ren = new sdl.Renderer(win.handle)
-    if ren.handle == 0 {
-        console.log("SDL_CreateRenderer failed: " + sdl.getError())
-        sdl.quit()
-        return
-    }
-
-    let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
-    if audio.id == 0 {
-        console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
-        sdl.quit()
-        return
-    }
-    audio.play()
-    let beep = make_beep(BEEP_HZ, BEEP_MS)
-
-    console.log("playing for 5 seconds")
-
-    // Game state.
-    let ball_x: i32 = 100
-    let ball_y: i32 = 100
-    let ball_vx: i32 = 5
-    let ball_vy: i32 = 4
-    let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
-    let paddle_y: i32 = WIN_H - PADDLE_H - 20
-
-    let elapsed: u32 = 0
-    while elapsed < PLAY_MS {
-        // Drain SDL events so the OS run loop advances and the
-        // keyboard-state snapshot reflects the current frame.
-        sdl.pumpEvents()
-
-        // ESC quits early.
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) {
-            elapsed = PLAY_MS
-        }
-
-        // Paddle: arrow keys or A/D move horizontally, clamped to
-        // the window edges.
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) {
-            paddle_x = paddle_x - PADDLE_SPEED
-        }
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) {
-            paddle_x = paddle_x + PADDLE_SPEED
-        }
-        if paddle_x < 0 {
-            paddle_x = 0
-        }
-        if paddle_x + PADDLE_W > WIN_W {
-            paddle_x = WIN_W - PADDLE_W
-        }
-
-        // Update — bounce the ball off all four edges, beeping on
-        // each bounce.
-        ball_x = ball_x + ball_vx
-        ball_y = ball_y + ball_vy
-        let bounced = false
-        if ball_x < 0 {
-            ball_x = 0
-            ball_vx = 0 - ball_vx
-            bounced = true
-        }
-        if ball_x + BALL_SIZE > WIN_W {
-            ball_x = WIN_W - BALL_SIZE
-            ball_vx = 0 - ball_vx
-            bounced = true
-        }
-        if ball_y < 0 {
-            ball_y = 0
-            ball_vy = 0 - ball_vy
-            bounced = true
-        }
-        if ball_y + BALL_SIZE > WIN_H {
-            ball_y = WIN_H - BALL_SIZE
-            ball_vy = 0 - ball_vy
-            bounced = true
-        }
-        if bounced {
-            audio.queue(beep)
-        }
-
-        // Render — clear to dark blue, draw paddle (white)
-        // and ball (red), then present.
-        ren.setColor(20, 24, 48, 255)
-        ren.clear()
-
-        ren.setColor(240, 240, 240, 255)
-        ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
-
-        ren.setColor(220, 60, 60, 255)
-        ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
-
-        ren.present()
-        sdl.delay(FRAME_MS)
-        elapsed += FRAME_MS
-    }
-
-    // audio / ren / win deinit fires automatically as the bindings
-    // leave scope (audio first, then renderer, then window).
-    sdl.quit()
+let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO)
+if rc < 0 {
+    console.log("SDL_Init failed: " + sdl.getError())
+    return
 }
 
-main()
+let win = new sdl.Window("ilang × SDL2", WIN_W, WIN_H)
+if win.handle == 0 {
+    console.log("SDL_CreateWindow failed: " + sdl.getError())
+    sdl.quit()
+    return
+}
+
+let ren = new sdl.Renderer(win.handle)
+if ren.handle == 0 {
+    console.log("SDL_CreateRenderer failed: " + sdl.getError())
+    sdl.quit()
+    return
+}
+
+let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
+if audio.id == 0 {
+    console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
+    sdl.quit()
+    return
+}
+audio.play()
+let beep = make_beep(BEEP_HZ, BEEP_MS)
+
+console.log("playing for 5 seconds")
+
+// Game state.
+let ball_x: i32 = 100
+let ball_y: i32 = 100
+let ball_vx: i32 = 5
+let ball_vy: i32 = 4
+let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
+let paddle_y: i32 = WIN_H - PADDLE_H - 20
+
+let elapsed: u32 = 0
+while elapsed < PLAY_MS {
+    // Drain SDL events so the OS run loop advances and the
+    // keyboard-state snapshot reflects the current frame.
+    sdl.pumpEvents()
+
+    // ESC quits early.
+    if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) {
+        elapsed = PLAY_MS
+    }
+
+    // Paddle: arrow keys or A/D move horizontally, clamped to
+    // the window edges.
+    if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) {
+        paddle_x = paddle_x - PADDLE_SPEED
+    }
+    if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) {
+        paddle_x = paddle_x + PADDLE_SPEED
+    }
+    if paddle_x < 0 {
+        paddle_x = 0
+    }
+    if paddle_x + PADDLE_W > WIN_W {
+        paddle_x = WIN_W - PADDLE_W
+    }
+
+    // Update — bounce the ball off all four edges, beeping on
+    // each bounce.
+    ball_x = ball_x + ball_vx
+    ball_y = ball_y + ball_vy
+    let bounced = false
+    if ball_x < 0 {
+        ball_x = 0
+        ball_vx = 0 - ball_vx
+        bounced = true
+    }
+    if ball_x + BALL_SIZE > WIN_W {
+        ball_x = WIN_W - BALL_SIZE
+        ball_vx = 0 - ball_vx
+        bounced = true
+    }
+    if ball_y < 0 {
+        ball_y = 0
+        ball_vy = 0 - ball_vy
+        bounced = true
+    }
+    if ball_y + BALL_SIZE > WIN_H {
+        ball_y = WIN_H - BALL_SIZE
+        ball_vy = 0 - ball_vy
+        bounced = true
+    }
+    if bounced {
+        audio.queue(beep)
+    }
+
+    // Render — clear to dark blue, draw paddle (white)
+    // and ball (red), then present.
+    ren.setColor(20, 24, 48, 255)
+    ren.clear()
+
+    ren.setColor(240, 240, 240, 255)
+    ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
+
+    ren.setColor(220, 60, 60, 255)
+    ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
+
+    ren.present()
+    sdl.delay(FRAME_MS)
+    elapsed += FRAME_MS
+}
+
+// audio / ren / win deinit fires automatically as the bindings
+// leave scope (audio first, then renderer, then window).
+sdl.quit()
+

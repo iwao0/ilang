@@ -2526,14 +2526,18 @@ impl TypeChecker {
                 span,
             }),
             ExprKind::Return(value) => {
-                let expected = match ret_ty {
-                    Some(t) => t.clone(),
-                    None => {
+                // Top-level `return` is allowed as an early-exit
+                // from the program. Carrying a value is rejected
+                // there — the program's value is its tail expr,
+                // not a `return value`.
+                let Some(expected) = ret_ty.cloned() else {
+                    if value.is_some() {
                         return Err(TypeError::Unsupported {
-                            what: "`return` outside of a function body".into(),
+                            what: "top-level `return` cannot carry a value (the program's value is its tail expression)".into(),
                             span,
                         });
                     }
+                    return Ok(Type::Unit);
                 };
                 match value {
                     Some(v) => {
