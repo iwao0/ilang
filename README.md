@@ -1,26 +1,41 @@
-# ilang
+# 🚀 ilang
 
 English | [日本語](docs/README_ja.md)
 
-A compiler/runtime for **ilang**, a new programming language under
-active design.
+> 🦀 **ARC** memory safety · ⚡ **Cranelift JIT** · 🔗 **C FFI** · 🎮 ships with an **SDL2 game demo**
 
-## Vision
+A compiler/runtime for **ilang**, a young programming language
+under active design. Tree-walking interpreter for fast feedback,
+Cranelift JIT for performance, and a Rust-flavoured surface syntax
+that talks to C libraries when you need to.
 
-- **Capability-based security** — libraries and classes carry
+```rust
+fn fib(n: i64): i64 {
+    if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+}
+console.log(fib(20))    // → 6765
+```
+
+---
+
+## ✨ Vision
+
+- 🛡️ **Capability-based security** — libraries and classes carry
   permissions like `net`, `file`; the host grants them at use sites
-  to reduce supply-chain blast radius.
-- **ARC** for memory safety — no ownership / `mut` / borrow checker.
-- **Rust-flavoured** declarations and type names.
-- **C / JavaScript** arithmetic semantics (operator precedence,
+  to reduce supply-chain blast radius. *(annotations parse today;
+  enforcement is the next big milestone)*
+- 🦀 **ARC** for memory safety — no ownership / `mut` / borrow
+  checker.
+- 🦀 **Rust-flavoured** declarations and type names.
+- 🌐 **C / JavaScript** arithmetic semantics (operator precedence,
   integer-promotion behaviour).
 
-## Syntax cheatsheet
+## 📚 Syntax cheatsheet
 
 The implemented syntax / types / built-ins are catalogued in
 **[docs/syntax.md](docs/syntax.md)**.
 
-## Status
+## ✅ Status
 
 | Category | Status |
 | --- | :---: |
@@ -43,13 +58,13 @@ The implemented syntax / types / built-ins are catalogued in
 | Type checking | ✅ |
 | Cranelift JIT (`ilang run --jit`) | ✅ |
 | FFI (`@extern(C) {}` blocks calling C libraries) | ✅ |
-| Capability annotations | parse-only |
+| Capability annotations | 🚧 parse-only |
 
 No ownership / `mut` / borrow checker — every variable is
 reassignable. Errors are emitted in the uniform
 `filename [row:col]: message` format.
 
-## Setup
+## 🔧 Setup
 
 ilang is implemented in Rust, so you'll need a **Rust toolchain**
 (rustup / cargo). If it isn't installed, grab it from
@@ -67,18 +82,18 @@ cd ilang
 cargo build           # first run resolves deps + compiles (~1 minute)
 ```
 
-## Usage
+## 🚀 Usage
 
 ```sh
-# REPL — let / fn persist across lines, interpreter mode
+# 💬 REPL — let / fn persist across lines, interpreter mode
 cargo run -p ilang-cli
 
-# Run a file (`;` is optional, newlines act as statement separators
-# JS-ASI style)
+# 📄 Run a file (`;` is optional, newlines act as statement separators
+#    JS-ASI style)
 cargo run -p ilang-cli -- run path/to/script.il
 
-# Run via the JIT (Cranelift native code — tens to hundreds of times
-# faster than the interpreter)
+# ⚡ Run via the JIT (Cranelift native code — tens to hundreds of times
+#    faster than the interpreter)
 cargo run -p ilang-cli -- run --jit path/to/script.il
 ```
 
@@ -87,7 +102,7 @@ sample below, for example) is **JIT-only**. Symbols are resolved
 through dlsym at JIT-build time, so the interpreter has no path to
 those functions.
 
-### Sample: count multiples of 3 or 5 from 1 to 100
+### 🧮 Sample: count multiples of 3 or 5 from 1 to 100
 
 ```sh
 cat > sample.il <<'EOF'
@@ -107,7 +122,7 @@ EOF
 cargo run -p ilang-cli -- run sample.il   # => 47
 ```
 
-### Classes
+### 🧱 Classes
 
 JS-flavoured objects with `class` / `new` / `init` (constructor) /
 `this`. Inside method bodies you can omit `this.` for fields and
@@ -136,7 +151,7 @@ EOF
 cargo run -p ilang-cli -- run counter.il   # => 16
 ```
 
-### Sample: an SDL2 game window
+### 🎮 Sample: an SDL2 game window
 
 `examples/sdl_bouncing_ball/` contains an SDL2 demo: a ball bounces
 around the window, beeping every time it hits a wall. The arrow
@@ -146,10 +161,10 @@ early.
 Install SDL2 first:
 
 ```sh
-# macOS (Homebrew)
+# 🍎 macOS (Homebrew)
 brew install sdl2
 
-# Debian/Ubuntu
+# 🐧 Debian/Ubuntu
 sudo apt install libsdl2-dev libsdl2-2.0-0
 ```
 
@@ -179,7 +194,7 @@ The CLI walks upward from the entry file looking for `ilang.toml`
 at startup; each `[deps]` value becomes an additional search
 directory for `use module` resolution.
 
-## Development
+## 🛠️ Development
 
 Run the whole test suite — Rust unit tests across every crate plus
 the language-level fixtures under
@@ -191,6 +206,6 @@ magic comments asserting the outcome):
 cargo test --workspace
 ```
 
-## License
+## 📄 License
 
 MIT OR Apache-2.0
