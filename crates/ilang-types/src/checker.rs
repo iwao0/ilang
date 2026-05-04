@@ -1432,6 +1432,23 @@ impl TypeChecker {
                     }
                     None => vt,
                 };
+                // Outside `@extern(C) {}`, raw C pointer / `char` /
+                // `void` / `size_t` / `ssize_t` values cannot be
+                // bound to a name — that would let them escape into
+                // user code, defeating the encapsulation. Wrap the
+                // FFI call in an `@extern(C)` fn instead.
+                if !*self.in_extern_c.borrow() {
+                    if let Some(c_only) = first_c_only_type(&bind) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "value of type {bind} cannot be bound outside an \
+                                 @extern(C) {{ ... }} block (contains the C-only type \
+                                 {c_only}); wrap the FFI call in an @extern(C) fn"
+                            ),
+                            span: value.span,
+                        });
+                    }
+                }
                 env.insert(name.clone(), bind);
                 Ok(Type::Unit)
             }
@@ -3340,6 +3357,23 @@ impl TypeChecker {
             }
         }
         Ok(())
+    }
+}
+
+/// Return the first C-only type encountered in `t` (raw pointer,
+/// `char`, `void`, `size_t`, `ssize_t`), recursing through composite
+/// shapes. `None` if `t` is fully ilang-native.
+fn first_c_only_type(t: &Type) -> Option<&Type> {
+    match t {
+        Type::RawPtr { .. } | Type::CVoid | Type::CChar | Type::Size | Type::SSize => Some(t),
+        Type::Array { elem, .. } => first_c_only_type(elem),
+        Type::Optional(inner) | Type::Weak(inner) => first_c_only_type(inner),
+        Type::Generic { args, .. } => args.iter().find_map(first_c_only_type),
+        Type::Fn { params, ret } => params
+            .iter()
+            .find_map(first_c_only_type)
+            .or_else(|| first_c_only_type(ret)),
+        _ => None,
     }
 }
 

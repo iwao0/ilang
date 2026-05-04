@@ -13,10 +13,16 @@ use test
 @extern(C) {
     struct FILE {}
     @lib("c") fn fopen(path: *const char, mode: *const char): *FILE
+
+    // Wrap fopen so the raw `*const char` / `*FILE` values stay
+    // entirely inside the block. Returns 1 on success, 0 on
+    // failure — that's all the caller needs to drive errno.
+    fn tryOpen(path: string, mode: string): i32 {
+        let f = fopen(cstrFromString(path), cstrFromString(mode))
+        if (f as i64) == 0 { 0 as i32 } else { 1 as i32 }
+    }
 }
 
-let path = cstrFromString("/this/path/cannot/possibly/exist__ilang_test")
-let mode = cstrFromString("r")
-let _ = fopen(path, mode)
+let _ = tryOpen("/this/path/cannot/possibly/exist__ilang_test", "r")
 let e = os.errno()
 test.expectTrue(e > 0)

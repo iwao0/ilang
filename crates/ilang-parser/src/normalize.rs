@@ -121,7 +121,21 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
         Item::Use(u) => Item::Use(u),
         Item::Const(c) => Item::Const(c),
         Item::ExternStatic(s) => Item::ExternStatic(s),
-        Item::ExternC(b) => Item::ExternC(b),
+        Item::ExternC(mut b) => {
+            // Walk fn definitions inside the block so module-qualified
+            // calls (`test.foo(x)`) get rewritten to `Call("test.foo", x)`
+            // the same way they would in regular fn bodies.
+            for inner in &mut b.items {
+                if let ilang_ast::ExternCItem::FnDef(f) = inner {
+                    let body = std::mem::replace(
+                        &mut f.body,
+                        Block { stmts: Vec::new(), tail: None },
+                    );
+                    f.body = rewrite_block(body, ctx);
+                }
+            }
+            Item::ExternC(b)
+        }
     }
 }
 
