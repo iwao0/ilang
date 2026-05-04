@@ -23,7 +23,7 @@
 }
 
 // Init flag constants. Pass these (OR'd together) to `init`.
-const INIT_TIMER: i64 = 0x00000001
-const INIT_AUDIO: i64 = 0x00000010
-const INIT_VIDEO: i64 = 0x00000020
-const INIT_EVENTS: i64 = 0x00004000
+const INIT_TIMER: u32 = 0x00000001
+const INIT_AUDIO: u32 = 0x00000010
+const INIT_VIDEO: u32 = 0x00000020
+const INIT_EVENTS: u32 = 0x00004000

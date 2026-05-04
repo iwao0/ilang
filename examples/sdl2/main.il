@@ -21,7 +21,7 @@ const PADDLE_W: i64 = 120
 const PADDLE_H: i64 = 16
 
 fn main() {
-    let rc = sdl.init(sdl.INIT_VIDEO as u32)
+    let rc = sdl.init(sdl.INIT_VIDEO)
     if rc < 0 as i32 {
         console.log("SDL_Init failed: " + sdl.getError())
         return
