@@ -1251,7 +1251,12 @@ impl TypeChecker {
         if f.attrs.iter().any(|a| a.name == "extern") {
             return Ok(());
         }
-        let mut env: Vars = HashMap::new();
+        // Seed the body env with module-level globals (the built-in
+        // `console` singleton plus any `static` declarations from
+        // `@extern(C) {}` blocks). Top-level `let` bindings are NOT
+        // here yet at fn-body-check time — they get checked after
+        // all fn bodies, matching most module systems.
+        let mut env: Vars = self.vars.clone();
         // Closure wrapper: the body's "free" vars actually resolve
         // to captured values. Pre-populate the env with their
         // declared types so the body type-checks. Used by the
