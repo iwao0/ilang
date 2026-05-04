@@ -203,6 +203,52 @@ pub enum Item {
     /// stores the symbol address; reads/writes lower to a load/store
     /// against that address. Type is restricted to numeric / bool.
     ExternStatic(ExternStaticDecl),
+    /// `@extern(C) { ... }` — C ABI block. Inside this block raw
+    /// pointer types (`*char`, `*void`, `*const T`, etc.) are
+    /// nameable, and `struct` / `union` declarations replace `class`.
+    /// Items declared here use the C calling convention. Raw pointer
+    /// values cannot escape the block — extern fn returns of pointer
+    /// type must be wrapped by an in-block helper that converts to
+    /// an ilang type.
+    ExternC(ExternCBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternCBlock {
+    pub items: Vec<ExternCItem>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExternCItem {
+    /// C struct (= `@repr(C) class` equivalent inside the block).
+    /// Methods / properties are not allowed; only fields. `packed`
+    /// and `@bits(N)` are still supported.
+    Struct {
+        name: String,
+        fields: Vec<FieldDecl>,
+        is_packed: bool,
+        span: Span,
+    },
+    /// C union — every field at offset 0, size = max field size.
+    Union {
+        name: String,
+        fields: Vec<FieldDecl>,
+        span: Span,
+    },
+    /// `@lib("libname") fn name(...): T` — declaration only, dlsym'd
+    /// from the named library. `lib = None` for host-side externs
+    /// pre-registered via `JITBuilder::symbol`.
+    FnDecl {
+        name: String,
+        params: Vec<Param>,
+        ret: Option<crate::types::Type>,
+        lib: Option<String>,
+        span: Span,
+    },
+    /// `fn name(...): T { body }` — ilang-side definition with C ABI.
+    /// Used to write callbacks that C will call back into.
+    FnDef(FnDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]

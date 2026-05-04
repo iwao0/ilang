@@ -52,6 +52,27 @@ pub enum Type {
     /// that accept any value. The parser does not produce it; user code
     /// cannot annotate a binding with it.
     Any,
+    /// Raw C pointer — only nameable inside an `@extern(C) { ... }`
+    /// block. `*char`, `*void`, `*const char`, `*i32`, `*MyStruct`,
+    /// etc. The bool is `true` for `*const T`, `false` for plain `*T`
+    /// (no `*mut` exists; mutability is the default since C lacks the
+    /// distinction at the type-system level we model). Values of this
+    /// type cannot escape the block — extern fn returns of pointer
+    /// type must be wrapped by an in-block helper that converts to
+    /// an ilang type.
+    RawPtr { is_const: bool, inner: Box<Type> },
+    /// `void` — only valid as the inner of `*void` / `*const void`.
+    /// Has no values.
+    CVoid,
+    /// `char` — C `char` type. Inside an `@extern(C)` block, distinct
+    /// from `i8` / `u8` to convey C-string-ness. Same ABI as i8.
+    CChar,
+    /// `size_t` — pointer-width unsigned integer. Aliases `u64` on
+    /// 64-bit targets.
+    Size,
+    /// `ssize_t` — pointer-width signed integer. Aliases `i64` on
+    /// 64-bit targets.
+    SSize,
 }
 
 impl Type {
@@ -140,6 +161,12 @@ impl std::fmt::Display for Type {
             Type::Optional(inner) => write!(f, "{inner}?"),
             Type::Weak(inner) => write!(f, "{inner}.weak"),
             Type::Any => write!(f, "any"),
+            Type::RawPtr { is_const: true, inner } => write!(f, "*const {inner}"),
+            Type::RawPtr { is_const: false, inner } => write!(f, "*{inner}"),
+            Type::CVoid => write!(f, "void"),
+            Type::CChar => write!(f, "char"),
+            Type::Size => write!(f, "size_t"),
+            Type::SSize => write!(f, "ssize_t"),
         }
     }
 }

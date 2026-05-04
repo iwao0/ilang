@@ -121,6 +121,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
         Item::Use(u) => Item::Use(u),
         Item::Const(c) => Item::Const(c),
         Item::ExternStatic(s) => Item::ExternStatic(s),
+        Item::ExternC(b) => Item::ExternC(b),
     }
 }
 

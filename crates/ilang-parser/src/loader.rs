@@ -289,6 +289,7 @@ fn item_name_of(item: &Item) -> Option<String> {
         Item::Enum(e) => Some(e.name.clone()),
         Item::Const(c) => Some(c.name.clone()),
         Item::ExternStatic(s) => Some(s.name.clone()),
+        Item::ExternC(_) => None,
         Item::Use(_) => None,
     }
 }
@@ -400,6 +401,13 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             // stash that for the dlsym pass to find.
             s.name = format!("{prefix}.{}", s.name);
             Item::ExternStatic(s)
+        }
+        Item::ExternC(b) => {
+            // ExternC blocks are leaf containers — module prefixing
+            // doesn't traverse into their items (FFI symbol names
+            // are intentionally raw, dlsym needs the unprefixed C
+            // symbol).
+            Item::ExternC(b)
         }
     }
 }

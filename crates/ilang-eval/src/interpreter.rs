@@ -62,6 +62,9 @@ impl Interpreter {
                     // a real C global. References resolve at the call
                     // site (where the interpreter would error).
                 }
+                Item::ExternC(_) => {
+                    // JIT-only. The interpreter has no native FFI path.
+                }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), c.clone());
                     // Initialise each static field. The loader has

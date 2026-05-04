@@ -729,6 +729,11 @@ impl TypeChecker {
                     // `let x = errno` resolve.
                     self.vars.insert(s.name.clone(), s.ty.clone());
                 }
+                Item::ExternC(_) => {
+                    // Block-internal type checking happens in a
+                    // dedicated pass (see check_extern_c) that
+                    // applies the raw-pointer scoping rules.
+                }
             }
         }
         for item in &prog.items {
@@ -736,7 +741,7 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
-                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
+                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
             }
         }
 
