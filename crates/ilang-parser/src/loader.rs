@@ -404,21 +404,56 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
         }
         Item::ExternC(mut b) => {
             // Prefix the ilang-side names of the block's items so
-            // callers can write `module.errno` etc. Host-form fns
-            // (no @lib) are registered with the prefixed name (see
-            // test_externs::register_*). Library-form (@lib) fns
-            // would need the original C symbol preserved; that's a
-            // future concern — current stdlib doesn't have any.
+            // callers can write `module.fn` etc. For library-form
+            // (@lib) FnDecls, preserve the original C symbol name in
+            // `c_symbol` so dlsym still finds it after the ilang name
+            // has been rewritten to the prefixed form. Host-form fns
+            // (no @lib) keep using the prefixed name as the symbol —
+            // host registration code uses the prefixed name to match.
+            //
+            // Field / param / ret / static types also get prefixed so
+            // intra-block references (e.g. `*SDL_Window` returning
+            // from a fn that declared the struct) keep resolving.
             for inner in &mut b.items {
                 match inner {
-                    ilang_ast::ExternCItem::Struct { name, .. }
-                    | ilang_ast::ExternCItem::Union { name, .. }
-                    | ilang_ast::ExternCItem::FnDecl { name, .. }
-                    | ilang_ast::ExternCItem::Static { name, .. } => {
+                    ilang_ast::ExternCItem::Struct { name, fields, .. }
+                    | ilang_ast::ExternCItem::Union { name, fields, .. } => {
                         *name = format!("{prefix}.{name}");
+                        for f in fields {
+                            f.ty = prefix_type(&f.ty, prefix);
+                        }
+                    }
+                    ilang_ast::ExternCItem::Static { name, ty, .. } => {
+                        *name = format!("{prefix}.{name}");
+                        *ty = prefix_type(ty, prefix);
+                    }
+                    ilang_ast::ExternCItem::FnDecl {
+                        name, libs, c_symbol, params, ret, ..
+                    } => {
+                        if !libs.is_empty() && c_symbol.is_none() {
+                            *c_symbol = Some(name.clone());
+                        }
+                        *name = format!("{prefix}.{name}");
+                        for p in params.iter_mut() {
+                            p.ty = prefix_type(&p.ty, prefix);
+                        }
+                        if let Some(rt) = ret.as_mut() {
+                            *rt = prefix_type(rt, prefix);
+                        }
                     }
                     ilang_ast::ExternCItem::FnDef(f) => {
                         f.name = format!("{prefix}.{}", f.name);
+                        for p in f.params.iter_mut() {
+                            p.ty = prefix_type(&p.ty, prefix);
+                        }
+                        if let Some(rt) = f.ret.as_mut() {
+                            *rt = prefix_type(rt, prefix);
+                        }
+                        let body = std::mem::replace(
+                            &mut f.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        f.body = prefix_block_calls(body, prefix);
                     }
                 }
             }
@@ -459,13 +494,20 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
     let kind = match e.kind {
         // Function calls within a module: a bare `helper(x)` could
         // refer to the module's own `helper`. We rewrite these to the
-        // prefixed form. Built-ins (console.log not a Call here) and
-        // local fn-value calls are unaffected by this since they go
-        // through other AST shapes.
-        ExprKind::Call { callee, args } => ExprKind::Call {
-            callee: format!("{prefix}.{}", callee),
-            args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
-        },
+        // prefixed form. Built-ins (FFI marshalling helpers,
+        // already-qualified `module.fn` shapes that get parsed as
+        // MethodCall, etc.) are skipped.
+        ExprKind::Call { callee, args } => {
+            let new_callee = if is_builtin_callee(&callee) {
+                callee
+            } else {
+                format!("{prefix}.{}", callee)
+            };
+            ExprKind::Call {
+                callee: new_callee,
+                args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+            }
+        }
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class: format!("{prefix}.{}", class),
             type_args: type_args.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
@@ -667,8 +709,29 @@ fn prefix_type(t: &Type, prefix: &str) -> Type {
             params: params.iter().map(|p| prefix_type(p, prefix)).collect(),
             ret: Box::new(prefix_type(ret, prefix)),
         },
+        Type::RawPtr { is_const, inner } => Type::RawPtr {
+            is_const: *is_const,
+            inner: Box::new(prefix_type(inner, prefix)),
+        },
         _ => t.clone(),
     }
+}
+
+/// Names that should never get module-prefixed at Call sites — the
+/// FFI marshalling helpers shipped by the type checker (mirrors the
+/// `FFI_HELPERS` list in `ilang-types`).
+fn is_builtin_callee(name: &str) -> bool {
+    matches!(
+        name,
+        "stringFromCstr"
+            | "cstrFromString"
+            | "freeCstr"
+            | "bytesFromBuffer"
+            | "arrayFromCArray"
+            | "cstrArrayToStrings"
+            | "errnoCheck"
+            | "errnoCheckI64"
+    )
 }
 
 fn is_builtin_type(name: &str) -> bool {
