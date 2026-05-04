@@ -25,8 +25,8 @@
 
         init(title: string, w: i32, h: i32) {
             // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000 (centred-on-default-display).
-            let undef = 0x1FFF0000 as i32
-            let flags = 0 as u32
+            let undef: i32 = 0x1FFF0000
+            let flags: u32 = 0
             let win = SDL_CreateWindow(
                 cstrFromString(title), undef, undef, w, h, flags
             )

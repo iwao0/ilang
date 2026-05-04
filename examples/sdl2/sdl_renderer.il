@@ -40,7 +40,7 @@
             // index = -1 picks the first available driver;
             // flags = 0 means default (driver-chosen accelerated).
             this.handle = SDL_CreateRenderer(
-                window_handle as *void, -1 as i32, 0 as u32
+                window_handle as *void, -1, 0
             ) as i64
         }
 

@@ -3,15 +3,20 @@
 // and a stationary "paddle" along the bottom. Runs for 5 seconds
 // at ~60fps then tears everything down.
 //
-// Window / Renderer are ARC-managed classes — `deinit` automatically
-// runs SDL_DestroyWindow / SDL_DestroyRenderer when the bindings
-// leave scope, so the only explicit cleanup the caller writes is
-// `sdl.quit()` for the SDL subsystems themselves.
+// Window / Renderer / AudioDevice are ARC-managed classes — `deinit`
+// automatically runs the matching SDL_*Destroy / SDL_CloseAudioDevice
+// when the bindings leave scope, so the only explicit cleanup the
+// caller writes is `sdl.quit()` for the SDL subsystems themselves.
+//
+// Controls:
+//   ←/→  or  A/D  — move the paddle
+//   ESC          — exit early
 //
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
 //   ilang run --jit examples/sdl2/main.il
 
 use sdl
+use math
 
 // Coordinates / sizes are i32 to match SDL's int-based API. Time
 // values are u32 (SDL_Delay / SDL_GetTicks contract).
@@ -24,9 +29,42 @@ const PADDLE_H: i32 = 16
 
 const PLAY_MS: u32 = 5000
 const FRAME_MS: u32 = 16
+const PADDLE_SPEED: i32 = 8
+
+const SAMPLE_RATE: i32 = 44100
+const BEEP_HZ: f64 = 660.0
+const BEEP_MS: i32 = 80
+const BEEP_AMP: f64 = 8000.0
+
+// Pre-render a short sine-wave beep. Returns an `i16[]` ready to be
+// queued straight into an `AudioDevice` (mono, 44.1 kHz, S16LE).
+fn make_beep(freq_hz: f64, ms: i32): i16[] {
+    let n = (SAMPLE_RATE * ms) / 1000
+    let buf: i16[] = []
+    let i: i32 = 0
+    let two_pi: f64 = 2.0 * math.pi
+    while i < n {
+        // Soft envelope so the beep doesn't click on start/stop:
+        // linear ramp up over the first ~5 ms, ramp down over the
+        // last ~5 ms.
+        let ramp = SAMPLE_RATE / 200    // ~5 ms in samples
+        let env: f64 = if i < ramp {
+            (i as f64) / (ramp as f64)
+        } elif i > n - ramp {
+            ((n - i) as f64) / (ramp as f64)
+        } else {
+            1.0
+        }
+        let t = (i as f64) / (SAMPLE_RATE as f64)
+        let sample = math.sin(two_pi * freq_hz * t) * BEEP_AMP * env
+        buf.push(sample as i16)
+        i += 1
+    }
+    buf
+}
 
 fn main() {
-    let rc = sdl.init(sdl.INIT_VIDEO)
+    let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO)
     if rc < 0 {
         console.log("SDL_Init failed: " + sdl.getError())
         return
@@ -46,6 +84,15 @@ fn main() {
         return
     }
 
+    let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
+    if audio.id == 0 {
+        console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
+        sdl.quit()
+        return
+    }
+    audio.play()
+    let beep = make_beep(BEEP_HZ, BEEP_MS)
+
     console.log("playing for 5 seconds")
 
     // Game state.
@@ -58,45 +105,77 @@ fn main() {
 
     let elapsed: u32 = 0
     while elapsed < PLAY_MS {
-        // Update — bounce the ball off all four edges.
+        // Drain SDL events so the OS run loop advances and the
+        // keyboard-state snapshot reflects the current frame.
+        sdl.pumpEvents()
+
+        // ESC quits early.
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) {
+            elapsed = PLAY_MS
+        }
+
+        // Paddle: arrow keys or A/D move horizontally, clamped to
+        // the window edges.
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) {
+            paddle_x = paddle_x - PADDLE_SPEED
+        }
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) {
+            paddle_x = paddle_x + PADDLE_SPEED
+        }
+        if paddle_x < 0 {
+            paddle_x = 0
+        }
+        if paddle_x + PADDLE_W > WIN_W {
+            paddle_x = WIN_W - PADDLE_W
+        }
+
+        // Update — bounce the ball off all four edges, beeping on
+        // each bounce.
         ball_x = ball_x + ball_vx
         ball_y = ball_y + ball_vy
+        let bounced = false
         if ball_x < 0 {
             ball_x = 0
             ball_vx = 0 - ball_vx
+            bounced = true
         }
         if ball_x + BALL_SIZE > WIN_W {
             ball_x = WIN_W - BALL_SIZE
             ball_vx = 0 - ball_vx
+            bounced = true
         }
         if ball_y < 0 {
             ball_y = 0
             ball_vy = 0 - ball_vy
+            bounced = true
         }
         if ball_y + BALL_SIZE > WIN_H {
             ball_y = WIN_H - BALL_SIZE
             ball_vy = 0 - ball_vy
+            bounced = true
+        }
+        if bounced {
+            audio.queue(beep)
         }
 
         // Render — clear to dark blue, draw paddle (white)
         // and ball (red), then present.
-        let _ = ren.setColor(20, 24, 48, 255)
-        let _ = ren.clear()
+        ren.setColor(20, 24, 48, 255)
+        ren.clear()
 
-        let _ = ren.setColor(240, 240, 240, 255)
-        let _ = ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
+        ren.setColor(240, 240, 240, 255)
+        ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
 
-        let _ = ren.setColor(220, 60, 60, 255)
-        let _ = ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
+        ren.setColor(220, 60, 60, 255)
+        ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
 
         ren.present()
-        sdl.pumpEvents()
         sdl.delay(FRAME_MS)
         elapsed += FRAME_MS
     }
 
-    // ren / win deinit fires automatically as they leave main()'s
-    // scope (renderer first, then window — reverse declaration order).
+    // audio / ren / win deinit fires automatically as the bindings
+    // leave scope (audio first, then renderer, then window).
     sdl.quit()
 }
 
