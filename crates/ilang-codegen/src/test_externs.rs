@@ -222,8 +222,6 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("maybe_byte_slice", test_maybe_byte_slice as *const u8);
     builder.symbol("maybe_succeed", test_maybe_succeed as *const u8);
     builder.symbol("maybe_succeed_i64", test_maybe_succeed_i64 as *const u8);
-    builder.symbol("parse_int_out", test_parse_int as *const u8);
-    builder.symbol("div_mod_out", test_div_mod as *const u8);
     builder.symbol("get_cstr_array", test_get_cstr_array as *const u8);
     builder.symbol("get_empty_cstr_array", test_get_empty_cstr_array as *const u8);
 }
@@ -299,35 +297,6 @@ extern "C" fn test_get_empty_cstr_array() -> *const *const u8 {
 
 // Mimics a POSIX call that returns -1 on failure (and would set
 // errno). Used to drive the `errnoCheck` flag's branch.
-// `out<T>`: caller hands the C side a `*mut T`; the helper writes
-// through it while returning a primary status code. Matches the
-// POSIX getsockopt / pthread_create idiom.
-extern "C" fn test_parse_int(s_ptr: i64, out_val: *mut i32) -> i32 {
-    if s_ptr == 0 {
-        return 0;
-    }
-    // Host extern: ilang passes a `StringRc*`, not a `*const c_char`.
-    let sr = unsafe { &*(s_ptr as *const StringRc) };
-    match sr.s.parse::<i32>() {
-        Ok(n) => {
-            unsafe { *out_val = n };
-            1
-        }
-        Err(_) => 0,
-    }
-}
-
-extern "C" fn test_div_mod(a: i32, b: i32, out_q: *mut i32, out_r: *mut i32) -> i32 {
-    if b == 0 {
-        return -1;
-    }
-    unsafe {
-        *out_q = a / b;
-        *out_r = a % b;
-    }
-    0
-}
-
 extern "C" fn test_maybe_succeed(ok: i32) -> i32 {
     if ok != 0 { 42 } else { -1 }
 }

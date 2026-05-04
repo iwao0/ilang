@@ -1027,16 +1027,7 @@ impl<'a> Parser<'a> {
                         //   Pair<string, i64> → Generic { Pair, [Str, I64] }
                         if matches!(self.peek().kind, TokenKind::Lt) {
                             let args = self.parse_type_args()?;
-                            // `out<T>` is a recognised marshalling
-                            // type — the parser materialises it as
-                            // `Type::Out(T)` so the type checker /
-                            // JIT see the role explicitly instead of
-                            // a generic with a hard-coded base.
-                            if n == "out" && args.len() == 1 {
-                                Type::Out(Box::new(args.into_iter().next().unwrap()))
-                            } else {
-                                Type::Generic { base: n, args }
-                            }
+                            Type::Generic { base: n, args }
                         } else {
                             Type::Object(n)
                         }

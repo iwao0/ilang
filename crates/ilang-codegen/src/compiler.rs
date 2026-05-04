@@ -442,13 +442,6 @@ pub(crate) struct JitCompiler {
     /// terminated `char**`. The JIT walks the result after the
     /// call and copies each entry into a fresh ilang `string[]`.
     pub(crate) native_extern_cstr_arrays: std::collections::HashSet<String>,
-    /// Per fn name, the list of `out<T>` parameters: `(param_index,
-    /// inner_jit_ty)`. The C side declares each as `*mut T`; the
-    /// call lowering allocates a stack slot per entry, threads the
-    /// slot address into the C arg list at `param_index`, and after
-    /// the call loads the slots back into the user-visible tuple.
-    pub(crate) extern_out_params:
-        std::collections::HashMap<String, (Vec<(usize, JitTy)>, JitTy)>,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
@@ -1033,7 +1026,6 @@ impl JitCompiler {
             native_extern_errno_check: native_reg.errno_check,
             native_extern_win_fastcall: native_reg.win_fastcall,
             native_extern_cstr_arrays: native_reg.cstr_arrays,
-            extern_out_params: std::collections::HashMap::new(),
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
                 .items
@@ -1452,90 +1444,14 @@ impl JitCompiler {
         f: &FnDecl,
         this_ty: Option<JitTy>,
     ) -> Result<(FuncId, Vec<JitTy>, JitTy), CodegenError> {
-        // The C ABI signature ("cabi") includes every declared
-        // param. The user-visible signature ("visible") strips
-        // `out<T>` params — the JIT auto-allocates a stack slot for
-        // them at each call site, so callers don't pass a value.
-        // Each out's inner type is then folded into the visible
-        // return as an extra tuple element.
-        let mut cabi_params: Vec<JitTy> = Vec::with_capacity(f.params.len());
-        let mut visible_params: Vec<JitTy> = Vec::with_capacity(f.params.len());
-        let mut out_param_info: Vec<(usize, JitTy)> = Vec::new();
-        for (i, p) in f.params.iter().enumerate() {
-            if let ilang_ast::Type::Out(inner) = &p.ty {
-                let inner_jty = JitTy::from_ast(
-                    inner,
-                    p.span,
-                    &self.class_ids,
-                    &self.enum_ids,
-                    &self.enum_layouts,
-                    &mut self.array_kinds,
-                    &mut self.optional_inners,
-                    &mut self.fn_signatures,
-                    &mut self.map_kinds,
-                    &mut self.tuple_kinds,
-                )?;
-                out_param_info.push((i, inner_jty));
-                // C-side: pointer to the slot.
-                cabi_params.push(JitTy::I64);
-                continue;
-            }
-            let jty = JitTy::from_ast(
-                &p.ty,
-                p.span,
-                &self.class_ids,
-                &self.enum_ids,
-                &self.enum_layouts,
-                &mut self.array_kinds,
-                &mut self.optional_inners,
-                &mut self.fn_signatures,
-                &mut self.map_kinds,
-                &mut self.tuple_kinds,
-            )?;
-            cabi_params.push(jty);
-            visible_params.push(jty);
+        let mut params = Vec::with_capacity(f.params.len());
+        for p in &f.params {
+            params.push(JitTy::from_ast(&p.ty, p.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?);
         }
-        // Defer extern_out_params insertion until raw_ret is built
-        // below — the call site needs both pieces together.
-        // `params` below is the visible list when there are out
-        // params, otherwise the same as cabi.
-        let params = if out_param_info.is_empty() {
-            cabi_params.clone()
-        } else {
-            visible_params.clone()
-        };
-        let raw_ret = match &f.ret {
+        let ret = match &f.ret {
             Some(t) => JitTy::from_ast(t, f.span, &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?,
             None => JitTy::Unit,
         };
-        // Compute the user-visible return: when there are out
-        // params, fold their inner types into a tuple alongside the
-        // C return (skipping Unit). Used everywhere the caller sees
-        // the fn (lc.funcs storage, type-checker round-trip).
-        let visible_ret = if out_param_info.is_empty() {
-            raw_ret
-        } else {
-            let mut elems: Vec<JitTy> = Vec::with_capacity(out_param_info.len() + 1);
-            if !matches!(raw_ret, JitTy::Unit) {
-                elems.push(raw_ret);
-            }
-            for (_, inner) in &out_param_info {
-                elems.push(*inner);
-            }
-            if elems.len() == 1 {
-                elems[0]
-            } else {
-                let id = crate::ty::intern_tuple_kind(&mut self.tuple_kinds, elems);
-                JitTy::Tuple(id)
-            }
-        };
-        // `ret` from here on is the C-ABI return type (raw_ret).
-        // `visible_ret` is what we return as the user-facing return.
-        let ret = raw_ret;
-        if !out_param_info.is_empty() {
-            self.extern_out_params
-                .insert(f.name.clone(), (out_param_info.clone(), raw_ret));
-        }
         let mut sig = self.module.make_signature();
         // `@extern(..., winFastcall)`: override the calling
         // convention so the signature matches Windows x64 ABI. Only
@@ -1572,10 +1488,7 @@ impl JitCompiler {
                 cranelift_codegen::ir::ArgumentPurpose::StructReturn,
             ));
         }
-        // sig.params iterates over the C-ABI list: out params already
-        // appear there as i64 pointers, while `params` (the visible
-        // list) skips them. The two coincide when there are no outs.
-        for p in &cabi_params {
+        for p in &params {
             if is_by_value {
                 if let JitTy::Object(class_id) = *p {
                     let layout = &self.class_layouts[class_id as usize];
@@ -1701,7 +1614,7 @@ impl JitCompiler {
             .module
             .declare_function(symbol, linkage, &sig)
             .map_err(|e| CodegenError::Module(e.to_string()))?;
-        Ok((id, params, visible_ret))
+        Ok((id, params, ret))
     }
 
     fn define_fn(&mut self, f: &FnDecl) -> Result<(), CodegenError> {
@@ -1883,7 +1796,6 @@ impl JitCompiler {
             native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
-            extern_out_params: &self.extern_out_params,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
@@ -2090,7 +2002,6 @@ impl JitCompiler {
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
-            extern_out_params: &self.extern_out_params,
             native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
             native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_slice_returns: &self.native_extern_slice_returns,

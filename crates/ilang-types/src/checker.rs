@@ -1005,55 +1005,10 @@ impl TypeChecker {
             .unwrap_or_default();
         params_in_scope.extend(f.type_params.iter().cloned());
         let class_params = params_in_scope;
-        let is_extern = f.attrs.iter().any(|a| a.name == "extern");
-        for Param { name, ty, span, .. } in &f.params {
-            // `out<T>` only makes sense on `@extern` fns and only as
-            // a top-level param type. Reject any other position.
-            if let Type::Out(inner) = ty {
-                if !is_extern {
-                    return Err(TypeError::Unsupported {
-                        what: format!(
-                            "out<{inner}> param {name:?} is only valid on \
-                             `@extern` fns (the JIT auto-allocates a stack \
-                             slot at the call site for native-extern out-params)"
-                        ),
-                        span: *span,
-                    });
-                }
-                let prim_ok = matches!(
-                    inner.as_ref(),
-                    Type::I8 | Type::I16 | Type::I32 | Type::I64
-                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                    | Type::F32 | Type::F64
-                    | Type::Bool
-                );
-                if !prim_ok {
-                    return Err(TypeError::Unsupported {
-                        what: format!(
-                            "out<{inner}> param {name:?}: only numeric \
-                             primitives or bool are supported as out-param \
-                             inner types"
-                        ),
-                        span: *span,
-                    });
-                }
-                self.validate_type(inner, *span, &class_params)?;
-                continue;
-            }
+        for Param { ty, span, .. } in &f.params {
             self.validate_type(ty, *span, &class_params)?;
         }
         if let Some(ret) = &f.ret {
-            // `out<T>` is meaningless as a return; reject explicitly.
-            if matches!(ret, Type::Out(_)) {
-                return Err(TypeError::Unsupported {
-                    what: format!(
-                        "out<...> is only valid as a parameter type, not a \
-                         return type (fn {:?})",
-                        f.name
-                    ),
-                    span: f.span,
-                });
-            }
             self.validate_type(ret, f.span, &class_params)?;
         }
         // `@extern` fns have no body — the runtime supplies the
@@ -3435,44 +3390,15 @@ fn signature_of(f: &FnDecl) -> Signature {
     // `TypeVar(T)` so call-site inference (which substitutes for
     // `TypeVar`) fires. Methods rewrite the *class's* type params on top
     // of this in `class_signature`.
-    //
-    // `out<T>` parameters are stripped from the user-visible signature:
-    // the JIT auto-allocates a stack slot at the call site, so callers
-    // don't pass a value for them. Each out's inner type joins the
-    // return as an extra tuple element.
-    let raw_params: Vec<Type> = f
+    let params: Vec<Type> = f
         .params
         .iter()
         .map(|p| rewrite_type_params(&p.ty, &f.type_params))
         .collect();
-    let raw_ret = rewrite_type_params(
+    let ret = rewrite_type_params(
         &f.ret.clone().unwrap_or(Type::Unit),
         &f.type_params,
     );
-    let mut visible_params: Vec<Type> = Vec::new();
-    let mut out_inners: Vec<Type> = Vec::new();
-    for p in &raw_params {
-        if let Type::Out(inner) = p {
-            out_inners.push((**inner).clone());
-        } else {
-            visible_params.push(p.clone());
-        }
-    }
-    let (params, ret) = if out_inners.is_empty() {
-        (raw_params, raw_ret)
-    } else {
-        let mut elems: Vec<Type> = Vec::with_capacity(out_inners.len() + 1);
-        if !matches!(raw_ret, Type::Unit) {
-            elems.push(raw_ret);
-        }
-        elems.extend(out_inners);
-        let new_ret = if elems.len() == 1 {
-            elems.into_iter().next().unwrap()
-        } else {
-            Type::Tuple(elems)
-        };
-        (visible_params, new_ret)
-    };
     // `@extern("...", variadic)` propagates to the signature so the
     // type checker accepts trailing args of any type at call sites.
     let is_variadic = f.attrs.iter().any(|a| {
