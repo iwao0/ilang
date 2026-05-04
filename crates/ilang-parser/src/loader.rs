@@ -402,11 +402,26 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             s.name = format!("{prefix}.{}", s.name);
             Item::ExternStatic(s)
         }
-        Item::ExternC(b) => {
-            // ExternC blocks are leaf containers — module prefixing
-            // doesn't traverse into their items (FFI symbol names
-            // are intentionally raw, dlsym needs the unprefixed C
-            // symbol).
+        Item::ExternC(mut b) => {
+            // Prefix the ilang-side names of the block's items so
+            // callers can write `module.errno` etc. Host-form fns
+            // (no @lib) are registered with the prefixed name (see
+            // test_externs::register_*). Library-form (@lib) fns
+            // would need the original C symbol preserved; that's a
+            // future concern — current stdlib doesn't have any.
+            for inner in &mut b.items {
+                match inner {
+                    ilang_ast::ExternCItem::Struct { name, .. }
+                    | ilang_ast::ExternCItem::Union { name, .. }
+                    | ilang_ast::ExternCItem::FnDecl { name, .. }
+                    | ilang_ast::ExternCItem::Static { name, .. } => {
+                        *name = format!("{prefix}.{name}");
+                    }
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        f.name = format!("{prefix}.{}", f.name);
+                    }
+                }
+            }
             Item::ExternC(b)
         }
     }

@@ -114,8 +114,39 @@ impl Interpreter {
                             ilang_ast::ExternCItem::FnDef(f) => {
                                 self.fns.insert(f.name.clone(), f.clone());
                             }
-                            ilang_ast::ExternCItem::FnDecl { .. } => {
-                                // dlsym'd at JIT time only.
+                            ilang_ast::ExternCItem::FnDecl {
+                                name, params, ret, libs, span, ..
+                            } => {
+                                // Host-form (no @lib) fns can be
+                                // serviced by the interpreter via the
+                                // built-in `externs` registry — register
+                                // a synthetic FnDecl with `@extern` so
+                                // the call dispatcher routes to it.
+                                // Library-form (@lib) fns stay JIT-only.
+                                if libs.is_empty() {
+                                    let synth = ilang_ast::FnDecl {
+                                        attrs: vec![ilang_ast::Attribute {
+                                            name: "extern".into(),
+                                            args: Vec::new(),
+                                        }],
+                                        name: name.clone(),
+                                        type_params: Vec::new(),
+                                        params: params.clone(),
+                                        ret: ret.clone(),
+                                        body: ilang_ast::Block {
+                                            stmts: Vec::new(),
+                                            tail: None,
+                                        },
+                                        span: *span,
+                                        is_override: false,
+                                    };
+                                    self.fns.insert(name.clone(), synth);
+                                }
+                            }
+                            ilang_ast::ExternCItem::Static { .. } => {
+                                // Resolved via dlsym/host registration at
+                                // JIT time only — the interpreter doesn't
+                                // touch C globals.
                             }
                         }
                     }

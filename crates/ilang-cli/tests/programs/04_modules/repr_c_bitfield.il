@@ -5,7 +5,7 @@
 use test
 
 @extern(C) {
-    @repr(C) struct flags {
+    struct flags {
         @bits(1) active: u32
         @bits(3) mode: u32
         @bits(4) reserved: u32

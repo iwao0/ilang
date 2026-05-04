@@ -112,6 +112,7 @@ pub(crate) fn register_native_externs(
     // user data area).
     let synth_classes = crate::compiler::synthesize_extern_c_classes(prog);
     let synth_fns = crate::compiler::synthesize_extern_c_fns(prog);
+    let synth_statics = crate::compiler::synthesize_extern_c_statics(prog);
     let repr_c_classes: HashSet<String> = prog
         .items
         .iter()
@@ -129,6 +130,12 @@ pub(crate) fn register_native_externs(
         .filter_map(|i| if let Item::Fn(f) = i { Some(f) } else { None })
         .collect();
     all_extern_fns.extend(synth_fns.iter());
+    // All `@extern(C) {}`-block-synthesized fns pass structs by value
+    // (matches the C ABI, which has no other choice). Register them
+    // here so the by_value validation path covers host-form fns too.
+    for f in &synth_fns {
+        by_value.insert(f.name.clone());
+    }
     for f in &all_extern_fns {
         // Find an `@extern("libname")` attribute (string-arg form).
         // `@extern` with no args is the legacy host-side form, which
@@ -538,14 +545,18 @@ pub(crate) fn register_native_externs(
         if !by_value.contains(&f.name) {
             continue;
         }
-        validate_by_value_fn(f, prog, &repr_c_classes, &opaque_classes)?;
+        validate_by_value_fn(f, prog, &synth_classes, &repr_c_classes, &opaque_classes)?;
     }
     // Resolve `@extern static` addresses. Library-form goes through
     // dlsym in whichever lib was named (opening it now if it wasn't
     // already opened by a fn declaration). Host-form must already be
     // present in `static_addrs` from a host registration call.
-    for item in &prog.items {
-        let Item::ExternStatic(s) = item else { continue };
+    let all_statics = prog
+        .items
+        .iter()
+        .filter_map(|i| if let Item::ExternStatic(s) = i { Some(s) } else { None })
+        .chain(synth_statics.iter());
+    for s in all_statics {
         if let Some(lib_name) = &s.lib {
             if !libs.contains_key(lib_name) {
                 let lib = open_library(lib_name).map_err(|e| {
@@ -597,6 +608,7 @@ pub(crate) fn register_native_externs(
 fn validate_by_value_fn(
     f: &ilang_ast::FnDecl,
     prog: &Program,
+    synth_classes: &[ilang_ast::ClassDecl],
     repr_c_classes: &HashSet<String>,
     opaque_classes: &HashSet<String>,
 ) -> Result<(), CodegenError> {
@@ -615,7 +627,7 @@ fn validate_by_value_fn(
         let class_decl = prog.items.iter().find_map(|i| match i {
             Item::Class(c) if &c.name == name => Some(c),
             _ => None,
-        });
+        }).or_else(|| synth_classes.iter().find(|c| &c.name == name));
         let Some(class_decl) = class_decl else { return Ok(()); };
         // HFA: 1..=4 fields all of the same float type — passes via
         // FP registers per AArch64 AAPCS64 / SysV.
@@ -633,6 +645,13 @@ fn validate_by_value_fn(
                 Type::I8 | Type::I16 | Type::I32 | Type::I64
                 | Type::U8 | Type::U16 | Type::U32 | Type::U64
                 | Type::Bool
+                // Raw C pointer / pointer-width int — i64-sized
+                // integer at the ABI level. Treated identically to
+                // i64 for chunk packing.
+                | Type::RawPtr { .. }
+                | Type::Size | Type::SSize
+                // C `char` is i8.
+                | Type::CChar
             );
             if !ok {
                 return Err(CodegenError::Unsupported {

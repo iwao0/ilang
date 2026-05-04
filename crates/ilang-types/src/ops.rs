@@ -101,6 +101,17 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
             return from_n == to_n;
         }
     }
+    // ilang `T[]` → `*T` / `*const T` raw pointer at the C boundary.
+    // The array's data pointer is what's actually passed; the ARC
+    // header / length sit at negative offsets and stay invisible to
+    // C. Element type must match exactly.
+    if let (
+        Type::Array { elem, fixed: _ },
+        Type::RawPtr { inner, .. },
+    ) = (from, to)
+    {
+        return elem.as_ref() == inner.as_ref();
+    }
     false
 }
 

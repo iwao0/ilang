@@ -3,16 +3,20 @@
 // exist, then verify errno is non-zero (ENOENT = 2 on macOS /
 // Linux, but we just check positivity to avoid platform variance).
 //
-// Native extern (`@extern("c")`) is JIT-only, so the fixture
-// declares the run as JIT-only. The interpreter side of os.errno
-// is exercised by `os_errno_basic.il`.
+// `@extern(C) {...}` is JIT-only, so the fixture declares the run
+// as JIT-only. The interpreter side of os.errno is exercised by
+// `os_errno_basic.il`.
 // interp: skip
 use os
 use test
 
-@extern("c") class FILE {}
-@extern("c") fn fopen(path: string, mode: string): FILE?
+@extern(C) {
+    struct FILE {}
+    @lib("c") fn fopen(path: *const char, mode: *const char): *FILE
+}
 
-let _ = fopen("/this/path/cannot/possibly/exist__ilang_test", "r")
+let path = cstrFromString("/this/path/cannot/possibly/exist__ilang_test")
+let mode = cstrFromString("r")
+let _ = fopen(path, mode)
 let e = os.errno()
 test.expectTrue(e > 0)

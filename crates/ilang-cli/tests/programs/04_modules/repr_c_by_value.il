@@ -12,17 +12,17 @@
 use test
 
 @extern(C) {
-    @repr(C) struct point2 {
+    struct point2 {
         x: i32
         y: i32
     }
 
-    @repr(C) struct range64 {
+    struct range64 {
         lo: i64
         hi: i64
     }
 
-    @repr(C) struct tagged {
+    struct tagged {
         tag: i32
         payload: i64
     }

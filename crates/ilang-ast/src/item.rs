@@ -237,18 +237,35 @@ pub enum ExternCItem {
         span: Span,
     },
     /// `@lib("libname") fn name(...): T` — declaration only, dlsym'd
-    /// from the named library. `lib = None` for host-side externs
-    /// pre-registered via `JITBuilder::symbol`.
+    /// from the named library. `libs` may have multiple entries (each
+    /// tried in order, fallback for soname differences). Empty `libs`
+    /// = host-side extern pre-registered via `JITBuilder::symbol`.
+    /// `optional = true` (`@optional`) lets the JIT keep going when
+    /// the library can't be loaded.
     FnDecl {
         name: String,
         params: Vec<Param>,
         ret: Option<crate::types::Type>,
-        lib: Option<String>,
+        libs: Vec<String>,
+        optional: bool,
+        /// `fn snprintf(buf: *u8, n: size_t, fmt: *const char, ...)`
+        /// — trailing `...` marks the C variadic. Extra arguments at
+        /// the call site lower with their actual JIT types.
+        variadic: bool,
         span: Span,
     },
     /// `fn name(...): T { body }` — ilang-side definition with C ABI.
     /// Used to write callbacks that C will call back into.
     FnDef(FnDecl),
+    /// `static name: T` — C global variable. `libs`/`optional` mirror
+    /// the FnDecl flags.
+    Static {
+        name: String,
+        ty: crate::types::Type,
+        libs: Vec<String>,
+        optional: bool,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

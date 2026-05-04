@@ -5,14 +5,14 @@
 use test
 
 @extern(C) {
-    @repr(C) struct sockaddr_in {
+    struct sockaddr_in {
         sin_family: u16
         sin_port: u16
         sin_addr: u32
         sin_zero: u8[8]
     }
 
-    @repr(C) struct sample {
+    struct sample {
         counts: i64[3]
         ratios: f64[2]
     }

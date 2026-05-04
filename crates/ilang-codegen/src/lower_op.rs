@@ -324,6 +324,19 @@ pub(crate) fn coerce(
     if matches!(from, JitTy::Object(_)) && matches!(to, JitTy::I64) {
         return Ok(v);
     }
+    // ilang `T[]` flowing into a raw C pointer slot (`*T` /
+    // `*const T`). The array's runtime rep is a heap header whose
+    // `data` field at ARRAY_DATA_OFFSET points at the contiguous
+    // element buffer — that's what C wants.
+    if matches!(from, JitTy::Array(_)) && matches!(to, JitTy::I64) {
+        let data = b.ins().load(
+            cranelift_codegen::ir::types::I64,
+            MemFlags::trusted(),
+            v,
+            crate::runtime::ARRAY_DATA_OFFSET,
+        );
+        return Ok(data);
+    }
     // Array values share runtime representation regardless of fixed-vs-
     // dynamic; allow assignment between them as long as the element type
     // matches. Need access to the kinds table — the helper passes it via

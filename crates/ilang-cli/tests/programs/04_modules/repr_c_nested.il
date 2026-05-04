@@ -5,12 +5,12 @@
 use test
 
 @extern(C) {
-    @repr(C) struct point {
+    struct point {
         x: i32
         y: i32
     }
 
-    @repr(C) struct rect {
+    struct rect {
         origin: point
         width: i32
         height: i32

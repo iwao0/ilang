@@ -9,13 +9,13 @@
 use test
 
 @extern(C) {
-    @repr(C) struct vec3f {
+    struct vec3f {
         x: f32
         y: f32
         z: f32
     }
 
-    @repr(C) struct pair64 {
+    struct pair64 {
         a: f64
         b: f64
     }

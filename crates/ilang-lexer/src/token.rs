@@ -80,6 +80,7 @@ pub enum TokenKind {
     Dot,
     DotDot,
     DotDotEq,
+    DotDotDot,
     At,
     Question,
     Eof,

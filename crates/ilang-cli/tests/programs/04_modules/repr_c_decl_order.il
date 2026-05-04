@@ -4,13 +4,13 @@
 use test
 
 @extern(C) {
-    @repr(C) struct rect {
+    struct rect {
         origin: point   // forward reference — point declared later
         extent: point
         flags: u32
     }
 
-    @repr(C) struct point {
+    struct point {
         x: i32
         y: i32
     }

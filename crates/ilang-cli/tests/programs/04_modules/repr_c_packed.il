@@ -1,6 +1,6 @@
-// `@repr(C, packed)` drops natural alignment so every field sits at
-// offset = sum of prior sizes (no padding) and the struct's overall
-// alignment is 1. Mirrors C's `__attribute__((packed))`.
+// `@packed` drops natural alignment so every field sits at offset =
+// sum of prior sizes (no padding) and the struct's overall alignment
+// is 1. Mirrors C's `__attribute__((packed))`.
 //
 // Reads / writes still produce the same logical values; the
 // difference is the in-memory layout, observable through:
@@ -12,21 +12,21 @@
 use test
 
 @extern(C) {
-    @repr(C, packed) struct packed_header {
+    @packed struct packed_header {
         magic: u8
         length: u32
         flags: u8
         code: u16
     }
 
-    @repr(C) struct aligned_header {
+    struct aligned_header {
         magic: u8
         length: u32
         flags: u8
         code: u16
     }
 
-    @repr(C, packed) struct odd_pack {
+    @packed struct odd_pack {
         a: u8
         b: u64
         c: u8

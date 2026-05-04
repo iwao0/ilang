@@ -929,13 +929,17 @@ impl TypeChecker {
                     let sig = class_signature(&synth, None)?;
                     self.classes.insert(name.clone(), sig);
                 }
-                ilang_ast::ExternCItem::FnDecl { name, params, ret, span, .. } => {
+                ilang_ast::ExternCItem::FnDecl { name, params, ret, variadic, span, .. } => {
                     // Build a synthetic FnDecl with @extern attribute
                     // so downstream pipeline (loader, JIT) treats it
                     // like an existing top-level extern fn.
+                    let mut extern_args = vec![ilang_ast::AttrArg::Path(vec!["C".into()])];
+                    if *variadic {
+                        extern_args.push(ilang_ast::AttrArg::Path(vec!["variadic".into()]));
+                    }
                     let attrs = vec![ilang_ast::Attribute {
                         name: "extern".to_string(),
-                        args: vec![ilang_ast::AttrArg::Path(vec!["C".into()])],
+                        args: extern_args,
                     }];
                     let synth = FnDecl {
                         attrs,
@@ -953,6 +957,26 @@ impl TypeChecker {
                 ilang_ast::ExternCItem::FnDef(f) => {
                     let sig = signature_of(f);
                     self.fns.entry(f.name.clone()).or_default().push(sig);
+                }
+                ilang_ast::ExternCItem::Static { name, ty, span, .. } => {
+                    let ok = matches!(
+                        ty,
+                        Type::I8 | Type::I16 | Type::I32 | Type::I64
+                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                        | Type::F32 | Type::F64
+                        | Type::Bool
+                    );
+                    if !ok {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "@extern(C) static {:?}: type {} not supported \
+                                 (allowed: numeric primitives or bool)",
+                                name, ty
+                            ),
+                            span: *span,
+                        });
+                    }
+                    self.vars.insert(name.clone(), ty.clone());
                 }
             }
         }
@@ -2739,6 +2763,16 @@ impl TypeChecker {
                 {
                     return Ok(ty.clone());
                 }
+                // Raw C pointer ↔ i64 escape hatch — pointers are
+                // bit-equivalent to a 64-bit address. Lets out-pointer
+                // patterns work (read an opaque address from i64[],
+                // hand it back to a `*Foo` parameter).
+                let is_raw_ptr = |t: &Type| matches!(t, Type::RawPtr { .. });
+                if (is_raw_ptr(&from) && *ty == Type::I64)
+                    || (from == Type::I64 && is_raw_ptr(ty))
+                {
+                    return Ok(ty.clone());
+                }
                 Err(TypeError::Mismatch {
                     expected: ty.clone(),
                     got: from,
@@ -3335,6 +3369,9 @@ fn collect_type_var_bindings(
             for (p, a) in pa.iter().zip(aa.iter()) {
                 collect_type_var_bindings(p, a, bindings);
             }
+        }
+        (Type::RawPtr { inner: pi, .. }, Type::RawPtr { inner: ai, .. }) => {
+            collect_type_var_bindings(pi, ai, bindings);
         }
         _ => {}
     }
@@ -4057,6 +4094,10 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
         Type::Generic { base, args: targs } => Type::Generic {
             base: base.clone(),
             args: targs.iter().map(|a| subst_type(a, params, args)).collect(),
+        },
+        Type::RawPtr { is_const, inner } => Type::RawPtr {
+            is_const: *is_const,
+            inner: Box::new(subst_type(inner, params, args)),
         },
         _ => t.clone(),
     }

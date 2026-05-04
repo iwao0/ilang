@@ -4,34 +4,35 @@
 
 // ─── errno read / write ─────────────────────────────────────────
 
-// Returns the current value of the C `errno` variable (Windows:
-// `GetLastError()`). Read after a failing libc call (e.g. `fopen`
-// returned NULL) to see *why* it failed.
-@extern fn errno(): i32
+@extern(C) {
+    // Returns the current value of the C `errno` variable
+    // (Windows: `GetLastError()`). Read after a failing libc call
+    // (e.g. `fopen` returned NULL) to see *why* it failed.
+    fn errno(): i32
 
-// Overwrite the current thread's errno. The classic clear-then-call
-// pattern: `os.setErrno(0); some_libc_call(); if os.errno() != 0
-// { ... }` — useful when the libc fn itself doesn't have a clear
-// failure indicator (e.g. some functions return 0 for both "ok"
-// and "no entries left").
-@extern fn setErrno(code: i32)
+    // Overwrite the current thread's errno. The classic
+    // clear-then-call pattern:
+    //   os.setErrno(0); some_libc_call(); if os.errno() != 0 { ... }
+    // — useful when the libc fn itself doesn't have a clear failure
+    // indicator (e.g. some functions return 0 for both "ok" and
+    // "no entries left").
+    fn setErrno(code: i32)
 
-// Returns true if `name` was successfully dlopened by any
-// `@extern("name") ...` declaration in this program. Used to gate
-// calls into libraries declared with the `optional` flag — calling
-// a fn whose library failed to load aborts the program, so this
-// check runs first:
-//   if os.libLoaded("libssl.so.3") {
-//       SSL_write(...)
-//   }
-@extern fn libLoaded(name: string): bool
+    // Returns true if `name` was successfully dlopened by any
+    // `@lib("name") ...` declaration in this program. Used to gate
+    // calls into libraries declared `@optional` — calling a fn
+    // whose library failed to load aborts the program, so this
+    // check runs first:
+    //   if os.libLoaded("libssl.so.3") { SSL_write(...) }
+    fn libLoaded(name: string): bool
 
-// Returns the dlopen error message captured for a missing
-// `@extern("name", optional)` library, or "" if the library
-// loaded successfully (or no `@extern` ever attempted to load
-// it). Only useful for diagnostic logging; gating logic should
-// use `os.libLoaded(...)`.
-@extern fn libLoadError(name: string): string
+    // Returns the dlopen error message captured for a missing
+    // `@lib(...) @optional` library, or "" if the library loaded
+    // successfully (or no `@lib` ever attempted to load it). Only
+    // useful for diagnostic logging; gating logic should use
+    // `os.libLoaded(...)`.
+    fn libLoadError(name: string): string
+}
 
 // ─── POSIX error code constants ─────────────────────────────────
 // Values chosen to match macOS / Linux glibc — these 30-something

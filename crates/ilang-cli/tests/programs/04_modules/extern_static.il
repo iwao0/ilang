@@ -1,17 +1,19 @@
-// `@extern static` reads and writes a C global variable directly.
-// Library-form (`@extern("libfoo") static …`) goes through dlsym on
-// the named library; host-form (`@extern static …`) uses an address
-// pre-registered by the host (here `test_externs::register_test_static_addrs`).
-// Reads / writes lower to a load / store against the resolved
-// address — no marshalling, just the natural Cranelift width for
-// the declared primitive type.
+// `static` inside `@extern(C) { ... }` reads and writes a C global
+// variable directly. Library-form (`@lib("libfoo") static …`) goes
+// through dlsym on the named library; host-form (no `@lib`) uses an
+// address pre-registered by the host (here
+// `test_externs::register_test_static_addrs`). Reads / writes lower
+// to a load / store against the resolved address — no marshalling,
+// just the natural Cranelift width for the declared primitive type.
 //
 // JIT-only — the interpreter has no dlsym path to a real C global.
 // interp: skip
 use test
 
-@extern static test_static_i32: i32
-@extern static test_static_f64: f64
+@extern(C) {
+    static test_static_i32: i32
+    static test_static_f64: f64
+}
 
 // Initial state: 0 (zero-initialized Rust static).
 test.expect(test_static_i32 as i64, 0)

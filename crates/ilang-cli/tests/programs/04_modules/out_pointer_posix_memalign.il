@@ -1,7 +1,7 @@
 // Out-pointer pattern: a C function writes the resulting handle
 // into a caller-provided slot, and the return value is the error
-// code. We pass a 1-element `i64[]` as the slot, then cast the
-// stored pointer to an opaque class.
+// code. We declare the slot as `*Buf` (an opaque struct pointer)
+// stored in a 1-element `i64[]` to give libc somewhere to write.
 //
 // `posix_memalign(memptr, alignment, size)` — POSIX equivalent of
 // aligned malloc. Writes the allocation pointer into *memptr and
@@ -9,25 +9,25 @@
 // interp: skip
 use test
 
-@extern("c") class Buf {}
-@extern("c") fn posix_memalign(memptr: i64[], alignment: u64, size: u64): i32
-@extern("c") fn free(ptr: Buf)
+@extern(C) {
+    struct Buf {}
+    @lib("c") fn posix_memalign(memptr: *i64, alignment: size_t, size: size_t): i32
+    @lib("c") fn free(ptr: *Buf)
+
+    // Convenience wrapper so the user never has to cast i64 → *Buf
+    // outside the block (raw pointer types are not nameable there).
+    fn freeRaw(p: i64) {
+        free(p as *Buf)
+    }
+}
 
 let slot: i64[] = [0]
-let rc = posix_memalign(slot, 64, 1024)
+let rc = posix_memalign(slot, 64 as u64, 1024 as u64)
 test.expect(rc as i64, 0)
 
-// Slot now holds the raw `void *`. Cast turns it into a typed
-// `Buf` handle so we can pass it to `free` (which the marshalling
-// layer treats as an opaque-class arg, no further conversion).
-let buf = slot[0] as Buf
-free(buf)
-
-// Going the other direction: opaque → i64 just exposes the raw
-// pointer. Useful for diagnostics.
-let slot2: i64[] = [0]
-test.expect(posix_memalign(slot2, 8, 16) as i64, 0)
-let buf2 = slot2[0] as Buf
-let raw: i64 = buf2 as i64
+// Slot now holds the raw `void *`. The pointer can be passed to
+// `free` (which takes `*Buf`); the i64 → *Buf coercion happens
+// at the C-boundary.
+let raw = slot[0]
 test.expectTrue(raw != 0)
-free(buf2)
+freeRaw(raw)

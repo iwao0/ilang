@@ -10,7 +10,7 @@
 use test
 
 @extern(C) {
-    @repr(C) struct big32 {
+    struct big32 {
         a: i64
         b: i64
         c: i64

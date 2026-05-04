@@ -77,10 +77,10 @@ pub enum Type {
 
 impl Type {
     pub fn is_signed_int(&self) -> bool {
-        matches!(self, Type::I8 | Type::I16 | Type::I32 | Type::I64)
+        matches!(self, Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::SSize)
     }
     pub fn is_unsigned_int(&self) -> bool {
-        matches!(self, Type::U8 | Type::U16 | Type::U32 | Type::U64)
+        matches!(self, Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::Size)
     }
     pub fn is_int(&self) -> bool {
         self.is_signed_int() || self.is_unsigned_int()

@@ -714,8 +714,9 @@ impl<'a> Parser<'a> {
 
     /// Parse an `@extern(C) { ... }` block body. The opening `{` is
     /// the next token; consume `}` at the end. Items inside:
-    /// - `[@lib("name")] fn name(...): T` — fn declaration (dlsym'd)
-    /// - `[@lib("name")] fn name(...): T { body }` — fn definition (C ABI)
+    /// - `[@lib("name", ...)] [@optional] fn name(...): T` — fn decl (dlsym'd)
+    /// - `[@lib("name", ...)] [@optional] fn name(...): T { body }` — fn def (C ABI)
+    /// - `[@lib("name", ...)] [@optional] static name: T` — C global
     /// - `[@repr(C, packed)] struct Name { fields }`
     /// - `union Name { fields }`
     fn parse_extern_c_block(
@@ -736,6 +737,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Ident(n) if n == "struct" => {
                     self.parse_extern_c_struct(inner_attrs)?
+                }
+                TokenKind::Ident(n) if n == "static" => {
+                    self.parse_extern_c_static(inner_attrs)?
                 }
                 TokenKind::Ident(n) if n == "union" => {
                     if !inner_attrs.is_empty() {
@@ -771,18 +775,44 @@ impl<'a> Parser<'a> {
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
-        // Pull out @lib("name") if present; reject other attributes.
-        let mut lib: Option<String> = None;
+        // Accepted: `@lib("name", "fallback", ...)` (one or more strings)
+        // and `@optional`. Anything else is rejected so users notice
+        // the legacy flags are gone.
+        let mut libs: Vec<String> = Vec::new();
+        let mut optional = false;
         for a in &attrs {
-            match (a.name.as_str(), a.args.as_slice()) {
-                ("lib", [ilang_ast::AttrArg::Str(s)]) => {
-                    lib = Some(s.clone());
+            match a.name.as_str() {
+                "lib" => {
+                    if a.args.is_empty() {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "@lib(\"libname\", ...) requires at least one string argument".into(),
+                            span: t.span,
+                        });
+                    }
+                    for arg in &a.args {
+                        match arg {
+                            ilang_ast::AttrArg::Str(s) => libs.push(s.clone()),
+                            _ => {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected: "@lib(...) takes string arguments only".into(),
+                                    span: t.span,
+                                });
+                            }
+                        }
+                    }
+                }
+                "optional" if a.args.is_empty() => {
+                    optional = true;
                 }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "@lib(\"libname\") (no other attributes accepted on extern(C) fn)".into(),
+                        expected: "@lib(\"libname\", ...) or @optional (no other attributes accepted on extern(C) fn)".into(),
                         span: t.span,
                     });
                 }
@@ -796,6 +826,14 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident("function name")?;
         self.expect(&TokenKind::LParen, "'('")?;
         let params = self.parse_param_list()?;
+        // Trailing `...` after the last fixed param marks a C
+        // variadic. `parse_param_list` already consumed the trailing
+        // `,` if there was one, so we just need to check for `...`.
+        let mut variadic = false;
+        if matches!(self.peek().kind, TokenKind::DotDotDot) {
+            self.bump();
+            variadic = true;
+        }
         self.expect(&TokenKind::RParen, "')'")?;
         let ret = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
@@ -804,6 +842,14 @@ impl<'a> Parser<'a> {
             None
         };
         if matches!(self.peek().kind, TokenKind::LBrace) {
+            if variadic {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: "variadic `...` is only allowed on extern fn declarations, not definitions".into(),
+                    span: t.span,
+                });
+            }
             // Definition: ilang body, C ABI.
             let body = parse_block(self)?;
             let fn_decl = FnDecl {
@@ -824,48 +870,86 @@ impl<'a> Parser<'a> {
                 name,
                 params,
                 ret,
-                lib,
+                libs,
+                optional,
+                variadic,
                 span,
             })
         }
+    }
+
+    fn parse_extern_c_static(
+        &mut self,
+        attrs: Vec<Attribute>,
+    ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        let mut libs: Vec<String> = Vec::new();
+        let mut optional = false;
+        for a in &attrs {
+            match a.name.as_str() {
+                "lib" => {
+                    if a.args.is_empty() {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "@lib(\"libname\", ...) requires at least one string argument".into(),
+                            span: t.span,
+                        });
+                    }
+                    for arg in &a.args {
+                        match arg {
+                            ilang_ast::AttrArg::Str(s) => libs.push(s.clone()),
+                            _ => {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected: "@lib(...) takes string arguments only".into(),
+                                    span: t.span,
+                                });
+                            }
+                        }
+                    }
+                }
+                "optional" if a.args.is_empty() => {
+                    optional = true;
+                }
+                _ => {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "@lib(...) or @optional (no other attributes accepted on extern(C) static)".into(),
+                        span: t.span,
+                    });
+                }
+            }
+        }
+        let span = self.peek().span;
+        self.bump(); // consume `static`
+        let name = self.expect_ident("static name")?;
+        self.expect(&TokenKind::Colon, "':'")?;
+        let ty = self.parse_type()?;
+        self.consume_stmt_terminator()?;
+        Ok(ilang_ast::ExternCItem::Static { name, ty, libs, optional, span })
     }
 
     fn parse_extern_c_struct(
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        // Inside `@extern(C) {}` the C layout is implicit, so
+        // `@repr(C)` is redundant (and rejected). Only `@packed` is
+        // accepted, marking the layout as packed (no padding).
         let mut is_packed = false;
         for a in &attrs {
             match (a.name.as_str(), a.args.as_slice()) {
-                ("repr", args) => {
-                    let mut saw_c = false;
-                    for arg in args {
-                        match arg {
-                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["C"] => {
-                                saw_c = true;
-                            }
-                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["packed"] => {
-                                is_packed = true;
-                            }
-                            _ => {
-                                let t = self.peek();
-                                return Err(ParseError::Unexpected {
-                                    found: t.kind.clone(),
-                                    expected:
-                                        "@repr(C) or @repr(C, packed) on struct inside @extern(C)".into(),
-                                    span: t.span,
-                                });
-                            }
-                        }
-                    }
-                    let _ = saw_c;
+                ("packed", []) => {
+                    is_packed = true;
                 }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected:
-                            "@repr(C[, packed]) only (no other attributes on struct)".into(),
+                            "@packed only (no other attributes on struct inside @extern(C))".into(),
                         span: t.span,
                     });
                 }
@@ -1139,6 +1223,13 @@ impl<'a> Parser<'a> {
             });
             if matches!(self.peek().kind, TokenKind::Comma) {
                 self.bump();
+                // Allow trailing `...` after the comma (variadic
+                // marker on `@extern(C)` fns). Stop here and let the
+                // caller consume it; `parse_param_list` itself stays
+                // unaware of variadics.
+                if matches!(self.peek().kind, TokenKind::DotDotDot) {
+                    break;
+                }
             } else {
                 break;
             }

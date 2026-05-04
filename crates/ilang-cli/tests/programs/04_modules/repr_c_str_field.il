@@ -12,7 +12,7 @@
 use test
 
 @extern(C) {
-    @repr(C) struct person {
+    struct person {
         age: i32
         name: string
         nick: string

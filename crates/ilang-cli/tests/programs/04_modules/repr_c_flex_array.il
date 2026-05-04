@@ -7,13 +7,13 @@
 use test
 
 @extern(C) {
-    @repr(C) struct packet {
+    struct packet {
         kind: u8
         len: u32
         data: u8[]
     }
 
-    @repr(C) struct i32_buf {
+    struct i32_buf {
         n: u32
         items: i32[]
     }

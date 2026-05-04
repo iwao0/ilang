@@ -11,7 +11,7 @@
 use test
 
 @extern(C) {
-    @repr(C) struct timespec {
+    struct timespec {
         tv_sec: i64
         tv_nsec: i64
     }

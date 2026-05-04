@@ -1,11 +1,13 @@
 // `os.libLoadError` surfaces the dlopen failure message when an
-// `@extern("name", optional)` library couldn't be loaded. Used
-// for diagnostics; the gating logic still goes through libLoaded.
+// `@lib(...) @optional` library couldn't be loaded. Used for
+// diagnostics; the gating logic still goes through libLoaded.
 // interp: skip
 use os
 use test
 
-@extern("definitely_not_real_xyz_abc123.so", optional) fn ghost(): i64
+@extern(C) {
+    @lib("definitely_not_real_xyz_abc123.so") @optional fn ghost(): i64
+}
 
 test.expectFalse(os.libLoaded("definitely_not_real_xyz_abc123.so"))
 

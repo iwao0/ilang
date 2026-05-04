@@ -1,34 +1,44 @@
-// `errnoCheck` flag: POSIX-style "return < 0 means failure, errno
-// tells you why". The JIT branches on the C return; failure → None,
-// success → Some(value). The user-facing return type is `i32?` /
-// `i64?`. For the cause, the caller separately reads `os.errno()`
-// (already TLS-correct via libc's `__errno_location` / `__error`).
+// POSIX-style "return < 0 means failure, errno tells you why",
+// expressed via the `errnoCheck(rc)` / `errnoCheckI64(rc)` helpers
+// inside `@extern(C)`. The helper branches on `rc < 0`; failure →
+// None, success → Some(rc). For the cause, the caller separately
+// reads `os.errno()` (already TLS-correct via libc's
+// `__errno_location` / `__error`).
 //
 // interp: skip
 use test
 
-@extern(errnoCheck) fn maybe_succeed(ok: i32): i32?
-@extern(errnoCheck) fn maybe_succeed_i64(ok: i32): i64?
+@extern(C) {
+    fn maybe_succeed(ok: i32): i32
+    fn maybe_succeed_i64(ok: i32): i64
 
-if let some(v) = maybe_succeed(1 as i32) {
+    fn safeMaybeSucceed(ok: i32): i32? {
+        errnoCheck(maybe_succeed(ok))
+    }
+    fn safeMaybeSucceedI64(ok: i32): i64? {
+        errnoCheckI64(maybe_succeed_i64(ok))
+    }
+}
+
+if let some(v) = safeMaybeSucceed(1 as i32) {
     test.expect(v as i64, 42)
 } else {
     test.fail("expected Some on ok=1")
 }
 
-if let some(v) = maybe_succeed(0 as i32) {
+if let some(v) = safeMaybeSucceed(0 as i32) {
     test.fail("expected None on ok=0")
     test.expect(v as i64, -1)
 }
 
 // i64 path — verifies the wider boxed payload.
-if let some(v) = maybe_succeed_i64(1 as i32) {
+if let some(v) = safeMaybeSucceedI64(1 as i32) {
     test.expect(v, 1234567890123)
 } else {
     test.fail("expected Some on i64 ok=1")
 }
 
-if let some(v) = maybe_succeed_i64(0 as i32) {
+if let some(v) = safeMaybeSucceedI64(0 as i32) {
     test.fail("expected None on i64 ok=0")
     test.expect(v, -1)
 }

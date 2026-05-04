@@ -349,6 +349,9 @@ impl<'a> Lexer<'a> {
                     if self.peek() == Some('=') {
                         self.bump();
                         TokenKind::DotDotEq
+                    } else if self.peek() == Some('.') {
+                        self.bump();
+                        TokenKind::DotDotDot
                     } else {
                         TokenKind::DotDot
                     }

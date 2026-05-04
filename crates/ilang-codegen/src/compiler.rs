@@ -654,6 +654,30 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
 /// "lib"])` fns (no body, dlsym'd / host-registered); definitions
 /// reuse the parsed body unchanged with a synthetic `@extern(C)`
 /// attribute so the JIT applies the C calling convention.
+pub(crate) fn synthesize_extern_c_statics(
+    prog: &Program,
+) -> Vec<ilang_ast::ExternStaticDecl> {
+    let mut out = Vec::new();
+    for item in &prog.items {
+        let Item::ExternC(block) = item else { continue };
+        for inner in &block.items {
+            if let ilang_ast::ExternCItem::Static { name, ty, libs, optional: _, span } = inner {
+                // `@optional` on statics is parsed but currently
+                // ignored at registration time — host-form statics
+                // must always be registered, and the only library
+                // form path is dlsym which propagates lookup errors.
+                out.push(ilang_ast::ExternStaticDecl {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    lib: libs.first().cloned(),
+                    span: *span,
+                });
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> {
     use ilang_ast::AttrArg;
     let mut out = Vec::new();
@@ -662,18 +686,23 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
         for inner in &block.items {
             match inner {
                 ilang_ast::ExternCItem::FnDecl {
-                    name, params, ret, lib, span,
+                    name, params, ret, libs, optional, variadic, span,
                 } => {
-                    // `@extern("libname")` for the dlsym path; bare
-                    // `@extern` for host-side. Append `byValue` so
+                    // `@extern("libname", ...)` for the dlsym path;
+                    // bare `@extern` for host-side. `@optional` maps
+                    // to the `optional` flag. Append `byValue` so
                     // struct args pass by value (matches C ABI for
                     // extern(C) declarations — pointer struct args
                     // are written as `*MyStruct` and don't trigger
                     // the by_value chunk path).
-                    let mut attr_args = match lib {
-                        Some(s) => vec![AttrArg::Str(s.clone())],
-                        None => Vec::new(),
-                    };
+                    let mut attr_args: Vec<AttrArg> =
+                        libs.iter().map(|s| AttrArg::Str(s.clone())).collect();
+                    if *optional {
+                        attr_args.push(AttrArg::Path(vec!["optional".into()]));
+                    }
+                    if *variadic {
+                        attr_args.push(AttrArg::Path(vec!["variadic".into()]));
+                    }
                     attr_args.push(AttrArg::Path(vec!["byValue".into()]));
                     out.push(ilang_ast::FnDecl {
                         attrs: vec![ilang_ast::Attribute {
@@ -1171,6 +1200,7 @@ impl JitCompiler {
                     Item::ExternStatic(s) => Some((s.name.clone(), s.ty.clone())),
                     _ => None,
                 })
+                .chain(synthesize_extern_c_statics(prog).into_iter().map(|s| (s.name, s.ty)))
                 .collect(),
             extern_fn_names: prog
                 .items
@@ -1181,6 +1211,9 @@ impl JitCompiler {
                     }
                     _ => None,
                 })
+                .chain(synthesize_extern_c_fns(prog).iter().filter_map(|f| {
+                    f.attrs.iter().any(|a| a.name == "extern").then(|| f.name.clone())
+                }))
                 .collect(),
             static_field_storage,
             static_field_slots,

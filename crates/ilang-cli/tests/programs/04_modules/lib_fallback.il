@@ -6,7 +6,9 @@
 use os
 use test
 
-@extern("definitely_not_a_real_lib_xyz999.so", "c") fn abs(x: i32): i32
+@extern(C) {
+    @lib("definitely_not_a_real_lib_xyz999.so", "c") fn abs(x: i32): i32
+}
 
 // abs(-3) must succeed via the fallback.
 test.expect(abs(-3) as i64, 3)

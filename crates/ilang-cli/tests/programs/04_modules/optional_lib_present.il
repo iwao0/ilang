@@ -1,11 +1,13 @@
-// libc is present everywhere — declaring it `optional` should
-// produce the same behaviour as a regular `@extern("c") fn`,
+// libc is present everywhere — declaring it `@optional` should
+// produce the same behaviour as a regular `@lib("c") fn`,
 // with `os.libLoaded("c")` reporting true.
 // interp: skip
 use os
 use test
 
-@extern("c", optional) fn abs(x: i32): i32
+@extern(C) {
+    @lib("c") @optional fn abs(x: i32): i32
+}
 
 test.expectTrue(os.libLoaded("c"))
 
