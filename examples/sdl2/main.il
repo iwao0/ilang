@@ -3,6 +3,11 @@
 // and a stationary "paddle" along the bottom. Runs for 5 seconds
 // at ~60fps then tears everything down.
 //
+// Window / Renderer are ARC-managed classes — `deinit` automatically
+// runs SDL_DestroyWindow / SDL_DestroyRenderer when the bindings
+// leave scope, so the only explicit cleanup the caller writes is
+// `sdl.quit()` for the SDL subsystems themselves.
+//
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
 //   ilang run --jit examples/sdl2/main.il
 
@@ -22,17 +27,16 @@ fn main() {
         return
     }
 
-    let win = sdl.createWindow("ilang × SDL2", WIN_W as i32, WIN_H as i32)
-    if win == 0 {
+    let win = new sdl.Window("ilang × SDL2", WIN_W as i32, WIN_H as i32)
+    if win.handle == 0 {
         console.log("SDL_CreateWindow failed: " + sdl.getError())
         sdl.quit()
         return
     }
 
-    let ren = sdl.createRenderer(win)
-    if ren == 0 {
+    let ren = new sdl.Renderer(win)
+    if ren.handle == 0 {
         console.log("SDL_CreateRenderer failed: " + sdl.getError())
-        sdl.destroyWindow(win)
         sdl.quit()
         return
     }
@@ -72,31 +76,29 @@ fn main() {
 
         // Render — clear to dark blue, draw paddle (white)
         // and ball (red), then present.
-        let _ = sdl.setColor(ren, 20 as u8, 24 as u8, 48 as u8, 255 as u8)
-        let _ = sdl.clear(ren)
+        let _ = ren.setColor(20 as u8, 24 as u8, 48 as u8, 255 as u8)
+        let _ = ren.clear()
 
-        let _ = sdl.setColor(ren, 240 as u8, 240 as u8, 240 as u8, 255 as u8)
-        let _ = sdl.fillRect(
-            ren,
+        let _ = ren.setColor(240 as u8, 240 as u8, 240 as u8, 255 as u8)
+        let _ = ren.fillRect(
             paddle_x as i32, paddle_y as i32,
             PADDLE_W as i32, PADDLE_H as i32
         )
 
-        let _ = sdl.setColor(ren, 220 as u8, 60 as u8, 60 as u8, 255 as u8)
-        let _ = sdl.fillRect(
-            ren,
+        let _ = ren.setColor(220 as u8, 60 as u8, 60 as u8, 255 as u8)
+        let _ = ren.fillRect(
             ball_x as i32, ball_y as i32,
             BALL_SIZE as i32, BALL_SIZE as i32
         )
 
-        sdl.present(ren)
+        ren.present()
         sdl.pumpEvents()
         sdl.delay(frame_ms as u32)
         elapsed = elapsed + frame_ms
     }
 
-    sdl.destroyRenderer(ren)
-    sdl.destroyWindow(win)
+    // ren / win deinit fires automatically as they leave main()'s
+    // scope (renderer first, then window — reverse declaration order).
     sdl.quit()
 }
 

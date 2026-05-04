@@ -7,3 +7,4 @@
 @export use sdl_window
 @export use sdl_renderer
 @export use sdl_time
+@export use sdl_classes

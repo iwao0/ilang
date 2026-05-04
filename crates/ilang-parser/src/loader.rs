@@ -229,8 +229,15 @@ fn apply_use(
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
     let canon = resolve_module(&u.module, &importer_dir)?;
+    // Clone instead of remove — the same module may legitimately be
+    // applied multiple times (e.g. once via @export to publish under
+    // an umbrella prefix, and once directly so a sibling module that
+    // `use`s it sees the items under the original prefix). Each
+    // application targets a distinct effective prefix, so the
+    // resulting items don't shadow each other.
     let mut module_prog = loaded
-        .remove(&canon)
+        .get(&canon)
+        .cloned()
         .expect("loaded before via load_recursive");
     let effective_prefix: String = prefix_override
         .map(str::to_string)
@@ -509,7 +516,14 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         // already-qualified `module.fn` shapes that get parsed as
         // MethodCall, etc.) are skipped.
         ExprKind::Call { callee, args } => {
-            let new_callee = if is_builtin_callee(&callee) {
+            // Skip rewriting when:
+            //   - the callee is a built-in (FFI helper, console.log, …)
+            //   - the callee is already module-qualified (contains a
+            //     `.`) — that means an earlier normalize pass already
+            //     turned `module.fn(args)` into a `Call`, and adding
+            //     the current module's prefix again would produce
+            //     `current.module.fn` and break resolution.
+            let new_callee = if is_builtin_callee(&callee) || callee.contains('.') {
                 callee
             } else {
                 format!("{prefix}.{}", callee)
