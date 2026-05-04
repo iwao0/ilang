@@ -89,6 +89,7 @@ pub(crate) struct StrFns {
     pub to_c_str: FuncId,
     pub free_c_str: FuncId,
     pub c_str_to_string: FuncId,
+    pub cstr_array_to_strings: FuncId,
     /// `libc::free` for `@extern(..., owned_return)` returns.
     pub libc_free: FuncId,
 }
@@ -166,6 +167,7 @@ pub(crate) struct LowerCtx<'a> {
     pub native_extern_by_value: &'a std::collections::HashSet<String>,
     pub native_extern_slice_returns: &'a std::collections::HashSet<String>,
     pub native_extern_errno_check: &'a std::collections::HashSet<String>,
+    pub native_extern_cstr_arrays: &'a std::collections::HashSet<String>,
     pub extern_out_params:
         &'a std::collections::HashMap<String, (Vec<(usize, JitTy)>, JitTy)>,
     pub extern_static_addrs: &'a std::collections::HashMap<String, i64>,

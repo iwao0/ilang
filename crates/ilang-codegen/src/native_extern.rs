@@ -69,6 +69,11 @@ pub(crate) struct NativeExternRegistry {
     /// referenced DLL will fail before the calling convention
     /// matters.
     pub win_fastcall: HashSet<String>,
+    /// Native fns flagged with `cstrArray` — return is a NUL-terminated
+    /// `char**` (e.g. `environ` snapshot, glib string-vec). The JIT
+    /// walks until NULL and copies each `char*` into a fresh ilang
+    /// `string[]`. The user-facing return type must be `string[]`.
+    pub cstr_arrays: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -85,6 +90,7 @@ pub(crate) fn register_native_externs(
     let mut slice_returns: HashSet<String> = HashSet::new();
     let mut errno_check: HashSet<String> = HashSet::new();
     let mut win_fastcall: HashSet<String> = HashSet::new();
+    let mut cstr_arrays: HashSet<String> = HashSet::new();
     let mut static_addrs: HashMap<String, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
@@ -136,6 +142,7 @@ pub(crate) fn register_native_externs(
         let mut flag_slice_return = false;
         let mut flag_errno_check = false;
         let mut flag_win_fastcall = false;
+        let mut flag_cstr_array = false;
         let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
@@ -161,6 +168,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) if parts.as_slice() == ["winFastcall"] => {
                     flag_win_fastcall = true;
                 }
+                AttrArg::Path(parts) if parts.as_slice() == ["cstrArray"] => {
+                    flag_cstr_array = true;
+                }
                 // `freeWith.<fn_name>` — override the default
                 // libc::free with a library-specific deallocator.
                 // The fn name can be a module-qualified path
@@ -171,7 +181,7 @@ pub(crate) fn register_native_externs(
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `winFastcall`, `freeWith.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `winFastcall`, `cstrArray`, `freeWith.<fn_name>`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -227,6 +237,26 @@ pub(crate) fn register_native_externs(
         }
         if flag_win_fastcall {
             win_fastcall.insert(f.name.clone());
+        }
+        if flag_cstr_array {
+            // Return must be `string[]`. The C side returns a
+            // NUL-terminated `char**`; the JIT marshals it after
+            // the call.
+            let ok = matches!(
+                &f.ret,
+                Some(Type::Array { elem, .. }) if matches!(elem.as_ref(), Type::Str)
+            );
+            if !ok {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "@extern fn {}: `cstrArray` requires a `string[]` \
+                         return type (got {:?})",
+                        f.name, f.ret
+                    ),
+                    span: f.span,
+                });
+            }
+            cstr_arrays.insert(f.name.clone());
         }
         if flag_errno_check {
             // Return must be `i32?` or `i64?`. The C side returns
@@ -458,6 +488,22 @@ pub(crate) fn register_native_externs(
                     slice_returns.insert(f.name.clone());
                 } else if parts.as_slice() == ["winFastcall"] {
                     win_fastcall.insert(f.name.clone());
+                } else if parts.as_slice() == ["cstrArray"] {
+                    let ok = matches!(
+                        &f.ret,
+                        Some(Type::Array { elem, .. }) if matches!(elem.as_ref(), Type::Str)
+                    );
+                    if !ok {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "@extern fn {}: `cstrArray` requires a \
+                                 `string[]` return type (got {:?})",
+                                f.name, f.ret
+                            ),
+                            span: f.span,
+                        });
+                    }
+                    cstr_arrays.insert(f.name.clone());
                 } else if parts.as_slice() == ["errnoCheck"] {
                     let inner = match &f.ret {
                         Some(Type::Optional(inner)) => Some(inner.as_ref()),
@@ -532,6 +578,7 @@ pub(crate) fn register_native_externs(
         slice_returns,
         errno_check,
         win_fastcall,
+        cstr_arrays,
         static_addrs,
     })
 }

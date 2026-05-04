@@ -1544,6 +1544,7 @@ pub(crate) fn lower_expr(
                     && sret_ptr.is_none();
                 let is_slice_return = lc.native_extern_slice_returns.contains(callee);
                 let is_errno_check = lc.native_extern_errno_check.contains(callee);
+                let is_cstr_array = lc.native_extern_cstr_arrays.contains(callee);
                 // out<T> params: load each stack slot post-call and
                 // assemble the user-visible value (single primitive
                 // if raw return was Unit and there's exactly one
@@ -1630,6 +1631,23 @@ pub(crate) fn lower_expr(
                     b.switch_to_block(merge);
                     b.seal_block(merge);
                     Some(b.block_params(merge)[0])
+                } else if is_cstr_array {
+                    // C side returned `char**` (NUL-terminated). The
+                    // runtime helper walks until NULL and copies each
+                    // entry into a fresh ilang `string[]`. Element
+                    // drop_fn comes from the array's per-kind drop
+                    // wrapper (release_string under the hood).
+                    let raw = b.inst_results(call)[0];
+                    let arr_id = match ret_ty {
+                        JitTy::Array(id) => id,
+                        _ => unreachable!("cstrArray validated to string[]"),
+                    };
+                    let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, arr_id);
+                    let f = lc
+                        .module
+                        .declare_func_in_func(lc.strfns.cstr_array_to_strings, b.func);
+                    let c = b.ins().call(f, &[raw, drop_fn_ptr]);
+                    Some(b.inst_results(c)[0])
                 } else if is_slice_return {
                     // C side returned `(ptr, len)` in 2 GPRs. NULL
                     // ptr maps to `None` when the declared return is

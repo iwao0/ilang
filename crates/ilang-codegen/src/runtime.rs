@@ -402,6 +402,49 @@ pub(crate) extern "C" fn ilang_jit_libc_free(ptr: i64) {
 /// StringRc. The C-side memory is **not** freed by this helper alone —
 /// the JIT separately calls `ilang_jit_libc_free` when the fn was
 /// declared `@extern(..., owned_return)`.
+/// Walk a NUL-terminated `char**` (e.g. `environ`, glib's
+/// `g_strsplit` return) and copy every entry into a fresh ilang
+/// `string[]`. NULL `char**` returns an empty array; an embedded
+/// NULL `char*` element terminates the walk. Each `char*` is
+/// `c_str_to_string`-copied — the C-side memory's lifetime doesn't
+/// matter once we're done.
+///
+/// Drop fn for the resulting array elements: see
+/// `ilang_jit_release_string`. The element drop is wired in by the
+/// JIT call site (the runtime can't synthesise a Cranelift FuncId
+/// here).
+pub(crate) extern "C" fn ilang_jit_cstr_array_to_strings(
+    ptrs: i64,
+    drop_fn: i64,
+) -> i64 {
+    if ptrs == 0 {
+        return ilang_jit_array_new(8, 0, drop_fn);
+    }
+    let mut len: i64 = 0;
+    unsafe {
+        let mut p = ptrs as *const *const u8;
+        while !(*p).is_null() {
+            len += 1;
+            p = p.add(1);
+        }
+    }
+    let arr = ilang_jit_array_new(8, len, drop_fn);
+    if len == 0 {
+        return arr;
+    }
+    unsafe {
+        let data = *((arr + ARRAY_DATA_OFFSET as i64) as *const i64) as *mut i64;
+        let mut p = ptrs as *const *const u8;
+        for i in 0..len {
+            let s_ptr = (*p) as i64;
+            let stringrc = ilang_jit_c_str_to_string(s_ptr);
+            *data.add(i as usize) = stringrc;
+            p = p.add(1);
+        }
+    }
+    arr
+}
+
 pub(crate) extern "C" fn ilang_jit_c_str_to_string(ptr: i64) -> i64 {
     if ptr == 0 {
         // Empty string fallback — null pointer in StringRc world is

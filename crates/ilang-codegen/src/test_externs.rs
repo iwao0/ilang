@@ -224,6 +224,8 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("maybe_succeed_i64", test_maybe_succeed_i64 as *const u8);
     builder.symbol("parse_int_out", test_parse_int as *const u8);
     builder.symbol("div_mod_out", test_div_mod as *const u8);
+    builder.symbol("get_cstr_array", test_get_cstr_array as *const u8);
+    builder.symbol("get_empty_cstr_array", test_get_empty_cstr_array as *const u8);
 }
 
 // ─── @extern static globals (test-only) ─────────────────────────────
@@ -270,6 +272,31 @@ extern "C" fn test_get_i32_slice() -> I32Slice {
 
 // Conditional slice return — drives the NULL-ptr branch the JIT
 // inserts when the declared return is `T[]?`.
+// `cstrArray`: C side returns a NUL-terminated `char**` (e.g.
+// `environ`, glib `g_strsplit`). The JIT marshals each entry into
+// a fresh ilang string and assembles a `string[]`. The pointers
+// live in `static mut` storage that's initialised on first call;
+// this avoids raw-pointer-in-`static` `Sync` issues while keeping
+// the bytes valid for the duration of every test.
+extern "C" fn test_get_cstr_array() -> *const *const u8 {
+    static mut PTRS: [*const u8; 4] = [std::ptr::null(); 4];
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    unsafe {
+        ONCE.call_once(|| {
+            PTRS[0] = b"first\0".as_ptr();
+            PTRS[1] = b"second\0".as_ptr();
+            PTRS[2] = b"third\0".as_ptr();
+            PTRS[3] = std::ptr::null();
+        });
+        PTRS.as_ptr()
+    }
+}
+
+extern "C" fn test_get_empty_cstr_array() -> *const *const u8 {
+    static mut PTRS: [*const u8; 1] = [std::ptr::null()];
+    unsafe { PTRS.as_ptr() }
+}
+
 // Mimics a POSIX call that returns -1 on failure (and would set
 // errno). Used to drive the `errnoCheck` flag's branch.
 // `out<T>`: caller hands the C side a `*mut T`; the helper writes

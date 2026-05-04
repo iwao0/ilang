@@ -343,6 +343,7 @@ pub(crate) struct JitCompiler {
     pub(crate) str_to_c_str_id: FuncId,
     pub(crate) free_c_str_id: FuncId,
     pub(crate) c_str_to_string_id: FuncId,
+    pub(crate) cstr_array_to_strings_id: FuncId,
     pub(crate) libc_free_id: FuncId,
     pub(crate) alloc_closure_id: FuncId,
     pub(crate) retain_closure_id: FuncId,
@@ -437,6 +438,10 @@ pub(crate) struct JitCompiler {
     /// the dlopen of the referenced DLL fails before the calling
     /// convention takes effect.
     pub(crate) native_extern_win_fastcall: std::collections::HashSet<String>,
+    /// Native fns flagged with `cstrArray` — return is a NUL-
+    /// terminated `char**`. The JIT walks the result after the
+    /// call and copies each entry into a fresh ilang `string[]`.
+    pub(crate) native_extern_cstr_arrays: std::collections::HashSet<String>,
     /// Per fn name, the list of `out<T>` parameters: `(param_index,
     /// inner_jit_ty)`. The C side declares each as `*mut T`; the
     /// call lowering allocates a stack slot per entry, threads the
@@ -694,6 +699,10 @@ impl JitCompiler {
         builder.symbol("ilang_jit_str_to_c_str", crate::runtime::ilang_jit_str_to_c_str as *const u8);
         builder.symbol("ilang_jit_free_c_str", crate::runtime::ilang_jit_free_c_str as *const u8);
         builder.symbol("ilang_jit_c_str_to_string", crate::runtime::ilang_jit_c_str_to_string as *const u8);
+        builder.symbol(
+            "ilang_jit_cstr_array_to_strings",
+            crate::runtime::ilang_jit_cstr_array_to_strings as *const u8,
+        );
         builder.symbol("ilang_jit_libc_free", crate::runtime::ilang_jit_libc_free as *const u8);
         builder.symbol("ilang_jit_alloc_closure", crate::runtime::ilang_jit_alloc_closure as *const u8);
         builder.symbol("ilang_jit_retain_closure", crate::runtime::ilang_jit_retain_closure as *const u8);
@@ -850,6 +859,12 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_free_c_str", &[I64], None)?;
         let c_str_to_string_id =
             declare_import(&mut module, "ilang_jit_c_str_to_string", &[I64], Some(I64))?;
+        let cstr_array_to_strings_id = declare_import(
+            &mut module,
+            "ilang_jit_cstr_array_to_strings",
+            &[I64, I64],
+            Some(I64),
+        )?;
         let libc_free_id =
             declare_import(&mut module, "ilang_jit_libc_free", &[I64], None)?;
         let alloc_closure_id =
@@ -969,6 +984,7 @@ impl JitCompiler {
             str_to_c_str_id,
             free_c_str_id,
             c_str_to_string_id,
+            cstr_array_to_strings_id,
             libc_free_id,
             alloc_closure_id,
             retain_closure_id,
@@ -1016,6 +1032,7 @@ impl JitCompiler {
             native_extern_slice_returns: native_reg.slice_returns,
             native_extern_errno_check: native_reg.errno_check,
             native_extern_win_fastcall: native_reg.win_fastcall,
+            native_extern_cstr_arrays: native_reg.cstr_arrays,
             extern_out_params: std::collections::HashMap::new(),
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
@@ -1807,6 +1824,7 @@ impl JitCompiler {
                 to_c_str: self.str_to_c_str_id,
                 free_c_str: self.free_c_str_id,
                 c_str_to_string: self.c_str_to_string_id,
+                cstr_array_to_strings: self.cstr_array_to_strings_id,
                 libc_free: self.libc_free_id,
             },
             arrfns: ArrayFns {
@@ -1864,6 +1882,7 @@ impl JitCompiler {
             native_extern_by_value: &self.native_extern_by_value,
             native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_errno_check: &self.native_extern_errno_check,
+            native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
             extern_out_params: &self.extern_out_params,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
@@ -2013,6 +2032,7 @@ impl JitCompiler {
                 split: self.str_split_id,
                 to_c_str: self.str_to_c_str_id,
                 free_c_str: self.free_c_str_id,
+                cstr_array_to_strings: self.cstr_array_to_strings_id,
                 c_str_to_string: self.c_str_to_string_id,
                 libc_free: self.libc_free_id,
             },
@@ -2071,6 +2091,7 @@ impl JitCompiler {
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
             extern_out_params: &self.extern_out_params,
+            native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
             native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_by_value: &self.native_extern_by_value,
