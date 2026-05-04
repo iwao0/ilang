@@ -158,16 +158,8 @@ pub(crate) struct LowerCtx<'a> {
     /// decide whether to insert string ↔ C-string conversions.
     pub native_extern_fns: &'a std::collections::HashSet<String>,
     pub extern_fn_names: &'a std::collections::HashSet<String>,
-    /// Subset of `native_extern_fns` whose `string` return is
-    /// callee-owned (`strdup`-style). The Call lowering emits
-    /// `libc::free` on the C pointer after copying it.
-    pub native_extern_owned_return: &'a std::collections::HashSet<String>,
-    pub native_extern_free_with: &'a std::collections::HashMap<String, String>,
     pub native_extern_variadic: &'a std::collections::HashSet<String>,
     pub native_extern_by_value: &'a std::collections::HashSet<String>,
-    pub native_extern_slice_returns: &'a std::collections::HashSet<String>,
-    pub native_extern_errno_check: &'a std::collections::HashSet<String>,
-    pub native_extern_cstr_arrays: &'a std::collections::HashSet<String>,
     /// Per call-site span → (callee name, inferred type args).
     /// Populated by the type checker for generic fn calls; the JIT
     /// reads it to resolve T at built-in helper sites like

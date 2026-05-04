@@ -21,59 +21,22 @@ pub(crate) struct NativeExternRegistry {
     /// The Call lowering reads this to decide whether to insert
     /// `string` ↔ C-string conversions around the call.
     pub names: HashSet<String>,
-    /// Names of fns whose `string` return value is **owned by the
-    /// callee** — i.e. the C side allocated it (e.g. `strdup`) and
-    /// it must be freed with `libc::free` after we copy the bytes.
-    /// Set by the `ownedReturn` flag in `@extern("libname", owned_return)`.
-    pub owned_return: HashSet<String>,
-    /// `caller fn name → free fn name` — overrides the default
-    /// `libc::free` for the `ownedReturn` cleanup. Set by the
-    /// `freeWith.<name>` flag, used when the library has its own
-    /// allocator (`sqlite3_free`, `xmlFree`, `OPENSSL_free`, etc.).
-    pub owned_return_free_with: std::collections::HashMap<String, String>,
-    /// Names of fns declared with the `variadic` flag — `printf`,
-    /// `fprintf`, etc. The declared param list is the fixed prefix;
-    /// the call site can supply any number of extra args, each
+    /// Names of fns declared with trailing `...` — printf-style
+    /// variadics. The declared param list is the fixed prefix; the
+    /// call site can supply any number of extra args, each
     /// type-checked permissively and marshalled by its actual type.
     pub variadic: HashSet<String>,
-    /// Names of fns whose `@repr(C)` struct parameters are passed
-    /// **by value** (split into 1–2 i64 chunks per the AArch64 / SysV
-    /// "integer-only ≤ 16 B" composite rule). Set by the `byValue`
-    /// flag in `@extern("libname", by_value)`.
+    /// Names of fns whose struct parameters are passed by value
+    /// (split into 1–2 i64 chunks per the AArch64 / SysV
+    /// "integer-only ≤ 16 B" composite rule). Always set for fns
+    /// synthesized from `@extern(C) {}` blocks.
     pub by_value: HashSet<String>,
-    /// Resolved address for each `@extern static` declaration: the
-    /// C global's runtime location, ready to be embedded as `iconst`
-    /// at every read/write site. Library-form statics resolve via
-    /// dlsym in the same library set as native fns; host-form
-    /// statics use the addresses pre-registered by host modules
-    /// (`test_externs::register_static_addrs`, etc).
+    /// Resolved address for each `static name: T` declaration inside
+    /// `@extern(C) {}`: the C global's runtime location, ready to
+    /// be embedded as `iconst` at every read/write site. Library-form
+    /// statics resolve via dlsym; host-form use the addresses
+    /// pre-registered by host modules.
     pub static_addrs: std::collections::HashMap<String, i64>,
-    /// Native fns whose declared return type was `slice<T>`. The C
-    /// side returns a 16 B `{ T* ptr; size_t len; }` struct (passed
-    /// in 2 GPRs); the JIT lowers the return as 2 i64 chunks, then
-    /// allocates a fresh ilang `Array<T>` and memcpys the bytes in.
-    /// User declares `T[]` as the ilang return type.
-    pub slice_returns: HashSet<String>,
-    /// Native fns with the `errnoCheck` flag — POSIX-style "negative
-    /// means failure, errno tells you why". After the C call, the
-    /// JIT branches on `result < 0` (signed); failure → None, success
-    /// → Some(result). The user-visible return type must be
-    /// `i32?` / `i64?`. errno itself is read separately via
-    /// `os.errno()` once the caller has decided to investigate.
-    pub errno_check: HashSet<String>,
-    /// Native fns that opt into the Windows x64 calling convention
-    /// via the `winFastcall` flag. Sets `sig.call_conv =
-    /// CallConv::WindowsFastcall` instead of the platform default
-    /// (SystemV / AppleAarch64). Only effective when actually
-    /// running on Windows; on macOS / Linux the dlopen of the
-    /// referenced DLL will fail before the calling convention
-    /// matters.
-    pub win_fastcall: HashSet<String>,
-    /// Native fns flagged with `cstrArray` — return is a NUL-terminated
-    /// `char**` (e.g. `environ` snapshot, glib string-vec). The JIT
-    /// walks until NULL and copies each `char*` into a fresh ilang
-    /// `string[]`. The user-facing return type must be `string[]`.
-    pub cstr_arrays: HashSet<String>,
 }
 
 pub(crate) fn register_native_externs(
@@ -83,14 +46,8 @@ pub(crate) fn register_native_externs(
     use std::collections::HashMap;
     let mut libs: HashMap<String, Library> = HashMap::new();
     let mut names: HashSet<String> = HashSet::new();
-    let mut owned_return: HashSet<String> = HashSet::new();
-    let mut owned_return_free_with: HashMap<String, String> = HashMap::new();
     let mut variadic: HashSet<String> = HashSet::new();
     let mut by_value: HashSet<String> = HashSet::new();
-    let mut slice_returns: HashSet<String> = HashSet::new();
-    let mut errno_check: HashSet<String> = HashSet::new();
-    let mut win_fastcall: HashSet<String> = HashSet::new();
-    let mut cstr_arrays: HashSet<String> = HashSet::new();
     let mut static_addrs: HashMap<String, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
@@ -152,53 +109,28 @@ pub(crate) fn register_native_externs(
         // are tried in order if the primary fails — covers dist /
         // version differences (`libssl.so.3` vs `libssl.so.1.1`).
         let mut lib_names: Vec<String> = Vec::new();
-        let mut flag_owned_return = false;
         let mut flag_optional = false;
-        let mut flag_variadic = false;
-        let mut flag_by_value = false;
-        let mut flag_slice_return = false;
-        let mut flag_errno_check = false;
-        let mut flag_win_fastcall = false;
-        let mut flag_cstr_array = false;
-        let mut free_with: Option<String> = None;
         for arg in &extern_attr.args {
             match arg {
                 AttrArg::Str(s) => lib_names.push(s.clone()),
-                AttrArg::Path(parts) if parts.as_slice() == ["ownedReturn"] => {
-                    flag_owned_return = true;
-                }
                 AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
                     flag_optional = true;
                 }
                 AttrArg::Path(parts) if parts.as_slice() == ["variadic"] => {
-                    flag_variadic = true;
+                    variadic.insert(f.name.clone());
                 }
                 AttrArg::Path(parts) if parts.as_slice() == ["byValue"] => {
-                    flag_by_value = true;
+                    by_value.insert(f.name.clone());
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["sliceReturn"] => {
-                    flag_slice_return = true;
-                }
-                AttrArg::Path(parts) if parts.as_slice() == ["errnoCheck"] => {
-                    flag_errno_check = true;
-                }
-                AttrArg::Path(parts) if parts.as_slice() == ["winFastcall"] => {
-                    flag_win_fastcall = true;
-                }
-                AttrArg::Path(parts) if parts.as_slice() == ["cstrArray"] => {
-                    flag_cstr_array = true;
-                }
-                // `freeWith.<fn_name>` — override the default
-                // libc::free with a library-specific deallocator.
-                // The fn name can be a module-qualified path
-                // (`freeWith.test.foo` → fn `test.foo`).
-                AttrArg::Path(parts) if parts.len() >= 2 && parts[0] == "freeWith" => {
-                    free_with = Some(parts[1..].join("."));
+                AttrArg::Path(parts) if parts.as_slice() == ["C"] => {
+                    // Synthesized marker on `@extern(C)` block items —
+                    // ignored at this layer; the synth pipeline already
+                    // applied the relevant ABI rules.
                 }
                 AttrArg::Path(parts) => {
                     return Err(CodegenError::Unsupported {
                         what: format!(
-                            "@extern: unknown flag `{}` (allowed: `ownedReturn`, `optional`, `variadic`, `byValue`, `sliceReturn`, `errnoCheck`, `winFastcall`, `cstrArray`, `freeWith.<fn_name>`)",
+                            "@extern: unknown flag `{}` (allowed: `optional`, `variadic`, `byValue`)",
                             parts.join(".")
                         ),
                         span: f.span,
@@ -214,170 +146,7 @@ pub(crate) fn register_native_externs(
         }
         let lib_name = lib_names.first().cloned().expect("filter above guarantees a Str arg");
         let fallback_names: &[String] = &lib_names[1..];
-        if flag_variadic {
-            variadic.insert(f.name.clone());
-        }
-        if flag_slice_return {
-            // Validate: declared return must be `T[]` (or `T[]?`)
-            // with primitive T. The C side is expected to return a
-            // `{ T* ptr; size_t len; }` 16 B struct, which the JIT
-            // lowers as 2 i64 chunks and memcpys into a fresh `T[]`.
-            // Optional return: NULL ptr → None; non-NULL → Some(T[]).
-            let elem = match &f.ret {
-                Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
-                Some(Type::Optional(inner)) => match inner.as_ref() {
-                    Type::Array { elem, .. } => Some(elem.as_ref()),
-                    _ => None,
-                },
-                _ => None,
-            };
-            let ok = matches!(
-                elem,
-                Some(
-                    Type::I8 | Type::I16 | Type::I32 | Type::I64
-                    | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                    | Type::F32 | Type::F64
-                    | Type::Bool
-                )
-            );
-            if !ok {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `sliceReturn` requires a `T[]` \
-                         return type with primitive T (got {:?})",
-                        f.name, f.ret
-                    ),
-                    span: f.span,
-                });
-            }
-            slice_returns.insert(f.name.clone());
-        }
-        if flag_win_fastcall {
-            win_fastcall.insert(f.name.clone());
-        }
-        if flag_cstr_array {
-            // Return must be `string[]`. The C side returns a
-            // NUL-terminated `char**`; the JIT marshals it after
-            // the call.
-            let ok = matches!(
-                &f.ret,
-                Some(Type::Array { elem, .. }) if matches!(elem.as_ref(), Type::Str)
-            );
-            if !ok {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `cstrArray` requires a `string[]` \
-                         return type (got {:?})",
-                        f.name, f.ret
-                    ),
-                    span: f.span,
-                });
-            }
-            cstr_arrays.insert(f.name.clone());
-        }
-        if flag_errno_check {
-            // Return must be `i32?` or `i64?`. The C side returns
-            // a plain int; failure is detected as `result < 0`.
-            let inner = match &f.ret {
-                Some(Type::Optional(inner)) => Some(inner.as_ref()),
-                _ => None,
-            };
-            let ok = matches!(inner, Some(Type::I32 | Type::I64));
-            if !ok {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `errnoCheck` requires an `i32?` \
-                         or `i64?` return type (got {:?})",
-                        f.name, f.ret
-                    ),
-                    span: f.span,
-                });
-            }
-            errno_check.insert(f.name.clone());
-        }
-        if flag_by_value {
-            by_value.insert(f.name.clone());
-            // Struct returns are supported for ≤ 16 B integer-only
-            // structs (1–2 GPR-chunked return per AArch64 / SysV).
-            // Field-type validation runs later in `validate_by_value_fn`.
-            // Validate each by-value struct param: must be `@repr(C)`,
-            // numeric/bool fields only, total size ≤ 16 B. The exact
-            // size check happens later (the layout is finalized after
-            // this pass), but we can already reject obvious misuse.
-            // Field-level validation runs in `validate_by_value_fn`
-            // at the end of this pass so the host-extern sweep also
-            // gets covered.
-        }
         validate_native_signature(f, &opaque_classes, &repr_c_classes)?;
-        if flag_owned_return {
-            // owned_return only meaningful for string returns. Reject
-            // it on other return types so the user notices the typo.
-            let ret_is_str = matches!(f.ret, Some(Type::Str));
-            if !ret_is_str {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `ownedReturn` requires a `string` return type",
-                        f.name
-                    ),
-                    span: f.span,
-                });
-            }
-            owned_return.insert(f.name.clone());
-        }
-        if let Some(free_fn) = free_with {
-            if !flag_owned_return {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `freeWith.{}` only makes sense alongside `ownedReturn`",
-                        f.name, free_fn
-                    ),
-                    span: f.span,
-                });
-            }
-            // Verify the named fn is declared as an `@extern` fn in
-            // the same program with the right shape (one i64 / Str
-            // / opaque-class param, no return).
-            let target = prog.items.iter().find_map(|i| match i {
-                Item::Fn(g)
-                    if g.name == free_fn
-                        && g.attrs.iter().any(|a| a.name == "extern") =>
-                {
-                    Some(g)
-                }
-                _ => None,
-            });
-            let target = target.ok_or_else(|| CodegenError::Unsupported {
-                what: format!(
-                    "@extern fn {}: `freeWith.{}` references unknown extern fn",
-                    f.name, free_fn
-                ),
-                span: f.span,
-            })?;
-            if target.params.len() != 1 {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `freeWith.{}` must take exactly one i64 / opaque-class parameter",
-                        f.name, free_fn
-                    ),
-                    span: f.span,
-                });
-            }
-            // Accept i64 or an opaque-extern class type. The C-side
-            // ABI for both is just a raw pointer.
-            let p_ty = &target.params[0].ty;
-            let ok_param = matches!(p_ty, Type::I64)
-                || matches!(p_ty, Type::Object(name) if opaque_classes.contains(name));
-            if !ok_param {
-                return Err(CodegenError::Unsupported {
-                    what: format!(
-                        "@extern fn {}: `freeWith.{}` parameter must be i64 or an `@extern` class (got {})",
-                        f.name, free_fn, p_ty
-                    ),
-                    span: f.span,
-                });
-            }
-            owned_return_free_with.insert(f.name.clone(), free_fn);
-        }
         // Open (or reuse) the library. Try the primary name first,
         // then any fallback names in order. Bare names (no `.`)
         // get OS-specific candidate suffixes; literal names like
@@ -458,85 +227,19 @@ pub(crate) fn register_native_externs(
         builder.symbol(&f.name, ptr);
         names.insert(f.name.clone());
     }
-    // `byValue` is also valid on host-side `@extern fn` (no library
-    // arg). Sweep again and pick any up that we missed because the
-    // library-name filter skipped them, then validate every by_value
-    // fn (whether from the main loop or this sweep) once at the end
-    // so both code paths share the same field-type check.
+    // Host-form `@extern fn` (no library arg) doesn't enter the loop
+    // above (Str-arg filter), so sweep them here for `byValue` so the
+    // validation path picks them up.
     for f in &all_extern_fns {
-        let extern_attr = f.attrs.iter().find(|a| a.name == "extern");
-        let Some(extern_attr) = extern_attr else { continue };
+        let Some(extern_attr) = f.attrs.iter().find(|a| a.name == "extern") else {
+            continue;
+        };
         for arg in &extern_attr.args {
             if let AttrArg::Path(parts) = arg {
                 if parts.as_slice() == ["byValue"] {
                     by_value.insert(f.name.clone());
-                } else if parts.as_slice() == ["sliceReturn"] {
-                    // Same field-shape validation as the library-arg
-                    // path: must be `T[]` or `T[]?` with primitive T.
-                    let elem = match &f.ret {
-                        Some(Type::Array { elem, .. }) => Some(elem.as_ref()),
-                        Some(Type::Optional(inner)) => match inner.as_ref() {
-                            Type::Array { elem, .. } => Some(elem.as_ref()),
-                            _ => None,
-                        },
-                        _ => None,
-                    };
-                    let ok = matches!(
-                        elem,
-                        Some(
-                            Type::I8 | Type::I16 | Type::I32 | Type::I64
-                            | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                            | Type::F32 | Type::F64
-                            | Type::Bool
-                        )
-                    );
-                    if !ok {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: `sliceReturn` requires \
-                                 a `T[]` return type with primitive T \
-                                 (got {:?})",
-                                f.name, f.ret
-                            ),
-                            span: f.span,
-                        });
-                    }
-                    slice_returns.insert(f.name.clone());
-                } else if parts.as_slice() == ["winFastcall"] {
-                    win_fastcall.insert(f.name.clone());
-                } else if parts.as_slice() == ["cstrArray"] {
-                    let ok = matches!(
-                        &f.ret,
-                        Some(Type::Array { elem, .. }) if matches!(elem.as_ref(), Type::Str)
-                    );
-                    if !ok {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: `cstrArray` requires a \
-                                 `string[]` return type (got {:?})",
-                                f.name, f.ret
-                            ),
-                            span: f.span,
-                        });
-                    }
-                    cstr_arrays.insert(f.name.clone());
-                } else if parts.as_slice() == ["errnoCheck"] {
-                    let inner = match &f.ret {
-                        Some(Type::Optional(inner)) => Some(inner.as_ref()),
-                        _ => None,
-                    };
-                    let ok = matches!(inner, Some(Type::I32 | Type::I64));
-                    if !ok {
-                        return Err(CodegenError::Unsupported {
-                            what: format!(
-                                "@extern fn {}: `errnoCheck` requires an \
-                                 `i32?` or `i64?` return type (got {:?})",
-                                f.name, f.ret
-                            ),
-                            span: f.span,
-                        });
-                    }
-                    errno_check.insert(f.name.clone());
+                } else if parts.as_slice() == ["variadic"] {
+                    variadic.insert(f.name.clone());
                 }
             }
         }
@@ -590,14 +293,8 @@ pub(crate) fn register_native_externs(
     Ok(NativeExternRegistry {
         libs: libs.into_values().collect(),
         names,
-        owned_return,
-        owned_return_free_with,
         variadic,
         by_value,
-        slice_returns,
-        errno_check,
-        win_fastcall,
-        cstr_arrays,
         static_addrs,
     })
 }

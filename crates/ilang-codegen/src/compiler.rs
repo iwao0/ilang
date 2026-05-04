@@ -429,41 +429,14 @@ pub(crate) struct JitCompiler {
     /// each Call site so the lowering can wrap string args / return
     /// in C-string conversions.
     pub(crate) native_extern_fns: std::collections::HashSet<String>,
-    /// Subset of `native_extern_fns` whose `string` return must be
-    /// freed with `libc::free` after we copy the bytes into a fresh
-    /// StringRc. Marked by `@extern("lib", owned_return)`.
-    pub(crate) native_extern_owned_return: std::collections::HashSet<String>,
-    /// Per-fn override of the libc::free cleanup. Maps the calling
-    /// extern fn's name to the user-named free fn (also declared as
-    /// `@extern`), used at `owned_return` cleanup sites.
-    pub(crate) native_extern_free_with: std::collections::HashMap<String, String>,
-    /// Names declared with the `variadic` flag. The Cranelift call
-    /// site builds a fresh per-call signature for these so trailing
-    /// args flow through with their actual types.
+    /// Names declared with trailing `...` — printf-style variadics.
+    /// The Cranelift call site builds a fresh per-call signature for
+    /// these so trailing args flow through with their actual types.
     pub(crate) native_extern_variadic: std::collections::HashSet<String>,
-    /// Subset of `native_extern_fns` whose `@repr(C)` struct args are
-    /// passed by value (split into 1–2 i64 chunks at call lowering).
+    /// Subset of `native_extern_fns` whose struct args are passed by
+    /// value (split into 1–2 i64 chunks at call lowering). Always set
+    /// for `@extern(C) {}`-block fns.
     pub(crate) native_extern_by_value: std::collections::HashSet<String>,
-    /// Native fns with the `slice_return` flag — declared as `T[]`
-    /// at ilang level but actually return a `{ T* ptr; size_t len; }`
-    /// 16 B struct at the C ABI. The call lowering allocates a fresh
-    /// ilang `T[]` and memcpys.
-    pub(crate) native_extern_slice_returns: std::collections::HashSet<String>,
-    /// Native fns with `errnoCheck` — POSIX-style failure detection.
-    /// The JIT branches on `result < 0` after the call: failure →
-    /// None, success → Some(boxed result). `os.errno()` reads the
-    /// reason if the caller cares.
-    pub(crate) native_extern_errno_check: std::collections::HashSet<String>,
-    /// Native fns flagged with `winFastcall`. The signature's
-    /// `call_conv` is overridden to `WindowsFastcall`. Only
-    /// meaningful when actually running on Windows; on other hosts
-    /// the dlopen of the referenced DLL fails before the calling
-    /// convention takes effect.
-    pub(crate) native_extern_win_fastcall: std::collections::HashSet<String>,
-    /// Native fns flagged with `cstrArray` — return is a NUL-
-    /// terminated `char**`. The JIT walks the result after the
-    /// call and copies each entry into a fresh ilang `string[]`.
-    pub(crate) native_extern_cstr_arrays: std::collections::HashSet<String>,
     /// Per call-site span → (callee name, inferred type args). The
     /// type checker fills this for generic calls; the JIT reads it
     /// to resolve T at built-in helper sites like `arrayFromCArray<T>`.
@@ -1183,14 +1156,8 @@ impl JitCompiler {
             loop_break_types: HashMap::new(),
             native_libs: native_reg.libs,
             native_extern_fns: native_reg.names,
-            native_extern_owned_return: native_reg.owned_return,
-            native_extern_free_with: native_reg.owned_return_free_with,
             native_extern_variadic: native_reg.variadic,
             native_extern_by_value: native_reg.by_value,
-            native_extern_slice_returns: native_reg.slice_returns,
-            native_extern_errno_check: native_reg.errno_check,
-            native_extern_win_fastcall: native_reg.win_fastcall,
-            native_extern_cstr_arrays: native_reg.cstr_arrays,
             fn_call_type_args: std::collections::HashMap::new(),
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
@@ -1623,13 +1590,6 @@ impl JitCompiler {
             None => JitTy::Unit,
         };
         let mut sig = self.module.make_signature();
-        // `@extern(..., winFastcall)`: override the calling
-        // convention so the signature matches Windows x64 ABI. Only
-        // takes effect when running on Windows; on macOS / Linux
-        // the DLL load fails before the call_conv is consulted.
-        if self.native_extern_win_fastcall.contains(&f.name) {
-            sig.call_conv = cranelift_codegen::isa::CallConv::WindowsFastcall;
-        }
         if let Some(t) = this_ty {
             sig.params.push(AbiParam::new(t.cl().expect("object pointer")));
         }
@@ -1749,26 +1709,6 @@ impl JitCompiler {
             } else if let Some(t) = ret.cl() {
                 sig.returns.push(AbiParam::new(t));
             }
-        } else if self.native_extern_slice_returns.contains(&f.name) {
-            // `sliceReturn`: C side returns `{ T* ptr; size_t len; }`,
-            // which fits in a 2-GPR pair just like a 16 B integer
-            // by_value return.
-            sig.returns.push(AbiParam::new(I64));
-            sig.returns.push(AbiParam::new(I64));
-        } else if self.native_extern_errno_check.contains(&f.name) {
-            // `errnoCheck`: C side returns the raw int; failure is
-            // detected post-call as `result < 0`. The ilang return
-            // type is `i32?` / `i64?` but the AbiParam matches the
-            // C int width so the calling-conv stays accurate.
-            let inner_cl = match ret {
-                JitTy::Optional(id) => match self.optional_inners[id as usize] {
-                    JitTy::I32 => I32,
-                    JitTy::I64 => I64,
-                    _ => unreachable!("errnoCheck validated to i32?/i64?"),
-                },
-                _ => unreachable!("errnoCheck validated to Optional"),
-            };
-            sig.returns.push(AbiParam::new(inner_cl));
         } else if let Some(t) = ret.cl() {
             sig.returns.push(AbiParam::new(t));
         }
@@ -1959,13 +1899,8 @@ impl JitCompiler {
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
             extern_fn_names: &self.extern_fn_names,
-            native_extern_owned_return: &self.native_extern_owned_return,
-            native_extern_free_with: &self.native_extern_free_with,
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
-            native_extern_slice_returns: &self.native_extern_slice_returns,
-            native_extern_errno_check: &self.native_extern_errno_check,
-            native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
             fn_call_type_args: &self.fn_call_type_args,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
@@ -2168,15 +2103,10 @@ impl JitCompiler {
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
             extern_fn_names: &self.extern_fn_names,
-            native_extern_owned_return: &self.native_extern_owned_return,
-            native_extern_free_with: &self.native_extern_free_with,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
             fn_call_type_args: &self.fn_call_type_args,
-            native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
-            native_extern_errno_check: &self.native_extern_errno_check,
-            native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_by_value: &self.native_extern_by_value,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
