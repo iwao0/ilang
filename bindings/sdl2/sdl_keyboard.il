@@ -27,6 +27,7 @@
 // SDL_Scancode constants. Names match the C SDL_SCANCODE_* values.
 const SCANCODE_A: i32 = 4
 const SCANCODE_D: i32 = 7
+const SCANCODE_R: i32 = 21
 const SCANCODE_S: i32 = 22
 const SCANCODE_W: i32 = 26
 const SCANCODE_RETURN: i32 = 40
