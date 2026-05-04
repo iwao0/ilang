@@ -273,6 +273,11 @@ pub struct TypeChecker {
     /// `v`. `LoopKind::Loop` collects break types; `LoopKind::Other`
     /// (while / for) rejects `break v` outright.
     loop_stack: std::cell::RefCell<Vec<LoopFrame>>,
+    /// `true` while validating types or bodies inside an
+    /// `@extern(C) { ... }` block. Allows raw C pointer / `void` /
+    /// `char` / `size_t` / `ssize_t` types to appear; outside the
+    /// block these types are rejected.
+    in_extern_c: std::cell::RefCell<bool>,
     /// Per-`loop` expression: the unified break-value type that the
     /// loop evaluates to. Unit means no `break v` was seen. Consumed
     /// by the JIT lowering so it can allocate the right Cranelift
@@ -729,10 +734,13 @@ impl TypeChecker {
                     // `let x = errno` resolve.
                     self.vars.insert(s.name.clone(), s.ty.clone());
                 }
-                Item::ExternC(_) => {
-                    // Block-internal type checking happens in a
-                    // dedicated pass (see check_extern_c) that
-                    // applies the raw-pointer scoping rules.
+                Item::ExternC(block) => {
+                    // Walk the block's items in extern_c context so
+                    // raw pointer / C-only types are accepted.
+                    *self.in_extern_c.borrow_mut() = true;
+                    let result = self.collect_extern_c_signatures(block);
+                    *self.in_extern_c.borrow_mut() = false;
+                    result?;
                 }
             }
         }
@@ -741,7 +749,13 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
-                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
+                Item::ExternC(block) => {
+                    *self.in_extern_c.borrow_mut() = true;
+                    let result = self.check_extern_c_bodies(block);
+                    *self.in_extern_c.borrow_mut() = false;
+                    result?;
+                }
             }
         }
 
@@ -766,6 +780,103 @@ impl TypeChecker {
         }
         self.vars = env;
         Ok(last)
+    }
+
+    /// Walk an `@extern(C) { ... }` block during signature collection.
+    /// Each inner item registers into the same tables `Item::Class` /
+    /// `Item::Fn` would write to, but with the C-ABI flags pre-set.
+    /// Caller has already set `self.in_extern_c = true`.
+    fn collect_extern_c_signatures(
+        &mut self,
+        block: &ilang_ast::ExternCBlock,
+    ) -> Result<(), TypeError> {
+        for item in &block.items {
+            match item {
+                ilang_ast::ExternCItem::Struct {
+                    name,
+                    fields,
+                    is_packed,
+                    span,
+                } => {
+                    let synth = ClassDecl {
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        parent: None,
+                        fields: fields.clone(),
+                        methods: Vec::new(),
+                        static_methods: Vec::new(),
+                        static_fields: Vec::new(),
+                        properties: Vec::new(),
+                        extern_lib: None,
+                        is_repr_c: true,
+                        is_packed: *is_packed,
+                        is_union: false,
+                        span: *span,
+                    };
+                    let sig = class_signature(&synth, None)?;
+                    self.classes.insert(name.clone(), sig);
+                }
+                ilang_ast::ExternCItem::Union { name, fields, span } => {
+                    let synth = ClassDecl {
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        parent: None,
+                        fields: fields.clone(),
+                        methods: Vec::new(),
+                        static_methods: Vec::new(),
+                        static_fields: Vec::new(),
+                        properties: Vec::new(),
+                        extern_lib: None,
+                        is_repr_c: true,
+                        is_packed: false,
+                        is_union: true,
+                        span: *span,
+                    };
+                    let sig = class_signature(&synth, None)?;
+                    self.classes.insert(name.clone(), sig);
+                }
+                ilang_ast::ExternCItem::FnDecl { name, params, ret, span, .. } => {
+                    // Build a synthetic FnDecl with @extern attribute
+                    // so downstream pipeline (loader, JIT) treats it
+                    // like an existing top-level extern fn.
+                    let attrs = vec![ilang_ast::Attribute {
+                        name: "extern".to_string(),
+                        args: vec![ilang_ast::AttrArg::Path(vec!["C".into()])],
+                    }];
+                    let synth = FnDecl {
+                        attrs,
+                        name: name.clone(),
+                        type_params: Vec::new(),
+                        params: params.clone(),
+                        ret: ret.clone(),
+                        body: ilang_ast::Block { stmts: Vec::new(), tail: None },
+                        span: *span,
+                        is_override: false,
+                    };
+                    let sig = signature_of(&synth);
+                    self.fns.entry(name.clone()).or_default().push(sig);
+                }
+                ilang_ast::ExternCItem::FnDef(f) => {
+                    let sig = signature_of(f);
+                    self.fns.entry(f.name.clone()).or_default().push(sig);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Type-check fn bodies inside an `@extern(C) { ... }` block.
+    /// Caller has already set `self.in_extern_c = true`.
+    fn check_extern_c_bodies(
+        &mut self,
+        block: &ilang_ast::ExternCBlock,
+    ) -> Result<(), TypeError> {
+        for item in &block.items {
+            if let ilang_ast::ExternCItem::FnDef(f) = item {
+                self.check_fn(f, None)?;
+            }
+        }
+        Ok(())
     }
 
     fn check_enum(&self, e: &EnumDecl) -> Result<(), TypeError> {
@@ -1112,6 +1223,29 @@ impl TypeChecker {
                     });
                 }
                 self.validate_type(inner, span, type_params_in_scope)?;
+            }
+            // Raw C pointer / void / char / size_t / ssize_t — only
+            // nameable inside an `@extern(C) { ... }` block.
+            Type::RawPtr { inner, .. } => {
+                if !*self.in_extern_c.borrow() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "{t} (raw C pointer types are only nameable inside an @extern(C) {{ ... }} block)"
+                        ),
+                        span,
+                    });
+                }
+                self.validate_type(inner, span, type_params_in_scope)?;
+            }
+            Type::CVoid | Type::CChar | Type::Size | Type::SSize => {
+                if !*self.in_extern_c.borrow() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "{t} (C-only type, nameable only inside an @extern(C) {{ ... }} block)"
+                        ),
+                        span,
+                    });
+                }
             }
             _ => {}
         }
