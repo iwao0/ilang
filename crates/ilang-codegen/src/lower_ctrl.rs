@@ -38,7 +38,7 @@ pub(crate) fn lower_if(
         None => None,
     };
     if let Some((v, _)) = then_val {
-        b.ins().jump(merge, &[v]);
+        b.ins().jump(merge, &[v.into()]);
     } else {
         b.ins().jump(merge, &[]);
     }
@@ -52,7 +52,7 @@ pub(crate) fn lower_if(
     match (then_val, else_val) {
         (Some((_, tt)), Some((ev, _et))) => {
             let ev_coerced = coerce(b, (ev, _et), tt, cond.span)?;
-            b.ins().jump(merge, &[ev_coerced]);
+            b.ins().jump(merge, &[ev_coerced.into()]);
             b.switch_to_block(merge);
             b.seal_block(merge);
             Ok(merge_param.map(|p| (p, tt)))
@@ -63,7 +63,7 @@ pub(crate) fn lower_if(
                 Some(t) => b.ins().iconst(t, 0),
                 None => unreachable!(),
             };
-            b.ins().jump(merge, &[zero]);
+            b.ins().jump(merge, &[zero.into()]);
             b.switch_to_block(merge);
             b.seal_block(merge);
             Ok(None)
@@ -153,19 +153,16 @@ pub(crate) fn lower_for_in(
     // Stash the array pointer in a Variable so we can read len/data
     // inside the loop blocks. Doing so also makes ARC release-after-loop
     // easy (we own the rc=1 if it was fresh).
-    let arr_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(arr_var, I64);
+    let arr_var = b.declare_var(I64);
     b.def_var(arr_var, iter_v);
 
     // Counter i.
-    let i_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(i_var, I64);
+    let i_var = b.declare_var(I64);
     let zero = b.ins().iconst(I64, 0);
     b.def_var(i_var, zero);
 
     // Loop var x — bound for the body.
-    let x_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(x_var, elem_jty.cl().expect("non-unit elem"));
+    let x_var = b.declare_var(elem_jty.cl().expect("non-unit elem"));
     let prev_binding = lc.env.bindings.insert(var.to_string(), (x_var, elem_jty));
 
     let header = b.create_block();
@@ -256,14 +253,12 @@ fn lower_for_in_range(
         span: start.span,
     })?;
     // Counter (the loop variable). Bound for the body via env.
-    let i_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(i_var, cl);
+    let i_var = b.declare_var(cl);
     b.def_var(i_var, s_v);
     // Stash the end value so each iteration reads it back from a
     // Variable rather than depending on the original Value living
     // through the loop.
-    let end_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(end_var, cl);
+    let end_var = b.declare_var(cl);
     b.def_var(end_var, e_v);
     let prev_binding = lc.env.bindings.insert(var.to_string(), (i_var, s_t));
 
@@ -345,8 +340,7 @@ pub(crate) fn lower_loop(
             )
             .ok()?;
             let cl = jty.cl()?;
-            let var = Variable::new(lc.env.next_var_id());
-            b.declare_var(var, cl);
+            let var = b.declare_var(cl);
             Some((var, jty))
         });
 

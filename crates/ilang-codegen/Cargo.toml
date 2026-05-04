@@ -8,12 +8,12 @@ license.workspace = true
 ilang-ast = { path = "../ilang-ast" }
 ilang-types = { path = "../ilang-types" }
 thiserror = { workspace = true }
-cranelift = "0.115"
-cranelift-jit = "0.115"
-cranelift-module = "0.115"
-cranelift-frontend = "0.115"
-cranelift-codegen = "0.115"
-cranelift-native = "0.115"
+cranelift = "0.131"
+cranelift-jit = "0.131"
+cranelift-module = "0.131"
+cranelift-frontend = "0.131"
+cranelift-codegen = "0.131"
+cranelift-native = "0.131"
 target-lexicon = "0.13"
 libloading = "0.8"
 

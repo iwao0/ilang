@@ -361,7 +361,7 @@ pub(crate) fn lower_logical(
             .0,
         LogicalOp::Or => b.ins().iconst(I8, 1),
     };
-    b.ins().jump(merge, &[then_val]);
+    b.ins().jump(merge, &[then_val.into()]);
 
     b.switch_to_block(else_block);
     b.seal_block(else_block);
@@ -374,7 +374,7 @@ pub(crate) fn lower_logical(
             })?
             .0,
     };
-    b.ins().jump(merge, &[else_val]);
+    b.ins().jump(merge, &[else_val.into()]);
 
     b.switch_to_block(merge);
     b.seal_block(merge);

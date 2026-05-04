@@ -90,14 +90,10 @@ pub(crate) fn lower_stmt(
             // (`new C(...)`, fn results, "literal" + "literal", `[...]`)
             // already start at rc=1.
             emit_bind_retain(b, lc, &value.kind, vt, bind_ty, coerced);
-            let var = Variable::new(lc.env.next_var_id());
-            b.declare_var(
-                var,
-                bind_ty.cl().ok_or_else(|| CodegenError::Unsupported {
-                    what: "unit-typed let binding".into(),
-                    span: s.span,
-                })?,
-            );
+            let var = b.declare_var(bind_ty.cl().ok_or_else(|| CodegenError::Unsupported {
+                what: "unit-typed let binding".into(),
+                span: s.span,
+            })?);
             b.def_var(var, coerced);
             lc.env.bindings.insert(name.clone(), (var, bind_ty));
         }

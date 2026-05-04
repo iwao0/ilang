@@ -2441,8 +2441,7 @@ fn lower_match(
                                 let cl = fty.cl().expect("non-unit payload field");
                                 let abs = ENUM_PAYLOAD_OFFSET + (*offset as i32);
                                 let v = b.ins().load(cl, MemFlags::trusted(), sv, abs);
-                                let var = Variable::new(lc.env.next_var_id());
-                                b.declare_var(var, cl);
+                                let var = b.declare_var(cl);
                                 b.def_var(var, v);
                                 if fty.is_heap() {
                                     crate::arc::emit_retain_heap(b, lc, v, *fty);
@@ -2463,8 +2462,7 @@ fn lower_match(
                                     let cl = fty.cl().expect("non-unit payload field");
                                     let abs = ENUM_PAYLOAD_OFFSET + (offset as i32);
                                     let v = b.ins().load(cl, MemFlags::trusted(), sv, abs);
-                                    let var = Variable::new(lc.env.next_var_id());
-                                    b.declare_var(var, cl);
+                                    let var = b.declare_var(cl);
                                     b.def_var(var, v);
                                     if fty.is_heap() {
                                         crate::arc::emit_retain_heap(b, lc, v, fty);
@@ -2502,11 +2500,11 @@ fn lower_match(
                 })?;
                 merge_param = Some(b.append_block_param(merge, cl));
                 result_ty = Some(vt);
-                b.ins().jump(merge, &[v]);
+                b.ins().jump(merge, &[v.into()]);
             }
             (Some((v, vt)), Some(prev_ty)) => {
                 let v = coerce(b, (v, vt), prev_ty, arm.span)?;
-                b.ins().jump(merge, &[v]);
+                b.ins().jump(merge, &[v.into()]);
             }
             (None, _) => {
                 b.ins().jump(merge, &[]);
@@ -2566,9 +2564,8 @@ fn lower_if_let(
     //                    the binding (it's a primitive copy).
     b.switch_to_block(then_block);
     b.seal_block(then_block);
-    let var = Variable::new(lc.env.next_var_id());
     let cl_ty = inner_jty.cl().expect("non-unit inner");
-    b.declare_var(var, cl_ty);
+    let var = b.declare_var(cl_ty);
     if inner_jty.is_heap() {
         b.def_var(var, scrut_v);
         crate::arc::emit_retain_heap(b, lc, scrut_v, inner_jty);
@@ -2610,7 +2607,7 @@ fn lower_if_let(
         None => None,
     };
     if let Some((v, _)) = then_val {
-        b.ins().jump(merge, &[v]);
+        b.ins().jump(merge, &[v.into()]);
     } else {
         b.ins().jump(merge, &[]);
     }
@@ -2624,7 +2621,7 @@ fn lower_if_let(
     let result = match (then_val, else_val) {
         (Some((_, tt)), Some((ev, _et))) => {
             let ev_coerced = coerce(b, (ev, _et), tt, scrut.span)?;
-            b.ins().jump(merge, &[ev_coerced]);
+            b.ins().jump(merge, &[ev_coerced.into()]);
             b.switch_to_block(merge);
             b.seal_block(merge);
             Ok(merge_param.map(|p| (p, tt)))
@@ -2635,7 +2632,7 @@ fn lower_if_let(
                 Some(t) => b.ins().iconst(t, 0),
                 None => unreachable!(),
             };
-            b.ins().jump(merge, &[zero]);
+            b.ins().jump(merge, &[zero.into()]);
             b.switch_to_block(merge);
             b.seal_block(merge);
             Ok(merge_param.map(|p| (p, tt)))
@@ -3147,8 +3144,7 @@ fn emit_print_array(
     let elem_size_const = elem_jty.size_bytes() as i64;
 
     // Loop: i = 0; while i < len { if i > 0: print ", "; print elem[i]; i++ }
-    let i_var = Variable::new(lc.env.next_var_id());
-    b.declare_var(i_var, I64);
+    let i_var = b.declare_var(I64);
     let zero = b.ins().iconst(I64, 0);
     b.def_var(i_var, zero);
 

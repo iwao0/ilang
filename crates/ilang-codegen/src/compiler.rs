@@ -939,6 +939,16 @@ impl JitCompiler {
         // initial value comes from each field's folded literal.
         let (static_field_storage, static_field_slots, static_field_types) =
             init_static_field_storage(prog);
+        // Use an arena-backed memory provider so every JIT'd function
+        // lands in a single contiguous reservation. AArch64 BL has a
+        // ±128MB range; without this, mmap can scatter functions far
+        // enough apart that local fn-to-fn calls overflow the
+        // relocation, panicking at finalize or producing SIGBUS at
+        // runtime. 64 MiB easily fits everything we generate today.
+        builder.memory_provider(Box::new(
+            cranelift_jit::ArenaMemoryProvider::new_with_size(64 * 1024 * 1024)
+                .map_err(|e| CodegenError::Cranelift(format!("arena: {e}")))?,
+        ));
         let mut module = JITModule::new(builder);
         let ctx = module.make_context();
 
@@ -1820,8 +1830,7 @@ impl JitCompiler {
         // Bind `this` first, if this is a method.
         let this = match this_class {
             Some(class_id) => {
-                let var = Variable::new(env.next_var_id());
-                builder.declare_var(var, I64);
+                let var = builder.declare_var(I64);
                 let v = builder.block_params(entry)[block_param_idx];
                 builder.def_var(var, v);
                 block_param_idx += 1;
@@ -1832,8 +1841,7 @@ impl JitCompiler {
 
         for (i, p) in f.params.iter().enumerate() {
             let pty = param_tys[i];
-            let var = Variable::new(env.next_var_id());
-            builder.declare_var(var, pty.cl().expect("non-unit checked at declare"));
+            let var = builder.declare_var(pty.cl().expect("non-unit checked at declare"));
             let v = builder.block_params(entry)[block_param_idx + i];
             builder.def_var(var, v);
             env.bindings.insert(p.name.clone(), (var, pty));

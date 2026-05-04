@@ -500,8 +500,7 @@ fn define_one_array_drop(
     let data = builder.ins().load(I64, MemFlags::trusted(), header, 32);
 
     // Loop: i = 0; while i < len { release(load(data + i*elem_size)); i++ }
-    let i_var = Variable::new(0);
-    builder.declare_var(i_var, I64);
+    let i_var = builder.declare_var(I64);
     let zero = builder.ins().iconst(I64, 0);
     builder.def_var(i_var, zero);
 
