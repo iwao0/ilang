@@ -156,6 +156,12 @@ CLI が起動時にこのファイルを探し、`[deps]` で指定された pat
 
 ## 開発
 
+ワークスペース全体のテストを実行します。各 crate の Rust ユニット
+テストに加えて、`crates/ilang-cli/tests/programs/` 以下にある言語
+レベルの fixture(各 `.il` ファイルが interpreter と JIT 両方で実行
+され、`expect:` / `expect-error:` のマジックコメントで結果を検証)も
+全部走ります:
+
 ```sh
 cargo test --workspace
 ```

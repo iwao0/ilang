@@ -181,6 +181,12 @@ directory for `use module` resolution.
 
 ## Development
 
+Run the whole test suite — Rust unit tests across every crate plus
+the language-level fixtures under
+`crates/ilang-cli/tests/programs/` (each `.il` fixture is executed
+in both the interpreter and the JIT, with `expect:` / `expect-error:`
+magic comments asserting the outcome):
+
 ```sh
 cargo test --workspace
 ```
