@@ -1,14 +1,21 @@
-// Fixed-length numeric array as a `@repr(C)` class field. Bytes
+// Fixed-length numeric array as a `@repr(C) struct` field. Bytes
 // are embedded inline (no heap header) so the layout matches the
 // C `T arr[N];` declaration. Index access on the field reads /
 // writes the embedded slot directly.
 use test
 
-@repr(C) class sockaddr_in {
-    sin_family: u16
-    sin_port: u16
-    sin_addr: u32
-    sin_zero: u8[8]
+@extern(C) {
+    @repr(C) struct sockaddr_in {
+        sin_family: u16
+        sin_port: u16
+        sin_addr: u32
+        sin_zero: u8[8]
+    }
+
+    @repr(C) struct sample {
+        counts: i64[3]
+        ratios: f64[2]
+    }
 }
 
 let s = new sockaddr_in()
@@ -37,11 +44,6 @@ test.expect(s.sin_zero[2] as i64, 0)   // untouched
 test.expect(s.sin_zero[7] as i64, 99)
 
 // Larger element types work too.
-@repr(C) class sample {
-    counts: i64[3]
-    ratios: f64[2]
-}
-
 let sm = new sample()
 sm.counts[0] = 100
 sm.counts[1] = 200

@@ -1,17 +1,19 @@
-// `@repr(C) class` basics: declare, allocate, read/write fields.
-// Doesn't go through native extern — just exercises the layout
-// and zero-init semantics so failures are easy to localize.
+// `@extern(C) { struct ... }` basics: declare, allocate, read/write
+// fields. Doesn't actually call any native fn — just exercises the
+// layout / zero-init semantics so failures localise easily.
 use test
 
-@repr(C) class point {
-    x: i32
-    y: i32
-}
+@extern(C) {
+    struct point {
+        x: i32
+        y: i32
+    }
 
-@repr(C) class mixed {
-    flag: bool
-    count: i64
-    ratio: f64
+    struct mixed {
+        flag: bool
+        count: i64
+        ratio: f64
+    }
 }
 
 let p = new point()

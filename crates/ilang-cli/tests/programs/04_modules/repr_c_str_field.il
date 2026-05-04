@@ -1,7 +1,7 @@
-// `string` field on a `@repr(C)` class. Storage is a heap pointer
+// `string` field on a `@repr(C) struct`. Storage is a heap pointer
 // to ilang's `StringRc` (8 bytes), pre-initialised to an interned
 // empty string at construction so reads on a fresh instance are
-// safe. ARC works as on any other heap field — class drop releases
+// safe. ARC works as on any other heap field — struct drop releases
 // the StringRc.
 //
 // Note: the field's raw bytes are a `StringRc *`, **not** a
@@ -11,10 +11,12 @@
 // marshalling) or use `u8[N]` for a fixed inline buffer.
 use test
 
-@repr(C) class person {
-    age: i32
-    name: string
-    nick: string
+@extern(C) {
+    @repr(C) struct person {
+        age: i32
+        name: string
+        nick: string
+    }
 }
 
 let p = new person()

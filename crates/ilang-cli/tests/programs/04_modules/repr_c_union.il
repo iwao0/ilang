@@ -1,18 +1,25 @@
-// `@repr(C, union)` lays every field at offset 0 — writing one
-// overwrites the others. Useful for C union interop (`siginfo_t`,
-// `union sigval`, etc.) and for type punning between integer and
-// float bit patterns.
+// `union` inside `@extern(C)` lays every field at offset 0 —
+// writing one overwrites the others. Useful for C union interop
+// (`siginfo_t`, `union sigval`, etc.) and for type punning between
+// integer and float bit patterns.
 //
 // JIT-only — the interpreter has no shared-storage representation
 // for fields (it uses a HashMap<name, Value>).
 // interp: skip
 use test
 
-@repr(C, union) class word_view {
-    as_u32: u32
-    as_i32: i32
-    as_f32: f32
-    bytes: u8[4]
+@extern(C) {
+    union word_view {
+        as_u32: u32
+        as_i32: i32
+        as_f32: f32
+        bytes: u8[4]
+    }
+
+    union mixed {
+        small: u8
+        big: u64
+    }
 }
 
 let w = new word_view()
@@ -49,11 +56,6 @@ w.bytes[3] = 0x00 as u8
 test.expect(w.as_u32 as i64, 0x00000001)
 
 // Mixed-width union — verifies the size = max(field sizes) rule.
-@repr(C, union) class mixed {
-    small: u8
-    big: u64
-}
-
 let m = new mixed()
 m.big = 0xCAFEBABE_DEADBEEF as u64
 // `small` reads the low byte of the u64 (LE: 0xEF).

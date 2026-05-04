@@ -1,15 +1,22 @@
 // C99 flexible array member: `T[]` as the last field of a
-// `@repr(C)` class. `new ClassName(n)` widens the allocation by
+// `@repr(C) struct`. `new StructName(n)` widens the allocation by
 // `n * sizeof(T)` bytes for the trailing variable area; the FAM
 // field returns a base pointer at `instance + sizeof(fixed area)`.
 // Bounds checks are skipped — like in C, the user maintains the
 // element count themselves (typically in a sibling field).
 use test
 
-@repr(C) class packet {
-    kind: u8
-    len: u32
-    data: u8[]
+@extern(C) {
+    @repr(C) struct packet {
+        kind: u8
+        len: u32
+        data: u8[]
+    }
+
+    @repr(C) struct i32_buf {
+        n: u32
+        items: i32[]
+    }
 }
 
 let p = new packet(8)
@@ -33,11 +40,6 @@ test.expect(p.data[3] as i64, 103)
 test.expect(p.data[7] as i64, 107)
 
 // Wider element type — i32 FAM.
-@repr(C) class i32_buf {
-    n: u32
-    items: i32[]
-}
-
 let buf = new i32_buf(4)
 buf.n = 4 as u32
 buf.items[0] = -1 as i32

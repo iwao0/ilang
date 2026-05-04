@@ -62,8 +62,63 @@ impl Interpreter {
                     // a real C global. References resolve at the call
                     // site (where the interpreter would error).
                 }
-                Item::ExternC(_) => {
-                    // JIT-only. The interpreter has no native FFI path.
+                Item::ExternC(block) => {
+                    // Walk the block and register struct / union as
+                    // classes (with is_repr_c and the relevant flags
+                    // set) and fn defs as fns. Decl-only fns are
+                    // dlsym'd at JIT time only — the interpreter
+                    // can't call them, but the names need to be
+                    // present so type checking passes.
+                    for inner in &block.items {
+                        match inner {
+                            ilang_ast::ExternCItem::Struct {
+                                name, fields, is_packed, span,
+                            } => {
+                                let synth = ilang_ast::ClassDecl {
+                                    name: name.clone(),
+                                    type_params: Vec::new(),
+                                    parent: None,
+                                    fields: fields.clone(),
+                                    methods: Vec::new(),
+                                    static_methods: Vec::new(),
+                                    static_fields: Vec::new(),
+                                    properties: Vec::new(),
+                                    extern_lib: None,
+                                    is_repr_c: true,
+                                    is_packed: *is_packed,
+                                    is_union: false,
+                                    span: *span,
+                                };
+                                self.classes.insert(name.clone(), synth);
+                            }
+                            ilang_ast::ExternCItem::Union {
+                                name, fields, span,
+                            } => {
+                                let synth = ilang_ast::ClassDecl {
+                                    name: name.clone(),
+                                    type_params: Vec::new(),
+                                    parent: None,
+                                    fields: fields.clone(),
+                                    methods: Vec::new(),
+                                    static_methods: Vec::new(),
+                                    static_fields: Vec::new(),
+                                    properties: Vec::new(),
+                                    extern_lib: None,
+                                    is_repr_c: true,
+                                    is_packed: false,
+                                    is_union: true,
+                                    span: *span,
+                                };
+                                self.classes.insert(name.clone(), synth);
+                            }
+                            ilang_ast::ExternCItem::FnDef(f) => {
+                                self.fns.insert(f.name.clone(), f.clone());
+                            }
+                            ilang_ast::ExternCItem::FnDecl { .. } => {
+                                // dlsym'd at JIT time only.
+                            }
+                        }
+                    }
                 }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), c.clone());

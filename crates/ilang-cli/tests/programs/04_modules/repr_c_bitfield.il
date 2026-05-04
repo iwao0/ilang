@@ -1,19 +1,21 @@
-// `@bits(N)` bitfields on `@repr(C)` class fields. Consecutive
+// `@bits(N)` bitfields on `@repr(C) struct` fields. Consecutive
 // bitfields of the same underlying integer width pack into a single
 // shared storage unit (GCC-style packing); the JIT emits a
 // shift+mask read and a read-modify-write store.
 use test
 
-@repr(C) class flags {
-    @bits(1) active: u32
-    @bits(3) mode: u32
-    @bits(4) reserved: u32
-    // Non-bitfield breaks the run; this `tag` lands in its own
-    // 4-byte slot at offset 4.
-    tag: u32
-    // Another run starts here.
-    @bits(2) phase: u8
-    @bits(6) hop: u8
+@extern(C) {
+    @repr(C) struct flags {
+        @bits(1) active: u32
+        @bits(3) mode: u32
+        @bits(4) reserved: u32
+        // Non-bitfield breaks the run; this `tag` lands in its own
+        // 4-byte slot at offset 4.
+        tag: u32
+        // Another run starts here.
+        @bits(2) phase: u8
+        @bits(6) hop: u8
+    }
 }
 
 let f = new flags()

@@ -1,18 +1,20 @@
-// Nested `@repr(C)` struct: an outer class can embed another
-// `@repr(C)` class inline (no pointer, no separate allocation).
+// Nested `@repr(C) struct`: an outer struct can embed another
+// `@repr(C) struct` inline (no pointer, no separate allocation).
 // Field offsets follow C struct layout, so the bytes are exactly
 // where a C compiler would place them.
 use test
 
-@repr(C) class point {
-    x: i32
-    y: i32
-}
+@extern(C) {
+    @repr(C) struct point {
+        x: i32
+        y: i32
+    }
 
-@repr(C) class rect {
-    origin: point
-    width: i32
-    height: i32
+    @repr(C) struct rect {
+        origin: point
+        width: i32
+        height: i32
+    }
 }
 
 let r = new rect()
