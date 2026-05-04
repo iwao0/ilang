@@ -659,7 +659,7 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
         for inner in &block.items {
             match inner {
                 ilang_ast::ExternCItem::FnDecl {
-                    name, params, ret, libs, optional, variadic, span,
+                    name, params, ret, libs, optional, variadic, c_symbol, span,
                 } => {
                     // `@extern("libname", ...)` for the dlsym path;
                     // bare `@extern` for host-side. `@optional` maps
@@ -677,11 +677,22 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                         attr_args.push(AttrArg::Path(vec!["variadic".into()]));
                     }
                     attr_args.push(AttrArg::Path(vec!["byValue".into()]));
+                    // `@symbol("name")` rides through as a separate
+                    // attribute so native_extern can use it for the
+                    // dlsym lookup while keeping the ilang-side name
+                    // for everything else.
+                    let mut attrs = vec![ilang_ast::Attribute {
+                        name: "extern".to_string(),
+                        args: attr_args,
+                    }];
+                    if let Some(sym) = c_symbol {
+                        attrs.push(ilang_ast::Attribute {
+                            name: "symbol".to_string(),
+                            args: vec![AttrArg::Str(sym.clone())],
+                        });
+                    }
                     out.push(ilang_ast::FnDecl {
-                        attrs: vec![ilang_ast::Attribute {
-                            name: "extern".to_string(),
-                            args: attr_args,
-                        }],
+                        attrs,
                         name: name.clone(),
                         type_params: Vec::new(),
                         params: params.clone(),

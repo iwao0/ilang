@@ -613,11 +613,12 @@ impl<'a> Parser<'a> {
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
-        // Accepted: `@lib("name", "fallback", ...)` (one or more strings)
-        // and `@optional`. Anything else is rejected so users notice
-        // the legacy flags are gone.
+        // Accepted: `@lib("name", "fallback", ...)` (one or more strings),
+        // `@optional` and `@symbol("c_name")`. Anything else is rejected
+        // so users notice the legacy flags are gone.
         let mut libs: Vec<String> = Vec::new();
         let mut optional = false;
+        let mut c_symbol: Option<String> = None;
         for a in &attrs {
             match a.name.as_str() {
                 "lib" => {
@@ -646,11 +647,26 @@ impl<'a> Parser<'a> {
                 "optional" if a.args.is_empty() => {
                     optional = true;
                 }
+                "symbol" => {
+                    let t = self.peek();
+                    let bad = ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "@symbol(\"c_name\") takes exactly one string argument".into(),
+                        span: t.span,
+                    };
+                    if a.args.len() != 1 {
+                        return Err(bad);
+                    }
+                    match &a.args[0] {
+                        ilang_ast::AttrArg::Str(s) => c_symbol = Some(s.clone()),
+                        _ => return Err(bad),
+                    }
+                }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "@lib(\"libname\", ...) or @optional (no other attributes accepted on extern(C) fn)".into(),
+                        expected: "@lib(\"libname\", ...), @optional, or @symbol(\"c_name\") (no other attributes accepted on extern(C) fn)".into(),
                         span: t.span,
                     });
                 }
@@ -711,6 +727,7 @@ impl<'a> Parser<'a> {
                 libs,
                 optional,
                 variadic,
+                c_symbol,
                 span,
             })
         }

@@ -252,6 +252,11 @@ pub enum ExternCItem {
         /// — trailing `...` marks the C variadic. Extra arguments at
         /// the call site lower with their actual JIT types.
         variadic: bool,
+        /// `@symbol("name")` overrides the C symbol used at dlsym
+        /// time so the ilang-side fn name can differ from the C one
+        /// (e.g. `fn my_sprintf` calling `sprintf`). `None` means use
+        /// `name` as both the ilang name and the C symbol.
+        c_symbol: Option<String>,
         span: Span,
     },
     /// `fn name(...): T { body }` — ilang-side definition with C ABI.

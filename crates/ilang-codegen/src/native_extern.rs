@@ -203,11 +203,21 @@ pub(crate) fn register_native_externs(
             continue;
         }
         let lib = &libs[&lib_name];
-        // Resolve the symbol (the fn's source name is used as the
-        // symbol name — same convention as the existing math externs).
-        let symbol_bytes = f.name.as_bytes();
+        // Resolve the symbol. `@symbol("name")` overrides the C name
+        // — without it, the ilang-side fn name is used (matches the
+        // existing math externs convention).
+        let c_symbol = f
+            .attrs
+            .iter()
+            .find(|a| a.name == "symbol")
+            .and_then(|a| a.args.first())
+            .and_then(|arg| match arg {
+                AttrArg::Str(s) => Some(s.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| f.name.clone());
         let sym_result: Result<libloading::Symbol<*const u8>, libloading::Error> =
-            unsafe { lib.get(symbol_bytes) };
+            unsafe { lib.get(c_symbol.as_bytes()) };
         let ptr = match sym_result {
             Ok(sym) => unsafe { *sym.into_raw() },
             Err(e) => {
@@ -218,7 +228,7 @@ pub(crate) fn register_native_externs(
                     crate::runtime::ilang_optional_extern_stub_abort as *const u8
                 } else {
                     return Err(CodegenError::Module(format!(
-                        "@extern(\"{lib_name}\") fn {}: symbol not found: {e}",
+                        "@extern(\"{lib_name}\") fn {} (C symbol {c_symbol:?}): symbol not found: {e}",
                         f.name
                     )));
                 }
