@@ -1,7 +1,7 @@
 // SDL2 game-screen demo: a procedurally-generated sprite bounces
 // around the window, rotating as it goes, with a paddle the user
-// controls along the bottom and a beep on every wall hit. Runs for
-// 5 seconds at ~60fps then tears everything down.
+// controls along the bottom and a beep on every wall hit. Runs at
+// ~60fps until ESC is pressed, then tears everything down.
 //
 // Window / Renderer / Texture / AudioDevice are ARC-managed
 // classes — `deinit` automatically runs the matching SDL_*Destroy
@@ -11,7 +11,7 @@
 //
 // Controls:
 //   ←/→  or  A/D  — move the paddle
-//   ESC          — exit early
+//   ESC          — quit
 //
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
 //   ilang run --jit examples/sdl_bouncing_ball/main.il
@@ -32,7 +32,6 @@ const SPRITE_DRAW_SIZE: i32 = 64      // and drawn at the same size
 const PADDLE_W: i32 = 120
 const PADDLE_H: i32 = 16
 
-const PLAY_MS: u32 = 5000
 const FRAME_MS: u32 = 16
 const PADDLE_SPEED: i32 = 8
 
@@ -168,7 +167,7 @@ if audio.id == 0 {
 audio.play()
 let beep = make_beep(BEEP_HZ, BEEP_MS)
 
-console.log("playing for 5 seconds")
+console.log("playing — ESC to quit")
 
 // Game state.
 let ball_x: i32 = 100
@@ -180,15 +179,15 @@ let angle: f64 = 0.0
 let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
 let paddle_y: i32 = WIN_H - PADDLE_H - 20
 
-let elapsed: u32 = 0
-while elapsed < PLAY_MS {
+let running = true
+while running {
     // Drain SDL events so the OS run loop advances and the
     // keyboard-state snapshot reflects the current frame.
     sdl.pumpEvents()
 
-    // ESC quits early.
+    // ESC quits.
     if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) {
-        elapsed = PLAY_MS
+        running = false
     }
 
     // Paddle: arrow keys or A/D move horizontally, clamped to the edges.
@@ -256,7 +255,6 @@ while elapsed < PLAY_MS {
 
     ren.present()
     sdl.delay(FRAME_MS)
-    elapsed += FRAME_MS
 }
 
 // sprite / audio / ren / win deinit fires automatically as the
