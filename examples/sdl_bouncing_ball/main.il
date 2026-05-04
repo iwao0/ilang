@@ -13,7 +13,10 @@
 //   ESC          — exit early
 //
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
-//   ilang run --jit examples/sdl2/main.il
+//   ilang run --jit examples/sdl_bouncing_ball/main.il
+//
+// The SDL2 bindings live under bindings/sdl2/; the `ilang.toml` in
+// this directory points at them so `use sdl` resolves automatically.
 
 use sdl
 use math

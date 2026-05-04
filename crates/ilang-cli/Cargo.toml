@@ -16,3 +16,5 @@ ilang-types = { workspace = true }
 ilang-codegen = { workspace = true }
 clap = { workspace = true }
 rustyline = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }

@@ -98,16 +98,31 @@ impl std::fmt::Display for LoadError {
 /// into one Program, and return it. Removes all `Item::Use` from the
 /// final program.
 pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
+    load_program_with_paths(entry, &[])
+}
+
+/// Variant that accepts additional search paths for `use module`
+/// resolution. The importer's own directory is always tried first;
+/// each entry in `extra_paths` is then tried in order. Used by the
+/// CLI when the project's `ilang.toml` declares dep paths.
+pub fn load_program_with_paths(
+    entry: &Path,
+    extra_paths: &[PathBuf],
+) -> Result<Program, LoadError> {
     let mut visiting: HashSet<PathBuf> = HashSet::new();
     let mut chain: Vec<String> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
+    let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
     // Recursively load entry + its use'd modules. The entry's items
     // are kept under their original names; imported modules' items
     // get processed per the use's mode (whole/selective).
-    load_recursive(&entry_canon, &entry_dir, &mut visiting, &mut chain, &mut loaded)?;
+    load_recursive(
+        &entry_canon, &entry_dir, &extra_paths,
+        &mut visiting, &mut chain, &mut loaded,
+    )?;
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
     // Process the entry's use items into actual merged content.
@@ -123,6 +138,7 @@ pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
                 u,
                 None,
                 &entry_canon,
+                &extra_paths,
                 &mut loaded,
                 &mut merged,
                 &mut whole_imports,
@@ -154,18 +170,37 @@ fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {
 }
 
 /// Resolve a `use module` to either an on-disk canonicalized path
-/// or a virtual `<builtin>/module.il` path for shipped stdlib modules.
-fn resolve_module(module: &str, dir: &Path) -> Result<PathBuf, LoadError> {
+/// or a virtual `<builtin>/module.il` path for shipped stdlib
+/// modules. The importer's own directory is searched first; if the
+/// file isn't there, each entry in `extra_paths` (from the
+/// project's `ilang.toml [deps]` section) is tried in order.
+fn resolve_module(
+    module: &str,
+    dir: &Path,
+    extra_paths: &[PathBuf],
+) -> Result<PathBuf, LoadError> {
     if builtin_module_source(module).is_some() {
         return Ok(builtin_path(module));
     }
-    let path = dir.join(format!("{module}.il"));
-    canonicalize(&path)
+    let primary = dir.join(format!("{module}.il"));
+    if primary.exists() {
+        return canonicalize(&primary);
+    }
+    for extra in extra_paths {
+        let candidate = extra.join(format!("{module}.il"));
+        if candidate.exists() {
+            return canonicalize(&candidate);
+        }
+    }
+    // Fall back to the primary path so the resulting "not found"
+    // error mentions the importer-local location (most actionable).
+    canonicalize(&primary)
 }
 
 fn load_recursive(
     file: &Path,
     base_dir: &Path,
+    extra_paths: &[PathBuf],
     visiting: &mut HashSet<PathBuf>,
     chain: &mut Vec<String>,
     loaded: &mut HashMap<PathBuf, Program>,
@@ -186,8 +221,8 @@ fn load_recursive(
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
     for item in &prog.items {
         if let Item::Use(u) = item {
-            let canon = resolve_module(&u.module, &dir)?;
-            load_recursive(&canon, &dir, visiting, chain, loaded)?;
+            let canon = resolve_module(&u.module, &dir, extra_paths)?;
+            load_recursive(&canon, &dir, extra_paths, visiting, chain, loaded)?;
         }
     }
     loaded.insert(file.to_path_buf(), prog);
@@ -220,6 +255,7 @@ fn apply_use(
     // the entry-point and on regular nested uses.
     prefix_override: Option<&str>,
     importer_canon: &Path,
+    extra_paths: &[PathBuf],
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
     _whole_imports: &mut HashSet<String>,
@@ -228,7 +264,7 @@ fn apply_use(
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let canon = resolve_module(&u.module, &importer_dir)?;
+    let canon = resolve_module(&u.module, &importer_dir, extra_paths)?;
     // Clone instead of remove — the same module may legitimately be
     // applied multiple times (e.g. once via @export to publish under
     // an umbrella prefix, and once directly so a sibling module that
@@ -261,7 +297,7 @@ fn apply_use(
         } else {
             None
         };
-        apply_use(nu, nested_override, &canon, loaded, merged, _whole_imports)?;
+        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports)?;
     }
 
     match u.selective {

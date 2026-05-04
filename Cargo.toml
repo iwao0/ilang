@@ -26,3 +26,5 @@ ilang-codegen = { path = "crates/ilang-codegen" }
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
