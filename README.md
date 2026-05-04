@@ -30,7 +30,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 リポジトリをクローン:
 
 ```sh
-git clone https://github.com/<your>/ilang
+git clone https://github.com/iwao0/ilang
 cd ilang
 cargo build           # 初回のみ依存解決 + ビルド (~1 分)
 ```
