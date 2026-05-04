@@ -5,7 +5,7 @@
 use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I8};
 use cranelift_module::Module;
-use ilang_ast::{BinOp, Expr, LogicalOp, UnOp};
+use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
 
 use crate::arc::{emit_release_string, is_aliased_heap_source};
 use crate::env::LowerCtx;
@@ -89,6 +89,63 @@ pub(crate) fn lower_unary(
     Ok(Some((r, vt)))
 }
 
+/// True when `e` is an integer literal (or its unary negation)
+/// whose value fits the JIT integer type `t`. Mirrors the type
+/// checker's `numeric_literal_fits` for binary-op operand
+/// adoption — the JIT needs the same flexibility so it can cast
+/// the literal-side value to the other operand's type.
+fn int_literal_fits_jit(e: &Expr, t: JitTy) -> bool {
+    match &e.kind {
+        ExprKind::Int(n) => fits(*n, t),
+        ExprKind::Unary { op: UnOp::Neg, expr: inner } => {
+            if let ExprKind::Int(n) = &inner.kind {
+                n.checked_neg().is_some_and(|v| fits(v, t))
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Re-emit a literal-side value at a different int width while
+/// reinterpreting its signedness. Used by binary-op literal-side
+/// adoption (e.g. an i64 literal `0` becoming u32 to match the
+/// other operand). The bit pattern doesn't change semantically —
+/// the literal already fits — so a plain narrow / widen suffices
+/// (sign of the source determines the extension when widening,
+/// which is harmless here because the literal fits the dest type).
+fn coerce_literal_to(
+    b: &mut FunctionBuilder,
+    v: Value,
+    from: JitTy,
+    to: JitTy,
+) -> Value {
+    let from_w = from.int_width();
+    let to_w = to.int_width();
+    if to_w > from_w {
+        widen_int(b, v, from_w, to, from.is_signed_int())
+    } else if to_w < from_w {
+        narrow_int(b, v, to_w, to)
+    } else {
+        v
+    }
+}
+
+fn fits(n: i64, t: JitTy) -> bool {
+    match t {
+        JitTy::I8 => i8::try_from(n).is_ok(),
+        JitTy::I16 => i16::try_from(n).is_ok(),
+        JitTy::I32 => i32::try_from(n).is_ok(),
+        JitTy::I64 => true,
+        JitTy::U8 => u8::try_from(n).is_ok(),
+        JitTy::U16 => u16::try_from(n).is_ok(),
+        JitTy::U32 => u32::try_from(n).is_ok(),
+        JitTy::U64 => n >= 0,
+        _ => false,
+    }
+}
+
 pub(crate) fn lower_binary(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
@@ -153,6 +210,28 @@ pub(crate) fn lower_binary(
             }
         }
     }
+    // Mirror the type checker's literal-side adoption rule: when
+    // one operand is a numeric literal whose value fits the other
+    // operand's int type, treat the literal as that type. Without
+    // this, `u32_var != 0` (literal default i64) errors here even
+    // though the type checker accepted it. Re-coerce the literal-
+    // side value so its Cranelift width matches the adopted type.
+    let (lv, lt, rv, rt) = if lt.is_int()
+        && rt.is_int()
+        && lt.is_signed_int() != rt.is_signed_int()
+    {
+        if int_literal_fits_jit(rhs, lt) {
+            let rv = coerce_literal_to(b, rv, rt, lt);
+            (lv, lt, rv, lt)
+        } else if int_literal_fits_jit(lhs, rt) {
+            let lv = coerce_literal_to(b, lv, lt, rt);
+            (lv, rt, rv, rt)
+        } else {
+            (lv, lt, rv, rt)
+        }
+    } else {
+        (lv, lt, rv, rt)
+    };
     let common = common_numeric_ty(lt, rt).ok_or_else(|| CodegenError::Unsupported {
         what: format!("incompatible binary operand types {lt:?} and {rt:?}"),
         span: lhs.span,

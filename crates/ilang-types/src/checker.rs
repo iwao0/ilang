@@ -1638,6 +1638,24 @@ impl TypeChecker {
             ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.check_expr(lhs, env, ret_ty, in_class, loop_depth)?;
                 let r = self.check_expr(rhs, env, ret_ty, in_class, loop_depth)?;
+                // Literal-side adoption: when one operand is a
+                // numeric literal whose value fits the other's
+                // integer type, treat the literal as that type.
+                // Lets `u32_var < 5000` and `u32_var != 0` work
+                // without a manual `as u32`.
+                let (l, r) = if l.is_int() && r.is_int()
+                    && l.is_signed_int() != r.is_signed_int()
+                {
+                    if numeric_literal_fits(rhs, &l) {
+                        (l.clone(), l)
+                    } else if numeric_literal_fits(lhs, &r) {
+                        (r.clone(), r)
+                    } else {
+                        (l, r)
+                    }
+                } else {
+                    (l, r)
+                };
                 bin_result(*op, &l, &r).map_err(|e| attach_span(e, span))
             }
             ExprKind::Logical { op: _, lhs, rhs } => {
@@ -2848,6 +2866,16 @@ impl TypeChecker {
                 if (is_raw_ptr(&from) && *ty == Type::I64)
                     || (from == Type::I64 && is_raw_ptr(ty))
                 {
+                    return Ok(ty.clone());
+                }
+                // Raw pointer ↔ raw pointer — type-punning at the
+                // C boundary (`*const u8` → `*const void`,
+                // `*const char` → `*u8`, etc.). All raw pointers are
+                // i64-sized at the ABI; this just reinterprets the
+                // pointee type. Restricted to inside `@extern(C) {}`
+                // since raw pointer values aren't supposed to surface
+                // outside the block in the first place.
+                if is_raw_ptr(&from) && is_raw_ptr(ty) && *self.in_extern_c.borrow() {
                     return Ok(ty.clone());
                 }
                 Err(TypeError::Mismatch {
