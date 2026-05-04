@@ -1,12 +1,13 @@
-// SDL2 minimal game-screen demo: open a window, create a renderer,
-// then animate a "ball" (filled rectangle) bouncing off the edges
-// and a stationary "paddle" along the bottom. Runs for 5 seconds
-// at ~60fps then tears everything down.
+// SDL2 game-screen demo: a procedurally-generated sprite bounces
+// around the window, rotating as it goes, with a paddle the user
+// controls along the bottom and a beep on every wall hit. Runs for
+// 5 seconds at ~60fps then tears everything down.
 //
-// Window / Renderer / AudioDevice are ARC-managed classes — `deinit`
-// automatically runs the matching SDL_*Destroy / SDL_CloseAudioDevice
-// when the bindings leave scope, so the only explicit cleanup the
-// caller writes is `sdl.quit()` for the SDL subsystems themselves.
+// Window / Renderer / Texture / AudioDevice are ARC-managed
+// classes — `deinit` automatically runs the matching SDL_*Destroy
+// / SDL_CloseAudioDevice when the bindings leave scope, so the
+// only explicit cleanup the caller writes is `sdl.quit()` for the
+// SDL subsystems themselves.
 //
 // Controls:
 //   ←/→  or  A/D  — move the paddle
@@ -26,7 +27,8 @@ use math
 const WIN_W: i32 = 800
 const WIN_H: i32 = 600
 
-const BALL_SIZE: i32 = 32
+const SPRITE_TEX_SIZE: i32 = 64       // sprite texture is 64×64 pixels
+const SPRITE_DRAW_SIZE: i32 = 64      // and drawn at the same size
 const PADDLE_W: i32 = 120
 const PADDLE_H: i32 = 16
 
@@ -39,6 +41,50 @@ const BEEP_HZ: f64 = 660.0
 const BEEP_MS: i32 = 80
 const BEEP_AMP: f64 = 8000.0
 
+// Procedurally render a 64×64 RGBA8 sprite into a flat byte buffer
+// suitable for `Texture.update`. Pattern: a soft-edged disc with a
+// radial gradient (warm orange → bright yellow centre) and a
+// transparent corner. Looks like a tiny sun.
+fn make_sprite(): u8[] {
+    let size: i32 = SPRITE_TEX_SIZE
+    let buf: u8[] = []
+    let cx = (size as f64) / 2.0
+    let cy = (size as f64) / 2.0
+    let radius = cx - 1.0
+    let y: i32 = 0
+    while y < size {
+        let x: i32 = 0
+        while x < size {
+            let dx = (x as f64) - cx + 0.5
+            let dy = (y as f64) - cy + 0.5
+            let d = math.sqrt(dx * dx + dy * dy)
+            if d <= radius {
+                // t = 1 at centre, 0 at edge.
+                let t = 1.0 - d / radius
+                // Bright yellow centre fading to deep orange.
+                let r = 255.0
+                let g = 200.0 * t + 90.0 * (1.0 - t)
+                let b = 80.0 * t
+                let a = 255.0
+                buf.push(r as u8)
+                buf.push(g as u8)
+                buf.push(b as u8)
+                buf.push(a as u8)
+            } else {
+                // Outside the disc → fully transparent so the
+                // background shows through.
+                buf.push(0)
+                buf.push(0)
+                buf.push(0)
+                buf.push(0)
+            }
+            x += 1
+        }
+        y += 1
+    }
+    buf
+}
+
 // Pre-render a short sine-wave beep. Returns an `i16[]` ready to be
 // queued straight into an `AudioDevice` (mono, 44.1 kHz, S16LE).
 fn make_beep(freq_hz: f64, ms: i32): i16[] {
@@ -47,10 +93,8 @@ fn make_beep(freq_hz: f64, ms: i32): i16[] {
     let i: i32 = 0
     let two_pi: f64 = 2.0 * math.pi
     while i < n {
-        // Soft envelope so the beep doesn't click on start/stop:
-        // linear ramp up over the first ~5 ms, ramp down over the
-        // last ~5 ms.
-        let ramp = SAMPLE_RATE / 200    // ~5 ms in samples
+        // Soft envelope so the beep doesn't click on start/stop.
+        let ramp = SAMPLE_RATE / 200
         let env: f64 = if i < ramp {
             (i as f64) / (ramp as f64)
         } elif i > n - ramp {
@@ -86,6 +130,14 @@ if ren.handle == 0 {
     return
 }
 
+let sprite = new sdl.Texture(ren, SPRITE_TEX_SIZE, SPRITE_TEX_SIZE)
+if sprite.handle == 0 {
+    console.log("SDL_CreateTexture failed: " + sdl.getError())
+    sdl.quit()
+    return
+}
+sprite.update(make_sprite())
+
 let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
 if audio.id == 0 {
     console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
@@ -102,6 +154,7 @@ let ball_x: i32 = 100
 let ball_y: i32 = 100
 let ball_vx: i32 = 5
 let ball_vy: i32 = 4
+let angle: f64 = 0.0
 let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
 let paddle_y: i32 = WIN_H - PADDLE_H - 20
 
@@ -116,8 +169,7 @@ while elapsed < PLAY_MS {
         elapsed = PLAY_MS
     }
 
-    // Paddle: arrow keys or A/D move horizontally, clamped to
-    // the window edges.
+    // Paddle: arrow keys or A/D move horizontally, clamped to the edges.
     if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) {
         paddle_x = paddle_x - PADDLE_SPEED
     }
@@ -131,8 +183,7 @@ while elapsed < PLAY_MS {
         paddle_x = WIN_W - PADDLE_W
     }
 
-    // Update — bounce the ball off all four edges, beeping on
-    // each bounce.
+    // Bounce the sprite off all four edges, beeping on each hit.
     ball_x = ball_x + ball_vx
     ball_y = ball_y + ball_vy
     let bounced = false
@@ -141,8 +192,8 @@ while elapsed < PLAY_MS {
         ball_vx = 0 - ball_vx
         bounced = true
     }
-    if ball_x + BALL_SIZE > WIN_W {
-        ball_x = WIN_W - BALL_SIZE
+    if ball_x + SPRITE_DRAW_SIZE > WIN_W {
+        ball_x = WIN_W - SPRITE_DRAW_SIZE
         ball_vx = 0 - ball_vx
         bounced = true
     }
@@ -151,8 +202,8 @@ while elapsed < PLAY_MS {
         ball_vy = 0 - ball_vy
         bounced = true
     }
-    if ball_y + BALL_SIZE > WIN_H {
-        ball_y = WIN_H - BALL_SIZE
+    if ball_y + SPRITE_DRAW_SIZE > WIN_H {
+        ball_y = WIN_H - SPRITE_DRAW_SIZE
         ball_vy = 0 - ball_vy
         bounced = true
     }
@@ -160,23 +211,27 @@ while elapsed < PLAY_MS {
         audio.queue(beep)
     }
 
-    // Render — clear to dark blue, draw paddle (white)
-    // and ball (red), then present.
+    angle += 3.0    // degrees per frame
+
+    // Render — dark-blue background, white paddle, rotating sprite.
     ren.setColor(20, 24, 48, 255)
     ren.clear()
 
     ren.setColor(240, 240, 240, 255)
     ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
 
-    ren.setColor(220, 60, 60, 255)
-    ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
+    ren.drawTextureRot(
+        sprite.handle,
+        ball_x, ball_y, SPRITE_DRAW_SIZE, SPRITE_DRAW_SIZE,
+        angle
+    )
 
     ren.present()
     sdl.delay(FRAME_MS)
     elapsed += FRAME_MS
 }
 
-// audio / ren / win deinit fires automatically as the bindings
-// leave scope (audio first, then renderer, then window).
+// sprite / audio / ren / win deinit fires automatically as the
+// bindings leave scope (sprite first, then audio, then renderer,
+// then window).
 sdl.quit()
-
