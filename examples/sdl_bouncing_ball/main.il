@@ -41,6 +41,25 @@ const BEEP_HZ: f64 = 660.0
 const BEEP_MS: i32 = 80
 const BEEP_AMP: f64 = 8000.0
 
+// Tiny int → string helper. ilang's `as` cast is numeric-only, so
+// stringifying counters needs a few lines of code.
+fn intToStr(n: i32): string {
+    if n == 0 { return "0" }
+    let neg = n < 0
+    let v: i32 = if neg { -n } else { n }
+    let digits = "0123456789"
+    let result: string = ""
+    while v > 0 {
+        let d = v % 10
+        result = digits.charAt(d as i64) + result
+        v = v / 10
+    }
+    if neg {
+        result = "-" + result
+    }
+    result
+}
+
 // Procedurally render a 64×64 RGBA8 sprite into a flat byte buffer
 // suitable for `Texture.update`. Pattern: a soft-edged disc with a
 // radial gradient (warm orange → bright yellow centre) and a
@@ -138,6 +157,8 @@ if sprite.handle == 0 {
 }
 sprite.update(make_sprite())
 
+let font = new sdl.Font(ren)
+
 let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
 if audio.id == 0 {
     console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
@@ -154,6 +175,7 @@ let ball_x: i32 = 100
 let ball_y: i32 = 100
 let ball_vx: i32 = 5
 let ball_vy: i32 = 4
+let bounces: i32 = 0
 let angle: f64 = 0.0
 let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
 let paddle_y: i32 = WIN_H - PADDLE_H - 20
@@ -209,6 +231,7 @@ while elapsed < PLAY_MS {
     }
     if bounced {
         audio.queue(beep)
+        bounces += 1
     }
 
     angle += 3.0    // degrees per frame
@@ -225,6 +248,11 @@ while elapsed < PLAY_MS {
         ball_x, ball_y, SPRITE_DRAW_SIZE, SPRITE_DRAW_SIZE,
         angle
     )
+
+    // Title (top-centre) and bounce counter (top-left).
+    font.drawText(ren, "ILANG X SDL2", 250, 16, 4, 240, 240, 255, 255)
+    font.drawText(ren, "BOUNCES: " + intToStr(bounces),
+                  16, 16, 2, 200, 200, 220, 255)
 
     ren.present()
     sdl.delay(FRAME_MS)
