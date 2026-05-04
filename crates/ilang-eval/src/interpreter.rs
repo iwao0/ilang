@@ -117,31 +117,39 @@ impl Interpreter {
                             ilang_ast::ExternCItem::FnDecl {
                                 name, params, ret, libs, span, ..
                             } => {
-                                // Host-form (no @lib) fns can be
-                                // serviced by the interpreter via the
-                                // built-in `externs` registry — register
-                                // a synthetic FnDecl with `@extern` so
-                                // the call dispatcher routes to it.
-                                // Library-form (@lib) fns stay JIT-only.
-                                if libs.is_empty() {
-                                    let synth = ilang_ast::FnDecl {
-                                        attrs: vec![ilang_ast::Attribute {
-                                            name: "extern".into(),
-                                            args: Vec::new(),
-                                        }],
-                                        name: name.clone(),
-                                        type_params: Vec::new(),
-                                        params: params.clone(),
-                                        ret: ret.clone(),
-                                        body: ilang_ast::Block {
-                                            stmts: Vec::new(),
-                                            tail: None,
-                                        },
-                                        span: *span,
-                                        is_override: false,
-                                    };
-                                    self.fns.insert(name.clone(), synth);
+                                // Both host-form (no @lib) and
+                                // library-form (@lib) fns get registered
+                                // here so calls type-check and resolve
+                                // at runtime. Host-form is serviced by
+                                // the built-in `externs` registry;
+                                // library-form is JIT-only and aborts
+                                // with a clear "needs --jit" error if
+                                // the interpreter reaches it.
+                                let is_lib = !libs.is_empty();
+                                let mut attrs = vec![ilang_ast::Attribute {
+                                    name: "extern".into(),
+                                    args: Vec::new(),
+                                }];
+                                if is_lib {
+                                    attrs.push(ilang_ast::Attribute {
+                                        name: "extern_lib_only".into(),
+                                        args: Vec::new(),
+                                    });
                                 }
+                                let synth = ilang_ast::FnDecl {
+                                    attrs,
+                                    name: name.clone(),
+                                    type_params: Vec::new(),
+                                    params: params.clone(),
+                                    ret: ret.clone(),
+                                    body: ilang_ast::Block {
+                                        stmts: Vec::new(),
+                                        tail: None,
+                                    },
+                                    span: *span,
+                                    is_override: false,
+                                };
+                                self.fns.insert(name.clone(), synth);
                             }
                             ilang_ast::ExternCItem::Static { .. } => {
                                 // Resolved via dlsym/host registration at
@@ -1717,6 +1725,20 @@ impl Interpreter {
         // `@extern` fns dispatch to a host-side function in the
         // built-in registry (e.g. `math.sin` → `f64::sin`).
         if decl.attrs.iter().any(|a| a.name == "extern") {
+            // Library-form (`@lib(...)`) fns are dlsym'd at JIT time,
+            // so the interpreter has no way to call them. Surface
+            // this with a clear "run with --jit" message instead of
+            // the generic "no extern handler" one.
+            if decl.attrs.iter().any(|a| a.name == "extern_lib_only") {
+                return Err(RuntimeError::TypeError {
+                    msg: format!(
+                        "{:?}: @lib(...) extern fns are JIT-only — \
+                         re-run with `ilang run --jit ...`",
+                        decl.name
+                    ),
+                    span: call_span,
+                });
+            }
             return crate::externs::invoke_extern(&decl.name, &evaluated)
                 .ok_or_else(|| RuntimeError::TypeError {
                     msg: format!("no extern handler registered for {:?}", decl.name),
