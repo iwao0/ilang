@@ -864,6 +864,17 @@ pub(crate) fn lower_expr(
                         }
                     })?;
                     let coerced = coerce(b, (av, at), elem_jty, args[0].span)?;
+                    // If the element is heap-typed and came from an
+                    // aliased source (Var/Field/Index/This), the caller
+                    // still owns a reference. Without a retain here the
+                    // array's pointer and the caller's binding would
+                    // both think they own the same single rc, and the
+                    // second drop would double-free. Fresh allocations
+                    // (`new`, call result, `[..]`, "a"+"b") arrive at
+                    // rc=1 and need no extra retain.
+                    if elem_jty.is_heap() && is_aliased_heap_source(&args[0].kind) {
+                        emit_retain_heap(b, lc, coerced, elem_jty);
+                    }
                     let push_id = match elem_jty.size_bytes() {
                         1 => lc.arrfns.push_i8,
                         2 => lc.arrfns.push_i16,
