@@ -21,134 +21,15 @@ impl<'a> Parser<'a> {
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
-                // Class-level attributes:
-                //   `@extern("libname")` — opaque handle type
-                //   `@repr(C)` — C-compatible struct layout for FFI
-                let mut extern_lib: Option<String> = None;
-                let mut is_repr_c = false;
-                let mut is_packed = false;
-                let mut is_union = false;
-                for a in &attrs {
-                    match (a.name.as_str(), a.args.as_slice()) {
-                        ("extern", [ilang_ast::AttrArg::Str(s)]) => {
-                            extern_lib = Some(s.clone());
-                        }
-                        ("repr", args) => {
-                            // `@repr(C)` or `@repr(C, packed)`. Each
-                            // arg must be a single-segment path; `C`
-                            // is required and the only other accepted
-                            // modifier today is `packed`.
-                            let mut saw_c = false;
-                            for arg in args {
-                                match arg {
-                                    ilang_ast::AttrArg::Path(p)
-                                        if p.as_slice() == ["C"] =>
-                                    {
-                                        saw_c = true;
-                                    }
-                                    ilang_ast::AttrArg::Path(p)
-                                        if p.as_slice() == ["packed"] =>
-                                    {
-                                        is_packed = true;
-                                    }
-                                    ilang_ast::AttrArg::Path(p)
-                                        if p.as_slice() == ["union"] =>
-                                    {
-                                        is_union = true;
-                                    }
-                                    _ => {
-                                        let t = self.peek();
-                                        return Err(ParseError::Unexpected {
-                                            found: t.kind.clone(),
-                                            expected: "@repr(C), @repr(C, packed), or @repr(C, union) (other repr modifiers are not supported)".into(),
-                                            span: t.span,
-                                        });
-                                    }
-                                }
-                            }
-                            if !saw_c {
-                                let t = self.peek();
-                                return Err(ParseError::Unexpected {
-                                    found: t.kind.clone(),
-                                    expected: "@repr(C) — bare @repr or @repr(packed) without C is not supported".into(),
-                                    span: t.span,
-                                });
-                            }
-                            is_repr_c = true;
-                        }
-                        _ => {
-                            let t = self.peek();
-                            return Err(ParseError::Unexpected {
-                                found: t.kind.clone(),
-                                expected:
-                                    "@extern(\"libname\") or @repr(C[, packed]) (other attributes are not supported on classes)"
-                                        .into(),
-                                span: t.span,
-                            });
-                        }
-                    }
-                }
-                let mut c = self.parse_class_decl()?;
-                if is_repr_c {
-                    // C-compat struct: only fields, no methods/init/
-                    // properties/inheritance. New (no args) zero-
-                    // initializes the storage.
-                    let has_disallowed = !c.methods.is_empty()
-                        || !c.static_methods.is_empty()
-                        || !c.static_fields.is_empty()
-                        || !c.properties.is_empty()
-                        || c.parent.is_some()
-                        || !c.type_params.is_empty();
-                    if has_disallowed {
-                        return Err(ParseError::Unexpected {
-                            found: TokenKind::Class,
-                            expected: "fields only — `@repr(C) class Foo` cannot declare init, methods, parent, type parameters, properties, or static members".into(),
-                            span: c.span,
-                        });
-                    }
-                    c.is_repr_c = true;
-                    c.is_packed = is_packed;
-                    c.is_union = is_union;
-                    if is_packed && is_union {
-                        return Err(ParseError::Unexpected {
-                            found: TokenKind::Class,
-                            expected: "`packed` and `union` cannot be combined — packed implies struct semantics".into(),
-                            span: c.span,
-                        });
-                    }
-                } else if is_packed || is_union {
+                if !attrs.is_empty() {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "`packed` / `union` require `C` — use `@repr(C, packed)` / `@repr(C, union)`".into(),
+                        expected: "no attributes are supported on classes — for FFI types use `@extern(C) { struct Name { ... } }` instead".into(),
                         span: t.span,
                     });
                 }
-                if extern_lib.is_some() {
-                    // Opaque handle classes carry no user state and
-                    // can declare at most one method: `deinit`. The
-                    // deinit body runs when the last reference is
-                    // dropped (RAII auto-close).
-                    let only_deinit_methods = c
-                        .methods
-                        .iter()
-                        .all(|m| m.name == "deinit" && m.params.is_empty());
-                    let has_disallowed = !c.fields.is_empty()
-                        || !only_deinit_methods
-                        || !c.static_methods.is_empty()
-                        || !c.static_fields.is_empty()
-                        || !c.properties.is_empty()
-                        || c.parent.is_some()
-                        || !c.type_params.is_empty();
-                    if has_disallowed {
-                        return Err(ParseError::Unexpected {
-                            found: TokenKind::Class,
-                            expected: "an empty body or only `deinit { ... }` — `@extern(\"lib\") class Foo` cannot declare fields, init, parent, type parameters, or non-deinit methods".into(),
-                            span: c.span,
-                        });
-                    }
-                    c.extern_lib = extern_lib;
-                }
+                let c = self.parse_class_decl()?;
                 Ok(Item::Class(c))
             }
             TokenKind::Enum => {
@@ -212,49 +93,6 @@ impl<'a> Parser<'a> {
                 }
                 let block = self.parse_extern_c_block()?;
                 Ok(Item::ExternC(block))
-            }
-            TokenKind::Ident(ref name) if name == "static" && !attrs.is_empty() => {
-                // `@extern[(\"lib\")] static <name>: <ty>` — read/
-                // write reference to a C global resolved via dlsym.
-                let span = self.peek().span;
-                self.bump(); // consume `static`
-                let s_name = self.expect_ident("static name")?;
-                self.expect(&TokenKind::Colon, "':'")?;
-                let ty = self.parse_type()?;
-                self.consume_stmt_terminator()?;
-                let mut lib: Option<String> = None;
-                let mut saw_extern = false;
-                for a in &attrs {
-                    match (a.name.as_str(), a.args.as_slice()) {
-                        ("extern", []) => {
-                            saw_extern = true;
-                        }
-                        ("extern", [AttrArg::Str(s)]) => {
-                            saw_extern = true;
-                            lib = Some(s.clone());
-                        }
-                        _ => {
-                            return Err(ParseError::Unexpected {
-                                found: TokenKind::At,
-                                expected: "@extern or @extern(\"libname\") on a top-level static (no other attributes are recognised)".into(),
-                                span,
-                            });
-                        }
-                    }
-                }
-                if !saw_extern {
-                    return Err(ParseError::Unexpected {
-                        found: TokenKind::Ident("static".into()),
-                        expected: "top-level `static` requires `@extern` (only extern globals are supported)".into(),
-                        span,
-                    });
-                }
-                Ok(Item::ExternStatic(ilang_ast::ExternStaticDecl {
-                    name: s_name,
-                    ty,
-                    lib,
-                    span,
-                }))
             }
             _ => {
                 let t = self.peek();
@@ -1053,13 +891,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // `@extern` fns have no body — the runtime supplies the
-        // implementation via a name-based registry.
-        let body = if attrs.iter().any(|a| a.name == "extern") {
-            ilang_ast::Block { stmts: Vec::new(), tail: None }
-        } else {
-            parse_block(self)?
-        };
+        let body = parse_block(self)?;
         Ok(FnDecl {
             attrs,
             name,
@@ -1147,13 +979,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        // `@extern` fns have no body — the runtime supplies the
-        // implementation via a name-based registry.
-        let body = if attrs.iter().any(|a| a.name == "extern") {
-            ilang_ast::Block { stmts: Vec::new(), tail: None }
-        } else {
-            parse_block(self)?
-        };
+        let body = parse_block(self)?;
         Ok(FnDecl {
             attrs,
             name,
