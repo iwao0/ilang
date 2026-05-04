@@ -19,6 +19,11 @@
     @lib("SDL2") fn SDL_Quit()
     @lib("SDL2") fn SDL_Delay(ms: u32)
     @lib("SDL2") fn SDL_GetError(): *const char
+    // Pump the event queue so the OS / window-manager actually
+    // composites our window onto the screen. On macOS Cocoa requires
+    // the app's run loop to advance — without this, the Dock icon
+    // appears but the window stays invisible.
+    @lib("SDL2") fn SDL_PumpEvents()
     @lib("SDL2") fn SDL_CreateWindow(
         title: *const char,
         x: i32, y: i32, w: i32, h: i32,
@@ -42,6 +47,10 @@
 
     fn delay(ms: u32) {
         SDL_Delay(ms)
+    }
+
+    fn pumpEvents() {
+        SDL_PumpEvents()
     }
 
     // Latest SDL error message (or empty string when none).
@@ -85,7 +94,16 @@ if rc < 0 as i32 {
         console.log("SDL_CreateWindow failed: " + getError())
     } else {
         console.log("window opened — closing in 2 seconds")
-        delay(2000 as u32)
+        // Spin a tiny event loop so the OS run loop advances and the
+        // window actually paints. Pure SDL_Delay(2000) on macOS leaves
+        // the window invisible (Dock icon shows but no on-screen window).
+        let elapsed: i64 = 0
+        let frame_ms: i64 = 16     // ~60 fps
+        while elapsed < 2000 {
+            pumpEvents()
+            delay(frame_ms as u32)
+            elapsed = elapsed + frame_ms
+        }
         destroyWindow(win)
     }
     quit()
