@@ -34,7 +34,7 @@ fn main() {
         return
     }
 
-    let ren = new sdl.Renderer(win)
+    let ren = new sdl.Renderer(win.handle)
     if ren.handle == 0 {
         console.log("SDL_CreateRenderer failed: " + sdl.getError())
         sdl.quit()

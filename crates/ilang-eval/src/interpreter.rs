@@ -156,6 +156,18 @@ impl Interpreter {
                                 // JIT time only — the interpreter doesn't
                                 // touch C globals.
                             }
+                            ilang_ast::ExternCItem::Class(c) => {
+                                // Plain ilang ARC class declared next
+                                // to its FFI bindings. Register it the
+                                // same way as a top-level class.
+                                self.classes.insert(c.name.clone(), c.clone());
+                                for sf in &c.static_fields {
+                                    let v = self.eval_expr(&sf.value)?;
+                                    let v = cast_value(v, &sf.ty);
+                                    self.static_fields
+                                        .insert((c.name.clone(), sf.name.clone()), v);
+                                }
+                            }
                         }
                     }
                 }

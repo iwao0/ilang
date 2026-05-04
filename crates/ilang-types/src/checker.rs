@@ -978,6 +978,10 @@ impl TypeChecker {
                     }
                     self.vars.insert(name.clone(), ty.clone());
                 }
+                ilang_ast::ExternCItem::Class(c) => {
+                    let sig = class_signature(c, None)?;
+                    self.classes.insert(c.name.clone(), sig);
+                }
             }
         }
         Ok(())
@@ -990,8 +994,14 @@ impl TypeChecker {
         block: &ilang_ast::ExternCBlock,
     ) -> Result<(), TypeError> {
         for item in &block.items {
-            if let ilang_ast::ExternCItem::FnDef(f) = item {
-                self.check_fn(f, None)?;
+            match item {
+                ilang_ast::ExternCItem::FnDef(f) => {
+                    self.check_fn(f, None)?;
+                }
+                ilang_ast::ExternCItem::Class(c) => {
+                    self.check_class(c)?;
+                }
+                _ => {}
             }
         }
         Ok(())

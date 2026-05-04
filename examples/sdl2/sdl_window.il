@@ -1,9 +1,12 @@
-// SDL2 window create / destroy. Window handles flow as plain `i64`
-// raw addresses outside this block; callers treat `0` as failure
-// (consult `sdl_core.getError()` for the reason).
+// SDL2 window: opaque handle + an ARC-managed `Window` class that
+// wraps creation / destruction. Because the class lives inside the
+// `@extern(C) {}` block, its method bodies can call the C extern
+// fns and marshalling helpers (`cstrFromString`, `as *const char`,
+// …) directly — same scope as the bindings themselves.
 
 @extern(C) {
-    // Opaque handle — only `*SDL_Window` is reachable from ilang code.
+    // Opaque C type; only the `*SDL_Window` pointer escapes the
+    // block (and even that ends up wrapped in `Window` below).
     struct SDL_Window {}
 
     @lib("SDL2") fn SDL_CreateWindow(
@@ -13,18 +16,27 @@
     ): *SDL_Window
     @lib("SDL2") fn SDL_DestroyWindow(window: *SDL_Window)
 
-    // Returns the window pointer as i64. `0` indicates failure.
-    fn createWindow(title: string, w: i32, h: i32): i64 {
-        // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000 (centred-on-default-display).
-        let undef = 0x1FFF0000 as i32
-        let flags = 0 as u32
-        let win = SDL_CreateWindow(
-            cstrFromString(title), undef, undef, w, h, flags
-        )
-        win as i64
-    }
+    // ARC-managed wrapper. `init` opens the window and stashes the
+    // raw pointer as i64 so users can interact with it as a regular
+    // ilang value; `deinit` releases it when the last reference
+    // goes away.
+    class Window {
+        handle: i64
 
-    fn destroyWindow(window: i64) {
-        SDL_DestroyWindow(window as *SDL_Window)
+        init(title: string, w: i32, h: i32) {
+            // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000 (centred-on-default-display).
+            let undef = 0x1FFF0000 as i32
+            let flags = 0 as u32
+            let win = SDL_CreateWindow(
+                cstrFromString(title), undef, undef, w, h, flags
+            )
+            this.handle = win as i64
+        }
+
+        deinit() {
+            if this.handle != 0 {
+                SDL_DestroyWindow(this.handle as *SDL_Window)
+            }
+        }
     }
 }

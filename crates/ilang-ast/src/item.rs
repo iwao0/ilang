@@ -271,6 +271,11 @@ pub enum ExternCItem {
         optional: bool,
         span: Span,
     },
+    /// `class Foo { ... }` — ilang-side ARC-managed wrapper class
+    /// declared next to the FFI bindings it wraps. Method bodies
+    /// run in the `@extern(C)` context so they can call the block's
+    /// raw extern fns / marshalling helpers / use raw pointer types.
+    Class(ClassDecl),
 }
 
 #[derive(Debug, Clone, PartialEq)]

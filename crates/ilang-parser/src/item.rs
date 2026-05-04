@@ -605,12 +605,26 @@ impl<'a> Parser<'a> {
                     }
                     self.parse_extern_c_union()?
                 }
+                TokenKind::Class => {
+                    if !inner_attrs.is_empty() {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected:
+                                "no attributes are supported on `class` inside @extern(C)"
+                                    .into(),
+                            span: t.span,
+                        });
+                    }
+                    let c = self.parse_class_decl()?;
+                    ilang_ast::ExternCItem::Class(c)
+                }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected:
-                            "fn / struct / union declaration inside @extern(C) block"
+                            "fn / struct / union / class declaration inside @extern(C) block"
                                 .into(),
                         span: t.span,
                     });

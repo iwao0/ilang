@@ -228,6 +228,15 @@ fn jit_run_inner(
     for f in &extern_c_fns {
         compiler.declare_fn(f)?;
     }
+    for c in &extern_c_classes {
+        // The struct/union variants are field-only and have no
+        // methods, so this is a no-op for them. Only the
+        // user-declared `class` variant inside `@extern(C) {}`
+        // contributes here.
+        if !c.methods.is_empty() || !c.static_methods.is_empty() {
+            compiler.declare_methods(c)?;
+        }
+    }
     // 2b. Declare per-class drop wrappers so `new` lowering can embed
     //     their function pointers in the allocation header. Bodies are
     //     defined later (need user methods to be defined first).
@@ -255,6 +264,11 @@ fn jit_run_inner(
     }
     for f in &extern_c_fns {
         compiler.define_fn(f)?;
+    }
+    for c in &extern_c_classes {
+        if !c.methods.is_empty() || !c.static_methods.is_empty() {
+            compiler.define_methods(c)?;
+        }
     }
     let main_ret = compiler.define_main(prog)?;
     // 4. Define drop wrappers. Class drops can reference user deinit;
@@ -614,6 +628,13 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
                         is_union: true,
                         span: *span,
                     });
+                }
+                ilang_ast::ExternCItem::Class(c) => {
+                    // Plain ilang ARC-managed class declared next to
+                    // its FFI bindings. Pass through unchanged — the
+                    // type checker / JIT pipeline treats it like any
+                    // top-level `class`.
+                    out.push(c.clone());
                 }
                 _ => {}
             }

@@ -312,6 +312,59 @@ fn item_name_of(item: &Item) -> Option<String> {
     }
 }
 
+fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
+    c.name = format!("{prefix}.{}", c.name);
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        let body = std::mem::replace(
+            &mut m.body,
+            Block { stmts: Vec::new(), tail: None },
+        );
+        m.body = prefix_block_calls(body, prefix);
+        m.params = m
+            .params
+            .iter()
+            .map(|p| ilang_ast::Param {
+                name: p.name.clone(),
+                ty: prefix_type(&p.ty, prefix),
+                span: p.span,
+                default: p.default.clone(),
+            })
+            .collect();
+        m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
+    }
+    for f in &mut c.fields {
+        f.ty = prefix_type(&f.ty, prefix);
+    }
+    for prop in &mut c.properties {
+        prop.ty = prefix_type(&prop.ty, prefix);
+        if let Some(g) = prop.getter.as_mut() {
+            let body = std::mem::replace(
+                &mut g.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            g.body = prefix_block_calls(body, prefix);
+            g.ret = g.ret.as_ref().map(|t| prefix_type(t, prefix));
+        }
+        if let Some(s) = prop.setter.as_mut() {
+            let body = std::mem::replace(
+                &mut s.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            s.body = prefix_block_calls(body, prefix);
+            s.params = s
+                .params
+                .iter()
+                .map(|p| ilang_ast::Param {
+                    name: p.name.clone(),
+                    ty: prefix_type(&p.ty, prefix),
+                    span: p.span,
+                    default: p.default.clone(),
+                })
+                .collect();
+        }
+    }
+}
+
 fn prefix_item(item: Item, prefix: &str) -> Item {
     match item {
         Item::Fn(mut f) => {
@@ -331,57 +384,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             Item::Fn(f)
         }
         Item::Class(mut c) => {
-            c.name = format!("{prefix}.{}", c.name);
-            // Apply the same prefix transform to static methods.
-            for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
-                let body = std::mem::replace(
-                    &mut m.body,
-                    Block { stmts: Vec::new(), tail: None },
-                );
-                m.body = prefix_block_calls(body, prefix);
-                m.params = m
-                    .params
-                    .iter()
-                    .map(|p| ilang_ast::Param {
-                        name: p.name.clone(),
-                        ty: prefix_type(&p.ty, prefix),
-                        span: p.span,
-                        default: p.default.clone(),
-                    })
-                    .collect();
-                m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
-            }
-            for f in &mut c.fields {
-                f.ty = prefix_type(&f.ty, prefix);
-            }
-            for prop in &mut c.properties {
-                prop.ty = prefix_type(&prop.ty, prefix);
-                if let Some(g) = prop.getter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut g.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    g.body = prefix_block_calls(body, prefix);
-                    g.ret = g.ret.as_ref().map(|t| prefix_type(t, prefix));
-                }
-                if let Some(s) = prop.setter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut s.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    s.body = prefix_block_calls(body, prefix);
-                    s.params = s
-                        .params
-                        .iter()
-                        .map(|p| ilang_ast::Param {
-                            name: p.name.clone(),
-                            ty: prefix_type(&p.ty, prefix),
-                            span: p.span,
-                            default: p.default.clone(),
-                        })
-                        .collect();
-                }
-            }
+            prefix_class_decl(&mut c, prefix);
             Item::Class(c)
         }
         Item::Enum(mut e) => {
@@ -472,6 +475,9 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                             Block { stmts: Vec::new(), tail: None },
                         );
                         f.body = prefix_block_calls(body, prefix);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        prefix_class_decl(c, prefix);
                     }
                 }
             }
