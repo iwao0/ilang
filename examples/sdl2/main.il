@@ -13,21 +13,26 @@
 
 use sdl
 
-const WIN_W: i64 = 800
-const WIN_H: i64 = 600
+// Coordinates / sizes are i32 to match SDL's int-based API. Time
+// values are u32 (SDL_Delay / SDL_GetTicks contract).
+const WIN_W: i32 = 800
+const WIN_H: i32 = 600
 
-const BALL_SIZE: i64 = 32
-const PADDLE_W: i64 = 120
-const PADDLE_H: i64 = 16
+const BALL_SIZE: i32 = 32
+const PADDLE_W: i32 = 120
+const PADDLE_H: i32 = 16
+
+const PLAY_MS: u32 = 5000
+const FRAME_MS: u32 = 16
 
 fn main() {
     let rc = sdl.init(sdl.INIT_VIDEO)
-    if rc < 0 as i32 {
+    if rc < 0 {
         console.log("SDL_Init failed: " + sdl.getError())
         return
     }
 
-    let win = new sdl.Window("ilang × SDL2", WIN_W as i32, WIN_H as i32)
+    let win = new sdl.Window("ilang × SDL2", WIN_W, WIN_H)
     if win.handle == 0 {
         console.log("SDL_CreateWindow failed: " + sdl.getError())
         sdl.quit()
@@ -44,16 +49,15 @@ fn main() {
     console.log("playing for 5 seconds")
 
     // Game state.
-    let ball_x: i64 = 100
-    let ball_y: i64 = 100
-    let ball_vx: i64 = 5
-    let ball_vy: i64 = 4
-    let paddle_x: i64 = (WIN_W - PADDLE_W) / 2
-    let paddle_y: i64 = WIN_H - PADDLE_H - 20
+    let ball_x: i32 = 100
+    let ball_y: i32 = 100
+    let ball_vx: i32 = 5
+    let ball_vy: i32 = 4
+    let paddle_x: i32 = (WIN_W - PADDLE_W) / 2
+    let paddle_y: i32 = WIN_H - PADDLE_H - 20
 
-    let elapsed: i64 = 0
-    let frame_ms: i64 = 16
-    while elapsed < 5000 {
+    let elapsed: u32 = 0
+    while elapsed < PLAY_MS {
         // Update — bounce the ball off all four edges.
         ball_x = ball_x + ball_vx
         ball_y = ball_y + ball_vy
@@ -76,25 +80,19 @@ fn main() {
 
         // Render — clear to dark blue, draw paddle (white)
         // and ball (red), then present.
-        let _ = ren.setColor(20 as u8, 24 as u8, 48 as u8, 255 as u8)
+        let _ = ren.setColor(20, 24, 48, 255)
         let _ = ren.clear()
 
-        let _ = ren.setColor(240 as u8, 240 as u8, 240 as u8, 255 as u8)
-        let _ = ren.fillRect(
-            paddle_x as i32, paddle_y as i32,
-            PADDLE_W as i32, PADDLE_H as i32
-        )
+        let _ = ren.setColor(240, 240, 240, 255)
+        let _ = ren.fillRect(paddle_x, paddle_y, PADDLE_W, PADDLE_H)
 
-        let _ = ren.setColor(220 as u8, 60 as u8, 60 as u8, 255 as u8)
-        let _ = ren.fillRect(
-            ball_x as i32, ball_y as i32,
-            BALL_SIZE as i32, BALL_SIZE as i32
-        )
+        let _ = ren.setColor(220, 60, 60, 255)
+        let _ = ren.fillRect(ball_x, ball_y, BALL_SIZE, BALL_SIZE)
 
         ren.present()
         sdl.pumpEvents()
-        sdl.delay(frame_ms as u32)
-        elapsed = elapsed + frame_ms
+        sdl.delay(FRAME_MS)
+        elapsed += FRAME_MS
     }
 
     // ren / win deinit fires automatically as they leave main()'s
