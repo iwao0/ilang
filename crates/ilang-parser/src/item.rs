@@ -187,6 +187,32 @@ impl<'a> Parser<'a> {
                 let c = self.parse_const_decl()?;
                 Ok(Item::Const(c))
             }
+            TokenKind::LBrace
+                if attrs.iter().any(|a| {
+                    a.name == "extern"
+                        && a.args.len() == 1
+                        && matches!(
+                            &a.args[0],
+                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["C"]
+                        )
+                }) =>
+            {
+                // `@extern(C) { ... }` — C ABI block. Validate that
+                // no other attributes were stacked, then parse the
+                // block body.
+                if attrs.len() != 1 {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected:
+                            "@extern(C) cannot be combined with other attributes on the block"
+                                .into(),
+                        span: t.span,
+                    });
+                }
+                let block = self.parse_extern_c_block()?;
+                Ok(Item::ExternC(block))
+            }
             TokenKind::Ident(ref name) if name == "static" && !attrs.is_empty() => {
                 // `@extern[(\"lib\")] static <name>: <ty>` — read/
                 // write reference to a C global resolved via dlsym.
@@ -686,6 +712,219 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse an `@extern(C) { ... }` block body. The opening `{` is
+    /// the next token; consume `}` at the end. Items inside:
+    /// - `[@lib("name")] fn name(...): T` — fn declaration (dlsym'd)
+    /// - `[@lib("name")] fn name(...): T { body }` — fn definition (C ABI)
+    /// - `[@repr(C, packed)] struct Name { fields }`
+    /// - `union Name { fields }`
+    fn parse_extern_c_block(
+        &mut self,
+    ) -> Result<ilang_ast::ExternCBlock, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
+        loop {
+            // Skip leading newlines / blank lines inside the block.
+            if matches!(self.peek().kind, TokenKind::RBrace) {
+                break;
+            }
+            let inner_attrs = self.parse_attributes()?;
+            let item = match &self.peek().kind {
+                TokenKind::Fn => {
+                    self.parse_extern_c_fn(inner_attrs)?
+                }
+                TokenKind::Ident(n) if n == "struct" => {
+                    self.parse_extern_c_struct(inner_attrs)?
+                }
+                TokenKind::Ident(n) if n == "union" => {
+                    if !inner_attrs.is_empty() {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected:
+                                "no attributes are supported on `union` inside @extern(C)"
+                                    .into(),
+                            span: t.span,
+                        });
+                    }
+                    self.parse_extern_c_union()?
+                }
+                _ => {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected:
+                            "fn / struct / union declaration inside @extern(C) block"
+                                .into(),
+                        span: t.span,
+                    });
+                }
+            };
+            items.push(item);
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(ilang_ast::ExternCBlock { items, span })
+    }
+
+    fn parse_extern_c_fn(
+        &mut self,
+        attrs: Vec<Attribute>,
+    ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        // Pull out @lib("name") if present; reject other attributes.
+        let mut lib: Option<String> = None;
+        for a in &attrs {
+            match (a.name.as_str(), a.args.as_slice()) {
+                ("lib", [ilang_ast::AttrArg::Str(s)]) => {
+                    lib = Some(s.clone());
+                }
+                _ => {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "@lib(\"libname\") (no other attributes accepted on extern(C) fn)".into(),
+                        span: t.span,
+                    });
+                }
+            }
+        }
+        // Parse the fn signature manually so we can distinguish
+        // declaration-only (no `{` after the return type, dlsym'd
+        // through @lib) from definition (has a `{ body }`).
+        let span = self.peek().span;
+        self.expect(&TokenKind::Fn, "'fn'")?;
+        let name = self.expect_ident("function name")?;
+        self.expect(&TokenKind::LParen, "'('")?;
+        let params = self.parse_param_list()?;
+        self.expect(&TokenKind::RParen, "')'")?;
+        let ret = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        if matches!(self.peek().kind, TokenKind::LBrace) {
+            // Definition: ilang body, C ABI.
+            let body = parse_block(self)?;
+            let fn_decl = FnDecl {
+                attrs: Vec::new(),
+                name,
+                type_params: Vec::new(),
+                params,
+                ret,
+                body,
+                span,
+                is_override: false,
+            };
+            Ok(ilang_ast::ExternCItem::FnDef(fn_decl))
+        } else {
+            // Declaration: terminator and we're done.
+            self.consume_stmt_terminator()?;
+            Ok(ilang_ast::ExternCItem::FnDecl {
+                name,
+                params,
+                ret,
+                lib,
+                span,
+            })
+        }
+    }
+
+    fn parse_extern_c_struct(
+        &mut self,
+        attrs: Vec<Attribute>,
+    ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        let mut is_packed = false;
+        for a in &attrs {
+            match (a.name.as_str(), a.args.as_slice()) {
+                ("repr", args) => {
+                    let mut saw_c = false;
+                    for arg in args {
+                        match arg {
+                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["C"] => {
+                                saw_c = true;
+                            }
+                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["packed"] => {
+                                is_packed = true;
+                            }
+                            _ => {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected:
+                                        "@repr(C) or @repr(C, packed) on struct inside @extern(C)".into(),
+                                    span: t.span,
+                                });
+                            }
+                        }
+                    }
+                    let _ = saw_c;
+                }
+                _ => {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected:
+                            "@repr(C[, packed]) only (no other attributes on struct)".into(),
+                        span: t.span,
+                    });
+                }
+            }
+        }
+        let span = self.peek().span;
+        self.bump(); // consume `struct`
+        let name = self.expect_ident("struct name")?;
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut fields: Vec<FieldDecl> = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace) {
+            let f_attrs = self.parse_attributes()?;
+            let mut bits: Option<u32> = None;
+            for a in &f_attrs {
+                match (a.name.as_str(), a.args.as_slice()) {
+                    ("bits", [ilang_ast::AttrArg::Int(n)]) if *n >= 1 && *n <= 64 => {
+                        bits = Some(*n as u32);
+                    }
+                    _ => {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "@bits(N) (1..=64)".into(),
+                            span: t.span,
+                        });
+                    }
+                }
+            }
+            let f_span = self.peek().span;
+            let f_name = self.expect_ident("field name")?;
+            self.expect(&TokenKind::Colon, "':'")?;
+            let f_ty = self.parse_type()?;
+            self.consume_stmt_terminator()?;
+            fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits });
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(ilang_ast::ExternCItem::Struct { name, fields, is_packed, span })
+    }
+
+    fn parse_extern_c_union(
+        &mut self,
+    ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        let span = self.peek().span;
+        self.bump(); // consume `union`
+        let name = self.expect_ident("union name")?;
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut fields: Vec<FieldDecl> = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace) {
+            let f_span = self.peek().span;
+            let f_name = self.expect_ident("field name")?;
+            self.expect(&TokenKind::Colon, "':'")?;
+            let f_ty = self.parse_type()?;
+            self.consume_stmt_terminator()?;
+            fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits: None });
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(ilang_ast::ExternCItem::Union { name, fields, span })
+    }
+
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
         let span = self.peek().span;
         let name = self.expect_ident("field name")?;
@@ -956,6 +1195,20 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
         let t = self.peek().clone();
+        // Raw C pointer: `*T` or `*const T`. Only nameable inside an
+        // `@extern(C) { ... }` block (the type checker enforces that).
+        if matches!(t.kind, TokenKind::Star) {
+            self.bump();
+            let is_const = matches!(self.peek().kind, TokenKind::Const);
+            if is_const {
+                self.bump();
+            }
+            let inner = self.parse_type()?;
+            return Ok(Type::RawPtr {
+                is_const,
+                inner: Box::new(inner),
+            });
+        }
         // Function type: `fn(T1, T2): R` (or `fn(): R` / `fn(T)` for unit ret).
         if matches!(t.kind, TokenKind::Fn) {
             self.bump();
@@ -1020,6 +1273,10 @@ impl<'a> Parser<'a> {
                     "f64" => Type::F64,
                     "bool" => Type::Bool,
                     "string" => Type::Str,
+                    "void" => Type::CVoid,
+                    "char" => Type::CChar,
+                    "size_t" => Type::Size,
+                    "ssize_t" => Type::SSize,
                     _ => {
                         // After a class-like name, accept optional
                         // `<T, U>` for generic instantiations:
