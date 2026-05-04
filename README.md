@@ -15,9 +15,30 @@
 
 ## 現在の状態
 
-`let` / `fn` / 型チェック / capability アノテーション (パースのみ) に加えて、`bool`・比較演算子・短絡論理演算子・`if`/`else`/`while` / `loop` / `break` / `continue`・代入・複合代入・全 10 数値型 + `as` キャスト・文字列・配列 (動的/固定長)・JS 風クラス (`class` / `new` / `this` / `init` / `deinit`)・`console.log`・Optional (`T?` / `some` / `none` / `if let`)・弱参照 (`T.weak` / `.get()`)・FFI (`@extern(C) {}` ブロックで C ライブラリ呼び出し) を実装済み。Cranelift JIT (`ilang run --jit`) も全機能対応。所有権/`mut`/借用は採用せず、変数はすべて再代入可能。エラーは `filename [row:col]: message` の統一形式。
+| カテゴリ | 状態 |
+| --- | :---: |
+| 数値型 (i8–i64 / u8–u64 / f32 / f64) + `as` キャスト | ⭕️ |
+| `bool` / 比較 / 短絡論理 | ⭕️ |
+| `let` / 代入 / 複合代入 (`+=` ほか) | ⭕️ |
+| 制御構造 (`if` / `else` / `while` / `loop` / `break` / `continue` / 早期 `return`) | ⭕️ |
+| 文字列 / 配列 (動的・固定長) | ⭕️ |
+| `class` / `new` / `init` / `this` / `deinit` (JS 風) | ⭕️ |
+| 継承 (`extends` / `super`) + 仮想ディスパッチ | ⭕️ |
+| `console.log` | ⭕️ |
+| Optional (`T?` / `some` / `none` / `if let`) | ⭕️ |
+| 弱参照 (`T.weak` / `.get()`) | ⭕️ |
+| `enum` + `match` (組み込み `Result<T, E>` 含む) | ⭕️ |
+| `Map<K, V>` / Tuple | ⭕️ |
+| クロージャ (キャプチャ込み) | ⭕️ |
+| ジェネリクス (関数 / クラス / enum) | ⭕️ |
+| 関数オーバーロード | ⭕️ |
+| ARC によるメモリ管理 | ⭕️ |
+| 型チェック | ⭕️ |
+| Cranelift JIT (`ilang run --jit`) | ⭕️ |
+| FFI (`@extern(C) {}` ブロックで C ライブラリ呼び出し) | ⭕️ |
+| capability アノテーション | パースのみ |
 
-詳細な経緯: [docs/phase1-plan.md](docs/phase1-plan.md), [docs/phase2-plan.md](docs/phase2-plan.md), [docs/phase3-plan.md](docs/phase3-plan.md), [docs/phase4-plan.md](docs/phase4-plan.md), [docs/HANDOFF.md](docs/HANDOFF.md)
+所有権 / `mut` / 借用は採用せず、変数はすべて再代入可能。エラーは `filename [row:col]: message` の統一形式。
 
 ## セットアップ
 
