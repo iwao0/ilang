@@ -539,7 +539,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
                 }
             }
             Item::Fn(f) => scan_fn(f, &mut needed, &mut worklist),
-            Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
         }
     }
     for s in &prog.stmts {
@@ -1763,7 +1763,7 @@ fn seed_calls_in_item(
                 seed_calls_in_block(&m.body, table, outer_params, outer_args, visit);
             }
         }
-        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
     }
 }
 
@@ -2649,7 +2649,7 @@ fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type])) {
                 }
             }
         }
-       Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+       Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
     }
 }
 
@@ -2727,7 +2727,7 @@ fn seed_enum_ctors_in_item(
                 seed_enum_ctors_in_block(&m.body, table, outer_params, outer_args, visit);
             }
         }
-        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}|Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
     }
 }
 

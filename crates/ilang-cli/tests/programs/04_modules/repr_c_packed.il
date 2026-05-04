@@ -11,18 +11,29 @@
 // interp: skip
 use test
 
-@repr(C, packed) class packed_header {
-    magic: u8
-    length: u32
-    flags: u8
-    code: u16
-}
+@extern(C) {
+    @repr(C, packed) struct packed_header {
+        magic: u8
+        length: u32
+        flags: u8
+        code: u16
+    }
 
-@repr(C) class aligned_header {
-    magic: u8
-    length: u32
-    flags: u8
-    code: u16
+    @repr(C) struct aligned_header {
+        magic: u8
+        length: u32
+        flags: u8
+        code: u16
+    }
+
+    @repr(C, packed) struct odd_pack {
+        a: u8
+        b: u64
+        c: u8
+    }
+
+    fn pkt_byte_at(p: *packed_header, off: i64): i32
+    fn alg_byte_at(p: *aligned_header, off: i64): i32
 }
 
 // Read / write through every field works identically — packing only
@@ -49,12 +60,6 @@ test.expect(a.code as i64, 0xBEEF)
 
 // Multiple packed fields with different widths in a different order
 // — verifies offsets follow declared order with no padding.
-@repr(C, packed) class odd_pack {
-    a: u8
-    b: u64
-    c: u8
-}
-
 let o = new odd_pack()
 o.a = 1 as u8
 o.b = 0x0807060504030201 as u64
@@ -63,14 +68,11 @@ test.expect(o.a as i64, 1)
 test.expect(o.b as i64, 0x0807060504030201)
 test.expect(o.c as i64, 99)
 
-// Byte-level layout check via `test.byteAt(ptr, offset)`.
-// `byteAt` takes a struct (auto-passes the user pointer) and an
+// Byte-level layout check via `byteAt(ptr, offset)`.
+// The helper takes a struct (auto-passes the user pointer) and an
 // offset; reads the raw byte at that address. Confirms packed
 // puts `length` at offset 1 (right after the u8 magic) instead of
 // the aligned-form offset 4.
-@extern fn pkt_byte_at(p: packed_header, off: i64): i32
-@extern fn alg_byte_at(p: aligned_header, off: i64): i32
-
 p.magic = 0x11 as u8
 p.length = 0xAABBCCDD as u32
 p.flags = 0x99 as u8

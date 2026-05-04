@@ -1,4 +1,4 @@
-// `@repr(C) class` declares a class whose memory layout matches a
+// `@repr(C) struct` declares a struct whose memory layout matches a
 // C struct, so it can be passed to native extern fns by pointer.
 // The C side reads/writes fields directly at the user-data area;
 // ilang field access uses the same offsets.
@@ -10,12 +10,14 @@
 // interp: skip
 use test
 
-@repr(C) class timespec {
-    tv_sec: i64
-    tv_nsec: i64
-}
+@extern(C) {
+    @repr(C) struct timespec {
+        tv_sec: i64
+        tv_nsec: i64
+    }
 
-@extern("c") fn clock_gettime(clk_id: i32, tp: timespec): i32
+    @lib("c") fn clock_gettime(clk_id: i32, tp: *timespec): i32
+}
 
 let ts = new timespec()
 

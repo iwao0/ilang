@@ -317,6 +317,13 @@ pub(crate) fn coerce(
     if matches!(from, JitTy::Object(_)) && matches!(to, JitTy::Object(_)) {
         return Ok(v);
     }
+    // ilang Object pointer flowing into a raw C pointer slot
+    // (`*MyStruct` parameter inside @extern(C)). The Object's
+    // runtime representation is already a pointer to the user
+    // data area, so it just passes through as i64.
+    if matches!(from, JitTy::Object(_)) && matches!(to, JitTy::I64) {
+        return Ok(v);
+    }
     // Array values share runtime representation regardless of fixed-vs-
     // dynamic; allow assignment between them as long as the element type
     // matches. Need access to the kinds table — the helper passes it via

@@ -665,12 +665,16 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                     name, params, ret, lib, span,
                 } => {
                     // `@extern("libname")` for the dlsym path; bare
-                    // `@extern` for host-side. Mirrors how user
-                    // code wrote it before the block syntax.
-                    let attr_args = match lib {
+                    // `@extern` for host-side. Append `byValue` so
+                    // struct args pass by value (matches C ABI for
+                    // extern(C) declarations — pointer struct args
+                    // are written as `*MyStruct` and don't trigger
+                    // the by_value chunk path).
+                    let mut attr_args = match lib {
                         Some(s) => vec![AttrArg::Str(s.clone())],
                         None => Vec::new(),
                     };
+                    attr_args.push(AttrArg::Path(vec!["byValue".into()]));
                     out.push(ilang_ast::FnDecl {
                         attrs: vec![ilang_ast::Attribute {
                             name: "extern".to_string(),
