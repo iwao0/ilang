@@ -1,77 +1,93 @@
 # ilang
 
-新しいプログラミング言語 **ilang** の処理系。
+English | [日本語](docs/README_ja.md)
 
-## ビジョン
+A compiler/runtime for **ilang**, a new programming language under
+active design.
 
-- **capability ベースのセキュリティ**: ライブラリ/クラスごとに `net`, `file` などの実行権限を持たせ、サプライチェーン攻撃を緩和する
-- **ARC** によるメモリ安全性
-- **Rust 風** の関数宣言・型名構文
-- 四則演算規則は **C / JavaScript** とほぼ同一
+## Vision
 
-## 構文一覧
+- **Capability-based security** — libraries and classes carry
+  permissions like `net`, `file`; the host grants them at use sites
+  to reduce supply-chain blast radius.
+- **ARC** for memory safety — no ownership / `mut` / borrow checker.
+- **Rust-flavoured** declarations and type names.
+- **C / JavaScript** arithmetic semantics (operator precedence,
+  integer-promotion behaviour).
 
-実装済みの構文・型・組み込みは **[docs/syntax.md](docs/syntax.md)** にチートシートとしてまとめてあります。
+## Syntax cheatsheet
 
-## 現在の状態
+The implemented syntax / types / built-ins are catalogued in
+**[docs/syntax.md](docs/syntax.md)**.
 
-| カテゴリ | 状態 |
+## Status
+
+| Category | Status |
 | --- | :---: |
-| 数値型 (i8–i64 / u8–u64 / f32 / f64) + `as` キャスト | ⭕️ |
-| `bool` / 比較 / 短絡論理 | ⭕️ |
-| `let` / 代入 / 複合代入 (`+=` ほか) | ⭕️ |
-| 制御構造 (`if` / `else` / `while` / `loop` / `break` / `continue` / 早期 `return`) | ⭕️ |
-| 文字列 / 配列 (動的・固定長) | ⭕️ |
-| `class` / `new` / `init` / `this` / `deinit` (JS 風) | ⭕️ |
-| 継承 (`extends` / `super`) + 仮想ディスパッチ | ⭕️ |
-| `console.log` | ⭕️ |
-| Optional (`T?` / `some` / `none` / `if let`) | ⭕️ |
-| 弱参照 (`T.weak` / `.get()`) | ⭕️ |
-| `enum` + `match` (組み込み `Result<T, E>` 含む) | ⭕️ |
-| `Map<K, V>` / Tuple | ⭕️ |
-| クロージャ (キャプチャ込み) | ⭕️ |
-| ジェネリクス (関数 / クラス / enum) | ⭕️ |
-| 関数オーバーロード | ⭕️ |
-| ARC によるメモリ管理 | ⭕️ |
-| 型チェック | ⭕️ |
-| Cranelift JIT (`ilang run --jit`) | ⭕️ |
-| FFI (`@extern(C) {}` ブロックで C ライブラリ呼び出し) | ⭕️ |
-| capability アノテーション | パースのみ |
+| Numeric types (i8–i64 / u8–u64 / f32 / f64) + `as` casts | ✅ |
+| `bool` / comparison / short-circuit logic | ✅ |
+| `let` / assignment / compound assignment (`+=` and friends) | ✅ |
+| Control flow (`if` / `else` / `while` / `loop` / `break` / `continue` / early `return`) | ✅ |
+| Strings / arrays (dynamic & fixed-length) | ✅ |
+| `class` / `new` / `init` / `this` / `deinit` (JS-style) | ✅ |
+| Inheritance (`extends` / `super`) + virtual dispatch | ✅ |
+| `console.log` | ✅ |
+| Optional (`T?` / `some` / `none` / `if let`) | ✅ |
+| Weak references (`T.weak` / `.get()`) | ✅ |
+| `enum` + `match` (with built-in `Result<T, E>`) | ✅ |
+| `Map<K, V>` / Tuple | ✅ |
+| Closures (with capture) | ✅ |
+| Generics (functions / classes / enums) | ✅ |
+| Function overloading | ✅ |
+| ARC-based memory management | ✅ |
+| Type checking | ✅ |
+| Cranelift JIT (`ilang run --jit`) | ✅ |
+| FFI (`@extern(C) {}` blocks calling C libraries) | ✅ |
+| Capability annotations | parse-only |
 
-所有権 / `mut` / 借用は採用せず、変数はすべて再代入可能。エラーは `filename [row:col]: message` の統一形式。
+No ownership / `mut` / borrow checker — every variable is
+reassignable. Errors are emitted in the uniform
+`filename [row:col]: message` format.
 
-## セットアップ
+## Setup
 
-ilang は Rust で書かれているので **Rust toolchain** (rustup / cargo) が必要です。インストールされていなければ <https://rustup.rs> から:
+ilang is implemented in Rust, so you'll need a **Rust toolchain**
+(rustup / cargo). If it isn't installed, grab it from
+<https://rustup.rs>:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-リポジトリをクローン:
+Clone the repo:
 
 ```sh
 git clone https://github.com/iwao0/ilang
 cd ilang
-cargo build           # 初回のみ依存解決 + ビルド (~1 分)
+cargo build           # first run resolves deps + compiles (~1 minute)
 ```
 
-## 使い方
+## Usage
 
 ```sh
-# REPL (let / fn が永続化、interpreter モード)
+# REPL — let / fn persist across lines, interpreter mode
 cargo run -p ilang-cli
 
-# ファイル実行 (`;` は省略可、改行が文の区切りになる JS 風 ASI)
+# Run a file (`;` is optional, newlines act as statement separators
+# JS-ASI style)
 cargo run -p ilang-cli -- run path/to/script.il
 
-# JIT で実行 (Cranelift ネイティブコード — interpreter の数十〜数百倍速)
+# Run via the JIT (Cranelift native code — tens to hundreds of times
+# faster than the interpreter)
 cargo run -p ilang-cli -- run --jit path/to/script.il
 ```
 
-`@extern(C) {}` で C ライブラリを呼ぶコード(後述の SDL2 サンプルなど)は **JIT 専用** です。dlsym 経由で関数を解決するので interpreter からは呼べません。
+Code that calls into a C library through `@extern(C) {}` (the SDL2
+sample below, for example) is **JIT-only**. Symbols are resolved
+through dlsym at JIT-build time, so the interpreter has no path to
+those functions.
 
-### サンプル: 1〜100 で 3 か 5 の倍数を数える
+### Sample: count multiples of 3 or 5 from 1 to 100
 
 ```sh
 cat > sample.il <<'EOF'
@@ -91,9 +107,11 @@ EOF
 cargo run -p ilang-cli -- run sample.il   # => 47
 ```
 
-### クラス
+### Classes
 
-`class` / `new` / `init` (コンストラクタ) / `this` を備えた JS 風オブジェクト。メソッド本体ではフィールド/メソッドの `this.` を省略可 (ローカル/引数があればそちらが優先)。
+JS-flavoured objects with `class` / `new` / `init` (constructor) /
+`this`. Inside method bodies you can omit `this.` for fields and
+methods (a local or parameter of the same name still wins).
 
 ```sh
 cat > counter.il <<'EOF'
@@ -101,7 +119,7 @@ class Counter {
     count: i64
     init(start: i64) { this.count = start }
     bump(): i64 {
-        count += 1     // `this.count += 1` と同義
+        count += 1     // same as `this.count += 1`
         count
     }
 }
@@ -118,11 +136,14 @@ EOF
 cargo run -p ilang-cli -- run counter.il   # => 16
 ```
 
-### サンプル: SDL2 でゲーム画面を出す
+### Sample: an SDL2 game window
 
-`examples/sdl_bouncing_ball/` に SDL2 を使ったデモが入っています。動くボールが壁に当たるたびにビープ音が鳴り、矢印キー / `A` / `D` でパドルを左右に動かせます。`ESC` で早期終了。
+`examples/sdl_bouncing_ball/` contains an SDL2 demo: a ball bounces
+around the window, beeping every time it hits a wall. The arrow
+keys (or `A` / `D`) move a paddle along the bottom; `ESC` exits
+early.
 
-事前に SDL2 をインストール:
+Install SDL2 first:
 
 ```sh
 # macOS (Homebrew)
@@ -132,15 +153,19 @@ brew install sdl2
 sudo apt install libsdl2-dev libsdl2-2.0-0
 ```
 
-実行:
+Run:
 
 ```sh
 cargo run -p ilang-cli -- run --jit examples/sdl_bouncing_ball/main.il
 ```
 
-このサンプルは `bindings/sdl2/` 以下に置かれた SDL2 用バインディングを `use sdl` で取り込んでいます。仕組み(`ilang.toml` の `[deps]` 欄)については [bindings/sdl2/README.md](bindings/sdl2/README.md) を参照。
+The sample pulls in the SDL2 bindings under `bindings/sdl2/` via a
+plain `use sdl`. The mechanism (an `ilang.toml` with a `[deps]`
+table) is documented in
+[bindings/sdl2/README.md](bindings/sdl2/README.md).
 
-自分のプロジェクトで SDL2 バインディングを使うには、エントリファイルと同じ階層(またはその上の階層)に `ilang.toml` を置きます:
+To use the SDL2 bindings from your own project, drop an
+`ilang.toml` next to (or above) your entry file:
 
 ```toml
 [package]
@@ -150,14 +175,16 @@ name = "my_game"
 sdl2 = "/path/to/ilang/bindings/sdl2"
 ```
 
-CLI が起動時にこのファイルを探し、`[deps]` で指定された path を `use` の探索先に追加します。
+The CLI walks upward from the entry file looking for `ilang.toml`
+at startup; each `[deps]` value becomes an additional search
+directory for `use module` resolution.
 
-## 開発
+## Development
 
 ```sh
 cargo test --workspace
 ```
 
-## ライセンス
+## License
 
 MIT OR Apache-2.0
