@@ -1486,6 +1486,48 @@ pub(crate) fn lower_expr(
                         arg_vals.push(coerced);
                     }
                 }
+                // `out<T>` params: at this point `arg_vals` holds
+                // only the visible (non-out) values, in declaration
+                // order. Allocate one stack slot per out param,
+                // splice the slot addresses into `arg_vals` at the
+                // recorded positions so the C-ABI argument list
+                // matches the signature, and remember the slots so
+                // we can read them back after the call to assemble
+                // the user-visible tuple.
+                let out_info = lc.extern_out_params.get(callee).cloned();
+                let mut out_slots: Vec<(JitTy, cranelift::prelude::Value)> = Vec::new();
+                let mut out_raw_ret: Option<JitTy> = None;
+                if let Some((params, raw_ret)) = out_info {
+                    use cranelift::prelude::{StackSlotData, StackSlotKind};
+                    let mut interleaved = Vec::with_capacity(arg_vals.len() + params.len());
+                    let mut visible_iter = arg_vals.into_iter();
+                    let mut p_iter = params.iter().peekable();
+                    let total = visible_iter.len() + params.len();
+                    for i in 0..total {
+                        if let Some((idx, inner)) = p_iter.peek() {
+                            if *idx == i {
+                                let inner = *inner;
+                                p_iter.next();
+                                let slot = b.create_sized_stack_slot(StackSlotData::new(
+                                    StackSlotKind::ExplicitSlot,
+                                    inner.size_bytes().max(1),
+                                    3, // 8-byte aligned
+                                ));
+                                let addr = b.ins().stack_addr(I64, slot, 0);
+                                interleaved.push(addr);
+                                out_slots.push((inner, addr));
+                                continue;
+                            }
+                        }
+                        interleaved.push(
+                            visible_iter
+                                .next()
+                                .expect("visible arg count matches stripped param list"),
+                        );
+                    }
+                    arg_vals = interleaved;
+                    out_raw_ret = Some(raw_ret);
+                }
                 let func_ref = lc.module.declare_func_in_func(id, b.func);
                 let call = if is_variadic {
                     build_variadic_call(b, lc, func_ref, &arg_vals, n_fixed, ret_ty)
@@ -1502,6 +1544,43 @@ pub(crate) fn lower_expr(
                     && sret_ptr.is_none();
                 let is_slice_return = lc.native_extern_slice_returns.contains(callee);
                 let is_errno_check = lc.native_extern_errno_check.contains(callee);
+                // out<T> params: load each stack slot post-call and
+                // assemble the user-visible value (single primitive
+                // if raw return was Unit and there's exactly one
+                // out, otherwise an ilang Tuple of `(raw_ret_if_not_unit,
+                // *outs)`).
+                if !out_slots.is_empty() {
+                    let raw = out_raw_ret.expect("out slots imply raw_ret tracked");
+                    let mut elems: Vec<(cranelift::prelude::Value, JitTy)> =
+                        Vec::with_capacity(out_slots.len() + 1);
+                    if !matches!(raw, JitTy::Unit) {
+                        elems.push((b.inst_results(call)[0], raw));
+                    }
+                    for (inner, addr) in &out_slots {
+                        let cl = inner.cl().expect("primitive inner");
+                        let v = b.ins().load(cl, MemFlags::trusted(), *addr, 0);
+                        elems.push((v, *inner));
+                    }
+                    if elems.len() == 1 {
+                        return Ok(Some(elems.into_iter().next().unwrap()));
+                    }
+                    // Build a heap-allocated tuple matching the
+                    // signature's user-visible return type.
+                    let elem_jtys: Vec<JitTy> = elems.iter().map(|(_, t)| *t).collect();
+                    let tuple_id = crate::ty::intern_tuple_kind(lc.tuple_kinds, elem_jtys);
+                    let kind = lc.tuple_kinds[tuple_id as usize].clone();
+                    let size_v = b.ins().iconst(I64, kind.size as i64);
+                    let drop_fn_ptr = crate::drops::tuple_drop_fn_ptr(b, lc, tuple_id);
+                    let zero_vt = b.ins().iconst(I64, 0);
+                    let alloc_ref =
+                        lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+                    let acall = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, zero_vt]);
+                    let tup_ptr = b.inst_results(acall)[0];
+                    for ((val, _), &offset) in elems.iter().zip(kind.offsets.iter()) {
+                        b.ins().store(MemFlags::trusted(), *val, tup_ptr, offset as i32);
+                    }
+                    return Ok(Some((tup_ptr, JitTy::Tuple(tuple_id))));
+                }
                 let raw_ret = if matches!(ret_ty, JitTy::Unit) {
                     None
                 } else if is_errno_check {

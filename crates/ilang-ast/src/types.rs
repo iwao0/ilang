@@ -52,6 +52,14 @@ pub enum Type {
     /// that accept any value. The parser does not produce it; user code
     /// cannot annotate a binding with it.
     Any,
+    /// `out<T>` — out-pointer parameter on an `@extern` fn. The C
+    /// side declares `*mut T`; the JIT allocates a stack slot at
+    /// the call site, passes its address as the actual arg, and
+    /// after the call surfaces the written value as an extra
+    /// return component (a tuple if the fn already had a non-Unit
+    /// return). Only valid as a parameter type on extern fns; T
+    /// must be a numeric primitive or bool.
+    Out(Box<Type>),
 }
 
 impl Type {
@@ -140,6 +148,7 @@ impl std::fmt::Display for Type {
             Type::Optional(inner) => write!(f, "{inner}?"),
             Type::Weak(inner) => write!(f, "{inner}.weak"),
             Type::Any => write!(f, "any"),
+            Type::Out(inner) => write!(f, "out<{inner}>"),
         }
     }
 }
