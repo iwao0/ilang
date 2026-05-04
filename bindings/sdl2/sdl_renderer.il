@@ -39,6 +39,9 @@
         renderer: *SDL_Renderer, rect: *SDL_Rect
     ): i32
     @lib("SDL2") fn SDL_RenderPresent(renderer: *SDL_Renderer)
+    @lib("SDL2") fn SDL_RenderSetLogicalSize(
+        renderer: *SDL_Renderer, w: i32, h: i32
+    ): i32
 
     @lib("SDL2") fn SDL_CreateTexture(
         renderer: *SDL_Renderer,
@@ -97,6 +100,15 @@
 
         setColor(r: u8, g: u8, b: u8, a: u8): i32 {
             SDL_SetRenderDrawColor(this.handle as *SDL_Renderer, r, g, b, a)
+        }
+
+        // Pin the renderer's coordinate system to a virtual w×h grid.
+        // SDL stretches the result to fit the actual window (with
+        // letterboxing when the aspect differs), so the same draw
+        // calls work in windowed mode and at fullscreen-desktop
+        // without resizing the game's logic.
+        setLogicalSize(w: i32, h: i32): i32 {
+            SDL_RenderSetLogicalSize(this.handle as *SDL_Renderer, w, h)
         }
 
         clear(): i32 {

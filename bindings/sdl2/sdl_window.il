@@ -15,6 +15,7 @@
         flags: u32
     ): *SDL_Window
     @lib("SDL2") fn SDL_DestroyWindow(window: *SDL_Window)
+    @lib("SDL2") fn SDL_SetWindowFullscreen(window: *SDL_Window, flags: u32): i32
 
     // ARC-managed wrapper. `init` opens the window and stashes the
     // raw pointer as i64 so users can interact with it as a regular
@@ -31,6 +32,15 @@
                 cstrFromString(title), undef, undef, w, h, flags
             )
             this.handle = win as i64
+        }
+
+        // Toggle "fullscreen-desktop" mode. SDL handles the actual
+        // resolution; combine with `Renderer.setLogicalSize` to keep
+        // the game's rendering coordinates fixed and let SDL
+        // letterbox.
+        setFullscreen(on: bool): i32 {
+            let flag: u32 = if on { 0x1001 as u32 } else { 0 as u32 }
+            SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag)
         }
 
         deinit() {

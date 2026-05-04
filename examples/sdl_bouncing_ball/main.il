@@ -2,6 +2,9 @@
 //
 // Controls:
 //   ←/→  or  A/D  — move the paddle
+//   Space        — launch the ball
+//   F            — toggle fullscreen
+//   R            — restart after game over
 //   ESC          — quit
 //
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
@@ -132,6 +135,43 @@ fn make_star_sprite(): u8[] {
     buf
 }
 
+// ─── glow sprite ──────────────────────────────────────────────────
+
+// 64×64 soft white radial gradient (alpha falls smoothly from
+// centre to edge). Tinted at draw time and stretched to whatever
+// size is needed for a blurry bloom — used for the brick wave
+// highlight so the glow doesn't look rectangular.
+const GLOW_TEX_SIZE: i32 = 64
+
+fn make_glow_sprite(): u8[] {
+    let size: i32 = GLOW_TEX_SIZE
+    let buf: u8[] = []
+    let cx = (size as f64) / 2.0
+    let cy = (size as f64) / 2.0
+    let radius = cx
+    let y: i32 = 0
+    while y < size {
+        let x: i32 = 0
+        while x < size {
+            let dx = (x as f64) - cx + 0.5
+            let dy = (y as f64) - cy + 0.5
+            let d = math.sqrt(dx * dx + dy * dy)
+            // Smooth falloff: 1 at centre, 0 at and past `radius`.
+            let t: f64 = if d >= radius { 0.0 } else { 1.0 - d / radius }
+            // Gaussian-ish exponent for a softer bell.
+            let a_norm = t * t
+            let a = (a_norm * 255.0) as u8
+            buf.push(255 as u8)
+            buf.push(255 as u8)
+            buf.push(255 as u8)
+            buf.push(a)
+            x += 1
+        }
+        y += 1
+    }
+    buf
+}
+
 // ─── audio: short sine-wave beeps ─────────────────────────────────
 
 fn makeBeep(freq_hz: f64, ms: i32): i16[] {
@@ -165,6 +205,10 @@ class Brick {
     g: u8
     b: u8
     alive: bool
+    // Death animation timer. 0 = either alive or fully gone. > 0
+    // means we're inside the puff-and-fade animation: 1.0 starts,
+    // counts down to 0.
+    dying: f64
     init(x: i32, y: i32, r: u8, g: u8, b: u8) {
         this.x = x
         this.y = y
@@ -172,6 +216,7 @@ class Brick {
         this.g = g
         this.b = b
         this.alive = true
+        this.dying = 0.0
     }
 }
 
@@ -297,6 +342,11 @@ fn play() {
         return
     }
 
+    // Pin the renderer to our virtual WIN_W×WIN_H so toggling
+    // fullscreen-desktop just changes the window backing — the
+    // game's coordinates stay the same and SDL letterboxes to fit.
+    ren.setLogicalSize(WIN_W, WIN_H)
+
     // Filled rectangle with two semi-transparent halo passes around
     // it. The renderer's blend mode is BLEND so each halo layer
     // accumulates over the dark background, giving a neon-glow
@@ -309,6 +359,40 @@ fn play() {
         ren.fillRect(x - 3, y - 3, w + 6, h + 6)
         ren.setColor(r, g, b, 255)
         ren.fillRect(x, y, w, h)
+        return
+    }
+
+    // Filled rectangle with small rounded corners (Pill/chiclet
+    // shape). Three accumulating halo passes give the same neon
+    // glow as fillNeon.
+    let fillNeonRoundedRect = fn(x: i32, y: i32, w: i32, h: i32,
+                                 radius: i32,
+                                 r: u8, g: u8, b: u8) {
+        let pass: i32 = 0
+        while pass < 3 {
+            let extra: i32 = if pass == 0 { 6 } elif pass == 1 { 3 } else { 0 }
+            let alpha: u8 = if pass == 0 { 50 as u8 } elif pass == 1 { 110 as u8 } else { 255 as u8 }
+            let xx = x - extra
+            let yy = y - extra
+            let ww = w + 2 * extra
+            let hh = h + 2 * extra
+            let rad = radius + extra
+            ren.setColor(r, g, b, alpha)
+            // Middle band: full width, between the rounded caps.
+            ren.fillRect(xx, yy + rad, ww, hh - 2 * rad)
+            // Top + bottom with corner inset computed from the arc.
+            let dy: i32 = 0
+            while dy < rad {
+                let cy = (rad as f64) - 0.5 - (dy as f64)
+                let radf = rad as f64
+                let chord = math.sqrt(radf * radf - cy * cy)
+                let inset = ((rad as f64) - chord) as i32
+                ren.fillRect(xx + inset, yy + dy, ww - 2 * inset, 1)
+                ren.fillRect(xx + inset, yy + hh - 1 - dy, ww - 2 * inset, 1)
+                dy += 1
+            }
+            pass += 1
+        }
         return
     }
 
@@ -393,6 +477,16 @@ fn play() {
     }
     star_tex.update(make_star_sprite())
 
+    // Soft radial-gradient sprite, tinted per-brick at draw time so
+    // the wave highlight blooms as a blurry circle rather than a
+    // rectangle.
+    let glow_tex = new sdl.Texture(ren, GLOW_TEX_SIZE, GLOW_TEX_SIZE)
+    if glow_tex.handle == 0 {
+        console.log("SDL_CreateTexture failed: " + sdl.getError())
+        return
+    }
+    glow_tex.update(make_glow_sprite())
+
     // Background star field — scrolls top→down with a twinkle.
     let bg_stars: Star[] = []
     let s_i: i32 = 0
@@ -438,6 +532,10 @@ fn play() {
 
     // Visual effect state.
     let wave_phase: f64 = 0.0       // brick highlight wave (rad)
+
+    // F toggles fullscreen — track edge so a held key doesn't flap.
+    let fullscreen: bool = false
+    let f_was_down: bool = false
 
     // FPS counter.
     let fps: i32 = 0
@@ -485,13 +583,23 @@ fn play() {
             running = false
         }
 
+        // F: toggle fullscreen on key-down (rising edge).
+        let f_now = sdl.Keyboard.isPressed(sdl.SCANCODE_F)
+        if f_now && !f_was_down {
+            fullscreen = !fullscreen
+            win.setFullscreen(fullscreen)
+        }
+        f_was_down = f_now
+
         // Restart after game over.
         if game_over && sdl.Keyboard.isPressed(sdl.SCANCODE_R) {
             let r2: i32 = 0
             while r2 < ROWS {
                 let c2: i32 = 0
                 while c2 < COLS {
-                    bricks[r2 * COLS + c2].alive = true
+                    let br = bricks[r2 * COLS + c2]
+                    br.alive = true
+                    br.dying = 0.0
                     c2 += 1
                 }
                 r2 += 1
@@ -599,6 +707,7 @@ fn play() {
                     if bx_hi > rx_lo && bx_lo < rx_hi
                             && by_hi > ry_lo && by_lo < ry_hi {
                         br.alive = false
+                        br.dying = 1.0
                         bricks_left = bricks_left - 1
                         score = score + 100
                         // Decide which axis to flip based on overlap depth.
@@ -699,22 +808,63 @@ fn play() {
             bg_i = bg_i + 1
         }
 
-        // Bricks with a left-to-right brightness wave.
+        // Bricks with a left-to-right brightness wave. Glow padding
+        // is proportional to the brick's aspect ratio, so the
+        // bloom around a wide brick is wider than tall (matching
+        // the brick's shape).
+        let glow_pad_y: i32 = 32
+        let glow_pad_x: i32 = glow_pad_y * BRICK_W / BRICK_H
         let i2: i32 = 0
         let n2: i32 = bricks.length as i32
         while i2 < n2 {
             let br = bricks[i2]
             if br.alive {
-                fillNeon(br.x, br.y, BRICK_W, BRICK_H, br.r, br.g, br.b)
-                // Wave highlight: a soft white pass whose alpha
-                // peaks where `wave_phase - x*k` crosses zero.
+                fillNeonRoundedRect(br.x, br.y, BRICK_W, BRICK_H, 6, br.r, br.g, br.b)
                 let k: f64 = 0.012
                 let s = math.sin(wave_phase - (br.x as f64) * k)
                 let pulse: f64 = if s > 0.0 { s * s } else { 0.0 }
-                let glow_a = (pulse * 160.0) as u8
-                if glow_a > 0 as u8 {
-                    ren.setColor(255 as u8, 255 as u8, 255 as u8, glow_a)
-                    ren.fillRect(br.x - 2, br.y - 2, BRICK_W + 4, BRICK_H + 4)
+                if pulse > 0.0 {
+                    let alpha = (pulse * 220.0) as u8
+                    if alpha > 0 as u8 {
+                        glow_tex.setColorMod(br.r, br.g, br.b)
+                        glow_tex.setAlphaMod(alpha)
+                        ren.drawTexture(glow_tex.handle,
+                                        br.x - glow_pad_x,
+                                        br.y - glow_pad_y,
+                                        BRICK_W + 2 * glow_pad_x,
+                                        BRICK_H + 2 * glow_pad_y)
+                    }
+                }
+            } elif br.dying > 0.0 {
+                // Brick destroy puff: the rectangle scales up while
+                // its alpha fades to zero. Drawn here (instead of
+                // the brick row) so the wave glow doesn't keep
+                // moving over a vanishing brick.
+                let t = br.dying     // 1.0 → 0.0
+                let progress = 1.0 - t
+                let scale = 1.0 + progress * 0.6
+                let cx = br.x + BRICK_W / 2
+                let cy = br.y + BRICK_H / 2
+                let dw = ((BRICK_W as f64) * scale) as i32
+                let dh = ((BRICK_H as f64) * scale) as i32
+                let alpha = (t * 220.0) as u8
+                // Soft bloom (radial gradient) — biggest, dimmest.
+                glow_tex.setColorMod(br.r, br.g, br.b)
+                glow_tex.setAlphaMod((t * 180.0) as u8)
+                let bw = ((BRICK_W + 2 * glow_pad_x) as f64) * scale
+                let bh = ((BRICK_H + 2 * glow_pad_y) as f64) * scale
+                ren.drawTexture(glow_tex.handle,
+                                cx - (bw as i32) / 2,
+                                cy - (bh as i32) / 2,
+                                bw as i32, bh as i32)
+                // Sharper core.
+                if alpha > 0 as u8 {
+                    ren.setColor(br.r, br.g, br.b, alpha)
+                    ren.fillRect(cx - dw / 2, cy - dh / 2, dw, dh)
+                }
+                br.dying = br.dying - 0.06
+                if br.dying < 0.0 {
+                    br.dying = 0.0
                 }
             }
             i2 = i2 + 1
