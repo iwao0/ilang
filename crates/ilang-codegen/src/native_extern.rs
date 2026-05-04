@@ -513,7 +513,19 @@ fn open_library(lib_name: &str) -> Result<Library, libloading::Error> {
 
 fn candidates_for(name: &str) -> Vec<String> {
     if cfg!(target_os = "macos") {
-        vec![format!("lib{name}.dylib"), format!("{name}.dylib")]
+        // First try the bare names — dyld picks them up from system
+        // paths or DYLD_*_LIBRARY_PATH. Then fall back to common
+        // Homebrew install dirs (Apple Silicon = /opt/homebrew, Intel
+        // = /usr/local) so user-installed libs like SDL2 work
+        // out-of-the-box without needing to set env vars.
+        vec![
+            format!("lib{name}.dylib"),
+            format!("{name}.dylib"),
+            format!("/opt/homebrew/lib/lib{name}.dylib"),
+            format!("/opt/homebrew/lib/{name}.dylib"),
+            format!("/usr/local/lib/lib{name}.dylib"),
+            format!("/usr/local/lib/{name}.dylib"),
+        ]
     } else if cfg!(target_os = "windows") {
         vec![format!("{name}.dll"), format!("lib{name}.dll")]
     } else {
