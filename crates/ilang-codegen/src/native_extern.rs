@@ -722,6 +722,11 @@ fn is_native_abi_type(
         | Type::U8 | Type::U16 | Type::U32 | Type::U64
         | Type::F32 | Type::F64
         | Type::Bool | Type::Str => true,
+        // C ABI types from @extern(C) blocks. All flow as machine
+        // words (`i64` for pointers, `i8` for char, etc.) at the
+        // calling-conv level — no marshalling at the boundary.
+        Type::RawPtr { .. } => true,
+        Type::CVoid | Type::CChar | Type::Size | Type::SSize => true,
         // C function pointer (`int (*)(int, int)` etc.) — a fn
         // type whose params and return are themselves native ABI
         // (primitive widths only; no nested fn / opaque / string

@@ -88,6 +88,7 @@ pub fn jit_run_with(
     let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
     jit_run_inner(
         &mono,
+        fn_call_type_args,
         loop_break_types,
         class_method_slots,
         class_vtable_lens,
@@ -97,6 +98,10 @@ pub fn jit_run_with(
 
 fn jit_run_inner(
     prog: &Program,
+    fn_call_type_args: &std::collections::HashMap<
+        ilang_ast::Span,
+        (String, Vec<ilang_ast::Type>),
+    >,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
     class_method_slots: &std::collections::HashMap<
         String,
@@ -112,6 +117,7 @@ fn jit_run_inner(
     compiler.loop_break_types = loop_break_types.clone();
     compiler.class_method_slots = class_method_slots.clone();
     compiler.class_vtable_lens = class_vtable_lens.clone();
+    compiler.fn_call_type_args = fn_call_type_args.clone();
     // Materialise synthetic Class/Fn decls from `@extern(C) { ... }`
     // blocks once, up front. Subsequent phases iterate over both
     // `prog.items` and these synthesised decls so the existing
@@ -458,6 +464,13 @@ pub(crate) struct JitCompiler {
     /// terminated `char**`. The JIT walks the result after the
     /// call and copies each entry into a fresh ilang `string[]`.
     pub(crate) native_extern_cstr_arrays: std::collections::HashSet<String>,
+    /// Per call-site span → (callee name, inferred type args). The
+    /// type checker fills this for generic calls; the JIT reads it
+    /// to resolve T at built-in helper sites like `arrayFromCArray<T>`.
+    pub(crate) fn_call_type_args: std::collections::HashMap<
+        ilang_ast::Span,
+        (String, Vec<ilang_ast::Type>),
+    >,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
@@ -1145,6 +1158,7 @@ impl JitCompiler {
             native_extern_errno_check: native_reg.errno_check,
             native_extern_win_fastcall: native_reg.win_fastcall,
             native_extern_cstr_arrays: native_reg.cstr_arrays,
+            fn_call_type_args: std::collections::HashMap::new(),
             extern_static_addrs: native_reg.static_addrs,
             extern_static_types: prog
                 .items
@@ -1915,6 +1929,7 @@ impl JitCompiler {
             native_extern_slice_returns: &self.native_extern_slice_returns,
             native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
+            fn_call_type_args: &self.fn_call_type_args,
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
@@ -2121,6 +2136,7 @@ impl JitCompiler {
             extern_static_addrs: &self.extern_static_addrs,
             extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
+            fn_call_type_args: &self.fn_call_type_args,
             native_extern_cstr_arrays: &self.native_extern_cstr_arrays,
             native_extern_errno_check: &self.native_extern_errno_check,
             native_extern_slice_returns: &self.native_extern_slice_returns,

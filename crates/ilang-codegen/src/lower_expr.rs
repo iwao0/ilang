@@ -1183,6 +1183,12 @@ pub(crate) fn lower_expr(
                 }
                 return Ok(Some((b.inst_results(call)[0], sig.ret)));
             }
+            // Built-in helpers callable inside `@extern(C) { ... }`
+            // blocks. Recognised before the normal `lc.funcs` lookup
+            // so they bypass the regular extern-fn machinery.
+            if let Some(result) = try_lower_extern_c_helper(b, lc, callee, args, e.span)? {
+                return Ok(result);
+            }
             // Free function first.
             if let Some(entry) = lc.funcs.get(callee).cloned() {
                 let (id, param_tys, ret_ty) = entry;
@@ -4561,4 +4567,260 @@ fn lower_closure_construct(
         },
     );
     Ok(Some((closure_ptr, JitTy::Fn(sig_id))))
+}
+
+/// Built-in helpers callable inside `@extern(C) { ... }` blocks.
+/// Returns `Some(...)` if the callee name matched a recognised
+/// helper and lowering succeeded; `None` to fall through to the
+/// regular fn-call path.
+fn try_lower_extern_c_helper(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    callee: &str,
+    args: &[ilang_ast::Expr],
+    call_span: ilang_ast::Span,
+) -> Result<Option<Option<TV>>, CodegenError> {
+    match callee {
+        // stringFromCstr(p: *const char): string
+        "stringFromCstr" => {
+            let (av, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "stringFromCstr arg is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let f = lc.module.declare_func_in_func(lc.strfns.c_str_to_string, b.func);
+            let c = b.ins().call(f, &[av]);
+            Ok(Some(Some((b.inst_results(c)[0], JitTy::Str))))
+        }
+        // cstrFromString(s: string): *char  (raw pointer = i64)
+        "cstrFromString" => {
+            let (av, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "cstrFromString arg is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let f = lc.module.declare_func_in_func(lc.strfns.to_c_str, b.func);
+            let c = b.ins().call(f, &[av]);
+            Ok(Some(Some((b.inst_results(c)[0], JitTy::I64))))
+        }
+        // freeCstr(p: *char)
+        "freeCstr" => {
+            let (av, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "freeCstr arg is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let f = lc.module.declare_func_in_func(lc.strfns.free_c_str, b.func);
+            b.ins().call(f, &[av]);
+            Ok(Some(None))
+        }
+        // bytesFromBuffer(p: *const void, n: size_t): u8[]
+        "bytesFromBuffer" => {
+            let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "bytesFromBuffer ptr is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let (nv, nt) = lower_expr(b, lc, &args[1])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "bytesFromBuffer len is unit".into(),
+                    span: args[1].span,
+                }
+            })?;
+            let n_i64 = coerce(b, (nv, nt), JitTy::I64, args[1].span)?;
+            let arr = lower_extern_c_array_copy(b, lc, pv, n_i64, JitTy::U8);
+            Ok(Some(Some((arr, JitTy::Array(intern_array_kind_u8(lc))))))
+        }
+        // arrayFromCArray<T>(p: *const T, n: size_t): T[]
+        "arrayFromCArray" => {
+            let elem = resolve_type_arg_t(lc, call_span)?;
+            let elem_jty = jit_ty_from_primitive_for_helper(&elem, call_span)?;
+            let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "arrayFromCArray ptr is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let (nv, nt) = lower_expr(b, lc, &args[1])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "arrayFromCArray len is unit".into(),
+                    span: args[1].span,
+                }
+            })?;
+            let n_i64 = coerce(b, (nv, nt), JitTy::I64, args[1].span)?;
+            let arr = lower_extern_c_array_copy(b, lc, pv, n_i64, elem_jty);
+            let arr_id = crate::ty::intern_array_kind(
+                lc.array_kinds,
+                crate::ty::ArrayKind { elem: elem_jty, fixed: None },
+            );
+            Ok(Some(Some((arr, JitTy::Array(arr_id)))))
+        }
+        // cstrArrayToStrings(p: *const *const char): string[]
+        "cstrArrayToStrings" => {
+            let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "cstrArrayToStrings ptr is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            // Element is JitTy::Str; per-element drop_fn comes from
+            // the array's per-kind drop wrapper (release_string).
+            let arr_id = crate::ty::intern_array_kind(
+                lc.array_kinds,
+                crate::ty::ArrayKind { elem: JitTy::Str, fixed: None },
+            );
+            let drop_fn_ptr = crate::drops::array_drop_fn_ptr(b, lc, arr_id);
+            let f = lc
+                .module
+                .declare_func_in_func(lc.strfns.cstr_array_to_strings, b.func);
+            let c = b.ins().call(f, &[pv, drop_fn_ptr]);
+            Ok(Some(Some((b.inst_results(c)[0], JitTy::Array(arr_id)))))
+        }
+        // errnoCheck(rc: i32): i32?
+        "errnoCheck" => {
+            let (rcv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "errnoCheck arg is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            Ok(Some(Some(lower_errno_check(b, lc, rcv, JitTy::I32))))
+        }
+        // errnoCheckI64(rc: i64): i64?
+        "errnoCheckI64" => {
+            let (rcv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "errnoCheckI64 arg is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            Ok(Some(Some(lower_errno_check(b, lc, rcv, JitTy::I64))))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Allocate an ilang `T[]` of length `n_i64` and memcpy
+/// `n_i64 * sizeof(elem)` bytes from `src_ptr`. Returns the array
+/// header pointer.
+fn lower_extern_c_array_copy(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    src_ptr: cranelift::prelude::Value,
+    n_i64: cranelift::prelude::Value,
+    elem: JitTy,
+) -> cranelift::prelude::Value {
+    let elem_size = elem.size_bytes() as i64;
+    let new_ref = lc.module.declare_func_in_func(lc.arrfns.new, b.func);
+    let elem_size_v = b.ins().iconst(I64, elem_size);
+    let drop_fn = b.ins().iconst(I64, 0);
+    let alloc_call = b.ins().call(new_ref, &[elem_size_v, n_i64, drop_fn]);
+    let header = b.inst_results(alloc_call)[0];
+    let dst = b.ins().load(
+        I64,
+        MemFlags::trusted(),
+        header,
+        crate::runtime::ARRAY_DATA_OFFSET,
+    );
+    let total_bytes = b.ins().imul_imm(n_i64, elem_size);
+    b.call_memcpy(lc.module.target_config(), dst, src_ptr, total_bytes);
+    header
+}
+
+/// Branch on `rc < 0` (signed) and produce a heap-boxed `Optional<T>`:
+/// failure → 0 (None sentinel), success → boxed primitive.
+fn lower_errno_check(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    rc: cranelift::prelude::Value,
+    inner: JitTy,
+) -> TV {
+    let zero_inner = match inner {
+        JitTy::I32 => b.ins().iconst(I32, 0),
+        JitTy::I64 => b.ins().iconst(I64, 0),
+        _ => unreachable!("errnoCheck inner restricted to i32/i64"),
+    };
+    let is_fail = b.ins().icmp(IntCC::SignedLessThan, rc, zero_inner);
+    let fail_bb = b.create_block();
+    let ok_bb = b.create_block();
+    let merge = b.create_block();
+    b.append_block_param(merge, I64);
+    b.ins().brif(is_fail, fail_bb, &[], ok_bb, &[]);
+    b.switch_to_block(fail_bb);
+    b.seal_block(fail_bb);
+    let none_v = b.ins().iconst(I64, 0);
+    b.ins().jump(merge, &[none_v.into()]);
+    b.switch_to_block(ok_bb);
+    b.seal_block(ok_bb);
+    let size_v = b.ins().iconst(I64, inner.size_bytes() as i64);
+    let new_ref = lc.module.declare_func_in_func(lc.optional_box_new_id, b.func);
+    let alloc_call = b.ins().call(new_ref, &[size_v]);
+    let box_ptr = b.inst_results(alloc_call)[0];
+    b.ins().store(
+        MemFlags::trusted(),
+        rc,
+        box_ptr,
+        crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+    );
+    b.ins().jump(merge, &[box_ptr.into()]);
+    b.switch_to_block(merge);
+    b.seal_block(merge);
+    let opt_id = crate::ty::intern_optional_inner(lc.optional_inners, inner);
+    (b.block_params(merge)[0], JitTy::Optional(opt_id))
+}
+
+fn intern_array_kind_u8(lc: &mut LowerCtx) -> u32 {
+    crate::ty::intern_array_kind(
+        lc.array_kinds,
+        crate::ty::ArrayKind { elem: JitTy::U8, fixed: None },
+    )
+}
+
+/// Resolve the inferred type argument T for a generic helper call
+/// (e.g. `arrayFromCArray<T>(...)`) from the type checker's recorded
+/// `fn_call_type_args[span]`. Errors clearly if T wasn't inferred.
+fn resolve_type_arg_t(
+    lc: &LowerCtx,
+    call_span: ilang_ast::Span,
+) -> Result<ilang_ast::Type, CodegenError> {
+    match lc.fn_call_type_args.get(&call_span) {
+        Some((_, args)) if args.len() == 1 => Ok(args[0].clone()),
+        _ => Err(CodegenError::Unsupported {
+            what: "generic helper requires an explicit type argument (e.g. arrayFromCArray<i32>(p, n))".into(),
+            span: call_span,
+        }),
+    }
+}
+
+/// Map an AST primitive type to a `JitTy` for use as the element
+/// type of `arrayFromCArray<T>`. Rejects non-primitive Ts since
+/// the helper only does flat memcpy (no per-element marshalling).
+fn jit_ty_from_primitive_for_helper(
+    t: &ilang_ast::Type,
+    span: ilang_ast::Span,
+) -> Result<JitTy, CodegenError> {
+    use ilang_ast::Type as T;
+    match t {
+        T::I8 => Ok(JitTy::I8),
+        T::I16 => Ok(JitTy::I16),
+        T::I32 => Ok(JitTy::I32),
+        T::I64 => Ok(JitTy::I64),
+        T::U8 => Ok(JitTy::U8),
+        T::U16 => Ok(JitTy::U16),
+        T::U32 => Ok(JitTy::U32),
+        T::U64 => Ok(JitTy::U64),
+        T::F32 => Ok(JitTy::F32),
+        T::F64 => Ok(JitTy::F64),
+        T::Bool => Ok(JitTy::Bool),
+        other => Err(CodegenError::Unsupported {
+            what: format!(
+                "arrayFromCArray<T>: T must be a numeric primitive or bool (got {other})"
+            ),
+            span,
+        }),
+    }
 }

@@ -168,6 +168,14 @@ pub(crate) struct LowerCtx<'a> {
     pub native_extern_slice_returns: &'a std::collections::HashSet<String>,
     pub native_extern_errno_check: &'a std::collections::HashSet<String>,
     pub native_extern_cstr_arrays: &'a std::collections::HashSet<String>,
+    /// Per call-site span → (callee name, inferred type args).
+    /// Populated by the type checker for generic fn calls; the JIT
+    /// reads it to resolve T at built-in helper sites like
+    /// `arrayFromCArray<T>(...)`.
+    pub fn_call_type_args: &'a std::collections::HashMap<
+        ilang_ast::Span,
+        (String, Vec<ilang_ast::Type>),
+    >,
     pub extern_static_addrs: &'a std::collections::HashMap<String, i64>,
     pub extern_static_types: &'a std::collections::HashMap<String, ilang_ast::Type>,
     /// `(class, field) -> slot index` into `static_field_base_addr`.

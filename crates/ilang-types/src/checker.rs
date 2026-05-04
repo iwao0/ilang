@@ -601,6 +601,100 @@ impl TypeChecker {
             },
         );
 
+        // Built-in helpers callable inside `@extern(C) { ... }` blocks
+        // for converting between raw C ABI values and ilang values.
+        // Registered as top-level fns; their signatures use raw
+        // pointer types so they're effectively only callable from
+        // inside the block (outside the block, the user can't
+        // construct a `*const char` to pass).
+        let raw_const_char =
+            Type::RawPtr { is_const: true, inner: Box::new(Type::CChar) };
+        let raw_char = Type::RawPtr { is_const: false, inner: Box::new(Type::CChar) };
+        let raw_const_void =
+            Type::RawPtr { is_const: true, inner: Box::new(Type::CVoid) };
+        let raw_const_const_char = Type::RawPtr {
+            is_const: true,
+            inner: Box::new(raw_const_char.clone()),
+        };
+        let mk_sig = |params: Vec<Type>, ret: Type, type_params: Vec<String>| Signature {
+            params,
+            ret,
+            variadic: false,
+            decl_span: Span::dummy(),
+            type_params,
+            defaults: Vec::new(),
+        };
+        // stringFromCstr(p: *const char): string
+        self.fns.insert(
+            "stringFromCstr".into(),
+            vec![mk_sig(vec![raw_const_char.clone()], Type::Str, Vec::new())],
+        );
+        // cstrFromString(s: string): *char
+        self.fns.insert(
+            "cstrFromString".into(),
+            vec![mk_sig(vec![Type::Str], raw_char.clone(), Vec::new())],
+        );
+        // freeCstr(p: *char)
+        self.fns.insert(
+            "freeCstr".into(),
+            vec![mk_sig(vec![raw_char.clone()], Type::Unit, Vec::new())],
+        );
+        // bytesFromBuffer(p: *const void, n: size_t): u8[]
+        self.fns.insert(
+            "bytesFromBuffer".into(),
+            vec![mk_sig(
+                vec![raw_const_void.clone(), Type::Size],
+                Type::Array { elem: Box::new(Type::U8), fixed: None },
+                Vec::new(),
+            )],
+        );
+        // arrayFromCArray<T>(p: *const T, n: size_t): T[]
+        // T is constrained to numeric primitive / bool at the call
+        // site (the JIT lowering rejects other Ts since it would
+        // need element-wise marshalling we don't ship).
+        let t_var = Type::TypeVar("T".into());
+        self.fns.insert(
+            "arrayFromCArray".into(),
+            vec![mk_sig(
+                vec![
+                    Type::RawPtr {
+                        is_const: true,
+                        inner: Box::new(t_var.clone()),
+                    },
+                    Type::Size,
+                ],
+                Type::Array { elem: Box::new(t_var), fixed: None },
+                vec!["T".into()],
+            )],
+        );
+        // cstrArrayToStrings(p: *const *const char): string[]
+        self.fns.insert(
+            "cstrArrayToStrings".into(),
+            vec![mk_sig(
+                vec![raw_const_const_char],
+                Type::Array { elem: Box::new(Type::Str), fixed: None },
+                Vec::new(),
+            )],
+        );
+        // errnoCheck(rc: i32): i32?     — POSIX -1-on-failure, success branch
+        // errnoCheckI64(rc: i64): i64?  — same shape for ssize_t-style
+        self.fns.insert(
+            "errnoCheck".into(),
+            vec![mk_sig(
+                vec![Type::I32],
+                Type::Optional(Box::new(Type::I32)),
+                Vec::new(),
+            )],
+        );
+        self.fns.insert(
+            "errnoCheckI64".into(),
+            vec![mk_sig(
+                vec![Type::I64],
+                Type::Optional(Box::new(Type::I64)),
+                Vec::new(),
+            )],
+        );
+
         // Built-in `Result<T, E>` — generic enum with `Ok(T)` and
         // `Err(E)` variants. Constructed via `Result::Ok(v)` /
         // `Result::Err(e)` and matched like any other enum.

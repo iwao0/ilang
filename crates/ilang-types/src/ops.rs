@@ -78,6 +78,19 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     if from.is_float() && to.is_float() {
         return true;
     }
+    // Raw C pointer: `*T` is assignable to `*const T` (loses write
+    // capability) but not vice versa. Inner types must match
+    // exactly — no covariance through pointer dereference.
+    if let (
+        Type::RawPtr { is_const: from_c, inner: from_inner },
+        Type::RawPtr { is_const: to_c, inner: to_inner },
+    ) = (from, to)
+    {
+        if from_inner == to_inner {
+            return *to_c || !*from_c;
+        }
+        return false;
+    }
     false
 }
 
