@@ -6,18 +6,34 @@
 // and on Apple AArch64 the signature is padded with dummy regs
 // so the variadic args spill to the stack as required by the
 // platform variadic ABI.
+//
+// Raw `char *` / `*const char` stay inside the `@extern(C)` block;
+// callers see ordinary ilang types via per-shape wrappers.
 // interp: skip
 use test
 
 @extern(C) {
     @lib("c") fn snprintf(buf: *u8, n: size_t, fmt: *const char, ...): i32
+
+    fn formatI64(buf: u8[], fmt: string, x: i64): i32 {
+        snprintf(buf, buf.length as u64, cstrFromString(fmt), x)
+    }
+    fn formatI64Str(buf: u8[], fmt: string, a: i64, b: string): i32 {
+        snprintf(buf, buf.length as u64, cstrFromString(fmt), a, cstrFromString(b))
+    }
+    fn formatF64(buf: u8[], fmt: string, x: f64): i32 {
+        snprintf(buf, buf.length as u64, cstrFromString(fmt), x)
+    }
+    fn formatPlain(buf: u8[], fmt: string): i32 {
+        snprintf(buf, buf.length as u64, cstrFromString(fmt))
+    }
 }
 
 let buf: u8[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 // Single integer.
-let n1 = snprintf(buf, 32 as u64, cstrFromString("n=%d"), 42)
+let n1 = formatI64(buf, "n=%d", 42)
 test.expect(n1 as i64, 4)
 test.expect(buf[0] as i64, 110)   // 'n'
 test.expect(buf[1] as i64, 61)    // '='
@@ -26,7 +42,7 @@ test.expect(buf[3] as i64, 50)    // '2'
 test.expect(buf[4] as i64, 0)     // NUL
 
 // Two args: integer + string.
-let n2 = snprintf(buf, 32 as u64, cstrFromString("%d-%s"), 7, cstrFromString("hi"))
+let n2 = formatI64Str(buf, "%d-%s", 7, "hi")
 test.expect(n2 as i64, 4)
 test.expect(buf[0] as i64, 55)    // '7'
 test.expect(buf[1] as i64, 45)    // '-'
@@ -34,7 +50,7 @@ test.expect(buf[2] as i64, 104)   // 'h'
 test.expect(buf[3] as i64, 105)   // 'i'
 
 // f64 arg with %.2f.
-let n3 = snprintf(buf, 32 as u64, cstrFromString("%.2f"), 3.14)
+let n3 = formatF64(buf, "%.2f", 3.14)
 test.expect(n3 as i64, 4)
 test.expect(buf[0] as i64, 51)    // '3'
 test.expect(buf[1] as i64, 46)    // '.'
@@ -42,7 +58,7 @@ test.expect(buf[2] as i64, 49)    // '1'
 test.expect(buf[3] as i64, 52)    // '4'
 
 // No variadic args at all (only fixed prefix).
-let n4 = snprintf(buf, 32 as u64, cstrFromString("abc"))
+let n4 = formatPlain(buf, "abc")
 test.expect(n4 as i64, 3)
 test.expect(buf[0] as i64, 97)    // 'a'
 test.expect(buf[1] as i64, 98)    // 'b'

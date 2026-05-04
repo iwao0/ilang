@@ -1464,6 +1464,36 @@ impl TypeChecker {
         in_class: Option<&str>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
+        let t = self.check_expr_inner(expr, env, ret_ty, in_class, loop_depth)?;
+        // Outside `@extern(C) {}`, no expression may evaluate to a
+        // raw C pointer / `char` / `void` / `size_t` / `ssize_t`.
+        // This rejects helper calls like `cstrFromString(...)` and
+        // FFI fn calls returning C-only types from user code, forcing
+        // the user to wrap them in an `@extern(C)` fn that yields a
+        // regular ilang type.
+        if !*self.in_extern_c.borrow() {
+            if let Some(c_only) = first_c_only_type(&t) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "expression of type {t} is only allowed inside an \
+                         @extern(C) {{ ... }} block (contains the C-only type \
+                         {c_only})"
+                    ),
+                    span: expr.span,
+                });
+            }
+        }
+        Ok(t)
+    }
+
+    fn check_expr_inner(
+        &self,
+        expr: &Expr,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<&str>,
+        loop_depth: u32,
+    ) -> Result<Type, TypeError> {
         let span = expr.span;
         match &expr.kind {
             // The parser produces `StructLit`, but normalize desugars
@@ -1610,6 +1640,21 @@ impl TypeChecker {
             ExprKind::Call { callee, args } => {
                 if callee == "deinit" {
                     return Err(TypeError::CannotCallDeinit { span });
+                }
+                // FFI marshalling helpers are only callable inside an
+                // `@extern(C) {}` block — they exist to bridge raw C
+                // values to ilang-native ones, which only matters at
+                // the FFI boundary.
+                if !*self.in_extern_c.borrow()
+                    && FFI_HELPERS.contains(&callee.as_str())
+                {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "{callee}: FFI marshalling helper, only \
+                             callable inside an @extern(C) {{ ... }} block"
+                        ),
+                        span,
+                    });
                 }
                 // Indirect call through a function-typed local: shadows
                 // both methods and top-level fns, mirroring how a local
@@ -3359,6 +3404,22 @@ impl TypeChecker {
         Ok(())
     }
 }
+
+/// FFI marshalling helpers — only callable inside an `@extern(C) {}`
+/// block. Listed here so the call-site check can fire even on the
+/// helpers whose signatures don't reference any C-only type
+/// (`errnoCheck` / `errnoCheckI64`), which would otherwise sneak
+/// past the C-only-types rule.
+const FFI_HELPERS: &[&str] = &[
+    "stringFromCstr",
+    "cstrFromString",
+    "freeCstr",
+    "bytesFromBuffer",
+    "arrayFromCArray",
+    "cstrArrayToStrings",
+    "errnoCheck",
+    "errnoCheckI64",
+];
 
 /// Return the first C-only type encountered in `t` (raw pointer,
 /// `char`, `void`, `size_t`, `ssize_t`), recursing through composite
