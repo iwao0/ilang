@@ -37,11 +37,11 @@
     // Returns the renderer handle as i64. `0` indicates failure.
     // `index = -1` picks the first available driver; `flags = 0`
     // means default (driver-chosen accelerated when available).
-    fn create(window: i64): i64 {
+    fn createRenderer(window: i64): i64 {
         SDL_CreateRenderer(window as *void, -1 as i32, 0 as u32) as i64
     }
 
-    fn destroy(renderer: i64) {
+    fn destroyRenderer(renderer: i64) {
         SDL_DestroyRenderer(renderer as *SDL_Renderer)
     }
 

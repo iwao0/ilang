@@ -6,10 +6,7 @@
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
 //   ilang run --jit examples/sdl2/main.il
 
-use sdl_core
-use sdl_window
-use sdl_renderer
-use sdl_time
+use sdl
 
 const WIN_W: i64 = 800
 const WIN_H: i64 = 600
@@ -19,24 +16,24 @@ const PADDLE_W: i64 = 120
 const PADDLE_H: i64 = 16
 
 fn main() {
-    let rc = sdl_core.init(sdl_core.INIT_VIDEO as u32)
+    let rc = sdl.init(sdl.INIT_VIDEO as u32)
     if rc < 0 as i32 {
-        console.log("SDL_Init failed: " + sdl_core.getError())
+        console.log("SDL_Init failed: " + sdl.getError())
         return
     }
 
-    let win = sdl_window.create("ilang × SDL2", WIN_W as i32, WIN_H as i32)
+    let win = sdl.createWindow("ilang × SDL2", WIN_W as i32, WIN_H as i32)
     if win == 0 {
-        console.log("SDL_CreateWindow failed: " + sdl_core.getError())
-        sdl_core.quit()
+        console.log("SDL_CreateWindow failed: " + sdl.getError())
+        sdl.quit()
         return
     }
 
-    let ren = sdl_renderer.create(win)
+    let ren = sdl.createRenderer(win)
     if ren == 0 {
-        console.log("SDL_CreateRenderer failed: " + sdl_core.getError())
-        sdl_window.destroy(win)
-        sdl_core.quit()
+        console.log("SDL_CreateRenderer failed: " + sdl.getError())
+        sdl.destroyWindow(win)
+        sdl.quit()
         return
     }
 
@@ -75,32 +72,32 @@ fn main() {
 
         // Render — clear to dark blue, draw paddle (white)
         // and ball (red), then present.
-        let _ = sdl_renderer.setColor(ren, 20 as u8, 24 as u8, 48 as u8, 255 as u8)
-        let _ = sdl_renderer.clear(ren)
+        let _ = sdl.setColor(ren, 20 as u8, 24 as u8, 48 as u8, 255 as u8)
+        let _ = sdl.clear(ren)
 
-        let _ = sdl_renderer.setColor(ren, 240 as u8, 240 as u8, 240 as u8, 255 as u8)
-        let _ = sdl_renderer.fillRect(
+        let _ = sdl.setColor(ren, 240 as u8, 240 as u8, 240 as u8, 255 as u8)
+        let _ = sdl.fillRect(
             ren,
             paddle_x as i32, paddle_y as i32,
             PADDLE_W as i32, PADDLE_H as i32
         )
 
-        let _ = sdl_renderer.setColor(ren, 220 as u8, 60 as u8, 60 as u8, 255 as u8)
-        let _ = sdl_renderer.fillRect(
+        let _ = sdl.setColor(ren, 220 as u8, 60 as u8, 60 as u8, 255 as u8)
+        let _ = sdl.fillRect(
             ren,
             ball_x as i32, ball_y as i32,
             BALL_SIZE as i32, BALL_SIZE as i32
         )
 
-        sdl_renderer.present(ren)
-        sdl_time.pumpEvents()
-        sdl_time.delay(frame_ms as u32)
+        sdl.present(ren)
+        sdl.pumpEvents()
+        sdl.delay(frame_ms as u32)
         elapsed = elapsed + frame_ms
     }
 
-    sdl_renderer.destroy(ren)
-    sdl_window.destroy(win)
-    sdl_core.quit()
+    sdl.destroyRenderer(ren)
+    sdl.destroyWindow(win)
+    sdl.quit()
 }
 
 main()

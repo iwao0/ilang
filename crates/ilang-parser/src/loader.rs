@@ -121,6 +121,7 @@ pub fn load_program(entry: &Path) -> Result<Program, LoadError> {
         match item {
             Item::Use(u) => apply_use(
                 u,
+                None,
                 &entry_canon,
                 &mut loaded,
                 &mut merged,
@@ -213,6 +214,11 @@ fn parse_file(file: &Path) -> Result<Program, LoadError> {
 
 fn apply_use(
     u: UseDecl,
+    // When `Some(p)`, items from `u`'s module merge under prefix `p`
+    // instead of `u.module`. Used by `@export use M` so M's items
+    // appear under the re-exporting module's namespace. `None` at
+    // the entry-point and on regular nested uses.
+    prefix_override: Option<&str>,
     importer_canon: &Path,
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
@@ -226,10 +232,13 @@ fn apply_use(
     let mut module_prog = loaded
         .remove(&canon)
         .expect("loaded before via load_recursive");
+    let effective_prefix: String = prefix_override
+        .map(str::to_string)
+        .unwrap_or_else(|| u.module.clone());
     // Recursively expand the module's own use items first, into the
-    // module_prog's namespace. (Nested whole-module imports inside a
-    // module would carry their full prefix; for MVP we just inline
-    // the items as-is, treating each module as a flat list.)
+    // module_prog's namespace. `@export use N` propagates the
+    // current module's effective prefix to N so its items also land
+    // under the re-exporting namespace.
     let mut nested_uses = Vec::new();
     let mut local_items = Vec::new();
     for item in module_prog.items {
@@ -239,20 +248,22 @@ fn apply_use(
         }
     }
     module_prog.items = local_items;
-    // Process nested uses. They expand into the same merged program
-    // as the entry's. Items nested-imported keep their natural names
-    // (i.e., a module's nested `use foo { bar }` makes `bar` callable
-    // from within that module — which after merging becomes `bar` in
-    // the merged program). This is a simple model; not module-private.
     for nu in nested_uses {
-        apply_use(nu, &canon, loaded, merged, _whole_imports)?;
+        let nested_override: Option<&str> = if nu.re_export {
+            Some(effective_prefix.as_str())
+        } else {
+            None
+        };
+        apply_use(nu, nested_override, &canon, loaded, merged, _whole_imports)?;
     }
 
     match u.selective {
         None => {
-            // Whole-module import: prefix every item with `module.`.
+            // Whole-module import: prefix every item with the
+            // effective prefix (the override when re-exporting,
+            // otherwise the module's own name).
             for item in module_prog.items {
-                merged.items.push(prefix_item(item, &u.module));
+                merged.items.push(prefix_item(item, &effective_prefix));
             }
         }
         Some(names) => {

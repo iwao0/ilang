@@ -45,15 +45,27 @@ impl<'a> Parser<'a> {
                 Ok(Item::Enum(e))
             }
             TokenKind::Use => {
-                if !attrs.is_empty() {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "'fn' (attributes on `use` are not supported)".into(),
-                        span: t.span,
-                    });
+                // `@export use module` — re-export the module's items
+                // under the current module's namespace. No other
+                // attribute is accepted on `use`.
+                let mut re_export = false;
+                for a in &attrs {
+                    match a.name.as_str() {
+                        "export" if a.args.is_empty() => {
+                            re_export = true;
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "@export (no other attributes are supported on `use`)".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
                 }
-                let u = self.parse_use_decl()?;
+                let mut u = self.parse_use_decl()?;
+                u.re_export = re_export;
                 Ok(Item::Use(u))
             }
             TokenKind::Const => {
@@ -158,6 +170,7 @@ impl<'a> Parser<'a> {
         Ok(ilang_ast::UseDecl {
             module,
             selective,
+            re_export: false,
             span,
         })
     }

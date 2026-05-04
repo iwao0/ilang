@@ -14,7 +14,7 @@
     @lib("SDL2") fn SDL_DestroyWindow(window: *SDL_Window)
 
     // Returns the window pointer as i64. `0` indicates failure.
-    fn create(title: string, w: i32, h: i32): i64 {
+    fn createWindow(title: string, w: i32, h: i32): i64 {
         // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000 (centred-on-default-display).
         let undef = 0x1FFF0000 as i32
         let flags = 0 as u32
@@ -24,7 +24,7 @@
         win as i64
     }
 
-    fn destroy(window: i64) {
+    fn destroyWindow(window: i64) {
         SDL_DestroyWindow(window as *SDL_Window)
     }
 }
