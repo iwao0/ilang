@@ -842,7 +842,10 @@ impl<'a> Walker<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                if let Some(sym) = self.symbols.get(callee) {
+                if let Some(b) = scope.iter().rev().find(|b| &b.name == callee) {
+                    let sig = b.kind.render(callee, b.ty.as_ref());
+                    self.push_ref(callee, e.span, b.span, callee.len() as u32, sig);
+                } else if let Some(sym) = self.symbols.get(callee) {
                     self.push_ref(
                         callee,
                         e.span,
@@ -1210,6 +1213,11 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
 /// resolution. Falls back to the simpler scope-less variant when no
 /// scope is available.
 fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
+    if let ExprKind::FnExpr { params, ret, .. } = &e.kind {
+        let ps = params.iter().map(|p| p.ty.clone()).collect();
+        let r = ret.clone().unwrap_or(Type::Unit);
+        return Some(Type::Fn { params: ps, ret: Box::new(r) });
+    }
     use ilang_ast::BinOp;
     match &e.kind {
         ExprKind::Int(_) => Some(Type::I64),
