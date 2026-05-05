@@ -2156,16 +2156,15 @@ impl<'a> Walker<'a> {
     }
 }
 
-/// Render a class hover signature including any `init` overloads, so
-/// `new Foo(...)` shows the constructor shape (TS-style `class Foo`
-/// followed by each `init(...)` line).
+/// Render the hover signature shown on `new Foo(...)`. Prefer the
+/// `init(...)` line alone (TypeScript-style constructor hover); if the
+/// class has no init declared, fall back to `class Foo`.
 fn class_hover(class: &str, info: &ClassInfo) -> String {
-    let mut out = format!("class {class}");
     if let Some(init) = info.methods.get("init") {
-        out.push('\n');
-        out.push_str(&init.signature);
+        init.signature.clone()
+    } else {
+        format!("class {class}")
     }
-    out
 }
 
 /// Resolve the F12 target for a class member reference. Returns
