@@ -320,8 +320,15 @@ fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diag
 /// can answer hover queries on imported names. Plain (un-dotted) names
 /// are skipped — they're already covered by the buffer-only index when
 /// declared in the open file.
-/// File path each `module.<decl>` came from, for cross-file F12.
-type ExternalSources = HashMap<String, PathBuf>;
+/// Per-decl source location for `module.<decl>` references — used by
+/// cross-file F12 to land on the actual declaration line.
+#[derive(Clone, Debug)]
+struct ExternalLoc {
+    path: PathBuf,
+    span: Span,
+    name_len: u32,
+}
+type ExternalSources = HashMap<String, ExternalLoc>;
 
 /// Walk the buffer's `use module` items and parse each module's source
 /// (built-in or on-disk) to extract `Item::Const` declarations. Insert
@@ -393,8 +400,19 @@ fn walk_module(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let track = |key: &str, sources: &mut ExternalSources, p: &PathBuf| {
-        sources.insert(key.to_string(), p.clone());
+    let track = |key: &str,
+                 span: Span,
+                 name_len: u32,
+                 sources: &mut ExternalSources,
+                 p: &PathBuf| {
+        sources.insert(
+            key.to_string(),
+            ExternalLoc {
+                path: p.clone(),
+                span,
+                name_len,
+            },
+        );
     };
     for it in &mod_prog.items {
         match it {
@@ -408,23 +426,50 @@ fn walk_module(
                     .unwrap_or_default();
                 let key = format!("{prefix}.{}", c.name);
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
-                track(&key, sources, &module_path);
+                track(&key, c.span, c.name.len() as u32, sources, &module_path);
             }
-            Item::Fn(f) => track(&format!("{prefix}.{}", f.name), sources, &module_path),
-            Item::Class(c) => track(&format!("{prefix}.{}", c.name), sources, &module_path),
-            Item::Enum(e) => track(&format!("{prefix}.{}", e.name), sources, &module_path),
+            Item::Fn(f) => track(
+                &format!("{prefix}.{}", f.name),
+                f.span,
+                f.name.len() as u32,
+                sources,
+                &module_path,
+            ),
+            Item::Class(c) => track(
+                &format!("{prefix}.{}", c.name),
+                c.span,
+                c.name.len() as u32,
+                sources,
+                &module_path,
+            ),
+            Item::Enum(e) => track(
+                &format!("{prefix}.{}", e.name),
+                e.span,
+                e.name.len() as u32,
+                sources,
+                &module_path,
+            ),
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    let n = match inner {
-                        ilang_ast::ExternCItem::FnDecl { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::FnDef(f) => Some(f.name.clone()),
-                        ilang_ast::ExternCItem::Static { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Struct { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Union { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Class(c) => Some(c.name.clone()),
+                    let entry = match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) => Some((f.name.clone(), f.span)),
+                        ilang_ast::ExternCItem::Static { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Struct { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Union { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Class(c) => Some((c.name.clone(), c.span)),
                     };
-                    if let Some(n) = n {
-                        track(&format!("{prefix}.{n}"), sources, &module_path);
+                    if let Some((n, span)) = entry {
+                        let len = n.len() as u32;
+                        track(&format!("{prefix}.{n}"), span, len, sources, &module_path);
                     }
                 }
             }
@@ -487,6 +532,16 @@ fn walk_module_aliased(
         };
     let Ok(tokens) = tokenize(&module_src) else { return };
     let Ok(mod_prog) = parse(&tokens) else { return };
+    let put = |key: &str, span: Span, name_len: u32, sources: &mut ExternalSources| {
+        sources.insert(
+            key.to_string(),
+            ExternalLoc {
+                path: module_path.clone(),
+                span,
+                name_len,
+            },
+        );
+    };
     for it in &mod_prog.items {
         match it {
             Item::Const(c) => {
@@ -499,29 +554,47 @@ fn walk_module_aliased(
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
-                sources.insert(key, module_path.clone());
+                put(&key, c.span, c.name.len() as u32, sources);
             }
-            Item::Fn(f) => {
-                sources.insert(format!("{alias_prefix}.{}", f.name), module_path.clone());
-            }
-            Item::Class(c) => {
-                sources.insert(format!("{alias_prefix}.{}", c.name), module_path.clone());
-            }
-            Item::Enum(e) => {
-                sources.insert(format!("{alias_prefix}.{}", e.name), module_path.clone());
-            }
+            Item::Fn(f) => put(
+                &format!("{alias_prefix}.{}", f.name),
+                f.span,
+                f.name.len() as u32,
+                sources,
+            ),
+            Item::Class(c) => put(
+                &format!("{alias_prefix}.{}", c.name),
+                c.span,
+                c.name.len() as u32,
+                sources,
+            ),
+            Item::Enum(e) => put(
+                &format!("{alias_prefix}.{}", e.name),
+                e.span,
+                e.name.len() as u32,
+                sources,
+            ),
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    let n = match inner {
-                        ilang_ast::ExternCItem::FnDecl { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::FnDef(f) => Some(f.name.clone()),
-                        ilang_ast::ExternCItem::Static { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Struct { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Union { name, .. } => Some(name.clone()),
-                        ilang_ast::ExternCItem::Class(c) => Some(c.name.clone()),
+                    let entry = match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) => Some((f.name.clone(), f.span)),
+                        ilang_ast::ExternCItem::Static { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Struct { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Union { name, span, .. } => {
+                            Some((name.clone(), *span))
+                        }
+                        ilang_ast::ExternCItem::Class(c) => Some((c.name.clone(), c.span)),
                     };
-                    if let Some(n) = n {
-                        sources.insert(format!("{alias_prefix}.{n}"), module_path.clone());
+                    if let Some((n, span)) = entry {
+                        let len = n.len() as u32;
+                        put(&format!("{alias_prefix}.{n}"), span, len, sources);
                     }
                 }
             }
@@ -1743,15 +1816,20 @@ impl<'a> Walker<'a> {
                         target_uri: None,
                     });
                     if let Some((line, col)) = locate_dot_name(self.text, e.span, suffix) {
-                        let target_uri = self
-                            .external_sources
-                            .get(class)
-                            .and_then(|p| Url::from_file_path(p).ok());
-                        let (target_span, no_def) = match info {
-                            Some(i) if !i.external => (i.decl_span, false),
-                            _ => (e.span, target_uri.is_none()),
+                        let loc = self.external_sources.get(class);
+                        let target_uri = loc
+                            .and_then(|l| Url::from_file_path(&l.path).ok());
+                        let (target_span, target_name_len, no_def) = match info {
+                            Some(i) if !i.external => {
+                                (i.decl_span, suffix.len() as u32, false)
+                            }
+                            _ => match loc {
+                                Some(l) if target_uri.is_some() => {
+                                    (l.span, l.name_len, false)
+                                }
+                                _ => (e.span, suffix.len() as u32, target_uri.is_none()),
+                            },
                         };
-                        let target_name_len = suffix.len() as u32;
                         self.refs.push(RefEntry {
                             line,
                             start_col: col,
@@ -2074,17 +2152,21 @@ impl<'a> Walker<'a> {
         });
         if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
             // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
-            // to the source file when we know it; otherwise hover-only.
-            let target_uri = self
-                .external_sources
-                .get(dotted)
-                .and_then(|p| Url::from_file_path(p).ok());
+            // to the actual decl line in the source file when we know
+            // it; otherwise hover-only.
+            let loc = self.external_sources.get(dotted);
+            let target_uri = loc
+                .and_then(|l| Url::from_file_path(&l.path).ok());
+            let (target_span, target_name_len) = match loc {
+                Some(l) if target_uri.is_some() => (l.span, l.name_len),
+                _ => (receiver_span, suffix.len() as u32),
+            };
             self.refs.push(RefEntry {
                 line,
                 start_col: col,
                 end_col: col + suffix.len() as u32,
-                target_span: receiver_span,
-                target_name_len: suffix.len() as u32,
+                target_span,
+                target_name_len,
                 signature: sig.clone(),
                 no_definition: target_uri.is_none(),
                 target_uri,
@@ -2182,8 +2264,8 @@ fn member_target(
     use_col: u32,
 ) -> (Span, bool, Option<Url>) {
     if info.external {
-        if let Some(p) = sources.get(class_name) {
-            if let Ok(uri) = Url::from_file_path(p) {
+        if let Some(loc) = sources.get(class_name) {
+            if let Ok(uri) = Url::from_file_path(&loc.path) {
                 return (m.span, false, Some(uri));
             }
         }
