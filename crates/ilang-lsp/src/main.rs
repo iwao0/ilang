@@ -1137,6 +1137,28 @@ impl<'a> Walker<'a> {
             }
             ExprKind::Field { obj, name } => {
                 self.walk_expr(obj, scope, this_class);
+                // Built-in `.length` on string / array.
+                if name == "length" {
+                    let obj_ty = self.infer_expr(obj, scope);
+                    let kind = match obj_ty {
+                        Some(Type::Str) => Some("(property) string"),
+                        Some(Type::Array { .. }) => Some("(property) array"),
+                        _ => None,
+                    };
+                    if let Some(prefix) = kind {
+                        if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
+                            self.refs.push(RefEntry {
+                                line,
+                                start_col: col,
+                                end_col: col + name.len() as u32,
+                                target_span: obj.span,
+                                target_name_len: name.len() as u32,
+                                signature: format!("{prefix}.length: i64"),
+                            });
+                            return;
+                        }
+                    }
+                }
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&class) {
                         if let Some(m) = info
@@ -1163,6 +1185,25 @@ impl<'a> Walker<'a> {
                 self.walk_expr(obj, scope, this_class);
                 for a in args {
                     self.walk_expr(a, scope, this_class);
+                }
+                // Built-in string / array methods.
+                let builtin_sig = match self.infer_expr(obj, scope) {
+                    Some(Type::Str) => string_method_sig(method),
+                    Some(Type::Array { elem, .. }) => array_method_sig(method, &elem),
+                    _ => None,
+                };
+                if let Some(sig) = builtin_sig {
+                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method) {
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + method.len() as u32,
+                            target_span: obj.span,
+                            target_name_len: method.len() as u32,
+                            signature: sig,
+                        });
+                        return;
+                    }
                 }
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&class) {
@@ -1692,6 +1733,38 @@ fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
         return l.clone();
     }
     l.clone()
+}
+
+fn string_method_sig(method: &str) -> Option<String> {
+    let body = match method {
+        "charAt" => "charAt(i: i64): string",
+        "includes" => "includes(needle: string): bool",
+        "startsWith" => "startsWith(prefix: string): bool",
+        "endsWith" => "endsWith(suffix: string): bool",
+        "toUpper" => "toUpper(): string",
+        "toLower" => "toLower(): string",
+        "trim" => "trim(): string",
+        "replace" => "replace(from: string, to: string): string",
+        "split" => "split(sep: string): string[]",
+        "slice" => "slice(start: i64, end: i64): string",
+        _ => return None,
+    };
+    Some(format!("(method) string.{body}"))
+}
+
+fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
+    let body = match method {
+        "push" => format!("push(v: {elem}): ()"),
+        "pop" => format!("pop(): {elem}?"),
+        "indexOf" => format!("indexOf(v: {elem}): i64"),
+        "includes" => format!("includes(v: {elem}): bool"),
+        "slice" => format!("slice(start: i64, end: i64): {elem}[]"),
+        "map" => format!("map<U>(f: fn({elem}): U): U[]"),
+        "filter" => format!("filter(pred: fn({elem}): bool): {elem}[]"),
+        "forEach" => format!("forEach(f: fn({elem}): ()): ()"),
+        _ => return None,
+    };
+    Some(format!("(method) {elem}[].{body}"))
 }
 
 /// Walk a `loop` body looking for the first `break v` and infer the
