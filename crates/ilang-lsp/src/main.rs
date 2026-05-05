@@ -575,7 +575,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     f.name.clone(),
                     MemberInfo {
                         span: f.span,
-                        signature: format!("{}: {}", f.name, f.ty),
+                        signature: format!("(field) {}.{}: {}", c.name, f.name, f.ty),
                         ret_ty: Some(f.ty.clone()),
                     },
                 );
@@ -585,7 +585,10 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     f.name.clone(),
                     MemberInfo {
                         span: f.span,
-                        signature: format!("static {}: {}", f.name, f.ty),
+                        signature: format!(
+                            "(static field) {}.{}: {}",
+                            c.name, f.name, f.ty
+                        ),
                         ret_ty: Some(f.ty.clone()),
                     },
                 );
@@ -609,7 +612,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     m.name.clone(),
                     MemberInfo {
                         span: m.span,
-                        signature: fn_signature(m),
+                        signature: format!("(method) {}.{}", c.name, fn_body(m)),
                         ret_ty: m.ret.clone(),
                     },
                 );
@@ -619,7 +622,11 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     m.name.clone(),
                     MemberInfo {
                         span: m.span,
-                        signature: format!("static {}", fn_signature(m)),
+                        signature: format!(
+                            "(static method) {}.{}",
+                            c.name,
+                            fn_body(m)
+                        ),
                         ret_ty: m.ret.clone(),
                     },
                 );
@@ -638,6 +645,12 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
 }
 
 fn fn_signature(f: &FnDecl) -> String {
+    format!("fn {}", fn_body(f))
+}
+
+/// `name(params): ret` — the part that comes after `fn` / `(method)` /
+/// `(static method)`.
+fn fn_body(f: &FnDecl) -> String {
     let params = f
         .params
         .iter()
@@ -648,7 +661,7 @@ fn fn_signature(f: &FnDecl) -> String {
         Some(t) => format!(": {t}"),
         None => String::new(),
     };
-    format!("fn {}({}){}", f.name, params, ret)
+    format!("{}({}){}", f.name, params, ret)
 }
 
 // ─── Scope walker ──────────────────────────────────────────────────────────
@@ -729,10 +742,18 @@ impl<'a> Walker<'a> {
     fn walk_class(&mut self, c: &ClassDecl) {
         // Field declaration name: hover shows the field decl line.
         for f in &c.fields {
-            self.push_decl(&f.name, f.span, format!("{}: {}", f.name, f.ty));
+            self.push_decl(
+                &f.name,
+                f.span,
+                format!("(field) {}.{}: {}", c.name, f.name, f.ty),
+            );
         }
         for f in &c.static_fields {
-            self.push_decl(&f.name, f.span, format!("static {}: {}", f.name, f.ty));
+            self.push_decl(
+                &f.name,
+                f.span,
+                format!("(static field) {}.{}: {}", c.name, f.name, f.ty),
+            );
         }
         for p in &c.properties {
             // PropertyDecl.span points at the `get` / `set` keyword, so
