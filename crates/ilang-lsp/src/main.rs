@@ -39,6 +39,9 @@ struct ClassInfo {
     /// Number of `init` overloads declared on the class. Used to
     /// append `(+N overloads)` to the constructor hover.
     init_overloads: usize,
+    /// All `init` overload signatures in declaration order, used by
+    /// signature help on `new ClassName(...)`.
+    inits: Vec<MemberInfo>,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +196,11 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     ..CompletionOptions::default()
                 }),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -340,6 +348,65 @@ impl LanguageServer for Backend {
         }
         items.sort_by(|a, b| a.label.cmp(&b.label));
         Ok(Some(CompletionResponse::Array(items)))
+    }
+
+    async fn signature_help(
+        &self,
+        p: SignatureHelpParams,
+    ) -> LspResult<Option<SignatureHelp>> {
+        let uri = p.text_document_position_params.text_document.uri;
+        let pos = p.text_document_position_params.position;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        let Some(call) = call_context_at(&doc.text, pos) else {
+            return Ok(None);
+        };
+        // `new ClassName(...)` -> the class's init overloads.
+        let sigs: Vec<MemberInfo> = if call.is_new {
+            doc.classes
+                .get(&call.callee)
+                .map(|i| i.inits.clone())
+                .unwrap_or_default()
+        } else {
+            // Plain function call. Top-level fn or imported (dotted)
+            // fn — we already have signatures stashed by name.
+            let mut out: Vec<MemberInfo> = Vec::new();
+            if let Some(sym) = doc.symbols.get(&call.callee) {
+                out.push(MemberInfo {
+                    span: sym.span,
+                    signature: sym.signature.clone(),
+                    ret_ty: None,
+                    is_static: false,
+                });
+            } else if let Some(s) = doc.external_signatures.get(&call.callee) {
+                out.push(MemberInfo {
+                    span: Span::dummy(),
+                    signature: s.clone(),
+                    ret_ty: None,
+                    is_static: false,
+                });
+            }
+            out
+        };
+        if sigs.is_empty() {
+            return Ok(None);
+        }
+        let signatures: Vec<SignatureInformation> = sigs
+            .iter()
+            .map(|m| SignatureInformation {
+                label: m.signature.clone(),
+                documentation: None,
+                parameters: None,
+                active_parameter: None,
+            })
+            .collect();
+        Ok(Some(SignatureHelp {
+            signatures,
+            active_signature: Some(0),
+            active_parameter: Some(call.arg_index as u32),
+        }))
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -762,6 +829,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     setters: HashMap::new(),
                                     external: true,
                                     init_overloads: 0,
+                                    inits: Vec::new(),
                                 },
                             );
                         }
@@ -836,16 +904,19 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
         }
         let mut methods = HashMap::new();
         let mut init_overloads = 0usize;
+        let mut inits: Vec<MemberInfo> = Vec::new();
         for m in &c.methods {
-            if m.name == "init" {
-                init_overloads += 1;
-            }
-            methods.entry(m.name.clone()).or_insert(MemberInfo {
+            let info = MemberInfo {
                 span: m.span,
                 signature: format!("(method) {}.{}", c.name, fn_body(m)),
                 ret_ty: m.ret.clone(),
                 is_static: false,
-            });
+            };
+            if m.name == "init" {
+                init_overloads += 1;
+                inits.push(info.clone());
+            }
+            methods.entry(m.name.clone()).or_insert(info);
         }
         for m in &c.static_methods {
             methods.entry(m.name.clone()).or_insert(MemberInfo {
@@ -865,6 +936,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 setters,
                 external: true,
                 init_overloads,
+                inits,
             },
         );
     }
@@ -1402,6 +1474,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
         setters: HashMap::new(),
         external: true,
         init_overloads: 0,
+                                    inits: Vec::new(),
     });
 }
 
@@ -1446,6 +1519,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     setters: HashMap::new(),
                                     external: false,
                                     init_overloads: 0,
+                                    inits: Vec::new(),
                                 },
                             );
                         }
@@ -1532,16 +1606,19 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
             }
             let mut methods = HashMap::new();
             let mut init_overloads = 0usize;
+            let mut inits: Vec<MemberInfo> = Vec::new();
             for m in &c.methods {
-                if m.name == "init" {
-                    init_overloads += 1;
-                }
-                methods.entry(m.name.clone()).or_insert(MemberInfo {
+                let info = MemberInfo {
                     span: m.span,
                     signature: format!("(method) {}.{}", c.name, fn_body(m)),
                     ret_ty: m.ret.clone(),
                     is_static: false,
-                });
+                };
+                if m.name == "init" {
+                    init_overloads += 1;
+                    inits.push(info.clone());
+                }
+                methods.entry(m.name.clone()).or_insert(info);
             }
             for m in &c.static_methods {
                 methods.entry(m.name.clone()).or_insert(MemberInfo {
@@ -1561,6 +1638,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     setters,
                     external: false,
                     init_overloads,
+                    inits,
                 },
             );
         }
@@ -2857,6 +2935,95 @@ fn render_const_value(e: &Expr) -> Option<String> {
         }
         _ => None,
     }
+}
+
+struct CallContext {
+    callee: String,
+    is_new: bool,
+    arg_index: usize,
+}
+
+/// Find the `callee(...)` containing the cursor by scanning backwards
+/// past balanced parens / brackets. Returns the callee name, whether
+/// it's prefixed with `new`, and which argument index the cursor is
+/// in (0 for the first arg, etc.).
+fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    let mut off = line_col_to_offset(text, line, col)?;
+    let bytes = text.as_bytes();
+    if off > bytes.len() {
+        return None;
+    }
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut commas: usize = 0;
+    while off > 0 {
+        off -= 1;
+        let b = bytes[off];
+        match b {
+            b')' | b']' => {
+                if b == b')' {
+                    paren_depth += 1;
+                } else {
+                    bracket_depth += 1;
+                }
+            }
+            b'(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                } else {
+                    // Found the unmatched `(` enclosing the cursor.
+                    break;
+                }
+            }
+            b'[' => {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                }
+            }
+            b',' if paren_depth == 0 && bracket_depth == 0 => {
+                commas += 1;
+            }
+            _ => {}
+        }
+    }
+    if bytes.get(off).copied() != Some(b'(') {
+        return None;
+    }
+    // Walk back past whitespace to find the callee identifier (or
+    // dotted identifier like `module.fn` / `obj.method`).
+    let mut i = off;
+    while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
+        i -= 1;
+    }
+    let end = i;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    let callee = std::str::from_utf8(&bytes[i..end]).ok()?.to_string();
+    if callee.is_empty() {
+        return None;
+    }
+    // Detect a leading `new ` (with intervening whitespace).
+    let mut j = i;
+    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+        j -= 1;
+    }
+    let is_new = j >= 3 && &bytes[j - 3..j] == b"new" && {
+        let prev = if j >= 4 { Some(bytes[j - 4]) } else { None };
+        prev.map(|c| !c.is_ascii_alphanumeric() && c != b'_').unwrap_or(true)
+    };
+    Some(CallContext {
+        callee,
+        is_new,
+        arg_index: commas,
+    })
 }
 
 /// Walk back from the cursor over whitespace and a leading `.` to find
