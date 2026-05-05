@@ -62,7 +62,7 @@ pub fn mangle_overloads(
     // Also reach into `@extern(C) {}` blocks: classes declared
     // there can be overloaded the same way as top-level ones.
     let mut method_indices: HashMap<(String, String), Vec<usize>> = HashMap::new();
-    let mut walk_class_methods = |c: &ClassDecl, method_indices: &mut HashMap<(String, String), Vec<usize>>| {
+    let walk_class_methods = |c: &ClassDecl, method_indices: &mut HashMap<(String, String), Vec<usize>>| {
         for (i, m) in c.methods.iter().enumerate() {
             method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
         }

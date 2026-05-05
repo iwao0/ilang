@@ -12,21 +12,12 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 #[derive(Clone, Debug)]
 struct Symbol {
     name: String,
-    kind: SymbolKind,
     /// Span pointing at the identifier in the declaration. We synthesise
     /// the end column from the name length since the AST only stores
     /// start positions.
     span: Span,
     /// Human-readable signature shown on hover.
     signature: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SymbolKind {
-    Fn,
-    Class,
-    Enum,
-    Const,
 }
 
 #[derive(Default)]
@@ -227,7 +218,6 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     f.name.clone(),
                     Symbol {
                         name: f.name.clone(),
-                        kind: SymbolKind::Fn,
                         span: f.span,
                         signature,
                     },
@@ -239,7 +229,6 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     c.name.clone(),
                     Symbol {
                         name: c.name.clone(),
-                        kind: SymbolKind::Class,
                         span: c.span,
                         signature,
                     },
@@ -257,7 +246,6 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     e.name.clone(),
                     Symbol {
                         name: e.name.clone(),
-                        kind: SymbolKind::Enum,
                         span: e.span,
                         signature,
                     },
@@ -273,7 +261,6 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     c.name.clone(),
                     Symbol {
                         name: c.name.clone(),
-                        kind: SymbolKind::Const,
                         span: c.span,
                         signature,
                     },
