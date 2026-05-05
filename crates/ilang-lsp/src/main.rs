@@ -82,6 +82,11 @@ struct Doc {
     classes: HashMap<String, ClassInfo>,
     /// Resolved references with precise spans. Sorted by (line, start_col).
     refs: Vec<RefEntry>,
+    /// Variable name → class name, for completion on `obj.`. Populated
+    /// from let / param bindings whose static type resolves to a known
+    /// class. Last-write-wins across scopes — good enough for most
+    /// completion contexts.
+    var_classes: HashMap<String, String>,
     /// Hover-only signatures for names imported via `use module` (e.g.
     /// `math.sqrt`, `math.pi`). The loader prefixes imported items
     /// with the module name, so this map keyed on `module.fn_name`
@@ -288,14 +293,19 @@ impl LanguageServer for Backend {
         let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
             return Ok(None);
         };
-        // If `receiver` itself is a class name (e.g. `Counter.`), the
-        // user wants static members. Otherwise we treat the receiver
-        // as an instance — for now we only resolve plain `ClassName.`,
-        // which always means static access.
-        let Some(info) = doc.classes.get(&receiver) else {
+        // Receiver can be:
+        // - a class name (`Counter.`)        -> static members
+        // - a variable typed as some class (`c.`) -> instance members
+        // Anything else falls through and we return nothing.
+        let want_static = doc.classes.contains_key(&receiver);
+        let class_name = if want_static {
+            receiver.clone()
+        } else {
+            doc.var_classes.get(&receiver).cloned().unwrap_or_default()
+        };
+        let Some(info) = doc.classes.get(&class_name) else {
             return Ok(None);
         };
-        let want_static = doc.classes.contains_key(&receiver);
         let mut items: Vec<CompletionItem> = Vec::new();
         for (name, m) in info.fields.iter().chain(info.getters.iter()) {
             if m.is_static != want_static {
@@ -1137,6 +1147,7 @@ fn build_doc(
         }
     }
     let mut refs = Vec::new();
+    let mut var_classes: HashMap<String, String> = HashMap::new();
     {
         let mut walker = Walker {
             text: &text,
@@ -1147,6 +1158,7 @@ fn build_doc(
             external_returns,
             external_sources,
             refs: &mut refs,
+            var_classes: &mut var_classes,
         };
         for item in &prog.items {
             match item {
@@ -1209,6 +1221,7 @@ fn build_doc(
         symbols,
         classes,
         refs,
+        var_classes,
         external_signatures: external_signatures.clone(),
         external_returns: external_returns.clone(),
     }
@@ -1630,6 +1643,10 @@ struct Walker<'a> {
     /// can navigate into the originating module.
     external_sources: &'a ExternalSources,
     refs: &'a mut Vec<RefEntry>,
+    /// Variable-name → class-name index, populated whenever a binding's
+    /// statically-known type resolves to a class. Drives completion on
+    /// `obj.` for ordinary instance variables.
+    var_classes: &'a mut HashMap<String, String>,
 }
 
 impl<'a> Walker<'a> {
@@ -1638,6 +1655,9 @@ impl<'a> Walker<'a> {
         for p in &f.params {
             let sig = BindKind::Param.render(&p.name, Some(&p.ty));
             self.push_decl(&p.name, p.span, sig);
+            if let Some(c) = type_to_class(&p.ty) {
+                self.var_classes.insert(p.name.clone(), c);
+            }
             scope.push(Binding {
                 name: p.name.clone(),
                 span: p.span,
@@ -1754,6 +1774,9 @@ impl<'a> Walker<'a> {
                 // name position by skipping `let` + whitespace.
                 let name_span = locate_let_name(self.text, s.span, name).unwrap_or(s.span);
                 self.push_decl(name, name_span, sig);
+                if let Some(c) = inferred.as_ref().and_then(type_to_class) {
+                    self.var_classes.insert(name.clone(), c);
+                }
                 scope.push(Binding {
                     name: name.clone(),
                     span: name_span,
