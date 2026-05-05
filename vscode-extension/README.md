@@ -51,4 +51,11 @@ The LSP indexes the open file as follows:
 - **`obj.field` / `obj.method(...)`** when `obj` is a known-class local
   (declared with an annotation or as `new ClassName(...)`)
 
-Cross-file references via `use module` are not yet resolved.
+Diagnostics use the same loader pipeline as `ilang run`: `use
+module` items and `ilang.toml` `[deps]` paths are resolved, and
+top-level `const` values are inlined before type-checking. The
+on-disk version of the file is canonical for diagnostics —
+unsaved buffer edits aren't reflected until you save.
+
+Cross-file F12 / hover (jumping into another `use module` file)
+is not yet supported; the index covers only the current file.

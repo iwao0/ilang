@@ -746,8 +746,10 @@ dependencies = [
  "ilang-lexer",
  "ilang-parser",
  "ilang-types",
+ "serde",
  "serde_json",
  "tokio",
+ "toml",
  "tower-lsp",
 ]
 

@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use ilang_ast::{
@@ -68,7 +69,8 @@ impl Backend {
     }
 
     async fn refresh(&self, uri: Url, text: String) {
-        let diags = analyse(&text);
+        let path = uri.to_file_path().ok();
+        let diags = analyse(&text, path.as_deref());
         let doc = match parse_ok(&text) {
             Ok(prog) => build_doc(text, &prog),
             Err(_) => Doc {
@@ -199,8 +201,10 @@ fn parse_ok(src: &str) -> Result<Program, ()> {
     parse(&tokens).map_err(|_| ())
 }
 
-fn analyse(src: &str) -> Vec<Diagnostic> {
+fn analyse(src: &str, path: Option<&Path>) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    // Always run the lex + parse pass on the in-memory buffer first so
+    // unsaved edits surface syntax errors immediately.
     let tokens = match tokenize(src) {
         Ok(t) => t,
         Err(e) => {
@@ -208,18 +212,115 @@ fn analyse(src: &str) -> Vec<Diagnostic> {
             return out;
         }
     };
-    let prog = match parse(&tokens) {
-        Ok(p) => p,
-        Err(e) => {
-            out.push(diag(e.span(), e.to_string()));
+    if let Err(e) = parse(&tokens) {
+        out.push(diag(e.span(), e.to_string()));
+        return out;
+    }
+    // For type checking, use the full loader pipeline when the file
+    // exists on disk — that resolves `use module` and inlines `const`
+    // values, matching what `ilang run` does. The buffer's unsaved
+    // content isn't reflected here; saving the file refreshes
+    // diagnostics.
+    if let Some(p) = path {
+        if p.exists() {
+            let extra = collect_dep_paths(p).unwrap_or_default();
+            match ilang_parser::loader::load_program_with_paths(p, &extra) {
+                Ok(prog) => {
+                    let mut tc = TypeChecker::new();
+                    if let Err(e) = tc.check(&prog) {
+                        out.push(diag(e.span(), e.to_string()));
+                    }
+                }
+                Err(e) => {
+                    out.push(diag(load_error_span(&e), e.to_string()));
+                }
+            }
             return out;
         }
-    };
+    }
+    // Fallback: in-memory parse + typecheck (no module resolution, no
+    // const inlining). Used for unsaved buffers without an on-disk file.
+    let prog = parse(&tokens).expect("parse already validated");
     let mut tc = TypeChecker::new();
     if let Err(e) = tc.check(&prog) {
         out.push(diag(e.span(), e.to_string()));
     }
     out
+}
+
+fn load_error_span(e: &ilang_parser::loader::LoadError) -> Span {
+    use ilang_parser::loader::LoadError;
+    match e {
+        LoadError::ParseError(p) => p.span(),
+        LoadError::BadConst { span, .. } => *span,
+        _ => Span::new(1, 1),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ProjectFile {
+    #[serde(default)]
+    deps: BTreeMap<String, DepSpec>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+enum DepSpec {
+    Path(String),
+    Detailed { path: String },
+}
+
+impl DepSpec {
+    fn path(&self) -> &str {
+        match self {
+            DepSpec::Path(p) => p,
+            DepSpec::Detailed { path } => path,
+        }
+    }
+}
+
+/// Mirror of the CLI's `ilang.toml` discovery. Walks up from the entry
+/// file's directory looking for the closest `ilang.toml`; missing file
+/// is not an error.
+fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
+    let entry_dir = entry
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve entry path: {e}"))?
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let project_file = find_project_file(&entry_dir);
+    let Some(project_file) = project_file else {
+        return Ok(Vec::new());
+    };
+    let project_dir = project_file
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let src = std::fs::read_to_string(&project_file)
+        .map_err(|e| format!("cannot read {}: {e}", project_file.display()))?;
+    let parsed: ProjectFile = toml::from_str(&src)
+        .map_err(|e| format!("invalid {}: {e}", project_file.display()))?;
+    let mut out = Vec::new();
+    for (_name, dep) in parsed.deps {
+        let p = project_dir.join(dep.path());
+        if let Ok(canon) = p.canonicalize() {
+            out.push(canon);
+        }
+    }
+    Ok(out)
+}
+
+fn find_project_file(start: &Path) -> Option<PathBuf> {
+    let mut cur = Some(start.to_path_buf());
+    while let Some(dir) = cur {
+        let candidate = dir.join("ilang.toml");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        cur = dir.parent().map(|p| p.to_path_buf());
+    }
+    None
 }
 
 fn diag(span: Span, msg: String) -> Diagnostic {
