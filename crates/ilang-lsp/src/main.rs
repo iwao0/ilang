@@ -810,6 +810,12 @@ impl<'a> Walker<'a> {
                     self.push_ref(name, e.span, b.span, name.len() as u32, sig);
                 } else if name.contains('.') {
                     self.push_external_dotted_ref(name, e.span);
+                } else if let Some(m) = this_class
+                    .and_then(|c| self.classes.get(c))
+                    .and_then(|info| info.fields.get(name).or_else(|| info.methods.get(name)))
+                {
+                    // Implicit-`this` member access inside a class method.
+                    self.push_ref(name, e.span, m.span, name.len() as u32, m.signature.clone());
                 } else if let Some(sym) = self.symbols.get(name) {
                     self.push_ref(
                         name,
@@ -877,6 +883,18 @@ impl<'a> Walker<'a> {
                         .clone()
                         .unwrap_or_else(|| b.kind.render(callee, b.ty.as_ref()));
                     self.push_ref(callee, e.span, b.span, callee.len() as u32, sig);
+                } else if let Some(m) = this_class
+                    .and_then(|c| self.classes.get(c))
+                    .and_then(|info| info.methods.get(callee))
+                {
+                    // Implicit-`this` method call inside a class method.
+                    self.push_ref(
+                        callee,
+                        e.span,
+                        m.span,
+                        callee.len() as u32,
+                        m.signature.clone(),
+                    );
                 } else if let Some(sym) = self.symbols.get(callee) {
                     self.push_ref(
                         callee,
@@ -979,6 +997,17 @@ impl<'a> Walker<'a> {
                         .clone()
                         .unwrap_or_else(|| b.kind.render(target, b.ty.as_ref()));
                     self.push_ref(target, e.span, b.span, target.len() as u32, sig);
+                } else if let Some(m) = this_class
+                    .and_then(|c| self.classes.get(c))
+                    .and_then(|info| info.fields.get(target).or_else(|| info.methods.get(target)))
+                {
+                    self.push_ref(
+                        target,
+                        e.span,
+                        m.span,
+                        target.len() as u32,
+                        m.signature.clone(),
+                    );
                 } else if let Some(sym) = self.symbols.get(target) {
                     self.push_ref(
                         target,
