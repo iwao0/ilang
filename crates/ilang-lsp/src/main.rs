@@ -1248,6 +1248,14 @@ impl<'a> Walker<'a> {
                 })
             }
             ExprKind::Block(b) => b.tail.as_ref().and_then(|t| self.infer_expr(t, scope)),
+            // `loop { ... break v ... }` — the value of the loop is the
+            // first `break v` we find. Bare `break` (no value) yields
+            // Unit; absence of any break we treat as no info.
+            ExprKind::Loop { body } => {
+                let mut found: Option<Type> = None;
+                find_break_type(body, scope, self, &mut found);
+                found
+            }
             ExprKind::Match { arms, .. } => arms
                 .iter()
                 .find_map(|a| self.infer_expr(&a.body, scope)),
@@ -1478,6 +1486,73 @@ fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
         return l.clone();
     }
     l.clone()
+}
+
+/// Walk a `loop` body looking for the first `break v` and infer the
+/// type of `v`. `break` without a value yields `Unit`. Doesn't descend
+/// into nested loops (their `break`s belong to the inner loop).
+fn find_break_type(
+    block: &Block,
+    scope: &[Binding],
+    walker: &Walker,
+    out: &mut Option<Type>,
+) {
+    for s in &block.stmts {
+        if out.is_some() {
+            return;
+        }
+        if let StmtKind::Expr(e) = &s.kind {
+            scan_break(e, scope, walker, out);
+        }
+    }
+    if out.is_none() {
+        if let Some(t) = &block.tail {
+            scan_break(t, scope, walker, out);
+        }
+    }
+}
+
+fn scan_break(
+    e: &Expr,
+    scope: &[Binding],
+    walker: &Walker,
+    out: &mut Option<Type>,
+) {
+    if out.is_some() {
+        return;
+    }
+    match &e.kind {
+        ExprKind::Break(v) => {
+            *out = match v {
+                Some(inner) => walker.infer_expr(inner, scope).or(Some(Type::Unit)),
+                None => Some(Type::Unit),
+            };
+        }
+        ExprKind::Loop { .. } => {
+            // Inner loops swallow their own breaks — skip.
+        }
+        ExprKind::If { then_branch, else_branch, .. } => {
+            find_break_type(then_branch, scope, walker, out);
+            if let Some(eb) = else_branch {
+                if out.is_none() {
+                    scan_break(eb, scope, walker, out);
+                }
+            }
+        }
+        ExprKind::Block(b) => find_break_type(b, scope, walker, out),
+        ExprKind::While { body, .. } | ExprKind::ForIn { body, .. } => {
+            find_break_type(body, scope, walker, out);
+        }
+        ExprKind::Match { arms, .. } => {
+            for a in arms {
+                if out.is_some() {
+                    break;
+                }
+                scan_break(&a.body, scope, walker, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Locate the property name after a `get` or `set` keyword.
