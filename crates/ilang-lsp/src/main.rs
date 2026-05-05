@@ -64,6 +64,11 @@ struct Doc {
     /// file paths.
     #[allow(dead_code)]
     external_signatures: HashMap<String, String>,
+    /// Return types for `module.fn` declarations brought in via
+    /// `use module`. Populated alongside `external_signatures` so
+    /// `let x = math.sqrt(...)` infers as f64.
+    #[allow(dead_code)]
+    external_returns: HashMap<String, Type>,
 }
 
 struct Backend {
@@ -91,12 +96,16 @@ impl Backend {
                 ilang_parser::loader::load_program_with_paths(p, &extra).ok()
             });
         let diags = analyse(&text, path.as_deref(), &merged);
-        let external = merged.as_ref().map(collect_external_signatures).unwrap_or_default();
+        let (external_sigs, external_rets) = merged
+            .as_ref()
+            .map(collect_external_signatures)
+            .unwrap_or_default();
         let doc = match parse_ok(&text) {
-            Ok(prog) => build_doc(text, &prog, &external),
+            Ok(prog) => build_doc(text, &prog, &external_sigs, &external_rets),
             Err(_) => Doc {
                 text,
-                external_signatures: external,
+                external_signatures: external_sigs,
+                external_returns: external_rets,
                 ..Doc::default()
             },
         };
@@ -263,9 +272,12 @@ fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diag
 /// can answer hover queries on imported names. Plain (un-dotted) names
 /// are skipped — they're already covered by the buffer-only index when
 /// declared in the open file.
-fn collect_external_signatures(prog: &Program) -> HashMap<String, String> {
+fn collect_external_signatures(
+    prog: &Program,
+) -> (HashMap<String, String>, HashMap<String, Type>) {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
+    let mut rets: HashMap<String, Type> = HashMap::new();
     let put_dotted = |name: &str, sig: String, m: &mut HashMap<String, String>| {
         if name.contains('.') {
             m.insert(name.to_string(), sig);
@@ -273,7 +285,14 @@ fn collect_external_signatures(prog: &Program) -> HashMap<String, String> {
     };
     for item in &prog.items {
         match item {
-            Item::Fn(f) => put_dotted(&f.name, fn_signature(f), &mut out),
+            Item::Fn(f) => {
+                put_dotted(&f.name, fn_signature(f), &mut out);
+                if let Some(t) = &f.ret {
+                    if f.name.contains('.') {
+                        rets.insert(f.name.clone(), t.clone());
+                    }
+                }
+            }
             Item::Const(c) => {
                 let ty = match &c.ty {
                     Some(t) => format!(": {t}"),
@@ -308,9 +327,19 @@ fn collect_external_signatures(prog: &Program) -> HashMap<String, String> {
                                 format!("fn {}({}){}", name, ps, r),
                                 &mut out,
                             );
+                            if let Some(t) = ret {
+                                if name.contains('.') {
+                                    rets.insert(name.clone(), t.clone());
+                                }
+                            }
                         }
                         ExternCItem::FnDef(f) => {
                             put_dotted(&f.name, fn_signature(f), &mut out);
+                            if let Some(t) = &f.ret {
+                                if f.name.contains('.') {
+                                    rets.insert(f.name.clone(), t.clone());
+                                }
+                            }
                         }
                         ExternCItem::Static { name, ty, .. } => {
                             put_dotted(name, format!("static {}: {}", name, ty), &mut out);
@@ -330,7 +359,7 @@ fn collect_external_signatures(prog: &Program) -> HashMap<String, String> {
             _ => {}
         }
     }
-    out
+    (out, rets)
 }
 
 
@@ -416,6 +445,7 @@ fn build_doc(
     text: String,
     prog: &Program,
     external_signatures: &HashMap<String, String>,
+    external_returns: &HashMap<String, Type>,
 ) -> Doc {
     let symbols = collect_symbols(prog);
     let classes = collect_classes(prog);
@@ -435,6 +465,7 @@ fn build_doc(
             classes: &classes,
             fn_returns: &fn_returns,
             external_signatures,
+            external_returns,
             refs: &mut refs,
         };
         for item in &prog.items {
@@ -452,6 +483,7 @@ fn build_doc(
         classes,
         refs,
         external_signatures: external_signatures.clone(),
+        external_returns: external_returns.clone(),
     }
 }
 
@@ -656,6 +688,9 @@ struct Walker<'a> {
     /// Hover signatures for `module.name` references that the loader
     /// brought in from a `use module` statement.
     external_signatures: &'a HashMap<String, String>,
+    /// Return types for the same set of external fns. Used when
+    /// inferring `let x = math.sqrt(...)` etc.
+    external_returns: &'a HashMap<String, Type>,
     refs: &'a mut Vec<RefEntry>,
 }
 
@@ -1004,7 +1039,11 @@ impl<'a> Walker<'a> {
     /// type and `MethodCall` to the resolved method's return type.
     fn infer_expr(&self, e: &Expr, scope: &[Binding]) -> Option<Type> {
         match &e.kind {
-            ExprKind::Call { callee, .. } => self.fn_returns.get(callee).cloned(),
+            ExprKind::Call { callee, .. } => self
+                .fn_returns
+                .get(callee)
+                .or_else(|| self.external_returns.get(callee))
+                .cloned(),
             ExprKind::MethodCall { obj, method, .. } => {
                 let class = self.resolve_obj_class(obj, scope, None)?;
                 let info = self.classes.get(&class)?;
