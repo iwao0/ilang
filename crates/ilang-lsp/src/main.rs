@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -55,6 +55,15 @@ struct RefEntry {
     target_span: Span,
     target_name_len: u32,
     signature: String,
+    /// `true` when we don't have a real source-file location for the
+    /// definition (imported member, built-in, etc). F12 returns no
+    /// definition rather than navigating to the use site, which VSCode
+    /// reports as "no references found".
+    no_definition: bool,
+    /// Cross-file F12 target. When set, F12 navigates to this URI at
+    /// `target_span` instead of the current document. Used for
+    /// `use module`-imported decls whose source lives in another file.
+    target_uri: Option<Url>,
 }
 
 #[derive(Default)]
@@ -114,8 +123,9 @@ impl Backend {
         // Augment with `module.const_name` entries — the loader inlines
         // constants away, so they're not in the merged program. Parse
         // each `use module` source separately to recover them.
+        let mut external_sources: ExternalSources = HashMap::new();
         if let Some(p) = path.as_deref() {
-            harvest_imported_consts(p, &text, &mut external_sigs);
+            harvest_imported_consts(p, &text, &mut external_sigs, &mut external_sources);
         }
         let external_classes = merged
             .as_ref()
@@ -128,6 +138,7 @@ impl Backend {
                 &external_sigs,
                 &external_rets,
                 &external_classes,
+                &external_sources,
             ),
             Err(_) => Doc {
                 text,
@@ -213,6 +224,16 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         if let Some(entry) = lookup_ref(doc, pos) {
+            if let Some(target_uri) = entry.target_uri.clone() {
+                let range = span_to_range(entry.target_span, entry.target_name_len as usize);
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: target_uri,
+                    range,
+                })));
+            }
+            if entry.no_definition {
+                return Ok(None);
+            }
             let range = span_to_range(entry.target_span, entry.target_name_len as usize);
             return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                 uri,
@@ -299,15 +320,20 @@ fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diag
 /// can answer hover queries on imported names. Plain (un-dotted) names
 /// are skipped — they're already covered by the buffer-only index when
 /// declared in the open file.
+/// File path each `module.<decl>` came from, for cross-file F12.
+type ExternalSources = HashMap<String, PathBuf>;
+
 /// Walk the buffer's `use module` items and parse each module's source
 /// (built-in or on-disk) to extract `Item::Const` declarations. Insert
 /// them into `out` keyed by `module.const_name` so the buffer-only
 /// walker can still resolve `math.pi` etc. — the main loader pass
-/// would have inlined them.
+/// would have inlined them. Also returns a `module.ClassName` → file
+/// path map so cross-file F12 can navigate to the actual definition.
 fn harvest_imported_consts(
     entry_path: &Path,
     entry_src: &str,
     out: &mut HashMap<String, String>,
+    sources: &mut ExternalSources,
 ) {
     let Ok(tokens) = tokenize(entry_src) else { return };
     let Ok(prog) = parse(&tokens) else { return };
@@ -316,28 +342,63 @@ fn harvest_imported_consts(
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
+    let mut visited: HashSet<PathBuf> = HashSet::new();
     for item in &prog.items {
         let Item::Use(u) = item else { continue };
         if u.selective.is_some() {
             continue;
         }
-        let module = &u.module;
-        let module_src = if let Some(s) = ilang_parser::loader::builtin_module_source(module) {
-            Some(s.to_string())
+        walk_module(
+            &u.module,
+            &entry_dir,
+            &extra,
+            &mut visited,
+            out,
+            sources,
+        );
+    }
+}
+
+fn walk_module(
+    prefix: &str,
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashMap<String, String>,
+    sources: &mut ExternalSources,
+) {
+    let (module_path, module_src) =
+        if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
+            (
+                PathBuf::from(format!("<builtin>/{prefix}.il")),
+                s.to_string(),
+            )
         } else {
-            // Search entry dir, then each dep path, for `<module>.il`.
-            let mut candidates = vec![entry_dir.clone()];
+            let mut candidates = vec![entry_dir.to_path_buf()];
             candidates.extend(extra.iter().cloned());
-            candidates.into_iter().find_map(|d| {
-                let p = d.join(format!("{module}.il"));
-                std::fs::read_to_string(&p).ok()
-            })
+            let Some((p, s)) = candidates.into_iter().find_map(|d| {
+                let p = d.join(format!("{prefix}.il"));
+                std::fs::read_to_string(&p).ok().map(|s| (p, s))
+            }) else {
+                return;
+            };
+            (p, s)
         };
-        let Some(src) = module_src else { continue };
-        let Ok(tokens) = tokenize(&src) else { continue };
-        let Ok(mod_prog) = parse(&tokens) else { continue };
-        for it in &mod_prog.items {
-            if let Item::Const(c) = it {
+    if !visited.insert(module_path.clone()) {
+        return;
+    }
+    let Ok(tokens) = tokenize(&module_src) else { return };
+    let Ok(mod_prog) = parse(&tokens) else { return };
+    let mod_dir = module_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let track = |key: &str, sources: &mut ExternalSources, p: &PathBuf| {
+        sources.insert(key.to_string(), p.clone());
+    };
+    for it in &mod_prog.items {
+        match it {
+            Item::Const(c) => {
                 let ty = match &c.ty {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
@@ -345,9 +406,141 @@ fn harvest_imported_consts(
                 let value = render_const_value(&c.value)
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
-                let key = format!("{module}.{}", c.name);
+                let key = format!("{prefix}.{}", c.name);
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
+                track(&key, sources, &module_path);
             }
+            Item::Fn(f) => track(&format!("{prefix}.{}", f.name), sources, &module_path),
+            Item::Class(c) => track(&format!("{prefix}.{}", c.name), sources, &module_path),
+            Item::Enum(e) => track(&format!("{prefix}.{}", e.name), sources, &module_path),
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    let n = match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::FnDef(f) => Some(f.name.clone()),
+                        ilang_ast::ExternCItem::Static { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Struct { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Union { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Class(c) => Some(c.name.clone()),
+                    };
+                    if let Some(n) = n {
+                        track(&format!("{prefix}.{n}"), sources, &module_path);
+                    }
+                }
+            }
+            // Follow `@export use` chains so umbrella modules
+            // (e.g. `sdl.il` re-exporting `sdl_renderer.il`) flow the
+            // prefix through to the file that actually declares the
+            // class.
+            Item::Use(u) if u.re_export && u.selective.is_none() => {
+                walk_module(
+                    &format!("{prefix}.{}", u.module),
+                    &mod_dir,
+                    extra,
+                    visited,
+                    out,
+                    sources,
+                );
+                // Loader collapses one-deep umbrella prefixes so the
+                // entry sees `sdl.X` (not `sdl.sdl_renderer.X`). Mirror
+                // that: also record the umbrella's own prefix.
+                walk_module_aliased(
+                    prefix,
+                    &u.module,
+                    &mod_dir,
+                    extra,
+                    visited,
+                    out,
+                    sources,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn walk_module_aliased(
+    alias_prefix: &str,
+    actual: &str,
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashMap<String, String>,
+    sources: &mut ExternalSources,
+) {
+    let (module_path, module_src) =
+        if let Some(s) = ilang_parser::loader::builtin_module_source(actual) {
+            (
+                PathBuf::from(format!("<builtin>/{actual}.il")),
+                s.to_string(),
+            )
+        } else {
+            let mut candidates = vec![entry_dir.to_path_buf()];
+            candidates.extend(extra.iter().cloned());
+            let Some((p, s)) = candidates.into_iter().find_map(|d| {
+                let p = d.join(format!("{actual}.il"));
+                std::fs::read_to_string(&p).ok().map(|s| (p, s))
+            }) else {
+                return;
+            };
+            (p, s)
+        };
+    let Ok(tokens) = tokenize(&module_src) else { return };
+    let Ok(mod_prog) = parse(&tokens) else { return };
+    for it in &mod_prog.items {
+        match it {
+            Item::Const(c) => {
+                let key = format!("{alias_prefix}.{}", c.name);
+                let ty = match &c.ty {
+                    Some(t) => format!(": {t}"),
+                    None => String::new(),
+                };
+                let value = render_const_value(&c.value)
+                    .map(|v| format!(" = {v}"))
+                    .unwrap_or_default();
+                out.insert(key.clone(), format!("const {key}{ty}{value}"));
+                sources.insert(key, module_path.clone());
+            }
+            Item::Fn(f) => {
+                sources.insert(format!("{alias_prefix}.{}", f.name), module_path.clone());
+            }
+            Item::Class(c) => {
+                sources.insert(format!("{alias_prefix}.{}", c.name), module_path.clone());
+            }
+            Item::Enum(e) => {
+                sources.insert(format!("{alias_prefix}.{}", e.name), module_path.clone());
+            }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    let n = match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::FnDef(f) => Some(f.name.clone()),
+                        ilang_ast::ExternCItem::Static { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Struct { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Union { name, .. } => Some(name.clone()),
+                        ilang_ast::ExternCItem::Class(c) => Some(c.name.clone()),
+                    };
+                    if let Some(n) = n {
+                        sources.insert(format!("{alias_prefix}.{n}"), module_path.clone());
+                    }
+                }
+            }
+            Item::Use(u) if u.re_export && u.selective.is_none() => {
+                let mod_dir = module_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("."));
+                walk_module_aliased(
+                    alias_prefix,
+                    &u.module,
+                    &mod_dir,
+                    extra,
+                    visited,
+                    out,
+                    sources,
+                );
+            }
+            _ => {}
         }
     }
 }
@@ -683,6 +876,7 @@ fn build_doc(
     external_signatures: &HashMap<String, String>,
     external_returns: &HashMap<String, Type>,
     external_classes: &HashMap<String, ClassInfo>,
+    external_sources: &ExternalSources,
 ) -> Doc {
     let symbols = collect_symbols(prog);
     let mut classes = collect_classes(prog);
@@ -727,6 +921,7 @@ fn build_doc(
             fn_returns: &fn_returns,
             external_signatures,
             external_returns,
+            external_sources,
             refs: &mut refs,
         };
         for item in &prog.items {
@@ -1201,6 +1396,9 @@ struct Walker<'a> {
     /// Return types for the same set of external fns. Used when
     /// inferring `let x = math.sqrt(...)` etc.
     external_returns: &'a HashMap<String, Type>,
+    /// Source-file path for each `module.<decl>` so cross-file F12
+    /// can navigate into the originating module.
+    external_sources: &'a ExternalSources,
     refs: &'a mut Vec<RefEntry>,
 }
 
@@ -1395,6 +1593,8 @@ impl<'a> Walker<'a> {
                                 target_span: obj.span,
                                 target_name_len: name.len() as u32,
                                 signature: format!("(property) {prefix}.length: i64"),
+                                no_definition: true,
+                                target_uri: None,
                             });
                             return;
                         }
@@ -1409,7 +1609,14 @@ impl<'a> Walker<'a> {
                             .or_else(|| info.methods.get(name))
                         {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
-                                let target = member_target(m, info, line, col);
+                                let (target, no_def, uri) = member_target(
+                                    m,
+                                    info,
+                                    &class,
+                                    self.external_sources,
+                                    line,
+                                    col,
+                                );
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
@@ -1417,6 +1624,8 @@ impl<'a> Walker<'a> {
                                     target_span: target,
                                     target_name_len: name.len() as u32,
                                     signature: m.signature.clone(),
+                                    no_definition: no_def,
+                                    target_uri: uri,
                                 });
                             }
                         }
@@ -1443,6 +1652,8 @@ impl<'a> Walker<'a> {
                             target_span: obj.span,
                             target_name_len: method.len() as u32,
                             signature: sig,
+                            no_definition: true,
+                            target_uri: None,
                         });
                         return;
                     }
@@ -1452,7 +1663,14 @@ impl<'a> Walker<'a> {
                         if let Some(m) = info.methods.get(method) {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, method)
                             {
-                                let target = member_target(m, info, line, col);
+                                let (target, no_def, uri) = member_target(
+                                    m,
+                                    info,
+                                    &class,
+                                    self.external_sources,
+                                    line,
+                                    col,
+                                );
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
@@ -1460,6 +1678,8 @@ impl<'a> Walker<'a> {
                                     target_span: target,
                                     target_name_len: method.len() as u32,
                                     signature: m.signature.clone(),
+                                    no_definition: no_def,
+                                    target_uri: uri,
                                 });
                             }
                         }
@@ -1623,7 +1843,14 @@ impl<'a> Walker<'a> {
                         {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, field)
                             {
-                                let target = member_target(m, info, line, col);
+                                let (target, no_def, uri) = member_target(
+                                    m,
+                                    info,
+                                    &class,
+                                    self.external_sources,
+                                    line,
+                                    col,
+                                );
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
@@ -1631,6 +1858,8 @@ impl<'a> Walker<'a> {
                                     target_span: target,
                                     target_name_len: field.len() as u32,
                                     signature: m.signature.clone(),
+                                    no_definition: no_def,
+                                    target_uri: uri,
                                 });
                             }
                         }
@@ -1794,8 +2023,16 @@ impl<'a> Walker<'a> {
             target_span: receiver_span,
             target_name_len: prefix.len() as u32,
             signature: format!("(module) {prefix}"),
+            no_definition: true,
+            target_uri: None,
         });
         if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
+            // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
+            // to the source file when we know it; otherwise hover-only.
+            let target_uri = self
+                .external_sources
+                .get(dotted)
+                .and_then(|p| Url::from_file_path(p).ok());
             self.refs.push(RefEntry {
                 line,
                 start_col: col,
@@ -1803,6 +2040,8 @@ impl<'a> Walker<'a> {
                 target_span: receiver_span,
                 target_name_len: suffix.len() as u32,
                 signature: sig.clone(),
+                no_definition: target_uri.is_none(),
+                target_uri,
             });
         }
     }
@@ -1815,6 +2054,8 @@ impl<'a> Walker<'a> {
             target_span: span,
             target_name_len: name.len() as u32,
             signature,
+            no_definition: false,
+            target_uri: None,
         });
     }
 
@@ -1833,6 +2074,8 @@ impl<'a> Walker<'a> {
             target_span,
             target_name_len,
             signature,
+            no_definition: false,
+            target_uri: None,
         });
     }
 
@@ -1867,16 +2110,29 @@ impl<'a> Walker<'a> {
     }
 }
 
-/// Pick the F12 target span for a class member reference. For
-/// buffer-local classes the member's own span is correct. For external
-/// (`use module`-imported) classes we don't carry per-decl source
-/// files, so the span would land at the same line/col in the wrong
-/// file — return the use-site span instead so F12 is a no-op.
-fn member_target(m: &MemberInfo, info: &ClassInfo, use_line: u32, use_col: u32) -> Span {
+/// Resolve the F12 target for a class member reference. Returns
+/// `(span, no_definition, target_uri)`.
+/// - Buffer-local: span is the member's own span, no URI.
+/// - External + source file known: span is the member's span (the
+///   file's own coordinates), URI is the source file.
+/// - External, no source: no_definition = true; cursor stays put.
+fn member_target(
+    m: &MemberInfo,
+    info: &ClassInfo,
+    class_name: &str,
+    sources: &ExternalSources,
+    use_line: u32,
+    use_col: u32,
+) -> (Span, bool, Option<Url>) {
     if info.external {
-        Span::new(use_line, use_col)
+        if let Some(p) = sources.get(class_name) {
+            if let Ok(uri) = Url::from_file_path(p) {
+                return (m.span, false, Some(uri));
+            }
+        }
+        (Span::new(use_line, use_col), true, None)
     } else {
-        m.span
+        (m.span, false, None)
     }
 }
 
