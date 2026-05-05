@@ -360,10 +360,13 @@ impl LanguageServer for Backend {
                     } else {
                         CompletionItemKind::FUNCTION
                     };
+                    let (insert_text, fmt) = call_snippet(suffix, kind);
                     Some(CompletionItem {
                         label: suffix.to_string(),
                         kind: Some(kind),
                         detail: Some(sig.clone()),
+                        insert_text,
+                        insert_text_format: fmt,
                         ..CompletionItem::default()
                     })
                 })
@@ -400,10 +403,13 @@ impl LanguageServer for Backend {
             if m.is_static != want_static {
                 continue;
             }
+            let (insert_text, fmt) = call_snippet(name, CompletionItemKind::METHOD);
             items.push(CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::METHOD),
                 detail: Some(m.signature.clone()),
+                insert_text,
+                insert_text_format: fmt,
                 ..CompletionItem::default()
             });
         }
@@ -3252,6 +3258,24 @@ fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
     })
 }
 
+/// For function-like completion items, produce a snippet that inserts
+/// `name($0)` so the cursor lands inside the parens (and signature
+/// help kicks in via the `(` trigger). Non-callables get no snippet —
+/// VSCode falls back to inserting the bare label.
+fn call_snippet(
+    name: &str,
+    kind: CompletionItemKind,
+) -> (Option<String>, Option<InsertTextFormat>) {
+    if matches!(kind, CompletionItemKind::FUNCTION | CompletionItemKind::METHOD) {
+        (
+            Some(format!("{name}($0)")),
+            Some(InsertTextFormat::SNIPPET),
+        )
+    } else {
+        (None, None)
+    }
+}
+
 /// Top-level identifiers visible in `doc`, used as completion fallback
 /// when the user is just typing a name (no receiver). Only the bare
 /// names appear — `use module` namespaces show up as the module name
@@ -3260,15 +3284,25 @@ fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
 fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
     for (name, sym) in doc.symbols.iter() {
-        let kind = if name.starts_with(|c: char| c.is_uppercase()) {
+        let kind = if sym.signature.starts_with("class ")
+            || sym.signature.starts_with("struct ")
+            || sym.signature.starts_with("union ")
+        {
             CompletionItemKind::CLASS
+        } else if sym.signature.starts_with("enum ") {
+            CompletionItemKind::ENUM
+        } else if sym.signature.starts_with("const ") {
+            CompletionItemKind::CONSTANT
         } else {
             CompletionItemKind::FUNCTION
         };
+        let (insert_text, fmt) = call_snippet(name, kind);
         out.push(CompletionItem {
             label: name.clone(),
             kind: Some(kind),
             detail: Some(sym.signature.clone()),
+            insert_text,
+            insert_text_format: fmt,
             ..CompletionItem::default()
         });
     }
