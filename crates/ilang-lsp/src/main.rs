@@ -943,24 +943,21 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
 /// Quick-and-dirty type inference used only for hover / `obj.field`
 /// resolution. Covers the cases the type checker has already validated;
 /// anything we can't pin down yields `None`.
-/// Same as `infer_expr_type` but resolves bare `Var` references via
-/// the current scope. Used at `let` initialization.
+/// Best-effort type inference used for hover and `obj.field` class
+/// resolution. Falls back to the simpler scope-less variant when no
+/// scope is available.
 fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
-    if let ExprKind::Var(name) = &e.kind {
-        if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
-            return b.ty.clone();
-        }
-    }
-    infer_expr_type(e)
-}
-
-fn infer_expr_type(e: &Expr) -> Option<Type> {
     use ilang_ast::BinOp;
     match &e.kind {
         ExprKind::Int(_) => Some(Type::I64),
         ExprKind::Float(_) => Some(Type::F64),
         ExprKind::Bool(_) => Some(Type::Bool),
         ExprKind::Str(_) => Some(Type::Str),
+        ExprKind::Var(name) => scope
+            .iter()
+            .rev()
+            .find(|b| &b.name == name)
+            .and_then(|b| b.ty.clone()),
         ExprKind::New { class, type_args, .. } => {
             if type_args.is_empty() {
                 Some(Type::Object(class.clone()))
@@ -972,22 +969,51 @@ fn infer_expr_type(e: &Expr) -> Option<Type> {
             }
         }
         ExprKind::Cast { ty, .. } => Some(ty.clone()),
-        // Comparison and logical results are bool. Arithmetic / bitwise
-        // promote to the wider operand; we approximate with the lhs's
-        // inferred type, falling back to rhs.
+        // Comparison / logical produce bool. For arithmetic / bitwise,
+        // mirror the type checker's literal-adoption rule: a known
+        // typed operand wins over a bare integer / float literal on the
+        // other side, so `i32_var % 10` infers as i32 (not i64).
         ExprKind::Binary { op, lhs, rhs } => match op {
             BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
                 Some(Type::Bool)
             }
-            _ => infer_expr_type(lhs).or_else(|| infer_expr_type(rhs)),
+            _ => {
+                let lt = infer_expr_type_with_scope(lhs, scope);
+                let rt = infer_expr_type_with_scope(rhs, scope);
+                match (lt, rt) {
+                    (Some(l), Some(r)) => Some(promote_pair(&l, &r, lhs, rhs)),
+                    (Some(t), None) | (None, Some(t)) => Some(t),
+                    (None, None) => None,
+                }
+            }
         },
         ExprKind::Logical { .. } => Some(Type::Bool),
         ExprKind::Unary { op, expr } => match op {
             ilang_ast::UnOp::Not => Some(Type::Bool),
-            _ => infer_expr_type(expr),
+            _ => infer_expr_type_with_scope(expr, scope),
         },
         _ => None,
     }
+}
+
+fn infer_expr_type(e: &Expr) -> Option<Type> {
+    infer_expr_type_with_scope(e, &[])
+}
+
+/// Pick which operand's type wins for a binary numeric op. Bare integer
+/// or float literals defer to the other side when the other side has a
+/// concrete narrower / wider numeric type — same shape as the type
+/// checker's `numeric_literal_fits` adoption.
+fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
+    let l_is_lit = matches!(l_expr.kind, ExprKind::Int(_) | ExprKind::Float(_));
+    let r_is_lit = matches!(r_expr.kind, ExprKind::Int(_) | ExprKind::Float(_));
+    if l_is_lit && !r_is_lit && r.is_numeric() {
+        return r.clone();
+    }
+    if r_is_lit && !l_is_lit && l.is_numeric() {
+        return l.clone();
+    }
+    l.clone()
 }
 
 /// Locate the `name` token after a `let` keyword. The Stmt span points
