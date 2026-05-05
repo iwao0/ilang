@@ -2866,6 +2866,14 @@ impl TypeChecker {
                 if from_ok && to_ok {
                     return Ok(ty.clone());
                 }
+                // Enum → numeric: hand back the variant's
+                // discriminant value as a primitive integer.
+                // Mainly useful for fieldless enums with an
+                // explicit `: u32` repr (bitflag-style usage —
+                // `Flag.audio as u32 | Flag.video as u32`).
+                if matches!(from, Type::Object(ref n) if self.enums.contains_key(n)) && ty.is_numeric() {
+                    return Ok(ty.clone());
+                }
                 // FFI escape hatch — `i64 ↔ opaque-extern class
                 // (without deinit)`. Lets out-pointer slots from C
                 // be reinterpreted as an opaque handle and vice

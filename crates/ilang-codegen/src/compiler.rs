@@ -1270,11 +1270,22 @@ impl JitCompiler {
             .variants
             .iter()
             .all(|v| matches!(v.payload, VariantPayload::Unit));
+        // Discriminant tags — explicit `variant = N` if given, else
+        // `previous + 1` (with the leading variant defaulting to 0).
+        // Mirrors C / Rust enum semantics.
+        let mut tags = Vec::with_capacity(e.variants.len());
+        let mut next: i64 = 0;
+        for v in &e.variants {
+            let t = v.discriminant.unwrap_or(next);
+            tags.push(t);
+            next = t + 1;
+        }
         // Push a placeholder so JitTy::from_ast can see the entry while
         // we resolve payload field types.
         self.enum_layouts.push(EnumLayout {
             name: e.name.clone(),
             variants: e.variants.iter().map(|v| v.name.clone()).collect(),
+            tags,
             all_unit,
             payloads: vec![EnumVariantLayout::Unit; e.variants.len()],
             max_payload_size: 0,

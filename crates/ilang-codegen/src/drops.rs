@@ -369,7 +369,7 @@ fn define_one_enum_drop(
         if !any_heap {
             continue;
         }
-        let want = builder.ins().iconst(cranelift_codegen::ir::types::I32, i as i64);
+        let want = builder.ins().iconst(cranelift_codegen::ir::types::I32, layout.tags[i]);
         let cond = builder.ins().icmp(IntCC::Equal, tag, want);
         let body = builder.create_block();
         let next = builder.create_block();

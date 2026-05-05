@@ -492,8 +492,14 @@ pub(crate) fn intern_map_kind(table: &mut Vec<MapKind>, k: MapKind) -> u32 {
 #[derive(Debug, Clone)]
 pub(crate) struct EnumLayout {
     pub name: String,
-    /// Variant names in declaration order; the index is the i32 tag.
+    /// Variant names in declaration order.
     pub variants: Vec<String>,
+    /// Discriminant tag values per variant (parallel to `variants`).
+    /// Equals the declaration index by default; explicit
+    /// `variant = N` syntax overrides. The value stored at the
+    /// enum's tag slot at runtime — also used for ctor / match
+    /// dispatch.
+    pub tags: Vec<i64>,
     /// `true` when every variant is unit (Phase 1 representation: bare
     /// i32 tag, no heap).
     pub all_unit: bool,

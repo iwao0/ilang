@@ -390,6 +390,27 @@ pub(crate) fn coerce(
     if from == to {
         return Ok(v);
     }
+    // Enum (Phase-1 bare-tag) → numeric: just adjust the bit
+    // width. The discriminant lives in I32 internally, and the
+    // target may be narrower or wider — extend or truncate
+    // accordingly. Used by `Flag.audio as u32` etc.
+    if matches!(from, JitTy::Enum(_)) {
+        return match to {
+            JitTy::I8 | JitTy::U8 | JitTy::Bool => Ok(b.ins().ireduce(cranelift_codegen::ir::types::I8, v)),
+            JitTy::I16 | JitTy::U16 => Ok(b.ins().ireduce(cranelift_codegen::ir::types::I16, v)),
+            JitTy::I32 | JitTy::U32 => Ok(v),
+            JitTy::I64 => Ok(b.ins().sextend(cranelift_codegen::ir::types::I64, v)),
+            JitTy::U64 => Ok(b.ins().uextend(cranelift_codegen::ir::types::I64, v)),
+            JitTy::F32 | JitTy::F64 => Err(CodegenError::Unsupported {
+                what: "enum -> float cast not supported".into(),
+                span,
+            }),
+            _ => Err(CodegenError::Unsupported {
+                what: format!("enum -> {to:?} cast not supported"),
+                span,
+            }),
+        };
+    }
     // Object → Object across class IDs: subtype upcast (Child →
     // Parent). Same wire format (i64 pointer); the typechecker
     // already verified the relation. The id mismatch is fine.

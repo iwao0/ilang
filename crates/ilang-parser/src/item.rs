@@ -465,6 +465,16 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
+        // Optional `: <numeric-type>` underlying repr —
+        // `enum Flag: u32 { ... }`. Only allowed for fieldless
+        // (unit-only) enums; the type checker enforces that and
+        // numeric-primitive-only.
+        let repr_ty = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut variants = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
@@ -535,9 +545,48 @@ impl<'a> Parser<'a> {
             } else {
                 VariantPayload::Unit
             };
+            // Optional explicit discriminant: `name = <int>`. Only
+            // valid on unit variants — payloaded variants don't have
+            // a single integer tag the user can pin (and would
+            // mostly conflict with the auto-assigned slot index).
+            let discriminant = if matches!(self.peek().kind, TokenKind::Equals) {
+                if !matches!(payload, VariantPayload::Unit) {
+                    let p = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: p.kind.clone(),
+                        expected: "explicit `= value` only allowed on payload-less variants".into(),
+                        span: p.span,
+                    });
+                }
+                self.bump();
+                let neg = if matches!(self.peek().kind, TokenKind::Minus) {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
+                let lit = self.peek().clone();
+                let raw = match lit.kind {
+                    TokenKind::Int(n) => {
+                        self.bump();
+                        n
+                    }
+                    other => {
+                        return Err(ParseError::Unexpected {
+                            found: other,
+                            expected: "integer literal after `=`".into(),
+                            span: lit.span,
+                        });
+                    }
+                };
+                Some(if neg { -raw } else { raw })
+            } else {
+                None
+            };
             variants.push(Variant {
                 name: v_name,
                 payload,
+                discriminant,
                 span: v_span,
             });
             // Variants separated by commas or newlines.
@@ -558,6 +607,7 @@ impl<'a> Parser<'a> {
         Ok(EnumDecl {
             name,
             type_params,
+            repr_ty,
             variants,
             span,
         })

@@ -19,14 +19,14 @@ pub(crate) unsafe fn read_enum_heap(
     optional_inners: &[JitTy],
 ) -> JitValue {
     let layout = &enum_layouts[enum_id as usize];
-    let tag = *((ptr + ENUM_TAG_OFFSET as i64) as *const i32) as usize;
-    let variant_name = layout
-        .variants
-        .get(tag)
+    let tag = *((ptr + ENUM_TAG_OFFSET as i64) as *const i32) as i64;
+    let idx = layout.tags.iter().position(|&t| t == tag);
+    let variant_name = idx
+        .and_then(|i| layout.variants.get(i))
         .cloned()
         .unwrap_or_else(|| format!("?{tag}"));
     let payload_addr = ptr + ENUM_PAYLOAD_OFFSET as i64;
-    let payload = match layout.payloads.get(tag) {
+    let payload = match idx.and_then(|i| layout.payloads.get(i)) {
         Some(EnumVariantLayout::Unit) | None => JitEnumPayload::Unit,
         Some(EnumVariantLayout::Tuple(entries)) => {
             let items = entries
@@ -128,13 +128,13 @@ unsafe fn read_field(
             }
         }
         JitTy::Enum(id) => {
-            let tag = *(addr as *const i32) as usize;
+            let tag = *(addr as *const i32) as i64;
             let layout = &enum_layouts[id as usize];
+            let idx = layout.tags.iter().position(|&t| t == tag);
             JitValue::Enum {
                 ty: layout.name.clone(),
-                variant: layout
-                    .variants
-                    .get(tag)
+                variant: idx
+                    .and_then(|i| layout.variants.get(i))
                     .cloned()
                     .unwrap_or_else(|| format!("?{tag}")),
                 payload: JitEnumPayload::Unit,
@@ -219,13 +219,13 @@ pub(crate) unsafe fn read_optional_pointer(
         JitTy::F64 => JitValue::F64(*((p + 8) as *const f64)),
         JitTy::Bool => JitValue::Bool(*((p + 8) as *const i8) != 0),
         JitTy::Enum(id) => {
-            let tag = *((p + 8) as *const i32) as usize;
+            let tag = *((p + 8) as *const i32) as i64;
             let layout = &enum_layouts[id as usize];
+            let idx = layout.tags.iter().position(|&t| t == tag);
             JitValue::Enum {
                 ty: layout.name.clone(),
-                variant: layout
-                    .variants
-                    .get(tag)
+                variant: idx
+                    .and_then(|i| layout.variants.get(i))
                     .cloned()
                     .unwrap_or_else(|| format!("?{tag}")),
                 payload: JitEnumPayload::Unit,
@@ -429,13 +429,13 @@ pub(crate) unsafe fn read_array(
                 optional_inners,
             ),
             JitTy::Enum(id) => {
-                let tag = *(p as *const i32) as usize;
+                let tag = *(p as *const i32) as i64;
                 let layout = &enum_layouts[id as usize];
+                let idx = layout.tags.iter().position(|&t| t == tag);
                 JitValue::Enum {
                     ty: layout.name.clone(),
-                    variant: layout
-                        .variants
-                        .get(tag)
+                    variant: idx
+                        .and_then(|i| layout.variants.get(i))
                         .cloned()
                         .unwrap_or_else(|| format!("?{tag}")),
                     payload: JitEnumPayload::Unit,

@@ -157,6 +157,10 @@ pub struct PropertyDecl {
 pub struct Variant {
     pub name: String,
     pub payload: VariantPayload,
+    /// Explicit discriminant value (e.g. `Foo = 0x10`). Only allowed
+    /// on `Unit` payload variants. `None` means "use the auto-assigned
+    /// declaration index".
+    pub discriminant: Option<i64>,
     pub span: Span,
 }
 
@@ -178,6 +182,11 @@ pub struct EnumDecl {
     /// these names; the type checker rewrites them to `Type::TypeVar`
     /// when registering the enum's signature.
     pub type_params: Vec<String>,
+    /// Optional explicit underlying integer type
+    /// (`enum Flag: u32 { ... }`). When `None`, defaults to the
+    /// codegen-internal `i32` tag. Numeric primitive types only
+    /// (the type checker enforces).
+    pub repr_ty: Option<Type>,
     pub variants: Vec<Variant>,
     pub span: Span,
 }

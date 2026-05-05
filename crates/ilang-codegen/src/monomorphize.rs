@@ -2400,15 +2400,18 @@ fn result_template() -> EnumDecl {
     EnumDecl {
         name: "Result".into(),
         type_params: vec!["T".into(), "E".into()],
+        repr_ty: None,
         variants: vec![
             Variant {
                 name: "ok".into(),
                 payload: VariantPayload::Tuple(vec![Type::Object("T".into())]),
+                discriminant: None,
                 span,
             },
             Variant {
                 name: "err".into(),
                 payload: VariantPayload::Tuple(vec![Type::Object("E".into())]),
+                discriminant: None,
                 span,
             },
         ],
@@ -2591,11 +2594,13 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
     EnumDecl {
         name: mangled.to_string(),
         type_params: Vec::new(),
+        repr_ty: e.repr_ty.clone(),
         variants: e
             .variants
             .iter()
             .map(|v| Variant {
                 name: v.name.clone(),
+                discriminant: v.discriminant,
                 payload: match &v.payload {
                     VariantPayload::Unit => VariantPayload::Unit,
                     VariantPayload::Tuple(tys) => VariantPayload::Tuple(
@@ -2923,11 +2928,13 @@ fn rewrite_enum_refs_in_item(
         Item::Enum(e) => Item::Enum(EnumDecl {
             name: e.name.clone(),
             type_params: e.type_params.clone(),
+            repr_ty: e.repr_ty.clone(),
             variants: e
                 .variants
                 .iter()
                 .map(|v| Variant {
                     name: v.name.clone(),
+                    discriminant: v.discriminant,
                     payload: match &v.payload {
                         VariantPayload::Unit => VariantPayload::Unit,
                         VariantPayload::Tuple(tys) => VariantPayload::Tuple(

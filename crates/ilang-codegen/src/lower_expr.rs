@@ -2271,14 +2271,15 @@ fn lower_enum_ctor(
         }
     };
     let layout = lc.enum_layouts[id as usize].clone();
-    let tag = layout
+    let idx = layout
         .variants
         .iter()
         .position(|v| v == variant)
         .ok_or_else(|| CodegenError::Unsupported {
             what: format!("enum {enum_name:?} has no variant {variant:?}"),
             span,
-        })? as i64;
+        })?;
+    let tag = layout.tags[idx];
 
     if layout.all_unit {
         if !matches!(args, ilang_ast::CtorArgs::Unit) {
@@ -2307,7 +2308,7 @@ fn lower_enum_ctor(
     b.ins()
         .store(MemFlags::trusted(), tag_v, ptr, ENUM_TAG_OFFSET);
     // Write payload fields per variant kind.
-    let variant_layout = layout.payloads[tag as usize].clone();
+    let variant_layout = layout.payloads[idx].clone();
     match (&variant_layout, args) {
         (EnumVariantLayout::Unit, ilang_ast::CtorArgs::Unit) => {}
         (EnumVariantLayout::Tuple(entries), ilang_ast::CtorArgs::Tuple(elems)) => {
@@ -2453,12 +2454,12 @@ fn lower_match(
             ilang_ast::PatternKind::Variant { variant, .. } => variant.clone(),
             _ => unreachable!(),
         };
-        let tag = layout
+        let idx = layout
             .variants
             .iter()
             .position(|v| *v == variant_name)
-            .expect("type checker validated variant") as i64;
-        let want = b.ins().iconst(I32, tag);
+            .expect("type checker validated variant");
+        let want = b.ins().iconst(I32, layout.tags[idx]);
         let cond = b.ins().icmp(IntCC::Equal, tag_v, want);
         let next = b.create_block();
         b.ins().brif(cond, arm_blocks[i], &[], next, &[]);

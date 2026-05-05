@@ -922,6 +922,20 @@ impl Interpreter {
             }
             ExprKind::Cast { expr: inner, ty } => {
                 let v = self.eval_expr(inner)?;
+                if let Value::Enum { ty: enum_ty, variant, .. } = &v {
+                    if ty.is_numeric() {
+                        if let Some(decl) = self.enums.get(enum_ty) {
+                            let mut prev: i64 = -1;
+                            for var in &decl.variants {
+                                let disc = var.discriminant.unwrap_or(prev + 1);
+                                prev = disc;
+                                if var.name == *variant {
+                                    return Ok(cast_value(Value::Int(disc), ty));
+                                }
+                            }
+                        }
+                    }
+                }
                 Ok(cast_value(v, ty))
             }
             ExprKind::FnExpr { params, ret, body } => {
