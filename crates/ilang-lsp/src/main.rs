@@ -25,6 +25,13 @@ struct ClassInfo {
     decl_span: Span,
     fields: HashMap<String, MemberInfo>,
     methods: HashMap<String, MemberInfo>,
+    /// Per-property getter signature, used at read sites (`p.name`).
+    /// Falls back to `fields` when the property is set-only.
+    getters: HashMap<String, MemberInfo>,
+    /// Per-property setter signature, used at write sites
+    /// (`p.name = v`). Falls back to `fields` when the property is
+    /// get-only.
+    setters: HashMap<String, MemberInfo>,
 }
 
 #[derive(Clone, Debug)]
@@ -593,6 +600,8 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     },
                 );
             }
+            let mut getters: HashMap<String, MemberInfo> = HashMap::new();
+            let mut setters: HashMap<String, MemberInfo> = HashMap::new();
             for prop in &c.properties {
                 fields.insert(
                     prop.name.clone(),
@@ -605,6 +614,32 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         ret_ty: Some(prop.ty.clone()),
                     },
                 );
+                if let Some(g) = &prop.getter {
+                    getters.insert(
+                        prop.name.clone(),
+                        MemberInfo {
+                            span: g.span,
+                            signature: format!(
+                                "(getter) {}.{}: {}",
+                                c.name, prop.name, prop.ty
+                            ),
+                            ret_ty: Some(prop.ty.clone()),
+                        },
+                    );
+                }
+                if let Some(s) = &prop.setter {
+                    setters.insert(
+                        prop.name.clone(),
+                        MemberInfo {
+                            span: s.span,
+                            signature: format!(
+                                "(setter) {}.{}: {}",
+                                c.name, prop.name, prop.ty
+                            ),
+                            ret_ty: Some(prop.ty.clone()),
+                        },
+                    );
+                }
             }
             let mut methods = HashMap::new();
             for m in &c.methods {
@@ -637,6 +672,8 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     decl_span: c.span,
                     fields,
                     methods,
+                    getters,
+                    setters,
                 },
             );
         }
@@ -759,20 +796,17 @@ impl<'a> Walker<'a> {
             // PropertyDecl.span points at the `get` / `set` keyword, so
             // the name identifier sits a few columns to its right. Push
             // a decl entry at that exact location for hover and F12,
-            // and additionally one at each accessor's own keyword span
-            // so a `get foo` followed by `set foo` both light up.
-            let sig = format!("(property) {}.{}: {}", c.name, p.name, p.ty);
-            for accessor_span in [
-                p.getter.as_ref().map(|g| g.span),
-                p.setter.as_ref().map(|s| s.span),
-            ]
-            .into_iter()
-            .flatten()
-            {
+            // distinguishing the getter from the setter.
+            for (kind, accessor_span) in [
+                ("getter", p.getter.as_ref().map(|g| g.span)),
+                ("setter", p.setter.as_ref().map(|s| s.span)),
+            ] {
+                let Some(span) = accessor_span else { continue };
+                let sig = format!("({kind}) {}.{}: {}", c.name, p.name, p.ty);
                 if let Some(name_span) =
-                    locate_property_name(self.text, accessor_span, &p.name)
+                    locate_property_name(self.text, span, &p.name)
                 {
-                    self.push_decl(&p.name, name_span, sig.clone());
+                    self.push_decl(&p.name, name_span, sig);
                 }
             }
         }
@@ -860,10 +894,14 @@ impl<'a> Walker<'a> {
                     self.push_ref(name, e.span, b.span, name.len() as u32, sig);
                 } else if name.contains('.') {
                     self.push_external_dotted_ref(name, e.span);
-                } else if let Some(m) = this_class
-                    .and_then(|c| self.classes.get(c))
-                    .and_then(|info| info.fields.get(name).or_else(|| info.methods.get(name)))
-                {
+                } else if let Some(m) = this_class.and_then(|c| self.classes.get(c)).and_then(
+                    |info| {
+                        info.getters
+                            .get(name)
+                            .or_else(|| info.fields.get(name))
+                            .or_else(|| info.methods.get(name))
+                    },
+                ) {
                     // Implicit-`this` member access inside a class method.
                     self.push_ref(name, e.span, m.span, name.len() as u32, m.signature.clone());
                 } else if let Some(sym) = self.symbols.get(name) {
@@ -888,7 +926,12 @@ impl<'a> Walker<'a> {
                 self.walk_expr(obj, scope, this_class);
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&class) {
-                        if let Some(m) = info.fields.get(name).or_else(|| info.methods.get(name)) {
+                        if let Some(m) = info
+                            .getters
+                            .get(name)
+                            .or_else(|| info.fields.get(name))
+                            .or_else(|| info.methods.get(name))
+                        {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
                                 self.refs.push(RefEntry {
                                     line,
@@ -1047,10 +1090,13 @@ impl<'a> Walker<'a> {
                         .clone()
                         .unwrap_or_else(|| b.kind.render(target, b.ty.as_ref()));
                     self.push_ref(target, e.span, b.span, target.len() as u32, sig);
-                } else if let Some(m) = this_class
-                    .and_then(|c| self.classes.get(c))
-                    .and_then(|info| info.fields.get(target).or_else(|| info.methods.get(target)))
-                {
+                } else if let Some(m) = this_class.and_then(|c| self.classes.get(c)).and_then(
+                    |info| {
+                        info.setters
+                            .get(target)
+                            .or_else(|| info.fields.get(target))
+                    },
+                ) {
                     self.push_ref(
                         target,
                         e.span,
@@ -1073,7 +1119,11 @@ impl<'a> Walker<'a> {
                 self.walk_expr(obj, scope, this_class);
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&class) {
-                        if let Some(m) = info.fields.get(field) {
+                        if let Some(m) = info
+                            .setters
+                            .get(field)
+                            .or_else(|| info.fields.get(field))
+                        {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, field)
                             {
                                 self.refs.push(RefEntry {
