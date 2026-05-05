@@ -56,6 +56,14 @@ struct Doc {
     classes: HashMap<String, ClassInfo>,
     /// Resolved references with precise spans. Sorted by (line, start_col).
     refs: Vec<RefEntry>,
+    /// Hover-only signatures for names imported via `use module` (e.g.
+    /// `math.sqrt`, `math.pi`). The loader prefixes imported items
+    /// with the module name, so this map keyed on `module.fn_name`
+    /// catches references the buffer-only walker can't resolve.
+    /// F12 to these is not supported because we don't carry per-decl
+    /// file paths.
+    #[allow(dead_code)]
+    external_signatures: HashMap<String, String>,
 }
 
 struct Backend {
@@ -73,11 +81,22 @@ impl Backend {
 
     async fn refresh(&self, uri: Url, text: String) {
         let path = uri.to_file_path().ok();
-        let diags = analyse(&text, path.as_deref());
+        // Run the loader pipeline once: its program drives diagnostics
+        // and supplies signatures for `use module`-imported names.
+        let merged = path
+            .as_deref()
+            .filter(|p| p.exists())
+            .and_then(|p| {
+                let extra = collect_dep_paths(p).unwrap_or_default();
+                ilang_parser::loader::load_program_with_paths(p, &extra).ok()
+            });
+        let diags = analyse(&text, path.as_deref(), &merged);
+        let external = merged.as_ref().map(collect_external_signatures).unwrap_or_default();
         let doc = match parse_ok(&text) {
-            Ok(prog) => build_doc(text, &prog),
+            Ok(prog) => build_doc(text, &prog, &external),
             Err(_) => Doc {
                 text,
+                external_signatures: external,
                 ..Doc::default()
             },
         };
@@ -204,7 +223,7 @@ fn parse_ok(src: &str) -> Result<Program, ()> {
     parse(&tokens).map_err(|_| ())
 }
 
-fn analyse(src: &str, path: Option<&Path>) -> Vec<Diagnostic> {
+fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     // Always run the lex + parse pass on the in-memory buffer first so
     // unsaved edits surface syntax errors immediately.
@@ -219,30 +238,18 @@ fn analyse(src: &str, path: Option<&Path>) -> Vec<Diagnostic> {
         out.push(diag(e.span(), e.to_string()));
         return out;
     }
-    // For type checking, use the full loader pipeline when the file
-    // exists on disk — that resolves `use module` and inlines `const`
-    // values, matching what `ilang run` does. The buffer's unsaved
-    // content isn't reflected here; saving the file refreshes
-    // diagnostics.
-    if let Some(p) = path {
-        if p.exists() {
-            let extra = collect_dep_paths(p).unwrap_or_default();
-            match ilang_parser::loader::load_program_with_paths(p, &extra) {
-                Ok(prog) => {
-                    let mut tc = TypeChecker::new();
-                    if let Err(e) = tc.check(&prog) {
-                        out.push(diag(e.span(), e.to_string()));
-                    }
-                }
-                Err(e) => {
-                    out.push(diag(load_error_span(&e), e.to_string()));
-                }
-            }
-            return out;
+    if let Some(prog) = merged {
+        let mut tc = TypeChecker::new();
+        if let Err(e) = tc.check(prog) {
+            out.push(diag(e.span(), e.to_string()));
         }
+        return out;
     }
     // Fallback: in-memory parse + typecheck (no module resolution, no
-    // const inlining). Used for unsaved buffers without an on-disk file.
+    // const inlining). Used for unsaved buffers without an on-disk file
+    // or when loading failed (the load error itself is reported by the
+    // caller via `refresh`).
+    let _ = path;
     let prog = parse(&tokens).expect("parse already validated");
     let mut tc = TypeChecker::new();
     if let Err(e) = tc.check(&prog) {
@@ -251,14 +258,81 @@ fn analyse(src: &str, path: Option<&Path>) -> Vec<Diagnostic> {
     out
 }
 
-fn load_error_span(e: &ilang_parser::loader::LoadError) -> Span {
-    use ilang_parser::loader::LoadError;
-    match e {
-        LoadError::ParseError(p) => p.span(),
-        LoadError::BadConst { span, .. } => *span,
-        _ => Span::new(1, 1),
+/// Pull top-level names with prefix-style identifiers (e.g.
+/// `math.sqrt`, `math.pi`) out of a loader-merged program so the LSP
+/// can answer hover queries on imported names. Plain (un-dotted) names
+/// are skipped — they're already covered by the buffer-only index when
+/// declared in the open file.
+fn collect_external_signatures(prog: &Program) -> HashMap<String, String> {
+    use ilang_ast::ExternCItem;
+    let mut out = HashMap::new();
+    let put_dotted = |name: &str, sig: String, m: &mut HashMap<String, String>| {
+        if name.contains('.') {
+            m.insert(name.to_string(), sig);
+        }
+    };
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => put_dotted(&f.name, fn_signature(f), &mut out),
+            Item::Const(c) => {
+                let ty = match &c.ty {
+                    Some(t) => format!(": {t}"),
+                    None => String::new(),
+                };
+                let value = render_const_value(&c.value)
+                    .map(|v| format!(" = {v}"))
+                    .unwrap_or_default();
+                put_dotted(&c.name, format!("const {}{ty}{value}", c.name), &mut out);
+            }
+            Item::Class(c) => {
+                put_dotted(&c.name, format!("class {}", c.name), &mut out);
+            }
+            Item::Enum(e) => {
+                put_dotted(&e.name, format!("enum {}", e.name), &mut out);
+            }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ExternCItem::FnDecl { name, params, ret, .. } => {
+                            let ps = params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            put_dotted(
+                                name,
+                                format!("fn {}({}){}", name, ps, r),
+                                &mut out,
+                            );
+                        }
+                        ExternCItem::FnDef(f) => {
+                            put_dotted(&f.name, fn_signature(f), &mut out);
+                        }
+                        ExternCItem::Static { name, ty, .. } => {
+                            put_dotted(name, format!("static {}: {}", name, ty), &mut out);
+                        }
+                        ExternCItem::Struct { name, .. } => {
+                            put_dotted(name, format!("struct {}", name), &mut out);
+                        }
+                        ExternCItem::Union { name, .. } => {
+                            put_dotted(name, format!("union {}", name), &mut out);
+                        }
+                        ExternCItem::Class(c) => {
+                            put_dotted(&c.name, format!("class {}", c.name), &mut out);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
     }
+    out
 }
+
 
 #[derive(Debug, serde::Deserialize)]
 struct ProjectFile {
@@ -338,7 +412,11 @@ fn diag(span: Span, msg: String) -> Diagnostic {
 
 // ─── Index building ────────────────────────────────────────────────────────
 
-fn build_doc(text: String, prog: &Program) -> Doc {
+fn build_doc(
+    text: String,
+    prog: &Program,
+    external_signatures: &HashMap<String, String>,
+) -> Doc {
     let symbols = collect_symbols(prog);
     let classes = collect_classes(prog);
     let mut fn_returns: HashMap<String, Type> = HashMap::new();
@@ -350,18 +428,21 @@ fn build_doc(text: String, prog: &Program) -> Doc {
         }
     }
     let mut refs = Vec::new();
-    let mut walker = Walker {
-        text: &text,
-        symbols: &symbols,
-        classes: &classes,
-        fn_returns: &fn_returns,
-        refs: &mut refs,
-    };
-    for item in &prog.items {
-        match item {
-            Item::Fn(f) => walker.walk_fn(f, None),
-            Item::Class(c) => walker.walk_class(c),
-            _ => {}
+    {
+        let mut walker = Walker {
+            text: &text,
+            symbols: &symbols,
+            classes: &classes,
+            fn_returns: &fn_returns,
+            external_signatures,
+            refs: &mut refs,
+        };
+        for item in &prog.items {
+            match item {
+                Item::Fn(f) => walker.walk_fn(f, None),
+                Item::Class(c) => walker.walk_class(c),
+                _ => {}
+            }
         }
     }
     refs.sort_by_key(|r| (r.line, r.start_col));
@@ -370,6 +451,7 @@ fn build_doc(text: String, prog: &Program) -> Doc {
         symbols,
         classes,
         refs,
+        external_signatures: external_signatures.clone(),
     }
 }
 
@@ -571,6 +653,9 @@ struct Walker<'a> {
     /// Top-level fn return types, keyed by name. Used to infer
     /// `let x = call()` bindings.
     fn_returns: &'a HashMap<String, Type>,
+    /// Hover signatures for `module.name` references that the loader
+    /// brought in from a `use module` statement.
+    external_signatures: &'a HashMap<String, String>,
     refs: &'a mut Vec<RefEntry>,
 }
 
@@ -659,6 +744,8 @@ impl<'a> Walker<'a> {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
                     let sig = b.kind.render(name, b.ty.as_ref());
                     self.push_ref(name, e.span, b.span, name.len() as u32, sig);
+                } else if name.contains('.') {
+                    self.push_external_dotted_ref(name, e.span);
                 } else if let Some(sym) = self.symbols.get(name) {
                     self.push_ref(
                         name,
@@ -728,6 +815,8 @@ impl<'a> Walker<'a> {
                         sym.name.len() as u32,
                         sym.signature.clone(),
                     );
+                } else if callee.contains('.') {
+                    self.push_external_dotted_ref(callee, e.span);
                 }
                 for a in args {
                     self.walk_expr(a, scope, this_class);
@@ -948,6 +1037,30 @@ impl<'a> Walker<'a> {
             },
             // Fall back to the scope-aware inferer for everything else.
             _ => infer_expr_type_with_scope(e, scope),
+        }
+    }
+
+    /// For a dotted name like `math.sqrt`, push a hover-only ref entry
+    /// at the suffix position (`.sqrt`). Used for names brought in via
+    /// `use module` — the loader resolves these to a full signature
+    /// but we don't have file-level spans for F12.
+    fn push_external_dotted_ref(&mut self, dotted: &str, receiver_span: Span) {
+        let Some(sig) = self.external_signatures.get(dotted) else {
+            return;
+        };
+        let Some(dot) = dotted.rfind('.') else {
+            return;
+        };
+        let suffix = &dotted[dot + 1..];
+        if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
+            self.refs.push(RefEntry {
+                line,
+                start_col: col,
+                end_col: col + suffix.len() as u32,
+                target_span: receiver_span,
+                target_name_len: suffix.len() as u32,
+                signature: sig.clone(),
+            });
         }
     }
 
