@@ -1,11 +1,11 @@
 // 🌃 ilang × SDL2 — neon-style breakout (single stage).
 //
-// Controls:
-//   ←/→  or  A/D  — move the paddle
-//   Space        — launch the ball
-//   F            — toggle fullscreen
-//   R            — restart after game over
-//   ESC          — quit
+// Controls (keyboard / gamepad):
+//   ←/→ · A/D · D-pad ←/→ · left stick — move the paddle
+//   Space · A button                   — launch the ball
+//   F                                  — toggle fullscreen
+//   R · START                          — restart after game over
+//   ESC · BACK                         — quit
 //
 // Run (JIT only — `@lib(...)` extern fns need dlsym):
 //   ilang run --jit examples/sdl_bouncing_ball/main.il
@@ -35,6 +35,14 @@ const BALL_SIZE: i32 = 14
 
 const FRAME_MS: u32 = 16
 const SAMPLE_RATE: i32 = 44100
+
+// Brick drop-in intro tuning. With STAGGER=4 and COLS=9 the last
+// column starts at frame 32 and finishes 24 frames later → ~0.93s
+// total, ≈0.5s "perceived" since most bricks are already settled
+// by then.
+const INTRO_STAGGER: i32 = 4
+const INTRO_DURATION: i32 = 24
+const INTRO_DROP_PX: f64 = 280.0
 
 // ─── tiny utilities ───────────────────────────────────────────────
 
@@ -172,6 +180,46 @@ fn make_glow_sprite(): u8[] {
     buf
 }
 
+// ─── CRT overlay ──────────────────────────────────────────────────
+
+// Pre-render a full-window RGBA black overlay where the alpha
+// encodes how much the underlying scene should be darkened at
+// each pixel. Combines two CRT-style effects:
+//   • scanlines — odd rows have a small fixed darken
+//   • vignette  — soft radial darken toward the corners
+// Drawn over everything (including HUD) at draw-time. Built once
+// at startup so the per-frame cost is just one drawTexture call.
+fn make_crt_overlay(w: i32, h: i32): u8[] {
+    let buf: u8[] = []
+    let cx = (w as f64) / 2.0
+    let cy = (h as f64) / 2.0
+    let max_d = math.sqrt(cx * cx + cy * cy)
+    let y: i32 = 0
+    while y < h {
+        // 1.0 = pixel left untouched, lower = darken applied.
+        let scan: f64 = if y % 2 == 1 { 0.82 } else { 1.0 }
+        let x: i32 = 0
+        while x < w {
+            let dx = (x as f64) - cx
+            let dy = (y as f64) - cy
+            let d = math.sqrt(dx * dx + dy * dy)
+            let v_norm = d / max_d
+            // Vignette: 1.0 in centre, ~0.5 at corners.
+            let vig = 1.0 - v_norm * v_norm * 0.55
+            let combined = scan * vig
+            let darken: f64 = if combined < 0.0 { 1.0 } else { 1.0 - combined }
+            let alpha = (darken * 255.0) as u8
+            buf.push(0 as u8)
+            buf.push(0 as u8)
+            buf.push(0 as u8)
+            buf.push(alpha)
+            x += 1
+        }
+        y += 1
+    }
+    buf
+}
+
 // ─── audio: short sine-wave beeps ─────────────────────────────────
 
 fn makeBeep(freq_hz: f64, ms: i32): i16[] {
@@ -258,6 +306,29 @@ class Star {
         this.speed = speed
         this.phase = phase
         this.twinkle = twinkle
+    }
+}
+
+// Floating "+100" text that drifts up from a brick break and
+// fades to nothing.
+class Popup {
+    x: f64
+    y: f64
+    vy: f64
+    life: i32
+    text: string
+    r: u8
+    g: u8
+    b: u8
+    init(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
+        this.x = x
+        this.y = y
+        this.vy = -1.6
+        this.life = 50
+        this.text = text
+        this.r = r
+        this.g = g
+        this.b = b
     }
 }
 
@@ -464,13 +535,18 @@ fn play() {
     }
     audio.play()
 
+    // Open the first attached gamepad if any. `pad.handle == 0`
+    // when nothing is plugged in — every poll degrades to
+    // returning 0/false, so the keyboard path keeps working.
+    let pad = new sdl.Gamepad()
+
     let beep_wall = makeBeep(440.0, 40)
     let beep_paddle = makeBeep(660.0, 50)
     let beep_brick = makeBeep(880.0, 70)
 
     // White star sprite for particle bursts. Tinted at draw time
     // via `setColorMod`, rotated via `drawTextureRot`.
-    let star_tex = new sdl.Texture(ren, STAR_TEX_SIZE, STAR_TEX_SIZE)
+    let star_tex = new sdl.Texture(ren, STAR_TEX_SIZE, STAR_TEX_SIZE, 1)
     if star_tex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
@@ -480,12 +556,33 @@ fn play() {
     // Soft radial-gradient sprite, tinted per-brick at draw time so
     // the wave highlight blooms as a blurry circle rather than a
     // rectangle.
-    let glow_tex = new sdl.Texture(ren, GLOW_TEX_SIZE, GLOW_TEX_SIZE)
+    let glow_tex = new sdl.Texture(ren, GLOW_TEX_SIZE, GLOW_TEX_SIZE, 1)
     if glow_tex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
     }
     glow_tex.update(make_glow_sprite())
+
+    // Full-window CRT-effect overlay — built once. The alpha
+    // channel encodes scanlines + vignette, the colour is black,
+    // so blending it on top darkens each pixel by the right
+    // amount.
+    let crt_tex = new sdl.Texture(ren, WIN_W, WIN_H, 1)
+    if crt_tex.handle == 0 {
+        console.log("SDL_CreateTexture failed: " + sdl.getError())
+        return
+    }
+    crt_tex.update(make_crt_overlay(WIN_W, WIN_H))
+
+    // Off-screen accumulator for the world. Drawn into each frame
+    // (with a small per-frame fade applied first) and then composited
+    // back to the window with chromatic-aberration channel offsets.
+    // SDL_TEXTUREACCESS_TARGET = 2.
+    let scene_tex = new sdl.Texture(ren, WIN_W, WIN_H, 2)
+    if scene_tex.handle == 0 {
+        console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
+        return
+    }
 
     // Background star field — scrolls top→down with a twinkle.
     let bg_stars: Star[] = []
@@ -529,6 +626,18 @@ fn play() {
     let started: bool = false
     let game_over: bool = false
     let won: bool = false
+    let combo: i32 = 0              // bricks hit since last paddle bounce
+    let shake: f64 = 0.0            // current screen-shake amplitude (px)
+    let popups: Popup[] = []
+    // Frames the ball has been in flight (this game). Drives the
+    // gradual speed-up. Doesn't reset on lose-life so tension keeps
+    // building across attempts.
+    let play_time: i32 = 0
+    // Frames since the last (re)start. Drives the brick drop-in
+    // intro and lets us trigger a single big firework burst the
+    // moment the level is cleared.
+    let intro_phase: i32 = 0
+    let won_celebrated: bool = false
 
     // Visual effect state.
     let wave_phase: f64 = 0.0       // brick highlight wave (rad)
@@ -578,8 +687,46 @@ fn play() {
 
         // Brick highlight wave advances each frame.
         wave_phase = wave_phase + 0.08
+        intro_phase = intro_phase + 1
 
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) {
+        // Clear-time celebration: one big multi-burst the instant
+        // the level is won, then a steady stream while CLEAR! is
+        // shown so the screen keeps lighting up.
+        if game_over && won {
+            if !won_celebrated {
+                let bi: i32 = 0
+                while bi < 12 {
+                    let fx = randf() * (WIN_W as f64)
+                    let fy = (0.15 + randf() * 0.55) * (WIN_H as f64)
+                    let pick = (randf() * 5.0) as i32
+                    spawnParticles(particles, fx, fy,
+                                   paletteR(pick), paletteG(pick), paletteB(pick))
+                    bi += 1
+                }
+                won_celebrated = true
+            }
+            // ~10 fireworks per second while celebrating.
+            if randf() < 0.18 {
+                let fx = randf() * (WIN_W as f64)
+                let fy = (0.10 + randf() * 0.65) * (WIN_H as f64)
+                let pick = (randf() * 5.0) as i32
+                spawnParticles(particles, fx, fy,
+                               paletteR(pick), paletteG(pick), paletteB(pick))
+            }
+        }
+
+        // Gamepad: left stick → paddle (analogue), DPAD ←/→ →
+        // paddle (digital), A → launch, START → restart, BACK →
+        // quit. The keyboard mappings below stack with these so
+        // either device works.
+        let pad_lx = pad.getAxis(sdl.AXIS_LEFTX) as i32  // [-32768, 32767]
+        let pad_dpad_l = pad.isPressed(sdl.BUTTON_DPAD_LEFT)
+        let pad_dpad_r = pad.isPressed(sdl.BUTTON_DPAD_RIGHT)
+        let pad_a = pad.isPressed(sdl.BUTTON_A)
+        let pad_start = pad.isPressed(sdl.BUTTON_START)
+        let pad_back = pad.isPressed(sdl.BUTTON_BACK)
+
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) || pad_back {
             running = false
         }
 
@@ -592,7 +739,7 @@ fn play() {
         f_was_down = f_now
 
         // Restart after game over.
-        if game_over && sdl.Keyboard.isPressed(sdl.SCANCODE_R) {
+        if game_over && (sdl.Keyboard.isPressed(sdl.SCANCODE_R) || pad_start) {
             let r2: i32 = 0
             while r2 < ROWS {
                 let c2: i32 = 0
@@ -614,15 +761,29 @@ fn play() {
             won = false
             let empty: Particle[] = []
             particles = empty
+            let empty_pops: Popup[] = []
+            popups = empty_pops
+            combo = 0
+            shake = 0.0
+            play_time = 0
+            intro_phase = 0
+            won_celebrated = false
         }
 
         // ─── input ────────────────────────────────────────────────
 
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) {
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) || pad_dpad_l {
             paddle_x = paddle_x - PADDLE_SPEED
         }
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) {
+        if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) || pad_dpad_r {
             paddle_x = paddle_x + PADDLE_SPEED
+        }
+        // Analogue stick: deadzone ~24% then linear scale to paddle
+        // speed. Ignored when the stick is centred.
+        let abs_lx: i32 = if pad_lx < 0 { -pad_lx } else { pad_lx }
+        if abs_lx > 8000 {
+            let norm = (pad_lx as f64) / 32767.0
+            paddle_x = paddle_x + norm * PADDLE_SPEED
         }
         if paddle_x < 0.0 {
             paddle_x = 0.0
@@ -633,7 +794,12 @@ fn play() {
         }
 
         // Space to launch the ball (idle on paddle until pressed).
-        if !started && !game_over && sdl.Keyboard.isPressed(sdl.SCANCODE_SPACE) {
+        // Wait for the brick drop-in animation to finish before
+        // accepting the launch input — otherwise the player can
+        // shoot through unfilled rows.
+        let intro_total = (COLS - 1) * INTRO_STAGGER + INTRO_DURATION
+        if !started && !game_over && intro_phase >= intro_total &&
+                (sdl.Keyboard.isPressed(sdl.SCANCODE_SPACE) || pad_a) {
             started = true
         }
         // While idle, keep the ball glued to the paddle's centre.
@@ -690,6 +856,8 @@ fn play() {
                 let speed = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
                 ball_vx = speed * math.sin(angle)
                 ball_vy = -speed * math.cos(angle)
+                // Paddle bounce ends a brick combo.
+                combo = 0
                 audio.queue(beep_paddle)
             }
 
@@ -709,7 +877,9 @@ fn play() {
                         br.alive = false
                         br.dying = 1.0
                         bricks_left = bricks_left - 1
-                        score = score + 100
+                        combo = combo + 1
+                        let earned = 100 * combo
+                        score = score + earned
                         // Decide which axis to flip based on overlap depth.
                         let overlap_x = if ball_vx > 0.0 { bx_hi - rx_lo } else { rx_hi - bx_lo }
                         let overlap_y = if ball_vy > 0.0 { by_hi - ry_lo } else { ry_hi - by_lo }
@@ -721,6 +891,15 @@ fn play() {
                         let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
                         let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
                         spawnParticles(particles, cx, cy, br.r, br.g, br.b)
+                        // Score popup floats up from the brick.
+                        popups.push(new Popup(
+                            cx, cy - 4.0, "+" + intToStr(earned),
+                            br.r, br.g, br.b
+                        ))
+                        // Screen shake — bigger as the combo grows.
+                        let bump = 4.0 + (combo as f64) * 1.5
+                        shake = shake + bump
+                        if shake > 14.0 { shake = 14.0 }
                         audio.queue(beep_brick)
                         i = n   // stop after first hit this frame
                     }
@@ -739,12 +918,31 @@ fn play() {
                     started = false
                     ball_vx = 5.0
                     ball_vy = -5.0
+                    combo = 0
                 }
             }
             // Win: all bricks cleared.
             if bricks_left <= 0 {
                 game_over = true
                 won = true
+            }
+
+            // Gradual speed-up. The ball's direction is preserved
+            // (we just rescale the velocity vector to a target
+            // magnitude), so paddle aim still works the same — only
+            // the tempo rises. Time and combo both contribute, with
+            // a hard cap so it never becomes uncontrollable.
+            play_time = play_time + 1
+            let base_speed: f64 = 7.07106781   // sqrt(5^2 + 5^2)
+            let time_bonus = (play_time as f64) * 0.002
+            if time_bonus > 6.0 { time_bonus = 6.0 }
+            let combo_bonus = (combo as f64) * 0.35
+            let target = base_speed + time_bonus + combo_bonus
+            let cur = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
+            if cur > 0.001 {
+                let scale = target / cur
+                ball_vx = ball_vx * scale
+                ball_vy = ball_vy * scale
             }
         }
 
@@ -773,6 +971,33 @@ fn play() {
         }
         particles = alive_particles
 
+        // Score-popup step: drift up, fade, drop dead ones.
+        let alive_popups: Popup[] = []
+        let pi: i32 = 0
+        let pn: i32 = popups.length as i32
+        while pi < pn {
+            let pp = popups[pi]
+            pp.y = pp.y + pp.vy
+            pp.vy = pp.vy * 0.96       // ease toward stop
+            pp.life = pp.life - 1
+            if pp.life > 0 {
+                alive_popups.push(pp)
+            }
+            pi = pi + 1
+        }
+        popups = alive_popups
+
+        // Decay screen-shake exponentially. Compute per-frame
+        // jitter offsets here so all draw calls share them.
+        let shake_off_x: i32 = 0
+        let shake_off_y: i32 = 0
+        if shake > 0.5 {
+            shake_off_x = ((randf() - 0.5) * 2.0 * shake) as i32
+            shake_off_y = ((randf() - 0.5) * 2.0 * shake) as i32
+        }
+        shake = shake * 0.82
+        if shake < 0.05 { shake = 0.0 }
+
         // Background star scroll + twinkle phase.
         let bs_i: i32 = 0
         let bs_n: i32 = bg_stars.length as i32
@@ -788,7 +1013,10 @@ fn play() {
         }
 
         // ─── render ──────────────────────────────────────────────
-
+        // The world is drawn into `scene_tex` so we can post-process
+        // it (chromatic aberration). HUD lands directly on the
+        // window afterwards so the readouts stay sharp.
+        ren.setTarget(scene_tex.handle)
         ren.setColor(8, 4, 24, 255)        // very dark navy
         ren.clear()
 
@@ -803,7 +1031,8 @@ fn play() {
             ren.setColor(220, 220, 255, a8)
             // Bigger stars (random radius 1 or 2).
             let half: i32 = if s.speed > 1.2 { 2 } else { 1 }
-            ren.fillRect(s.x as i32 - half, s.y as i32 - half,
+            ren.fillRect(s.x as i32 - half + shake_off_x,
+                         s.y as i32 - half + shake_off_y,
                          half * 2 + 1, half * 2 + 1)
             bg_i = bg_i + 1
         }
@@ -818,19 +1047,39 @@ fn play() {
         let n2: i32 = bricks.length as i32
         while i2 < n2 {
             let br = bricks[i2]
+            // Drop-in intro: each column is delayed by INTRO_STAGGER
+            // frames so the grid cascades in left→right. The brick
+            // falls from above its target with an ease-out curve.
+            let col = i2 % COLS
+            let own_phase = intro_phase - col * INTRO_STAGGER
+            let intro_active = own_phase < INTRO_DURATION
+            let intro_offset_y: i32 = if own_phase < 0 {
+                // Pre-arrival: keep the brick well above the playfield.
+                0 - ((INTRO_DROP_PX as i32) + 100)
+            } elif own_phase < INTRO_DURATION {
+                let p = (own_phase as f64) / (INTRO_DURATION as f64)
+                let inv = 1.0 - p
+                0 - ((inv * inv * INTRO_DROP_PX) as i32)
+            } else {
+                0
+            }
             if br.alive {
-                fillNeonRoundedRect(br.x, br.y, BRICK_W, BRICK_H, 6, br.r, br.g, br.b)
+                fillNeonRoundedRect(br.x + shake_off_x,
+                                    br.y + intro_offset_y + shake_off_y,
+                                    BRICK_W, BRICK_H, 6, br.r, br.g, br.b)
+                // Wave glow only after the brick has landed — looks
+                // odd to highlight a brick that's mid-fall.
                 let k: f64 = 0.012
                 let s = math.sin(wave_phase - (br.x as f64) * k)
                 let pulse: f64 = if s > 0.0 { s * s } else { 0.0 }
-                if pulse > 0.0 {
+                if pulse > 0.0 && !intro_active {
                     let alpha = (pulse * 220.0) as u8
                     if alpha > 0 as u8 {
                         glow_tex.setColorMod(br.r, br.g, br.b)
                         glow_tex.setAlphaMod(alpha)
                         ren.drawTexture(glow_tex.handle,
-                                        br.x - glow_pad_x,
-                                        br.y - glow_pad_y,
+                                        br.x - glow_pad_x + shake_off_x,
+                                        br.y - glow_pad_y + shake_off_y,
                                         BRICK_W + 2 * glow_pad_x,
                                         BRICK_H + 2 * glow_pad_y)
                     }
@@ -854,13 +1103,14 @@ fn play() {
                 let bw = ((BRICK_W + 2 * glow_pad_x) as f64) * scale
                 let bh = ((BRICK_H + 2 * glow_pad_y) as f64) * scale
                 ren.drawTexture(glow_tex.handle,
-                                cx - (bw as i32) / 2,
-                                cy - (bh as i32) / 2,
+                                cx - (bw as i32) / 2 + shake_off_x,
+                                cy - (bh as i32) / 2 + shake_off_y,
                                 bw as i32, bh as i32)
                 // Sharper core.
                 if alpha > 0 as u8 {
                     ren.setColor(br.r, br.g, br.b, alpha)
-                    ren.fillRect(cx - dw / 2, cy - dh / 2, dw, dh)
+                    ren.fillRect(cx - dw / 2 + shake_off_x,
+                                 cy - dh / 2 + shake_off_y, dw, dh)
                 }
                 br.dying = br.dying - 0.06
                 if br.dying < 0.0 {
@@ -886,21 +1136,22 @@ fn play() {
             star_tex.setAlphaMod(halo_a)
             let halo_size: i32 = 56
             ren.drawTextureRot(star_tex.handle,
-                               (p.x as i32) - halo_size / 2,
-                               (p.y as i32) - halo_size / 2,
+                               (p.x as i32) - halo_size / 2 + shake_off_x,
+                               (p.y as i32) - halo_size / 2 + shake_off_y,
                                halo_size, halo_size, p.angle)
             // Sharp star body (2× the previous 16px).
             star_tex.setAlphaMod(a)
             let size: i32 = 32
             ren.drawTextureRot(star_tex.handle,
-                               (p.x as i32) - size / 2,
-                               (p.y as i32) - size / 2,
+                               (p.x as i32) - size / 2 + shake_off_x,
+                               (p.y as i32) - size / 2 + shake_off_y,
                                size, size, p.angle)
             i3 = i3 + 1
         }
 
         // Paddle (white/cyan glow, rounded ends).
-        fillNeonStadium(paddle_x as i32, paddle_y, PADDLE_W, PADDLE_H, 200, 240, 255)
+        fillNeonStadium(paddle_x as i32 + shake_off_x, paddle_y + shake_off_y,
+                        PADDLE_W, PADDLE_H, 200, 240, 255)
 
         // Ball trail — fade from oldest (just-overwritten slot) to
         // newest (slot before head). Draw as soft circles on top of
@@ -913,8 +1164,8 @@ fn play() {
             let age_norm = (tr_i as f64) / (TRAIL_LEN as f64)
             let a = (age_norm * age_norm * 140.0) as u8
             if a > 0 as u8 {
-                let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32
-                let cy = (pt.y + (BALL_SIZE as f64) / 2.0) as i32
+                let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
+                let cy = (pt.y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
                 let radius = (BALL_SIZE / 2) + (age_norm * 4.0) as i32
                 ren.setColor(255, 255, 255, a)
                 let dy: i32 = -radius
@@ -931,11 +1182,10 @@ fn play() {
         }
 
         // Ball (round).
-        let ball_cx = (ball_x + (BALL_SIZE as f64) / 2.0) as i32
-        let ball_cy = (ball_y + (BALL_SIZE as f64) / 2.0) as i32
+        let ball_cx = (ball_x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
+        let ball_cy = (ball_y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
         fillNeonCircle(ball_cx, ball_cy, BALL_SIZE / 2, 255, 255, 255)
 
-        // ─── HUD ─────────────────────────────────────────────────
         // 6px advance per glyph at scale=1 (5px cell + 1px space),
         // last glyph contributes only 5px → final width formula
         // below. Used for centering and right-alignment.
@@ -944,6 +1194,27 @@ fn play() {
             if nch == 0 { return 0 }
             (nch * 6 - 1) * scale
         }
+
+        // Score popups — part of the world so they pick up shake
+        // and chromatic aberration.
+        let pop_i: i32 = 0
+        let pop_n: i32 = popups.length as i32
+        while pop_i < pop_n {
+            let pp = popups[pop_i]
+            let alpha_i = pp.life * 6
+            let pa: u8 = if alpha_i > 255 { 255 as u8 } else { alpha_i as u8 }
+            let scale_p: i32 = 2
+            let tw = textPxW(pp.text, scale_p)
+            font.drawText(ren, pp.text,
+                          (pp.x as i32) - tw / 2 + shake_off_x,
+                          (pp.y as i32) + shake_off_y,
+                          scale_p, pp.r, pp.g, pp.b, pa)
+            pop_i = pop_i + 1
+        }
+
+        // ─── HUD (drawn into scene_tex so it gets the same CRT
+        // ─── post-effects — chromatic aberration, scanlines, and
+        // ─── vignette — as the world).
 
         font.drawText(ren, "SCORE: " + intToStr(score),
                       20, 20, 2, 200, 220, 255, 255)
@@ -954,6 +1225,15 @@ fn play() {
         font.drawText(ren, lives_txt,
                       WIN_W - textPxW(lives_txt, 2) - 20, 20,
                       2, 255, 200, 220, 255)
+
+        // Combo readout — only shown while a streak is active so
+        // it doesn't take up HUD real-estate at idle.
+        if combo > 1 {
+            let combo_txt = "COMBO x" + intToStr(combo)
+            font.drawText(ren, combo_txt,
+                          (WIN_W - textPxW(combo_txt, 3)) / 2, 80,
+                          3, 255, 220, 120, 255)
+        }
 
         if !started && !game_over {
             let s = "PRESS SPACE TO START"
@@ -980,6 +1260,30 @@ fn play() {
                           3, 200, 220, 255, 255)
         }
 
+        // ─── composite scene_tex (world + HUD) to window with
+        // ─── chromatic aberration. ────────────────────────────────
+        ren.resetTarget()
+        ren.setColor(0, 0, 0, 255)
+        ren.clear()
+        // Three additive passes, each keeping only one colour
+        // channel and offset slightly. Pixel overlap reproduces the
+        // original colour; high-contrast edges (including text)
+        // show RGB fringing.
+        scene_tex.setBlendMode(2)   // SDL_BLENDMODE_ADD
+        let chroma: i32 = 3
+        scene_tex.setColorMod(255 as u8, 0 as u8, 0 as u8)
+        ren.drawTexture(scene_tex.handle, -chroma, 0, WIN_W, WIN_H)
+        scene_tex.setColorMod(0 as u8, 255 as u8, 0 as u8)
+        ren.drawTexture(scene_tex.handle, 0, 0, WIN_W, WIN_H)
+        scene_tex.setColorMod(0 as u8, 0 as u8, 255 as u8)
+        ren.drawTexture(scene_tex.handle, chroma, 0, WIN_W, WIN_H)
+        // Restore for next frame's setTarget pass.
+        scene_tex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
+        scene_tex.setColorMod(255 as u8, 255 as u8, 255 as u8)
+
+        // CRT overlay (scanlines + vignette).
+        ren.drawTexture(crt_tex.handle, 0, 0, WIN_W, WIN_H)
+
         ren.present()
 
         // Sleep just long enough to keep the loop pinned to 60fps.
@@ -998,7 +1302,7 @@ fn play() {
     }
 }
 
-let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO)
+let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO | sdl.INIT_GAMECONTROLLER)
 if rc < 0 {
     console.log("SDL_Init failed: " + sdl.getError())
     return
