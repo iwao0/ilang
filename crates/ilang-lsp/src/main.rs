@@ -48,6 +48,9 @@ struct MemberInfo {
     /// For methods: the declared return type. For fields: the field
     /// type. Used to infer `let x = obj.method(...)`.
     ret_ty: Option<Type>,
+    /// `true` for `static` fields / methods. Drives `Counter.<.>`
+    /// completion (which should only list static members).
+    is_static: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -285,11 +288,19 @@ impl LanguageServer for Backend {
         let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
             return Ok(None);
         };
+        // If `receiver` itself is a class name (e.g. `Counter.`), the
+        // user wants static members. Otherwise we treat the receiver
+        // as an instance — for now we only resolve plain `ClassName.`,
+        // which always means static access.
         let Some(info) = doc.classes.get(&receiver) else {
             return Ok(None);
         };
+        let want_static = doc.classes.contains_key(&receiver);
         let mut items: Vec<CompletionItem> = Vec::new();
         for (name, m) in info.fields.iter().chain(info.getters.iter()) {
+            if m.is_static != want_static {
+                continue;
+            }
             items.push(CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::FIELD),
@@ -298,6 +309,14 @@ impl LanguageServer for Backend {
             });
         }
         for (name, m) in info.methods.iter() {
+            // `init` is callable through `new ClassName(...)`, not via
+            // `ClassName.init(...)`, so hide it from static completion.
+            if name == "init" {
+                continue;
+            }
+            if m.is_static != want_static {
+                continue;
+            }
             items.push(CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::METHOD),
@@ -715,6 +734,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                             name, f.name, f.ty
                                         ),
                                         ret_ty: Some(f.ty.clone()),
+                                        is_static: false,
                                     },
                                 );
                             }
@@ -747,6 +767,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     span: f.span,
                     signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                     ret_ty: Some(f.ty.clone()),
+                    is_static: false,
                 },
             );
         }
@@ -760,6 +781,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         c.name, f.name, f.ty
                     ),
                     ret_ty: Some(f.ty.clone()),
+                    is_static: true,
                 },
             );
         }
@@ -772,6 +794,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     span: prop.span,
                     signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
                     ret_ty: Some(prop.ty.clone()),
+                    is_static: false,
                 },
             );
             if let Some(g) = &prop.getter {
@@ -781,6 +804,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         span: g.span,
                         signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
+                        is_static: false,
                     },
                 );
             }
@@ -791,6 +815,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         span: s.span,
                         signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
+                        is_static: false,
                     },
                 );
             }
@@ -805,12 +830,14 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 span: m.span,
                 signature: format!("(method) {}.{}", c.name, fn_body(m)),
                 ret_ty: m.ret.clone(),
+                is_static: false,
             });
         }
         for m in &c.static_methods {
             methods.entry(m.name.clone()).or_insert(MemberInfo {
                 span: m.span,
                 signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                is_static: true,
                 ret_ty: m.ret.clone(),
             });
         }
@@ -1347,6 +1374,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
             span: Span::dummy(),
             signature: "(method) Console.log(...args): ()".to_string(),
             ret_ty: Some(Type::Unit),
+            is_static: false,
         },
     );
     out.entry("Console".to_string()).or_insert(ClassInfo {
@@ -1387,6 +1415,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                             name, f.name, f.ty
                                         ),
                                         ret_ty: Some(f.ty.clone()),
+                                        is_static: false,
                                     },
                                 );
                             }
@@ -1422,6 +1451,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         span: f.span,
                         signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                         ret_ty: Some(f.ty.clone()),
+                        is_static: false,
                     },
                 );
             }
@@ -1435,6 +1465,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                             c.name, f.name, f.ty
                         ),
                         ret_ty: Some(f.ty.clone()),
+                        is_static: true,
                     },
                 );
             }
@@ -1450,6 +1481,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                             c.name, prop.name, prop.ty
                         ),
                         ret_ty: Some(prop.ty.clone()),
+                        is_static: false,
                     },
                 );
                 if let Some(g) = &prop.getter {
@@ -1462,6 +1494,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                 c.name, prop.name, prop.ty
                             ),
                             ret_ty: Some(prop.ty.clone()),
+                            is_static: false,
                         },
                     );
                 }
@@ -1475,6 +1508,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                 c.name, prop.name, prop.ty
                             ),
                             ret_ty: Some(prop.ty.clone()),
+                            is_static: false,
                         },
                     );
                 }
@@ -1489,6 +1523,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     span: m.span,
                     signature: format!("(method) {}.{}", c.name, fn_body(m)),
                     ret_ty: m.ret.clone(),
+                    is_static: false,
                 });
             }
             for m in &c.static_methods {
@@ -1496,6 +1531,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     span: m.span,
                     signature: format!("(static method) {}.{}", c.name, fn_body(m)),
                     ret_ty: m.ret.clone(),
+                    is_static: true,
                 });
             }
             out.insert(
