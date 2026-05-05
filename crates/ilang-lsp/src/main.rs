@@ -1721,13 +1721,55 @@ impl<'a> Walker<'a> {
                 }
             }
             ExprKind::New { class, args, .. } => {
-                if let Some(sym) = self.symbols.get(class) {
+                let info = self.classes.get(class);
+                let class_sig = info
+                    .map(|i| class_hover(class, i))
+                    .unwrap_or_else(|| format!("class {class}"));
+                // Place a ref entry at the class identifier itself.
+                // For dotted names (`sdl.Gamepad`) the AST span points
+                // at the start of the dotted form, so additionally
+                // push module-prefix and suffix entries.
+                if let Some(dot) = class.find('.') {
+                    let prefix = &class[..dot];
+                    let suffix = &class[dot + 1..];
+                    self.refs.push(RefEntry {
+                        line: e.span.line,
+                        start_col: e.span.col,
+                        end_col: e.span.col + prefix.len() as u32,
+                        target_span: e.span,
+                        target_name_len: prefix.len() as u32,
+                        signature: format!("(module) {prefix}"),
+                        no_definition: true,
+                        target_uri: None,
+                    });
+                    if let Some((line, col)) = locate_dot_name(self.text, e.span, suffix) {
+                        let target_uri = self
+                            .external_sources
+                            .get(class)
+                            .and_then(|p| Url::from_file_path(p).ok());
+                        let (target_span, no_def) = match info {
+                            Some(i) if !i.external => (i.decl_span, false),
+                            _ => (e.span, target_uri.is_none()),
+                        };
+                        let target_name_len = suffix.len() as u32;
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + suffix.len() as u32,
+                            target_span,
+                            target_name_len,
+                            signature: class_sig,
+                            no_definition: no_def,
+                            target_uri,
+                        });
+                    }
+                } else if let Some(sym) = self.symbols.get(class) {
                     self.push_ref(
                         class,
                         e.span,
                         sym.span,
                         sym.name.len() as u32,
-                        sym.signature.clone(),
+                        class_sig,
                     );
                 }
                 for a in args {
@@ -2112,6 +2154,18 @@ impl<'a> Walker<'a> {
             _ => None,
         }
     }
+}
+
+/// Render a class hover signature including any `init` overloads, so
+/// `new Foo(...)` shows the constructor shape (TS-style `class Foo`
+/// followed by each `init(...)` line).
+fn class_hover(class: &str, info: &ClassInfo) -> String {
+    let mut out = format!("class {class}");
+    if let Some(init) = info.methods.get("init") {
+        out.push('\n');
+        out.push_str(&init.signature);
+    }
+    out
 }
 
 /// Resolve the F12 target for a class member reference. Returns
