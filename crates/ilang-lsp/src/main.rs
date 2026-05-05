@@ -145,9 +145,20 @@ impl Backend {
         // constants away, so they're not in the merged program. Parse
         // each `use module` source separately to recover them.
         let mut external_sources: ExternalSources = HashMap::new();
-        if let Some(p) = path.as_deref() {
-            harvest_imported_consts(p, &text, &mut external_sigs, &mut external_sources);
-        }
+        // Harvest imports from the buffer's `use module` items even
+        // without a saved file — built-in modules (math/test/os) still
+        // resolve, and on-disk modules resolve relative to the entry
+        // directory when we have one.
+        let harvest_anchor = path
+            .as_deref()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("/__lsp_buffer__.il"));
+        harvest_imported_consts(
+            &harvest_anchor,
+            &text,
+            &mut external_sigs,
+            &mut external_sources,
+        );
         let external_classes = merged
             .as_ref()
             .map(collect_external_classes)
@@ -169,8 +180,15 @@ impl Backend {
                 let docs = self.docs.lock().unwrap();
                 let mut prev = docs.get(&uri).cloned().unwrap_or_default();
                 prev.text = text;
-                prev.external_signatures = external_sigs;
-                prev.external_returns = external_rets;
+                // Keep the previous successful external maps when the
+                // mid-edit refresh produced empty ones (e.g. the
+                // buffer's `use` items couldn't be re-parsed).
+                if !external_sigs.is_empty() {
+                    prev.external_signatures = external_sigs;
+                }
+                if !external_rets.is_empty() {
+                    prev.external_returns = external_rets;
+                }
                 prev
             }
         };
@@ -661,49 +679,82 @@ fn walk_module(
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
                 track(&key, c.span, c.name.len() as u32, sources, &module_path);
             }
-            Item::Fn(f) => track(
-                &format!("{prefix}.{}", f.name),
-                f.span,
-                f.name.len() as u32,
-                sources,
-                &module_path,
-            ),
-            Item::Class(c) => track(
-                &format!("{prefix}.{}", c.name),
-                c.span,
-                c.name.len() as u32,
-                sources,
-                &module_path,
-            ),
-            Item::Enum(e) => track(
-                &format!("{prefix}.{}", e.name),
-                e.span,
-                e.name.len() as u32,
-                sources,
-                &module_path,
-            ),
+            Item::Fn(f) => {
+                let key = format!("{prefix}.{}", f.name);
+                let sig = format!("fn {}", fn_body(f));
+                out.insert(key.clone(), format!("fn {}", sig.trim_start_matches("fn ")));
+                track(&key, f.span, f.name.len() as u32, sources, &module_path);
+            }
+            Item::Class(c) => {
+                let key = format!("{prefix}.{}", c.name);
+                out.insert(key.clone(), format!("class {key}"));
+                track(&key, c.span, c.name.len() as u32, sources, &module_path);
+            }
+            Item::Enum(e) => {
+                let key = format!("{prefix}.{}", e.name);
+                out.insert(key.clone(), format!("enum {key}"));
+                track(&key, e.span, e.name.len() as u32, sources, &module_path);
+            }
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    let entry = match inner {
-                        ilang_ast::ExternCItem::FnDecl { name, span, .. } => {
-                            Some((name.clone(), *span))
+                    let (n, span, sig): (String, Span, String) = match inner {
+                        ilang_ast::ExternCItem::FnDecl {
+                            name, span, params, ret, libs, ..
+                        } => {
+                            let ps = params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            let libs_prefix = if libs.is_empty() {
+                                String::new()
+                            } else {
+                                let names = libs
+                                    .iter()
+                                    .map(|l| format!("\"{l}\""))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("@lib({names}) ")
+                            };
+                            (
+                                name.clone(),
+                                *span,
+                                format!("{libs_prefix}fn {prefix}.{name}({ps}){r}"),
+                            )
                         }
-                        ilang_ast::ExternCItem::FnDef(f) => Some((f.name.clone(), f.span)),
-                        ilang_ast::ExternCItem::Static { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
-                        ilang_ast::ExternCItem::Struct { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
-                        ilang_ast::ExternCItem::Union { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
-                        ilang_ast::ExternCItem::Class(c) => Some((c.name.clone(), c.span)),
+                        ilang_ast::ExternCItem::FnDef(f) => (
+                            f.name.clone(),
+                            f.span,
+                            format!("fn {prefix}.{} {}", f.name, fn_body(f)).trim_start_matches("fn ").to_string(),
+                        ),
+                        ilang_ast::ExternCItem::Static { name, span, ty, .. } => (
+                            name.clone(),
+                            *span,
+                            format!("static {prefix}.{name}: {ty}"),
+                        ),
+                        ilang_ast::ExternCItem::Struct { name, span, .. } => (
+                            name.clone(),
+                            *span,
+                            format!("struct {prefix}.{name}"),
+                        ),
+                        ilang_ast::ExternCItem::Union { name, span, .. } => (
+                            name.clone(),
+                            *span,
+                            format!("union {prefix}.{name}"),
+                        ),
+                        ilang_ast::ExternCItem::Class(c) => (
+                            c.name.clone(),
+                            c.span,
+                            format!("class {prefix}.{}", c.name),
+                        ),
                     };
-                    if let Some((n, span)) = entry {
-                        let len = n.len() as u32;
-                        track(&format!("{prefix}.{n}"), span, len, sources, &module_path);
-                    }
+                    let key = format!("{prefix}.{n}");
+                    out.insert(key.clone(), sig);
+                    track(&key, span, n.len() as u32, sources, &module_path);
                 }
             }
             // Follow `@export use` chains so umbrella modules
