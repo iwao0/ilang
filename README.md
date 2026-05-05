@@ -197,16 +197,26 @@ directory for `use module` resolution.
 
 ## 🧩 VSCode
 
-`vscode-extension/` ships syntax highlighting for `.il` files.
-Local install (development symlink):
+`vscode-extension/` ships syntax highlighting plus a language
+server (`ilang-lsp`) for diagnostics, hover, and go-to-definition.
+Local install:
 
 ```sh
-ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
+# 1. Build the language server
+cargo build -p ilang-lsp
+
+# 2. Build the extension client
+cd vscode-extension
+npm install
+npm run compile
+
+# 3. Symlink into VSCode's extensions directory
+ln -s "$(pwd)" ~/.vscode/extensions/ilang
 ```
 
-Restart VSCode and `.il` files will be highlighted. See
-[vscode-extension/README.md](vscode-extension/README.md) for the
-`.vsix` route and what's planned (LSP-based F12 / hover).
+Restart VSCode. See
+[vscode-extension/README.md](vscode-extension/README.md) for
+configuration (`ilang.serverPath`) and current limitations.
 
 ## 🛠️ Development
 

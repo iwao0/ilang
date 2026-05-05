@@ -189,16 +189,26 @@ CLI が起動時にこのファイルを探し、`[deps]` で指定された pat
 
 ## 🧩 VSCode
 
-`vscode-extension/` に `.il` 用のシンタックスハイライト拡張が
-入っています。ローカルインストール (シンボリックリンク方式):
+`vscode-extension/` にシンタックスハイライト + language server
+(`ilang-lsp`) による診断 / hover / 定義ジャンプが入っています。
+ローカルインストール:
 
 ```sh
-ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
+# 1. language server をビルド
+cargo build -p ilang-lsp
+
+# 2. extension クライアントをビルド
+cd vscode-extension
+npm install
+npm run compile
+
+# 3. VSCode の拡張機能ディレクトリにシンボリックリンク
+ln -s "$(pwd)" ~/.vscode/extensions/ilang
 ```
 
-VSCode を再起動すると `.il` ファイルがハイライトされます。
-`.vsix` 経由のインストールや今後の予定 (LSP による F12 / hover)
-は [vscode-extension/README_ja.md](../vscode-extension/README_ja.md)
+VSCode を再起動すれば反映されます。設定 (`ilang.serverPath`) や
+現在の制限は
+[vscode-extension/README_ja.md](../vscode-extension/README_ja.md)
 を参照。
 
 ## 🛠️ 開発
