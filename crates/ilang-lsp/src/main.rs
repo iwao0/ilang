@@ -1178,6 +1178,19 @@ impl<'a> Walker<'a> {
                 Type::Str => Some(Type::U8),
                 _ => None,
             },
+            ExprKind::If { then_branch, else_branch, .. } => {
+                let from_then = then_branch
+                    .tail
+                    .as_ref()
+                    .and_then(|t| self.infer_expr(t, scope));
+                from_then.or_else(|| {
+                    else_branch.as_ref().and_then(|e| self.infer_expr(e, scope))
+                })
+            }
+            ExprKind::Block(b) => b.tail.as_ref().and_then(|t| self.infer_expr(t, scope)),
+            ExprKind::Match { arms, .. } => arms
+                .iter()
+                .find_map(|a| self.infer_expr(&a.body, scope)),
             ExprKind::Binary { op, lhs, rhs } => {
                 use ilang_ast::BinOp;
                 if matches!(
