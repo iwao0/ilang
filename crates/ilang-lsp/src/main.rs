@@ -316,9 +316,47 @@ impl LanguageServer for Backend {
         } else {
             doc.var_classes.get(&receiver).cloned().unwrap_or_default()
         };
-        let Some(info) = doc.classes.get(&class_name) else {
+        if doc.classes.get(&class_name).is_none() {
+            // Receiver may be a `use module` namespace — list its
+            // re-exported items (e.g. `math.` -> `sqrt`, `pi`, ...).
+            let prefix = format!("{receiver}.");
+            let mut items: Vec<CompletionItem> = doc
+                .external_signatures
+                .iter()
+                .filter_map(|(k, sig)| {
+                    let suffix = k.strip_prefix(&prefix)?;
+                    // Skip nested-module names (`sdl.SDL_Rect.field`
+                    // would re-introduce a dot).
+                    if suffix.contains('.') {
+                        return None;
+                    }
+                    let kind = if sig.starts_with("class ")
+                        || sig.starts_with("struct ")
+                        || sig.starts_with("union ")
+                    {
+                        CompletionItemKind::CLASS
+                    } else if sig.starts_with("enum ") {
+                        CompletionItemKind::ENUM
+                    } else if sig.starts_with("const ") {
+                        CompletionItemKind::CONSTANT
+                    } else {
+                        CompletionItemKind::FUNCTION
+                    };
+                    Some(CompletionItem {
+                        label: suffix.to_string(),
+                        kind: Some(kind),
+                        detail: Some(sig.clone()),
+                        ..CompletionItem::default()
+                    })
+                })
+                .collect();
+            items.sort_by(|a, b| a.label.cmp(&b.label));
+            if !items.is_empty() {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
             return Ok(None);
-        };
+        }
+        let info = doc.classes.get(&class_name).unwrap();
         let mut items: Vec<CompletionItem> = Vec::new();
         for (name, m) in info.fields.iter() {
             if m.is_static != want_static {
