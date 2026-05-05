@@ -1198,13 +1198,12 @@ impl<'a> Walker<'a> {
                 self.walk_expr(obj, scope, this_class);
                 // Built-in `.length` on string / array.
                 if name == "length" {
-                    let obj_ty = self.infer_expr(obj, scope);
-                    let kind = match obj_ty {
-                        Some(Type::Str) => Some("(property) string"),
-                        Some(Type::Array { .. }) => Some("(property) array"),
+                    let prefix = match self.infer_expr(obj, scope) {
+                        Some(Type::Str) => Some("string".to_string()),
+                        Some(Type::Array { elem, .. }) => Some(format!("{elem}[]")),
                         _ => None,
                     };
-                    if let Some(prefix) = kind {
+                    if let Some(prefix) = prefix {
                         if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
                             self.refs.push(RefEntry {
                                 line,
@@ -1212,7 +1211,7 @@ impl<'a> Walker<'a> {
                                 end_col: col + name.len() as u32,
                                 target_span: obj.span,
                                 target_name_len: name.len() as u32,
-                                signature: format!("{prefix}.length: i64"),
+                                signature: format!("(property) {prefix}.length: i64"),
                             });
                             return;
                         }
