@@ -81,14 +81,15 @@
     class Renderer {
         handle: i64
 
-        // Takes the window's i64 handle. Decoupling Renderer from
-        // sdl_window's `Window` class avoids a cross-module type
-        // reference here.
-        init(window_handle: i64) {
+        // Type ref points at the umbrella-published `sdl.Window`
+        // (the one the user actually instantiates with `new
+        // sdl.Window(...)`). Importing `sdl_window` directly would
+        // give a *different* prefixed copy that doesn't match.
+        init(window: sdl.Window) {
             // index = -1 picks the first available driver;
             // flags = 0 means default (driver-chosen accelerated).
             this.handle = SDL_CreateRenderer(
-                window_handle as *void, -1, 0
+                window.handle as *void, -1, 0
             ) as i64
             // Enable alpha blending so transparent texture pixels
             // composite over the background instead of replacing it.
@@ -133,7 +134,7 @@
         }
 
         // Stretch the entire texture into the destination rect.
-        drawTexture(tex_handle: i64, x: i32, y: i32, w: i32, h: i32): i32 {
+        drawTexture(tex: Texture, x: i32, y: i32, w: i32, h: i32): i32 {
             let dst = new SDL_Rect()
             dst.x = x
             dst.y = y
@@ -141,7 +142,7 @@
             dst.h = h
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
-                tex_handle as *SDL_Texture,
+                tex.handle as *SDL_Texture,
                 0 as *SDL_Rect, dst
             )
         }
@@ -149,7 +150,7 @@
         // Same as drawTexture but rotates around the dst rect's
         // centre by `angle` degrees (clockwise).
         drawTextureRot(
-            tex_handle: i64, x: i32, y: i32, w: i32, h: i32, angle: f64
+            tex: Texture, x: i32, y: i32, w: i32, h: i32, angle: f64
         ): i32 {
             let dst = new SDL_Rect()
             dst.x = x
@@ -158,7 +159,7 @@
             dst.h = h
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
-                tex_handle as *SDL_Texture,
+                tex.handle as *SDL_Texture,
                 0 as *SDL_Rect, dst,
                 angle, 0 as *void, 0
             )
@@ -170,13 +171,13 @@
         }
 
         // Redirect subsequent draw calls into a texture instead of
-        // the window. Pass a TARGET-access texture's `handle` here,
-        // then `resetTarget()` to swap back. Required for chained
+        // the window. Pass a TARGET-access texture, then
+        // `resetTarget()` to swap back. Required for chained
         // post-process effects (chromatic aberration, phosphor
         // afterglow, full-frame bloom).
-        setTarget(tex_handle: i64): i32 {
+        setTarget(tex: Texture): i32 {
             SDL_SetRenderTarget(this.handle as *SDL_Renderer,
-                                tex_handle as *SDL_Texture)
+                                tex.handle as *SDL_Texture)
         }
 
         resetTarget(): i32 {

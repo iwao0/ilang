@@ -498,7 +498,7 @@ fn play() {
         return
     }
 
-    let ren = new sdl.Renderer(win.handle)
+    let ren = new sdl.Renderer(win)
     if ren.handle == 0 {
         console.log("SDL_CreateRenderer failed: " + sdl.getError())
         return
@@ -872,7 +872,7 @@ fn play() {
         let f_now = sdl.Keyboard.isPressed(sdl.SCANCODE_F)
         if f_now && !f_was_down {
             fullscreen = !fullscreen
-            win.setFullscreen(fullscreen)
+            win.fullscreen = fullscreen
         }
         f_was_down = f_now
 
@@ -1249,7 +1249,7 @@ fn play() {
         // The world is drawn into `scene_tex` so we can post-process
         // it (chromatic aberration). HUD lands directly on the
         // window afterwards so the readouts stay sharp.
-        ren.setTarget(scene_tex.handle)
+        ren.setTarget(scene_tex)
         ren.setColor(8, 4, 24, 255)        // very dark navy
         ren.clear()
 
@@ -1310,7 +1310,7 @@ fn play() {
                     if alpha > 0 as u8 {
                         glow_tex.setColorMod(br.r, br.g, br.b)
                         glow_tex.setAlphaMod(alpha)
-                        ren.drawTexture(glow_tex.handle,
+                        ren.drawTexture(glow_tex,
                                         br.x - glow_pad_x + shake_off_x,
                                         br.y - glow_pad_y + shake_off_y,
                                         BRICK_W + 2 * glow_pad_x,
@@ -1335,7 +1335,7 @@ fn play() {
                 glow_tex.setAlphaMod((t * 180.0) as u8)
                 let bw = ((BRICK_W + 2 * glow_pad_x) as f64) * scale
                 let bh = ((BRICK_H + 2 * glow_pad_y) as f64) * scale
-                ren.drawTexture(glow_tex.handle,
+                ren.drawTexture(glow_tex,
                                 cx - (bw as i32) / 2 + shake_off_x,
                                 cy - (bh as i32) / 2 + shake_off_y,
                                 bw as i32, bh as i32)
@@ -1368,14 +1368,14 @@ fn play() {
             let halo_a = ((a as i32) / 3) as u8
             star_tex.setAlphaMod(halo_a)
             let halo_size: i32 = 56
-            ren.drawTextureRot(star_tex.handle,
+            ren.drawTextureRot(star_tex,
                                (p.x as i32) - halo_size / 2 + shake_off_x,
                                (p.y as i32) - halo_size / 2 + shake_off_y,
                                halo_size, halo_size, p.angle)
             // Sharp star body (2× the previous 16px).
             star_tex.setAlphaMod(a)
             let size: i32 = 32
-            ren.drawTextureRot(star_tex.handle,
+            ren.drawTextureRot(star_tex,
                                (p.x as i32) - size / 2 + shake_off_x,
                                (p.y as i32) - size / 2 + shake_off_y,
                                size, size, p.angle)
@@ -1539,10 +1539,10 @@ fn play() {
         // Linear filtering averages 4×4 source blocks into each
         // bloom pixel; later we'll upscale this back to full
         // resolution which spreads the average into a soft halo.
-        ren.setTarget(bloom_tex.handle)
+        ren.setTarget(bloom_tex)
         ren.setColor(0, 0, 0, 0)
         ren.clear()
-        ren.drawTexture(scene_tex.handle, 0, 0, BLOOM_W, BLOOM_H)
+        ren.drawTexture(scene_tex, 0, 0, BLOOM_W, BLOOM_H)
 
         // ─── composite scene_tex (world + HUD) to window with
         // ─── chromatic aberration. ────────────────────────────────
@@ -1556,11 +1556,11 @@ fn play() {
         scene_tex.setBlendMode(2)   // SDL_BLENDMODE_ADD
         let chroma: i32 = 3
         scene_tex.setColorMod(255 as u8, 0 as u8, 0 as u8)
-        ren.drawTexture(scene_tex.handle, -chroma, 0, WIN_W, WIN_H)
+        ren.drawTexture(scene_tex, -chroma, 0, WIN_W, WIN_H)
         scene_tex.setColorMod(0 as u8, 255 as u8, 0 as u8)
-        ren.drawTexture(scene_tex.handle, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(scene_tex, 0, 0, WIN_W, WIN_H)
         scene_tex.setColorMod(0 as u8, 0 as u8, 255 as u8)
-        ren.drawTexture(scene_tex.handle, chroma, 0, WIN_W, WIN_H)
+        ren.drawTexture(scene_tex, chroma, 0, WIN_W, WIN_H)
         // Restore for next frame's setTarget pass.
         scene_tex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
         scene_tex.setColorMod(255 as u8, 255 as u8, 255 as u8)
@@ -1574,12 +1574,12 @@ fn play() {
         bloom_tex.setBlendMode(2)
         bloom_tex.setColorMod(60 as u8, 60 as u8, 60 as u8)
         bloom_tex.setAlphaMod(255 as u8)
-        ren.drawTexture(bloom_tex.handle, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(bloom_tex, 0, 0, WIN_W, WIN_H)
         bloom_tex.setBlendMode(1)
         bloom_tex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
         // CRT overlay (scanlines + vignette).
-        ren.drawTexture(crt_tex.handle, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(crt_tex, 0, 0, WIN_W, WIN_H)
 
         ren.present()
 
