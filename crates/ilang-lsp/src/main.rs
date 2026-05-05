@@ -747,7 +747,24 @@ impl<'a> Walker<'a> {
                     self.walk_expr(v, scope, this_class);
                 }
             }
-            ExprKind::Assign { value, .. } => self.walk_expr(value, scope, this_class),
+            ExprKind::Assign { target, value } => {
+                if let Some(b) = scope.iter().rev().find(|b| &b.name == target) {
+                    let sig = match &b.ty {
+                        Some(t) => format!("{}: {}", target, t),
+                        None => target.clone(),
+                    };
+                    self.push_ref(target, e.span, b.span, target.len() as u32, sig);
+                } else if let Some(sym) = self.symbols.get(target) {
+                    self.push_ref(
+                        target,
+                        e.span,
+                        sym.span,
+                        sym.name.len() as u32,
+                        sym.signature.clone(),
+                    );
+                }
+                self.walk_expr(value, scope, this_class);
+            }
             ExprKind::AssignField { obj, field, value } => {
                 self.walk_expr(obj, scope, this_class);
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
