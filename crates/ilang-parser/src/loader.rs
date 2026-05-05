@@ -1037,6 +1037,7 @@ fn is_builtin_callee(name: &str) -> bool {
             | "freeCstr"
             | "bytesFromBuffer"
             | "readU8"
+            | "fnAddr"
             | "arrayFromCArray"
             | "cstrArrayToStrings"
             | "errnoCheck"

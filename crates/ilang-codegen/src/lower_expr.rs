@@ -4564,6 +4564,40 @@ fn try_lower_extern_c_helper(
             let byte = b.ins().load(I8, MemFlags::trusted(), addr, 0);
             Ok(Some(Some((byte, JitTy::U8))))
         }
+        // fnAddr(f): i64 — code-pointer of an ilang fn for passing
+        // into C as a callback. The argument must be a bare fn name
+        // (Var); we look it up in the JIT's fn table and emit a
+        // `func_addr` instruction so the address is materialised at
+        // runtime (post-finalize).
+        "fnAddr" => {
+            let name = match &args[0].kind {
+                ExprKind::Var(n) => n.clone(),
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "fnAddr argument must be a bare fn name".into(),
+                        span: args[0].span,
+                    });
+                }
+            };
+            // Try the bare name first, then the module-qualified
+            // form a prefix pass might have produced.
+            let resolved = lc.funcs.get(&name).map(|t| t.0).or_else(|| {
+                lc.funcs.iter().find_map(|(k, t)| {
+                    if k == &name || k.ends_with(&format!(".{name}")) {
+                        Some(t.0)
+                    } else {
+                        None
+                    }
+                })
+            });
+            let func_id = resolved.ok_or_else(|| CodegenError::Unsupported {
+                what: format!("fnAddr: unknown fn `{name}`"),
+                span: args[0].span,
+            })?;
+            let func_ref = lc.module.declare_func_in_func(func_id, b.func);
+            let addr = b.ins().func_addr(I64, func_ref);
+            Ok(Some(Some((addr, JitTy::I64))))
+        }
         // arrayFromCArray<T>(p: *const T, n: size_t): T[]
         "arrayFromCArray" => {
             let elem = resolve_type_arg_t(lc, call_span)?;
