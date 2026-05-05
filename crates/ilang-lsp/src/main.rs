@@ -1536,10 +1536,21 @@ impl<'a> Walker<'a> {
         let Some(sig) = self.external_signatures.get(dotted) else {
             return;
         };
-        let Some(dot) = dotted.rfind('.') else {
+        let Some(dot) = dotted.find('.') else {
             return;
         };
+        let prefix = &dotted[..dot];
         let suffix = &dotted[dot + 1..];
+        // Hover at the receiver name itself (e.g. `math` in `math.sqrt`).
+        // The Call/Var AST span points at the start of the dotted form.
+        self.refs.push(RefEntry {
+            line: receiver_span.line,
+            start_col: receiver_span.col,
+            end_col: receiver_span.col + prefix.len() as u32,
+            target_span: receiver_span,
+            target_name_len: prefix.len() as u32,
+            signature: format!("(module) {prefix}"),
+        });
         if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
             self.refs.push(RefEntry {
                 line,
