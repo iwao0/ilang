@@ -1798,36 +1798,56 @@ impl<'a> Walker<'a> {
                 let class_sig = info
                     .map(|i| class_hover(class, i))
                     .unwrap_or_else(|| format!("class {class}"));
-                // Place a ref entry at the class identifier itself.
-                // For dotted names (`sdl.Gamepad`) the AST span points
-                // at the start of the dotted form, so additionally
-                // push module-prefix and suffix entries.
+                // The `new` keyword span is at e.span; the class name
+                // sits after `new ` so locate it explicitly. Without
+                // this, our ref entries would land on the keyword
+                // (and the dotted-name suffix wouldn't be found).
+                let class_start = locate_let_name_with_kw(
+                    self.text,
+                    e.span,
+                    "new",
+                    class.split('.').next().unwrap_or(class),
+                )
+                .unwrap_or(e.span);
+                // F12 jumps to init when there is one; otherwise to the
+                // class declaration itself. `init_member` is `None` for
+                // classes without a defined init.
+                let init_member = info.and_then(|i| i.methods.get("init"));
                 if let Some(dot) = class.find('.') {
                     let prefix = &class[..dot];
                     let suffix = &class[dot + 1..];
                     self.refs.push(RefEntry {
-                        line: e.span.line,
-                        start_col: e.span.col,
-                        end_col: e.span.col + prefix.len() as u32,
-                        target_span: e.span,
+                        line: class_start.line,
+                        start_col: class_start.col,
+                        end_col: class_start.col + prefix.len() as u32,
+                        target_span: class_start,
                         target_name_len: prefix.len() as u32,
                         signature: format!("(module) {prefix}"),
                         no_definition: true,
                         target_uri: None,
                     });
-                    if let Some((line, col)) = locate_dot_name(self.text, e.span, suffix) {
+                    if let Some((line, col)) = locate_dot_name(self.text, class_start, suffix) {
                         let loc = self.external_sources.get(class);
                         let target_uri = loc
                             .and_then(|l| Url::from_file_path(&l.path).ok());
-                        let (target_span, target_name_len, no_def) = match info {
-                            Some(i) if !i.external => {
-                                (i.decl_span, suffix.len() as u32, false)
+                        let is_external = info.map(|i| i.external).unwrap_or(true);
+                        let (target_span, target_name_len, no_def) = match (init_member, is_external) {
+                            (Some(im), false) => (im.span, suffix.len() as u32, false),
+                            (Some(im), true) if target_uri.is_some() => {
+                                (im.span, "init".len() as u32, false)
                             }
-                            _ => match loc {
-                                Some(l) if target_uri.is_some() => {
-                                    (l.span, l.name_len, false)
+                            _ => match info {
+                                Some(i) if !i.external => {
+                                    (i.decl_span, suffix.len() as u32, false)
                                 }
-                                _ => (e.span, suffix.len() as u32, target_uri.is_none()),
+                                _ => match loc {
+                                    Some(l) if target_uri.is_some() => {
+                                        (l.span, l.name_len, false)
+                                    }
+                                    _ => {
+                                        (class_start, suffix.len() as u32, target_uri.is_none())
+                                    }
+                                },
                             },
                         };
                         self.refs.push(RefEntry {
@@ -1842,13 +1862,17 @@ impl<'a> Walker<'a> {
                         });
                     }
                 } else if let Some(sym) = self.symbols.get(class) {
-                    self.push_ref(
-                        class,
-                        e.span,
-                        sym.span,
-                        sym.name.len() as u32,
-                        class_sig,
-                    );
+                    let target_span = init_member.map(|m| m.span).unwrap_or(sym.span);
+                    self.refs.push(RefEntry {
+                        line: class_start.line,
+                        start_col: class_start.col,
+                        end_col: class_start.col + class.len() as u32,
+                        target_span,
+                        target_name_len: class.len() as u32,
+                        signature: class_sig,
+                        no_definition: false,
+                        target_uri: None,
+                    });
                 }
                 for a in args {
                     self.walk_expr(a, scope, this_class);
