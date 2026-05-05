@@ -3253,7 +3253,10 @@ fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
 }
 
 /// Top-level identifiers visible in `doc`, used as completion fallback
-/// when the user is just typing a name (no receiver).
+/// when the user is just typing a name (no receiver). Only the bare
+/// names appear — `use module` namespaces show up as the module name
+/// itself, not as `module.member` (those land in the `module.`
+/// completion list).
 fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
     for (name, sym) in doc.symbols.iter() {
@@ -3269,11 +3272,17 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
-    for (name, sig) in doc.external_signatures.iter() {
+    let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for key in doc.external_signatures.keys() {
+        if let Some((m, _)) = key.split_once('.') {
+            modules.insert(m.to_string());
+        }
+    }
+    for m in modules {
         out.push(CompletionItem {
-            label: name.clone(),
-            kind: Some(CompletionItemKind::FUNCTION),
-            detail: Some(sig.clone()),
+            label: m.clone(),
+            kind: Some(CompletionItemKind::MODULE),
+            detail: Some(format!("(module) {m}")),
             ..CompletionItem::default()
         });
     }
