@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use ilang_ast::{Item, Program, Span};
+use ilang_ast::{Expr, ExprKind, Item, Program, Span, UnOp};
 use ilang_lexer::{tokenize, TokenKind};
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
@@ -256,7 +256,10 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
-                let signature = format!("const {}{}", c.name, ty);
+                let value = render_const_value(&c.value)
+                    .map(|v| format!(" = {v}"))
+                    .unwrap_or_default();
+                let signature = format!("const {}{}{}", c.name, ty, value);
                 out.insert(
                     c.name.clone(),
                     Symbol {
@@ -270,6 +273,29 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
         }
     }
     out
+}
+
+/// Render a `const` initializer back to a short source-like string for
+/// hover. Covers primitive literals and a leading unary `-` / `+`; more
+/// complex expressions fall back to `None` so we don't print noise.
+fn render_const_value(e: &Expr) -> Option<String> {
+    match &e.kind {
+        ExprKind::Int(n) => Some(n.to_string()),
+        ExprKind::Float(f) => Some(f.to_string()),
+        ExprKind::Bool(b) => Some(b.to_string()),
+        ExprKind::Str(s) => Some(format!("{s:?}")),
+        ExprKind::Unary { op, expr } => {
+            let inner = render_const_value(expr)?;
+            let sym = match op {
+                UnOp::Neg => "-",
+                UnOp::Pos => "+",
+                UnOp::Not => "!",
+                UnOp::BitNot => "~",
+            };
+            Some(format!("{sym}{inner}"))
+        }
+        _ => None,
+    }
 }
 
 /// Find the identifier under the cursor by re-tokenising the source and
