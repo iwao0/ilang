@@ -1874,7 +1874,11 @@ impl<'a> Walker<'a> {
             }
             ExprKind::Cast { expr, .. } => self.walk_expr(expr, scope, this_class),
             ExprKind::FnExpr { params, body, .. } => {
-                let mut inner: Vec<Binding> = Vec::new();
+                // Closures capture outer locals by value at runtime, but
+                // for hover/F12 it's useful to resolve them inside the
+                // body too — start from the enclosing scope and add the
+                // closure's own params on top.
+                let mut inner: Vec<Binding> = scope.clone();
                 for p in params {
                     let sig = BindKind::Param.render(&p.name, Some(&p.ty));
                     self.push_decl(&p.name, p.span, sig);
