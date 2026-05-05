@@ -220,7 +220,7 @@ fn make_crt_overlay(w: i32, h: i32): u8[] {
     buf
 }
 
-// ─── audio: short sine-wave beeps ─────────────────────────────────
+// ─── audio: short sine-wave beeps + BGM loop ──────────────────────
 
 fn makeBeep(freq_hz: f64, ms: i32): i16[] {
     let n = (SAMPLE_RATE * ms) / 1000
@@ -239,6 +239,65 @@ fn makeBeep(freq_hz: f64, ms: i32): i16[] {
         let t = (i as f64) / (SAMPLE_RATE as f64)
         let sample = math.sin(two_pi * freq_hz * t) * 8000.0 * env
         buf.push(sample as i16)
+        i += 1
+    }
+    buf
+}
+
+// Single chiptune note (square wave) of `ms` milliseconds. Used as
+// the building block for the BGM loop.
+fn makeNote(freq_hz: f64, ms: i32, vol: f64): i16[] {
+    let n = (SAMPLE_RATE * ms) / 1000
+    let buf: i16[] = []
+    let i: i32 = 0
+    while i < n {
+        let ramp = SAMPLE_RATE / 100   // 10ms attack/decay
+        let env: f64 = if i < ramp {
+            (i as f64) / (ramp as f64)
+        } elif i > n - ramp {
+            ((n - i) as f64) / (ramp as f64)
+        } else {
+            1.0
+        }
+        let t = (i as f64) / (SAMPLE_RATE as f64)
+        // Square wave from sin sign — gives the classic chip-style
+        // bite without needing a phase accumulator.
+        let s = math.sin(2.0 * math.pi * freq_hz * t)
+        let sq: f64 = if s >= 0.0 { 1.0 } else { -1.0 }
+        let sample = sq * vol * 5500.0 * env
+        buf.push(sample as i16)
+        i += 1
+    }
+    buf
+}
+
+// 16-step arpeggio over Am → F → C → G (4 bars of 4 notes each at
+// ~180ms per step → ≈2.9s loop). Returns one full loop ready to be
+// queued into an AudioDevice; the main loop refills the queue when
+// it gets low.
+fn makeBgmLoop(): i16[] {
+    let buf: i16[] = []
+    let beat_ms: i32 = 180
+    let notes: f64[] = [
+        // Am: A2 E3 A3 E3
+        110.0,  164.81, 220.0,  164.81,
+        // F:  F2 C3 F3 C3
+         87.31, 130.81, 174.61, 130.81,
+        // C:  C3 G3 C4 G3
+        130.81, 196.0,  261.63, 196.0,
+        // G:  G2 D3 G3 D3
+         98.0,  146.83, 196.0,  146.83
+    ]
+    let i: i32 = 0
+    let n: i32 = notes.length as i32
+    while i < n {
+        let note = makeNote(notes[i], beat_ms, 0.32)
+        let ji: i32 = 0
+        let jn: i32 = note.length as i32
+        while ji < jn {
+            buf.push(note[ji])
+            ji += 1
+        }
         i += 1
     }
     buf
@@ -329,6 +388,38 @@ class Popup {
         this.r = r
         this.g = g
         this.b = b
+    }
+}
+
+// Stored per-ball so multi-ball can run multiple at once. The
+// physics loop iterates `balls` each frame; balls that fall below
+// the paddle drop out of the array.
+class Ball {
+    x: f64
+    y: f64
+    vx: f64
+    vy: f64
+    init(x: f64, y: f64, vx: f64, vy: f64) {
+        this.x = x
+        this.y = y
+        this.vx = vx
+        this.vy = vy
+    }
+}
+
+// Falls from a broken brick at low probability. The paddle catches
+// it on contact, applying a temporary effect: kind 0 = wider
+// paddle, 1 = multi-ball (immediate, one-shot), 2 = slow motion.
+class PowerUp {
+    x: f64
+    y: f64
+    vy: f64
+    kind: i32
+    init(x: f64, y: f64, kind: i32) {
+        this.x = x
+        this.y = y
+        this.vy = 1.8
+        this.kind = kind
     }
 }
 
@@ -535,6 +626,19 @@ fn play() {
     }
     audio.play()
 
+    // Second audio device dedicated to BGM. SDL allows multiple
+    // simultaneous open devices, so the music keeps playing even
+    // while SFX queue/dequeue rapidly on the first device.
+    let audio_music = new sdl.AudioDevice(SAMPLE_RATE, 1)
+    let bgm = makeBgmLoop()
+    let bgm_bytes = (bgm.length * 2) as u32   // one loop in queued-bytes
+    if audio_music.id != 0 {
+        // Pre-buffer two loops so the first refill check has slack.
+        audio_music.queue(bgm)
+        audio_music.queue(bgm)
+        audio_music.play()
+    }
+
     // Open the first attached gamepad if any. `pad.handle == 0`
     // when nothing is plugged in — every poll degrades to
     // returning 0/false, so the keyboard path keeps working.
@@ -616,10 +720,8 @@ fn play() {
     // State.
     let paddle_x: f64 = ((WIN_W - PADDLE_W) / 2) as f64
     let paddle_y: i32 = WIN_H - 60
-    let ball_x: f64 = (WIN_W / 2) as f64
-    let ball_y: f64 = (WIN_H / 2) as f64
-    let ball_vx: f64 = 5.0
-    let ball_vy: f64 = -5.0
+    let balls: Ball[] = []
+    balls.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
     let score: i32 = 0
     let bricks_left: i32 = COLS * ROWS
     let lives: i32 = 5
@@ -638,6 +740,17 @@ fn play() {
     // moment the level is cleared.
     let intro_phase: i32 = 0
     let won_celebrated: bool = false
+    // Power-ups falling from broken bricks. Timers count down per
+    // frame while > 0; while their flag is active the matching
+    // effect is applied. Multi-ball is one-shot so it doesn't need
+    // a timer.
+    let powerups: PowerUp[] = []
+    let wider_timer: i32 = 0
+    let slow_timer: i32 = 0
+    // Tracks the paddle width from the previous frame so we can
+    // re-anchor `paddle_x` (which is the LEFT edge) when WIDER
+    // turns on or off — the visible paddle centre stays put.
+    let prev_paddle_w: i32 = PADDLE_W
 
     // Visual effect state.
     let wave_phase: f64 = 0.0       // brick highlight wave (rad)
@@ -665,7 +778,7 @@ fn play() {
     let trail: TrailPoint[] = []
     let trail_init: i32 = 0
     while trail_init < TRAIL_LEN {
-        trail.push(new TrailPoint(ball_x, ball_y))
+        trail.push(new TrailPoint(balls[0].x, balls[0].y))
         trail_init = trail_init + 1
     }
     let trail_head: i32 = 0
@@ -688,6 +801,12 @@ fn play() {
         // Brick highlight wave advances each frame.
         wave_phase = wave_phase + 0.08
         intro_phase = intro_phase + 1
+
+        // Top up the BGM queue so the loop never drains. Polling
+        // each frame is plenty cheap.
+        if audio_music.id != 0 && audio_music.queuedBytes() < bgm_bytes {
+            audio_music.queue(bgm)
+        }
 
         // Clear-time celebration: one big multi-burst the instant
         // the level is won, then a steady stream while CLEAR! is
@@ -751,14 +870,20 @@ fn play() {
                 }
                 r2 += 1
             }
-            ball_vx = 5.0
-            ball_vy = -5.0
+            let fresh_balls: Ball[] = []
+            fresh_balls.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+            balls = fresh_balls
             score = 0
             bricks_left = COLS * ROWS
             lives = 5
             started = false
             game_over = false
             won = false
+            let empty_pu: PowerUp[] = []
+            powerups = empty_pu
+            wider_timer = 0
+            slow_timer = 0
+            prev_paddle_w = PADDLE_W
             let empty: Particle[] = []
             particles = empty
             let empty_pops: Popup[] = []
@@ -771,6 +896,18 @@ fn play() {
         }
 
         // ─── input ────────────────────────────────────────────────
+
+        // Effective paddle width — temporarily widened by the
+        // WIDER power-up. Used by both physics and rendering.
+        let paddle_w_wide: i32 = PADDLE_W + (PADDLE_W as i32) / (2 as i32)
+        let paddle_w: i32 = if wider_timer > 0 { paddle_w_wide } else { PADDLE_W }
+        // Re-anchor on width change so the paddle grows/shrinks
+        // around its centre rather than its left edge.
+        if paddle_w != prev_paddle_w {
+            let delta = paddle_w - prev_paddle_w
+            paddle_x = paddle_x - (delta as f64) / 2.0
+            prev_paddle_w = paddle_w
+        }
 
         if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) || pad_dpad_l {
             paddle_x = paddle_x - PADDLE_SPEED
@@ -788,7 +925,7 @@ fn play() {
         if paddle_x < 0.0 {
             paddle_x = 0.0
         }
-        let paddle_max: f64 = (WIN_W - PADDLE_W) as f64
+        let paddle_max: f64 = (WIN_W - paddle_w) as f64
         if paddle_x > paddle_max {
             paddle_x = paddle_max
         }
@@ -802,155 +939,232 @@ fn play() {
                 (sdl.Keyboard.isPressed(sdl.SCANCODE_SPACE) || pad_a) {
             started = true
         }
-        // While idle, keep the ball glued to the paddle's centre.
-        if !started {
-            ball_x = paddle_x + (PADDLE_W as f64) / 2.0 - (BALL_SIZE as f64) / 2.0
-            ball_y = (paddle_y as f64) - (BALL_SIZE as f64)
+
+        // While idle, keep the (first) ball glued to the paddle's
+        // centre.
+        if !started && balls.length as i32 > 0 {
+            let b0 = balls[0]
+            b0.x = paddle_x + (paddle_w as f64) / 2.0 - (BALL_SIZE as f64) / 2.0
+            b0.y = (paddle_y as f64) - (BALL_SIZE as f64)
         }
 
         // ─── ball physics ─────────────────────────────────────────
 
         if started && !game_over {
-            ball_x = ball_x + ball_vx
-            ball_y = ball_y + ball_vy
+            // Slow-mo divides ball velocity step. Renormalize uses
+            // the same factor so target magnitude shrinks.
+            let speed_factor: f64 = if slow_timer > 0 { 0.55 } else { 1.0 }
 
-            // Walls.
-            if ball_x < 0.0 {
-                ball_x = 0.0
-                ball_vx = -ball_vx
-                audio.queue(beep_wall)
-            }
-            if ball_x + (BALL_SIZE as f64) > WIN_W as f64 {
-                ball_x = (WIN_W - BALL_SIZE) as f64
-                ball_vx = -ball_vx
-                audio.queue(beep_wall)
-            }
-            if ball_y < 0.0 {
-                ball_y = 0.0
-                ball_vy = -ball_vy
-                audio.queue(beep_wall)
-            }
+            let surviving: Ball[] = []
+            let bi: i32 = 0
+            let bn: i32 = balls.length as i32
+            while bi < bn {
+                let b = balls[bi]
+                b.x = b.x + b.vx * speed_factor
+                b.y = b.y + b.vy * speed_factor
 
-            // Paddle (only on the way down).
-            let bx_lo = ball_x
-            let bx_hi = ball_x + (BALL_SIZE as f64)
-            let by_lo = ball_y
-            let by_hi = ball_y + (BALL_SIZE as f64)
-            let px_lo = paddle_x
-            let px_hi = paddle_x + (PADDLE_W as f64)
-            let py_lo = paddle_y as f64
-            let py_hi = (paddle_y + PADDLE_H) as f64
-            if ball_vy > 0.0 && bx_hi > px_lo && bx_lo < px_hi
-                    && by_hi > py_lo && by_lo < py_hi {
-                ball_y = py_lo - (BALL_SIZE as f64)
-                // Classic Breakout deflection: hit position on the
-                // paddle (-1 left edge … +1 right edge) maps to an
-                // exit angle, while keeping the ball's overall speed
-                // constant. The further from centre, the steeper.
-                let hit_centre = px_lo + (PADDLE_W as f64) / 2.0
-                let ball_centre = ball_x + (BALL_SIZE as f64) / 2.0
-                let rel = (ball_centre - hit_centre) / ((PADDLE_W as f64) / 2.0)
-                let rel_clamped: f64 = if rel < -1.0 { -1.0 } elif rel > 1.0 { 1.0 } else { rel }
-                let max_angle: f64 = 1.04   // ≈60°
-                let angle = rel_clamped * max_angle
-                let speed = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
-                ball_vx = speed * math.sin(angle)
-                ball_vy = -speed * math.cos(angle)
-                // Paddle bounce ends a brick combo.
-                combo = 0
-                audio.queue(beep_paddle)
-            }
-
-            // Bricks. First-hit-wins-this-frame so we don't bounce
-            // through two bricks in a single tick.
-            let i: i32 = 0
-            let n: i32 = bricks.length as i32
-            while i < n {
-                let br = bricks[i]
-                if br.alive {
-                    let rx_lo = br.x as f64
-                    let rx_hi = (br.x + BRICK_W) as f64
-                    let ry_lo = br.y as f64
-                    let ry_hi = (br.y + BRICK_H) as f64
-                    if bx_hi > rx_lo && bx_lo < rx_hi
-                            && by_hi > ry_lo && by_lo < ry_hi {
-                        br.alive = false
-                        br.dying = 1.0
-                        bricks_left = bricks_left - 1
-                        combo = combo + 1
-                        let earned = 100 * combo
-                        score = score + earned
-                        // Decide which axis to flip based on overlap depth.
-                        let overlap_x = if ball_vx > 0.0 { bx_hi - rx_lo } else { rx_hi - bx_lo }
-                        let overlap_y = if ball_vy > 0.0 { by_hi - ry_lo } else { ry_hi - by_lo }
-                        if overlap_x < overlap_y {
-                            ball_vx = -ball_vx
-                        } else {
-                            ball_vy = -ball_vy
-                        }
-                        let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
-                        let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
-                        spawnParticles(particles, cx, cy, br.r, br.g, br.b)
-                        // Score popup floats up from the brick.
-                        popups.push(new Popup(
-                            cx, cy - 4.0, "+" + intToStr(earned),
-                            br.r, br.g, br.b
-                        ))
-                        // Screen shake — bigger as the combo grows.
-                        let bump = 4.0 + (combo as f64) * 1.5
-                        shake = shake + bump
-                        if shake > 14.0 { shake = 14.0 }
-                        audio.queue(beep_brick)
-                        i = n   // stop after first hit this frame
-                    }
+                // Walls.
+                if b.x < 0.0 {
+                    b.x = 0.0
+                    b.vx = -b.vx
+                    audio.queue(beep_wall)
                 }
-                i = i + 1
-            }
+                if b.x + (BALL_SIZE as f64) > WIN_W as f64 {
+                    b.x = (WIN_W - BALL_SIZE) as f64
+                    b.vx = -b.vx
+                    audio.queue(beep_wall)
+                }
+                if b.y < 0.0 {
+                    b.y = 0.0
+                    b.vy = -b.vy
+                    audio.queue(beep_wall)
+                }
 
-            // Ball below the bottom: lose a life and respawn at
-            // mid-screen. When lives run out the round ends.
-            if ball_y > WIN_H as f64 {
+                // Paddle (only on the way down).
+                let bx_lo = b.x
+                let bx_hi = b.x + (BALL_SIZE as f64)
+                let by_lo = b.y
+                let by_hi = b.y + (BALL_SIZE as f64)
+                let px_lo = paddle_x
+                let px_hi = paddle_x + (paddle_w as f64)
+                let py_lo = paddle_y as f64
+                let py_hi = (paddle_y + PADDLE_H) as f64
+                if b.vy > 0.0 && bx_hi > px_lo && bx_lo < px_hi
+                        && by_hi > py_lo && by_lo < py_hi {
+                    b.y = py_lo - (BALL_SIZE as f64)
+                    let hit_centre = px_lo + (paddle_w as f64) / 2.0
+                    let ball_centre = b.x + (BALL_SIZE as f64) / 2.0
+                    let rel = (ball_centre - hit_centre) / ((paddle_w as f64) / 2.0)
+                    let rel_clamped: f64 = if rel < -1.0 { -1.0 } elif rel > 1.0 { 1.0 } else { rel }
+                    let max_angle: f64 = 1.04   // ≈60°
+                    let angle = rel_clamped * max_angle
+                    let speed = math.sqrt(b.vx * b.vx + b.vy * b.vy)
+                    b.vx = speed * math.sin(angle)
+                    b.vy = -speed * math.cos(angle)
+                    combo = 0
+                    audio.queue(beep_paddle)
+                }
+
+                // Bricks. First-hit-wins-this-frame for this ball.
+                let i: i32 = 0
+                let n: i32 = bricks.length as i32
+                while i < n {
+                    let br = bricks[i]
+                    if br.alive {
+                        let rx_lo = br.x as f64
+                        let rx_hi = (br.x + BRICK_W) as f64
+                        let ry_lo = br.y as f64
+                        let ry_hi = (br.y + BRICK_H) as f64
+                        if bx_hi > rx_lo && bx_lo < rx_hi
+                                && by_hi > ry_lo && by_lo < ry_hi {
+                            br.alive = false
+                            br.dying = 1.0
+                            bricks_left = bricks_left - 1
+                            combo = combo + 1
+                            let earned = 100 * combo
+                            score = score + earned
+                            let overlap_x = if b.vx > 0.0 { bx_hi - rx_lo } else { rx_hi - bx_lo }
+                            let overlap_y = if b.vy > 0.0 { by_hi - ry_lo } else { ry_hi - by_lo }
+                            if overlap_x < overlap_y {
+                                b.vx = -b.vx
+                            } else {
+                                b.vy = -b.vy
+                            }
+                            let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
+                            let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
+                            spawnParticles(particles, cx, cy, br.r, br.g, br.b)
+                            popups.push(new Popup(
+                                cx, cy - 4.0, "+" + intToStr(earned),
+                                br.r, br.g, br.b
+                            ))
+                            let bump = 4.0 + (combo as f64) * 1.5
+                            shake = shake + bump
+                            if shake > 14.0 { shake = 14.0 }
+                            audio.queue(beep_brick)
+                            // 14% drop chance per brick break.
+                            if randf() < 0.14 {
+                                let kind = (randf() * 3.0) as i32
+                                powerups.push(new PowerUp(cx, cy, kind))
+                            }
+                            i = n   // stop after first hit this frame
+                        }
+                    }
+                    i = i + 1
+                }
+
+                // Win: all bricks cleared. Don't break the ball
+                // loop — remaining balls finish their frame.
+                if bricks_left <= 0 {
+                    game_over = true
+                    won = true
+                }
+
+                // Speed-up renormalize per ball.
+                let base_speed: f64 = 7.07106781   // sqrt(5^2 + 5^2)
+                let time_bonus_raw = (play_time as f64) * 0.002
+                let time_bonus: f64 = if time_bonus_raw > 6.0 { 6.0 } else { time_bonus_raw }
+                let combo_bonus = (combo as f64) * 0.35
+                let target = (base_speed + time_bonus + combo_bonus) * speed_factor
+                let cur = math.sqrt(b.vx * b.vx + b.vy * b.vy)
+                if cur > 0.001 {
+                    let scale = target / cur
+                    b.vx = b.vx * scale
+                    b.vy = b.vy * scale
+                }
+
+                // Survives if it didn't fall below the bottom.
+                if b.y <= WIN_H as f64 {
+                    surviving.push(b)
+                }
+                bi = bi + 1
+            }
+            balls = surviving
+            play_time = play_time + 1
+
+            // Out of balls → lose a life.
+            if balls.length as i32 == 0 {
                 lives = lives - 1
                 if lives <= 0 {
                     game_over = true
                     won = false
                 } else {
                     started = false
-                    ball_vx = 5.0
-                    ball_vy = -5.0
                     combo = 0
+                    let respawn: Ball[] = []
+                    respawn.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+                    balls = respawn
                 }
-            }
-            // Win: all bricks cleared.
-            if bricks_left <= 0 {
-                game_over = true
-                won = true
-            }
-
-            // Gradual speed-up. The ball's direction is preserved
-            // (we just rescale the velocity vector to a target
-            // magnitude), so paddle aim still works the same — only
-            // the tempo rises. Time and combo both contribute, with
-            // a hard cap so it never becomes uncontrollable.
-            play_time = play_time + 1
-            let base_speed: f64 = 7.07106781   // sqrt(5^2 + 5^2)
-            let time_bonus = (play_time as f64) * 0.002
-            if time_bonus > 6.0 { time_bonus = 6.0 }
-            let combo_bonus = (combo as f64) * 0.35
-            let target = base_speed + time_bonus + combo_bonus
-            let cur = math.sqrt(ball_vx * ball_vx + ball_vy * ball_vy)
-            if cur > 0.001 {
-                let scale = target / cur
-                ball_vx = ball_vx * scale
-                ball_vy = ball_vy * scale
             }
         }
 
-        // Record ball position into the trail ring buffer.
-        let tp = trail[trail_head]
-        tp.x = ball_x
-        tp.y = ball_y
-        trail_head = (trail_head + 1) % TRAIL_LEN
+        // Record the (first) ball's position into the trail ring
+        // buffer. Multi-ball still draws a single trail tied to the
+        // primary; secondary balls don't smear, which keeps the
+        // image readable when several are in flight.
+        if balls.length as i32 > 0 {
+            let tp = trail[trail_head]
+            tp.x = balls[0].x
+            tp.y = balls[0].y
+            trail_head = (trail_head + 1) % TRAIL_LEN
+        }
+
+        // ─── power-up step: fall, catch, expire ──────────────────
+        if wider_timer > 0 { wider_timer = wider_timer - 1 }
+        if slow_timer > 0 { slow_timer = slow_timer - 1 }
+        let alive_pu: PowerUp[] = []
+        let pui: i32 = 0
+        let pun: i32 = powerups.length as i32
+        while pui < pun {
+            let pu = powerups[pui]
+            pu.y = pu.y + pu.vy
+            // Catch test: 36×16 chip centred on (pu.x, pu.y).
+            let chip_w: f64 = 36.0
+            let chip_h: f64 = 16.0
+            let cx_lo = pu.x - chip_w / 2.0
+            let cx_hi = pu.x + chip_w / 2.0
+            let cy_lo = pu.y - chip_h / 2.0
+            let cy_hi = pu.y + chip_h / 2.0
+            let pdl = paddle_x
+            let pdr = paddle_x + (paddle_w as f64)
+            let pdt = paddle_y as f64
+            let pdb = (paddle_y + PADDLE_H) as f64
+            let caught = cx_hi > pdl && cx_lo < pdr && cy_hi > pdt && cy_lo < pdb
+            let removed: bool = caught
+            if caught {
+                if pu.kind == 0 {
+                    wider_timer = 600           // 10s
+                } elif pu.kind == 1 {
+                    // Multi-ball: clone first ball into two new balls
+                    // with slightly diverged angles.
+                    if balls.length as i32 > 0 {
+                        let src = balls[0]
+                        let extra: Ball[] = []
+                        let ki: i32 = 0
+                        while ki < 2 {
+                            let dvx = if ki == 0 { src.vy * 0.5 } else { 0.0 - src.vy * 0.5 }
+                            let dvy = if ki == 0 { 0.0 - src.vx * 0.5 } else { src.vx * 0.5 }
+                            extra.push(new Ball(src.x, src.y,
+                                                src.vx + dvx, src.vy + dvy))
+                            ki = ki + 1
+                        }
+                        let kj: i32 = 0
+                        let kn: i32 = extra.length as i32
+                        while kj < kn {
+                            balls.push(extra[kj])
+                            kj = kj + 1
+                        }
+                    }
+                } else {
+                    slow_timer = 480            // 8s
+                }
+                audio.queue(beep_paddle)
+            }
+            if !removed && pu.y < (WIN_H + 40) as f64 {
+                alive_pu.push(pu)
+            }
+            pui = pui + 1
+        }
+        powerups = alive_pu
 
         // ─── particle step ───────────────────────────────────────
 
@@ -1149,9 +1363,32 @@ fn play() {
             i3 = i3 + 1
         }
 
-        // Paddle (white/cyan glow, rounded ends).
+        // Power-up chips drifting down — coloured neon stadium with
+        // a single-letter label on top.
+        let pri: i32 = 0
+        let prn: i32 = powerups.length as i32
+        while pri < prn {
+            let pu = powerups[pri]
+            let pr2: u8 = if pu.kind == 0 { 120 as u8 } elif pu.kind == 1 { 255 as u8 } else { 200 as u8 }
+            let pg2: u8 = if pu.kind == 0 { 220 as u8 } elif pu.kind == 1 { 220 as u8 } else { 120 as u8 }
+            let pb2: u8 = if pu.kind == 0 { 255 as u8 } elif pu.kind == 1 { 120 as u8 } else { 255 as u8 }
+            let chip_x = (pu.x as i32) - 18 + shake_off_x
+            let chip_y = (pu.y as i32) - 8 + shake_off_y
+            fillNeonStadium(chip_x, chip_y, 36, 16, pr2, pg2, pb2)
+            let label: string = if pu.kind == 0 { "W" } elif pu.kind == 1 { "M" } else { "S" }
+            font.drawText(ren, label, chip_x + 14, chip_y + 2,
+                          2, 20 as u8, 10 as u8, 30 as u8, 255 as u8)
+            pri = pri + 1
+        }
+
+        // Paddle (white/cyan glow, rounded ends). The colour shifts
+        // toward magenta while the WIDER power-up is active so the
+        // boost is obvious.
+        let pr: u8 = if wider_timer > 0 { 255 as u8 } else { 200 as u8 }
+        let pg: u8 = if wider_timer > 0 { 180 as u8 } else { 240 as u8 }
+        let pb: u8 = if wider_timer > 0 { 255 as u8 } else { 255 as u8 }
         fillNeonStadium(paddle_x as i32 + shake_off_x, paddle_y + shake_off_y,
-                        PADDLE_W, PADDLE_H, 200, 240, 255)
+                        paddle_w, PADDLE_H, pr, pg, pb)
 
         // Ball trail — fade from oldest (just-overwritten slot) to
         // newest (slot before head). Draw as soft circles on top of
@@ -1182,9 +1419,15 @@ fn play() {
         }
 
         // Ball (round).
-        let ball_cx = (ball_x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
-        let ball_cy = (ball_y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
-        fillNeonCircle(ball_cx, ball_cy, BALL_SIZE / 2, 255, 255, 255)
+        let bri: i32 = 0
+        let brn: i32 = balls.length as i32
+        while bri < brn {
+            let bb = balls[bri]
+            let ball_cx = (bb.x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
+            let ball_cy = (bb.y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
+            fillNeonCircle(ball_cx, ball_cy, BALL_SIZE / 2, 255, 255, 255)
+            bri = bri + 1
+        }
 
         // 6px advance per glyph at scale=1 (5px cell + 1px space),
         // last glyph contributes only 5px → final width formula
@@ -1221,6 +1464,19 @@ fn play() {
         let fps_txt = "FPS: " + intToStr(fps)
         font.drawText(ren, fps_txt,
                       20, 50, 2, 180, 200, 220, 255)
+
+        // Active power-up countdowns (in whole seconds, 60fps).
+        let pu_y: i32 = 80
+        if wider_timer > 0 {
+            let s = "WIDER " + intToStr((wider_timer + 59) / 60) + "S"
+            font.drawText(ren, s, 20, pu_y, 2, 120, 220, 255, 255)
+            pu_y = pu_y + 24
+        }
+        if slow_timer > 0 {
+            let s = "SLOW " + intToStr((slow_timer + 59) / 60) + "S"
+            font.drawText(ren, s, 20, pu_y, 2, 200, 120, 255, 255)
+            pu_y = pu_y + 24
+        }
         let lives_txt = "LIVES: " + intToStr(lives)
         font.drawText(ren, lives_txt,
                       WIN_W - textPxW(lives_txt, 2) - 20, 20,
