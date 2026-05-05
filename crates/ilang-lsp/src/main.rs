@@ -653,6 +653,10 @@ struct Binding {
     /// pattern). Carried into hover signatures so use sites read like
     /// the declaration.
     kind: BindKind,
+    /// When `Some`, replaces the kind/ty-derived hover signature.
+    /// Used for `let func = fn(name: T): R { ... }` where we want to
+    /// show parameter names that `Type::Fn` itself doesn't carry.
+    override_signature: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -705,6 +709,7 @@ impl<'a> Walker<'a> {
                 span: p.span,
                 ty: Some(p.ty.clone()),
                 kind: BindKind::Param,
+                override_signature: None,
             });
         }
         self.walk_block(&f.body, &mut scope, this_class);
@@ -757,7 +762,27 @@ impl<'a> Walker<'a> {
                 let inferred = ty
                     .clone()
                     .or_else(|| self.infer_expr(value, scope));
-                let sig = BindKind::Let.render(name, inferred.as_ref());
+                // For `let f = fn(name: T): R { ... }` keep the param
+                // names in the rendered signature (Type::Fn alone drops
+                // them).
+                let override_sig = match &value.kind {
+                    ExprKind::FnExpr { params, ret, .. } => {
+                        let ps = params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let r = match ret {
+                            Some(t) => format!(": {t}"),
+                            None => String::new(),
+                        };
+                        Some(format!("let {name}: fn({ps}){r}"))
+                    }
+                    _ => None,
+                };
+                let sig = override_sig
+                    .clone()
+                    .unwrap_or_else(|| BindKind::Let.render(name, inferred.as_ref()));
                 // s.span points at the `let` keyword. Locate the actual
                 // name position by skipping `let` + whitespace.
                 let name_span = locate_let_name(self.text, s.span, name).unwrap_or(s.span);
@@ -767,6 +792,7 @@ impl<'a> Walker<'a> {
                     span: name_span,
                     ty: inferred,
                     kind: BindKind::Let,
+                    override_signature: override_sig,
                 });
             }
             StmtKind::Expr(e) => self.walk_expr(e, scope, this_class),
@@ -777,7 +803,10 @@ impl<'a> Walker<'a> {
         match &e.kind {
             ExprKind::Var(name) => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
-                    let sig = b.kind.render(name, b.ty.as_ref());
+                    let sig = b
+                        .override_signature
+                        .clone()
+                        .unwrap_or_else(|| b.kind.render(name, b.ty.as_ref()));
                     self.push_ref(name, e.span, b.span, name.len() as u32, sig);
                 } else if name.contains('.') {
                     self.push_external_dotted_ref(name, e.span);
@@ -843,7 +872,10 @@ impl<'a> Walker<'a> {
             }
             ExprKind::Call { callee, args } => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == callee) {
-                    let sig = b.kind.render(callee, b.ty.as_ref());
+                    let sig = b
+                        .override_signature
+                        .clone()
+                        .unwrap_or_else(|| b.kind.render(callee, b.ty.as_ref()));
                     self.push_ref(callee, e.span, b.span, callee.len() as u32, sig);
                 } else if let Some(sym) = self.symbols.get(callee) {
                     self.push_ref(
@@ -928,6 +960,7 @@ impl<'a> Walker<'a> {
                     span: iter.span,
                     ty: elem_ty,
                     kind: BindKind::ForIn,
+                    override_signature: None,
                 });
                 self.walk_block(body, scope, this_class);
                 scope.truncate(depth);
@@ -941,7 +974,10 @@ impl<'a> Walker<'a> {
             }
             ExprKind::Assign { target, value } => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == target) {
-                    let sig = b.kind.render(target, b.ty.as_ref());
+                    let sig = b
+                        .override_signature
+                        .clone()
+                        .unwrap_or_else(|| b.kind.render(target, b.ty.as_ref()));
                     self.push_ref(target, e.span, b.span, target.len() as u32, sig);
                 } else if let Some(sym) = self.symbols.get(target) {
                     self.push_ref(
@@ -991,6 +1027,7 @@ impl<'a> Walker<'a> {
                         span: p.span,
                         ty: Some(p.ty.clone()),
                         kind: BindKind::Param,
+                        override_signature: None,
                     });
                 }
                 self.walk_block(body, &mut inner, this_class);
@@ -1188,6 +1225,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
                             span: p.span,
                             ty: None,
                             kind: BindKind::Pattern,
+                            override_signature: None,
                         });
                     }
                 }
@@ -1199,6 +1237,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
                         span: p.span,
                         ty: None,
                         kind: BindKind::Pattern,
+                        override_signature: None,
                     });
                 }
             }
