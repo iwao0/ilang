@@ -31,6 +31,9 @@ struct ClassInfo {
 struct MemberInfo {
     span: Span,
     signature: String,
+    /// For methods: the declared return type. For fields: the field
+    /// type. Used to infer `let x = obj.method(...)`.
+    ret_ty: Option<Type>,
 }
 
 #[derive(Clone, Debug)]
@@ -338,11 +341,20 @@ fn diag(span: Span, msg: String) -> Diagnostic {
 fn build_doc(text: String, prog: &Program) -> Doc {
     let symbols = collect_symbols(prog);
     let classes = collect_classes(prog);
+    let mut fn_returns: HashMap<String, Type> = HashMap::new();
+    for item in &prog.items {
+        if let Item::Fn(f) = item {
+            if let Some(t) = &f.ret {
+                fn_returns.insert(f.name.clone(), t.clone());
+            }
+        }
+    }
     let mut refs = Vec::new();
     let mut walker = Walker {
         text: &text,
         symbols: &symbols,
         classes: &classes,
+        fn_returns: &fn_returns,
         refs: &mut refs,
     };
     for item in &prog.items {
@@ -442,6 +454,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     MemberInfo {
                         span: f.span,
                         signature: format!("{}: {}", f.name, f.ty),
+                        ret_ty: Some(f.ty.clone()),
                     },
                 );
             }
@@ -451,6 +464,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     MemberInfo {
                         span: f.span,
                         signature: format!("static {}: {}", f.name, f.ty),
+                        ret_ty: Some(f.ty.clone()),
                     },
                 );
             }
@@ -460,6 +474,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     MemberInfo {
                         span: prop.span,
                         signature: format!("(property) {}: {}", prop.name, prop.ty),
+                        ret_ty: Some(prop.ty.clone()),
                     },
                 );
             }
@@ -470,6 +485,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     MemberInfo {
                         span: m.span,
                         signature: fn_signature(m),
+                        ret_ty: m.ret.clone(),
                     },
                 );
             }
@@ -479,6 +495,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     MemberInfo {
                         span: m.span,
                         signature: format!("static {}", fn_signature(m)),
+                        ret_ty: m.ret.clone(),
                     },
                 );
             }
@@ -524,6 +541,9 @@ struct Walker<'a> {
     text: &'a str,
     symbols: &'a HashMap<String, Symbol>,
     classes: &'a HashMap<String, ClassInfo>,
+    /// Top-level fn return types, keyed by name. Used to infer
+    /// `let x = call()` bindings.
+    fn_returns: &'a HashMap<String, Type>,
     refs: &'a mut Vec<RefEntry>,
 }
 
@@ -588,7 +608,7 @@ impl<'a> Walker<'a> {
                 self.walk_expr(value, scope, this_class);
                 let inferred = ty
                     .clone()
-                    .or_else(|| infer_expr_type_with_scope(value, scope));
+                    .or_else(|| self.infer_expr(value, scope));
                 let sig = match &inferred {
                     Some(t) => format!("let {name}: {t}"),
                     None => format!("let {name}"),
@@ -867,6 +887,47 @@ impl<'a> Walker<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Walker-aware variant of `infer_expr_type_with_scope` that can
+    /// also resolve `Call(callee)` to the callee's declared return
+    /// type and `MethodCall` to the resolved method's return type.
+    fn infer_expr(&self, e: &Expr, scope: &[Binding]) -> Option<Type> {
+        match &e.kind {
+            ExprKind::Call { callee, .. } => self.fn_returns.get(callee).cloned(),
+            ExprKind::MethodCall { obj, method, .. } => {
+                let class = self.resolve_obj_class(obj, scope, None)?;
+                let info = self.classes.get(&class)?;
+                info.methods.get(method)?.ret_ty.clone()
+            }
+            ExprKind::Field { obj, name } => {
+                let class = self.resolve_obj_class(obj, scope, None)?;
+                let info = self.classes.get(&class)?;
+                info.fields.get(name)?.ret_ty.clone()
+            }
+            ExprKind::Binary { op, lhs, rhs } => {
+                use ilang_ast::BinOp;
+                if matches!(
+                    op,
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+                ) {
+                    return Some(Type::Bool);
+                }
+                let lt = self.infer_expr(lhs, scope);
+                let rt = self.infer_expr(rhs, scope);
+                match (lt, rt) {
+                    (Some(l), Some(r)) => Some(promote_pair(&l, &r, lhs, rhs)),
+                    (Some(t), None) | (None, Some(t)) => Some(t),
+                    (None, None) => None,
+                }
+            }
+            ExprKind::Unary { op, expr } => match op {
+                ilang_ast::UnOp::Not => Some(Type::Bool),
+                _ => self.infer_expr(expr, scope),
+            },
+            // Fall back to the scope-aware inferer for everything else.
+            _ => infer_expr_type_with_scope(e, scope),
         }
     }
 
