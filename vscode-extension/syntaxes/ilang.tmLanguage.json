@@ -16,6 +16,7 @@
     { "include": "#struct-decl" },
     { "include": "#union-decl" },
     { "include": "#fn-call" },
+    { "include": "#type-name" },
     { "include": "#operators" }
   ],
   "repository": {
@@ -138,6 +139,10 @@
       "captures": {
         "1": { "name": "entity.name.function.call.ilang" }
       }
+    },
+    "type-name": {
+      "name": "entity.name.type.ilang",
+      "match": "\\b[A-Z][a-z][A-Za-z0-9_]*\\b"
     },
     "operators": {
       "name": "keyword.operator.ilang",
