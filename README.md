@@ -195,6 +195,19 @@ The CLI walks upward from the entry file looking for `ilang.toml`
 at startup; each `[deps]` value becomes an additional search
 directory for `use module` resolution.
 
+## 🧩 VSCode
+
+`vscode-extension/` ships syntax highlighting for `.il` files.
+Local install (development symlink):
+
+```sh
+ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
+```
+
+Restart VSCode and `.il` files will be highlighted. See
+[vscode-extension/README.md](vscode-extension/README.md) for the
+`.vsix` route and what's planned (LSP-based F12 / hover).
+
 ## 🛠️ Development
 
 Run the whole test suite — Rust unit tests across every crate plus

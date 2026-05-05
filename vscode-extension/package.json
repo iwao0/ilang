@@ -1,0 +1,27 @@
+{
+  "name": "ilang",
+  "displayName": "ilang",
+  "description": "Syntax highlighting for the ilang language (.il)",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "ilang",
+        "aliases": ["ilang", "il"],
+        "extensions": [".il"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ilang",
+        "scopeName": "source.ilang",
+        "path": "./syntaxes/ilang.tmLanguage.json"
+      }
+    ]
+  }
+}

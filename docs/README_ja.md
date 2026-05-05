@@ -187,6 +187,20 @@ sdl2 = "/path/to/ilang/bindings/sdl2"
 CLI が起動時にこのファイルを探し、`[deps]` で指定された path を
 `use` の探索先に追加します。
 
+## 🧩 VSCode
+
+`vscode-extension/` に `.il` 用のシンタックスハイライト拡張が
+入っています。ローカルインストール (シンボリックリンク方式):
+
+```sh
+ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
+```
+
+VSCode を再起動すると `.il` ファイルがハイライトされます。
+`.vsix` 経由のインストールや今後の予定 (LSP による F12 / hover)
+は [vscode-extension/README_ja.md](../vscode-extension/README_ja.md)
+を参照。
+
 ## 🛠️ 開発
 
 ワークスペース全体のテストを実行します。各 crate の Rust ユニット

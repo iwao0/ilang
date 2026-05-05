@@ -1,0 +1,131 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ilang",
+  "scopeName": "source.ilang",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
+    { "include": "#fn-decl" },
+    { "include": "#class-decl" },
+    { "include": "#enum-decl" },
+    { "include": "#fn-call" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ilang",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.ilang",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.ilang",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ilang",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "attributes": {
+      "name": "meta.attribute.ilang",
+      "match": "@[A-Za-z_][A-Za-z0-9_]*",
+      "captures": {
+        "0": { "name": "entity.name.function.decorator.ilang" }
+      }
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ilang",
+          "match": "\\b(if|elif|else|while|loop|for|in|break|continue|return|match)\\b"
+        },
+        {
+          "name": "keyword.declaration.ilang",
+          "match": "\\b(let|const|fn|class|enum|use|extends|override|init|deinit|static|get|set|mut)\\b"
+        },
+        {
+          "name": "keyword.other.ilang",
+          "match": "\\b(new|this|super|as)\\b"
+        }
+      ]
+    },
+    "types": {
+      "name": "support.type.ilang",
+      "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|string|void)\\b"
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.ilang",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.ilang",
+          "match": "\\b(none|some)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.ilang",
+          "match": "\\b0[xX][0-9a-fA-F_]+(?:[iuf](?:8|16|32|64))?\\b"
+        },
+        {
+          "name": "constant.numeric.float.ilang",
+          "match": "\\b[0-9][0-9_]*\\.[0-9_]+(?:[eE][+-]?[0-9_]+)?(?:f(?:32|64))?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.ilang",
+          "match": "\\b[0-9][0-9_]*(?:[iuf](?:8|16|32|64))?\\b"
+        }
+      ]
+    },
+    "fn-decl": {
+      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.ilang" },
+        "2": { "name": "entity.name.function.ilang" }
+      }
+    },
+    "class-decl": {
+      "match": "\\b(class)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.ilang" },
+        "2": { "name": "entity.name.type.class.ilang" }
+      }
+    },
+    "enum-decl": {
+      "match": "\\b(enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.ilang" },
+        "2": { "name": "entity.name.type.enum.ilang" }
+      }
+    },
+    "fn-call": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\(",
+      "captures": {
+        "1": { "name": "entity.name.function.call.ilang" }
+      }
+    },
+    "operators": {
+      "name": "keyword.operator.ilang",
+      "match": "(\\+|-|\\*|/|%|==|!=|<=|>=|<<|>>|&&|\\|\\||!|=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|<|>|&|\\||\\^|~|\\?|\\.\\.|\\.\\.=)"
+    }
+  }
+}
