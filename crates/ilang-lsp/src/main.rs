@@ -562,7 +562,9 @@ impl<'a> Walker<'a> {
         match &s.kind {
             StmtKind::Let { name, ty, value } => {
                 self.walk_expr(value, scope, this_class);
-                let inferred = ty.clone().or_else(|| infer_expr_type(value));
+                let inferred = ty
+                    .clone()
+                    .or_else(|| infer_expr_type_with_scope(value, scope));
                 let sig = match &inferred {
                     Some(t) => format!("let {name}: {t}"),
                     None => format!("let {name}"),
@@ -924,7 +926,19 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
 /// Quick-and-dirty type inference used only for hover / `obj.field`
 /// resolution. Covers the cases the type checker has already validated;
 /// anything we can't pin down yields `None`.
+/// Same as `infer_expr_type` but resolves bare `Var` references via
+/// the current scope. Used at `let` initialization.
+fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
+    if let ExprKind::Var(name) = &e.kind {
+        if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
+            return b.ty.clone();
+        }
+    }
+    infer_expr_type(e)
+}
+
 fn infer_expr_type(e: &Expr) -> Option<Type> {
+    use ilang_ast::BinOp;
     match &e.kind {
         ExprKind::Int(_) => Some(Type::I64),
         ExprKind::Float(_) => Some(Type::F64),
@@ -941,6 +955,20 @@ fn infer_expr_type(e: &Expr) -> Option<Type> {
             }
         }
         ExprKind::Cast { ty, .. } => Some(ty.clone()),
+        // Comparison and logical results are bool. Arithmetic / bitwise
+        // promote to the wider operand; we approximate with the lhs's
+        // inferred type, falling back to rhs.
+        ExprKind::Binary { op, lhs, rhs } => match op {
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                Some(Type::Bool)
+            }
+            _ => infer_expr_type(lhs).or_else(|| infer_expr_type(rhs)),
+        },
+        ExprKind::Logical { .. } => Some(Type::Bool),
+        ExprKind::Unary { op, expr } => match op {
+            ilang_ast::UnOp::Not => Some(Type::Bool),
+            _ => infer_expr_type(expr),
+        },
         _ => None,
     }
 }
