@@ -2075,6 +2075,17 @@ impl<'a> Walker<'a> {
                     );
                 } else if callee.contains('.') {
                     self.push_external_dotted_ref(callee, e.span);
+                } else if let Some(sig) = ffi_helper_signature(callee) {
+                    self.refs.push(RefEntry {
+                        line: e.span.line,
+                        start_col: e.span.col,
+                        end_col: e.span.col + callee.len() as u32,
+                        target_span: e.span,
+                        target_name_len: callee.len() as u32,
+                        signature: sig.to_string(),
+                        no_definition: true,
+                        target_uri: None,
+                    });
                 }
                 for a in args {
                     self.walk_expr(a, scope, this_class);
@@ -2715,6 +2726,28 @@ fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
         return l.clone();
     }
     l.clone()
+}
+
+/// Hover signatures for the FFI marshalling helpers callable inside
+/// `@extern(C) {}` blocks. The type checker pre-registers these but
+/// the buffer doesn't declare them, so users would otherwise see no
+/// hover.
+fn ffi_helper_signature(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "stringFromCstr" => "fn stringFromCstr(p: *const char): string",
+        "cstrFromString" => "fn cstrFromString(s: string): *char",
+        "freeCstr" => "fn freeCstr(p: *char)",
+        "bytesFromBuffer" => "fn bytesFromBuffer(p: *const void, n: size_t): u8[]",
+        "readU8" => "fn readU8(p: *const void, offset: i64): u8",
+        "fnAddr" => "fn fnAddr<F>(f: F): i64",
+        "arrayFromCArray" => "fn arrayFromCArray<T>(p: *const T, n: size_t): T[]",
+        "cstrArrayToStrings" => {
+            "fn cstrArrayToStrings(p: *const *const char): string[]"
+        }
+        "errnoCheck" => "fn errnoCheck(rc: i32): i32?",
+        "errnoCheckI64" => "fn errnoCheckI64(rc: i64): i64?",
+        _ => return None,
+    })
 }
 
 fn string_method_sig(method: &str) -> Option<String> {
