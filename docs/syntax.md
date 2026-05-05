@@ -1074,9 +1074,18 @@ exception).
 
 - **`@lib("name", "fallback", ...)`** — names of dynamic libraries
   to dlopen. Multiple names are tried in order; the first to open
-  wins (covers soname differences). Without `@lib` the function
-  is **host-form** (registered via `JITBuilder::symbol(...)` —
-  this is how `math` / `os` / `test` are wired).
+  wins (covers soname differences). `@lib` is the canonical
+  marker for a native call: anything in user-written FFI code
+  declaring a function whose body lives in a shared library
+  must carry it. Bare extern declarations without `@lib` are
+  reserved for the **host-form** path (registered via
+  `JITBuilder::symbol(...)`) — that's how the built-in `math` /
+  `os` / `test` modules are wired and isn't a path user code
+  needs.
+
+  > A `@extern(C, "libname")` shorthand was once on the table but
+  > was withdrawn — `@lib(...)` stays as the single way to bind
+  > a native function.
 - **`@optional`** — a missing library or symbol no longer fails
   JIT build; the function instead binds to a stub that aborts on
   call. Programs guard with `os.libLoaded(name): bool` before
