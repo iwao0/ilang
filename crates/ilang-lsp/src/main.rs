@@ -36,6 +36,9 @@ struct ClassInfo {
     /// `MemberInfo.span` values are line/col into another file we
     /// don't carry, so F12 must stay at the use site.
     external: bool,
+    /// Number of `init` overloads declared on the class. Used to
+    /// append `(+N overloads)` to the constructor hover.
+    init_overloads: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -659,6 +662,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     getters: HashMap::new(),
                                     setters: HashMap::new(),
                                     external: true,
+                                    init_overloads: 0,
                                 },
                             );
                         }
@@ -727,25 +731,23 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
             }
         }
         let mut methods = HashMap::new();
+        let mut init_overloads = 0usize;
         for m in &c.methods {
-            methods.insert(
-                m.name.clone(),
-                MemberInfo {
-                    span: m.span,
-                    signature: format!("(method) {}.{}", c.name, fn_body(m)),
-                    ret_ty: m.ret.clone(),
-                },
-            );
+            if m.name == "init" {
+                init_overloads += 1;
+            }
+            methods.entry(m.name.clone()).or_insert(MemberInfo {
+                span: m.span,
+                signature: format!("(method) {}.{}", c.name, fn_body(m)),
+                ret_ty: m.ret.clone(),
+            });
         }
         for m in &c.static_methods {
-            methods.insert(
-                m.name.clone(),
-                MemberInfo {
-                    span: m.span,
-                    signature: format!("(static method) {}.{}", c.name, fn_body(m)),
-                    ret_ty: m.ret.clone(),
-                },
-            );
+            methods.entry(m.name.clone()).or_insert(MemberInfo {
+                span: m.span,
+                signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                ret_ty: m.ret.clone(),
+            });
         }
         out.insert(
             c.name.clone(),
@@ -756,6 +758,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 getters,
                 setters,
                 external: true,
+                init_overloads,
             },
         );
     }
@@ -1232,6 +1235,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
         getters: HashMap::new(),
         setters: HashMap::new(),
         external: true,
+        init_overloads: 0,
     });
 }
 
@@ -1274,6 +1278,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     getters: HashMap::new(),
                                     setters: HashMap::new(),
                                     external: false,
+                                    init_overloads: 0,
                                 },
                             );
                         }
@@ -1354,29 +1359,23 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 }
             }
             let mut methods = HashMap::new();
+            let mut init_overloads = 0usize;
             for m in &c.methods {
-                methods.insert(
-                    m.name.clone(),
-                    MemberInfo {
-                        span: m.span,
-                        signature: format!("(method) {}.{}", c.name, fn_body(m)),
-                        ret_ty: m.ret.clone(),
-                    },
-                );
+                if m.name == "init" {
+                    init_overloads += 1;
+                }
+                methods.entry(m.name.clone()).or_insert(MemberInfo {
+                    span: m.span,
+                    signature: format!("(method) {}.{}", c.name, fn_body(m)),
+                    ret_ty: m.ret.clone(),
+                });
             }
             for m in &c.static_methods {
-                methods.insert(
-                    m.name.clone(),
-                    MemberInfo {
-                        span: m.span,
-                        signature: format!(
-                            "(static method) {}.{}",
-                            c.name,
-                            fn_body(m)
-                        ),
-                        ret_ty: m.ret.clone(),
-                    },
-                );
+                methods.entry(m.name.clone()).or_insert(MemberInfo {
+                    span: m.span,
+                    signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                    ret_ty: m.ret.clone(),
+                });
             }
             out.insert(
                 c.name.clone(),
@@ -1387,6 +1386,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     getters,
                     setters,
                     external: false,
+                    init_overloads,
                 },
             );
         }
@@ -2263,11 +2263,19 @@ impl<'a> Walker<'a> {
 }
 
 /// Render the hover signature shown on `new Foo(...)`. Prefer the
-/// `init(...)` line alone (TypeScript-style constructor hover); if the
-/// class has no init declared, fall back to `class Foo`.
+/// first `init(...)` line alone (TypeScript-style constructor hover),
+/// with a `(+N overload[s])` tail when the class has multiple init
+/// signatures. Falls back to `class Foo` for classes without init.
 fn class_hover(class: &str, info: &ClassInfo) -> String {
     if let Some(init) = info.methods.get("init") {
-        init.signature.clone()
+        let extras = info.init_overloads.saturating_sub(1);
+        let mut out = init.signature.clone();
+        if extras == 1 {
+            out.push_str(" (+1 overload)");
+        } else if extras > 1 {
+            out.push_str(&format!(" (+{extras} overloads)"));
+        }
+        out
     } else {
         format!("class {class}")
     }
