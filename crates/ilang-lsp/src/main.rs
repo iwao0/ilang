@@ -475,6 +475,14 @@ fn build_doc(
                 _ => {}
             }
         }
+        // Top-level stmts/tail (script-style code outside any fn).
+        let mut top_scope: Vec<Binding> = Vec::new();
+        for s in &prog.stmts {
+            walker.walk_stmt(s, &mut top_scope, None);
+        }
+        if let Some(t) = &prog.tail {
+            walker.walk_expr(t, &mut top_scope, None);
+        }
     }
     refs.sort_by_key(|r| (r.line, r.start_col));
     Doc {
