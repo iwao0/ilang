@@ -445,6 +445,24 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     },
                 );
             }
+            for f in &c.static_fields {
+                fields.insert(
+                    f.name.clone(),
+                    MemberInfo {
+                        span: f.span,
+                        signature: format!("static {}: {}", f.name, f.ty),
+                    },
+                );
+            }
+            for prop in &c.properties {
+                fields.insert(
+                    prop.name.clone(),
+                    MemberInfo {
+                        span: prop.span,
+                        signature: format!("(property) {}: {}", prop.name, prop.ty),
+                    },
+                );
+            }
             let mut methods = HashMap::new();
             for m in &c.methods {
                 methods.insert(
@@ -895,6 +913,10 @@ impl<'a> Walker<'a> {
             ExprKind::Var(name) => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
                     type_to_class(b.ty.as_ref()?)
+                } else if self.classes.contains_key(name) {
+                    // Bare `ClassName.field/method` — static access on
+                    // the class itself.
+                    Some(name.clone())
                 } else {
                     None
                 }
