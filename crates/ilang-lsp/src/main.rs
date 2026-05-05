@@ -109,16 +109,23 @@ impl Backend {
 
     async fn refresh(&self, uri: Url, text: String) {
         let path = uri.to_file_path().ok();
-        // Run the loader pipeline once: its program drives diagnostics
-        // and supplies signatures for `use module`-imported names.
-        let merged = path
-            .as_deref()
-            .filter(|p| p.exists())
-            .and_then(|p| {
-                let extra = collect_dep_paths(p).unwrap_or_default();
-                ilang_parser::loader::load_program_with_paths(p, &extra).ok()
-            });
-        let diags = analyse(&text, path.as_deref(), &merged);
+        // Sub-modules (re-exported by an umbrella sibling like
+        // `sdl_window.il` ← `sdl.il`) can't be type-checked alone —
+        // their bare `sdl.X` references only resolve inside an entry
+        // that does `use sdl`. Skip load-based diagnostics in that
+        // case; only syntax errors from the buffer survive.
+        let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
+        let merged = if is_submodule {
+            None
+        } else {
+            path.as_deref()
+                .filter(|p| p.exists())
+                .and_then(|p| {
+                    let extra = collect_dep_paths(p).unwrap_or_default();
+                    ilang_parser::loader::load_program_with_paths(p, &extra).ok()
+                })
+        };
+        let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
         let (mut external_sigs, external_rets) = merged
             .as_ref()
             .map(collect_external_signatures)
@@ -283,7 +290,12 @@ fn parse_ok(src: &str) -> Result<Program, ()> {
     parse(&tokens).map_err(|_| ())
 }
 
-fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diagnostic> {
+fn analyse(
+    src: &str,
+    path: Option<&Path>,
+    merged: &Option<Program>,
+    is_submodule: bool,
+) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     // Always run the lex + parse pass on the in-memory buffer first so
     // unsaved edits surface syntax errors immediately.
@@ -296,6 +308,12 @@ fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diag
     };
     if let Err(e) = parse(&tokens) {
         out.push(diag(e.span(), e.to_string()));
+        return out;
+    }
+    // Sub-modules can't resolve cross-module references on their own;
+    // typecheck would emit spurious "undefined class sdl.X" errors.
+    // Stop after lex + parse for those.
+    if is_submodule {
         return out;
     }
     if let Some(prog) = merged {
@@ -920,6 +938,62 @@ fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
         }
     }
     Ok(out)
+}
+
+/// If `path` is a sub-module re-exported from an umbrella file in the
+/// same directory (i.e. some sibling has `@export use <basename>`),
+/// return the umbrella's path. Used by the LSP so opening a sub-module
+/// alone still type-checks under its umbrella's namespace.
+fn find_umbrella(path: &Path) -> Option<PathBuf> {
+    let basename = path.file_stem()?.to_str()?;
+    let dir = path.parent()?;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let p = entry.path();
+        if p == path || p.extension().and_then(|e| e.to_str()) != Some("il") {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(tokens) = tokenize(&src) else { continue };
+        let Ok(prog) = parse(&tokens) else { continue };
+        let mut visited: HashSet<PathBuf> = HashSet::new();
+        if umbrella_re_exports(&prog, dir, basename, &mut visited) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn umbrella_re_exports(
+    prog: &Program,
+    dir: &Path,
+    target: &str,
+    visited: &mut HashSet<PathBuf>,
+) -> bool {
+    for item in &prog.items {
+        let Item::Use(u) = item else { continue };
+        if !u.re_export || u.selective.is_some() {
+            continue;
+        }
+        if u.module == target {
+            return true;
+        }
+        let nested = dir.join(format!("{}.il", u.module));
+        if !visited.insert(nested.clone()) {
+            continue;
+        }
+        if let Ok(src) = std::fs::read_to_string(&nested) {
+            if let Ok(tokens) = tokenize(&src) {
+                if let Ok(p) = parse(&tokens) {
+                    if umbrella_re_exports(&p, dir, target, visited) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 fn find_project_file(start: &Path) -> Option<PathBuf> {
