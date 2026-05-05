@@ -1,4 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+mod builtins;
+mod project;
+mod text;
+
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -6,12 +10,19 @@ use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Pattern, PatternBindings, PatternKind,
     Program, Span, Stmt, StmtKind, Type, UnOp, VariantPayload,
 };
-use ilang_lexer::{tokenize, TokenKind};
+use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+
+use builtins::{array_method_sig, ffi_helper_signature, string_method_sig};
+use project::{collect_dep_paths, find_umbrella};
+use text::{
+    call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
+    locate_property_name, parameter_offsets, receiver_before_dot, span_to_range, word_at,
+};
 
 #[derive(Clone, Debug)]
 struct Symbol {
@@ -1167,128 +1178,6 @@ fn collect_external_signatures(
     (out, rets)
 }
 
-
-#[derive(Debug, serde::Deserialize)]
-struct ProjectFile {
-    #[serde(default)]
-    deps: BTreeMap<String, DepSpec>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(untagged)]
-enum DepSpec {
-    Path(String),
-    Detailed { path: String },
-}
-
-impl DepSpec {
-    fn path(&self) -> &str {
-        match self {
-            DepSpec::Path(p) => p,
-            DepSpec::Detailed { path } => path,
-        }
-    }
-}
-
-/// Mirror of the CLI's `ilang.toml` discovery. Walks up from the entry
-/// file's directory looking for the closest `ilang.toml`; missing file
-/// is not an error.
-fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
-    let entry_dir = entry
-        .canonicalize()
-        .map_err(|e| format!("cannot resolve entry path: {e}"))?
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let project_file = find_project_file(&entry_dir);
-    let Some(project_file) = project_file else {
-        return Ok(Vec::new());
-    };
-    let project_dir = project_file
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let src = std::fs::read_to_string(&project_file)
-        .map_err(|e| format!("cannot read {}: {e}", project_file.display()))?;
-    let parsed: ProjectFile = toml::from_str(&src)
-        .map_err(|e| format!("invalid {}: {e}", project_file.display()))?;
-    let mut out = Vec::new();
-    for (_name, dep) in parsed.deps {
-        let p = project_dir.join(dep.path());
-        if let Ok(canon) = p.canonicalize() {
-            out.push(canon);
-        }
-    }
-    Ok(out)
-}
-
-/// If `path` is a sub-module re-exported from an umbrella file in the
-/// same directory (i.e. some sibling has `@export use <basename>`),
-/// return the umbrella's path. Used by the LSP so opening a sub-module
-/// alone still type-checks under its umbrella's namespace.
-fn find_umbrella(path: &Path) -> Option<PathBuf> {
-    let basename = path.file_stem()?.to_str()?;
-    let dir = path.parent()?;
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
-        let p = entry.path();
-        if p == path || p.extension().and_then(|e| e.to_str()) != Some("il") {
-            continue;
-        }
-        let Ok(src) = std::fs::read_to_string(&p) else {
-            continue;
-        };
-        let Ok(tokens) = tokenize(&src) else { continue };
-        let Ok(prog) = parse(&tokens) else { continue };
-        let mut visited: HashSet<PathBuf> = HashSet::new();
-        if umbrella_re_exports(&prog, dir, basename, &mut visited) {
-            return Some(p);
-        }
-    }
-    None
-}
-
-fn umbrella_re_exports(
-    prog: &Program,
-    dir: &Path,
-    target: &str,
-    visited: &mut HashSet<PathBuf>,
-) -> bool {
-    for item in &prog.items {
-        let Item::Use(u) = item else { continue };
-        if !u.re_export || u.selective.is_some() {
-            continue;
-        }
-        if u.module == target {
-            return true;
-        }
-        let nested = dir.join(format!("{}.il", u.module));
-        if !visited.insert(nested.clone()) {
-            continue;
-        }
-        if let Ok(src) = std::fs::read_to_string(&nested) {
-            if let Ok(tokens) = tokenize(&src) {
-                if let Ok(p) = parse(&tokens) {
-                    if umbrella_re_exports(&p, dir, target, visited) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
-fn find_project_file(start: &Path) -> Option<PathBuf> {
-    let mut cur = Some(start.to_path_buf());
-    while let Some(dir) = cur {
-        let candidate = dir.join("ilang.toml");
-        if candidate.exists() {
-            return Some(candidate);
-        }
-        cur = dir.parent().map(|p| p.to_path_buf());
-    }
-    None
-}
 
 fn diag(span: Span, msg: String) -> Diagnostic {
     Diagnostic {
@@ -2825,60 +2714,6 @@ fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
     l.clone()
 }
 
-/// Hover signatures for the FFI marshalling helpers callable inside
-/// `@extern(C) {}` blocks. The type checker pre-registers these but
-/// the buffer doesn't declare them, so users would otherwise see no
-/// hover.
-fn ffi_helper_signature(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "stringFromCstr" => "fn stringFromCstr(p: *const char): string",
-        "cstrFromString" => "fn cstrFromString(s: string): *char",
-        "freeCstr" => "fn freeCstr(p: *char)",
-        "bytesFromBuffer" => "fn bytesFromBuffer(p: *const void, n: size_t): u8[]",
-        "readU8" => "fn readU8(p: *const void, offset: i64): u8",
-        "fnAddr" => "fn fnAddr<F>(f: F): i64",
-        "arrayFromCArray" => "fn arrayFromCArray<T>(p: *const T, n: size_t): T[]",
-        "cstrArrayToStrings" => {
-            "fn cstrArrayToStrings(p: *const *const char): string[]"
-        }
-        "errnoCheck" => "fn errnoCheck(rc: i32): i32?",
-        "errnoCheckI64" => "fn errnoCheckI64(rc: i64): i64?",
-        _ => return None,
-    })
-}
-
-fn string_method_sig(method: &str) -> Option<String> {
-    let body = match method {
-        "charAt" => "charAt(i: i64): string",
-        "includes" => "includes(needle: string): bool",
-        "startsWith" => "startsWith(prefix: string): bool",
-        "endsWith" => "endsWith(suffix: string): bool",
-        "toUpper" => "toUpper(): string",
-        "toLower" => "toLower(): string",
-        "trim" => "trim(): string",
-        "replace" => "replace(from: string, to: string): string",
-        "split" => "split(sep: string): string[]",
-        "slice" => "slice(start: i64, end: i64): string",
-        _ => return None,
-    };
-    Some(format!("(method) string.{body}"))
-}
-
-fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
-    let body = match method {
-        "push" => format!("push(v: {elem}): ()"),
-        "pop" => format!("pop(): {elem}?"),
-        "indexOf" => format!("indexOf(v: {elem}): i64"),
-        "includes" => format!("includes(v: {elem}): bool"),
-        "slice" => format!("slice(start: i64, end: i64): {elem}[]"),
-        "map" => format!("map<U>(f: fn({elem}): U): U[]"),
-        "filter" => format!("filter(pred: fn({elem}): bool): {elem}[]"),
-        "forEach" => format!("forEach(f: fn({elem}): ()): ()"),
-        _ => return None,
-    };
-    Some(format!("(method) {elem}[].{body}"))
-}
-
 /// Walk a `loop` body looking for the first `break v` and infer the
 /// type of `v`. `break` without a value yields `Unit`. Doesn't descend
 /// into nested loops (their `break`s belong to the inner loop).
@@ -2946,129 +2781,6 @@ fn scan_break(
     }
 }
 
-/// Locate the property name after a `get` or `set` keyword.
-fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
-    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
-    let bytes = text.as_bytes();
-    // Skip 3 keyword chars (`get` / `set`).
-    let mut i = off + 3;
-    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
-        i += 1;
-    }
-    let nb = name.as_bytes();
-    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
-        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
-        if !next.is_ascii_alphanumeric() && next != b'_' {
-            let (line, col) = offset_to_line_col(text, i)?;
-            return Some(Span::new(line, col));
-        }
-    }
-    None
-}
-
-/// Locate the `name` token after a `let` keyword. The Stmt span points
-/// at `let`, so we skip the keyword + whitespace to land on the binder.
-fn locate_let_name(text: &str, stmt_span: Span, name: &str) -> Option<Span> {
-    locate_let_name_with_kw(text, stmt_span, "let", name)
-}
-
-/// Same as `locate_let_name` but parameterised on the keyword length —
-/// works for `use`, `let`, etc.
-fn locate_let_name_with_kw(text: &str, kw_span: Span, kw: &str, name: &str) -> Option<Span> {
-    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
-    let bytes = text.as_bytes();
-    let mut i = off + kw.len();
-    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
-        i += 1;
-    }
-    let nb = name.as_bytes();
-    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
-        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
-        if !next.is_ascii_alphanumeric() && next != b'_' {
-            let (line, col) = offset_to_line_col(text, i)?;
-            return Some(Span::new(line, col));
-        }
-    }
-    None
-}
-
-/// Find the `name` identifier that follows the next `.` after `obj_span`.
-/// Returns its (line, col). Used to attach a precise span to `Field` and
-/// `MethodCall` references whose AST nodes only carry the receiver's
-/// span.
-fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<(u32, u32)> {
-    let offset = line_col_to_offset(text, obj_span.line, obj_span.col)?;
-    let bytes = text.as_bytes();
-    // Walk forward, skipping a balanced run that ends at the receiver's
-    // outer level. Cheap heuristic: find the first `.` followed by
-    // `name` at the right depth-0 paren count.
-    let mut i = offset;
-    let mut paren_depth: i32 = 0;
-    let mut bracket_depth: i32 = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match b {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth -= 1,
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth -= 1,
-            b'.' if paren_depth <= 0 && bracket_depth <= 0 => {
-                // Skip whitespace then match `name`.
-                let mut j = i + 1;
-                while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
-                    j += 1;
-                }
-                let nb = name.as_bytes();
-                if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
-                    let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
-                    if !next.is_ascii_alphanumeric() && next != b'_' {
-                        return offset_to_line_col(text, j);
-                    }
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usize> {
-    let mut cur_line = 1u32;
-    let mut line_start = 0usize;
-    let bytes = text.as_bytes();
-    for (i, &b) in bytes.iter().enumerate() {
-        if cur_line == line {
-            return Some(line_start + col.saturating_sub(1) as usize);
-        }
-        if b == b'\n' {
-            cur_line += 1;
-            line_start = i + 1;
-        }
-    }
-    if cur_line == line {
-        return Some(line_start + col.saturating_sub(1) as usize);
-    }
-    None
-}
-
-fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
-    let bytes = text.as_bytes();
-    if offset > bytes.len() {
-        return None;
-    }
-    let mut line = 1u32;
-    let mut line_start = 0usize;
-    for (i, &b) in bytes.iter().enumerate().take(offset) {
-        if b == b'\n' {
-            line += 1;
-            line_start = i + 1;
-        }
-    }
-    let col = (offset - line_start) as u32 + 1;
-    Some((line, col))
-}
-
 /// Render a `const` initializer back to a short source-like string for
 /// hover. Covers primitive literals and a leading unary `-` / `+`; more
 /// complex expressions fall back to `None` so we don't print noise.
@@ -3090,172 +2802,6 @@ fn render_const_value(e: &Expr) -> Option<String> {
         }
         _ => None,
     }
-}
-
-/// Given a signature label like `(method) Counter.init(a: i64, b: i64)`,
-/// return UTF-16 (line, col-equivalent) offsets — actually byte
-/// offsets in the label — for each parameter span. The LSP client
-/// uses them to bold the active parameter.
-fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
-    let bytes = label.as_bytes();
-    // The signature label has a leading `(method) Class.name` /
-    // `(getter) ...` style prefix that contains its own parens. Find
-    // the *parameter* parens by walking back from the rightmost `)`
-    // and locating its matching `(`.
-    let Some(close) = bytes.iter().rposition(|&b| b == b')') else {
-        return Vec::new();
-    };
-    let mut depth = 0i32;
-    let mut open: Option<usize> = None;
-    let mut i = close;
-    loop {
-        match bytes[i] {
-            b')' => depth += 1,
-            b'(' => {
-                depth -= 1;
-                if depth == 0 {
-                    open = Some(i);
-                    break;
-                }
-            }
-            _ => {}
-        }
-        if i == 0 {
-            break;
-        }
-        i -= 1;
-    }
-    let Some(open) = open else {
-        return Vec::new();
-    };
-    if close <= open + 1 {
-        return Vec::new();
-    }
-    let mut out: Vec<(u32, u32)> = Vec::new();
-    let mut start = open + 1;
-    let mut paren_depth = 0i32;
-    let mut bracket_depth = 0i32;
-    for i in start..close {
-        let b = bytes[i];
-        match b {
-            b'(' => paren_depth += 1,
-            b')' => paren_depth -= 1,
-            b'[' => bracket_depth += 1,
-            b']' => bracket_depth -= 1,
-            b',' if paren_depth == 0 && bracket_depth == 0 => {
-                let s = trim_offset(bytes, start, i);
-                if s.0 < s.1 {
-                    out.push((s.0 as u32, s.1 as u32));
-                }
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    let s = trim_offset(bytes, start, close);
-    if s.0 < s.1 {
-        out.push((s.0 as u32, s.1 as u32));
-    }
-    out
-}
-
-fn trim_offset(bytes: &[u8], mut s: usize, mut e: usize) -> (usize, usize) {
-    while s < e && (bytes[s] == b' ' || bytes[s] == b'\t') {
-        s += 1;
-    }
-    while e > s && (bytes[e - 1] == b' ' || bytes[e - 1] == b'\t') {
-        e -= 1;
-    }
-    (s, e)
-}
-
-struct CallContext {
-    callee: String,
-    is_new: bool,
-    arg_index: usize,
-}
-
-/// Find the `callee(...)` containing the cursor by scanning backwards
-/// past balanced parens / brackets. Returns the callee name, whether
-/// it's prefixed with `new`, and which argument index the cursor is
-/// in (0 for the first arg, etc.).
-fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
-    let line = pos.line + 1;
-    let col = pos.character + 1;
-    let mut off = line_col_to_offset(text, line, col)?;
-    let bytes = text.as_bytes();
-    if off > bytes.len() {
-        return None;
-    }
-    let mut paren_depth: i32 = 0;
-    let mut bracket_depth: i32 = 0;
-    let mut commas: usize = 0;
-    while off > 0 {
-        off -= 1;
-        let b = bytes[off];
-        match b {
-            b')' | b']' => {
-                if b == b')' {
-                    paren_depth += 1;
-                } else {
-                    bracket_depth += 1;
-                }
-            }
-            b'(' => {
-                if paren_depth > 0 {
-                    paren_depth -= 1;
-                } else {
-                    // Found the unmatched `(` enclosing the cursor.
-                    break;
-                }
-            }
-            b'[' => {
-                if bracket_depth > 0 {
-                    bracket_depth -= 1;
-                }
-            }
-            b',' if paren_depth == 0 && bracket_depth == 0 => {
-                commas += 1;
-            }
-            _ => {}
-        }
-    }
-    if bytes.get(off).copied() != Some(b'(') {
-        return None;
-    }
-    // Walk back past whitespace to find the callee identifier (or
-    // dotted identifier like `module.fn` / `obj.method`).
-    let mut i = off;
-    while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
-        i -= 1;
-    }
-    let end = i;
-    while i > 0 {
-        let b = bytes[i - 1];
-        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
-            i -= 1;
-        } else {
-            break;
-        }
-    }
-    let callee = std::str::from_utf8(&bytes[i..end]).ok()?.to_string();
-    if callee.is_empty() {
-        return None;
-    }
-    // Detect a leading `new ` (with intervening whitespace).
-    let mut j = i;
-    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
-        j -= 1;
-    }
-    let is_new = j >= 3 && &bytes[j - 3..j] == b"new" && {
-        let prev = if j >= 4 { Some(bytes[j - 4]) } else { None };
-        prev.map(|c| !c.is_ascii_alphanumeric() && c != b'_').unwrap_or(true)
-    };
-    Some(CallContext {
-        callee,
-        is_new,
-        arg_index: commas,
-    })
 }
 
 /// For function-like completion items, produce a snippet that inserts
@@ -3322,79 +2868,6 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
     }
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
-}
-
-/// Walk back from the cursor over whitespace and a leading `.` to find
-/// the receiver identifier — used by completion to figure out what
-/// class's members to list.
-fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
-    let line = pos.line + 1;
-    let col = pos.character + 1;
-    let mut off = line_col_to_offset(text, line, col)?;
-    let bytes = text.as_bytes();
-    if off > bytes.len() {
-        return None;
-    }
-    // Step back past whitespace.
-    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
-        off -= 1;
-    }
-    // Expect `.` immediately before.
-    if off == 0 || bytes[off - 1] != b'.' {
-        return None;
-    }
-    off -= 1;
-    // Skip whitespace between identifier and `.`.
-    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
-        off -= 1;
-    }
-    // Walk back over the identifier (and any chained `name.name.` parts).
-    let end = off;
-    while off > 0 {
-        let b = bytes[off - 1];
-        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
-            off -= 1;
-        } else {
-            break;
-        }
-    }
-    let s = std::str::from_utf8(&bytes[off..end]).ok()?.to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
-}
-
-/// Find the identifier under the cursor by re-tokenising the source and
-/// returning the first identifier whose span covers the position. Used
-/// as a fallback for top-level names not in the per-file ref index.
-fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
-    let tokens = tokenize(src).ok()?;
-    let line = pos.line + 1;
-    let col = pos.character + 1;
-    for tok in &tokens {
-        if let TokenKind::Ident(name) = &tok.kind {
-            if tok.span.line == line {
-                let start = tok.span.col;
-                let end = start + name.len() as u32;
-                if col >= start && col <= end {
-                    return Some((name.clone(), start));
-                }
-            }
-        }
-    }
-    None
-}
-
-fn span_to_range(span: Span, len: usize) -> Range {
-    let line = span.line.saturating_sub(1);
-    let start_char = span.col.saturating_sub(1);
-    let end_char = start_char + len as u32;
-    Range {
-        start: Position { line, character: start_char },
-        end: Position { line, character: end_char },
-    }
 }
 
 #[tokio::main]

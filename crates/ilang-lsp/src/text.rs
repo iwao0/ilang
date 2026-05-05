@@ -1,0 +1,367 @@
+//! Pure text / span helpers shared by the LSP. None of these reach
+//! into project-specific data structures — they operate on the raw
+//! source string + a `Span` (1-based line/col) and return either an
+//! offset into the byte slice or another `Span`.
+
+use ilang_ast::Span;
+use ilang_lexer::{tokenize, TokenKind};
+use tower_lsp::lsp_types::{Position, Range};
+
+/// Convert a 1-based (line, col) into a byte offset into `text`.
+pub(crate) fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usize> {
+    let mut cur_line = 1u32;
+    let mut line_start = 0usize;
+    let bytes = text.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if cur_line == line {
+            return Some(line_start + col.saturating_sub(1) as usize);
+        }
+        if b == b'\n' {
+            cur_line += 1;
+            line_start = i + 1;
+        }
+    }
+    if cur_line == line {
+        return Some(line_start + col.saturating_sub(1) as usize);
+    }
+    None
+}
+
+/// Inverse of `line_col_to_offset`.
+pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
+    let bytes = text.as_bytes();
+    if offset > bytes.len() {
+        return None;
+    }
+    let mut line = 1u32;
+    let mut line_start = 0usize;
+    for (i, &b) in bytes.iter().enumerate().take(offset) {
+        if b == b'\n' {
+            line += 1;
+            line_start = i + 1;
+        }
+    }
+    let col = (offset - line_start) as u32 + 1;
+    Some((line, col))
+}
+
+/// Locate the property name after a `get` or `set` keyword.
+pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
+    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
+    let bytes = text.as_bytes();
+    // Skip 3 keyword chars (`get` / `set`).
+    let mut i = off + 3;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    let nb = name.as_bytes();
+    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
+        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
+        if !next.is_ascii_alphanumeric() && next != b'_' {
+            let (line, col) = offset_to_line_col(text, i)?;
+            return Some(Span::new(line, col));
+        }
+    }
+    None
+}
+
+/// Locate the `name` token after a `let` keyword. The Stmt span points
+/// at `let`, so we skip the keyword + whitespace to land on the binder.
+pub(crate) fn locate_let_name(text: &str, stmt_span: Span, name: &str) -> Option<Span> {
+    locate_let_name_with_kw(text, stmt_span, "let", name)
+}
+
+/// Same as `locate_let_name` but parameterised on the keyword length —
+/// works for `use`, `let`, etc.
+pub(crate) fn locate_let_name_with_kw(
+    text: &str,
+    kw_span: Span,
+    kw: &str,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
+    let bytes = text.as_bytes();
+    let mut i = off + kw.len();
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    let nb = name.as_bytes();
+    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
+        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
+        if !next.is_ascii_alphanumeric() && next != b'_' {
+            let (line, col) = offset_to_line_col(text, i)?;
+            return Some(Span::new(line, col));
+        }
+    }
+    None
+}
+
+/// Find the `name` identifier that follows the next `.` after `obj_span`.
+/// Returns its (line, col). Used to attach a precise span to `Field` and
+/// `MethodCall` references whose AST nodes only carry the receiver's
+/// span.
+pub(crate) fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<(u32, u32)> {
+    let offset = line_col_to_offset(text, obj_span.line, obj_span.col)?;
+    let bytes = text.as_bytes();
+    let mut i = offset;
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth -= 1,
+            b'.' if paren_depth <= 0 && bracket_depth <= 0 => {
+                let mut j = i + 1;
+                while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                    j += 1;
+                }
+                let nb = name.as_bytes();
+                if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
+                    let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
+                    if !next.is_ascii_alphanumeric() && next != b'_' {
+                        return offset_to_line_col(text, j);
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Convert a 1-based ilang `Span` to a 0-based LSP `Range`.
+pub(crate) fn span_to_range(span: Span, len: usize) -> Range {
+    let line = span.line.saturating_sub(1);
+    let start_char = span.col.saturating_sub(1);
+    let end_char = start_char + len as u32;
+    Range {
+        start: Position {
+            line,
+            character: start_char,
+        },
+        end: Position {
+            line,
+            character: end_char,
+        },
+    }
+}
+
+/// Find the identifier under the cursor by re-tokenising the source and
+/// returning the first identifier whose span covers the position.
+pub(crate) fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
+    let tokens = tokenize(src).ok()?;
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    for tok in &tokens {
+        if let TokenKind::Ident(name) = &tok.kind {
+            if tok.span.line == line {
+                let start = tok.span.col;
+                let end = start + name.len() as u32;
+                if col >= start && col <= end {
+                    return Some((name.clone(), start));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Walk back from the cursor over whitespace and a leading `.` to find
+/// the receiver identifier — used by completion to figure out what
+/// class's members to list.
+pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    let mut off = line_col_to_offset(text, line, col)?;
+    let bytes = text.as_bytes();
+    if off > bytes.len() {
+        return None;
+    }
+    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
+        off -= 1;
+    }
+    if off == 0 || bytes[off - 1] != b'.' {
+        return None;
+    }
+    off -= 1;
+    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
+        off -= 1;
+    }
+    let end = off;
+    while off > 0 {
+        let b = bytes[off - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
+            off -= 1;
+        } else {
+            break;
+        }
+    }
+    let s = std::str::from_utf8(&bytes[off..end]).ok()?.to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// Given a signature label like `(method) Counter.init(a: i64, b: i64)`,
+/// return byte-offset ranges for each parameter span. The LSP client
+/// uses them to bold the active parameter.
+pub(crate) fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
+    let bytes = label.as_bytes();
+    let Some(close) = bytes.iter().rposition(|&b| b == b')') else {
+        return Vec::new();
+    };
+    let mut depth = 0i32;
+    let mut open: Option<usize> = None;
+    let mut i = close;
+    loop {
+        match bytes[i] {
+            b')' => depth += 1,
+            b'(' => {
+                depth -= 1;
+                if depth == 0 {
+                    open = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    let Some(open) = open else {
+        return Vec::new();
+    };
+    if close <= open + 1 {
+        return Vec::new();
+    }
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    let mut start = open + 1;
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    for i in start..close {
+        let b = bytes[i];
+        match b {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth -= 1,
+            b',' if paren_depth == 0 && bracket_depth == 0 => {
+                let s = trim_offset(bytes, start, i);
+                if s.0 < s.1 {
+                    out.push((s.0 as u32, s.1 as u32));
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let s = trim_offset(bytes, start, close);
+    if s.0 < s.1 {
+        out.push((s.0 as u32, s.1 as u32));
+    }
+    out
+}
+
+fn trim_offset(bytes: &[u8], mut s: usize, mut e: usize) -> (usize, usize) {
+    while s < e && (bytes[s] == b' ' || bytes[s] == b'\t') {
+        s += 1;
+    }
+    while e > s && (bytes[e - 1] == b' ' || bytes[e - 1] == b'\t') {
+        e -= 1;
+    }
+    (s, e)
+}
+
+pub(crate) struct CallContext {
+    pub callee: String,
+    pub is_new: bool,
+    pub arg_index: usize,
+}
+
+/// Find the `callee(...)` containing the cursor by scanning backwards
+/// past balanced parens / brackets.
+pub(crate) fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    let mut off = line_col_to_offset(text, line, col)?;
+    let bytes = text.as_bytes();
+    if off > bytes.len() {
+        return None;
+    }
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    let mut commas: usize = 0;
+    while off > 0 {
+        off -= 1;
+        let b = bytes[off];
+        match b {
+            b')' | b']' => {
+                if b == b')' {
+                    paren_depth += 1;
+                } else {
+                    bracket_depth += 1;
+                }
+            }
+            b'(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                } else {
+                    break;
+                }
+            }
+            b'[' => {
+                if bracket_depth > 0 {
+                    bracket_depth -= 1;
+                }
+            }
+            b',' if paren_depth == 0 && bracket_depth == 0 => {
+                commas += 1;
+            }
+            _ => {}
+        }
+    }
+    if bytes.get(off).copied() != Some(b'(') {
+        return None;
+    }
+    let mut i = off;
+    while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
+        i -= 1;
+    }
+    let end = i;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    let callee = std::str::from_utf8(&bytes[i..end]).ok()?.to_string();
+    if callee.is_empty() {
+        return None;
+    }
+    let mut j = i;
+    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+        j -= 1;
+    }
+    let is_new = j >= 3
+        && &bytes[j - 3..j] == b"new"
+        && {
+            let prev = if j >= 4 { Some(bytes[j - 4]) } else { None };
+            prev.map(|c| !c.is_ascii_alphanumeric() && c != b'_')
+                .unwrap_or(true)
+        };
+    Some(CallContext {
+        callee,
+        is_new,
+        arg_index: commas,
+    })
+}
