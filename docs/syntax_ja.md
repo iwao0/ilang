@@ -646,6 +646,48 @@ match day {
 - パターンの束縛: タプルは位置 (`Shape.circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
 - ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
 
+### 値付きフィールドレス enum
+
+ユニットバリアントには `= <整数>` で明示的な discriminant を指定できます。指定しないバリアントは `直前 + 1` (先頭は 0) が割り当てられます。enum 名のあとに `: <数値型>` を書くと、内部表現の整数型を明示できます。
+
+```rust
+enum Priority: u32 {
+    low    = 1
+    medium = 5
+    high   = 10
+}
+
+let p: u32 = Priority.high as u32   // 10
+```
+
+- discriminant はユニットバリアントにのみ指定可
+- `: <type>` を省略した場合、`as` で指定したキャスト先の幅が使われる (`Priority.high as i64`)
+- enum 値を任意の数値プリミティブにキャストすると、対応するバリアントの discriminant が得られる
+
+### `@flags` enum
+
+ビットフラグ用の enum。値どうしの `|` `&` `^` `~` をサポートする。`@flags` 属性は `enum` キーワードの上に書く。`: <type>` を省略した場合、内部表現は **`u64`** (数値リテラルのデフォルト型に合わせる)。
+
+```rust
+@flags
+enum InitFlag {
+    timer = 0x01
+    audio = 0x10
+    video = 0x20
+}
+
+let combined = InitFlag.audio | InitFlag.video
+combined.has(InitFlag.audio)        // true
+combined.has(InitFlag.timer)        // false
+let cleared = combined & ~InitFlag.audio
+```
+
+- バリアントはフィールドレスのみ。discriminant のルールは値付き enum と同じ。
+- ビット演算は両辺が同一の flags enum である必要がある。違う flags enum を混ぜる場合は明示的な `as` が必要。
+- `value.has(other)` は `(value & other) == other` 相当の合成メソッド (複数ビットの `other` にも対応)。
+- `@flags` enum 値に対して `match` は使えない。合成値は単一バリアントに対応しないため、`has` (またはビット比較) で分岐する。
+- 実行時表現は内部整数なので、`combined as u32` / `combined as i64` で生のビット列を取り出せる。
+
 ### ジェネリック enum
 
 ```rust
