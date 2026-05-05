@@ -17,7 +17,10 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use builtins::{array_method_sig, ffi_helper_signature, string_method_sig};
+use builtins::{
+    array_method_names, array_method_sig, ffi_helper_signature, string_method_names,
+    string_method_sig,
+};
 use project::{collect_dep_paths, find_umbrella};
 use text::{
     call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
@@ -101,6 +104,10 @@ struct Doc {
     /// class. Last-write-wins across scopes — good enough for most
     /// completion contexts.
     var_classes: HashMap<String, String>,
+    /// Variable name → full ilang type. Drives `obj.` completion for
+    /// non-class types (string / array) so their built-in methods show
+    /// up.
+    var_types: HashMap<String, Type>,
     /// Hover-only signatures for names imported via `use module` (e.g.
     /// `math.sqrt`, `math.pi`). The loader prefixes imported items
     /// with the module name, so this map keyed on `module.fn_name`
@@ -346,6 +353,58 @@ impl LanguageServer for Backend {
             doc.var_classes.get(&receiver).cloned().unwrap_or_default()
         };
         if doc.classes.get(&class_name).is_none() {
+            // Built-in receiver: string / array. Their member sets are
+            // hardcoded — list them from the same helpers used by hover.
+            if let Some(ty) = doc.var_types.get(&receiver) {
+                let entries: Vec<(String, String)> = match ty {
+                    Type::Str => string_method_names()
+                        .into_iter()
+                        .filter_map(|n| string_method_sig(n).map(|s| (n.to_string(), s)))
+                        .collect(),
+                    Type::Array { elem, .. } => array_method_names()
+                        .into_iter()
+                        .filter_map(|n| {
+                            array_method_sig(n, elem).map(|s| (n.to_string(), s))
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                if !entries.is_empty() {
+                    let mut items: Vec<CompletionItem> = entries
+                        .into_iter()
+                        .map(|(name, sig)| {
+                            let (insert_text, fmt) =
+                                call_snippet(&name, CompletionItemKind::METHOD);
+                            let command =
+                                trigger_sig_help_command(CompletionItemKind::METHOD);
+                            CompletionItem {
+                                label: name,
+                                kind: Some(CompletionItemKind::METHOD),
+                                detail: Some(sig),
+                                insert_text,
+                                insert_text_format: fmt,
+                                command,
+                                ..CompletionItem::default()
+                            }
+                        })
+                        .collect();
+                    // `length` is a property, not a method.
+                    items.push(CompletionItem {
+                        label: "length".to_string(),
+                        kind: Some(CompletionItemKind::FIELD),
+                        detail: Some(match ty {
+                            Type::Str => "(property) string.length: i64".to_string(),
+                            Type::Array { elem, .. } => {
+                                format!("(property) {elem}[].length: i64")
+                            }
+                            _ => unreachable!(),
+                        }),
+                        ..CompletionItem::default()
+                    });
+                    items.sort_by(|a, b| a.label.cmp(&b.label));
+                    return Ok(Some(CompletionResponse::Array(items)));
+                }
+            }
             // Receiver may be a `use module` namespace — list its
             // re-exported items (e.g. `math.` -> `sqrt`, `pi`, ...).
             let prefix = format!("{receiver}.");
@@ -1239,6 +1298,7 @@ fn build_doc(
     }
     let mut refs = Vec::new();
     let mut var_classes: HashMap<String, String> = HashMap::new();
+    let mut var_types: HashMap<String, Type> = HashMap::new();
     {
         let mut walker = Walker {
             text: &text,
@@ -1250,6 +1310,7 @@ fn build_doc(
             external_sources,
             refs: &mut refs,
             var_classes: &mut var_classes,
+            var_types: &mut var_types,
         };
         for item in &prog.items {
             match item {
@@ -1313,6 +1374,7 @@ fn build_doc(
         classes,
         refs,
         var_classes,
+        var_types,
         external_signatures: external_signatures.clone(),
         external_returns: external_returns.clone(),
     }
@@ -1744,6 +1806,9 @@ struct Walker<'a> {
     /// statically-known type resolves to a class. Drives completion on
     /// `obj.` for ordinary instance variables.
     var_classes: &'a mut HashMap<String, String>,
+    /// Variable-name → full type, used for completion on built-in
+    /// receivers (`string`, `T[]`) where there's no class entry.
+    var_types: &'a mut HashMap<String, Type>,
 }
 
 impl<'a> Walker<'a> {
@@ -1755,6 +1820,7 @@ impl<'a> Walker<'a> {
             if let Some(c) = type_to_class(&p.ty) {
                 self.var_classes.insert(p.name.clone(), c);
             }
+            self.var_types.insert(p.name.clone(), p.ty.clone());
             scope.push(Binding {
                 name: p.name.clone(),
                 span: p.span,
@@ -1873,6 +1939,9 @@ impl<'a> Walker<'a> {
                 self.push_decl(name, name_span, sig);
                 if let Some(c) = inferred.as_ref().and_then(type_to_class) {
                     self.var_classes.insert(name.clone(), c);
+                }
+                if let Some(t) = inferred.as_ref() {
+                    self.var_types.insert(name.clone(), t.clone());
                 }
                 scope.push(Binding {
                     name: name.clone(),

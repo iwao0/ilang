@@ -23,6 +23,27 @@ pub(crate) fn ffi_helper_signature(name: &str) -> Option<&'static str> {
     })
 }
 
+pub(crate) fn string_method_names() -> &'static [&'static str] {
+    &[
+        "charAt",
+        "includes",
+        "startsWith",
+        "endsWith",
+        "toUpper",
+        "toLower",
+        "trim",
+        "replace",
+        "split",
+        "slice",
+    ]
+}
+
+pub(crate) fn array_method_names() -> &'static [&'static str] {
+    &[
+        "push", "pop", "indexOf", "includes", "slice", "map", "filter", "forEach",
+    ]
+}
+
 pub(crate) fn string_method_sig(method: &str) -> Option<String> {
     let body = match method {
         "charAt" => "charAt(i: i64): string",
