@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use ilang_ast::{Expr, ExprKind, Item, Program, Span, UnOp};
+use ilang_ast::{
+    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Pattern, PatternBindings, PatternKind,
+    Program, Span, Stmt, StmtKind, Type, UnOp, VariantPayload,
+};
 use ilang_lexer::{tokenize, TokenKind};
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
@@ -12,21 +15,43 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 #[derive(Clone, Debug)]
 struct Symbol {
     name: String,
-    /// Span pointing at the identifier in the declaration. We synthesise
-    /// the end column from the name length since the AST only stores
-    /// start positions.
     span: Span,
-    /// Human-readable signature shown on hover.
+    signature: String,
+}
+
+#[derive(Clone, Debug)]
+struct ClassInfo {
+    decl_span: Span,
+    fields: HashMap<String, MemberInfo>,
+    methods: HashMap<String, MemberInfo>,
+}
+
+#[derive(Clone, Debug)]
+struct MemberInfo {
+    span: Span,
+    signature: String,
+}
+
+#[derive(Clone, Debug)]
+struct RefEntry {
+    line: u32,
+    start_col: u32,
+    end_col: u32,
+    target_span: Span,
+    target_name_len: u32,
     signature: String,
 }
 
 #[derive(Default)]
 struct Doc {
     text: String,
-    /// Top-level decls keyed by name. Locals and class members are not
-    /// indexed in this stage — go-to-definition / hover only resolve
-    /// names visible at the file scope.
+    /// Top-level decls keyed by name.
     symbols: HashMap<String, Symbol>,
+    /// Per-class field/method index (used when resolving `this.x`).
+    #[allow(dead_code)]
+    classes: HashMap<String, ClassInfo>,
+    /// Resolved references with precise spans. Sorted by (line, start_col).
+    refs: Vec<RefEntry>,
 }
 
 struct Backend {
@@ -44,18 +69,18 @@ impl Backend {
 
     async fn refresh(&self, uri: Url, text: String) {
         let diags = analyse(&text);
-        let symbols = if let Ok(prog) = parse_ok(&text) {
-            collect_symbols(&prog)
-        } else {
-            HashMap::new()
+        let doc = match parse_ok(&text) {
+            Ok(prog) => build_doc(text, &prog),
+            Err(_) => Doc {
+                text,
+                ..Doc::default()
+            },
         };
         {
             let mut docs = self.docs.lock().unwrap();
-            docs.insert(uri.clone(), Doc { text, symbols });
+            docs.insert(uri.clone(), doc);
         }
-        self.client
-            .publish_diagnostics(uri, diags, None)
-            .await;
+        self.client.publish_diagnostics(uri, diags, None).await;
     }
 }
 
@@ -103,24 +128,18 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
         let docs = self.docs.lock().unwrap();
-        let doc = match docs.get(&uri) {
-            Some(d) => d,
-            None => return Ok(None),
-        };
-        let Some((word, _start_col)) = word_at(&doc.text, pos) else {
+        let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
-        let Some(sym) = doc.symbols.get(&word) else {
-            return Ok(None);
-        };
-        let md = format!("```ilang\n{}\n```", sym.signature);
-        Ok(Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: md,
-            }),
-            range: None,
-        }))
+        if let Some(entry) = lookup_ref(doc, pos) {
+            return Ok(Some(make_hover(&entry.signature)));
+        }
+        if let Some((word, _)) = word_at(&doc.text, pos) {
+            if let Some(sym) = doc.symbols.get(&word) {
+                return Ok(Some(make_hover(&sym.signature)));
+            }
+        }
+        Ok(None)
     }
 
     async fn goto_definition(
@@ -130,26 +149,49 @@ impl LanguageServer for Backend {
         let uri = p.text_document_position_params.text_document.uri;
         let pos = p.text_document_position_params.position;
         let docs = self.docs.lock().unwrap();
-        let doc = match docs.get(&uri) {
-            Some(d) => d,
-            None => return Ok(None),
-        };
-        let Some((word, _)) = word_at(&doc.text, pos) else {
+        let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
-        let Some(sym) = doc.symbols.get(&word) else {
-            return Ok(None);
-        };
-        let range = span_to_range(sym.span, sym.name.len());
-        Ok(Some(GotoDefinitionResponse::Scalar(Location {
-            uri,
-            range,
-        })))
+        if let Some(entry) = lookup_ref(doc, pos) {
+            let range = span_to_range(entry.target_span, entry.target_name_len as usize);
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri,
+                range,
+            })));
+        }
+        if let Some((word, _)) = word_at(&doc.text, pos) {
+            if let Some(sym) = doc.symbols.get(&word) {
+                let range = span_to_range(sym.span, sym.name.len());
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri,
+                    range,
+                })));
+            }
+        }
+        Ok(None)
     }
 
     async fn shutdown(&self) -> LspResult<()> {
         Ok(())
     }
+}
+
+fn make_hover(sig: &str) -> Hover {
+    Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: format!("```ilang\n{sig}\n```"),
+        }),
+        range: None,
+    }
+}
+
+fn lookup_ref(doc: &Doc, pos: Position) -> Option<&RefEntry> {
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    doc.refs
+        .iter()
+        .find(|r| r.line == line && col >= r.start_col && col <= r.end_col)
 }
 
 fn parse_ok(src: &str) -> Result<Program, ()> {
@@ -162,40 +204,60 @@ fn analyse(src: &str) -> Vec<Diagnostic> {
     let tokens = match tokenize(src) {
         Ok(t) => t,
         Err(e) => {
-            out.push(Diagnostic {
-                range: span_to_range(e.span(), 1),
-                severity: Some(DiagnosticSeverity::ERROR),
-                source: Some("ilang".into()),
-                message: e.to_string(),
-                ..Diagnostic::default()
-            });
+            out.push(diag(e.span(), e.to_string()));
             return out;
         }
     };
     let prog = match parse(&tokens) {
         Ok(p) => p,
         Err(e) => {
-            out.push(Diagnostic {
-                range: span_to_range(e.span(), 1),
-                severity: Some(DiagnosticSeverity::ERROR),
-                source: Some("ilang".into()),
-                message: e.to_string(),
-                ..Diagnostic::default()
-            });
+            out.push(diag(e.span(), e.to_string()));
             return out;
         }
     };
     let mut tc = TypeChecker::new();
     if let Err(e) = tc.check(&prog) {
-        out.push(Diagnostic {
-            range: span_to_range(e.span(), 1),
-            severity: Some(DiagnosticSeverity::ERROR),
-            source: Some("ilang".into()),
-            message: e.to_string(),
-            ..Diagnostic::default()
-        });
+        out.push(diag(e.span(), e.to_string()));
     }
     out
+}
+
+fn diag(span: Span, msg: String) -> Diagnostic {
+    Diagnostic {
+        range: span_to_range(span, 1),
+        severity: Some(DiagnosticSeverity::ERROR),
+        source: Some("ilang".into()),
+        message: msg,
+        ..Diagnostic::default()
+    }
+}
+
+// ─── Index building ────────────────────────────────────────────────────────
+
+fn build_doc(text: String, prog: &Program) -> Doc {
+    let symbols = collect_symbols(prog);
+    let classes = collect_classes(prog);
+    let mut refs = Vec::new();
+    let mut walker = Walker {
+        text: &text,
+        symbols: &symbols,
+        classes: &classes,
+        refs: &mut refs,
+    };
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => walker.walk_fn(f, None),
+            Item::Class(c) => walker.walk_class(c),
+            _ => {}
+        }
+    }
+    refs.sort_by_key(|r| (r.line, r.start_col));
+    Doc {
+        text,
+        symbols,
+        classes,
+        refs,
+    }
 }
 
 fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
@@ -203,23 +265,13 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
-                let params = f
-                    .params
-                    .iter()
-                    .map(|p| format!("{}: {}", p.name, p.ty))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let ret = match &f.ret {
-                    Some(t) => format!(": {t}"),
-                    None => String::new(),
-                };
-                let signature = format!("fn {}({}){}", f.name, params, ret);
+                let sig = fn_signature(f);
                 out.insert(
                     f.name.clone(),
                     Symbol {
                         name: f.name.clone(),
                         span: f.span,
-                        signature,
+                        signature: sig,
                     },
                 );
             }
@@ -238,7 +290,10 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                 let variants = e
                     .variants
                     .iter()
-                    .map(|v| v.name.clone())
+                    .map(|v| match &v.payload {
+                        VariantPayload::Unit => v.name.clone(),
+                        _ => format!("{}(...)", v.name),
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let signature = format!("enum {} {{ {} }}", e.name, variants);
@@ -275,6 +330,594 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
     out
 }
 
+fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
+    let mut out = HashMap::new();
+    for item in &prog.items {
+        if let Item::Class(c) = item {
+            let mut fields = HashMap::new();
+            for f in &c.fields {
+                fields.insert(
+                    f.name.clone(),
+                    MemberInfo {
+                        span: f.span,
+                        signature: format!("{}: {}", f.name, f.ty),
+                    },
+                );
+            }
+            let mut methods = HashMap::new();
+            for m in &c.methods {
+                methods.insert(
+                    m.name.clone(),
+                    MemberInfo {
+                        span: m.span,
+                        signature: fn_signature(m),
+                    },
+                );
+            }
+            for m in &c.static_methods {
+                methods.insert(
+                    m.name.clone(),
+                    MemberInfo {
+                        span: m.span,
+                        signature: format!("static {}", fn_signature(m)),
+                    },
+                );
+            }
+            out.insert(
+                c.name.clone(),
+                ClassInfo {
+                    decl_span: c.span,
+                    fields,
+                    methods,
+                },
+            );
+        }
+    }
+    out
+}
+
+fn fn_signature(f: &FnDecl) -> String {
+    let params = f
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, p.ty))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret = match &f.ret {
+        Some(t) => format!(": {t}"),
+        None => String::new(),
+    };
+    format!("fn {}({}){}", f.name, params, ret)
+}
+
+// ─── Scope walker ──────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug)]
+struct Binding {
+    name: String,
+    span: Span,
+    /// Statically-known type, if we can pin it down. Used both for hover
+    /// signature and to resolve `local.field` accesses to the right class.
+    ty: Option<Type>,
+}
+
+struct Walker<'a> {
+    text: &'a str,
+    symbols: &'a HashMap<String, Symbol>,
+    classes: &'a HashMap<String, ClassInfo>,
+    refs: &'a mut Vec<RefEntry>,
+}
+
+impl<'a> Walker<'a> {
+    fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
+        let mut scope: Vec<Binding> = Vec::new();
+        for p in &f.params {
+            scope.push(Binding {
+                name: p.name.clone(),
+                span: p.span,
+                ty: Some(p.ty.clone()),
+            });
+            // The param name itself doubles as a hover/F12 target.
+            self.push_decl(&p.name, p.span, format!("(parameter) {}: {}", p.name, p.ty));
+        }
+        self.walk_block(&f.body, &mut scope, this_class);
+    }
+
+    fn walk_class(&mut self, c: &ClassDecl) {
+        // Field declaration name: hover shows the field decl line.
+        for f in &c.fields {
+            self.push_decl(&f.name, f.span, format!("{}: {}", f.name, f.ty));
+        }
+        for m in &c.methods {
+            self.walk_fn(m, Some(&c.name));
+        }
+        for m in &c.static_methods {
+            self.walk_fn(m, None);
+        }
+        for prop in &c.properties {
+            // Treat the getter/setter body like a method body so locals
+            // and `this.X` resolve normally.
+            if let Some(g) = &prop.getter {
+                self.walk_fn(g, Some(&c.name));
+            }
+            if let Some(s) = &prop.setter {
+                self.walk_fn(s, Some(&c.name));
+            }
+        }
+    }
+
+    fn walk_block(&mut self, b: &Block, scope: &mut Vec<Binding>, this_class: Option<&str>) {
+        let depth = scope.len();
+        for s in &b.stmts {
+            self.walk_stmt(s, scope, this_class);
+        }
+        if let Some(t) = &b.tail {
+            self.walk_expr(t, scope, this_class);
+        }
+        scope.truncate(depth);
+    }
+
+    fn walk_stmt(&mut self, s: &Stmt, scope: &mut Vec<Binding>, this_class: Option<&str>) {
+        match &s.kind {
+            StmtKind::Let { name, ty, value } => {
+                self.walk_expr(value, scope, this_class);
+                let inferred = ty.clone().or_else(|| infer_expr_type(value));
+                let sig = match &inferred {
+                    Some(t) => format!("let {name}: {t}"),
+                    None => format!("let {name}"),
+                };
+                self.push_decl(name, s.span, sig);
+                scope.push(Binding {
+                    name: name.clone(),
+                    span: s.span,
+                    ty: inferred,
+                });
+            }
+            StmtKind::Expr(e) => self.walk_expr(e, scope, this_class),
+        }
+    }
+
+    fn walk_expr(&mut self, e: &Expr, scope: &mut Vec<Binding>, this_class: Option<&str>) {
+        match &e.kind {
+            ExprKind::Var(name) => {
+                if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
+                    let sig = match &b.ty {
+                        Some(t) => format!("{}: {}", name, t),
+                        None => name.clone(),
+                    };
+                    self.push_ref(name, e.span, b.span, name.len() as u32, sig);
+                } else if let Some(sym) = self.symbols.get(name) {
+                    self.push_ref(
+                        name,
+                        e.span,
+                        sym.span,
+                        sym.name.len() as u32,
+                        sym.signature.clone(),
+                    );
+                }
+            }
+            ExprKind::This => {
+                if let Some(c) = this_class {
+                    if let Some(info) = self.classes.get(c) {
+                        // `this` is 4 chars; e.span points at it.
+                        self.push_ref("this", e.span, info.decl_span, c.len() as u32, format!("this: {c}"));
+                    }
+                }
+            }
+            ExprKind::Field { obj, name } => {
+                self.walk_expr(obj, scope, this_class);
+                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
+                    if let Some(info) = self.classes.get(&class) {
+                        if let Some(m) = info.fields.get(name).or_else(|| info.methods.get(name)) {
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
+                                self.refs.push(RefEntry {
+                                    line,
+                                    start_col: col,
+                                    end_col: col + name.len() as u32,
+                                    target_span: m.span,
+                                    target_name_len: name.len() as u32,
+                                    signature: m.signature.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            ExprKind::MethodCall { obj, method, args } => {
+                self.walk_expr(obj, scope, this_class);
+                for a in args {
+                    self.walk_expr(a, scope, this_class);
+                }
+                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
+                    if let Some(info) = self.classes.get(&class) {
+                        if let Some(m) = info.methods.get(method) {
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method)
+                            {
+                                self.refs.push(RefEntry {
+                                    line,
+                                    start_col: col,
+                                    end_col: col + method.len() as u32,
+                                    target_span: m.span,
+                                    target_name_len: method.len() as u32,
+                                    signature: m.signature.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            ExprKind::Call { callee, args } => {
+                if let Some(sym) = self.symbols.get(callee) {
+                    self.push_ref(
+                        callee,
+                        e.span,
+                        sym.span,
+                        sym.name.len() as u32,
+                        sym.signature.clone(),
+                    );
+                }
+                for a in args {
+                    self.walk_expr(a, scope, this_class);
+                }
+            }
+            ExprKind::New { class, args, .. } => {
+                if let Some(sym) = self.symbols.get(class) {
+                    self.push_ref(
+                        class,
+                        e.span,
+                        sym.span,
+                        sym.name.len() as u32,
+                        sym.signature.clone(),
+                    );
+                }
+                for a in args {
+                    self.walk_expr(a, scope, this_class);
+                }
+            }
+            ExprKind::EnumCtor { enum_name, args, .. } => {
+                if let Some(sym) = self.symbols.get(enum_name) {
+                    self.push_ref(
+                        enum_name,
+                        e.span,
+                        sym.span,
+                        sym.name.len() as u32,
+                        sym.signature.clone(),
+                    );
+                }
+                match args {
+                    ilang_ast::CtorArgs::Tuple(es) => {
+                        for x in es {
+                            self.walk_expr(x, scope, this_class);
+                        }
+                    }
+                    ilang_ast::CtorArgs::Struct(pairs) => {
+                        for (_, x) in pairs {
+                            self.walk_expr(x, scope, this_class);
+                        }
+                    }
+                    ilang_ast::CtorArgs::Unit => {}
+                }
+            }
+            ExprKind::Unary { expr, .. } => self.walk_expr(expr, scope, this_class),
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+                self.walk_expr(lhs, scope, this_class);
+                self.walk_expr(rhs, scope, this_class);
+            }
+            ExprKind::If { cond, then_branch, else_branch } => {
+                self.walk_expr(cond, scope, this_class);
+                self.walk_block(then_branch, scope, this_class);
+                if let Some(e) = else_branch {
+                    self.walk_expr(e, scope, this_class);
+                }
+            }
+            ExprKind::While { cond, body } => {
+                self.walk_expr(cond, scope, this_class);
+                self.walk_block(body, scope, this_class);
+            }
+            ExprKind::ForIn { var, iter, body } => {
+                self.walk_expr(iter, scope, this_class);
+                let depth = scope.len();
+                let elem_ty = match infer_expr_type(iter) {
+                    Some(Type::Array { elem, .. }) => Some(*elem),
+                    _ => None,
+                };
+                let sig = match &elem_ty {
+                    Some(t) => format!("(for-binding) {var}: {t}"),
+                    None => format!("(for-binding) {var}"),
+                };
+                self.push_decl(var, iter.span, sig);
+                scope.push(Binding {
+                    name: var.clone(),
+                    span: iter.span,
+                    ty: elem_ty,
+                });
+                self.walk_block(body, scope, this_class);
+                scope.truncate(depth);
+            }
+            ExprKind::Loop { body } => self.walk_block(body, scope, this_class),
+            ExprKind::Block(b) => self.walk_block(b, scope, this_class),
+            ExprKind::Break(opt) | ExprKind::Return(opt) => {
+                if let Some(v) = opt {
+                    self.walk_expr(v, scope, this_class);
+                }
+            }
+            ExprKind::Assign { value, .. } => self.walk_expr(value, scope, this_class),
+            ExprKind::AssignField { obj, field, value } => {
+                self.walk_expr(obj, scope, this_class);
+                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
+                    if let Some(info) = self.classes.get(&class) {
+                        if let Some(m) = info.fields.get(field) {
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, field)
+                            {
+                                self.refs.push(RefEntry {
+                                    line,
+                                    start_col: col,
+                                    end_col: col + field.len() as u32,
+                                    target_span: m.span,
+                                    target_name_len: field.len() as u32,
+                                    signature: m.signature.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                self.walk_expr(value, scope, this_class);
+            }
+            ExprKind::AssignIndex { obj, index, value } => {
+                self.walk_expr(obj, scope, this_class);
+                self.walk_expr(index, scope, this_class);
+                self.walk_expr(value, scope, this_class);
+            }
+            ExprKind::Cast { expr, .. } => self.walk_expr(expr, scope, this_class),
+            ExprKind::FnExpr { params, body, .. } => {
+                let mut inner: Vec<Binding> = Vec::new();
+                for p in params {
+                    inner.push(Binding {
+                        name: p.name.clone(),
+                        span: p.span,
+                        ty: Some(p.ty.clone()),
+                    });
+                    self.push_decl(&p.name, p.span, format!("(parameter) {}: {}", p.name, p.ty));
+                }
+                self.walk_block(body, &mut inner, this_class);
+            }
+            ExprKind::Array(es) | ExprKind::Tuple(es) => {
+                for x in es {
+                    self.walk_expr(x, scope, this_class);
+                }
+            }
+            ExprKind::StructLit { fields, .. } => {
+                for (_, x) in fields {
+                    self.walk_expr(x, scope, this_class);
+                }
+            }
+            ExprKind::MapLit(pairs) => {
+                for (k, v) in pairs {
+                    self.walk_expr(k, scope, this_class);
+                    self.walk_expr(v, scope, this_class);
+                }
+            }
+            ExprKind::Index { obj, index } => {
+                self.walk_expr(obj, scope, this_class);
+                self.walk_expr(index, scope, this_class);
+            }
+            ExprKind::Range { start, end, .. } => {
+                self.walk_expr(start, scope, this_class);
+                self.walk_expr(end, scope, this_class);
+            }
+            ExprKind::Match { scrutinee, arms } => {
+                self.walk_expr(scrutinee, scope, this_class);
+                for arm in arms {
+                    let depth = scope.len();
+                    bind_pattern(&arm.pattern, scope);
+                    self.walk_expr(&arm.body, scope, this_class);
+                    scope.truncate(depth);
+                }
+            }
+            ExprKind::SuperCall { args, .. } => {
+                for a in args {
+                    self.walk_expr(a, scope, this_class);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn push_decl(&mut self, name: &str, span: Span, signature: String) {
+        self.refs.push(RefEntry {
+            line: span.line,
+            start_col: span.col,
+            end_col: span.col + name.len() as u32,
+            target_span: span,
+            target_name_len: name.len() as u32,
+            signature,
+        });
+    }
+
+    fn push_ref(
+        &mut self,
+        name: &str,
+        use_span: Span,
+        target_span: Span,
+        target_name_len: u32,
+        signature: String,
+    ) {
+        self.refs.push(RefEntry {
+            line: use_span.line,
+            start_col: use_span.col,
+            end_col: use_span.col + name.len() as u32,
+            target_span,
+            target_name_len,
+            signature,
+        });
+    }
+
+    /// Best-effort: figure out which class an `obj` expression refers
+    /// to, so `obj.field` / `obj.method()` can resolve. Handles `this`,
+    /// known-typed locals, and `new ClassName(...)`.
+    fn resolve_obj_class(
+        &self,
+        obj: &Expr,
+        scope: &[Binding],
+        this_class: Option<&str>,
+    ) -> Option<String> {
+        match &obj.kind {
+            ExprKind::This => this_class.map(|s| s.to_string()),
+            ExprKind::Var(name) => {
+                if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
+                    type_to_class(b.ty.as_ref()?)
+                } else {
+                    None
+                }
+            }
+            ExprKind::New { class, .. } => Some(class.clone()),
+            _ => None,
+        }
+    }
+}
+
+fn type_to_class(t: &Type) -> Option<String> {
+    match t {
+        Type::Object(n) => Some(n.clone()),
+        Type::Generic { base, .. } => Some(base.clone()),
+        _ => None,
+    }
+}
+
+fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
+    match &p.kind {
+        PatternKind::Wildcard => {}
+        PatternKind::Variant { bindings, .. } => match bindings {
+            PatternBindings::Unit => {}
+            // The AST stores binding names as bare strings (no per-name
+            // spans), so we register them under the pattern's span. F12
+            // on the binding will land on the pattern itself rather
+            // than the precise identifier.
+            PatternBindings::Tuple(names) => {
+                for n in names {
+                    if n != "_" {
+                        scope.push(Binding {
+                            name: n.clone(),
+                            span: p.span,
+                            ty: None,
+                        });
+                    }
+                }
+            }
+            PatternBindings::Struct(pairs) => {
+                for (_, alias) in pairs {
+                    scope.push(Binding {
+                        name: alias.clone(),
+                        span: p.span,
+                        ty: None,
+                    });
+                }
+            }
+        },
+    }
+}
+
+/// Quick-and-dirty type inference used only for hover / `obj.field`
+/// resolution. Covers the cases the type checker has already validated;
+/// anything we can't pin down yields `None`.
+fn infer_expr_type(e: &Expr) -> Option<Type> {
+    match &e.kind {
+        ExprKind::Int(_) => Some(Type::I64),
+        ExprKind::Float(_) => Some(Type::F64),
+        ExprKind::Bool(_) => Some(Type::Bool),
+        ExprKind::Str(_) => Some(Type::Str),
+        ExprKind::New { class, type_args, .. } => {
+            if type_args.is_empty() {
+                Some(Type::Object(class.clone()))
+            } else {
+                Some(Type::Generic {
+                    base: class.clone(),
+                    args: type_args.clone(),
+                })
+            }
+        }
+        ExprKind::Cast { ty, .. } => Some(ty.clone()),
+        _ => None,
+    }
+}
+
+/// Find the `name` identifier that follows the next `.` after `obj_span`.
+/// Returns its (line, col). Used to attach a precise span to `Field` and
+/// `MethodCall` references whose AST nodes only carry the receiver's
+/// span.
+fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<(u32, u32)> {
+    let offset = line_col_to_offset(text, obj_span.line, obj_span.col)?;
+    let bytes = text.as_bytes();
+    // Walk forward, skipping a balanced run that ends at the receiver's
+    // outer level. Cheap heuristic: find the first `.` followed by
+    // `name` at the right depth-0 paren count.
+    let mut i = offset;
+    let mut paren_depth: i32 = 0;
+    let mut bracket_depth: i32 = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match b {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth -= 1,
+            b'.' if paren_depth <= 0 && bracket_depth <= 0 => {
+                // Skip whitespace then match `name`.
+                let mut j = i + 1;
+                while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                    j += 1;
+                }
+                let nb = name.as_bytes();
+                if bytes.len() - j >= nb.len() && &bytes[j..j + nb.len()] == nb {
+                    let next = bytes.get(j + nb.len()).copied().unwrap_or(b' ');
+                    if !next.is_ascii_alphanumeric() && next != b'_' {
+                        return offset_to_line_col(text, j);
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usize> {
+    let mut cur_line = 1u32;
+    let mut line_start = 0usize;
+    let bytes = text.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if cur_line == line {
+            return Some(line_start + col.saturating_sub(1) as usize);
+        }
+        if b == b'\n' {
+            cur_line += 1;
+            line_start = i + 1;
+        }
+    }
+    if cur_line == line {
+        return Some(line_start + col.saturating_sub(1) as usize);
+    }
+    None
+}
+
+fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
+    let bytes = text.as_bytes();
+    if offset > bytes.len() {
+        return None;
+    }
+    let mut line = 1u32;
+    let mut line_start = 0usize;
+    for (i, &b) in bytes.iter().enumerate().take(offset) {
+        if b == b'\n' {
+            line += 1;
+            line_start = i + 1;
+        }
+    }
+    let col = (offset - line_start) as u32 + 1;
+    Some((line, col))
+}
+
 /// Render a `const` initializer back to a short source-like string for
 /// hover. Covers primitive literals and a leading unary `-` / `+`; more
 /// complex expressions fall back to `None` so we don't print noise.
@@ -299,10 +942,11 @@ fn render_const_value(e: &Expr) -> Option<String> {
 }
 
 /// Find the identifier under the cursor by re-tokenising the source and
-/// returning the first identifier whose span covers the position.
+/// returning the first identifier whose span covers the position. Used
+/// as a fallback for top-level names not in the per-file ref index.
 fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
     let tokens = tokenize(src).ok()?;
-    let line = pos.line + 1; // LSP is 0-based, ilang spans are 1-based
+    let line = pos.line + 1;
     let col = pos.character + 1;
     for tok in &tokens {
         if let TokenKind::Ident(name) = &tok.kind {
@@ -319,8 +963,6 @@ fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
 }
 
 fn span_to_range(span: Span, len: usize) -> Range {
-    // ilang spans: 1-based line/col of the first char.
-    // LSP ranges: 0-based, end-exclusive.
     let line = span.line.saturating_sub(1);
     let start_char = span.col.saturating_sub(1);
     let end_char = start_char + len as u32;

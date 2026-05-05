@@ -37,11 +37,18 @@ The extension looks for the `ilang-lsp` binary in this order:
   comments, and attributes (`@flags`, `@extern`, ...)
 - Bracket auto-closing and comment toggling
 - **Diagnostics** — parser and type-checker errors as red squiggles
-- **Hover** — type and signature for top-level fn / class / enum / const
+- **Hover** — signature for the identifier under the cursor
 - **Go-to-definition (F12)** — jumps to the declaring identifier
 
-## Limitations
+## Scope
 
-The LSP currently indexes only **top-level declarations** in the
-single open file. Local variables, class members, and cross-file
-references are not yet resolved.
+The LSP indexes the open file as follows:
+
+- **Top-level decls** — fn / class / enum / const
+- **Locals + parameters** — `let`, fn params, fn-expr params, `for x in ...`
+- **`this`** — resolves to the enclosing class
+- **`this.field` / `this.method(...)`** — resolves to the class member
+- **`obj.field` / `obj.method(...)`** when `obj` is a known-class local
+  (declared with an annotation or as `new ClassName(...)`)
+
+Cross-file references via `use module` are not yet resolved.
