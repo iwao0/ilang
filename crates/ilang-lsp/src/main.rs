@@ -567,10 +567,13 @@ impl<'a> Walker<'a> {
                     Some(t) => format!("let {name}: {t}"),
                     None => format!("let {name}"),
                 };
-                self.push_decl(name, s.span, sig);
+                // s.span points at the `let` keyword. Locate the actual
+                // name position by skipping `let` + whitespace.
+                let name_span = locate_let_name(self.text, s.span, name).unwrap_or(s.span);
+                self.push_decl(name, name_span, sig);
                 scope.push(Binding {
                     name: name.clone(),
-                    span: s.span,
+                    span: name_span,
                     ty: inferred,
                 });
             }
@@ -940,6 +943,27 @@ fn infer_expr_type(e: &Expr) -> Option<Type> {
         ExprKind::Cast { ty, .. } => Some(ty.clone()),
         _ => None,
     }
+}
+
+/// Locate the `name` token after a `let` keyword. The Stmt span points
+/// at `let`, so we skip the keyword + whitespace to land on the binder.
+fn locate_let_name(text: &str, stmt_span: Span, name: &str) -> Option<Span> {
+    let off = line_col_to_offset(text, stmt_span.line, stmt_span.col)?;
+    let bytes = text.as_bytes();
+    // Skip `let`.
+    let mut i = off + 3;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    let nb = name.as_bytes();
+    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
+        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
+        if !next.is_ascii_alphanumeric() && next != b'_' {
+            let (line, col) = offset_to_line_col(text, i)?;
+            return Some(Span::new(line, col));
+        }
+    }
+    None
 }
 
 /// Find the `name` identifier that follows the next `.` after `obj_span`.
