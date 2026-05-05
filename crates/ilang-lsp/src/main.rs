@@ -595,7 +595,10 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     prop.name.clone(),
                     MemberInfo {
                         span: prop.span,
-                        signature: format!("(property) {}: {}", prop.name, prop.ty),
+                        signature: format!(
+                            "(property) {}.{}: {}",
+                            c.name, prop.name, prop.ty
+                        ),
                         ret_ty: Some(prop.ty.clone()),
                     },
                 );
@@ -732,7 +735,11 @@ impl<'a> Walker<'a> {
             self.push_decl(&f.name, f.span, format!("static {}: {}", f.name, f.ty));
         }
         for p in &c.properties {
-            self.push_decl(&p.name, p.span, format!("(property) {}: {}", p.name, p.ty));
+            self.push_decl(
+                &p.name,
+                p.span,
+                format!("(property) {}.{}: {}", c.name, p.name, p.ty),
+            );
         }
         for m in &c.methods {
             self.walk_fn(m, Some(&c.name));
