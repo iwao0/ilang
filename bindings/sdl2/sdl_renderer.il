@@ -62,6 +62,9 @@
     @lib("SDL2") fn SDL_SetTextureAlphaMod(
         tex: *SDL_Texture, alpha: u8
     ): i32
+    @lib("SDL2") fn SDL_SetTextureScaleMode(
+        tex: *SDL_Texture, scaleMode: i32
+    ): i32
     @lib("SDL2") fn SDL_RenderCopy(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         srcrect: *SDL_Rect, dstrect: *SDL_Rect
@@ -240,6 +243,11 @@
         // SDL_BlendMode: 0=NONE, 1=BLEND, 2=ADD, 4=MOD, 8=MUL.
         setBlendMode(mode: i32): i32 {
             SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
+        }
+        // SDL_ScaleMode: 0=Nearest, 1=Linear, 2=Best. Linear is
+        // what makes downsample / upsample look like a soft blur.
+        setScaleMode(mode: i32): i32 {
+            SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode)
         }
     }
 

@@ -291,7 +291,7 @@ fn makeBgmLoop(): i16[] {
     let i: i32 = 0
     let n: i32 = notes.length as i32
     while i < n {
-        let note = makeNote(notes[i], beat_ms, 0.32)
+        let note = makeNote(notes[i], beat_ms, 0.16)
         let ji: i32 = 0
         let jn: i32 = note.length as i32
         while ji < jn {
@@ -687,6 +687,25 @@ fn play() {
         console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
         return
     }
+    // Linear filtering on the scene texture so that the bloom
+    // pass's downscale + upscale produces a smooth blur instead of
+    // a chunky pixel grid.
+    scene_tex.setScaleMode(1)
+
+    // Tiny target used to "blur" the scene. We draw scene_tex
+    // shrunk into bloom_tex (each downsample averages a 4×4 block
+    // thanks to linear filtering), and later draw bloom_tex back
+    // out at full window size additively — the upscale spreads
+    // each averaged pixel across many output pixels, giving a
+    // soft glow around the bright stuff in the scene.
+    let BLOOM_W: i32 = 225              // WIN_W / 4
+    let BLOOM_H: i32 = 175              // WIN_H / 4
+    let bloom_tex = new sdl.Texture(ren, BLOOM_W, BLOOM_H, 2)
+    if bloom_tex.handle == 0 {
+        console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
+        return
+    }
+    bloom_tex.setScaleMode(1)
 
     // Background star field — scrolls top→down with a twinkle.
     let bg_stars: Star[] = []
@@ -1516,6 +1535,15 @@ fn play() {
                           3, 200, 220, 255, 255)
         }
 
+        // ─── bloom prep: downsample the scene into bloom_tex ─────
+        // Linear filtering averages 4×4 source blocks into each
+        // bloom pixel; later we'll upscale this back to full
+        // resolution which spreads the average into a soft halo.
+        ren.setTarget(bloom_tex.handle)
+        ren.setColor(0, 0, 0, 0)
+        ren.clear()
+        ren.drawTexture(scene_tex.handle, 0, 0, BLOOM_W, BLOOM_H)
+
         // ─── composite scene_tex (world + HUD) to window with
         // ─── chromatic aberration. ────────────────────────────────
         ren.resetTarget()
@@ -1536,6 +1564,19 @@ fn play() {
         // Restore for next frame's setTarget pass.
         scene_tex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
         scene_tex.setColorMod(255 as u8, 255 as u8, 255 as u8)
+
+        // ─── bloom: additively overlay the upscaled blurred
+        // ─── version, brightening hot spots into a soft glow.
+        // Without a shader-side bright-pass we instead darken the
+        // whole bloom contribution via colour-mod so mid-brightness
+        // pixels don't push the composite to white. The result is
+        // a soft glow only on the hottest parts of the scene.
+        bloom_tex.setBlendMode(2)
+        bloom_tex.setColorMod(60 as u8, 60 as u8, 60 as u8)
+        bloom_tex.setAlphaMod(255 as u8)
+        ren.drawTexture(bloom_tex.handle, 0, 0, WIN_W, WIN_H)
+        bloom_tex.setBlendMode(1)
+        bloom_tex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
         // CRT overlay (scanlines + vignette).
         ren.drawTexture(crt_tex.handle, 0, 0, WIN_W, WIN_H)
