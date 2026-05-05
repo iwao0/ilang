@@ -87,12 +87,12 @@ pub(crate) fn register_native_externs(
         .filter_map(|i| if let Item::Fn(f) = i { Some(f) } else { None })
         .collect();
     all_extern_fns.extend(synth_fns.iter());
-    // All `@extern(C) {}`-block-synthesized fns pass structs by value
-    // (matches the C ABI, which has no other choice). Register them
-    // here so the by_value validation path covers host-form fns too.
-    for f in &synth_fns {
-        by_value.insert(f.name.clone());
-    }
+    // `@lib(...)` host forwarders synthesized from `@extern(C) {}`
+    // pass structs by value — they're tagged with the `byValue`
+    // path-attr at synthesis time and picked up below. Plain ilang
+    // fns defined inside the same block (no `@lib` attr) keep the
+    // ilang ABI, so they can return regular classes etc. without
+    // being forced through the C-ABI by_value validator.
     for f in &all_extern_fns {
         // Find an `@extern("libname")` attribute (string-arg form).
         // `@extern` with no args is the legacy host-side form, which
@@ -325,7 +325,7 @@ fn validate_by_value_fn(
             return Err(CodegenError::Unsupported {
                 what: format!(
                     "@extern fn {}: by_value {} of type {} is \
-                     not a `@repr(C)` class",
+                     not a C-compatible struct",
                     f.name, role, name
                 ),
                 span,
