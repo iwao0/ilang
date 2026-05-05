@@ -569,6 +569,22 @@ fn build_doc(
             match item {
                 Item::Fn(f) => walker.walk_fn(f, None),
                 Item::Class(c) => walker.walk_class(c),
+                Item::Use(u) => {
+                    // `use module` — push a hover entry on the module
+                    // identifier itself.
+                    if let Some(name_span) = locate_let_name_with_kw(
+                        &text,
+                        u.span,
+                        "use",
+                        &u.module,
+                    ) {
+                        walker.push_decl(
+                            &u.module,
+                            name_span,
+                            format!("(module) {}", u.module),
+                        );
+                    }
+                }
                 Item::ExternC(b) => {
                     for inner in &b.items {
                         match inner {
@@ -1926,10 +1942,15 @@ fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
 /// Locate the `name` token after a `let` keyword. The Stmt span points
 /// at `let`, so we skip the keyword + whitespace to land on the binder.
 fn locate_let_name(text: &str, stmt_span: Span, name: &str) -> Option<Span> {
-    let off = line_col_to_offset(text, stmt_span.line, stmt_span.col)?;
+    locate_let_name_with_kw(text, stmt_span, "let", name)
+}
+
+/// Same as `locate_let_name` but parameterised on the keyword length —
+/// works for `use`, `let`, etc.
+fn locate_let_name_with_kw(text: &str, kw_span: Span, kw: &str, name: &str) -> Option<Span> {
+    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
     let bytes = text.as_bytes();
-    // Skip `let`.
-    let mut i = off + 3;
+    let mut i = off + kw.len();
     while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
         i += 1;
     }
