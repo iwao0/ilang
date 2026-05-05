@@ -807,6 +807,10 @@ fn play() {
     let running = true
     while running {
         sdl.pumpEvents()
+        sdl.Keyboard.pump()
+        if sdl.quitRequested() {
+            running = false
+        }
 
         // FPS: count frames over a 1-second window.
         fps_frames += 1
