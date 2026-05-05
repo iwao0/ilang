@@ -467,7 +467,8 @@ fn build_doc(
     external_returns: &HashMap<String, Type>,
 ) -> Doc {
     let symbols = collect_symbols(prog);
-    let classes = collect_classes(prog);
+    let mut classes = collect_classes(prog);
+    install_builtin_classes(&mut classes);
     let mut fn_returns: HashMap<String, Type> = HashMap::new();
     for item in &prog.items {
         match item {
@@ -702,6 +703,28 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
         }
     }
     out
+}
+
+/// Inject hover info for built-in singletons / classes that the type
+/// checker pre-registers (e.g. `console.log`). The buffer doesn't
+/// declare these, so users would otherwise see no hover.
+fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
+    let mut methods = HashMap::new();
+    methods.insert(
+        "log".to_string(),
+        MemberInfo {
+            span: Span::dummy(),
+            signature: "(method) Console.log(...args): ()".to_string(),
+            ret_ty: Some(Type::Unit),
+        },
+    );
+    out.entry("Console".to_string()).or_insert(ClassInfo {
+        decl_span: Span::dummy(),
+        fields: HashMap::new(),
+        methods,
+        getters: HashMap::new(),
+        setters: HashMap::new(),
+    });
 }
 
 fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
@@ -1535,6 +1558,9 @@ impl<'a> Walker<'a> {
                     // Bare `ClassName.field/method` — static access on
                     // the class itself.
                     Some(name.clone())
+                } else if name == "console" {
+                    // Built-in singleton: maps to the `Console` class.
+                    Some("Console".to_string())
                 } else {
                     None
                 }
