@@ -153,10 +153,11 @@ cargo run -p ilang-cli -- run counter.il   # => 16
 
 ### 🎮 Sample: an SDL2 game window
 
-`examples/sdl_breakout/` contains an SDL2 demo: a ball bounces
-around the window, beeping every time it hits a wall. The arrow
-keys (or `A` / `D`) move a paddle along the bottom; `ESC` exits
-early.
+`examples/sdl_breakout/` contains an SDL2 demo: a neon-style
+breakout game with paddle, bricks, particles, and gamepad support.
+Arrow keys / `A` `D` (or D-pad / left stick) move the paddle,
+`Space` launches the ball, `F` toggles fullscreen, `R` restarts
+after game over, `ESC` quits.
 
 Install SDL2 first:
 
