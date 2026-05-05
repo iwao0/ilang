@@ -535,6 +535,33 @@ struct Binding {
     /// Statically-known type, if we can pin it down. Used both for hover
     /// signature and to resolve `local.field` accesses to the right class.
     ty: Option<Type>,
+    /// What kind of binder introduced this (let / param / for-in / match
+    /// pattern). Carried into hover signatures so use sites read like
+    /// the declaration.
+    kind: BindKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum BindKind {
+    Let,
+    Param,
+    ForIn,
+    Pattern,
+}
+
+impl BindKind {
+    fn render(self, name: &str, ty: Option<&Type>) -> String {
+        let prefix = match self {
+            BindKind::Let => "let ",
+            BindKind::Param => "(parameter) ",
+            BindKind::ForIn => "(for-binding) ",
+            BindKind::Pattern => "(pattern) ",
+        };
+        match ty {
+            Some(t) => format!("{prefix}{name}: {t}"),
+            None => format!("{prefix}{name}"),
+        }
+    }
 }
 
 struct Walker<'a> {
@@ -551,13 +578,14 @@ impl<'a> Walker<'a> {
     fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
         let mut scope: Vec<Binding> = Vec::new();
         for p in &f.params {
+            let sig = BindKind::Param.render(&p.name, Some(&p.ty));
+            self.push_decl(&p.name, p.span, sig);
             scope.push(Binding {
                 name: p.name.clone(),
                 span: p.span,
                 ty: Some(p.ty.clone()),
+                kind: BindKind::Param,
             });
-            // The param name itself doubles as a hover/F12 target.
-            self.push_decl(&p.name, p.span, format!("(parameter) {}: {}", p.name, p.ty));
         }
         self.walk_block(&f.body, &mut scope, this_class);
     }
@@ -609,10 +637,7 @@ impl<'a> Walker<'a> {
                 let inferred = ty
                     .clone()
                     .or_else(|| self.infer_expr(value, scope));
-                let sig = match &inferred {
-                    Some(t) => format!("let {name}: {t}"),
-                    None => format!("let {name}"),
-                };
+                let sig = BindKind::Let.render(name, inferred.as_ref());
                 // s.span points at the `let` keyword. Locate the actual
                 // name position by skipping `let` + whitespace.
                 let name_span = locate_let_name(self.text, s.span, name).unwrap_or(s.span);
@@ -621,6 +646,7 @@ impl<'a> Walker<'a> {
                     name: name.clone(),
                     span: name_span,
                     ty: inferred,
+                    kind: BindKind::Let,
                 });
             }
             StmtKind::Expr(e) => self.walk_expr(e, scope, this_class),
@@ -631,10 +657,7 @@ impl<'a> Walker<'a> {
         match &e.kind {
             ExprKind::Var(name) => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
-                    let sig = match &b.ty {
-                        Some(t) => format!("{}: {}", name, t),
-                        None => name.clone(),
-                    };
+                    let sig = b.kind.render(name, b.ty.as_ref());
                     self.push_ref(name, e.span, b.span, name.len() as u32, sig);
                 } else if let Some(sym) = self.symbols.get(name) {
                     self.push_ref(
@@ -767,19 +790,17 @@ impl<'a> Walker<'a> {
             ExprKind::ForIn { var, iter, body } => {
                 self.walk_expr(iter, scope, this_class);
                 let depth = scope.len();
-                let elem_ty = match infer_expr_type(iter) {
+                let elem_ty = match self.infer_expr(iter, scope) {
                     Some(Type::Array { elem, .. }) => Some(*elem),
                     _ => None,
                 };
-                let sig = match &elem_ty {
-                    Some(t) => format!("(for-binding) {var}: {t}"),
-                    None => format!("(for-binding) {var}"),
-                };
+                let sig = BindKind::ForIn.render(var, elem_ty.as_ref());
                 self.push_decl(var, iter.span, sig);
                 scope.push(Binding {
                     name: var.clone(),
                     span: iter.span,
                     ty: elem_ty,
+                    kind: BindKind::ForIn,
                 });
                 self.walk_block(body, scope, this_class);
                 scope.truncate(depth);
@@ -793,10 +814,7 @@ impl<'a> Walker<'a> {
             }
             ExprKind::Assign { target, value } => {
                 if let Some(b) = scope.iter().rev().find(|b| &b.name == target) {
-                    let sig = match &b.ty {
-                        Some(t) => format!("{}: {}", target, t),
-                        None => target.clone(),
-                    };
+                    let sig = b.kind.render(target, b.ty.as_ref());
                     self.push_ref(target, e.span, b.span, target.len() as u32, sig);
                 } else if let Some(sym) = self.symbols.get(target) {
                     self.push_ref(
@@ -839,12 +857,14 @@ impl<'a> Walker<'a> {
             ExprKind::FnExpr { params, body, .. } => {
                 let mut inner: Vec<Binding> = Vec::new();
                 for p in params {
+                    let sig = BindKind::Param.render(&p.name, Some(&p.ty));
+                    self.push_decl(&p.name, p.span, sig);
                     inner.push(Binding {
                         name: p.name.clone(),
                         span: p.span,
                         ty: Some(p.ty.clone()),
+                        kind: BindKind::Param,
                     });
-                    self.push_decl(&p.name, p.span, format!("(parameter) {}: {}", p.name, p.ty));
                 }
                 self.walk_block(body, &mut inner, this_class);
             }
@@ -1012,6 +1032,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
                             name: n.clone(),
                             span: p.span,
                             ty: None,
+                            kind: BindKind::Pattern,
                         });
                     }
                 }
@@ -1022,6 +1043,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
                         name: alias.clone(),
                         span: p.span,
                         ty: None,
+                        kind: BindKind::Pattern,
                     });
                 }
             }
@@ -1085,9 +1107,6 @@ fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
     }
 }
 
-fn infer_expr_type(e: &Expr) -> Option<Type> {
-    infer_expr_type_with_scope(e, &[])
-}
 
 /// Pick which operand's type wins for a binary numeric op. Bare integer
 /// or float literals defer to the other side when the other side has a
