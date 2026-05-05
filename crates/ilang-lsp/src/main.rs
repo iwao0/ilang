@@ -458,10 +458,28 @@ fn build_doc(
     let classes = collect_classes(prog);
     let mut fn_returns: HashMap<String, Type> = HashMap::new();
     for item in &prog.items {
-        if let Item::Fn(f) = item {
-            if let Some(t) = &f.ret {
-                fn_returns.insert(f.name.clone(), t.clone());
+        match item {
+            Item::Fn(f) => {
+                if let Some(t) = &f.ret {
+                    fn_returns.insert(f.name.clone(), t.clone());
+                }
             }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, ret: Some(t), .. } => {
+                            fn_returns.insert(name.clone(), t.clone());
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            if let Some(t) = &f.ret {
+                                fn_returns.insert(f.name.clone(), t.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
         }
     }
     let mut refs = Vec::new();
@@ -479,6 +497,15 @@ fn build_doc(
             match item {
                 Item::Fn(f) => walker.walk_fn(f, None),
                 Item::Class(c) => walker.walk_class(c),
+                Item::ExternC(b) => {
+                    for inner in &b.items {
+                        match inner {
+                            ilang_ast::ExternCItem::FnDef(f) => walker.walk_fn(f, None),
+                            ilang_ast::ExternCItem::Class(c) => walker.walk_class(c),
+                            _ => {}
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -503,20 +530,21 @@ fn build_doc(
 }
 
 fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
+    use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
+    let put_fn = |f: &FnDecl, m: &mut HashMap<String, Symbol>| {
+        m.insert(
+            f.name.clone(),
+            Symbol {
+                name: f.name.clone(),
+                span: f.span,
+                signature: fn_signature(f),
+            },
+        );
+    };
     for item in &prog.items {
         match item {
-            Item::Fn(f) => {
-                let sig = fn_signature(f);
-                out.insert(
-                    f.name.clone(),
-                    Symbol {
-                        name: f.name.clone(),
-                        span: f.span,
-                        signature: sig,
-                    },
-                );
-            }
+            Item::Fn(f) => put_fn(f, &mut out),
             Item::Class(c) => {
                 let signature = format!("class {}", c.name);
                 out.insert(
@@ -566,6 +594,72 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                     },
                 );
             }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ExternCItem::FnDecl { name, params, ret, span, .. } => {
+                            let ps = params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            out.insert(
+                                name.clone(),
+                                Symbol {
+                                    name: name.clone(),
+                                    span: *span,
+                                    signature: format!("fn {}({}){}", name, ps, r),
+                                },
+                            );
+                        }
+                        ExternCItem::FnDef(f) => put_fn(f, &mut out),
+                        ExternCItem::Static { name, ty, span, .. } => {
+                            out.insert(
+                                name.clone(),
+                                Symbol {
+                                    name: name.clone(),
+                                    span: *span,
+                                    signature: format!("static {}: {}", name, ty),
+                                },
+                            );
+                        }
+                        ExternCItem::Struct { name, span, .. } => {
+                            out.insert(
+                                name.clone(),
+                                Symbol {
+                                    name: name.clone(),
+                                    span: *span,
+                                    signature: format!("struct {}", name),
+                                },
+                            );
+                        }
+                        ExternCItem::Union { name, span, .. } => {
+                            out.insert(
+                                name.clone(),
+                                Symbol {
+                                    name: name.clone(),
+                                    span: *span,
+                                    signature: format!("union {}", name),
+                                },
+                            );
+                        }
+                        ExternCItem::Class(c) => {
+                            out.insert(
+                                c.name.clone(),
+                                Symbol {
+                                    name: c.name.clone(),
+                                    span: c.span,
+                                    signature: format!("class {}", c.name),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -573,9 +667,26 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
 }
 
 fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
-    let mut out = HashMap::new();
+    use ilang_ast::ExternCItem;
+    let mut classes: Vec<&ClassDecl> = Vec::new();
     for item in &prog.items {
-        if let Item::Class(c) = item {
+        match item {
+            Item::Class(c) => classes.push(c),
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    if let ExternCItem::Class(c) = inner {
+                        classes.push(c);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = HashMap::new();
+    for c in classes {
+        // Mirror the original body — each block builds a ClassInfo
+        // identical to the original `Item::Class` path.
+        {
             let mut fields = HashMap::new();
             for f in &c.fields {
                 fields.insert(
