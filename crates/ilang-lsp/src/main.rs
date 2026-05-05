@@ -811,9 +811,19 @@ impl<'a> Walker<'a> {
             }
         }
         for m in &c.methods {
+            self.push_decl(
+                &m.name,
+                m.span,
+                format!("(method) {}.{}", c.name, fn_body(m)),
+            );
             self.walk_fn(m, Some(&c.name));
         }
         for m in &c.static_methods {
+            self.push_decl(
+                &m.name,
+                m.span,
+                format!("(static method) {}.{}", c.name, fn_body(m)),
+            );
             self.walk_fn(m, None);
         }
         for prop in &c.properties {
