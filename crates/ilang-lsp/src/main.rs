@@ -393,13 +393,35 @@ impl LanguageServer for Backend {
         if sigs.is_empty() {
             return Ok(None);
         }
-        let signatures: Vec<SignatureInformation> = sigs
+        // Filter: once the user has typed any `,`s, drop overloads
+        // whose parameter count can't reach the cursor's position.
+        // arg_index == 0 keeps every overload.
+        let mut chosen: Vec<&MemberInfo> = sigs
             .iter()
-            .map(|m| SignatureInformation {
-                label: m.signature.clone(),
-                documentation: None,
-                parameters: None,
-                active_parameter: None,
+            .filter(|m| {
+                let n = parameter_offsets(&m.signature).len();
+                call.arg_index == 0 || n > call.arg_index
+            })
+            .collect();
+        if chosen.is_empty() {
+            chosen = sigs.iter().collect();
+        }
+        let signatures: Vec<SignatureInformation> = chosen
+            .iter()
+            .map(|m| {
+                let params = parameter_offsets(&m.signature)
+                    .into_iter()
+                    .map(|(s, e)| ParameterInformation {
+                        label: ParameterLabel::LabelOffsets([s, e]),
+                        documentation: None,
+                    })
+                    .collect::<Vec<_>>();
+                SignatureInformation {
+                    label: m.signature.clone(),
+                    documentation: None,
+                    parameters: if params.is_empty() { None } else { Some(params) },
+                    active_parameter: None,
+                }
             })
             .collect();
         Ok(Some(SignatureHelp {
@@ -2935,6 +2957,83 @@ fn render_const_value(e: &Expr) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// Given a signature label like `(method) Counter.init(a: i64, b: i64)`,
+/// return UTF-16 (line, col-equivalent) offsets — actually byte
+/// offsets in the label — for each parameter span. The LSP client
+/// uses them to bold the active parameter.
+fn parameter_offsets(label: &str) -> Vec<(u32, u32)> {
+    let bytes = label.as_bytes();
+    // The signature label has a leading `(method) Class.name` /
+    // `(getter) ...` style prefix that contains its own parens. Find
+    // the *parameter* parens by walking back from the rightmost `)`
+    // and locating its matching `(`.
+    let Some(close) = bytes.iter().rposition(|&b| b == b')') else {
+        return Vec::new();
+    };
+    let mut depth = 0i32;
+    let mut open: Option<usize> = None;
+    let mut i = close;
+    loop {
+        match bytes[i] {
+            b')' => depth += 1,
+            b'(' => {
+                depth -= 1;
+                if depth == 0 {
+                    open = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    let Some(open) = open else {
+        return Vec::new();
+    };
+    if close <= open + 1 {
+        return Vec::new();
+    }
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    let mut start = open + 1;
+    let mut paren_depth = 0i32;
+    let mut bracket_depth = 0i32;
+    for i in start..close {
+        let b = bytes[i];
+        match b {
+            b'(' => paren_depth += 1,
+            b')' => paren_depth -= 1,
+            b'[' => bracket_depth += 1,
+            b']' => bracket_depth -= 1,
+            b',' if paren_depth == 0 && bracket_depth == 0 => {
+                let s = trim_offset(bytes, start, i);
+                if s.0 < s.1 {
+                    out.push((s.0 as u32, s.1 as u32));
+                }
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    let s = trim_offset(bytes, start, close);
+    if s.0 < s.1 {
+        out.push((s.0 as u32, s.1 as u32));
+    }
+    out
+}
+
+fn trim_offset(bytes: &[u8], mut s: usize, mut e: usize) -> (usize, usize) {
+    while s < e && (bytes[s] == b' ' || bytes[s] == b'\t') {
+        s += 1;
+    }
+    while e > s && (bytes[e - 1] == b' ' || bytes[e - 1] == b'\t') {
+        e -= 1;
+    }
+    (s, e)
 }
 
 struct CallContext {
