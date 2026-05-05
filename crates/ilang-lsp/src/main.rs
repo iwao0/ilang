@@ -582,7 +582,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     f.name.clone(),
                     MemberInfo {
                         span: f.span,
-                        signature: format!("(field) {}.{}: {}", c.name, f.name, f.ty),
+                        signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                         ret_ty: Some(f.ty.clone()),
                     },
                 );
@@ -782,7 +782,7 @@ impl<'a> Walker<'a> {
             self.push_decl(
                 &f.name,
                 f.span,
-                format!("(field) {}.{}: {}", c.name, f.name, f.ty),
+                format!("(property) {}.{}: {}", c.name, f.name, f.ty),
             );
         }
         for f in &c.static_fields {
