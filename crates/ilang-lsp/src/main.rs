@@ -502,6 +502,20 @@ fn build_doc(
                         match inner {
                             ilang_ast::ExternCItem::FnDef(f) => walker.walk_fn(f, None),
                             ilang_ast::ExternCItem::Class(c) => walker.walk_class(c),
+                            ilang_ast::ExternCItem::Struct {
+                                name, fields, ..
+                            }
+                            | ilang_ast::ExternCItem::Union {
+                                name, fields, ..
+                            } => {
+                                for f in fields {
+                                    walker.push_decl(
+                                        &f.name,
+                                        f.span,
+                                        format!("(property) {}.{}: {}", name, f.name, f.ty),
+                                    );
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -669,20 +683,51 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
 fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
     use ilang_ast::ExternCItem;
     let mut classes: Vec<&ClassDecl> = Vec::new();
+    let mut out = HashMap::new();
     for item in &prog.items {
         match item {
             Item::Class(c) => classes.push(c),
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    if let ExternCItem::Class(c) = inner {
-                        classes.push(c);
+                    match inner {
+                        ExternCItem::Class(c) => classes.push(c),
+                        // Treat extern structs / unions like classes for
+                        // field-resolution purposes: build a fields-only
+                        // ClassInfo so `point.x` hovers / F12s.
+                        ExternCItem::Struct { name, fields: fs, span, .. }
+                        | ExternCItem::Union { name, fields: fs, span, .. } => {
+                            let mut fields = HashMap::new();
+                            for f in fs {
+                                fields.insert(
+                                    f.name.clone(),
+                                    MemberInfo {
+                                        span: f.span,
+                                        signature: format!(
+                                            "(property) {}.{}: {}",
+                                            name, f.name, f.ty
+                                        ),
+                                        ret_ty: Some(f.ty.clone()),
+                                    },
+                                );
+                            }
+                            out.insert(
+                                name.clone(),
+                                ClassInfo {
+                                    decl_span: *span,
+                                    fields,
+                                    methods: HashMap::new(),
+                                    getters: HashMap::new(),
+                                    setters: HashMap::new(),
+                                },
+                            );
+                        }
+                        _ => {}
                     }
                 }
             }
             _ => {}
         }
     }
-    let mut out = HashMap::new();
     for c in classes {
         // Mirror the original body — each block builds a ClassInfo
         // identical to the original `Item::Class` path.
