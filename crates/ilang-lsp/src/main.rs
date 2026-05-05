@@ -319,7 +319,9 @@ fn collect_external_signatures(
             Item::ExternC(b) => {
                 for inner in &b.items {
                     match inner {
-                        ExternCItem::FnDecl { name, params, ret, .. } => {
+                        ExternCItem::FnDecl {
+                            name, params, ret, libs, ..
+                        } => {
                             let ps = params
                                 .iter()
                                 .map(|p| format!("{}: {}", p.name, p.ty))
@@ -329,9 +331,19 @@ fn collect_external_signatures(
                                 Some(t) => format!(": {t}"),
                                 None => String::new(),
                             };
+                            let libs_prefix = if libs.is_empty() {
+                                String::new()
+                            } else {
+                                let names = libs
+                                    .iter()
+                                    .map(|l| format!("\"{l}\""))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("@lib({names}) ")
+                            };
                             put_dotted(
                                 name,
-                                format!("fn {}({}){}", name, ps, r),
+                                format!("{libs_prefix}fn {}({}){}", name, ps, r),
                                 &mut out,
                             );
                             if let Some(t) = ret {
@@ -611,7 +623,9 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
             Item::ExternC(b) => {
                 for inner in &b.items {
                     match inner {
-                        ExternCItem::FnDecl { name, params, ret, span, .. } => {
+                        ExternCItem::FnDecl {
+                            name, params, ret, span, libs, ..
+                        } => {
                             let ps = params
                                 .iter()
                                 .map(|p| format!("{}: {}", p.name, p.ty))
@@ -621,12 +635,22 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                 Some(t) => format!(": {t}"),
                                 None => String::new(),
                             };
+                            let libs_prefix = if libs.is_empty() {
+                                String::new()
+                            } else {
+                                let names = libs
+                                    .iter()
+                                    .map(|l| format!("\"{l}\""))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("@lib({names}) ")
+                            };
                             out.insert(
                                 name.clone(),
                                 Symbol {
                                     name: name.clone(),
                                     span: *span,
-                                    signature: format!("fn {}({}){}", name, ps, r),
+                                    signature: format!("{libs_prefix}fn {}({}){}", name, ps, r),
                                 },
                             );
                         }
