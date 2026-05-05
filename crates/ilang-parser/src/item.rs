@@ -1239,15 +1239,44 @@ impl<'a> Parser<'a> {
                     "size_t" => Type::Size,
                     "ssize_t" => Type::SSize,
                     _ => {
+                        // Module-qualified type names: `module.Type`
+                        // (or even deeper). Each segment is an
+                        // identifier separated by `.`. The reserved
+                        // postfix `.weak` (weak-reference modifier)
+                        // is left for the postfix loop below.
+                        let mut full_name = n;
+                        while matches!(self.peek().kind, TokenKind::Dot)
+                            && !matches!(
+                                self.peek_n(1).map(|t| &t.kind),
+                                Some(TokenKind::Ident(n)) if n == "weak"
+                            )
+                        {
+                            self.bump();
+                            let next = self.peek().clone();
+                            match next.kind {
+                                TokenKind::Ident(seg) => {
+                                    self.bump();
+                                    full_name.push('.');
+                                    full_name.push_str(&seg);
+                                }
+                                other => {
+                                    return Err(ParseError::Unexpected {
+                                        found: other,
+                                        expected: "identifier after `.`".into(),
+                                        span: next.span,
+                                    });
+                                }
+                            }
+                        }
                         // After a class-like name, accept optional
                         // `<T, U>` for generic instantiations:
                         //   Box<i64>          → Generic { Box, [i64] }
                         //   Pair<string, i64> → Generic { Pair, [Str, I64] }
                         if matches!(self.peek().kind, TokenKind::Lt) {
                             let args = self.parse_type_args()?;
-                            Type::Generic { base: n, args }
+                            Type::Generic { base: full_name, args }
                         } else {
-                            Type::Object(n)
+                            Type::Object(full_name)
                         }
                     }
                 }

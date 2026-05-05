@@ -59,12 +59,25 @@ pub fn mangle_overloads(
         .collect();
 
     // Same idea for class methods. `(class_name, method_name) → Vec<method-position-in-class.methods>`.
+    // Also reach into `@extern(C) {}` blocks: classes declared
+    // there can be overloaded the same way as top-level ones.
     let mut method_indices: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    let mut walk_class_methods = |c: &ClassDecl, method_indices: &mut HashMap<(String, String), Vec<usize>>| {
+        for (i, m) in c.methods.iter().enumerate() {
+            method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
+        }
+    };
     for item in &prog.items {
-        if let Item::Class(c) = item {
-            for (i, m) in c.methods.iter().enumerate() {
-                method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
+        match item {
+            Item::Class(c) => walk_class_methods(c, &mut method_indices),
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    if let ilang_ast::ExternCItem::Class(c) = inner {
+                        walk_class_methods(c, &mut method_indices);
+                    }
+                }
             }
+            _ => {}
         }
     }
     let overloaded_methods: HashSet<(String, String)> = method_indices
@@ -95,9 +108,19 @@ pub fn mangle_overloads(
 
     let mut new_method_names: HashMap<(String, String, usize), String> = HashMap::new();
     for (class_name, method_name) in &overloaded_methods {
-        // Find the class and walk its methods in declaration order;
-        // sig_idx is the order they appear with the same name.
-        if let Some(Item::Class(c)) = prog.items.iter().find(|it| matches!(it, Item::Class(c) if c.name == *class_name)) {
+        // Find the class — either at top level or inside an
+        // `@extern(C) {}` block — and walk its methods in
+        // declaration order; sig_idx is the position of each
+        // matching name.
+        let class_decl: Option<&ClassDecl> = prog.items.iter().find_map(|it| match it {
+            Item::Class(c) if &c.name == class_name => Some(c),
+            Item::ExternC(b) => b.items.iter().find_map(|inner| match inner {
+                ilang_ast::ExternCItem::Class(c) if &c.name == class_name => Some(c),
+                _ => None,
+            }),
+            _ => None,
+        });
+        if let Some(c) = class_decl {
             let mut sig_idx = 0;
             for m in &c.methods {
                 if m.name == *method_name {
@@ -170,65 +193,90 @@ fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
             Item::Fn(f)
         }
         Item::Class(mut c) => {
-            // Rename overloaded methods. Walk in declaration order so
-            // sig_idx matches what the typechecker recorded.
-            let class_name = c.name.clone();
-            let mut sig_counter: HashMap<String, usize> = HashMap::new();
-            for m in &mut c.methods {
-                let body = std::mem::replace(
-                    &mut m.body,
-                    Block { stmts: Vec::new(), tail: None },
-                );
-                m.body = rewrite_block(body, ctx);
-                let key = (class_name.clone(), m.name.clone());
-                if ctx.overloaded_methods.contains(&key) {
-                    let idx = sig_counter.entry(m.name.clone()).or_insert(0);
-                    let mangled = ctx
-                        .new_method_names
-                        .get(&(class_name.clone(), m.name.clone(), *idx))
-                        .cloned();
-                    if let Some(new_name) = mangled {
-                        m.name = new_name;
-                    }
-                    *idx += 1;
-                }
-            }
-            // Static method bodies need rewriting (calls to overloaded
-            // fns) but the static methods themselves aren't currently
-            // overloadable — no name munging.
-            for m in &mut c.static_methods {
-                let body = std::mem::replace(
-                    &mut m.body,
-                    Block { stmts: Vec::new(), tail: None },
-                );
-                m.body = rewrite_block(body, ctx);
-            }
-            // Property accessor bodies need rewriting too (their bodies
-            // can contain calls to overloaded fns/methods). Properties
-            // themselves aren't overloaded — no name change.
-            for prop in &mut c.properties {
-                if let Some(g) = prop.getter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut g.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    g.body = rewrite_block(body, ctx);
-                }
-                if let Some(s) = prop.setter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut s.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    s.body = rewrite_block(body, ctx);
-                }
-            }
+            rewrite_class_in_place(&mut c, ctx);
             Item::Class(c)
         }
         Item::Enum(e) => Item::Enum(e),
         Item::Use(u) => Item::Use(u),
         Item::Const(c) => Item::Const(c),
         Item::ExternStatic(s) => Item::ExternStatic(s),
-        Item::ExternC(b) => Item::ExternC(b),
+        Item::ExternC(mut b) => {
+            // Recurse into the block. ilang `FnDef` bodies need
+            // call rewriting; ilang `Class` decls need both method
+            // renaming and body rewriting — same as top-level
+            // classes.
+            for inner in b.items.iter_mut() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        let body = std::mem::replace(
+                            &mut f.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        f.body = rewrite_block(body, ctx);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        rewrite_class_in_place(c, ctx);
+                    }
+                    _ => {}
+                }
+            }
+            Item::ExternC(b)
+        }
+    }
+}
+
+fn rewrite_class_in_place(c: &mut ClassDecl, ctx: &Ctx) {
+    // Rename overloaded methods. Walk in declaration order so
+    // sig_idx matches what the typechecker recorded.
+    let class_name = c.name.clone();
+    let mut sig_counter: HashMap<String, usize> = HashMap::new();
+    for m in &mut c.methods {
+        let body = std::mem::replace(
+            &mut m.body,
+            Block { stmts: Vec::new(), tail: None },
+        );
+        m.body = rewrite_block(body, ctx);
+        let key = (class_name.clone(), m.name.clone());
+        if ctx.overloaded_methods.contains(&key) {
+            let idx = sig_counter.entry(m.name.clone()).or_insert(0);
+            let mangled = ctx
+                .new_method_names
+                .get(&(class_name.clone(), m.name.clone(), *idx))
+                .cloned();
+            if let Some(new_name) = mangled {
+                m.name = new_name;
+            }
+            *idx += 1;
+        }
+    }
+    // Static method bodies need rewriting (calls to overloaded
+    // fns) but the static methods themselves aren't currently
+    // overloadable — no name munging.
+    for m in &mut c.static_methods {
+        let body = std::mem::replace(
+            &mut m.body,
+            Block { stmts: Vec::new(), tail: None },
+        );
+        m.body = rewrite_block(body, ctx);
+    }
+    // Property accessor bodies need rewriting too (their bodies
+    // can contain calls to overloaded fns/methods). Properties
+    // themselves aren't overloaded — no name change.
+    for prop in &mut c.properties {
+        if let Some(g) = prop.getter.as_mut() {
+            let body = std::mem::replace(
+                &mut g.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            g.body = rewrite_block(body, ctx);
+        }
+        if let Some(s) = prop.setter.as_mut() {
+            let body = std::mem::replace(
+                &mut s.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            s.body = rewrite_block(body, ctx);
+        }
     }
 }
 

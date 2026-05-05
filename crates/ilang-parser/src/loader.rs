@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{
-    BinOp, Block, Expr, ExprKind, Item, LogicalOp, MatchArm, Program, Span, Stmt, StmtKind,
+    BinOp, Block, ClassDecl, Expr, ExprKind, Item, LogicalOp, MatchArm, Program, Span, Stmt, StmtKind,
     Type, UnOp, UseDecl,
 };
 
@@ -305,6 +305,28 @@ fn apply_use(
             // Whole-module import: prefix every item with the
             // effective prefix (the override when re-exporting,
             // otherwise the module's own name).
+            //
+            // Before prefixing the items, collect the names of all
+            // module-level `const` decls and qualify any bare
+            // `Var("FOO")` references inside fn / method / extern-
+            // C bodies to `Var("prefix.FOO")`. The prefix step only
+            // rewrites call targets (`Call::callee`), `new` class
+            // names, etc. — `Var` nodes pass through unchanged, so
+            // without this qualification the later
+            // `inline_constants` pass would fail to match a
+            // const's prefixed declaration name against the bare
+            // reference.
+            let const_names: HashSet<String> = module_prog
+                .items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Const(c) => Some(c.name.clone()),
+                    _ => None,
+                })
+                .collect();
+            for item in module_prog.items.iter_mut() {
+                qualify_var_refs_in_item(item, &effective_prefix, &const_names);
+            }
             for item in module_prog.items {
                 merged.items.push(prefix_item(item, &effective_prefix));
             }
@@ -334,6 +356,210 @@ fn apply_use(
         }
     }
     Ok(())
+}
+
+/// Rewrite bare `Var("X")` → `Var("prefix.X")` inside an item's
+/// expression nodes, but only when `X` is in `consts`. Used as a
+/// pre-pass before module prefixing so module-level const refs
+/// from fn / method / `@extern(C)` bodies survive into
+/// `inline_constants` with names that match the prefixed const
+/// declaration.
+fn qualify_var_refs_in_item(
+    item: &mut Item,
+    prefix: &str,
+    consts: &HashSet<String>,
+) {
+    match item {
+        Item::Fn(f) => qualify_var_refs_in_block(&mut f.body, prefix, consts),
+        Item::Class(c) => qualify_var_refs_in_class(c, prefix, consts),
+        Item::ExternC(b) => {
+            for inner in b.items.iter_mut() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        qualify_var_refs_in_block(&mut f.body, prefix, consts);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        qualify_var_refs_in_class(c, prefix, consts);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn qualify_var_refs_in_class(c: &mut ClassDecl, prefix: &str, consts: &HashSet<String>) {
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        qualify_var_refs_in_block(&mut m.body, prefix, consts);
+    }
+    for prop in c.properties.iter_mut() {
+        if let Some(g) = prop.getter.as_mut() {
+            qualify_var_refs_in_block(&mut g.body, prefix, consts);
+        }
+        if let Some(s) = prop.setter.as_mut() {
+            qualify_var_refs_in_block(&mut s.body, prefix, consts);
+        }
+    }
+    for sf in c.static_fields.iter_mut() {
+        qualify_var_refs_in_expr(&mut sf.value, prefix, consts);
+    }
+}
+
+fn qualify_var_refs_in_block(b: &mut Block, prefix: &str, consts: &HashSet<String>) {
+    for s in b.stmts.iter_mut() {
+        qualify_var_refs_in_stmt(s, prefix, consts);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        qualify_var_refs_in_expr(t, prefix, consts);
+    }
+}
+
+fn qualify_var_refs_in_stmt(s: &mut Stmt, prefix: &str, consts: &HashSet<String>) {
+    use ilang_ast::StmtKind;
+    match &mut s.kind {
+        StmtKind::Let { value, .. } => qualify_var_refs_in_expr(value, prefix, consts),
+        StmtKind::Expr(e) => qualify_var_refs_in_expr(e, prefix, consts),
+    }
+}
+
+fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<String>) {
+    match &mut e.kind {
+        ExprKind::Var(name) => {
+            if consts.contains(name) {
+                *name = format!("{prefix}.{name}");
+            }
+        }
+        ExprKind::Unary { expr, .. } => qualify_var_refs_in_expr(expr, prefix, consts),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            qualify_var_refs_in_expr(lhs, prefix, consts);
+            qualify_var_refs_in_expr(rhs, prefix, consts);
+        }
+        ExprKind::Logical { lhs, rhs, .. } => {
+            qualify_var_refs_in_expr(lhs, prefix, consts);
+            qualify_var_refs_in_expr(rhs, prefix, consts);
+        }
+        ExprKind::Cast { expr, .. } => qualify_var_refs_in_expr(expr, prefix, consts),
+        ExprKind::Call { args, .. } => {
+            for a in args.iter_mut() {
+                qualify_var_refs_in_expr(a, prefix, consts);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
+            for a in args.iter_mut() {
+                qualify_var_refs_in_expr(a, prefix, consts);
+            }
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            qualify_var_refs_in_expr(obj, prefix, consts);
+            for a in args.iter_mut() {
+                qualify_var_refs_in_expr(a, prefix, consts);
+            }
+        }
+        ExprKind::Field { obj, .. } => qualify_var_refs_in_expr(obj, prefix, consts),
+        ExprKind::AssignField { obj, value, .. } => {
+            qualify_var_refs_in_expr(obj, prefix, consts);
+            qualify_var_refs_in_expr(value, prefix, consts);
+        }
+        ExprKind::Index { obj, index } => {
+            qualify_var_refs_in_expr(obj, prefix, consts);
+            qualify_var_refs_in_expr(index, prefix, consts);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            qualify_var_refs_in_expr(obj, prefix, consts);
+            qualify_var_refs_in_expr(index, prefix, consts);
+            qualify_var_refs_in_expr(value, prefix, consts);
+        }
+        ExprKind::Assign { value, .. } => qualify_var_refs_in_expr(value, prefix, consts),
+        ExprKind::New { args, .. } => {
+            for a in args.iter_mut() {
+                qualify_var_refs_in_expr(a, prefix, consts);
+            }
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for a in es.iter_mut() {
+                    qualify_var_refs_in_expr(a, prefix, consts);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, e) in fs.iter_mut() {
+                    qualify_var_refs_in_expr(e, prefix, consts);
+                }
+            }
+        },
+        ExprKind::If { cond, then_branch, else_branch } => {
+            qualify_var_refs_in_expr(cond, prefix, consts);
+            qualify_var_refs_in_block(then_branch, prefix, consts);
+            if let Some(e) = else_branch.as_mut() {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            qualify_var_refs_in_expr(cond, prefix, consts);
+            qualify_var_refs_in_block(body, prefix, consts);
+        }
+        ExprKind::Loop { body } => qualify_var_refs_in_block(body, prefix, consts),
+        ExprKind::ForIn { iter, body, .. } => {
+            qualify_var_refs_in_expr(iter, prefix, consts);
+            qualify_var_refs_in_block(body, prefix, consts);
+        }
+        ExprKind::Block(b) => qualify_var_refs_in_block(b, prefix, consts),
+        ExprKind::Range { start, end, .. } => {
+            qualify_var_refs_in_expr(start, prefix, consts);
+            qualify_var_refs_in_expr(end, prefix, consts);
+        }
+        ExprKind::Array(es) => {
+            for e in es.iter_mut() {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
+        }
+        ExprKind::Tuple(es) => {
+            for e in es.iter_mut() {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
+        }
+        ExprKind::MapLit(pairs) => {
+            for (k, v) in pairs.iter_mut() {
+                qualify_var_refs_in_expr(k, prefix, consts);
+                qualify_var_refs_in_expr(v, prefix, consts);
+            }
+        }
+        ExprKind::FnExpr { body, .. } => qualify_var_refs_in_block(body, prefix, consts),
+        ExprKind::Match { scrutinee, arms } => {
+            qualify_var_refs_in_expr(scrutinee, prefix, consts);
+            for arm in arms.iter_mut() {
+                qualify_var_refs_in_expr(&mut arm.body, prefix, consts);
+            }
+        }
+        ExprKind::Some(e) => qualify_var_refs_in_expr(e, prefix, consts),
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            qualify_var_refs_in_expr(expr, prefix, consts);
+            qualify_var_refs_in_block(then_branch, prefix, consts);
+            if let Some(e) = else_branch.as_mut() {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
+        }
+        ExprKind::Return(Some(e)) => qualify_var_refs_in_expr(e, prefix, consts),
+        ExprKind::Break(Some(e)) => qualify_var_refs_in_expr(e, prefix, consts),
+        ExprKind::StructLit { fields, .. } => {
+            for (_, e) in fields.iter_mut() {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
+        }
+        // Leaf nodes — nothing to walk into.
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::This
+        | ExprKind::None
+        | ExprKind::Continue
+        | ExprKind::Closure { .. }
+        | ExprKind::Break(None)
+        | ExprKind::Return(None) => {}
+    }
 }
 
 fn item_name_of(item: &Item) -> Option<String> {
@@ -1082,32 +1308,58 @@ fn subst_const_item(item: Item, ctx: &SubstCtx<'_>) -> Item {
             Item::Fn(f)
         }
         Item::Class(mut c) => {
-            for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
-                let body = std::mem::replace(
-                    &mut m.body,
-                    Block { stmts: Vec::new(), tail: None },
-                );
-                m.body = subst_const_block(body, ctx);
-            }
-            for prop in &mut c.properties {
-                if let Some(g) = prop.getter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut g.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    g.body = subst_const_block(body, ctx);
-                }
-                if let Some(s) = prop.setter.as_mut() {
-                    let body = std::mem::replace(
-                        &mut s.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    s.body = subst_const_block(body, ctx);
-                }
-            }
+            subst_const_class_in_place(&mut c, ctx);
             Item::Class(c)
         }
+        Item::ExternC(mut b) => {
+            // Recurse into the block's fn / class bodies. Without
+            // this, bare `Var(X)` references to module-level consts
+            // inside an `@extern(C) {}` wrapper survive into the
+            // type-checker and fail to resolve.
+            for inner in b.items.iter_mut() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        let body = std::mem::replace(
+                            &mut f.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        f.body = subst_const_block(body, ctx);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        subst_const_class_in_place(c, ctx);
+                    }
+                    _ => {}
+                }
+            }
+            Item::ExternC(b)
+        }
         other => other,
+    }
+}
+
+fn subst_const_class_in_place(c: &mut ClassDecl, ctx: &SubstCtx<'_>) {
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        let body = std::mem::replace(
+            &mut m.body,
+            Block { stmts: Vec::new(), tail: None },
+        );
+        m.body = subst_const_block(body, ctx);
+    }
+    for prop in &mut c.properties {
+        if let Some(g) = prop.getter.as_mut() {
+            let body = std::mem::replace(
+                &mut g.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            g.body = subst_const_block(body, ctx);
+        }
+        if let Some(s) = prop.setter.as_mut() {
+            let body = std::mem::replace(
+                &mut s.body,
+                Block { stmts: Vec::new(), tail: None },
+            );
+            s.body = subst_const_block(body, ctx);
+        }
     }
 }
 
