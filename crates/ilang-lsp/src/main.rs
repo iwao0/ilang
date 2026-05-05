@@ -1094,6 +1094,11 @@ impl<'a> Walker<'a> {
                 let info = self.classes.get(&class)?;
                 info.fields.get(name)?.ret_ty.clone()
             }
+            ExprKind::Index { obj, .. } => match self.infer_expr(obj, scope)? {
+                Type::Array { elem, .. } => Some(*elem),
+                Type::Str => Some(Type::U8),
+                _ => None,
+            },
             ExprKind::Binary { op, lhs, rhs } => {
                 use ilang_ast::BinOp;
                 if matches!(
