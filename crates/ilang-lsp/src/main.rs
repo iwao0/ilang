@@ -69,7 +69,7 @@ struct RefEntry {
     target_uri: Option<Url>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Doc {
     text: String,
     /// Top-level decls keyed by name.
@@ -141,6 +141,10 @@ impl Backend {
             .as_ref()
             .map(collect_external_classes)
             .unwrap_or_default();
+        // When the buffer parses cleanly, rebuild the doc from scratch.
+        // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
+        // doc's classes/symbols so completion / hover still work, but
+        // refresh the text + external maps.
         let doc = match parse_ok(&text) {
             Ok(prog) => build_doc(
                 text,
@@ -150,12 +154,14 @@ impl Backend {
                 &external_classes,
                 &external_sources,
             ),
-            Err(_) => Doc {
-                text,
-                external_signatures: external_sigs,
-                external_returns: external_rets,
-                ..Doc::default()
-            },
+            Err(_) => {
+                let docs = self.docs.lock().unwrap();
+                let mut prev = docs.get(&uri).cloned().unwrap_or_default();
+                prev.text = text;
+                prev.external_signatures = external_sigs;
+                prev.external_returns = external_rets;
+                prev
+            }
         };
         {
             let mut docs = self.docs.lock().unwrap();
@@ -175,6 +181,10 @@ impl LanguageServer for Backend {
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string()]),
+                    ..CompletionOptions::default()
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -260,6 +270,43 @@ impl LanguageServer for Backend {
             }
         }
         Ok(None)
+    }
+
+    async fn completion(&self, p: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+        let uri = p.text_document_position.text_document.uri;
+        let pos = p.text_document_position.position;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        // We're invoked just after the user typed `.`. Walk the source
+        // backwards from the cursor across whitespace and the `.` to
+        // find the receiver identifier (e.g. `Counter`).
+        let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
+            return Ok(None);
+        };
+        let Some(info) = doc.classes.get(&receiver) else {
+            return Ok(None);
+        };
+        let mut items: Vec<CompletionItem> = Vec::new();
+        for (name, m) in info.fields.iter().chain(info.getters.iter()) {
+            items.push(CompletionItem {
+                label: name.clone(),
+                kind: Some(CompletionItemKind::FIELD),
+                detail: Some(m.signature.clone()),
+                ..CompletionItem::default()
+            });
+        }
+        for (name, m) in info.methods.iter() {
+            items.push(CompletionItem {
+                label: name.clone(),
+                kind: Some(CompletionItemKind::METHOD),
+                detail: Some(m.signature.clone()),
+                ..CompletionItem::default()
+            });
+        }
+        items.sort_by(|a, b| a.label.cmp(&b.label));
+        Ok(Some(CompletionResponse::Array(items)))
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -2746,6 +2793,48 @@ fn render_const_value(e: &Expr) -> Option<String> {
             Some(format!("{sym}{inner}"))
         }
         _ => None,
+    }
+}
+
+/// Walk back from the cursor over whitespace and a leading `.` to find
+/// the receiver identifier — used by completion to figure out what
+/// class's members to list.
+fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
+    let line = pos.line + 1;
+    let col = pos.character + 1;
+    let mut off = line_col_to_offset(text, line, col)?;
+    let bytes = text.as_bytes();
+    if off > bytes.len() {
+        return None;
+    }
+    // Step back past whitespace.
+    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
+        off -= 1;
+    }
+    // Expect `.` immediately before.
+    if off == 0 || bytes[off - 1] != b'.' {
+        return None;
+    }
+    off -= 1;
+    // Skip whitespace between identifier and `.`.
+    while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
+        off -= 1;
+    }
+    // Walk back over the identifier (and any chained `name.name.` parts).
+    let end = off;
+    while off > 0 {
+        let b = bytes[off - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'.' {
+            off -= 1;
+        } else {
+            break;
+        }
+    }
+    let s = std::str::from_utf8(&bytes[off..end]).ok()?.to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
     }
 }
 
