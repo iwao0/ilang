@@ -113,8 +113,18 @@ impl Backend {
         if let Some(p) = path.as_deref() {
             harvest_imported_consts(p, &text, &mut external_sigs);
         }
+        let external_classes = merged
+            .as_ref()
+            .map(collect_external_classes)
+            .unwrap_or_default();
         let doc = match parse_ok(&text) {
-            Ok(prog) => build_doc(text, &prog, &external_sigs, &external_rets),
+            Ok(prog) => build_doc(
+                text,
+                &prog,
+                &external_sigs,
+                &external_rets,
+                &external_classes,
+            ),
             Err(_) => Doc {
                 text,
                 external_signatures: external_sigs,
@@ -338,6 +348,148 @@ fn harvest_imported_consts(
     }
 }
 
+/// Walk a loader-merged program for dotted-name classes (e.g.
+/// `sdl.Window`) so the hover walker can resolve method / field
+/// accesses on imported types.
+fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
+    use ilang_ast::ExternCItem;
+    let mut classes: Vec<&ClassDecl> = Vec::new();
+    let mut out: HashMap<String, ClassInfo> = HashMap::new();
+    for item in &prog.items {
+        match item {
+            Item::Class(c) if c.name.contains('.') => classes.push(c),
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ExternCItem::Class(c) if c.name.contains('.') => classes.push(c),
+                        ExternCItem::Struct { name, fields: fs, span, .. }
+                        | ExternCItem::Union { name, fields: fs, span, .. }
+                            if name.contains('.') =>
+                        {
+                            let mut fields = HashMap::new();
+                            for f in fs {
+                                fields.insert(
+                                    f.name.clone(),
+                                    MemberInfo {
+                                        span: f.span,
+                                        signature: format!(
+                                            "(property) {}.{}: {}",
+                                            name, f.name, f.ty
+                                        ),
+                                        ret_ty: Some(f.ty.clone()),
+                                    },
+                                );
+                            }
+                            out.insert(
+                                name.clone(),
+                                ClassInfo {
+                                    decl_span: *span,
+                                    fields,
+                                    methods: HashMap::new(),
+                                    getters: HashMap::new(),
+                                    setters: HashMap::new(),
+                                },
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for c in classes {
+        let mut fields = HashMap::new();
+        for f in &c.fields {
+            fields.insert(
+                f.name.clone(),
+                MemberInfo {
+                    span: f.span,
+                    signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
+                    ret_ty: Some(f.ty.clone()),
+                },
+            );
+        }
+        for f in &c.static_fields {
+            fields.insert(
+                f.name.clone(),
+                MemberInfo {
+                    span: f.span,
+                    signature: format!(
+                        "(static property) {}.{}: {}",
+                        c.name, f.name, f.ty
+                    ),
+                    ret_ty: Some(f.ty.clone()),
+                },
+            );
+        }
+        let mut getters: HashMap<String, MemberInfo> = HashMap::new();
+        let mut setters: HashMap<String, MemberInfo> = HashMap::new();
+        for prop in &c.properties {
+            fields.insert(
+                prop.name.clone(),
+                MemberInfo {
+                    span: prop.span,
+                    signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
+                    ret_ty: Some(prop.ty.clone()),
+                },
+            );
+            if let Some(g) = &prop.getter {
+                getters.insert(
+                    prop.name.clone(),
+                    MemberInfo {
+                        span: g.span,
+                        signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
+                        ret_ty: Some(prop.ty.clone()),
+                    },
+                );
+            }
+            if let Some(s) = &prop.setter {
+                setters.insert(
+                    prop.name.clone(),
+                    MemberInfo {
+                        span: s.span,
+                        signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
+                        ret_ty: Some(prop.ty.clone()),
+                    },
+                );
+            }
+        }
+        let mut methods = HashMap::new();
+        for m in &c.methods {
+            methods.insert(
+                m.name.clone(),
+                MemberInfo {
+                    span: m.span,
+                    signature: format!("(method) {}.{}", c.name, fn_body(m)),
+                    ret_ty: m.ret.clone(),
+                },
+            );
+        }
+        for m in &c.static_methods {
+            methods.insert(
+                m.name.clone(),
+                MemberInfo {
+                    span: m.span,
+                    signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                    ret_ty: m.ret.clone(),
+                },
+            );
+        }
+        out.insert(
+            c.name.clone(),
+            ClassInfo {
+                decl_span: c.span,
+                fields,
+                methods,
+                getters,
+                setters,
+            },
+        );
+    }
+    out
+}
+
 fn collect_external_signatures(
     prog: &Program,
 ) -> (HashMap<String, String>, HashMap<String, Type>) {
@@ -524,10 +676,16 @@ fn build_doc(
     prog: &Program,
     external_signatures: &HashMap<String, String>,
     external_returns: &HashMap<String, Type>,
+    external_classes: &HashMap<String, ClassInfo>,
 ) -> Doc {
     let symbols = collect_symbols(prog);
     let mut classes = collect_classes(prog);
     install_builtin_classes(&mut classes);
+    // Merge in classes the loader pulled in via `use module`. Buffer-
+    // local classes win on name collisions.
+    for (k, v) in external_classes {
+        classes.entry(k.clone()).or_insert_with(|| v.clone());
+    }
     let mut fn_returns: HashMap<String, Type> = HashMap::new();
     for item in &prog.items {
         match item {
