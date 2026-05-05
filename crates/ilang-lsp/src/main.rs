@@ -295,11 +295,13 @@ impl LanguageServer for Backend {
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
-        // We're invoked just after the user typed `.`. Walk the source
-        // backwards from the cursor across whitespace and the `.` to
-        // find the receiver identifier (e.g. `Counter`).
+        // No `.` immediately before the cursor → list visible
+        // identifiers from this file + imported decls. Returning
+        // something from the LSP keeps VSCode's word-based fallback
+        // (which would mix in unrelated identifiers from other open
+        // files) from being the only source.
         let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
-            return Ok(None);
+            return Ok(Some(CompletionResponse::Array(global_completions(doc))));
         };
         // Receiver can be:
         // - a class name (`Counter.`)        -> static members
@@ -3159,6 +3161,35 @@ fn call_context_at(text: &str, pos: Position) -> Option<CallContext> {
         is_new,
         arg_index: commas,
     })
+}
+
+/// Top-level identifiers visible in `doc`, used as completion fallback
+/// when the user is just typing a name (no receiver).
+fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
+    let mut out: Vec<CompletionItem> = Vec::new();
+    for (name, sym) in doc.symbols.iter() {
+        let kind = if name.starts_with(|c: char| c.is_uppercase()) {
+            CompletionItemKind::CLASS
+        } else {
+            CompletionItemKind::FUNCTION
+        };
+        out.push(CompletionItem {
+            label: name.clone(),
+            kind: Some(kind),
+            detail: Some(sym.signature.clone()),
+            ..CompletionItem::default()
+        });
+    }
+    for (name, sig) in doc.external_signatures.iter() {
+        out.push(CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::FUNCTION),
+            detail: Some(sig.clone()),
+            ..CompletionItem::default()
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
 }
 
 /// Walk back from the cursor over whitespace and a leading `.` to find
