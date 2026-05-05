@@ -307,14 +307,18 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let mut items: Vec<CompletionItem> = Vec::new();
-        for (name, m) in info.fields.iter().chain(info.getters.iter()) {
+        for (name, m) in info.fields.iter() {
             if m.is_static != want_static {
                 continue;
             }
+            // Properties live in both `fields` (the bare entry) and
+            // `getters` / `setters`. Prefer the getter signature when
+            // we have one so `c.a` shows `(getter)` not `(property)`.
+            let display = info.getters.get(name).unwrap_or(m);
             items.push(CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::FIELD),
-                detail: Some(m.signature.clone()),
+                detail: Some(display.signature.clone()),
                 ..CompletionItem::default()
             });
         }
