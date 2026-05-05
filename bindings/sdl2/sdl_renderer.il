@@ -71,6 +71,9 @@
         srcrect: *SDL_Rect, dstrect: *SDL_Rect,
         angle: f64, center: *void, flip: i32
     ): i32
+    @lib("SDL2") fn SDL_SetRenderTarget(
+        renderer: *SDL_Renderer, tex: *SDL_Texture
+    ): i32
 
     class Renderer {
         handle: i64
@@ -163,6 +166,19 @@
             SDL_RenderPresent(this.handle as *SDL_Renderer)
         }
 
+        // Redirect subsequent draw calls into a texture instead of
+        // the window. Pass a TARGET-access texture's `handle` here,
+        // then `resetTarget()` to swap back. Required for chained
+        // post-process effects (chromatic aberration, phosphor
+        // afterglow, full-frame bloom).
+        setTarget(tex_handle: i64): i32 {
+            SDL_SetRenderTarget(this.handle as *SDL_Renderer,
+                                tex_handle as *SDL_Texture)
+        }
+
+        resetTarget(): i32 {
+            SDL_SetRenderTarget(this.handle as *SDL_Renderer, 0 as *SDL_Texture)
+        }
     }
 
     // ARC-managed sprite. Holds an SDL_Texture sized at construction
@@ -174,21 +190,23 @@
         width: i32
         height: i32
 
-        init(renderer: Renderer, w: i32, h: i32) {
+        // `access` selects the SDL_TextureAccess:
+        //   1 = STREAMING — CPU-uploaded pixels via `update`
+        //   2 = TARGET    — renderer draws into it (`Renderer.setTarget`)
+        // TARGET textures cannot be `update`d; STREAMING textures
+        // cannot be drawn into. SDL_PIXELFORMAT_ABGR8888 = 0x16762004
+        // (bytes laid out R, G, B, A on little-endian).
+        init(renderer: Renderer, w: i32, h: i32, access: i32) {
             this.width = w
             this.height = h
-            // SDL_PIXELFORMAT_ABGR8888 = 0x16762004 — bytes laid
-            // out as R, G, B, A on little-endian, which is what
-            // we'll feed in. SDL_TEXTUREACCESS_STREAMING = 1, lets
-            // SDL_UpdateTexture push pixels efficiently.
             this.handle = SDL_CreateTexture(
                 renderer.handle as *SDL_Renderer,
-                0x16762004 as u32, 1,
+                0x16762004 as u32, access,
                 w, h
             ) as i64
-            // Enable alpha so transparent texture pixels show
-            // through. SDL_BLENDMODE_BLEND = 1.
             if this.handle != 0 {
+                // Enable alpha so transparent texture pixels show
+                // through. SDL_BLENDMODE_BLEND = 1.
                 SDL_SetTextureBlendMode(this.handle as *SDL_Texture, 1)
             }
         }
@@ -218,6 +236,10 @@
         }
         setAlphaMod(a: u8): i32 {
             SDL_SetTextureAlphaMod(this.handle as *SDL_Texture, a)
+        }
+        // SDL_BlendMode: 0=NONE, 1=BLEND, 2=ADD, 4=MOD, 8=MUL.
+        setBlendMode(mode: i32): i32 {
+            SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
         }
     }
 

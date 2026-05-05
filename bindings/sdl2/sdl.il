@@ -9,3 +9,4 @@
 @export use sdl_time
 @export use sdl_keyboard
 @export use sdl_audio
+@export use sdl_gamepad
