@@ -818,7 +818,14 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             }
         }
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
-            class: format!("{prefix}.{}", class),
+            // `new module.Class(...)` already qualified — leave as
+            // is; only re-prefix bare names so a second pass
+            // doesn't produce `module.module.Class`.
+            class: if class.contains('.') {
+                class
+            } else {
+                format!("{prefix}.{}", class)
+            },
             type_args: type_args.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
             args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
             init_method,
@@ -828,7 +835,11 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             variant,
             args,
         } => ExprKind::EnumCtor {
-            enum_name: format!("{prefix}.{}", enum_name),
+            enum_name: if enum_name.contains('.') {
+                enum_name
+            } else {
+                format!("{prefix}.{}", enum_name)
+            },
             variant,
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
