@@ -28,7 +28,7 @@ use crate::ParseError;
 
 /// Modules whose source is shipped inside the compiler. `use math`
 /// resolves here before consulting the filesystem.
-fn builtin_module_source(name: &str) -> Option<&'static str> {
+pub fn builtin_module_source(name: &str) -> Option<&'static str> {
     match name {
         "math" => Some(include_str!("stdlib/math.il")),
         "test" => Some(include_str!("stdlib/test.il")),

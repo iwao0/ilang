@@ -103,10 +103,16 @@ impl Backend {
                 ilang_parser::loader::load_program_with_paths(p, &extra).ok()
             });
         let diags = analyse(&text, path.as_deref(), &merged);
-        let (external_sigs, external_rets) = merged
+        let (mut external_sigs, external_rets) = merged
             .as_ref()
             .map(collect_external_signatures)
             .unwrap_or_default();
+        // Augment with `module.const_name` entries — the loader inlines
+        // constants away, so they're not in the merged program. Parse
+        // each `use module` source separately to recover them.
+        if let Some(p) = path.as_deref() {
+            harvest_imported_consts(p, &text, &mut external_sigs);
+        }
         let doc = match parse_ok(&text) {
             Ok(prog) => build_doc(text, &prog, &external_sigs, &external_rets),
             Err(_) => Doc {
@@ -279,6 +285,59 @@ fn analyse(src: &str, path: Option<&Path>, merged: &Option<Program>) -> Vec<Diag
 /// can answer hover queries on imported names. Plain (un-dotted) names
 /// are skipped — they're already covered by the buffer-only index when
 /// declared in the open file.
+/// Walk the buffer's `use module` items and parse each module's source
+/// (built-in or on-disk) to extract `Item::Const` declarations. Insert
+/// them into `out` keyed by `module.const_name` so the buffer-only
+/// walker can still resolve `math.pi` etc. — the main loader pass
+/// would have inlined them.
+fn harvest_imported_consts(
+    entry_path: &Path,
+    entry_src: &str,
+    out: &mut HashMap<String, String>,
+) {
+    let Ok(tokens) = tokenize(entry_src) else { return };
+    let Ok(prog) = parse(&tokens) else { return };
+    let extra = collect_dep_paths(entry_path).unwrap_or_default();
+    let entry_dir = entry_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    for item in &prog.items {
+        let Item::Use(u) = item else { continue };
+        if u.selective.is_some() {
+            continue;
+        }
+        let module = &u.module;
+        let module_src = if let Some(s) = ilang_parser::loader::builtin_module_source(module) {
+            Some(s.to_string())
+        } else {
+            // Search entry dir, then each dep path, for `<module>.il`.
+            let mut candidates = vec![entry_dir.clone()];
+            candidates.extend(extra.iter().cloned());
+            candidates.into_iter().find_map(|d| {
+                let p = d.join(format!("{module}.il"));
+                std::fs::read_to_string(&p).ok()
+            })
+        };
+        let Some(src) = module_src else { continue };
+        let Ok(tokens) = tokenize(&src) else { continue };
+        let Ok(mod_prog) = parse(&tokens) else { continue };
+        for it in &mod_prog.items {
+            if let Item::Const(c) = it {
+                let ty = match &c.ty {
+                    Some(t) => format!(": {t}"),
+                    None => String::new(),
+                };
+                let value = render_const_value(&c.value)
+                    .map(|v| format!(" = {v}"))
+                    .unwrap_or_default();
+                let key = format!("{module}.{}", c.name);
+                out.insert(key.clone(), format!("const {key}{ty}{value}"));
+            }
+        }
+    }
+}
+
 fn collect_external_signatures(
     prog: &Program,
 ) -> (HashMap<String, String>, HashMap<String, Type>) {
