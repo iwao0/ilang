@@ -153,7 +153,7 @@ cargo run -p ilang-cli -- run counter.il   # => 16
 
 ### 🎮 Sample: an SDL2 game window
 
-`examples/sdl_bouncing_ball/` contains an SDL2 demo: a ball bounces
+`examples/sdl_breakout/` contains an SDL2 demo: a ball bounces
 around the window, beeping every time it hits a wall. The arrow
 keys (or `A` / `D`) move a paddle along the bottom; `ESC` exits
 early.
@@ -171,7 +171,7 @@ sudo apt install libsdl2-dev libsdl2-2.0-0
 Run:
 
 ```sh
-cargo run -p ilang-cli -- run --jit examples/sdl_bouncing_ball/main.il
+cargo run -p ilang-cli -- run --jit examples/sdl_breakout/main.il
 ```
 
 The sample pulls in the SDL2 bindings under `bindings/sdl2/` via a

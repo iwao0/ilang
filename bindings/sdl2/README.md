@@ -65,5 +65,5 @@ no networking, no multithreaded audio callback.
 
 ## See also
 
-`examples/sdl_bouncing_ball/` — minimal demo (paddle + bouncing
+`examples/sdl_breakout/` — minimal demo (paddle + bouncing
 ball + bounce-on-edge beep) that uses every module here.

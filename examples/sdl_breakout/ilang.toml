@@ -1,5 +1,5 @@
 [package]
-name = "sdl_bouncing_ball"
+name = "sdl_breakout"
 
 [deps]
 sdl2 = "../../bindings/sdl2"

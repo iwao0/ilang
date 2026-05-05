@@ -145,7 +145,7 @@ cargo run -p ilang-cli -- run counter.il   # => 16
 
 ### 🎮 サンプル: SDL2 でゲーム画面を出す
 
-`examples/sdl_bouncing_ball/` に SDL2 を使ったデモが入っています。
+`examples/sdl_breakout/` に SDL2 を使ったデモが入っています。
 動くボールが壁に当たるたびにビープ音が鳴り、矢印キー / `A` / `D`
 でパドルを左右に動かせます。`ESC` で早期終了。
 
@@ -162,7 +162,7 @@ sudo apt install libsdl2-dev libsdl2-2.0-0
 実行:
 
 ```sh
-cargo run -p ilang-cli -- run --jit examples/sdl_bouncing_ball/main.il
+cargo run -p ilang-cli -- run --jit examples/sdl_breakout/main.il
 ```
 
 このサンプルは `bindings/sdl2/` 以下に置かれた SDL2 用バインディング
