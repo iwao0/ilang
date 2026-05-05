@@ -187,6 +187,11 @@ pub struct EnumDecl {
     /// codegen-internal `i32` tag. Numeric primitive types only
     /// (the type checker enforces).
     pub repr_ty: Option<Type>,
+    /// `@flags` attribute — bitflag enum. Bitwise ops (`|`, `&`, `^`,
+    /// `~`) are allowed between values, and `.has(other)` is generated.
+    /// Combined values that don't match any single variant are
+    /// represented as raw bits.
+    pub flags: bool,
     pub variants: Vec<Variant>,
     pub span: Span,
 }

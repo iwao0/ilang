@@ -201,7 +201,10 @@ impl JitTy {
                 // we store the storage decision at decl time by using
                 // EnumHeap when payloads exist (see compiler.rs).
                 if let Some(eid) = enum_ids.get(name).copied() {
-                    if enum_layouts[eid as usize].all_unit {
+                    let lay = &enum_layouts[eid as usize];
+                    if let Some(repr) = lay.flags_repr {
+                        repr
+                    } else if lay.all_unit {
                         JitTy::Enum(eid)
                     } else {
                         JitTy::EnumHeap(eid)
@@ -223,7 +226,10 @@ impl JitTy {
                         span,
                     }
                 })?;
-                if enum_layouts[id as usize].all_unit {
+                let lay = &enum_layouts[id as usize];
+                if let Some(repr) = lay.flags_repr {
+                    repr
+                } else if lay.all_unit {
                     JitTy::Enum(id)
                 } else {
                     JitTy::EnumHeap(id)
@@ -510,6 +516,12 @@ pub(crate) struct EnumLayout {
     /// The user_size passed to `alloc_object` is
     /// `ENUM_PAYLOAD_OFFSET + max_payload_size`.
     pub max_payload_size: u32,
+    /// `@flags` enum — bitwise ops are allowed and the runtime
+    /// representation is the underlying integer (`flags_repr`).
+    pub flags: bool,
+    /// Underlying integer JitTy for `@flags` enums (default `U64`).
+    /// `None` for non-flags enums.
+    pub flags_repr: Option<JitTy>,
 }
 
 /// Tag lives at offset 0 from the user pointer. Payload starts at

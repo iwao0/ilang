@@ -2401,6 +2401,7 @@ fn result_template() -> EnumDecl {
         name: "Result".into(),
         type_params: vec!["T".into(), "E".into()],
         repr_ty: None,
+        flags: false,
         variants: vec![
             Variant {
                 name: "ok".into(),
@@ -2595,6 +2596,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
         name: mangled.to_string(),
         type_params: Vec::new(),
         repr_ty: e.repr_ty.clone(),
+        flags: e.flags,
         variants: e
             .variants
             .iter()
@@ -2929,6 +2931,7 @@ fn rewrite_enum_refs_in_item(
             name: e.name.clone(),
             type_params: e.type_params.clone(),
             repr_ty: e.repr_ty.clone(),
+            flags: e.flags,
             variants: e
                 .variants
                 .iter()

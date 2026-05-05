@@ -33,15 +33,30 @@ impl<'a> Parser<'a> {
                 Ok(Item::Class(c))
             }
             TokenKind::Enum => {
-                if !attrs.is_empty() {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "'fn' (attributes on enums are not supported)".into(),
-                        span: t.span,
-                    });
+                let mut flags = false;
+                for a in &attrs {
+                    match a.name.as_str() {
+                        "flags" if a.args.is_empty() => {
+                            flags = true;
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "'fn' (only @flags is supported on enums)".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
                 }
-                let e = self.parse_enum_decl()?;
+                let mut e = self.parse_enum_decl()?;
+                e.flags = flags;
+                // `@flags` defaults to `u64` repr when no explicit
+                // `: <type>` is given — matches the language's default
+                // integer literal type.
+                if e.flags && e.repr_ty.is_none() {
+                    e.repr_ty = Some(ilang_ast::Type::U64);
+                }
                 Ok(Item::Enum(e))
             }
             TokenKind::Use => {
@@ -608,6 +623,7 @@ impl<'a> Parser<'a> {
             name,
             type_params,
             repr_ty,
+            flags: false,
             variants,
             span,
         })

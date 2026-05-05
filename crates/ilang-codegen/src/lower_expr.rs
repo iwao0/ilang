@@ -833,6 +833,22 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // `@flags` enum: `f.has(other)` lowers as `(f & other) == other`.
+            // The type checker only allows `has` here when both sides
+            // share the flags enum type, so the JitTys match by
+            // construction.
+            if method == "has" && obj_t.is_int() && args.len() == 1 {
+                let (av, at) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "has arg is unit".into(),
+                        span: args[0].span,
+                    }
+                })?;
+                let coerced = coerce(b, (av, at), obj_t, args[0].span)?;
+                let masked = b.ins().band(obj_v, coerced);
+                let eq = b.ins().icmp(IntCC::Equal, masked, coerced);
+                return Ok(Some((eq, JitTy::Bool)));
+            }
             // Built-in Weak method: get() returns Optional<Object>.
             if let JitTy::Weak(class_id) = obj_t {
                 if method == "get" {
@@ -2280,6 +2296,18 @@ fn lower_enum_ctor(
             span,
         })?;
     let tag = layout.tags[idx];
+
+    if let Some(repr) = layout.flags_repr {
+        if !matches!(args, ilang_ast::CtorArgs::Unit) {
+            return Err(CodegenError::Unsupported {
+                what: format!("variant {enum_name}::{variant} is unit but ctor args supplied"),
+                span,
+            });
+        }
+        let cl = repr.cl().expect("flags repr is a numeric type");
+        let v = b.ins().iconst(cl, tag);
+        return Ok(Some((v, repr)));
+    }
 
     if layout.all_unit {
         if !matches!(args, ilang_ast::CtorArgs::Unit) {

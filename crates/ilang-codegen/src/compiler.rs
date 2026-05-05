@@ -1282,6 +1282,29 @@ impl JitCompiler {
         }
         // Push a placeholder so JitTy::from_ast can see the entry while
         // we resolve payload field types.
+        // For `@flags` enums, decide the underlying integer representation
+        // up-front (default `u64`, matching the language's default int).
+        let flags_repr = if e.flags {
+            let jty = match e.repr_ty.as_ref() {
+                Some(ilang_ast::Type::I8) => JitTy::I8,
+                Some(ilang_ast::Type::I16) => JitTy::I16,
+                Some(ilang_ast::Type::I32) => JitTy::I32,
+                Some(ilang_ast::Type::I64) => JitTy::I64,
+                Some(ilang_ast::Type::U8) => JitTy::U8,
+                Some(ilang_ast::Type::U16) => JitTy::U16,
+                Some(ilang_ast::Type::U32) => JitTy::U32,
+                None | Some(ilang_ast::Type::U64) => JitTy::U64,
+                Some(other) => {
+                    return Err(CodegenError::Unsupported {
+                        what: format!("@flags repr must be a numeric integer type, got {other:?}"),
+                        span: e.span,
+                    });
+                }
+            };
+            Some(jty)
+        } else {
+            None
+        };
         self.enum_layouts.push(EnumLayout {
             name: e.name.clone(),
             variants: e.variants.iter().map(|v| v.name.clone()).collect(),
@@ -1289,6 +1312,8 @@ impl JitCompiler {
             all_unit,
             payloads: vec![EnumVariantLayout::Unit; e.variants.len()],
             max_payload_size: 0,
+            flags: e.flags,
+            flags_repr,
         });
         if all_unit {
             return Ok(());

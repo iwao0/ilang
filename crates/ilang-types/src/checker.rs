@@ -218,6 +218,8 @@ struct EnumSig {
     /// Variant payloads may reference these as `Type::TypeVar`.
     type_params: Vec<String>,
     variants: Vec<EnumVariantSig>,
+    /// `@flags` enum — supports `|` `&` `^` `~` and a `has` method.
+    flags: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -739,6 +741,7 @@ impl TypeChecker {
                         payload: VariantPayloadSig::Tuple(vec![Type::TypeVar("E".into())]),
                     },
                 ],
+                flags: false,
             },
         );
     }
@@ -1659,12 +1662,28 @@ impl TypeChecker {
                     UnOp::Not if t == Type::Bool => Ok(t),
                     // Bit-not on any int (signed or unsigned).
                     UnOp::BitNot if t.is_int() => Ok(t),
+                    // `~Flag.x` on a @flags enum yields a Flag value.
+                    UnOp::BitNot
+                        if matches!(&t, Type::Object(n) if self.enums.get(n).map(|s| s.flags).unwrap_or(false)) =>
+                    {
+                        Ok(t)
+                    }
                     _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
             }
             ExprKind::Binary { op, lhs, rhs } => {
                 let l = self.check_expr(lhs, env, ret_ty, in_class, loop_depth)?;
                 let r = self.check_expr(rhs, env, ret_ty, in_class, loop_depth)?;
+                // `@flags` enum: `Flag op Flag` for `|` `&` `^` returns Flag.
+                if matches!(op, ilang_ast::BinOp::BitOr | ilang_ast::BinOp::BitAnd | ilang_ast::BinOp::BitXor) {
+                    if let (Type::Object(ln), Type::Object(rn)) = (&l, &r) {
+                        if ln == rn
+                            && self.enums.get(ln).map(|s| s.flags).unwrap_or(false)
+                        {
+                            return Ok(l);
+                        }
+                    }
+                }
                 // Literal-side adoption: when one operand is a
                 // numeric literal whose value fits the other's
                 // integer type, treat the literal as that type.
@@ -2203,6 +2222,33 @@ impl TypeChecker {
                         method: method.clone(),
                         span,
                     });
+                }
+                // `@flags` enum: `f.has(other)` is a synthetic method
+                // returning bool, equivalent to `(f & other) == other`.
+                if let Type::Object(ename) = &ot {
+                    if let Some(sig) = self.enums.get(ename).cloned() {
+                        if sig.flags && method == "has" {
+                            if args.len() != 1 {
+                                return Err(TypeError::ArityMismatch {
+                                    name: "has".into(),
+                                    expected: 1,
+                                    got: args.len(),
+                                    span,
+                                });
+                            }
+                            let at = self.check_expr(
+                                &args[0], env, ret_ty, in_class, loop_depth,
+                            )?;
+                            if at != ot {
+                                return Err(TypeError::Mismatch {
+                                    expected: ot.clone(),
+                                    got: at,
+                                    span,
+                                });
+                            }
+                            return Ok(Type::Bool);
+                        }
+                    }
                 }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(class_name).ok_or_else(|| {
@@ -4386,6 +4432,7 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
     EnumSig {
         type_params: e.type_params.clone(),
         variants,
+        flags: e.flags,
     }
 }
 

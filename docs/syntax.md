@@ -815,6 +815,63 @@ match day {
 - Heap types inside a payload (Object / Str / Array / Optional /
   Weak / nested enum) are released correctly by ARC.
 
+### Value-tagged fieldless enums
+
+Fieldless (unit-only) variants may be given an explicit integer
+discriminant with `= <int>`. Variants without one continue with
+`previous + 1` (default 0). An optional `: <numeric>` after the enum
+name pins the underlying integer type — useful when the enum value
+needs to be cast to a specific width.
+
+```rust
+enum Priority: u32 {
+    low    = 1
+    medium = 5
+    high   = 10
+}
+
+let p: u32 = Priority.high as u32   // 10
+```
+
+- Discriminants are only allowed on unit variants.
+- Without `: <type>`, the cast target chooses the result width
+  (`Priority.high as i64`).
+- Casting an enum value to any numeric primitive resolves to the
+  variant's discriminant.
+
+### `@flags` enums
+
+Bitflag enums that support `|`, `&`, `^`, `~` between values. The
+attribute is placed above the `enum` keyword. Without an explicit
+`: <type>`, the underlying repr defaults to `u64` (matching the
+default integer literal type).
+
+```rust
+@flags
+enum InitFlag {
+    timer = 0x01
+    audio = 0x10
+    video = 0x20
+}
+
+let combined = InitFlag.audio | InitFlag.video
+combined.has(InitFlag.audio)        // true
+combined.has(InitFlag.timer)        // false
+let cleared = combined & ~InitFlag.audio
+```
+
+- Variants must be fieldless. Discriminants follow the same rules
+  as the base form (explicit `= N`, otherwise `previous + 1`).
+- Bitwise operands must be the same flags enum on both sides;
+  mixing two different flag types still requires an explicit `as`.
+- `value.has(other)` is a synthetic method equivalent to
+  `(value & other) == other` — it handles multi-bit `other`.
+- `match` is not supported on `@flags` enum values. Combined values
+  don't correspond to a single named variant; use `has` (or
+  bitwise compares) for control flow.
+- The runtime representation is the underlying integer, so
+  `combined as u32` / `combined as i64` give the raw bits.
+
 ### Generic enums
 
 ```rust

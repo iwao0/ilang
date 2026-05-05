@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use ilang_ast::{
-    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FnDecl, Item, LogicalOp,
+    BinOp, Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FnDecl, Item, LogicalOp,
     PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, VariantPayload,
 };
 
@@ -422,6 +422,26 @@ impl Interpreter {
                     }
                 }
                 let v = self.eval_expr(obj)?;
+                // `@flags` enum: `f.has(other)` lowers to `(f & other) == other`.
+                // The type checker only allows this when both sides are
+                // the same flags enum, which produces matching integer
+                // representations at runtime.
+                let is_int_value = matches!(
+                    &v,
+                    Value::Int8(_)
+                        | Value::Int16(_)
+                        | Value::Int32(_)
+                        | Value::Int(_)
+                        | Value::UInt8(_)
+                        | Value::UInt16(_)
+                        | Value::UInt32(_)
+                        | Value::UInt64(_)
+                );
+                if method == "has" && is_int_value && args.len() == 1 {
+                    let other = self.eval_expr(&args[0])?;
+                    let masked = apply_binary(BinOp::BitAnd, v, other.clone())?;
+                    return apply_binary(BinOp::Eq, masked, other);
+                }
                 // Weak.get(): try to upgrade to a strong Object ref;
                 // returns Optional<T>.
                 if let Value::Weak(w) = &v {
@@ -1188,6 +1208,35 @@ impl Interpreter {
                 variant,
                 args,
             } => {
+                // `@flags` enum: ctor produces a primitive integer in the
+                // declared repr type. Bitwise ops then work via the
+                // existing integer paths, and `.has(other)` is a method
+                // intercepted in the MethodCall handler.
+                if let Some(decl) = self.enums.get(enum_name).cloned() {
+                    if decl.flags {
+                        let mut prev: i64 = -1;
+                        let mut disc: Option<i64> = None;
+                        for v in &decl.variants {
+                            let d = v.discriminant.unwrap_or(prev + 1);
+                            prev = d;
+                            if v.name == *variant {
+                                disc = Some(d);
+                                break;
+                            }
+                        }
+                        let d = disc.ok_or_else(|| RuntimeError::TypeError {
+                            msg: format!(
+                                "@flags enum {enum_name} has no variant {variant}"
+                            ),
+                            span,
+                        })?;
+                        let repr = decl
+                            .repr_ty
+                            .clone()
+                            .unwrap_or(ilang_ast::Type::U64);
+                        return Ok(cast_value(Value::Int(d), &repr));
+                    }
+                }
                 let payload = match args {
                     CtorArgs::Unit => EnumPayload::Unit,
                     CtorArgs::Tuple(elems) => {
