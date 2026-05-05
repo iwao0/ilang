@@ -31,16 +31,6 @@
         driverdata: i64
     }
 
-    // 16 B rectangle matching C `SDL_Rect`. Distinct ilang name
-    // from `sdl_renderer.SDL_Rect` so each module re-exports its
-    // own copy without collision.
-    struct WindowRect {
-        x: i32
-        y: i32
-        w: i32
-        h: i32
-    }
-
     // Single-i32 cell used as an out-param target. SDL's int*
     // out-params can't be reached from ilang directly (no field-
     // address-of), so we declare each `int *` slot as `*IntOut`
@@ -97,6 +87,10 @@
     @lib("SDL2") fn SDL_RestoreWindow(window: *SDL_Window)
     @lib("SDL2") fn SDL_SetWindowInputFocus(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_FlashWindow(window: *SDL_Window, operation: i32): i32
+    // Re-declared here so the Window class can expose a getter
+    // without a cross-module @lib call. dlsym resolves both
+    // declarations to the same C function.
+    @lib("SDL2") fn SDL_IsScreenKeyboardShown(window: *SDL_Window): i32
 
     // ─── grab / capture ──────────────────────────────────────────
     @lib("SDL2") fn SDL_SetWindowGrab(window: *SDL_Window, grabbed: i32)
@@ -106,8 +100,8 @@
     @lib("SDL2") fn SDL_SetWindowMouseGrab(window: *SDL_Window, grabbed: i32)
     @lib("SDL2") fn SDL_GetWindowMouseGrab(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_GetGrabbedWindow(): *SDL_Window
-    @lib("SDL2") fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *WindowRect): i32
-    @lib("SDL2") fn SDL_GetWindowMouseRect(window: *SDL_Window): *WindowRect
+    @lib("SDL2") fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *sdl.SDL_Rect): i32
+    @lib("SDL2") fn SDL_GetWindowMouseRect(window: *SDL_Window): *sdl.SDL_Rect
     @lib("SDL2") fn SDL_CaptureMouse(enabled: i32): i32
 
     // ─── modal / parent ──────────────────────────────────────────
@@ -119,8 +113,8 @@
     @lib("SDL2") fn SDL_GetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
     @lib("SDL2") fn SDL_GetNumVideoDisplays(): i32
     @lib("SDL2") fn SDL_GetDisplayName(displayIndex: i32): *const char
-    @lib("SDL2") fn SDL_GetDisplayBounds(displayIndex: i32, rect: *WindowRect): i32
-    @lib("SDL2") fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *WindowRect): i32
+    @lib("SDL2") fn SDL_GetDisplayBounds(displayIndex: i32, rect: *sdl.SDL_Rect): i32
+    @lib("SDL2") fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *sdl.SDL_Rect): i32
     @lib("SDL2") fn SDL_GetDisplayDPI(
         displayIndex: i32, ddpi: *FloatOut, hdpi: *FloatOut, vdpi: *FloatOut
     ): i32
@@ -157,7 +151,7 @@
     @lib("SDL2") fn SDL_DestroyWindowSurface(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_UpdateWindowSurface(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_UpdateWindowSurfaceRects(
-        window: *SDL_Window, rects: *WindowRect, numrects: i32
+        window: *SDL_Window, rects: *sdl.SDL_Rect, numrects: i32
     ): i32
 
     // ─── OpenGL ──────────────────────────────────────────────────
@@ -184,13 +178,6 @@
     }
 
     class Size {
-        w: i32
-        h: i32
-    }
-
-    class Rect {
-        x: i32
-        y: i32
         w: i32
         h: i32
     }
@@ -423,6 +410,15 @@
             )
         }
 
+        // ─── on-screen keyboard ──────────────────────────────────
+        // True when the OS's on-screen keyboard is currently
+        // visible for this window (mainly relevant on touch
+        // devices / iOS / Android — desktop platforms always
+        // return false).
+        get isScreenKeyboardShown(): bool {
+            SDL_IsScreenKeyboardShown(this.handle as *SDL_Window) != 0
+        }
+
         // ─── display mode ────────────────────────────────────────
         get currentDisplayMode(): DisplayMode {
             let raw = new SDL_DisplayMode()
@@ -444,24 +440,14 @@
     fn displayName(displayIndex: i32): string {
         stringFromCstr(SDL_GetDisplayName(displayIndex))
     }
-    fn displayBounds(displayIndex: i32): Rect {
-        let raw = new WindowRect()
-        SDL_GetDisplayBounds(displayIndex, raw)
-        let r = new Rect()
-        r.x = raw.x
-        r.y = raw.y
-        r.w = raw.w
-        r.h = raw.h
+    fn displayBounds(displayIndex: i32): sdl.SDL_Rect {
+        let r = new sdl.SDL_Rect()
+        SDL_GetDisplayBounds(displayIndex, r)
         r
     }
-    fn displayUsableBounds(displayIndex: i32): Rect {
-        let raw = new WindowRect()
-        SDL_GetDisplayUsableBounds(displayIndex, raw)
-        let r = new Rect()
-        r.x = raw.x
-        r.y = raw.y
-        r.w = raw.w
-        r.h = raw.h
+    fn displayUsableBounds(displayIndex: i32): sdl.SDL_Rect {
+        let r = new sdl.SDL_Rect()
+        SDL_GetDisplayUsableBounds(displayIndex, r)
         r
     }
     fn displayDPI(displayIndex: i32): DisplayDPI {

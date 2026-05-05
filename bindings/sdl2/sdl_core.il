@@ -15,6 +15,17 @@
         patch: u8
     }
 
+    // SDL_rect.h: 16 B rectangle, passed by pointer to most C
+    // routines. Lives here so every module (renderer / window /
+    // keyboard / mouse / …) can refer to the same `sdl.SDL_Rect`
+    // and avoid per-module duplicate definitions.
+    struct SDL_Rect {
+        x: i32
+        y: i32
+        w: i32
+        h: i32
+    }
+
     // ─── SDL_init.h ──────────────────────────────────────────────
     @lib("SDL2") fn SDL_Init(flags: u32): i32
     @lib("SDL2") fn SDL_InitSubSystem(flags: u32): i32

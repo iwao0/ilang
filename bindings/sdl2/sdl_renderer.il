@@ -16,14 +16,6 @@
     // the GPU side, freed via SDL_DestroyTexture.
     struct SDL_Texture {}
 
-    // C `SDL_Rect { int x, y, w, h }` — 16 B, passed by pointer.
-    struct SDL_Rect {
-        x: i32
-        y: i32
-        w: i32
-        h: i32
-    }
-
     @lib("SDL2") fn SDL_CreateRenderer(
         window: *void, index: i32, flags: u32
     ): *SDL_Renderer
@@ -36,7 +28,7 @@
     ): i32
     @lib("SDL2") fn SDL_RenderClear(renderer: *SDL_Renderer): i32
     @lib("SDL2") fn SDL_RenderFillRect(
-        renderer: *SDL_Renderer, rect: *SDL_Rect
+        renderer: *SDL_Renderer, rect: *sdl.SDL_Rect
     ): i32
     @lib("SDL2") fn SDL_RenderPresent(renderer: *SDL_Renderer)
     @lib("SDL2") fn SDL_RenderSetLogicalSize(
@@ -50,7 +42,7 @@
     ): *SDL_Texture
     @lib("SDL2") fn SDL_DestroyTexture(tex: *SDL_Texture)
     @lib("SDL2") fn SDL_UpdateTexture(
-        tex: *SDL_Texture, rect: *SDL_Rect,
+        tex: *SDL_Texture, rect: *sdl.SDL_Rect,
         pixels: *const void, pitch: i32
     ): i32
     @lib("SDL2") fn SDL_SetTextureBlendMode(
@@ -67,11 +59,11 @@
     ): i32
     @lib("SDL2") fn SDL_RenderCopy(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *SDL_Rect, dstrect: *SDL_Rect
+        srcrect: *sdl.SDL_Rect, dstrect: *sdl.SDL_Rect
     ): i32
     @lib("SDL2") fn SDL_RenderCopyEx(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *SDL_Rect, dstrect: *SDL_Rect,
+        srcrect: *sdl.SDL_Rect, dstrect: *sdl.SDL_Rect,
         angle: f64, center: *void, flip: i32
     ): i32
     @lib("SDL2") fn SDL_SetRenderTarget(
@@ -125,7 +117,7 @@
         // Fill an axis-aligned rectangle. Coordinates are in window
         // pixels; `(x, y)` is the top-left corner.
         fillRect(x: i32, y: i32, w: i32, h: i32): i32 {
-            let rect = new SDL_Rect()
+            let rect = new sdl.SDL_Rect()
             rect.x = x
             rect.y = y
             rect.w = w
@@ -135,7 +127,7 @@
 
         // Stretch the entire texture into the destination rect.
         drawTexture(tex: Texture, x: i32, y: i32, w: i32, h: i32): i32 {
-            let dst = new SDL_Rect()
+            let dst = new sdl.SDL_Rect()
             dst.x = x
             dst.y = y
             dst.w = w
@@ -143,7 +135,7 @@
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *SDL_Rect, dst
+                0 as *sdl.SDL_Rect, dst
             )
         }
 
@@ -152,7 +144,7 @@
         drawTextureRot(
             tex: Texture, x: i32, y: i32, w: i32, h: i32, angle: f64
         ): i32 {
-            let dst = new SDL_Rect()
+            let dst = new sdl.SDL_Rect()
             dst.x = x
             dst.y = y
             dst.w = w
@@ -160,7 +152,7 @@
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *SDL_Rect, dst,
+                0 as *sdl.SDL_Rect, dst,
                 angle, 0 as *void, 0
             )
         }
@@ -229,7 +221,7 @@
             let pitch = this.width * 4
             let p: *u8 = rgba
             SDL_UpdateTexture(
-                this.handle as *SDL_Texture, 0 as *SDL_Rect,
+                this.handle as *SDL_Texture, 0 as *sdl.SDL_Rect,
                 p as *const void, pitch
             )
         }
@@ -312,7 +304,7 @@
                 SDL_SetTextureBlendMode(this.atlas as *SDL_Texture, 1)
                 let p: *u8 = pixels
                 SDL_UpdateTexture(
-                    this.atlas as *SDL_Texture, 0 as *SDL_Rect,
+                    this.atlas as *SDL_Texture, 0 as *sdl.SDL_Rect,
                     p as *const void, atlas_w * 4
                 )
             }
@@ -340,12 +332,12 @@
                 let ch = text.charAt(i)
                 let idx = font_char_index(ch)
                 if idx >= 0 {
-                    let src = new SDL_Rect()
+                    let src = new sdl.SDL_Rect()
                     src.x = idx * this.cell_w
                     src.y = 0
                     src.w = this.cell_w
                     src.h = this.cell_h
-                    let dst = new SDL_Rect()
+                    let dst = new sdl.SDL_Rect()
                     dst.x = cursor
                     dst.y = y
                     dst.w = this.cell_w * scale

@@ -23,6 +23,9 @@
     @lib("SDL2") fn SDL_IsTextInputShown(): i32
     @lib("SDL2") fn SDL_HasScreenKeyboardSupport(): i32
     @lib("SDL2") fn SDL_ResetKeyboard()
+    @lib("SDL2") fn SDL_SetTextInputRect(rect: *sdl.SDL_Rect)
+    @lib("SDL2") fn SDL_IsScreenKeyboardShown(window: *void): i32
+    @lib("SDL2") fn SDL_GetKeyboardFocus(): *void
 
     //     sdl.Keyboard.pump()
     //     if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) { ... }
@@ -106,6 +109,27 @@
 
         static reset() {
             SDL_ResetKeyboard()
+        }
+
+        // Hint to IMEs / on-screen keyboards where the user is
+        // typing. (x, y) is in window pixels.
+        static setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
+            let r = new sdl.SDL_Rect()
+            r.x = x; r.y = y; r.w = w; r.h = h
+            SDL_SetTextInputRect(r)
+        }
+
+        // True when the on-screen keyboard is currently visible
+        // for `window`.
+        static isScreenKeyboardShown(window: sdl.Window): bool {
+            SDL_IsScreenKeyboardShown(window.handle as *void) != 0
+        }
+
+        // Raw handle of the window that currently has keyboard
+        // focus, or 0 if no SDL window owns the focus. Compare
+        // against `myWindow.handle` to test focus.
+        static focusHandle(): i64 {
+            SDL_GetKeyboardFocus() as i64
         }
     }
 }
