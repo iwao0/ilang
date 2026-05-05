@@ -37,6 +37,11 @@
           "description": "Absolute path to the ilang-lsp binary. If empty, falls back to the ILANG_LSP_PATH env var, then to `<workspace>/target/debug/ilang-lsp`."
         }
       }
+    },
+    "configurationDefaults": {
+      "[ilang]": {
+        "editor.wordBasedSuggestions": "off"
+      }
     }
   },
   "scripts": {
