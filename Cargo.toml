@@ -8,6 +8,7 @@ members = [
     "crates/ilang-types",
     "crates/ilang-codegen",
     "crates/ilang-cli",
+    "crates/ilang-lsp",
 ]
 
 [workspace.package]

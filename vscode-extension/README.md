@@ -1,42 +1,47 @@
 # vscode-ilang
 
-VSCode extension for the ilang language. Stage A ships syntax
-highlighting only. Language-server features (F12 / hover / etc.)
-will land in Stage B.
+VSCode extension for the ilang language. Includes syntax
+highlighting and a language server (`ilang-lsp`) for diagnostics,
+hover, and go-to-definition.
 
 日本語版: [README_ja.md](README_ja.md)
 
 ## Local install
 
-Two options to enable this extension in VSCode (or Cursor).
-
-### Option 1: development symlink (recommended)
-
 ```sh
-ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
-```
+# 1. Build the language server
+cargo build -p ilang-lsp
 
-Restart VSCode and `.il` files will pick up the highlighting.
-Restart again after editing the grammar to reload it.
-
-### Option 2: install as a `.vsix`
-
-```sh
-npm install -g @vscode/vsce
+# 2. Build the extension client (TypeScript -> JS)
 cd vscode-extension
-vsce package          # produces ilang-0.1.0.vsix
-code --install-extension ilang-0.1.0.vsix
+npm install
+npm run compile
+
+# 3. Symlink into VSCode's extensions directory
+ln -s "$(pwd)" ~/.vscode/extensions/ilang
 ```
 
-## Features (Stage A)
+Restart VSCode. `.il` files now get highlighting and the language
+server starts on demand.
+
+The extension looks for the `ilang-lsp` binary in this order:
+
+1. The `ilang.serverPath` setting (absolute path)
+2. The `ILANG_LSP_PATH` environment variable
+3. `<workspace>/target/debug/ilang-lsp` (default during dev)
+
+## Features
 
 - `.il` file association
 - Highlighting for keywords, types, numeric literals, strings,
   comments, and attributes (`@flags`, `@extern`, ...)
 - Bracket auto-closing and comment toggling
+- **Diagnostics** — parser and type-checker errors as red squiggles
+- **Hover** — type and signature for top-level fn / class / enum / const
+- **Go-to-definition (F12)** — jumps to the declaring identifier
 
-## Coming next (Stage B)
+## Limitations
 
-- New crate `ilang-lsp` built on `tower-lsp`
-- Features: go-to-definition (F12), hover, diagnostics
-  (red squiggles), completion
+The LSP currently indexes only **top-level declarations** in the
+single open file. Local variables, class members, and cross-file
+references are not yet resolved.

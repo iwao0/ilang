@@ -1,40 +1,47 @@
 # vscode-ilang
 
-ilang 用の VSCode extension。Stage A はシンタックスハイライトのみ。
-F12 / hover などの言語サーバ機能は Stage B で別途実装する。
+ilang 用の VSCode extension。シンタックスハイライトに加え、
+language server (`ilang-lsp`) による診断 / hover / 定義ジャンプを
+提供する。
 
 English: [README.md](README.md)
 
 ## ローカルインストール
 
-VSCode (or Cursor) からこの拡張機能を有効にする方法は 2 通り。
-
-### 方法 1: 開発用シンボリックリンク (推奨)
-
 ```sh
-ln -s "$(pwd)/vscode-extension" ~/.vscode/extensions/ilang
-```
+# 1. language server をビルド
+cargo build -p ilang-lsp
 
-VSCode を再起動すると `.il` ファイルでハイライトが効くようになる。
-編集後はもう一度再起動すれば反映される。
-
-### 方法 2: `.vsix` パッケージとしてインストール
-
-```sh
-npm install -g @vscode/vsce
+# 2. extension クライアント (TypeScript) をビルド
 cd vscode-extension
-vsce package          # ilang-0.1.0.vsix が生成される
-code --install-extension ilang-0.1.0.vsix
+npm install
+npm run compile
+
+# 3. VSCode の拡張機能ディレクトリにシンボリックリンク
+ln -s "$(pwd)" ~/.vscode/extensions/ilang
 ```
 
-## 機能 (Stage A)
+VSCode を再起動すれば `.il` ファイルでハイライトが効き、
+language server も自動で起動する。
+
+`ilang-lsp` バイナリの探索順:
+
+1. 設定 `ilang.serverPath` (絶対パス)
+2. 環境変数 `ILANG_LSP_PATH`
+3. `<workspace>/target/debug/ilang-lsp` (開発時のデフォルト)
+
+## 機能
 
 - `.il` ファイルの認識
 - キーワード / 型 / 数値リテラル / 文字列 / コメント / 属性 (`@flags` 等)
   のハイライト
 - ブラケット自動補完 / コメントトグル
+- **診断**: パーサ / 型チェッカのエラーを赤波線で表示
+- **hover**: トップレベル fn / class / enum / const にカーソルを
+  合わせるとシグネチャを表示
+- **定義ジャンプ (F12)**: 宣言箇所にジャンプ
 
-## 今後 (Stage B)
+## 制限
 
-- 別 crate `ilang-lsp` を立て、`tower-lsp` で LSP を実装
-- 機能: 定義ジャンプ (F12) / hover / 診断 (赤波線) / 補完
+LSP は現状 **同一ファイル内のトップレベル宣言のみ** を索引化する。
+ローカル変数 / クラスメンバ / 他ファイルへの参照は未対応。

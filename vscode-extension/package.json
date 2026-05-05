@@ -1,12 +1,16 @@
 {
   "name": "ilang",
   "displayName": "ilang",
-  "description": "Syntax highlighting for the ilang language (.il)",
+  "description": "Syntax highlighting and language server for the ilang language (.il)",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.70.0"
   },
   "categories": ["Programming Languages"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:ilang"
+  ],
   "contributes": {
     "languages": [
       {
@@ -22,6 +26,29 @@
         "scopeName": "source.ilang",
         "path": "./syntaxes/ilang.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "ilang",
+      "properties": {
+        "ilang.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the ilang-lsp binary. If empty, falls back to the ILANG_LSP_PATH env var, then to `<workspace>/target/debug/ilang-lsp`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p ."
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.70.0",
+    "typescript": "^5.4.0"
   }
 }
