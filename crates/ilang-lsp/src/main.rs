@@ -308,6 +308,9 @@ impl LanguageServer for Backend {
         let want_static = doc.classes.contains_key(&receiver);
         let class_name = if want_static {
             receiver.clone()
+        } else if receiver == "console" {
+            // Built-in singleton: instance of `Console`.
+            "Console".to_string()
         } else {
             doc.var_classes.get(&receiver).cloned().unwrap_or_default()
         };
