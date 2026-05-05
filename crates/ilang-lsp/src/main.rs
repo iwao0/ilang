@@ -735,11 +735,25 @@ impl<'a> Walker<'a> {
             self.push_decl(&f.name, f.span, format!("static {}: {}", f.name, f.ty));
         }
         for p in &c.properties {
-            self.push_decl(
-                &p.name,
-                p.span,
-                format!("(property) {}.{}: {}", c.name, p.name, p.ty),
-            );
+            // PropertyDecl.span points at the `get` / `set` keyword, so
+            // the name identifier sits a few columns to its right. Push
+            // a decl entry at that exact location for hover and F12,
+            // and additionally one at each accessor's own keyword span
+            // so a `get foo` followed by `set foo` both light up.
+            let sig = format!("(property) {}.{}: {}", c.name, p.name, p.ty);
+            for accessor_span in [
+                p.getter.as_ref().map(|g| g.span),
+                p.setter.as_ref().map(|s| s.span),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Some(name_span) =
+                    locate_property_name(self.text, accessor_span, &p.name)
+                {
+                    self.push_decl(&p.name, name_span, sig.clone());
+                }
+            }
         }
         for m in &c.methods {
             self.walk_fn(m, Some(&c.name));
@@ -1370,6 +1384,26 @@ fn promote_pair(l: &Type, r: &Type, l_expr: &Expr, r_expr: &Expr) -> Type {
         return l.clone();
     }
     l.clone()
+}
+
+/// Locate the property name after a `get` or `set` keyword.
+fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
+    let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
+    let bytes = text.as_bytes();
+    // Skip 3 keyword chars (`get` / `set`).
+    let mut i = off + 3;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    let nb = name.as_bytes();
+    if bytes.len() - i >= nb.len() && &bytes[i..i + nb.len()] == nb {
+        let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
+        if !next.is_ascii_alphanumeric() && next != b'_' {
+            let (line, col) = offset_to_line_col(text, i)?;
+            return Some(Span::new(line, col));
+        }
+    }
+    None
 }
 
 /// Locate the `name` token after a `let` keyword. The Stmt span points
