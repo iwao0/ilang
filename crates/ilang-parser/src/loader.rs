@@ -316,16 +316,32 @@ fn apply_use(
             // `inline_constants` pass would fail to match a
             // const's prefixed declaration name against the bare
             // reference.
-            let const_names: HashSet<String> = module_prog
+            // Names that need bare-`Var` refs in fn / method bodies
+            // qualified to `prefix.NAME` for the post-merge resolver:
+            // module-level consts AND any class names declared in
+            // the module (so a class's own static methods can write
+            // `ClassName.staticField` and still resolve after the
+            // class itself was renamed by the prefix pass).
+            let mut named_globals: HashSet<String> = module_prog
                 .items
                 .iter()
                 .filter_map(|i| match i {
                     Item::Const(c) => Some(c.name.clone()),
+                    Item::Class(c) => Some(c.name.clone()),
                     _ => None,
                 })
                 .collect();
+            for item in &module_prog.items {
+                if let Item::ExternC(b) = item {
+                    for inner in &b.items {
+                        if let ilang_ast::ExternCItem::Class(c) = inner {
+                            named_globals.insert(c.name.clone());
+                        }
+                    }
+                }
+            }
             for item in module_prog.items.iter_mut() {
-                qualify_var_refs_in_item(item, &effective_prefix, &const_names);
+                qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
             }
             for item in module_prog.items {
                 merged.items.push(prefix_item(item, &effective_prefix));
@@ -1020,6 +1036,7 @@ fn is_builtin_callee(name: &str) -> bool {
             | "cstrFromString"
             | "freeCstr"
             | "bytesFromBuffer"
+            | "readU8"
             | "arrayFromCArray"
             | "cstrArrayToStrings"
             | "errnoCheck"
@@ -1085,10 +1102,15 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     }
     // Fold each class's static-field initializers using the same
     // rules. The folded literal sits on the AST until the
-    // interpreter / JIT pulls it for storage init.
+    // interpreter / JIT pulls it for storage init. Array initialisers
+    // are left untouched — the JIT allocates an empty array at
+    // `__main` startup, so the AST value isn't read for them.
     for item in items_no_const.iter_mut() {
         if let Item::Class(c) = item {
             for sf in c.static_fields.iter_mut() {
+                if matches!(sf.value.kind, ExprKind::Array(_)) {
+                    continue;
+                }
                 let folded = fold_const_expr(&sf.value, &consts).map_err(|reason| {
                     LoadError::BadConst {
                         name: format!("{}.{}", c.name, sf.name),

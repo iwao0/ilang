@@ -301,23 +301,41 @@ fn init_static_field_storage(
     let mut types: std::collections::HashMap<(String, String), ilang_ast::Type> =
         std::collections::HashMap::new();
     let mut values: Vec<i64> = Vec::new();
+    let mut record_class = |c: &ilang_ast::ClassDecl,
+                             values: &mut Vec<i64>,
+                             slots: &mut std::collections::HashMap<(String, String), usize>,
+                             types: &mut std::collections::HashMap<(String, String), ilang_ast::Type>| {
+        for sf in &c.static_fields {
+            // Array-typed statics get a 0 (null) seed here;
+            // `__main`'s prologue allocates a real empty array
+            // and stores the pointer before any user code runs.
+            let bits = match &sf.value.kind {
+                ExprKind::Int(n) => *n,
+                ExprKind::Float(x) => x.to_bits() as i64,
+                ExprKind::Bool(b) => *b as i64,
+                ExprKind::Array(_) => 0,
+                // The loader already folded; if anything else
+                // shows up the typechecker will reject the
+                // declaration before we get here.
+                _ => 0,
+            };
+            let idx = values.len();
+            values.push(bits);
+            slots.insert((c.name.clone(), sf.name.clone()), idx);
+            types.insert((c.name.clone(), sf.name.clone()), sf.ty.clone());
+        }
+    };
     for item in &prog.items {
-        if let Item::Class(c) = item {
-            for sf in &c.static_fields {
-                let bits = match &sf.value.kind {
-                    ExprKind::Int(n) => *n,
-                    ExprKind::Float(x) => x.to_bits() as i64,
-                    ExprKind::Bool(b) => *b as i64,
-                    // The loader already folded; if anything else
-                    // shows up the typechecker will reject the
-                    // declaration before we get here.
-                    _ => 0,
-                };
-                let idx = values.len();
-                values.push(bits);
-                slots.insert((c.name.clone(), sf.name.clone()), idx);
-                types.insert((c.name.clone(), sf.name.clone()), sf.ty.clone());
+        match item {
+            Item::Class(c) => record_class(c, &mut values, &mut slots, &mut types),
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    if let ilang_ast::ExternCItem::Class(c) = inner {
+                        record_class(c, &mut values, &mut slots, &mut types);
+                    }
+                }
             }
+            _ => {}
         }
     }
     (values.into_boxed_slice(), slots, types)
@@ -2163,6 +2181,40 @@ impl JitCompiler {
             closure_capture_env: None,
             current_class: None,
         };
+        // __main prologue: allocate an empty array for every
+        // array-typed static field so a read before the user's
+        // first explicit assignment still hands back a real (rc=1,
+        // length=0) array instead of a null pointer. Plain
+        // primitive statics already had their bit pattern written
+        // into the storage box at JitCompiler construction time.
+        for ((cls, fld), slot) in lc.static_field_slots.iter() {
+            if let Some(ilang_ast::Type::Array { elem, fixed: None }) =
+                lc.static_field_types.get(&(cls.clone(), fld.clone()))
+            {
+                let elem_size: i64 = match elem.as_ref() {
+                    ilang_ast::Type::I8
+                    | ilang_ast::Type::U8
+                    | ilang_ast::Type::Bool => 1,
+                    ilang_ast::Type::I16 | ilang_ast::Type::U16 => 2,
+                    ilang_ast::Type::I32
+                    | ilang_ast::Type::U32
+                    | ilang_ast::Type::F32 => 4,
+                    ilang_ast::Type::I64
+                    | ilang_ast::Type::U64
+                    | ilang_ast::Type::F64 => 8,
+                    _ => continue,   // checker rejects other shapes
+                };
+                let r = lc.module.declare_func_in_func(lc.arrfns.new, builder.func);
+                let elem_size_v = builder.ins().iconst(I64, elem_size);
+                let len_v = builder.ins().iconst(I64, 0);
+                let drop_fn_v = builder.ins().iconst(I64, 0);
+                let call = builder.ins().call(r, &[elem_size_v, len_v, drop_fn_v]);
+                let arr_ptr = builder.inst_results(call)[0];
+                let addr = lc.static_field_base_addr + (*slot as i64) * 8;
+                let addr_v = builder.ins().iconst(I64, addr);
+                builder.ins().store(MemFlags::trusted(), arr_ptr, addr_v, 0);
+            }
+        }
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.
         let before: std::collections::HashSet<String> =

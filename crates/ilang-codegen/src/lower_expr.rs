@@ -423,21 +423,57 @@ pub(crate) fn lower_expr(
                                 span: value.span,
                             }
                         })?;
-                        let target_jty = match ty {
+                        let target_jty = match &ty {
+                            ilang_ast::Type::I8 => JitTy::I8,
+                            ilang_ast::Type::I16 => JitTy::I16,
+                            ilang_ast::Type::I32 => JitTy::I32,
                             ilang_ast::Type::I64 => JitTy::I64,
+                            ilang_ast::Type::U8 => JitTy::U8,
+                            ilang_ast::Type::U16 => JitTy::U16,
+                            ilang_ast::Type::U32 => JitTy::U32,
+                            ilang_ast::Type::U64 => JitTy::U64,
+                            ilang_ast::Type::F32 => JitTy::F32,
                             ilang_ast::Type::F64 => JitTy::F64,
                             ilang_ast::Type::Bool => JitTy::Bool,
+                            ilang_ast::Type::Array { elem, fixed: None } => {
+                                let elem_jty = jit_ty_from_primitive(elem);
+                                let array_id = intern_array_kind(
+                                    lc.array_kinds,
+                                    ArrayKind { elem: elem_jty, fixed: None },
+                                );
+                                JitTy::Array(array_id)
+                            }
                             _ => unreachable!("checker rejects other types"),
                         };
                         let coerced = coerce(b, (val, vt), target_jty, value.span)?;
-                        let bits = match target_jty {
-                            JitTy::I64 => coerced,
-                            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), coerced),
-                            JitTy::Bool => b.ins().uextend(I64, coerced),
-                            _ => unreachable!(),
-                        };
                         let addr = lc.static_field_base_addr + (slot as i64) * 8;
                         let addr_v = b.ins().iconst(I64, addr);
+                        // Heap-typed static field assignment: retain
+                        // the new array (if it came from an aliased
+                        // source — fresh allocations already start at
+                        // rc=1) and release the old before swapping
+                        // pointers, mirroring the instance-field write.
+                        if matches!(target_jty, JitTy::Array(_)) {
+                            if crate::arc::is_aliased_heap_source(&value.kind) {
+                                crate::arc::emit_retain_heap(b, lc, coerced, target_jty);
+                            }
+                            let old = b.ins().load(I64, MemFlags::trusted(), addr_v, 0);
+                            crate::arc::emit_release_heap(b, lc, old, target_jty);
+                            b.ins().store(MemFlags::trusted(), coerced, addr_v, 0);
+                            return Ok(None);
+                        }
+                        let bits = match target_jty {
+                            JitTy::I64 | JitTy::U64 => coerced,
+                            JitTy::I8 | JitTy::U8 | JitTy::Bool => b.ins().uextend(I64, coerced),
+                            JitTy::I16 | JitTy::U16 => b.ins().uextend(I64, coerced),
+                            JitTy::I32 | JitTy::U32 => b.ins().uextend(I64, coerced),
+                            JitTy::F32 => {
+                                let i = b.ins().bitcast(I32, MemFlags::new(), coerced);
+                                b.ins().uextend(I64, i)
+                            }
+                            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), coerced),
+                            _ => unreachable!(),
+                        };
                         b.ins().store(MemFlags::trusted(), bits, addr_v, 0);
                         return Ok(None);
                     }
@@ -607,12 +643,31 @@ pub(crate) fn lower_expr(
                         let addr_v = b.ins().iconst(I64, addr);
                         let raw = b.ins().load(I64, MemFlags::trusted(), addr_v, 0);
                         let (v, jty) = match ty {
+                            ilang_ast::Type::I8 => (b.ins().ireduce(I8, raw), JitTy::I8),
+                            ilang_ast::Type::I16 => (b.ins().ireduce(I16, raw), JitTy::I16),
+                            ilang_ast::Type::I32 => (b.ins().ireduce(I32, raw), JitTy::I32),
                             ilang_ast::Type::I64 => (raw, JitTy::I64),
+                            ilang_ast::Type::U8 => (b.ins().ireduce(I8, raw), JitTy::U8),
+                            ilang_ast::Type::U16 => (b.ins().ireduce(I16, raw), JitTy::U16),
+                            ilang_ast::Type::U32 => (b.ins().ireduce(I32, raw), JitTy::U32),
+                            ilang_ast::Type::U64 => (raw, JitTy::U64),
+                            ilang_ast::Type::F32 => {
+                                let lo = b.ins().ireduce(I32, raw);
+                                (b.ins().bitcast(F32, MemFlags::new(), lo), JitTy::F32)
+                            }
                             ilang_ast::Type::F64 => {
                                 (b.ins().bitcast(F64, MemFlags::new(), raw), JitTy::F64)
                             }
                             ilang_ast::Type::Bool => {
                                 (b.ins().ireduce(I8, raw), JitTy::Bool)
+                            }
+                            ilang_ast::Type::Array { elem, fixed: None } => {
+                                let elem_jty = jit_ty_from_primitive(&elem);
+                                let array_id = intern_array_kind(
+                                    lc.array_kinds,
+                                    ArrayKind { elem: elem_jty, fixed: None },
+                                );
+                                (raw, JitTy::Array(array_id))
                             }
                             _ => unreachable!("checker rejects other types"),
                         };
@@ -4489,6 +4544,25 @@ fn try_lower_extern_c_helper(
             let n_i64 = coerce(b, (nv, nt), JitTy::I64, args[1].span)?;
             let arr = lower_extern_c_array_copy(b, lc, pv, n_i64, JitTy::U8);
             Ok(Some(Some((arr, JitTy::Array(intern_array_kind_u8(lc))))))
+        }
+        // readU8(p: *const void, offset: i64): u8
+        "readU8" => {
+            let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "readU8 ptr is unit".into(),
+                    span: args[0].span,
+                }
+            })?;
+            let (ov, ot) = lower_expr(b, lc, &args[1])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: "readU8 offset is unit".into(),
+                    span: args[1].span,
+                }
+            })?;
+            let off_i64 = coerce(b, (ov, ot), JitTy::I64, args[1].span)?;
+            let addr = b.ins().iadd(pv, off_i64);
+            let byte = b.ins().load(I8, MemFlags::trusted(), addr, 0);
+            Ok(Some(Some((byte, JitTy::U8))))
         }
         // arrayFromCArray<T>(p: *const T, n: size_t): T[]
         "arrayFromCArray" => {

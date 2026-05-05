@@ -648,6 +648,18 @@ impl TypeChecker {
                 Vec::new(),
             )],
         );
+        // readU8(p: *const void, offset: i64): u8 — alloc-free
+        // single-byte read at the given pointer + offset. For
+        // hot polling paths where allocating a u8[] each call
+        // (`bytesFromBuffer`) is too heavy.
+        self.fns.insert(
+            "readU8".into(),
+            vec![mk_sig(
+                vec![raw_const_void.clone(), Type::I64],
+                Type::U8,
+                Vec::new(),
+            )],
+        );
         // arrayFromCArray<T>(p: *const T, n: size_t): T[]
         // T is constrained to numeric primitive / bool at the call
         // site (the JIT lowering rejects other Ts since it would
@@ -3462,6 +3474,7 @@ const FFI_HELPERS: &[&str] = &[
     "cstrFromString",
     "freeCstr",
     "bytesFromBuffer",
+    "readU8",
     "arrayFromCArray",
     "cstrArrayToStrings",
     "errnoCheck",
@@ -4156,13 +4169,33 @@ fn class_signature(
                 span: sf.span,
             });
         }
-        // Restrict to primitives in this initial cut. Heap types
-        // (string / arrays / objects) need ARC integration first.
-        if !matches!(sf.ty, Type::I64 | Type::F64 | Type::Bool) {
+        // Allowed static-field types: numeric primitives (any
+        // width) + bool, and dynamic arrays of those primitives
+        // (the ARC retain/release on the slot uses the same
+        // helpers as instance fields). Heap types beyond arrays
+        // (objects, strings, optionals, …) still need a slot-init
+        // phase; reject those for now with a clearer message.
+        let prim_ok = matches!(
+            sf.ty,
+            Type::I8 | Type::I16 | Type::I32 | Type::I64
+            | Type::U8 | Type::U16 | Type::U32 | Type::U64
+            | Type::F32 | Type::F64 | Type::Bool
+        );
+        let array_of_prim_ok = matches!(
+            &sf.ty,
+            Type::Array { elem, fixed: None } if matches!(
+                elem.as_ref(),
+                Type::I8 | Type::I16 | Type::I32 | Type::I64
+                | Type::U8 | Type::U16 | Type::U32 | Type::U64
+                | Type::F32 | Type::F64 | Type::Bool
+            )
+        );
+        if !prim_ok && !array_of_prim_ok {
             return Err(TypeError::Unsupported {
                 what: format!(
                     "static field {:?} in class {:?}: type {} not yet \
-                     supported (only i64 / f64 / bool for now)",
+                     supported (allowed: numeric primitives, bool, or \
+                     dynamic arrays of those)",
                     sf.name, c.name, sf.ty
                 ),
                 span: sf.span,
