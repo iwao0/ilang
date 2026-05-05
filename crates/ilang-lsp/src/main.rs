@@ -372,12 +372,14 @@ impl LanguageServer for Backend {
                         CompletionItemKind::FUNCTION
                     };
                     let (insert_text, fmt) = call_snippet(suffix, kind);
+                    let command = trigger_sig_help_command(kind);
                     Some(CompletionItem {
                         label: suffix.to_string(),
                         kind: Some(kind),
                         detail: Some(sig.clone()),
                         insert_text,
                         insert_text_format: fmt,
+                        command,
                         ..CompletionItem::default()
                     })
                 })
@@ -415,12 +417,14 @@ impl LanguageServer for Backend {
                 continue;
             }
             let (insert_text, fmt) = call_snippet(name, CompletionItemKind::METHOD);
+            let command = trigger_sig_help_command(CompletionItemKind::METHOD);
             items.push(CompletionItem {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::METHOD),
                 detail: Some(m.signature.clone()),
                 insert_text,
                 insert_text_format: fmt,
+                command,
                 ..CompletionItem::default()
             });
         }
@@ -2806,8 +2810,8 @@ fn render_const_value(e: &Expr) -> Option<String> {
 
 /// For function-like completion items, produce a snippet that inserts
 /// `name($0)` so the cursor lands inside the parens (and signature
-/// help kicks in via the `(` trigger). Non-callables get no snippet —
-/// VSCode falls back to inserting the bare label.
+/// help pops up). Non-callables get no snippet — VSCode falls back
+/// to inserting the bare label.
 fn call_snippet(
     name: &str,
     kind: CompletionItemKind,
@@ -2819,6 +2823,22 @@ fn call_snippet(
         )
     } else {
         (None, None)
+    }
+}
+
+/// Editor command to trigger signature help right after a function
+/// completion is committed. The LSP-inserted `(` doesn't fire the
+/// `(` trigger character, so we ask the editor to run the action
+/// explicitly.
+fn trigger_sig_help_command(kind: CompletionItemKind) -> Option<Command> {
+    if matches!(kind, CompletionItemKind::FUNCTION | CompletionItemKind::METHOD) {
+        Some(Command {
+            title: "Trigger Parameter Hints".to_string(),
+            command: "editor.action.triggerParameterHints".to_string(),
+            arguments: None,
+        })
+    } else {
+        None
     }
 }
 
@@ -2843,12 +2863,14 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
             CompletionItemKind::FUNCTION
         };
         let (insert_text, fmt) = call_snippet(name, kind);
+        let command = trigger_sig_help_command(kind);
         out.push(CompletionItem {
             label: name.clone(),
             kind: Some(kind),
             detail: Some(sym.signature.clone()),
             insert_text,
             insert_text_format: fmt,
+            command,
             ..CompletionItem::default()
         });
     }
