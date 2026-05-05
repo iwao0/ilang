@@ -529,6 +529,12 @@ impl<'a> Walker<'a> {
         for f in &c.fields {
             self.push_decl(&f.name, f.span, format!("{}: {}", f.name, f.ty));
         }
+        for f in &c.static_fields {
+            self.push_decl(&f.name, f.span, format!("static {}: {}", f.name, f.ty));
+        }
+        for p in &c.properties {
+            self.push_decl(&p.name, p.span, format!("(property) {}: {}", p.name, p.ty));
+        }
         for m in &c.methods {
             self.walk_fn(m, Some(&c.name));
         }
