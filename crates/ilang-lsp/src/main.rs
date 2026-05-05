@@ -32,6 +32,10 @@ struct ClassInfo {
     /// (`p.name = v`). Falls back to `fields` when the property is
     /// get-only.
     setters: HashMap<String, MemberInfo>,
+    /// `true` for classes pulled in via `use module`. Their member
+    /// `MemberInfo.span` values are line/col into another file we
+    /// don't carry, so F12 must stay at the use site.
+    external: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -388,6 +392,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     methods: HashMap::new(),
                                     getters: HashMap::new(),
                                     setters: HashMap::new(),
+                                    external: true,
                                 },
                             );
                         }
@@ -484,6 +489,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 methods,
                 getters,
                 setters,
+                external: true,
             },
         );
     }
@@ -957,6 +963,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
         methods,
         getters: HashMap::new(),
         setters: HashMap::new(),
+        external: true,
     });
 }
 
@@ -998,6 +1005,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                     methods: HashMap::new(),
                                     getters: HashMap::new(),
                                     setters: HashMap::new(),
+                                    external: false,
                                 },
                             );
                         }
@@ -1110,6 +1118,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     methods,
                     getters,
                     setters,
+                    external: false,
                 },
             );
         }
@@ -1400,11 +1409,12 @@ impl<'a> Walker<'a> {
                             .or_else(|| info.methods.get(name))
                         {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
+                                let target = member_target(m, info, line, col);
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
                                     end_col: col + name.len() as u32,
-                                    target_span: m.span,
+                                    target_span: target,
                                     target_name_len: name.len() as u32,
                                     signature: m.signature.clone(),
                                 });
@@ -1442,11 +1452,12 @@ impl<'a> Walker<'a> {
                         if let Some(m) = info.methods.get(method) {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, method)
                             {
+                                let target = member_target(m, info, line, col);
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
                                     end_col: col + method.len() as u32,
-                                    target_span: m.span,
+                                    target_span: target,
                                     target_name_len: method.len() as u32,
                                     signature: m.signature.clone(),
                                 });
@@ -1612,11 +1623,12 @@ impl<'a> Walker<'a> {
                         {
                             if let Some((line, col)) = locate_dot_name(self.text, obj.span, field)
                             {
+                                let target = member_target(m, info, line, col);
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
                                     end_col: col + field.len() as u32,
-                                    target_span: m.span,
+                                    target_span: target,
                                     target_name_len: field.len() as u32,
                                     signature: m.signature.clone(),
                                 });
@@ -1852,6 +1864,19 @@ impl<'a> Walker<'a> {
             ExprKind::New { class, .. } => Some(class.clone()),
             _ => None,
         }
+    }
+}
+
+/// Pick the F12 target span for a class member reference. For
+/// buffer-local classes the member's own span is correct. For external
+/// (`use module`-imported) classes we don't carry per-decl source
+/// files, so the span would land at the same line/col in the wrong
+/// file — return the use-site span instead so F12 is a no-op.
+fn member_target(m: &MemberInfo, info: &ClassInfo, use_line: u32, use_col: u32) -> Span {
+    if info.external {
+        Span::new(use_line, use_col)
+    } else {
+        m.span
     }
 }
 
