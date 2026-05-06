@@ -170,7 +170,13 @@ async fn refresh_impl(
     // that does `use sdl`. Skip load-based diagnostics in that
     // case; only syntax errors from the buffer survive.
     let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
-    let merged = if is_submodule {
+    // Parse the buffer once up front. The loader injects the buffer
+    // as an overlay, so a buffer that doesn't parse makes the whole
+    // merged-program load fail anyway — skipping it here saves the
+    // file IO + tokenize + parse for every imported module on each
+    // mid-edit refresh (the common case while typing).
+    let parsed_buffer = parse_ok(&text);
+    let merged = if is_submodule || parsed_buffer.is_err() {
         None
     } else {
         path.as_deref()
@@ -222,7 +228,7 @@ async fn refresh_impl(
     // Doc just to swap a few fields was the single largest cost on
     // the keystroke path when the buffer had a transient parse
     // error (which is most of the time during typing).
-    match parse_ok(&text) {
+    match parsed_buffer {
         Ok(prog) => {
             let mut d = build_doc(
                 text,
