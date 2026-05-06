@@ -441,7 +441,7 @@ impl TypeChecker {
     /// sees a fully concrete instantiation.
     fn refine_enum_ctor_args(&self, expr: &Expr, target: &Type) {
         let target_args = match target {
-            Type::Generic { base, args } => Some((base.clone(), args.clone())),
+            Type::Generic(g) => Some((g.base.clone(), g.args.clone())),
             _ => None,
         };
         match &expr.kind {
@@ -1251,13 +1251,15 @@ impl TypeChecker {
             Type::Tuple(items) => items
                 .iter()
                 .find_map(|x| self.find_raw_pointer(x, visiting)),
-            Type::Generic { args, .. } => args
+            Type::Generic(g) => g
+                .args
                 .iter()
                 .find_map(|a| self.find_raw_pointer(a, visiting)),
-            Type::Fn { params, ret } => params
+            Type::Fn(ft) => ft
+                .params
                 .iter()
                 .find_map(|p| self.find_raw_pointer(p, visiting))
-                .or_else(|| self.find_raw_pointer(ret, visiting)),
+                .or_else(|| self.find_raw_pointer(&ft.ret, visiting)),
             Type::Object(name) => {
                 if !visiting.insert(name.clone()) {
                     return None;
@@ -1657,14 +1659,14 @@ impl TypeChecker {
                     self.validate_type(e, span, type_params_in_scope)?;
                 }
             }
-            Type::Fn { params, ret } => {
-                for p in params {
+            Type::Fn(ft) => {
+                for p in &ft.params {
                     self.validate_type(p, span, type_params_in_scope)?;
                 }
-                self.validate_type(ret, span, type_params_in_scope)?;
+                self.validate_type(&ft.ret, span, type_params_in_scope)?;
             }
-            Type::Generic { args, .. } => {
-                for a in args {
+            Type::Generic(g) => {
+                for a in &g.args {
                     self.validate_type(a, span, type_params_in_scope)?;
                 }
             }
@@ -1825,10 +1827,7 @@ impl TypeChecker {
                 })?;
                 let sig = sigs.into_iter().next().expect("registered fn has sig");
                 let user_params: Vec<Type> = sig.params.iter().skip(1).cloned().collect();
-                Ok(Type::Fn {
-                    params: user_params,
-                    ret: Box::new(sig.ret),
-                })
+                Ok(Type::func(user_params, sig.ret))
             }
             ExprKind::This => match in_class {
                 Some(name) => Ok(Type::Object(name.to_string())),
@@ -1900,10 +1899,7 @@ impl TypeChecker {
                         });
                     }
                     let sig = &sigs[0];
-                    return Ok(Type::Fn {
-                        params: sig.params.clone(),
-                        ret: Box::new(sig.ret.clone()),
-                    });
+                    return Ok(Type::func(sig.params.clone(), sig.ret.clone()));
                 }
                 Err(TypeError::UndefinedVariable {
                     name: n.clone(),
@@ -1996,10 +1992,10 @@ impl TypeChecker {
                 // Indirect call through a function-typed local: shadows
                 // both methods and top-level fns, mirroring how a local
                 // `let print = ...` shadows an outer name.
-                if let Some(Type::Fn { params, ret }) = env.get(callee).cloned() {
+                if let Some(Type::Fn(ft)) = env.get(callee).cloned() {
                     let sig = Signature {
-                        params,
-                        ret: (*ret).clone(),
+                        params: ft.params.clone(),
+                        ret: ft.ret.clone(),
                         variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
                         defaults: Vec::new(),
                     };
@@ -2436,26 +2432,17 @@ impl TypeChecker {
                         }
                         let ft = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
                         let (params, ret) = match &ft {
-                            Type::Fn { params, ret } => (params.clone(), (**ret).clone()),
+                            Type::Fn(fty) => (fty.params.clone(), fty.ret.clone()),
                             _ => return Err(TypeError::Mismatch {
-                                expected: Type::Fn {
-                                    params: vec![(**elem).clone()],
-                                    ret: Box::new(Type::Any),
-                                },
+                                expected: Type::func(vec![(**elem).clone()], Type::Any),
                                 got: ft,
                                 span: args[0].span,
                             }),
                         };
                         if params.len() != 1 || !assignable(elem, &params[0]) && !self.assignable_obj(elem, &params[0]) {
                             return Err(TypeError::Mismatch {
-                                expected: Type::Fn {
-                                    params: vec![(**elem).clone()],
-                                    ret: Box::new(Type::Any),
-                                },
-                                got: Type::Fn {
-                                    params: params.clone(),
-                                    ret: Box::new(ret.clone()),
-                                },
+                                expected: Type::func(vec![(**elem).clone()], Type::Any),
+                                got: Type::func(params.clone(), ret.clone()),
                                 span: args[0].span,
                             });
                         }
@@ -2639,10 +2626,7 @@ impl TypeChecker {
                 Ok(if class_params.is_empty() {
                     Type::Object(class.clone())
                 } else {
-                    Type::Generic {
-                        base: class.clone(),
-                        args: inst_args,
-                    }
+                    Type::generic(class.clone(), inst_args)
                 })
             }
             ExprKind::Block(b) => self.check_block(b, env, ret_ty, in_class, loop_depth),
@@ -3023,26 +3007,23 @@ impl TypeChecker {
                         });
                     }
                 }
-                Ok(Type::Generic {
-                    base: "Map".into(),
-                    args: vec![k_ty, v_ty],
-                })
+                Ok(Type::generic("Map", vec![k_ty, v_ty]))
             }
             ExprKind::Index { obj, index } => {
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
                 // Map<K, V> indexing: `m[k]` returns V (panics at runtime
                 // if missing — use `.get(k)` for `V?`).
-                if let Type::Generic { base, args } = &ot {
-                    if base == "Map" && args.len() == 2 {
-                        if !literal_assignable(index, &it, &args[0]) && !self.assignable_obj(&it, &args[0]) {
+                if let Type::Generic(g) = &ot {
+                    if g.base == "Map" && g.args.len() == 2 {
+                        if !literal_assignable(index, &it, &g.args[0]) && !self.assignable_obj(&it, &g.args[0]) {
                             return Err(TypeError::Mismatch {
-                                expected: args[0].clone(),
+                                expected: g.args[0].clone(),
                                 got: it,
                                 span: index.span,
                             });
                         }
-                        return Ok(args[1].clone());
+                        return Ok(g.args[1].clone());
                     }
                 }
                 // Tuple indexing: index must be a non-negative integer
@@ -3090,19 +3071,19 @@ impl TypeChecker {
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
                 // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
-                if let Type::Generic { base, args } = &ot {
-                    if base == "Map" && args.len() == 2 {
-                        if !literal_assignable(index, &it, &args[0]) && !self.assignable_obj(&it, &args[0]) {
+                if let Type::Generic(g) = &ot {
+                    if g.base == "Map" && g.args.len() == 2 {
+                        if !literal_assignable(index, &it, &g.args[0]) && !self.assignable_obj(&it, &g.args[0]) {
                             return Err(TypeError::Mismatch {
-                                expected: args[0].clone(),
+                                expected: g.args[0].clone(),
                                 got: it,
                                 span: index.span,
                             });
                         }
                         let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(value, &vt, &args[1]) && !self.assignable_obj(&vt, &args[1]) {
+                        if !literal_assignable(value, &vt, &g.args[1]) && !self.assignable_obj(&vt, &g.args[1]) {
                             return Err(TypeError::Mismatch {
-                                expected: args[1].clone(),
+                                expected: g.args[1].clone(),
                                 got: vt,
                                 span: value.span,
                             });
@@ -3181,10 +3162,10 @@ impl TypeChecker {
                         span,
                     });
                 }
-                Ok(Type::Fn {
-                    params: params.iter().map(|p| p.ty.clone()).collect(),
-                    ret: Box::new(ret.clone().unwrap_or(Type::Unit)),
-                })
+                Ok(Type::func(
+                    params.iter().map(|p| p.ty.clone()).collect(),
+                    ret.clone().unwrap_or(Type::Unit),
+                ))
             }
             ExprKind::Cast { expr: inner, ty } => {
                 let from = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
@@ -3556,10 +3537,7 @@ impl TypeChecker {
                 Ok(if type_params.is_empty() {
                     Type::Object(enum_name.clone())
                 } else {
-                    Type::Generic {
-                        base: enum_name.clone(),
-                        args: inferred_args,
-                    }
+                    Type::generic(enum_name.clone(), inferred_args)
                 })
             }
             ExprKind::Match { scrutinee, arms } => {
@@ -3576,8 +3554,8 @@ impl TypeChecker {
                     Type::Object(name) if self.enums.contains_key(name) => {
                         (name.clone(), Vec::<Type>::new())
                     }
-                    Type::Generic { base, args } if self.enums.contains_key(base) => {
-                        (base.clone(), args.clone())
+                    Type::Generic(g) if self.enums.contains_key(&g.base) => {
+                        (g.base.clone(), g.args.clone())
                     }
                     _ => {
                         return Err(TypeError::Mismatch {
@@ -3919,11 +3897,11 @@ fn first_c_only_type(t: &Type) -> Option<&Type> {
         Type::RawPtr { .. } | Type::CVoid | Type::CChar | Type::Size | Type::SSize => Some(t),
         Type::Array { elem, .. } => first_c_only_type(elem),
         Type::Optional(inner) | Type::Weak(inner) => first_c_only_type(inner),
-        Type::Generic { args, .. } => args.iter().find_map(first_c_only_type),
-        Type::Fn { params, ret } => params
+        Type::Generic(g) => g.args.iter().find_map(first_c_only_type),
+        Type::Fn(ft) => ft.params
             .iter()
             .find_map(first_c_only_type)
-            .or_else(|| first_c_only_type(ret)),
+            .or_else(|| first_c_only_type(&ft.ret)),
         Type::Tuple(elems) => elems.iter().find_map(first_c_only_type),
         _ => None,
     }
@@ -3951,8 +3929,8 @@ fn collect_type_var_bindings(
         (Type::Weak(p), Type::Weak(a)) => {
             collect_type_var_bindings(p, a, bindings);
         }
-        (Type::Generic { args: pa, .. }, Type::Generic { args: aa, .. }) => {
-            for (p, a) in pa.iter().zip(aa.iter()) {
+        (Type::Generic(pg), Type::Generic(ag)) => {
+            for (p, a) in pg.args.iter().zip(ag.args.iter()) {
                 collect_type_var_bindings(p, a, bindings);
             }
         }
@@ -3964,14 +3942,11 @@ fn collect_type_var_bindings(
                 collect_type_var_bindings(p, a, bindings);
             }
         }
-        (
-            Type::Fn { params: pp, ret: pr },
-            Type::Fn { params: ap, ret: ar },
-        ) => {
-            for (p, a) in pp.iter().zip(ap.iter()) {
+        (Type::Fn(pf), Type::Fn(af)) => {
+            for (p, a) in pf.params.iter().zip(af.params.iter()) {
                 collect_type_var_bindings(p, a, bindings);
             }
-            collect_type_var_bindings(pr, ar, bindings);
+            collect_type_var_bindings(&pf.ret, &af.ret, bindings);
         }
         _ => {}
     }
@@ -4702,20 +4677,17 @@ fn rewrite_type_params(t: &Type, params: &[String]) -> Type {
             Type::Optional(Box::new(rewrite_type_params(inner, params)))
         }
         Type::Weak(inner) => Type::Weak(Box::new(rewrite_type_params(inner, params))),
-        Type::Generic { base, args } => Type::Generic {
-            base: base.clone(),
-            args: args
-                .iter()
-                .map(|a| rewrite_type_params(a, params))
-                .collect(),
-        },
+        Type::Generic(g) => Type::generic(
+            g.base.clone(),
+            g.args.iter().map(|a| rewrite_type_params(a, params)).collect(),
+        ),
         Type::Tuple(elems) => Type::Tuple(
             elems.iter().map(|e| rewrite_type_params(e, params)).collect(),
         ),
-        Type::Fn { params: ps, ret } => Type::Fn {
-            params: ps.iter().map(|p| rewrite_type_params(p, params)).collect(),
-            ret: Box::new(rewrite_type_params(ret, params)),
-        },
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(|p| rewrite_type_params(p, params)).collect(),
+            rewrite_type_params(&ft.ret, params),
+        ),
         Type::RawPtr { is_const, inner } => Type::RawPtr {
             is_const: *is_const,
             inner: Box::new(rewrite_type_params(inner, params)),
@@ -4740,10 +4712,10 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(subst_type(inner, params, args))),
         Type::Weak(inner) => Type::Weak(Box::new(subst_type(inner, params, args))),
-        Type::Generic { base, args: targs } => Type::Generic {
-            base: base.clone(),
-            args: targs.iter().map(|a| subst_type(a, params, args)).collect(),
-        },
+        Type::Generic(g) => Type::generic(
+            g.base.clone(),
+            g.args.iter().map(|a| subst_type(a, params, args)).collect(),
+        ),
         Type::RawPtr { is_const, inner } => Type::RawPtr {
             is_const: *is_const,
             inner: Box::new(subst_type(inner, params, args)),
@@ -4751,10 +4723,10 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
         Type::Tuple(elems) => Type::Tuple(
             elems.iter().map(|e| subst_type(e, params, args)).collect(),
         ),
-        Type::Fn { params: ps, ret } => Type::Fn {
-            params: ps.iter().map(|p| subst_type(p, params, args)).collect(),
-            ret: Box::new(subst_type(ret, params, args)),
-        },
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(|p| subst_type(p, params, args)).collect(),
+            subst_type(&ft.ret, params, args),
+        ),
         _ => t.clone(),
     }
 }
@@ -4792,16 +4764,14 @@ fn unify_branch(a: Type, b: Type, span: Span) -> Result<Type, TypeError> {
 /// bases differ, the arities differ, or any position has two
 /// incompatible non-`Any` types.
 fn merge_generic_with_holes(a: &Type, b: &Type) -> Option<Type> {
-    let (Type::Generic { base: ba, args: aa }, Type::Generic { base: bb, args: ab }) =
-        (a, b)
-    else {
+    let (Type::Generic(ga), Type::Generic(gb)) = (a, b) else {
         return None;
     };
-    if ba != bb || aa.len() != ab.len() {
+    if ga.base != gb.base || ga.args.len() != gb.args.len() {
         return None;
     }
-    let mut merged = Vec::with_capacity(aa.len());
-    for (x, y) in aa.iter().zip(ab.iter()) {
+    let mut merged = Vec::with_capacity(ga.args.len());
+    for (x, y) in ga.args.iter().zip(gb.args.iter()) {
         if x == y {
             merged.push(x.clone());
         } else if matches!(x, Type::Any) {
@@ -4814,10 +4784,7 @@ fn merge_generic_with_holes(a: &Type, b: &Type) -> Option<Type> {
             return None;
         }
     }
-    Some(Type::Generic {
-        base: ba.clone(),
-        args: merged,
-    })
+    Some(Type::generic(ga.base.clone(), merged))
 }
 
 fn enum_signature(e: &EnumDecl) -> EnumSig {
@@ -4850,7 +4817,7 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
 fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {
     match t {
         Type::Object(name) => Ok(name),
-        Type::Generic { base, .. } => Ok(base),
+        Type::Generic(g) => Ok(&g.base),
         _ => Err(TypeError::Mismatch {
             expected: Type::Object("<object>".into()),
             got: t.clone(),
@@ -4862,8 +4829,8 @@ fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {
 /// Extract the concrete type arguments from an object-typed value, if
 /// any. Non-generic objects return an empty slice.
 fn type_args_of(t: &Type) -> &[Type] {
-    if let Type::Generic { args, .. } = t {
-        args
+    if let Type::Generic(g) = t {
+        &g.args
     } else {
         &[]
     }

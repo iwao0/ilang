@@ -3161,7 +3161,7 @@ fn member_target(
 fn type_to_class(t: &Type) -> Option<String> {
     match t {
         Type::Object(n) => Some(n.clone()),
-        Type::Generic { base, .. } => Some(base.clone()),
+        Type::Generic(g) => Some(g.base.clone()),
         _ => None,
     }
 }
@@ -3217,7 +3217,7 @@ fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
     if let ExprKind::FnExpr { params, ret, .. } = &e.kind {
         let ps = params.iter().map(|p| p.ty.clone()).collect();
         let r = ret.clone().unwrap_or(Type::Unit);
-        return Some(Type::Fn { params: ps, ret: Box::new(r) });
+        return Some(Type::func(ps, r));
     }
     use ilang_ast::BinOp;
     match &e.kind {
@@ -3234,10 +3234,7 @@ fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
             if type_args.is_empty() {
                 Some(Type::Object(class.clone()))
             } else {
-                Some(Type::Generic {
-                    base: class.clone(),
-                    args: type_args.clone(),
-                })
+                Some(Type::generic(class.clone(), type_args.clone()))
             }
         }
         ExprKind::Cast { ty, .. } => Some(ty.clone()),

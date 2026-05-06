@@ -806,16 +806,16 @@ fn collect_instantiations(
     work: &mut Vec<InstKey>,
 ) {
     match t {
-        Type::Generic { base, args } => {
+        Type::Generic(g) => {
             // Only enqueue concrete instantiations (no remaining type
             // variables). A `Box<T>` reference inside `class Wrap<T>`'s
             // body is left as-is here; substitute_class produces the
             // concrete `Box<i64>` later, which seeds the worklist on
             // the next round.
             if !contains_type_var(t) {
-                push_inst(base.clone(), args.clone(), needed, work);
+                push_inst(g.base.clone(), g.args.clone(), needed, work);
             }
-            for a in args {
+            for a in &g.args {
                 collect_instantiations(a, needed, work);
             }
         }
@@ -823,11 +823,11 @@ fn collect_instantiations(
         Type::Optional(inner) | Type::Weak(inner) => {
             collect_instantiations(inner, needed, work)
         }
-        Type::Fn { params, ret } => {
-            for p in params {
+        Type::Fn(ft) => {
+            for p in &ft.params {
                 collect_instantiations(p, needed, work);
             }
-            collect_instantiations(ret, needed, work);
+            collect_instantiations(&ft.ret, needed, work);
         }
         _ => {}
     }
@@ -850,9 +850,9 @@ fn contains_type_var(t: &Type) -> bool {
         Type::TypeVar(_) => true,
         Type::Array { elem, .. } => contains_type_var(elem),
         Type::Optional(inner) | Type::Weak(inner) => contains_type_var(inner),
-        Type::Generic { args, .. } => args.iter().any(contains_type_var),
-        Type::Fn { params, ret } => {
-            params.iter().any(contains_type_var) || contains_type_var(ret)
+        Type::Generic(g) => g.args.iter().any(contains_type_var),
+        Type::Fn(ft) => {
+            ft.params.iter().any(contains_type_var) || contains_type_var(&ft.ret)
         }
         _ => false,
     }
@@ -1167,24 +1167,21 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
             .position(|p| p == name)
             .and_then(|i| args.get(i).cloned())
             .unwrap_or_else(|| t.clone()),
-        Type::Generic { base, args: targs } => {
+        Type::Generic(g) => {
             let new_args: Vec<Type> =
-                targs.iter().map(|a| subst_type(a, params, args)).collect();
+                g.args.iter().map(|a| subst_type(a, params, args)).collect();
             // Once concrete (no TypeVar left), collapse to Object(mangled).
-            let g = Type::Generic {
-                base: base.clone(),
-                args: new_args.clone(),
-            };
-            if !contains_type_var(&g) {
+            let gen = Type::generic(g.base.clone(), new_args.clone());
+            if !contains_type_var(&gen) {
                 Type::Object(
                     InstKey {
-                        class: base.clone(),
+                        class: g.base.clone(),
                         args: new_args,
                     }
                     .mangled(),
                 )
             } else {
-                g
+                gen
             }
         }
         Type::Array { elem, fixed } => Type::Array {
@@ -1193,10 +1190,10 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(subst_type(inner, params, args))),
         Type::Weak(inner) => Type::Weak(Box::new(subst_type(inner, params, args))),
-        Type::Fn { params: ps, ret } => Type::Fn {
-            params: ps.iter().map(|p| subst_type(p, params, args)).collect(),
-            ret: Box::new(subst_type(ret, params, args)),
-        },
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(|p| subst_type(p, params, args)).collect(),
+            subst_type(&ft.ret, params, args),
+        ),
         _ => t.clone(),
     }
 }
@@ -1522,8 +1519,8 @@ fn is_builtin_generic_class(name: &str) -> bool {
 /// monomorphized class. Recurses through Array/Optional/Weak.
 fn rewrite_type(t: &Type) -> Type {
     match t {
-        Type::Generic { base, args } => {
-            let new_args: Vec<Type> = args.iter().map(rewrite_type).collect();
+        Type::Generic(g) => {
+            let new_args: Vec<Type> = g.args.iter().map(rewrite_type).collect();
             // Generic enums aren't monomorphized — leave them as
             // `Type::Generic` so the JIT's `from_ast` errors with a
             // clear UnsupportedType. Built-in generic classes (Map)
@@ -1534,15 +1531,12 @@ fn rewrite_type(t: &Type) -> Type {
             // left intact here — the separate `monomorphize_enums` pass
             // converts them to `Type::Object(mangled)` after this pass.
             // User generic classes get the mangled Object name now.
-            if is_generic_enum(base) || is_builtin_generic_class(base) {
-                Type::Generic {
-                    base: base.clone(),
-                    args: new_args,
-                }
+            if is_generic_enum(&g.base) || is_builtin_generic_class(&g.base) {
+                Type::generic(g.base.clone(), new_args)
             } else {
                 Type::Object(
                     InstKey {
-                        class: base.clone(),
+                        class: g.base.clone(),
                         args: new_args,
                     }
                     .mangled(),
@@ -1555,10 +1549,10 @@ fn rewrite_type(t: &Type) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(rewrite_type(inner))),
         Type::Weak(inner) => Type::Weak(Box::new(rewrite_type(inner))),
-        Type::Fn { params, ret } => Type::Fn {
-            params: params.iter().map(rewrite_type).collect(),
-            ret: Box::new(rewrite_type(ret)),
-        },
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(rewrite_type).collect(),
+            rewrite_type(&ft.ret),
+        ),
         _ => t.clone(),
     }
 }
@@ -2700,19 +2694,19 @@ fn seed_enums_in_expr(e: &Expr, visit: &mut dyn FnMut(&str, &[Type])) {
 
 fn seed_enums_in_type(t: &Type, visit: &mut dyn FnMut(&str, &[Type])) {
     match t {
-        Type::Generic { base, args } => {
-            visit(base, args);
-            for a in args {
+        Type::Generic(g) => {
+            visit(&g.base, &g.args);
+            for a in &g.args {
                 seed_enums_in_type(a, visit);
             }
         }
         Type::Array { elem, .. } => seed_enums_in_type(elem, visit),
         Type::Optional(inner) | Type::Weak(inner) => seed_enums_in_type(inner, visit),
-        Type::Fn { params, ret } => {
-            for p in params {
+        Type::Fn(ft) => {
+            for p in &ft.params {
                 seed_enums_in_type(p, visit);
             }
-            seed_enums_in_type(ret, visit);
+            seed_enums_in_type(&ft.ret, visit);
         }
         _ => {}
     }
@@ -3145,13 +3139,13 @@ fn rewrite_enum_refs_in_type(
     generic_enums: &HashMap<String, EnumDecl>,
 ) -> Type {
     match t {
-        Type::Generic { base, args } => {
+        Type::Generic(g) => {
             let new_args: Vec<Type> =
-                args.iter().map(|a| rewrite_enum_refs_in_type(a, generic_enums)).collect();
-            if generic_enums.contains_key(base) && !new_args.iter().any(contains_type_var) {
-                Type::Object(mangle_enum(base, &new_args))
+                g.args.iter().map(|a| rewrite_enum_refs_in_type(a, generic_enums)).collect();
+            if generic_enums.contains_key(&g.base) && !new_args.iter().any(contains_type_var) {
+                Type::Object(mangle_enum(&g.base, &new_args))
             } else {
-                Type::Generic { base: base.clone(), args: new_args }
+                Type::generic(g.base.clone(), new_args)
             }
         }
         Type::Array { elem, fixed } => Type::Array {
@@ -3162,10 +3156,10 @@ fn rewrite_enum_refs_in_type(
             Type::Optional(Box::new(rewrite_enum_refs_in_type(inner, generic_enums)))
         }
         Type::Weak(inner) => Type::Weak(Box::new(rewrite_enum_refs_in_type(inner, generic_enums))),
-        Type::Fn { params, ret } => Type::Fn {
-            params: params.iter().map(|p| rewrite_enum_refs_in_type(p, generic_enums)).collect(),
-            ret: Box::new(rewrite_enum_refs_in_type(ret, generic_enums)),
-        },
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(|p| rewrite_enum_refs_in_type(p, generic_enums)).collect(),
+            rewrite_enum_refs_in_type(&ft.ret, generic_enums),
+        ),
         _ => t.clone(),
     }
 }

@@ -1258,10 +1258,7 @@ impl<'a> Parser<'a> {
             } else {
                 Type::Unit
             };
-            return Ok(Type::Fn {
-                params,
-                ret: Box::new(ret),
-            });
+            return Ok(Type::func(params, ret));
         }
         // Tuple type: `(T1, T2, ...)`. A single `(T)` is grouping and
         // returns `T` itself; `()` would be unit but is not currently
@@ -1340,7 +1337,7 @@ impl<'a> Parser<'a> {
                         //   Pair<string, i64> → Generic { Pair, [Str, I64] }
                         if matches!(self.peek().kind, TokenKind::Lt) {
                             let args = self.parse_type_args()?;
-                            Type::Generic { base: full_name, args }
+                            Type::generic(full_name, args)
                         } else {
                             Type::Object(full_name)
                         }
