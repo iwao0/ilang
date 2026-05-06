@@ -1,7 +1,7 @@
 // Procedurally-generated RGBA8 sprites used by the renderer:
-//   • make_star_sprite — 5-point neon star (32×32)
-//   • make_glow_sprite — soft radial gradient (64×64)
-//   • make_crt_overlay — full-window scanline + vignette darken
+//   • makeStarSprite — 5-point neon star (32×32)
+//   • makeGlowSprite — soft radial gradient (64×64)
+//   • makeCrtOverlay — full-window scanline + vignette darken
 //
 // All return `u8[]` buffers ready to feed into `Texture.update`.
 
@@ -17,14 +17,14 @@ const GLOW_TEX_SIZE: i32 = 64
 // coverage-fraction (the closer the centre, the brighter), giving
 // a soft glow that drops to transparent at the edge. Color
 // modulation at draw time tints it.
-fn make_star_sprite(): u8[] {
+fn makeStarSprite(): u8[] {
     let size: i32 = STAR_TEX_SIZE
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
     let cy = (size as f64) / 2.0
-    let r_outer = cx - 1.5
-    let r_inner = r_outer * 0.42
-    let two_pi: f64 = 2.0 * math.pi
+    let rOuter = cx - 1.5
+    let rInner = rOuter * 0.42
+    let twoPi: f64 = 2.0 * math.pi
     let y: i32 = 0
     while y < size {
         let x: i32 = 0
@@ -35,17 +35,17 @@ fn make_star_sprite(): u8[] {
             // Angle of this pixel from centre, normalised so 5 wedges
             // cover the circle. Within each wedge, distance from
             // centre is bounded by a linear interpolation between
-            // r_outer and r_inner depending on local angle.
+            // rOuter and rInner depending on local angle.
             let theta = math.atan2(dy, dx)
             // Shift so a point sits at the top.
             let t = theta + math.pi / 2.0
-            let wedge = t / (two_pi / 10.0)
+            let wedge = t / (twoPi / 10.0)
             let frac = wedge - (math.floor(wedge / 2.0) * 2.0)
             // Triangular wave 0→1→0 across two wedges.
             let tri: f64 = if frac < 1.0 { frac } else { 2.0 - frac }
-            let r_local = r_inner + (r_outer - r_inner) * tri
-            if d <= r_local {
-                let alpha = 1.0 - d / r_local
+            let rLocal = rInner + (rOuter - rInner) * tri
+            if d <= rLocal {
+                let alpha = 1.0 - d / rLocal
                 let a = (alpha * 255.0) as u8
                 buf.push(255 as u8)
                 buf.push(255 as u8)
@@ -68,7 +68,7 @@ fn make_star_sprite(): u8[] {
 // centre to edge). Tinted at draw time and stretched to whatever
 // size is needed for a blurry bloom — used for the brick wave
 // highlight so the glow doesn't look rectangular.
-fn make_glow_sprite(): u8[] {
+fn makeGlowSprite(): u8[] {
     let size: i32 = GLOW_TEX_SIZE
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
@@ -84,8 +84,8 @@ fn make_glow_sprite(): u8[] {
             // Smooth falloff: 1 at centre, 0 at and past `radius`.
             let t: f64 = if d >= radius { 0.0 } else { 1.0 - d / radius }
             // Gaussian-ish exponent for a softer bell.
-            let a_norm = t * t
-            let a = (a_norm * 255.0) as u8
+            let aNorm = t * t
+            let a = (aNorm * 255.0) as u8
             buf.push(255 as u8)
             buf.push(255 as u8)
             buf.push(255 as u8)
@@ -104,11 +104,11 @@ fn make_glow_sprite(): u8[] {
 //   • vignette  — soft radial darken toward the corners
 // Drawn over everything (including HUD) at draw-time. Built once
 // at startup so the per-frame cost is just one drawTexture call.
-fn make_crt_overlay(w: i32, h: i32): u8[] {
+fn makeCrtOverlay(w: i32, h: i32): u8[] {
     let buf: u8[] = []
     let cx = (w as f64) / 2.0
     let cy = (h as f64) / 2.0
-    let max_d = math.sqrt(cx * cx + cy * cy)
+    let maxD = math.sqrt(cx * cx + cy * cy)
     let y: i32 = 0
     while y < h {
         // 1.0 = pixel left untouched, lower = darken applied.
@@ -118,9 +118,9 @@ fn make_crt_overlay(w: i32, h: i32): u8[] {
             let dx = (x as f64) - cx
             let dy = (y as f64) - cy
             let d = math.sqrt(dx * dx + dy * dy)
-            let v_norm = d / max_d
+            let vNorm = d / maxD
             // Vignette: 1.0 in centre, ~0.5 at corners.
-            let vig = 1.0 - v_norm * v_norm * 0.55
+            let vig = 1.0 - vNorm * vNorm * 0.55
             let combined = scan * vig
             let darken: f64 = if combined < 0.0 { 1.0 } else { 1.0 - combined }
             let alpha = (darken * 255.0) as u8

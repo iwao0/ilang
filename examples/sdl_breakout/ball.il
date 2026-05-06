@@ -24,7 +24,7 @@ class Ball {
     // point so the trail starts collapsed onto the ball rather than
     // streaming from (0, 0).
     trail: TrailPoint[]
-    trail_head: i32
+    trailHead: i32
     init(x: f64, y: f64, vx: f64, vy: f64) {
         this.x = x
         this.y = y
@@ -37,6 +37,6 @@ class Ball {
             i = i + 1
         }
         this.trail = tr
-        this.trail_head = 0
+        this.trailHead = 0
     }
 }
