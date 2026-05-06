@@ -97,7 +97,8 @@ impl Type {
             Type::I8 | Type::U8 => 8,
             Type::I16 | Type::U16 => 16,
             Type::I32 | Type::U32 => 32,
-            Type::I64 | Type::U64 => 64,
+            // `size_t` / `ssize_t` alias `u64` / `i64` on 64-bit targets.
+            Type::I64 | Type::U64 | Type::Size | Type::SSize => 64,
             _ => 0,
         }
     }
