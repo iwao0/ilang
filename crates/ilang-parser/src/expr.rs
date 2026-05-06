@@ -26,6 +26,24 @@ use crate::error::ParseError;
 use crate::parser::Parser;
 use crate::stmt::parse_block;
 
+/// Truncate an `i64` literal to its declared numeric suffix's width
+/// (e.g. `300` with `_u8` becomes `44`). Mirrors the runtime behaviour
+/// of `300 as u8 as i64`, so a suffixed pattern literal matches the
+/// same bit-pattern the equivalent expression would produce. `None`
+/// suffix is a no-op; non-integer suffixes (`f32` / `f64`) are
+/// already turned into Float by the lexer and never reach this path.
+fn apply_int_suffix(n: i64, suffix: Option<&ilang_ast::Type>) -> i64 {
+    match suffix {
+        Some(ilang_ast::Type::I8) => (n as i8) as i64,
+        Some(ilang_ast::Type::I16) => (n as i16) as i64,
+        Some(ilang_ast::Type::I32) => (n as i32) as i64,
+        Some(ilang_ast::Type::U8) => (n as u8) as i64,
+        Some(ilang_ast::Type::U16) => (n as u16) as i64,
+        Some(ilang_ast::Type::U32) => (n as u32) as i64,
+        _ => n,
+    }
+}
+
 /// Returns `Some("a.b.Foo")` for a chain of `Var`/`Field` whose root
 /// is a `Var`, otherwise `None`. Used by struct-literal disambiguation
 /// so `module.Foo { x: 1 }` is recognised the same way `Foo { x: 1 }`
@@ -857,9 +875,17 @@ impl<'a> Parser<'a> {
         // literal.
         let read_signed_int = |this: &Self, start: usize| -> Option<(i64, usize)> {
             match &this.tokens.get(start)?.kind {
-                TokenKind::Int(n) => Some((*n as i64, 1)),
+                TokenKind::Int(n) => {
+                    let raw = *n as i64;
+                    let suffix = this.tokens.get(start)?.numeric_suffix.as_ref();
+                    Some((apply_int_suffix(raw, suffix), 1))
+                }
                 TokenKind::Minus => match &this.tokens.get(start + 1)?.kind {
-                    TokenKind::Int(n) => Some(((*n as i64).wrapping_neg(), 2)),
+                    TokenKind::Int(n) => {
+                        let raw = (*n as i64).wrapping_neg();
+                        let suffix = this.tokens.get(start + 1)?.numeric_suffix.as_ref();
+                        Some((apply_int_suffix(raw, suffix), 2))
+                    }
                     _ => None,
                 },
                 _ => None,
@@ -899,7 +925,9 @@ impl<'a> Parser<'a> {
         }
         match &self.peek().kind {
             TokenKind::Int(n) => {
-                let v = *n;
+                let raw = *n as i64;
+                let suffix = self.peek().numeric_suffix.clone();
+                let v = apply_int_suffix(raw, suffix.as_ref());
                 self.bump();
                 Ok(Some(ilang_ast::Pattern {
                     kind: ilang_ast::PatternKind::IntLit(v),
@@ -911,7 +939,8 @@ impl<'a> Parser<'a> {
                 // token is actually an Int literal.
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     if let TokenKind::Int(n) = next.kind {
-                        let v = (n as i64).wrapping_neg();
+                        let raw = (n as i64).wrapping_neg();
+                        let v = apply_int_suffix(raw, next.numeric_suffix.as_ref());
                         self.bump(); // -
                         self.bump(); // Int
                         return Ok(Some(ilang_ast::Pattern {
