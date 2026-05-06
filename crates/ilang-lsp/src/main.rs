@@ -552,6 +552,13 @@ impl LanguageServer for Backend {
                     ret_ty: None,
                     is_static: false,
                 });
+            } else if let Some(sig) = ffi_helper_signature(&call.callee) {
+                out.push(MemberInfo {
+                    span: Span::dummy(),
+                    signature: sig.to_string(),
+                    ret_ty: None,
+                    is_static: false,
+                });
             } else if let Some(s) = doc.external_signatures.get(&call.callee) {
                 out.push(MemberInfo {
                     span: Span::dummy(),
