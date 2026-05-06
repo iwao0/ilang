@@ -15,6 +15,14 @@
 
 use sdl
 use math
+use sprites
+use audio
+use palette
+use ball
+use brick
+use particle
+use powerup
+use star
 
 const WIN_W: i32 = 900
 const WIN_H: i32 = 700
@@ -32,12 +40,8 @@ const PADDLE_W: i32 = 110
 const PADDLE_H: i32 = 14
 const PADDLE_SPEED: f64 = 9.0
 const BALL_SIZE: i32 = 14
-// Length of each ball's trail ring buffer. Drawn each frame as
-// fading dots behind the ball.
-const TRAIL_LEN: i32 = 12
 
 const FRAME_MS: u32 = 16
-const SAMPLE_RATE: i32 = 44100
 
 // Brick drop-in intro tuning. With STAGGER=4 and COLS=9 the last
 // column starts at frame 32 and finishes 24 frames later → ~0.93s
@@ -48,6 +52,50 @@ const INTRO_DURATION: i32 = 24
 const INTRO_DROP_PX: f64 = 280.0
 
 // ─── tiny utilities ───────────────────────────────────────────────
+
+// Tiny LCG so particles / stars can fly off in pseudo-random
+// directions without pulling in a real RNG dependency. Lives in
+// main.il (not its own module) because ilang's loader currently
+// double-registers fns on diamond `use`s; only one file owns the
+// rng so we never trigger that.
+class Rng {
+    static state: i64 = 0x5fe7c1a3
+}
+
+fn randNext(): i64 {
+    Rng.state = Rng.state * 6364136223846793005 + 1442695040888963407
+    Rng.state
+}
+
+// Returns a float in [0, 1).
+fn randf(): f64 {
+    let r = randNext()
+    let bits = r & 0x7fffffff
+    (bits as f64) / 2147483648.0
+}
+
+fn spawnParticles(particles: particle.Particle[], cx: f64, cy: f64,
+                  r: u8, g: u8, b: u8) {
+    let n: i32 = 14
+    let i: i32 = 0
+    while i < n {
+        let ang = randf() * 6.2831853
+        let speed = 1.5 + randf() * 4.0
+        let vx = math.cos(ang) * speed
+        let vy = math.sin(ang) * speed - 1.5
+        let life = 24 + (randf() * 16.0) as i32
+        // Right-going particles spin clockwise (positive degrees per
+        // frame), left-going counter-clockwise. Magnitude random so
+        // the cloud doesn't rotate uniformly.
+        let dir: f64 = if vx >= 0.0 { 1.0 } else { -1.0 }
+        let spin = dir * (4.0 + randf() * 12.0)
+        let start_angle = randf() * 360.0
+        particles.push(
+            new particle.Particle(cx, cy, vx, vy, start_angle, spin, life, r, g, b)
+        )
+        i += 1
+    }
+}
 
 // ilang's `as` cast is numeric-only; this stringifies a counter for
 // the on-screen text.
@@ -68,439 +116,8 @@ fn intToStr(n: i32): string {
     result
 }
 
-// Tiny LCG so particles can fly off in pseudo-random directions
-// without pulling in a real RNG dependency. Top-level `let` isn't
-// visible from fn bodies in ilang, so the state lives on a class
-// static.
-class Rng {
-    static state: i64 = 0x5fe7c1a3
-}
 
-fn randNext(): i64 {
-    Rng.state = Rng.state * 6364136223846793005 + 1442695040888963407
-    Rng.state
-}
 
-// Returns a float in [0, 1).
-fn randf(): f64 {
-    let r = randNext()
-    let bits = r & 0x7fffffff
-    (bits as f64) / 2147483648.0
-}
-
-// ─── star sprite ──────────────────────────────────────────────────
-
-// Render a 5-point white star into a 32×32 RGBA8 buffer suitable
-// for `Texture.update`. The shape is computed as the union of the
-// triangles between the centre, an outer point, and an inner point,
-// alternating around 10 radial steps. Pixels are anti-aliased by
-// coverage-fraction (the closer the centre, the brighter), giving
-// a soft glow that drops to transparent at the edge. Color
-// modulation at draw time tints it.
-const STAR_TEX_SIZE: i32 = 32
-
-fn make_star_sprite(): u8[] {
-    let size: i32 = STAR_TEX_SIZE
-    let buf: u8[] = []
-    let cx = (size as f64) / 2.0
-    let cy = (size as f64) / 2.0
-    let r_outer = cx - 1.5
-    let r_inner = r_outer * 0.42
-    let two_pi: f64 = 2.0 * math.pi
-    let y: i32 = 0
-    while y < size {
-        let x: i32 = 0
-        while x < size {
-            let dx = (x as f64) - cx + 0.5
-            let dy = (y as f64) - cy + 0.5
-            let d = math.sqrt(dx * dx + dy * dy)
-            // Angle of this pixel from centre, normalised so 5 wedges
-            // cover the circle. Within each wedge, distance from
-            // centre is bounded by a linear interpolation between
-            // r_outer and r_inner depending on local angle.
-            let theta = math.atan2(dy, dx)
-            // Shift so a point sits at the top.
-            let t = theta + math.pi / 2.0
-            let wedge = t / (two_pi / 10.0)
-            let frac = wedge - (math.floor(wedge / 2.0) * 2.0)
-            // Triangular wave 0→1→0 across two wedges.
-            let tri: f64 = if frac < 1.0 { frac } else { 2.0 - frac }
-            let r_local = r_inner + (r_outer - r_inner) * tri
-            if d <= r_local {
-                let alpha = 1.0 - d / r_local
-                let a = (alpha * 255.0) as u8
-                buf.push(255 as u8)
-                buf.push(255 as u8)
-                buf.push(255 as u8)
-                buf.push(a)
-            } else {
-                buf.push(0 as u8)
-                buf.push(0 as u8)
-                buf.push(0 as u8)
-                buf.push(0 as u8)
-            }
-            x += 1
-        }
-        y += 1
-    }
-    buf
-}
-
-// ─── glow sprite ──────────────────────────────────────────────────
-
-// 64×64 soft white radial gradient (alpha falls smoothly from
-// centre to edge). Tinted at draw time and stretched to whatever
-// size is needed for a blurry bloom — used for the brick wave
-// highlight so the glow doesn't look rectangular.
-const GLOW_TEX_SIZE: i32 = 64
-
-fn make_glow_sprite(): u8[] {
-    let size: i32 = GLOW_TEX_SIZE
-    let buf: u8[] = []
-    let cx = (size as f64) / 2.0
-    let cy = (size as f64) / 2.0
-    let radius = cx
-    let y: i32 = 0
-    while y < size {
-        let x: i32 = 0
-        while x < size {
-            let dx = (x as f64) - cx + 0.5
-            let dy = (y as f64) - cy + 0.5
-            let d = math.sqrt(dx * dx + dy * dy)
-            // Smooth falloff: 1 at centre, 0 at and past `radius`.
-            let t: f64 = if d >= radius { 0.0 } else { 1.0 - d / radius }
-            // Gaussian-ish exponent for a softer bell.
-            let a_norm = t * t
-            let a = (a_norm * 255.0) as u8
-            buf.push(255 as u8)
-            buf.push(255 as u8)
-            buf.push(255 as u8)
-            buf.push(a)
-            x += 1
-        }
-        y += 1
-    }
-    buf
-}
-
-// ─── CRT overlay ──────────────────────────────────────────────────
-
-// Pre-render a full-window RGBA black overlay where the alpha
-// encodes how much the underlying scene should be darkened at
-// each pixel. Combines two CRT-style effects:
-//   • scanlines — odd rows have a small fixed darken
-//   • vignette  — soft radial darken toward the corners
-// Drawn over everything (including HUD) at draw-time. Built once
-// at startup so the per-frame cost is just one drawTexture call.
-fn make_crt_overlay(w: i32, h: i32): u8[] {
-    let buf: u8[] = []
-    let cx = (w as f64) / 2.0
-    let cy = (h as f64) / 2.0
-    let max_d = math.sqrt(cx * cx + cy * cy)
-    let y: i32 = 0
-    while y < h {
-        // 1.0 = pixel left untouched, lower = darken applied.
-        let scan: f64 = if y % 2 == 1 { 0.82 } else { 1.0 }
-        let x: i32 = 0
-        while x < w {
-            let dx = (x as f64) - cx
-            let dy = (y as f64) - cy
-            let d = math.sqrt(dx * dx + dy * dy)
-            let v_norm = d / max_d
-            // Vignette: 1.0 in centre, ~0.5 at corners.
-            let vig = 1.0 - v_norm * v_norm * 0.55
-            let combined = scan * vig
-            let darken: f64 = if combined < 0.0 { 1.0 } else { 1.0 - combined }
-            let alpha = (darken * 255.0) as u8
-            buf.push(0 as u8)
-            buf.push(0 as u8)
-            buf.push(0 as u8)
-            buf.push(alpha)
-            x += 1
-        }
-        y += 1
-    }
-    buf
-}
-
-// ─── audio: short sine-wave beeps + BGM loop ──────────────────────
-
-fn makeBeep(freq_hz: f64, ms: i32): i16[] {
-    let n = (SAMPLE_RATE * ms) / 1000
-    let buf: i16[] = []
-    let two_pi: f64 = 2.0 * math.pi
-    let i: i32 = 0
-    while i < n {
-        let ramp = SAMPLE_RATE / 200
-        let env: f64 = if i < ramp {
-            (i as f64) / (ramp as f64)
-        } elif i > n - ramp {
-            ((n - i) as f64) / (ramp as f64)
-        } else {
-            1.0
-        }
-        let t = (i as f64) / (SAMPLE_RATE as f64)
-        let sample = math.sin(two_pi * freq_hz * t) * 8000.0 * env
-        buf.push(sample as i16)
-        i += 1
-    }
-    buf
-}
-
-// Single chiptune note (square wave) of `ms` milliseconds. Used as
-// the building block for the BGM loop.
-fn makeNote(freq_hz: f64, ms: i32, vol: f64): i16[] {
-    let n = (SAMPLE_RATE * ms) / 1000
-    let buf: i16[] = []
-    let i: i32 = 0
-    while i < n {
-        let ramp = SAMPLE_RATE / 100   // 10ms attack/decay
-        let env: f64 = if i < ramp {
-            (i as f64) / (ramp as f64)
-        } elif i > n - ramp {
-            ((n - i) as f64) / (ramp as f64)
-        } else {
-            1.0
-        }
-        let t = (i as f64) / (SAMPLE_RATE as f64)
-        // Square wave from sin sign — gives the classic chip-style
-        // bite without needing a phase accumulator.
-        let s = math.sin(2.0 * math.pi * freq_hz * t)
-        let sq: f64 = if s >= 0.0 { 1.0 } else { -1.0 }
-        let sample = sq * vol * 5500.0 * env
-        buf.push(sample as i16)
-        i += 1
-    }
-    buf
-}
-
-// 16-step arpeggio over Am → F → C → G (4 bars of 4 notes each at
-// ~180ms per step → ≈2.9s loop). Returns one full loop ready to be
-// queued into an AudioDevice; the main loop refills the queue when
-// it gets low.
-fn makeBgmLoop(): i16[] {
-    let buf: i16[] = []
-    let beat_ms: i32 = 180
-    let notes: f64[] = [
-        // Am: A2 E3 A3 E3
-        110.0,  164.81, 220.0,  164.81,
-        // F:  F2 C3 F3 C3
-         87.31, 130.81, 174.61, 130.81,
-        // C:  C3 G3 C4 G3
-        130.81, 196.0,  261.63, 196.0,
-        // G:  G2 D3 G3 D3
-         98.0,  146.83, 196.0,  146.83
-    ]
-    let i: i32 = 0
-    let n: i32 = notes.length as i32
-    while i < n {
-        let note = makeNote(notes[i], beat_ms, 0.16)
-        let ji: i32 = 0
-        let jn: i32 = note.length as i32
-        while ji < jn {
-            buf.push(note[ji])
-            ji += 1
-        }
-        i += 1
-    }
-    buf
-}
-
-// ─── game data ────────────────────────────────────────────────────
-
-class Brick {
-    x: i32
-    y: i32
-    r: u8
-    g: u8
-    b: u8
-    alive: bool
-    // Death animation timer. 0 = either alive or fully gone. > 0
-    // means we're inside the puff-and-fade animation: 1.0 starts,
-    // counts down to 0.
-    dying: f64
-    init(x: i32, y: i32, r: u8, g: u8, b: u8) {
-        this.x = x
-        this.y = y
-        this.r = r
-        this.g = g
-        this.b = b
-        this.alive = true
-        this.dying = 0.0
-    }
-}
-
-class Particle {
-    x: f64
-    y: f64
-    vx: f64
-    vy: f64
-    angle: f64
-    spin: f64
-    life: i32
-    r: u8
-    g: u8
-    b: u8
-    init(x: f64, y: f64, vx: f64, vy: f64, angle: f64, spin: f64,
-         life: i32, r: u8, g: u8, b: u8) {
-        this.x = x
-        this.y = y
-        this.vx = vx
-        this.vy = vy
-        this.angle = angle
-        this.spin = spin
-        this.life = life
-        this.r = r
-        this.g = g
-        this.b = b
-    }
-}
-
-class Star {
-    x: f64
-    y: f64
-    speed: f64
-    phase: f64
-    twinkle: f64
-    init(x: f64, y: f64, speed: f64, phase: f64, twinkle: f64) {
-        this.x = x
-        this.y = y
-        this.speed = speed
-        this.phase = phase
-        this.twinkle = twinkle
-    }
-}
-
-// Floating "+100" text that drifts up from a brick break and
-// fades to nothing.
-class Popup {
-    x: f64
-    y: f64
-    vy: f64
-    life: i32
-    text: string
-    r: u8
-    g: u8
-    b: u8
-    init(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
-        this.x = x
-        this.y = y
-        this.vy = -1.6
-        this.life = 50
-        this.text = text
-        this.r = r
-        this.g = g
-        this.b = b
-    }
-}
-
-// Stored per-ball so multi-ball can run multiple at once. The
-// physics loop iterates `balls` each frame; balls that fall below
-// the paddle drop out of the array.
-class Ball {
-    x: f64
-    y: f64
-    vx: f64
-    vy: f64
-    // Ring buffer of recent positions for the fading trail. Each
-    // ball owns its own buffer so multi-ball renders independent
-    // trails. Initialised to the spawn point so the trail starts
-    // collapsed onto the ball rather than streaming from (0, 0).
-    trail: TrailPoint[]
-    trail_head: i32
-    init(x: f64, y: f64, vx: f64, vy: f64) {
-        this.x = x
-        this.y = y
-        this.vx = vx
-        this.vy = vy
-        let tr: TrailPoint[] = []
-        let i: i32 = 0
-        while i < TRAIL_LEN {
-            tr.push(new TrailPoint(x, y))
-            i = i + 1
-        }
-        this.trail = tr
-        this.trail_head = 0
-    }
-}
-
-// Falls from a broken brick at low probability. The paddle catches
-// it on contact, applying a temporary effect: kind 0 = wider
-// paddle, 1 = multi-ball (immediate, one-shot), 2 = slow motion.
-class PowerUp {
-    x: f64
-    y: f64
-    vy: f64
-    kind: i32
-    init(x: f64, y: f64, kind: i32) {
-        this.x = x
-        this.y = y
-        this.vy = 1.8
-        this.kind = kind
-    }
-}
-
-// One sample of the ball's recent position, used to render a fading
-// trail behind it.
-class TrailPoint {
-    x: f64
-    y: f64
-    init(x: f64, y: f64) {
-        this.x = x
-        this.y = y
-    }
-}
-
-// One row → one neon hue. Five rows from top to bottom.
-fn paletteR(row: i32): u8 {
-    if row == 0 { return 255 as u8 }
-    if row == 1 { return 255 as u8 }
-    if row == 2 { return  80 as u8 }
-    if row == 3 { return 120 as u8 }
-    if row == 4 { return 255 as u8 }
-    255 as u8
-}
-
-fn paletteG(row: i32): u8 {
-    if row == 0 { return  80 as u8 }
-    if row == 1 { return 200 as u8 }
-    if row == 2 { return 255 as u8 }
-    if row == 3 { return 120 as u8 }
-    if row == 4 { return 255 as u8 }
-    255 as u8
-}
-
-fn paletteB(row: i32): u8 {
-    if row == 0 { return 200 as u8 }
-    if row == 1 { return  80 as u8 }
-    if row == 2 { return 220 as u8 }
-    if row == 3 { return 255 as u8 }
-    if row == 4 { return 120 as u8 }
-    255 as u8
-}
-
-fn spawnParticles(particles: Particle[], cx: f64, cy: f64,
-                  r: u8, g: u8, b: u8) {
-    let n: i32 = 14
-    let i: i32 = 0
-    while i < n {
-        let ang = randf() * 6.2831853
-        let speed = 1.5 + randf() * 4.0
-        let vx = math.cos(ang) * speed
-        let vy = math.sin(ang) * speed - 1.5
-        let life = 24 + (randf() * 16.0) as i32
-        // Right-going particles spin clockwise (positive degrees per
-        // frame), left-going counter-clockwise. Magnitude random so
-        // the cloud doesn't rotate uniformly.
-        let dir: f64 = if vx >= 0.0 { 1.0 } else { -1.0 }
-        let spin = dir * (4.0 + randf() * 12.0)
-        let start_angle = randf() * 360.0
-        particles.push(
-            new Particle(cx, cy, vx, vy, start_angle, spin, life, r, g, b)
-        )
-        i += 1
-    }
-}
 
 // ─── main ─────────────────────────────────────────────────────────
 
@@ -639,18 +256,18 @@ fn play() {
 
     let font = new sdl.Font(ren)
 
-    let audio = new sdl.AudioDevice(SAMPLE_RATE, 1)
-    if audio.id == 0 {
+    let sfxDevice = new sdl.AudioDevice(audio.SAMPLE_RATE, 1)
+    if sfxDevice.id == 0 {
         console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
         return
     }
-    audio.play()
+    sfxDevice.play()
 
     // Second audio device dedicated to BGM. SDL allows multiple
     // simultaneous open devices, so the music keeps playing even
     // while SFX queue/dequeue rapidly on the first device.
-    let audio_music = new sdl.AudioDevice(SAMPLE_RATE, 1)
-    let bgm = makeBgmLoop()
+    let audio_music = new sdl.AudioDevice(audio.SAMPLE_RATE, 1)
+    let bgm = audio.makeBgmLoop()
     let bgm_bytes = (bgm.length * 2) as u32   // one loop in queued-bytes
     if audio_music.id != 0 {
         // Pre-buffer two loops so the first refill check has slack.
@@ -664,28 +281,28 @@ fn play() {
     // returning 0/false, so the keyboard path keeps working.
     let pad = new sdl.Gamepad()
 
-    let beep_wall = makeBeep(440.0, 40)
-    let beep_paddle = makeBeep(660.0, 50)
-    let beep_brick = makeBeep(880.0, 70)
+    let beep_wall = audio.makeBeep(440.0, 40)
+    let beep_paddle = audio.makeBeep(660.0, 50)
+    let beep_brick = audio.makeBeep(880.0, 70)
 
     // White star sprite for particle bursts. Tinted at draw time
     // via `setColorMod`, rotated via `drawTextureRot`.
-    let star_tex = new sdl.Texture(ren, STAR_TEX_SIZE, STAR_TEX_SIZE, 1)
+    let star_tex = new sdl.Texture(ren, sprites.STAR_TEX_SIZE, sprites.STAR_TEX_SIZE, 1)
     if star_tex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
     }
-    star_tex.update(make_star_sprite())
+    star_tex.update(sprites.make_star_sprite())
 
     // Soft radial-gradient sprite, tinted per-brick at draw time so
     // the wave highlight blooms as a blurry circle rather than a
     // rectangle.
-    let glow_tex = new sdl.Texture(ren, GLOW_TEX_SIZE, GLOW_TEX_SIZE, 1)
+    let glow_tex = new sdl.Texture(ren, sprites.GLOW_TEX_SIZE, sprites.GLOW_TEX_SIZE, 1)
     if glow_tex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
     }
-    glow_tex.update(make_glow_sprite())
+    glow_tex.update(sprites.make_glow_sprite())
 
     // Full-window CRT-effect overlay — built once. The alpha
     // channel encodes scanlines + vignette, the colour is black,
@@ -696,7 +313,7 @@ fn play() {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
     }
-    crt_tex.update(make_crt_overlay(WIN_W, WIN_H))
+    crt_tex.update(sprites.make_crt_overlay(WIN_W, WIN_H))
 
     // Off-screen accumulator for the world. Drawn into each frame
     // (with a small per-frame fade applied first) and then composited
@@ -728,10 +345,10 @@ fn play() {
     bloom_tex.setScaleMode(1)
 
     // Background star field — scrolls top→down with a twinkle.
-    let bg_stars: Star[] = []
+    let bg_stars: star.Star[] = []
     let s_i: i32 = 0
     while s_i < 80 {
-        bg_stars.push(new Star(
+        bg_stars.push(new star.Star(
             randf() * (WIN_W as f64),
             randf() * (WIN_H as f64),
             0.4 + randf() * 1.6,
@@ -742,7 +359,7 @@ fn play() {
     }
 
     // Build the brick grid.
-    let bricks: Brick[] = []
+    let bricks: brick.Brick[] = []
     let row: i32 = 0
     while row < ROWS {
         let col: i32 = 0
@@ -750,7 +367,7 @@ fn play() {
             let x = col * (BRICK_W + BRICK_GAP) +
                     (WIN_W - COLS * (BRICK_W + BRICK_GAP) + BRICK_GAP) / 2
             let y = BRICK_TOP + row * (BRICK_H + BRICK_GAP)
-            bricks.push(new Brick(x, y, paletteR(row), paletteG(row), paletteB(row)))
+            bricks.push(new brick.Brick(x, y, palette.paletteR(row), palette.paletteG(row), palette.paletteB(row)))
             col += 1
         }
         row += 1
@@ -759,8 +376,8 @@ fn play() {
     // State.
     let paddle_x: f64 = ((WIN_W - PADDLE_W) / 2) as f64
     let paddle_y: i32 = WIN_H - 60
-    let balls: Ball[] = []
-    balls.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+    let balls: ball.Ball[] = []
+    balls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
     let score: i32 = 0
     let bricks_left: i32 = COLS * ROWS
     let lives: i32 = 5
@@ -769,7 +386,7 @@ fn play() {
     let won: bool = false
     let combo: i32 = 0              // bricks hit since last paddle bounce
     let shake: f64 = 0.0            // current screen-shake amplitude (px)
-    let popups: Popup[] = []
+    let popups: particle.Popup[] = []
     // Frames the ball has been in flight (this game). Drives the
     // gradual speed-up. Doesn't reset on lose-life so tension keeps
     // building across attempts.
@@ -783,7 +400,7 @@ fn play() {
     // frame while > 0; while their flag is active the matching
     // effect is applied. Multi-ball is one-shot so it doesn't need
     // a timer.
-    let powerups: PowerUp[] = []
+    let powerups: powerup.PowerUp[] = []
     let wider_timer: i32 = 0
     let slow_timer: i32 = 0
     // Tracks the paddle width from the previous frame so we can
@@ -808,7 +425,7 @@ fn play() {
     // average down to 58fps.
     let next_frame_ms: f64 = sdl.getTicks() as f64
     let frame_period_ms: f64 = 1000.0 / 60.0
-    let particles: Particle[] = []
+    let particles: particle.Particle[] = []
 
     // Trails live on each `Ball` (see the `trail` / `trail_head`
     // fields), so multi-ball renders an independent fading streak
@@ -854,7 +471,7 @@ fn play() {
                     let fy = (0.15 + randf() * 0.55) * (WIN_H as f64)
                     let pick = (randf() * 5.0) as i32
                     spawnParticles(particles, fx, fy,
-                                   paletteR(pick), paletteG(pick), paletteB(pick))
+                                   palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
                     bi += 1
                 }
                 won_celebrated = true
@@ -865,7 +482,7 @@ fn play() {
                 let fy = (0.10 + randf() * 0.65) * (WIN_H as f64)
                 let pick = (randf() * 5.0) as i32
                 spawnParticles(particles, fx, fy,
-                               paletteR(pick), paletteG(pick), paletteB(pick))
+                               palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
             }
         }
 
@@ -905,8 +522,8 @@ fn play() {
                 }
                 r2 += 1
             }
-            let fresh_balls: Ball[] = []
-            fresh_balls.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+            let fresh_balls: ball.Ball[] = []
+            fresh_balls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
             balls = fresh_balls
             score = 0
             bricks_left = COLS * ROWS
@@ -914,14 +531,14 @@ fn play() {
             started = false
             game_over = false
             won = false
-            let empty_pu: PowerUp[] = []
+            let empty_pu: powerup.PowerUp[] = []
             powerups = empty_pu
             wider_timer = 0
             slow_timer = 0
             prev_paddle_w = PADDLE_W
-            let empty: Particle[] = []
+            let empty: particle.Particle[] = []
             particles = empty
-            let empty_pops: Popup[] = []
+            let empty_pops: particle.Popup[] = []
             popups = empty_pops
             combo = 0
             shake = 0.0
@@ -990,7 +607,7 @@ fn play() {
             // the same factor so target magnitude shrinks.
             let speed_factor: f64 = if slow_timer > 0 { 0.55 } else { 1.0 }
 
-            let surviving: Ball[] = []
+            let surviving: ball.Ball[] = []
             let bi: i32 = 0
             let bn: i32 = balls.length as i32
             while bi < bn {
@@ -1002,17 +619,17 @@ fn play() {
                 if b.x < 0.0 {
                     b.x = 0.0
                     b.vx = -b.vx
-                    audio.queue(beep_wall)
+                    sfxDevice.queue(beep_wall)
                 }
                 if b.x + (BALL_SIZE as f64) > WIN_W as f64 {
                     b.x = (WIN_W - BALL_SIZE) as f64
                     b.vx = -b.vx
-                    audio.queue(beep_wall)
+                    sfxDevice.queue(beep_wall)
                 }
                 if b.y < 0.0 {
                     b.y = 0.0
                     b.vy = -b.vy
-                    audio.queue(beep_wall)
+                    sfxDevice.queue(beep_wall)
                 }
 
                 // Paddle (only on the way down).
@@ -1037,7 +654,7 @@ fn play() {
                     b.vx = speed * math.sin(angle)
                     b.vy = -speed * math.cos(angle)
                     combo = 0
-                    audio.queue(beep_paddle)
+                    sfxDevice.queue(beep_paddle)
                 }
 
                 // Bricks. First-hit-wins-this-frame for this ball.
@@ -1068,18 +685,18 @@ fn play() {
                             let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
                             let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
                             spawnParticles(particles, cx, cy, br.r, br.g, br.b)
-                            popups.push(new Popup(
+                            popups.push(new particle.Popup(
                                 cx, cy - 4.0, "+" + intToStr(earned),
                                 br.r, br.g, br.b
                             ))
                             let bump = 4.0 + (combo as f64) * 1.5
                             shake = shake + bump
                             if shake > 14.0 { shake = 14.0 }
-                            audio.queue(beep_brick)
+                            sfxDevice.queue(beep_brick)
                             // 14% drop chance per brick break.
                             if randf() < 0.14 {
                                 let kind = (randf() * 3.0) as i32
-                                powerups.push(new PowerUp(cx, cy, kind))
+                                powerups.push(new powerup.PowerUp(cx, cy, kind))
                             }
                             i = n   // stop after first hit this frame
                         }
@@ -1125,8 +742,8 @@ fn play() {
                 } else {
                     started = false
                     combo = 0
-                    let respawn: Ball[] = []
-                    respawn.push(new Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+                    let respawn: ball.Ball[] = []
+                    respawn.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
                     balls = respawn
                 }
             }
@@ -1142,14 +759,14 @@ fn play() {
             let tp = bb.trail[bb.trail_head]
             tp.x = bb.x
             tp.y = bb.y
-            bb.trail_head = (bb.trail_head + 1) % TRAIL_LEN
+            bb.trail_head = (bb.trail_head + 1) % ball.TRAIL_LEN
             tr_bi = tr_bi + 1
         }
 
         // ─── power-up step: fall, catch, expire ──────────────────
         if wider_timer > 0 { wider_timer = wider_timer - 1 }
         if slow_timer > 0 { slow_timer = slow_timer - 1 }
-        let alive_pu: PowerUp[] = []
+        let alive_pu: powerup.PowerUp[] = []
         let pui: i32 = 0
         let pun: i32 = powerups.length as i32
         while pui < pun {
@@ -1176,12 +793,12 @@ fn play() {
                     // with slightly diverged angles.
                     if balls.length as i32 > 0 {
                         let src = balls[0]
-                        let extra: Ball[] = []
+                        let extra: ball.Ball[] = []
                         let ki: i32 = 0
                         while ki < 2 {
                             let dvx = if ki == 0 { src.vy * 0.5 } else { 0.0 - src.vy * 0.5 }
                             let dvy = if ki == 0 { 0.0 - src.vx * 0.5 } else { src.vx * 0.5 }
-                            extra.push(new Ball(src.x, src.y,
+                            extra.push(new ball.Ball(src.x, src.y,
                                                 src.vx + dvx, src.vy + dvy))
                             ki = ki + 1
                         }
@@ -1195,7 +812,7 @@ fn play() {
                 } else {
                     slow_timer = 480            // 8s
                 }
-                audio.queue(beep_paddle)
+                sfxDevice.queue(beep_paddle)
             }
             if !removed && pu.y < (WIN_H + 40) as f64 {
                 alive_pu.push(pu)
@@ -1206,7 +823,7 @@ fn play() {
 
         // ─── particle step ───────────────────────────────────────
 
-        let alive_particles: Particle[] = []
+        let alive_particles: particle.Particle[] = []
         let i: i32 = 0
         let n: i32 = particles.length as i32
         while i < n {
@@ -1224,7 +841,7 @@ fn play() {
         particles = alive_particles
 
         // Score-popup step: drift up, fade, drop dead ones.
-        let alive_popups: Popup[] = []
+        let alive_popups: particle.Popup[] = []
         let pi: i32 = 0
         let pn: i32 = popups.length as i32
         while pi < pn {
@@ -1436,11 +1053,11 @@ fn play() {
         while tb_i < tb_n {
             let bb = balls[tb_i]
             let tr_i: i32 = 0
-            while tr_i < TRAIL_LEN {
-                // age 0 = oldest (trail_head), age TRAIL_LEN-1 = newest
-                let slot = (bb.trail_head + tr_i) % TRAIL_LEN
+            while tr_i < ball.TRAIL_LEN {
+                // age 0 = oldest (trail_head), age ball.TRAIL_LEN-1 = newest
+                let slot = (bb.trail_head + tr_i) % ball.TRAIL_LEN
                 let pt = bb.trail[slot]
-                let age_norm = (tr_i as f64) / (TRAIL_LEN as f64)
+                let age_norm = (tr_i as f64) / (ball.TRAIL_LEN as f64)
                 let a = (age_norm * age_norm * 140.0) as u8
                 if a > 0 as u8 {
                     let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x

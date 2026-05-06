@@ -141,6 +141,11 @@ pub fn load_program_with_overlay(
         tail: entry_prog.tail,
     };
     let mut whole_imports: HashSet<String> = HashSet::new();
+    // Tracks every (module-canonical-path, effective-prefix) pair
+    // that's already been merged into `merged`. Stops `use math`
+    // appearing in two import paths from registering math's items
+    // twice (which would surface as "duplicate overload" later).
+    let mut applied: HashSet<(PathBuf, String)> = HashSet::new();
     for item in entry_prog.items {
         match item {
             Item::Use(u) => apply_use(
@@ -151,6 +156,7 @@ pub fn load_program_with_overlay(
                 &mut loaded,
                 &mut merged,
                 &mut whole_imports,
+                &mut applied,
             )?,
             other => merged.items.push(other),
         }
@@ -267,6 +273,7 @@ fn apply_use(
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
     _whole_imports: &mut HashSet<String>,
+    applied: &mut HashSet<(PathBuf, String)>,
 ) -> Result<(), LoadError> {
     let importer_dir = importer_canon
         .parent()
@@ -286,6 +293,19 @@ fn apply_use(
     let effective_prefix: String = prefix_override
         .map(str::to_string)
         .unwrap_or_else(|| u.module.clone());
+    // Whole-module + selective imports both prefix the items by
+    // `effective_prefix` (selective keeps bare names, but is rare
+    // and covered by the `(canon, "")` key below). If we've already
+    // merged the same module under the same prefix, skip — diamond
+    // dependencies (main + sibling both `use math`) would otherwise
+    // double-register every fn.
+    let dedup_key: (PathBuf, String) = match &u.selective {
+        None => (canon.clone(), effective_prefix.clone()),
+        Some(_) => (canon.clone(), String::new()),
+    };
+    if !applied.insert(dedup_key) {
+        return Ok(());
+    }
     // Recursively expand the module's own use items first, into the
     // module_prog's namespace. `@export use N` propagates the
     // current module's effective prefix to N so its items also land
@@ -305,7 +325,7 @@ fn apply_use(
         } else {
             None
         };
-        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports)?;
+        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports, applied)?;
     }
 
     match u.selective {
