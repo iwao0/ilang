@@ -276,28 +276,24 @@ pub(crate) fn as_bool(v: Value) -> Result<bool, RuntimeError> {
 
 // ─── Bit ops + shifts ───────────────────────────────────────────────────
 
-fn check_shift(amount: i64, width: u32) -> Result<Option<u32>, RuntimeError> {
-    if amount < 0 {
-        return Err(RuntimeError::NegativeShift {
-            amount,
-            span: dummy(),
-        });
-    }
-    if amount >= width as i64 {
-        return Ok(None);
-    }
-    Ok(Some(amount as u32))
+/// Mask the shift amount to the operand's bit width, matching
+/// Cranelift's ishl / sshr / ushr semantics so interpreter and JIT
+/// agree on `x << n` for every `n` (including negatives and amounts
+/// >= width). All supported widths are powers of two, so width-1 is
+/// the correct mask.
+fn shift_amount(amount: i64, width: u32) -> u32 {
+    (amount as u32) & (width - 1)
 }
 
 fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     let (l, r) = promote(l, r);
     macro_rules! shift {
         ($a:expr, $b:expr, $width:literal, $ctor:ident) => {{
-            let amount = check_shift($b as i64, $width)?;
-            Value::$ctor(match (op, amount) {
-                (BinOp::Shl, Some(k)) => $a.wrapping_shl(k),
-                (BinOp::Shr, Some(k)) => $a.wrapping_shr(k),
-                _ => 0, // out-of-range shift returns 0
+            let k = shift_amount($b as i64, $width);
+            Value::$ctor(match op {
+                BinOp::Shl => $a.wrapping_shl(k),
+                BinOp::Shr => $a.wrapping_shr(k),
+                _ => unreachable!("non-shift op in shift!()"),
             })
         }};
     }
