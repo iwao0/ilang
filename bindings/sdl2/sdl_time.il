@@ -4,6 +4,76 @@
 // Timer-callback APIs (SDL_AddTimer / SDL_RemoveTimer) need a C
 // function pointer and aren't exposed.
 
+/// SDL_EventType — subset covering the common cases. Stored in
+/// `SDL_Event.event_type` so callers can dispatch on `pollEvent`.
+enum EventType: u32 {
+    firstEvent              = 0
+    quit                    = 0x100
+    appTerminating          = 0x101
+    appLowMemory            = 0x102
+    appWillEnterBackground  = 0x103
+    appDidEnterBackground   = 0x104
+    appWillEnterForeground  = 0x105
+    appDidEnterForeground   = 0x106
+    localeChanged           = 0x107
+    displayEvent            = 0x150
+    windowEvent             = 0x200
+    sysWmEvent              = 0x201
+    keyDown                 = 0x300
+    keyUp                   = 0x301
+    textEditing             = 0x302
+    textInput               = 0x303
+    keymapChanged           = 0x304
+    mouseMotion             = 0x400
+    mouseButtonDown         = 0x401
+    mouseButtonUp           = 0x402
+    mouseWheel              = 0x403
+    joyAxisMotion           = 0x600
+    joyBallMotion           = 0x601
+    joyHatMotion            = 0x602
+    joyButtonDown           = 0x603
+    joyButtonUp             = 0x604
+    joyDeviceAdded          = 0x605
+    joyDeviceRemoved        = 0x606
+    controllerAxisMotion    = 0x650
+    controllerButtonDown    = 0x651
+    controllerButtonUp      = 0x652
+    controllerDeviceAdded   = 0x653
+    controllerDeviceRemoved = 0x654
+    controllerDeviceRemapped = 0x655
+    controllerTouchpadDown  = 0x656
+    controllerTouchpadMotion = 0x657
+    controllerTouchpadUp    = 0x658
+    controllerSensorUpdate  = 0x659
+    fingerDown              = 0x700
+    fingerUp                = 0x701
+    fingerMotion            = 0x702
+    dollarGesture           = 0x800
+    dollarRecord            = 0x801
+    multiGesture            = 0x802
+    clipboardUpdate         = 0x900
+    dropFile                = 0x1000
+    dropText                = 0x1001
+    dropBegin               = 0x1002
+    dropComplete            = 0x1003
+    audioDeviceAdded        = 0x1100
+    audioDeviceRemoved      = 0x1101
+    sensorUpdate            = 0x1200
+    renderTargetsReset      = 0x2000
+    renderDeviceReset       = 0x2001
+    userEvent               = 0x8000
+    lastEvent               = 0xFFFF
+}
+
+/// State value passed to / returned from `eventState`.
+/// `disable` is an alias for `ignore` (both mean 0, matching SDL).
+enum EventState: i32 {
+    query   = -1
+    ignore  = 0
+    disable = 0   // alias for ignore
+    enable  = 1
+}
+
 @extern(C) {
     // ─── timer ───────────────────────────────────────────────────
     @lib("SDL2") fn SDL_Delay(ms: u32)
@@ -101,18 +171,18 @@
 
     // True iff at least one event of `event_type` is pending.
     // Doesn't remove it from the queue.
-    fn hasEvent(event_type: u32): bool {
-        SDL_HasEvent(event_type) != 0
+    fn hasEvent(event_type: EventType): bool {
+        SDL_HasEvent(event_type as u32) != 0
     }
-    fn hasEvents(min_type: u32, max_type: u32): bool {
-        SDL_HasEvents(min_type, max_type) != 0
+    fn hasEvents(min_type: EventType, max_type: EventType): bool {
+        SDL_HasEvents(min_type as u32, max_type as u32) != 0
     }
 
-    fn flushEvent(event_type: u32) {
-        SDL_FlushEvent(event_type)
+    fn flushEvent(event_type: EventType) {
+        SDL_FlushEvent(event_type as u32)
     }
-    fn flushEvents(min_type: u32, max_type: u32) {
-        SDL_FlushEvents(min_type, max_type)
+    fn flushEvents(min_type: EventType, max_type: EventType) {
+        SDL_FlushEvents(min_type as u32, max_type as u32)
     }
 
     // Pull one event off the queue. Returns true if `event` was
@@ -128,14 +198,13 @@
         SDL_PushEvent(event)
     }
 
-    // Toggle delivery / query of an event class. `state`:
-    //   QUERY = -1, IGNORE = 0, ENABLE = 1.
-    // Returns the previous state.
-    fn eventState(event_type: u32, state: i32): u8 {
-        SDL_EventState(event_type, state)
+    // Toggle delivery / query of an event class. Returns the
+    // previous state.
+    fn eventState(event_type: EventType, state: EventState): u8 {
+        SDL_EventState(event_type as u32, state as i32)
     }
-    fn getEventState(event_type: u32): u8 {
-        SDL_EventState(event_type, EVENT_QUERY)
+    fn getEventState(event_type: EventType): u8 {
+        SDL_EventState(event_type as u32, EventState.query as i32)
     }
 
     // True if the user clicked the window close button (or asked
@@ -144,74 +213,10 @@
     // exiting their main loop.
     fn quitRequested(): bool {
         SDL_PumpEvents()
-        if SDL_HasEvent(EVENT_QUIT) != 0 {
-            SDL_FlushEvent(EVENT_QUIT)
+        if SDL_HasEvent(EventType.quit as u32) != 0 {
+            SDL_FlushEvent(EventType.quit as u32)
             return true
         }
         false
     }
 }
-
-// ─── SDL_EventType (subset that covers the common cases) ──────────
-const EVENT_FIRSTEVENT: u32              = 0
-const EVENT_QUIT: u32                    = 0x100
-const EVENT_APP_TERMINATING: u32         = 0x101
-const EVENT_APP_LOWMEMORY: u32           = 0x102
-const EVENT_APP_WILLENTERBACKGROUND: u32 = 0x103
-const EVENT_APP_DIDENTERBACKGROUND: u32  = 0x104
-const EVENT_APP_WILLENTERFOREGROUND: u32 = 0x105
-const EVENT_APP_DIDENTERFOREGROUND: u32  = 0x106
-const EVENT_LOCALECHANGED: u32           = 0x107
-const EVENT_DISPLAYEVENT: u32            = 0x150
-const EVENT_WINDOWEVENT: u32             = 0x200
-const EVENT_SYSWMEVENT: u32              = 0x201
-const EVENT_KEYDOWN: u32                 = 0x300
-const EVENT_KEYUP: u32                   = 0x301
-const EVENT_TEXTEDITING: u32             = 0x302
-const EVENT_TEXTINPUT: u32               = 0x303
-const EVENT_KEYMAPCHANGED: u32           = 0x304
-const EVENT_MOUSEMOTION: u32             = 0x400
-const EVENT_MOUSEBUTTONDOWN: u32         = 0x401
-const EVENT_MOUSEBUTTONUP: u32           = 0x402
-const EVENT_MOUSEWHEEL: u32              = 0x403
-const EVENT_JOYAXISMOTION: u32           = 0x600
-const EVENT_JOYBALLMOTION: u32           = 0x601
-const EVENT_JOYHATMOTION: u32            = 0x602
-const EVENT_JOYBUTTONDOWN: u32           = 0x603
-const EVENT_JOYBUTTONUP: u32             = 0x604
-const EVENT_JOYDEVICEADDED: u32          = 0x605
-const EVENT_JOYDEVICEREMOVED: u32        = 0x606
-const EVENT_CONTROLLERAXISMOTION: u32     = 0x650
-const EVENT_CONTROLLERBUTTONDOWN: u32     = 0x651
-const EVENT_CONTROLLERBUTTONUP: u32       = 0x652
-const EVENT_CONTROLLERDEVICEADDED: u32    = 0x653
-const EVENT_CONTROLLERDEVICEREMOVED: u32  = 0x654
-const EVENT_CONTROLLERDEVICEREMAPPED: u32 = 0x655
-const EVENT_CONTROLLERTOUCHPADDOWN: u32   = 0x656
-const EVENT_CONTROLLERTOUCHPADMOTION: u32 = 0x657
-const EVENT_CONTROLLERTOUCHPADUP: u32     = 0x658
-const EVENT_CONTROLLERSENSORUPDATE: u32   = 0x659
-const EVENT_FINGERDOWN: u32              = 0x700
-const EVENT_FINGERUP: u32                = 0x701
-const EVENT_FINGERMOTION: u32            = 0x702
-const EVENT_DOLLARGESTURE: u32           = 0x800
-const EVENT_DOLLARRECORD: u32            = 0x801
-const EVENT_MULTIGESTURE: u32            = 0x802
-const EVENT_CLIPBOARDUPDATE: u32         = 0x900
-const EVENT_DROPFILE: u32                = 0x1000
-const EVENT_DROPTEXT: u32                = 0x1001
-const EVENT_DROPBEGIN: u32               = 0x1002
-const EVENT_DROPCOMPLETE: u32            = 0x1003
-const EVENT_AUDIODEVICEADDED: u32        = 0x1100
-const EVENT_AUDIODEVICEREMOVED: u32      = 0x1101
-const EVENT_SENSORUPDATE: u32            = 0x1200
-const EVENT_RENDER_TARGETS_RESET: u32    = 0x2000
-const EVENT_RENDER_DEVICE_RESET: u32     = 0x2001
-const EVENT_USEREVENT: u32               = 0x8000
-const EVENT_LASTEVENT: u32               = 0xFFFF
-
-// ─── EventState states (passed to SDL_EventState) ─────────────────
-const EVENT_QUERY: i32   = -1
-const EVENT_IGNORE: i32  = 0
-const EVENT_DISABLE: i32 = 0       // alias
-const EVENT_ENABLE: i32  = 1

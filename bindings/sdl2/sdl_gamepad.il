@@ -1,7 +1,37 @@
 // SDL2 game-controller (gamepad) bindings: opens the first attached
 // controller, exposes axis + button polling. Initialise SDL with
-// `INIT_GAMECONTROLLER` (and ideally `INIT_JOYSTICK`) before
+// `InitFlag.gameController` (and ideally `InitFlag.joystick`) before
 // instantiating `Gamepad`.
+
+/// SDL_GameControllerButton.
+enum Button: i32 {
+    a              = 0
+    b              = 1
+    x              = 2
+    y              = 3
+    back           = 4
+    guide          = 5
+    start          = 6
+    leftStick      = 7
+    rightStick     = 8
+    leftShoulder   = 9
+    rightShoulder  = 10
+    dpadUp         = 11
+    dpadDown       = 12
+    dpadLeft       = 13
+    dpadRight      = 14
+}
+
+/// SDL_GameControllerAxis. Stick axes range `[-32768, 32767]`;
+/// trigger axes range `[0, 32767]`.
+enum Axis: i32 {
+    leftX        = 0
+    leftY        = 1
+    rightX       = 2
+    rightY       = 3
+    triggerLeft  = 4
+    triggerRight = 5
+}
 
 @extern(C) {
     struct SDL_GameController {}
@@ -43,42 +73,20 @@
         }
 
         // Axis value in [-32768, 32767]. 0 when no controller open.
-        getAxis(axis: i32): i16 {
+        getAxis(axis: Axis): i16 {
             if this.handle == 0 { return 0 as i16 }
-            SDL_GameControllerGetAxis(this.handle as *SDL_GameController, axis)
+            SDL_GameControllerGetAxis(
+                this.handle as *SDL_GameController, axis as i32
+            )
         }
 
         // True when the button is currently held. False when no
         // controller is open.
-        isPressed(button: i32): bool {
+        isPressed(button: Button): bool {
             if this.handle == 0 { return false }
-            SDL_GameControllerGetButton(this.handle as *SDL_GameController, button) != 0 as u8
+            SDL_GameControllerGetButton(
+                this.handle as *SDL_GameController, button as i32
+            ) != 0 as u8
         }
     }
 }
-
-// SDL_GameControllerButton enum values.
-const BUTTON_A: i32 = 0
-const BUTTON_B: i32 = 1
-const BUTTON_X: i32 = 2
-const BUTTON_Y: i32 = 3
-const BUTTON_BACK: i32 = 4
-const BUTTON_GUIDE: i32 = 5
-const BUTTON_START: i32 = 6
-const BUTTON_LEFTSTICK: i32 = 7
-const BUTTON_RIGHTSTICK: i32 = 8
-const BUTTON_LEFTSHOULDER: i32 = 9
-const BUTTON_RIGHTSHOULDER: i32 = 10
-const BUTTON_DPAD_UP: i32 = 11
-const BUTTON_DPAD_DOWN: i32 = 12
-const BUTTON_DPAD_LEFT: i32 = 13
-const BUTTON_DPAD_RIGHT: i32 = 14
-
-// SDL_GameControllerAxis enum values. Stick axes range
-// [-32768, 32767]; trigger axes range [0, 32767].
-const AXIS_LEFTX: i32 = 0
-const AXIS_LEFTY: i32 = 1
-const AXIS_RIGHTX: i32 = 2
-const AXIS_RIGHTY: i32 = 3
-const AXIS_TRIGGERLEFT: i32 = 4
-const AXIS_TRIGGERRIGHT: i32 = 5

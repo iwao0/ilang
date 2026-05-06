@@ -884,6 +884,11 @@ let p: u32 = Priority.high as u32   // 10
   (`Priority.high as i64`).
 - Casting an enum value to any numeric primitive resolves to the
   variant's discriminant.
+- Casting a numeric primitive to a fieldless enum (`x as MyEnum`)
+  reinterprets the integer as a discriminant. Only allowed when the
+  enum has no payloaded variants — payloaded enums have no integer
+  representation. Lets C-side return values flow back into the typed
+  enum (`SDL_GetKeyFromScancode(...) as Keycode`).
 
 ### `@flags` enums
 

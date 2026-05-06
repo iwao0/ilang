@@ -696,6 +696,7 @@ let p: u32 = Priority.high as u32   // 10
 - discriminant はユニットバリアントにのみ指定可
 - `: <type>` を省略した場合、`as` で指定したキャスト先の幅が使われる (`Priority.high as i64`)
 - enum 値を任意の数値プリミティブにキャストすると、対応するバリアントの discriminant が得られる
+- 数値プリミティブを **フィールドレス** な enum にキャストする逆方向 (`x as MyEnum`) も可。整数値を discriminant としてそのまま再解釈する。ペイロード付き variant をもつ enum は整数表現を持たないので不可。C 側の返り値を型付き enum に戻すのに使える (`SDL_GetKeyFromScancode(...) as Keycode`)
 
 ### `@flags` enum
 

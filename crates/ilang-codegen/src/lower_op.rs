@@ -411,6 +411,27 @@ pub(crate) fn coerce(
             }),
         };
     }
+    // Numeric → enum: reinterpret an integer as a discriminant.
+    // The enum tag is stored in I32 internally; widen / narrow to
+    // match. Float input is rejected (no obvious rounding rule).
+    // The type checker guarantees the target enum is fieldless.
+    if matches!(to, JitTy::Enum(_)) {
+        return match from {
+            JitTy::I8 | JitTy::U8 | JitTy::Bool => {
+                Ok(b.ins().sextend(cranelift_codegen::ir::types::I32, v))
+            }
+            JitTy::I16 => Ok(b.ins().sextend(cranelift_codegen::ir::types::I32, v)),
+            JitTy::U16 => Ok(b.ins().uextend(cranelift_codegen::ir::types::I32, v)),
+            JitTy::I32 | JitTy::U32 => Ok(v),
+            JitTy::I64 | JitTy::U64 => {
+                Ok(b.ins().ireduce(cranelift_codegen::ir::types::I32, v))
+            }
+            _ => Err(CodegenError::Unsupported {
+                what: format!("{from:?} -> enum cast not supported"),
+                span,
+            }),
+        };
+    }
     // Object → Object across class IDs: subtype upcast (Child →
     // Parent). Same wire format (i64 pointer); the typechecker
     // already verified the relation. The id mismatch is fine.

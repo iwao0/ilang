@@ -861,19 +861,19 @@ fn play() {
         // paddle (digital), A → launch, START → restart, BACK →
         // quit. The keyboard mappings below stack with these so
         // either device works.
-        let pad_lx = pad.getAxis(sdl.AXIS_LEFTX) as i32  // [-32768, 32767]
-        let pad_dpad_l = pad.isPressed(sdl.BUTTON_DPAD_LEFT)
-        let pad_dpad_r = pad.isPressed(sdl.BUTTON_DPAD_RIGHT)
-        let pad_a = pad.isPressed(sdl.BUTTON_A)
-        let pad_start = pad.isPressed(sdl.BUTTON_START)
-        let pad_back = pad.isPressed(sdl.BUTTON_BACK)
+        let pad_lx = pad.getAxis(sdl.Axis.leftX) as i32  // [-32768, 32767]
+        let pad_dpad_l = pad.isPressed(sdl.Button.dpadLeft)
+        let pad_dpad_r = pad.isPressed(sdl.Button.dpadRight)
+        let pad_a = pad.isPressed(sdl.Button.a)
+        let pad_start = pad.isPressed(sdl.Button.start)
+        let pad_back = pad.isPressed(sdl.Button.back)
 
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_ESCAPE) || pad_back {
+        if sdl.Keyboard.isPressed(sdl.Scancode.escape) || pad_back {
             running = false
         }
 
         // F: toggle fullscreen on key-down (rising edge).
-        let f_now = sdl.Keyboard.isPressed(sdl.SCANCODE_F)
+        let f_now = sdl.Keyboard.isPressed(sdl.Scancode.f)
         if f_now && !f_was_down {
             fullscreen = !fullscreen
             win.fullscreen = fullscreen
@@ -881,7 +881,7 @@ fn play() {
         f_was_down = f_now
 
         // Restart after game over.
-        if game_over && (sdl.Keyboard.isPressed(sdl.SCANCODE_R) || pad_start) {
+        if game_over && (sdl.Keyboard.isPressed(sdl.Scancode.r) || pad_start) {
             let r2: i32 = 0
             while r2 < ROWS {
                 let c2: i32 = 0
@@ -932,10 +932,10 @@ fn play() {
             prev_paddle_w = paddle_w
         }
 
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) || sdl.Keyboard.isPressed(sdl.SCANCODE_A) || pad_dpad_l {
+        if sdl.Keyboard.isPressed(sdl.Scancode.left) || sdl.Keyboard.isPressed(sdl.Scancode.a) || pad_dpad_l {
             paddle_x = paddle_x - PADDLE_SPEED
         }
-        if sdl.Keyboard.isPressed(sdl.SCANCODE_RIGHT) || sdl.Keyboard.isPressed(sdl.SCANCODE_D) || pad_dpad_r {
+        if sdl.Keyboard.isPressed(sdl.Scancode.right) || sdl.Keyboard.isPressed(sdl.Scancode.d) || pad_dpad_r {
             paddle_x = paddle_x + PADDLE_SPEED
         }
         // Analogue stick: deadzone ~24% then linear scale to paddle
@@ -959,7 +959,7 @@ fn play() {
         // shoot through unfilled rows.
         let intro_total = (COLS - 1) * INTRO_STAGGER + INTRO_DURATION
         if !started && !game_over && intro_phase >= intro_total &&
-                (sdl.Keyboard.isPressed(sdl.SCANCODE_SPACE) || pad_a) {
+                (sdl.Keyboard.isPressed(sdl.Scancode.space) || pad_a) {
             started = true
         }
 

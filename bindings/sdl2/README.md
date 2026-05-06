@@ -12,7 +12,7 @@ ilang interpreter has no dlsym path.
 | `sdl_window.il` | `class Window` (ARC-managed handle, opens / destroys) |
 | `sdl_renderer.il` | `class Renderer` — `setColor` / `clear` / `fillRect` / `present` |
 | `sdl_time.il` | `delay` / `pumpEvents` |
-| `sdl_keyboard.il` | `class Keyboard` (`static isPressed`), `SCANCODE_*` constants |
+| `sdl_keyboard.il` | `class Keyboard` (`static isPressed`), `Scancode` / `Keycode` / `KeyMod` enums |
 | `sdl_audio.il` | `class AudioDevice` — queue-based 16-bit signed LE PCM playback |
 
 ## Using these bindings from your project

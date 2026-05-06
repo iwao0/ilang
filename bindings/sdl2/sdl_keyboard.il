@@ -28,7 +28,7 @@
     @lib("SDL2") fn SDL_GetKeyboardFocus(): *void
 
     //     sdl.Keyboard.pump()
-    //     if sdl.Keyboard.isPressed(sdl.SCANCODE_LEFT) { ... }
+    //     if sdl.Keyboard.isPressed(sdl.Scancode.left) { ... }
     //
     // Static-only — `Keyboard` exists just to namespace the
     // polling helpers. `state_ptr` is a class-static i64 holding
@@ -50,41 +50,45 @@
         }
 
         // ─── live state ──────────────────────────────────────────
-        static isPressed(scancode: i32): bool {
-            if Keyboard.state_ptr == 0 || scancode < 0 || scancode >= NUM_SCANCODES {
+        static isPressed(scancode: Scancode): bool {
+            let s: i32 = scancode as i32
+            // SDL_NUM_SCANCODES = 512. Inlined because module-level
+            // consts aren't visible from inside this @extern block
+            // once the file is imported through the umbrella.
+            if Keyboard.state_ptr == 0 || s < 0 || s >= 512 {
                 return false
             }
-            readU8(Keyboard.state_ptr as *const void, scancode as i64) != 0 as u8
+            readU8(Keyboard.state_ptr as *const void, s as i64) != 0 as u8
         }
 
         // ─── modifiers ───────────────────────────────────────────
-        static modState(): u16 {
-            SDL_GetModState()
+        static modState(): KeyMod {
+            SDL_GetModState() as KeyMod
         }
-        static setModState(modstate: u16) {
-            SDL_SetModState(modstate)
+        static setModState(modstate: KeyMod) {
+            SDL_SetModState(modstate as u16)
         }
 
         // ─── scancode <-> keycode ────────────────────────────────
-        static keyFromScancode(scancode: i32): i32 {
-            SDL_GetKeyFromScancode(scancode)
+        static keyFromScancode(scancode: Scancode): Keycode {
+            SDL_GetKeyFromScancode(scancode as i32) as Keycode
         }
-        static scancodeFromKey(key: i32): i32 {
-            SDL_GetScancodeFromKey(key)
+        static scancodeFromKey(key: Keycode): Scancode {
+            SDL_GetScancodeFromKey(key as i32) as Scancode
         }
 
         // ─── name lookups ────────────────────────────────────────
-        static scancodeName(scancode: i32): string {
-            stringFromCstr(SDL_GetScancodeName(scancode))
+        static scancodeName(scancode: Scancode): string {
+            stringFromCstr(SDL_GetScancodeName(scancode as i32))
         }
-        static scancodeFromName(name: string): i32 {
-            SDL_GetScancodeFromName(cstrFromString(name))
+        static scancodeFromName(name: string): Scancode {
+            SDL_GetScancodeFromName(cstrFromString(name)) as Scancode
         }
-        static keyName(key: i32): string {
-            stringFromCstr(SDL_GetKeyName(key))
+        static keyName(key: Keycode): string {
+            stringFromCstr(SDL_GetKeyName(key as i32))
         }
-        static keyFromName(name: string): i32 {
-            SDL_GetKeyFromName(cstrFromString(name))
+        static keyFromName(name: string): Keycode {
+            SDL_GetKeyFromName(cstrFromString(name)) as Keycode
         }
 
         // ─── text input mode ─────────────────────────────────────
@@ -133,321 +137,294 @@
         }
     }
 }
+/// SDL_Scancode — physical key, layout-independent.
+/// `SCANCODE_RETURN` is renamed to `return_` because
+/// `return` is reserved in ilang. Number-row keys use the
+/// `digit0..digit9` form (idents can't start with a digit).
+enum Scancode: i32 {
+    unknown                     = 0
+    a                           = 4
+    b                           = 5
+    c                           = 6
+    d                           = 7
+    e                           = 8
+    f                           = 9
+    g                           = 10
+    h                           = 11
+    i                           = 12
+    j                           = 13
+    k                           = 14
+    l                           = 15
+    m                           = 16
+    n                           = 17
+    o                           = 18
+    p                           = 19
+    q                           = 20
+    r                           = 21
+    s                           = 22
+    t                           = 23
+    u                           = 24
+    v                           = 25
+    w                           = 26
+    x                           = 27
+    y                           = 28
+    z                           = 29
+    digit1                      = 30
+    digit2                      = 31
+    digit3                      = 32
+    digit4                      = 33
+    digit5                      = 34
+    digit6                      = 35
+    digit7                      = 36
+    digit8                      = 37
+    digit9                      = 38
+    digit0                      = 39
+    return_                     = 40
+    escape                      = 41
+    backspace                   = 42
+    tab                         = 43
+    space                       = 44
+    minus                       = 45
+    equals                      = 46
+    leftbracket                 = 47
+    rightbracket                = 48
+    backslash                   = 49
+    nonushash                   = 50
+    semicolon                   = 51
+    apostrophe                  = 52
+    grave                       = 53
+    comma                       = 54
+    period                      = 55
+    slash                       = 56
+    capslock                    = 57
+    f1                          = 58
+    f2                          = 59
+    f3                          = 60
+    f4                          = 61
+    f5                          = 62
+    f6                          = 63
+    f7                          = 64
+    f8                          = 65
+    f9                          = 66
+    f10                         = 67
+    f11                         = 68
+    f12                         = 69
+    printscreen                 = 70
+    scrolllock                  = 71
+    pause                       = 72
+    insert                      = 73
+    home                        = 74
+    pageup                      = 75
+    delete                      = 76
+    end                         = 77
+    pagedown                    = 78
+    right                       = 79
+    left                        = 80
+    down                        = 81
+    up                          = 82
+    numlockclear                = 83
+    kpDivide                    = 84
+    kpMultiply                  = 85
+    kpMinus                     = 86
+    kpPlus                      = 87
+    kpEnter                     = 88
+    kp1                         = 89
+    kp2                         = 90
+    kp3                         = 91
+    kp4                         = 92
+    kp5                         = 93
+    kp6                         = 94
+    kp7                         = 95
+    kp8                         = 96
+    kp9                         = 97
+    kp0                         = 98
+    kpPeriod                    = 99
+    nonusbackslash              = 100
+    application                 = 101
+    power                       = 102
+    kpEquals                    = 103
+    f13                         = 104
+    f14                         = 105
+    f15                         = 106
+    f16                         = 107
+    f17                         = 108
+    f18                         = 109
+    f19                         = 110
+    f20                         = 111
+    f21                         = 112
+    f22                         = 113
+    f23                         = 114
+    f24                         = 115
+    execute                     = 116
+    help                        = 117
+    menu                        = 118
+    select                      = 119
+    stop                        = 120
+    again                       = 121
+    undo                        = 122
+    cut                         = 123
+    copy                        = 124
+    paste                       = 125
+    find                        = 126
+    mute                        = 127
+    volumeup                    = 128
+    volumedown                  = 129
+    lctrl                       = 224
+    lshift                      = 225
+    lalt                        = 226
+    lgui                        = 227
+    rctrl                       = 228
+    rshift                      = 229
+    ralt                        = 230
+    rgui                        = 231
+    mode                        = 257
+    audionext                   = 258
+    audioprev                   = 259
+    audiostop                   = 260
+    audioplay                   = 261
+    audiomute                   = 262
+    mediaselect                 = 263
+    www                         = 264
+    mail                        = 265
+    calculator                  = 266
+    computer                    = 267
+    acSearch                    = 268
+    acHome                      = 269
+    acBack                      = 270
+    acForward                   = 271
+    acStop                      = 272
+    acRefresh                   = 273
+    acBookmarks                 = 274
+}
 
-// ─── SDL_Scancode (matches the C enum) ────────────────────────────
-const SCANCODE_UNKNOWN: i32 = 0
+/// SDL_Keycode — virtual key (current keyboard layout).
+/// Same renaming rules as `Scancode` (`return_`, `digit0..9`).
+enum Keycode: i32 {
+    scancodeMask                = 0x40000000
+    unknown                     = 0
+    return_                     = 13  // '\r'
+    escape                      = 27  // '\033'
+    backspace                   = 8  // '\b'
+    tab                         = 9  // '\t'
+    space                       = 32  // ' '
+    exclaim                     = 33  // '!'
+    quotedbl                    = 34  // '"'
+    hash                        = 35  // '#'
+    dollar                      = 36  // '$'
+    percent                     = 37  // '%'
+    ampersand                   = 38  // '&'
+    quote                       = 39  // '\''
+    leftparen                   = 40  // '('
+    rightparen                  = 41  // ')'
+    asterisk                    = 42  // '*'
+    plus                        = 43  // '+'
+    comma                       = 44  // ','
+    minus                       = 45  // '-'
+    period                      = 46  // '.'
+    slash                       = 47  // '/'
+    digit0                      = 48
+    digit1                      = 49
+    digit2                      = 50
+    digit3                      = 51
+    digit4                      = 52
+    digit5                      = 53
+    digit6                      = 54
+    digit7                      = 55
+    digit8                      = 56
+    digit9                      = 57
+    colon                       = 58  // ':'
+    semicolon                   = 59  // ';'
+    less                        = 60  // '<'
+    equals                      = 61  // '='
+    greater                     = 62  // '>'
+    question                    = 63  // '?'
+    at                          = 64  // '@'
+    leftbracket                 = 91  // '['
+    backslash                   = 92  // '\\'
+    rightbracket                = 93  // ']'
+    caret                       = 94  // '^'
+    underscore                  = 95  // '_'
+    backquote                   = 96  // '`'
+    a                           = 97
+    b                           = 98
+    c                           = 99
+    d                           = 100
+    e                           = 101
+    f                           = 102
+    g                           = 103
+    h                           = 104
+    i                           = 105
+    j                           = 106
+    k                           = 107
+    l                           = 108
+    m                           = 109
+    n                           = 110
+    o                           = 111
+    p                           = 112
+    q                           = 113
+    r                           = 114
+    s                           = 115
+    t                           = 116
+    u                           = 117
+    v                           = 118
+    w                           = 119
+    x                           = 120
+    y                           = 121
+    z                           = 122
+    delete                      = 127
+    capslock                    = 1073741881  // SCANCODE_CAPSLOCK
+    f1                          = 1073741882
+    f2                          = 1073741883
+    f3                          = 1073741884
+    f4                          = 1073741885
+    f5                          = 1073741886
+    f6                          = 1073741887
+    f7                          = 1073741888
+    f8                          = 1073741889
+    f9                          = 1073741890
+    f10                         = 1073741891
+    f11                         = 1073741892
+    f12                         = 1073741893
+    printscreen                 = 1073741894
+    scrolllock                  = 1073741895
+    pause                       = 1073741896
+    insert                      = 1073741897
+    home                        = 1073741898
+    pageup                      = 1073741899
+    end                         = 1073741901
+    pagedown                    = 1073741902
+    right                       = 1073741903
+    left                        = 1073741904
+    down                        = 1073741905
+    up                          = 1073741906
+    lctrl                       = 1073742048  // SCANCODE_LCTRL = 224
+    lshift                      = 1073742049
+    lalt                        = 1073742050
+    lgui                        = 1073742051
+    rctrl                       = 1073742052
+    rshift                      = 1073742053
+    ralt                        = 1073742054
+    rgui                        = 1073742055
+}
 
-// Letters
-const SCANCODE_A: i32 = 4
-const SCANCODE_B: i32 = 5
-const SCANCODE_C: i32 = 6
-const SCANCODE_D: i32 = 7
-const SCANCODE_E: i32 = 8
-const SCANCODE_F: i32 = 9
-const SCANCODE_G: i32 = 10
-const SCANCODE_H: i32 = 11
-const SCANCODE_I: i32 = 12
-const SCANCODE_J: i32 = 13
-const SCANCODE_K: i32 = 14
-const SCANCODE_L: i32 = 15
-const SCANCODE_M: i32 = 16
-const SCANCODE_N: i32 = 17
-const SCANCODE_O: i32 = 18
-const SCANCODE_P: i32 = 19
-const SCANCODE_Q: i32 = 20
-const SCANCODE_R: i32 = 21
-const SCANCODE_S: i32 = 22
-const SCANCODE_T: i32 = 23
-const SCANCODE_U: i32 = 24
-const SCANCODE_V: i32 = 25
-const SCANCODE_W: i32 = 26
-const SCANCODE_X: i32 = 27
-const SCANCODE_Y: i32 = 28
-const SCANCODE_Z: i32 = 29
-
-// Number row
-const SCANCODE_1: i32 = 30
-const SCANCODE_2: i32 = 31
-const SCANCODE_3: i32 = 32
-const SCANCODE_4: i32 = 33
-const SCANCODE_5: i32 = 34
-const SCANCODE_6: i32 = 35
-const SCANCODE_7: i32 = 36
-const SCANCODE_8: i32 = 37
-const SCANCODE_9: i32 = 38
-const SCANCODE_0: i32 = 39
-
-// Whitespace / control
-const SCANCODE_RETURN: i32    = 40
-const SCANCODE_ESCAPE: i32    = 41
-const SCANCODE_BACKSPACE: i32 = 42
-const SCANCODE_TAB: i32       = 43
-const SCANCODE_SPACE: i32     = 44
-
-// Punctuation
-const SCANCODE_MINUS: i32        = 45
-const SCANCODE_EQUALS: i32       = 46
-const SCANCODE_LEFTBRACKET: i32  = 47
-const SCANCODE_RIGHTBRACKET: i32 = 48
-const SCANCODE_BACKSLASH: i32    = 49
-const SCANCODE_NONUSHASH: i32    = 50
-const SCANCODE_SEMICOLON: i32    = 51
-const SCANCODE_APOSTROPHE: i32   = 52
-const SCANCODE_GRAVE: i32        = 53
-const SCANCODE_COMMA: i32        = 54
-const SCANCODE_PERIOD: i32       = 55
-const SCANCODE_SLASH: i32        = 56
-
-const SCANCODE_CAPSLOCK: i32 = 57
-
-// Function keys
-const SCANCODE_F1: i32  = 58
-const SCANCODE_F2: i32  = 59
-const SCANCODE_F3: i32  = 60
-const SCANCODE_F4: i32  = 61
-const SCANCODE_F5: i32  = 62
-const SCANCODE_F6: i32  = 63
-const SCANCODE_F7: i32  = 64
-const SCANCODE_F8: i32  = 65
-const SCANCODE_F9: i32  = 66
-const SCANCODE_F10: i32 = 67
-const SCANCODE_F11: i32 = 68
-const SCANCODE_F12: i32 = 69
-
-// Navigation cluster
-const SCANCODE_PRINTSCREEN: i32 = 70
-const SCANCODE_SCROLLLOCK: i32  = 71
-const SCANCODE_PAUSE: i32       = 72
-const SCANCODE_INSERT: i32      = 73
-const SCANCODE_HOME: i32        = 74
-const SCANCODE_PAGEUP: i32      = 75
-const SCANCODE_DELETE: i32      = 76
-const SCANCODE_END: i32         = 77
-const SCANCODE_PAGEDOWN: i32    = 78
-const SCANCODE_RIGHT: i32       = 79
-const SCANCODE_LEFT: i32        = 80
-const SCANCODE_DOWN: i32        = 81
-const SCANCODE_UP: i32          = 82
-
-// Numpad
-const SCANCODE_NUMLOCKCLEAR: i32 = 83
-const SCANCODE_KP_DIVIDE: i32    = 84
-const SCANCODE_KP_MULTIPLY: i32  = 85
-const SCANCODE_KP_MINUS: i32     = 86
-const SCANCODE_KP_PLUS: i32      = 87
-const SCANCODE_KP_ENTER: i32     = 88
-const SCANCODE_KP_1: i32         = 89
-const SCANCODE_KP_2: i32         = 90
-const SCANCODE_KP_3: i32         = 91
-const SCANCODE_KP_4: i32         = 92
-const SCANCODE_KP_5: i32         = 93
-const SCANCODE_KP_6: i32         = 94
-const SCANCODE_KP_7: i32         = 95
-const SCANCODE_KP_8: i32         = 96
-const SCANCODE_KP_9: i32         = 97
-const SCANCODE_KP_0: i32         = 98
-const SCANCODE_KP_PERIOD: i32    = 99
-
-const SCANCODE_NONUSBACKSLASH: i32 = 100
-const SCANCODE_APPLICATION: i32    = 101
-const SCANCODE_POWER: i32          = 102
-const SCANCODE_KP_EQUALS: i32      = 103
-
-// Extended function keys
-const SCANCODE_F13: i32 = 104
-const SCANCODE_F14: i32 = 105
-const SCANCODE_F15: i32 = 106
-const SCANCODE_F16: i32 = 107
-const SCANCODE_F17: i32 = 108
-const SCANCODE_F18: i32 = 109
-const SCANCODE_F19: i32 = 110
-const SCANCODE_F20: i32 = 111
-const SCANCODE_F21: i32 = 112
-const SCANCODE_F22: i32 = 113
-const SCANCODE_F23: i32 = 114
-const SCANCODE_F24: i32 = 115
-
-const SCANCODE_EXECUTE: i32    = 116
-const SCANCODE_HELP: i32       = 117
-const SCANCODE_MENU: i32       = 118
-const SCANCODE_SELECT: i32     = 119
-const SCANCODE_STOP: i32       = 120
-const SCANCODE_AGAIN: i32      = 121
-const SCANCODE_UNDO: i32       = 122
-const SCANCODE_CUT: i32        = 123
-const SCANCODE_COPY: i32       = 124
-const SCANCODE_PASTE: i32      = 125
-const SCANCODE_FIND: i32       = 126
-const SCANCODE_MUTE: i32       = 127
-const SCANCODE_VOLUMEUP: i32   = 128
-const SCANCODE_VOLUMEDOWN: i32 = 129
-
-// Modifier keys
-const SCANCODE_LCTRL: i32  = 224
-const SCANCODE_LSHIFT: i32 = 225
-const SCANCODE_LALT: i32   = 226
-const SCANCODE_LGUI: i32   = 227
-const SCANCODE_RCTRL: i32  = 228
-const SCANCODE_RSHIFT: i32 = 229
-const SCANCODE_RALT: i32   = 230
-const SCANCODE_RGUI: i32   = 231
-const SCANCODE_MODE: i32   = 257
-
-// Media / browser keys (high range, partial)
-const SCANCODE_AUDIONEXT: i32   = 258
-const SCANCODE_AUDIOPREV: i32   = 259
-const SCANCODE_AUDIOSTOP: i32   = 260
-const SCANCODE_AUDIOPLAY: i32   = 261
-const SCANCODE_AUDIOMUTE: i32   = 262
-const SCANCODE_MEDIASELECT: i32 = 263
-const SCANCODE_WWW: i32         = 264
-const SCANCODE_MAIL: i32        = 265
-const SCANCODE_CALCULATOR: i32  = 266
-const SCANCODE_COMPUTER: i32    = 267
-const SCANCODE_AC_SEARCH: i32   = 268
-const SCANCODE_AC_HOME: i32     = 269
-const SCANCODE_AC_BACK: i32     = 270
-const SCANCODE_AC_FORWARD: i32  = 271
-const SCANCODE_AC_STOP: i32     = 272
-const SCANCODE_AC_REFRESH: i32  = 273
-const SCANCODE_AC_BOOKMARKS: i32 = 274
-
-const NUM_SCANCODES: i32 = 512
-
-// ─── SDL_Keycode (SDLK_* values) ──────────────────────────────────
-//
-// SDLK values for printable ASCII characters are the character
-// itself. Function-keyish ones (F1, arrows, modifiers) are formed
-// as `SCANCODE_MASK | scancode`. SDLK_SCANCODE_MASK = 1 << 30 =
-// 0x40000000, so e.g. SDLK_F1 = 0x40000000 | 58 = 0x4000003A.
-
-const SDLK_SCANCODE_MASK: i32 = 0x40000000
-
-const SDLK_UNKNOWN: i32   = 0
-const SDLK_RETURN: i32    = 13      // '\r'
-const SDLK_ESCAPE: i32    = 27      // '\033'
-const SDLK_BACKSPACE: i32 = 8       // '\b'
-const SDLK_TAB: i32       = 9       // '\t'
-const SDLK_SPACE: i32     = 32      // ' '
-const SDLK_EXCLAIM: i32      = 33   // '!'
-const SDLK_QUOTEDBL: i32     = 34   // '"'
-const SDLK_HASH: i32         = 35   // '#'
-const SDLK_DOLLAR: i32       = 36   // '$'
-const SDLK_PERCENT: i32      = 37   // '%'
-const SDLK_AMPERSAND: i32    = 38   // '&'
-const SDLK_QUOTE: i32        = 39   // '\''
-const SDLK_LEFTPAREN: i32    = 40   // '('
-const SDLK_RIGHTPAREN: i32   = 41   // ')'
-const SDLK_ASTERISK: i32     = 42   // '*'
-const SDLK_PLUS: i32         = 43   // '+'
-const SDLK_COMMA: i32        = 44   // ','
-const SDLK_MINUS: i32        = 45   // '-'
-const SDLK_PERIOD: i32       = 46   // '.'
-const SDLK_SLASH: i32        = 47   // '/'
-const SDLK_0: i32 = 48
-const SDLK_1: i32 = 49
-const SDLK_2: i32 = 50
-const SDLK_3: i32 = 51
-const SDLK_4: i32 = 52
-const SDLK_5: i32 = 53
-const SDLK_6: i32 = 54
-const SDLK_7: i32 = 55
-const SDLK_8: i32 = 56
-const SDLK_9: i32 = 57
-const SDLK_COLON: i32        = 58   // ':'
-const SDLK_SEMICOLON: i32    = 59   // ';'
-const SDLK_LESS: i32         = 60   // '<'
-const SDLK_EQUALS: i32       = 61   // '='
-const SDLK_GREATER: i32      = 62   // '>'
-const SDLK_QUESTION: i32     = 63   // '?'
-const SDLK_AT: i32           = 64   // '@'
-const SDLK_LEFTBRACKET: i32  = 91   // '['
-const SDLK_BACKSLASH: i32    = 92   // '\\'
-const SDLK_RIGHTBRACKET: i32 = 93   // ']'
-const SDLK_CARET: i32        = 94   // '^'
-const SDLK_UNDERSCORE: i32   = 95   // '_'
-const SDLK_BACKQUOTE: i32    = 96   // '`'
-// Lowercase letters — SDLK is the typed character.
-const SDLK_a: i32 = 97
-const SDLK_b: i32 = 98
-const SDLK_c: i32 = 99
-const SDLK_d: i32 = 100
-const SDLK_e: i32 = 101
-const SDLK_f: i32 = 102
-const SDLK_g: i32 = 103
-const SDLK_h: i32 = 104
-const SDLK_i: i32 = 105
-const SDLK_j: i32 = 106
-const SDLK_k: i32 = 107
-const SDLK_l: i32 = 108
-const SDLK_m: i32 = 109
-const SDLK_n: i32 = 110
-const SDLK_o: i32 = 111
-const SDLK_p: i32 = 112
-const SDLK_q: i32 = 113
-const SDLK_r: i32 = 114
-const SDLK_s: i32 = 115
-const SDLK_t: i32 = 116
-const SDLK_u: i32 = 117
-const SDLK_v: i32 = 118
-const SDLK_w: i32 = 119
-const SDLK_x: i32 = 120
-const SDLK_y: i32 = 121
-const SDLK_z: i32 = 122
-const SDLK_DELETE: i32 = 127
-
-// Non-printable keys = SDLK_SCANCODE_MASK | scancode.
-//   SDLK_F1     = 0x40000000 | 58  = 0x4000003A = 1073741882
-//   SDLK_RIGHT  = 0x40000000 | 79  = 0x4000004F = 1073741903
-const SDLK_CAPSLOCK: i32   = 1073741881   // SCANCODE_CAPSLOCK
-const SDLK_F1: i32         = 1073741882
-const SDLK_F2: i32         = 1073741883
-const SDLK_F3: i32         = 1073741884
-const SDLK_F4: i32         = 1073741885
-const SDLK_F5: i32         = 1073741886
-const SDLK_F6: i32         = 1073741887
-const SDLK_F7: i32         = 1073741888
-const SDLK_F8: i32         = 1073741889
-const SDLK_F9: i32         = 1073741890
-const SDLK_F10: i32        = 1073741891
-const SDLK_F11: i32        = 1073741892
-const SDLK_F12: i32        = 1073741893
-const SDLK_PRINTSCREEN: i32 = 1073741894
-const SDLK_SCROLLLOCK: i32 = 1073741895
-const SDLK_PAUSE: i32      = 1073741896
-const SDLK_INSERT: i32     = 1073741897
-const SDLK_HOME: i32       = 1073741898
-const SDLK_PAGEUP: i32     = 1073741899
-const SDLK_END: i32        = 1073741901
-const SDLK_PAGEDOWN: i32   = 1073741902
-const SDLK_RIGHT: i32      = 1073741903
-const SDLK_LEFT: i32       = 1073741904
-const SDLK_DOWN: i32       = 1073741905
-const SDLK_UP: i32         = 1073741906
-const SDLK_LCTRL: i32      = 1073742048   // SCANCODE_LCTRL = 224
-const SDLK_LSHIFT: i32     = 1073742049
-const SDLK_LALT: i32       = 1073742050
-const SDLK_LGUI: i32       = 1073742051
-const SDLK_RCTRL: i32      = 1073742052
-const SDLK_RSHIFT: i32     = 1073742053
-const SDLK_RALT: i32       = 1073742054
-const SDLK_RGUI: i32       = 1073742055
-
-// ─── SDL_Keymod (modifier-key bitmask) ────────────────────────────
-const KMOD_NONE: u16     = 0x0000
-const KMOD_LSHIFT: u16   = 0x0001
-const KMOD_RSHIFT: u16   = 0x0002
-const KMOD_LCTRL: u16    = 0x0040
-const KMOD_RCTRL: u16    = 0x0080
-const KMOD_LALT: u16     = 0x0100
-const KMOD_RALT: u16     = 0x0200
-const KMOD_LGUI: u16     = 0x0400
-const KMOD_RGUI: u16     = 0x0800
-const KMOD_NUM: u16      = 0x1000
-const KMOD_CAPS: u16     = 0x2000
-const KMOD_MODE: u16     = 0x4000
-const KMOD_SCROLL: u16   = 0x8000
-const KMOD_CTRL: u16     = 0x00C0   // LCTRL | RCTRL
-const KMOD_SHIFT: u16    = 0x0003   // LSHIFT | RSHIFT
-const KMOD_ALT: u16      = 0x0300   // LALT | RALT
-const KMOD_GUI: u16      = 0x0C00   // LGUI | RGUI
+/// SDL_Keymod — modifier-key bitmask.
+@flags
+enum KeyMod: u16 {
+    none    = 0x0000
+    lshift  = 0x0001
+    rshift  = 0x0002
+    lctrl   = 0x0040
+    rctrl   = 0x0080
+    lalt    = 0x0100
+    ralt    = 0x0200
+    lgui    = 0x0400
+    rgui    = 0x0800
+    num     = 0x1000
+    caps    = 0x2000
+    mode    = 0x4000
+    scroll  = 0x8000
+    ctrl    = 0x00C0  // LCTRL | RCTRL
+    shift   = 0x0003  // LSHIFT | RSHIFT
+    alt     = 0x0300  // LALT | RALT
+    gui     = 0x0C00  // LGUI | RGUI
+}

@@ -210,19 +210,22 @@
         // display, no flags.
         init(title: string, w: i32, h: i32) {
             let flags: u32 = 0
+            // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000. The module-level
+            // `WindowPos` enum isn't visible from inside this @extern
+            // block once the file is imported through the umbrella,
+            // so the literal is inlined here.
+            let undef: i32 = 0x1FFF0000
             let win = SDL_CreateWindow(
-                cstrFromString(title),
-                WINDOWPOS_UNDEFINED, WINDOWPOS_UNDEFINED,
-                w, h, flags
+                cstrFromString(title), undef, undef, w, h, flags
             )
             this.handle = win as i64
         }
 
         // Full SDL_CreateWindow surface — caller controls the
-        // initial position and the WINDOW_* flag bitmask.
-        init(title: string, x: i32, y: i32, w: i32, h: i32, flags: u32) {
+        // initial position and the `WindowFlag` bitmask.
+        init(title: string, x: i32, y: i32, w: i32, h: i32, flags: WindowFlag) {
             let win = SDL_CreateWindow(
-                cstrFromString(title), x, y, w, h, flags
+                cstrFromString(title), x, y, w, h, flags as u32
             )
             this.handle = win as i64
         }
@@ -353,11 +356,11 @@
             SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag)
             return
         }
-        // Raw fullscreen flag (e.g. SDL_WINDOW_FULLSCREEN exclusive
-        // mode vs SDL_WINDOW_FULLSCREEN_DESKTOP). The boolean
-        // `set fullscreen` above uses _DESKTOP.
-        set fullscreenFlag(flag: u32) {
-            SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag)
+        // Raw fullscreen flag (e.g. `WindowFlag.fullscreen` exclusive
+        // mode vs `WindowFlag.fullscreenDesktop`). The boolean
+        // `set fullscreen` above uses `fullscreenDesktop`.
+        set fullscreenFlag(flag: WindowFlag) {
+            SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag as u32)
             return
         }
         get opacity(): f32 {
@@ -380,8 +383,8 @@
         setInputFocus(): i32 {
             SDL_SetWindowInputFocus(this.handle as *SDL_Window)
         }
-        flash(operation: i32): i32 {
-            SDL_FlashWindow(this.handle as *SDL_Window, operation)
+        flash(operation: FlashOp): i32 {
+            SDL_FlashWindow(this.handle as *SDL_Window, operation as i32)
         }
 
         // ─── grab ────────────────────────────────────────────────
@@ -537,12 +540,12 @@
     fn glResetAttributes() {
         SDL_GL_ResetAttributes()
     }
-    fn glSetAttribute(attr: i32, value: i32): i32 {
-        SDL_GL_SetAttribute(attr, value)
+    fn glSetAttribute(attr: GLAttr, value: i32): i32 {
+        SDL_GL_SetAttribute(attr as i32, value)
     }
-    fn glGetAttribute(attr: i32): i32 {
+    fn glGetAttribute(attr: GLAttr): i32 {
         let buf = new IntOut()
-        SDL_GL_GetAttribute(attr, buf)
+        SDL_GL_GetAttribute(attr as i32, buf)
         buf.v
     }
     fn glSetSwapInterval(interval: i32): i32 {
@@ -553,105 +556,125 @@
     }
 }
 
-// ─── SDL_WindowFlags ──────────────────────────────────────────────
-const WINDOW_FULLSCREEN: u32         = 0x00000001
-const WINDOW_OPENGL: u32             = 0x00000002
-const WINDOW_SHOWN: u32              = 0x00000004
-const WINDOW_HIDDEN: u32             = 0x00000008
-const WINDOW_BORDERLESS: u32         = 0x00000010
-const WINDOW_RESIZABLE: u32          = 0x00000020
-const WINDOW_MINIMIZED: u32          = 0x00000040
-const WINDOW_MAXIMIZED: u32          = 0x00000080
-const WINDOW_MOUSE_GRABBED: u32      = 0x00000100
-const WINDOW_INPUT_FOCUS: u32        = 0x00000200
-const WINDOW_MOUSE_FOCUS: u32        = 0x00000400
-const WINDOW_FULLSCREEN_DESKTOP: u32 = 0x00001001
-const WINDOW_FOREIGN: u32            = 0x00000800
-const WINDOW_ALLOW_HIGHDPI: u32      = 0x00002000
-const WINDOW_MOUSE_CAPTURE: u32      = 0x00004000
-const WINDOW_ALWAYS_ON_TOP: u32      = 0x00008000
-const WINDOW_SKIP_TASKBAR: u32       = 0x00010000
-const WINDOW_UTILITY: u32            = 0x00020000
-const WINDOW_TOOLTIP: u32            = 0x00040000
-const WINDOW_POPUP_MENU: u32         = 0x00080000
-const WINDOW_KEYBOARD_GRABBED: u32   = 0x00100000
-const WINDOW_VULKAN: u32             = 0x10000000
-const WINDOW_METAL: u32              = 0x20000000
+/// SDL_WindowFlags — bitflags passed to `SDL_CreateWindow` / read
+/// back via `Window.flags`.
+@flags
+enum WindowFlag: u32 {
+    fullscreen        = 0x00000001
+    opengl            = 0x00000002
+    shown             = 0x00000004
+    hidden            = 0x00000008
+    borderless        = 0x00000010
+    resizable         = 0x00000020
+    minimized         = 0x00000040
+    maximized         = 0x00000080
+    mouseGrabbed      = 0x00000100
+    inputFocus        = 0x00000200
+    mouseFocus        = 0x00000400
+    fullscreenDesktop = 0x00001001
+    foreign           = 0x00000800
+    allowHighDpi      = 0x00002000
+    mouseCapture      = 0x00004000
+    alwaysOnTop       = 0x00008000
+    skipTaskbar       = 0x00010000
+    utility           = 0x00020000
+    tooltip           = 0x00040000
+    popupMenu         = 0x00080000
+    keyboardGrabbed   = 0x00100000
+    vulkan            = 0x10000000
+    metal             = 0x20000000
+}
 
-// ─── SDL_WindowEventID (sub-events of SDL_WINDOWEVENT) ────────────
-const WINDOWEVENT_NONE: i32             = 0
-const WINDOWEVENT_SHOWN: i32            = 1
-const WINDOWEVENT_HIDDEN: i32           = 2
-const WINDOWEVENT_EXPOSED: i32          = 3
-const WINDOWEVENT_MOVED: i32            = 4
-const WINDOWEVENT_RESIZED: i32          = 5
-const WINDOWEVENT_SIZE_CHANGED: i32     = 6
-const WINDOWEVENT_MINIMIZED: i32        = 7
-const WINDOWEVENT_MAXIMIZED: i32        = 8
-const WINDOWEVENT_RESTORED: i32         = 9
-const WINDOWEVENT_ENTER: i32            = 10
-const WINDOWEVENT_LEAVE: i32            = 11
-const WINDOWEVENT_FOCUS_GAINED: i32     = 12
-const WINDOWEVENT_FOCUS_LOST: i32       = 13
-const WINDOWEVENT_CLOSE: i32            = 14
-const WINDOWEVENT_TAKE_FOCUS: i32       = 15
-const WINDOWEVENT_HIT_TEST: i32         = 16
-const WINDOWEVENT_ICCPROF_CHANGED: i32  = 17
-const WINDOWEVENT_DISPLAY_CHANGED: i32  = 18
+/// SDL_WindowEventID — sub-events of `EventType.windowEvent`.
+enum WindowEvent: i32 {
+    none            = 0
+    shown           = 1
+    hidden          = 2
+    exposed         = 3
+    moved           = 4
+    resized         = 5
+    sizeChanged     = 6
+    minimized       = 7
+    maximized       = 8
+    restored        = 9
+    enter           = 10
+    leave           = 11
+    focusGained     = 12
+    focusLost       = 13
+    close           = 14
+    takeFocus       = 15
+    hitTest         = 16
+    iccprofChanged  = 17
+    displayChanged  = 18
+}
 
-// ─── SDL_WINDOWPOS_* helpers ──────────────────────────────────────
-const WINDOWPOS_UNDEFINED: i32 = 0x1FFF0000
-const WINDOWPOS_CENTERED: i32  = 0x2FFF0000
+/// `SDL_WINDOWPOS_*` helpers for `SDL_CreateWindow` x/y.
+enum WindowPos: i32 {
+    undefined = 0x1FFF0000
+    centered  = 0x2FFF0000
+}
 
-// ─── SDL_DisplayOrientation ───────────────────────────────────────
-const ORIENTATION_UNKNOWN: i32           = 0
-const ORIENTATION_LANDSCAPE: i32         = 1
-const ORIENTATION_LANDSCAPE_FLIPPED: i32 = 2
-const ORIENTATION_PORTRAIT: i32          = 3
-const ORIENTATION_PORTRAIT_FLIPPED: i32  = 4
+/// SDL_DisplayOrientation.
+enum Orientation: i32 {
+    unknown          = 0
+    landscape        = 1
+    landscapeFlipped = 2
+    portrait         = 3
+    portraitFlipped  = 4
+}
 
-// ─── SDL_FlashOperation ───────────────────────────────────────────
-const FLASH_CANCEL: i32        = 0
-const FLASH_BRIEFLY: i32       = 1
-const FLASH_UNTIL_FOCUSED: i32 = 2
+/// SDL_FlashOperation passed to `Window.flash`.
+enum FlashOp: i32 {
+    cancel       = 0
+    briefly      = 1
+    untilFocused = 2
+}
 
-// ─── SDL_GLattr — values for `glSetAttribute` / `glGetAttribute` ─
-const GL_RED_SIZE: i32                    = 0
-const GL_GREEN_SIZE: i32                  = 1
-const GL_BLUE_SIZE: i32                   = 2
-const GL_ALPHA_SIZE: i32                  = 3
-const GL_BUFFER_SIZE: i32                 = 4
-const GL_DOUBLEBUFFER: i32                = 5
-const GL_DEPTH_SIZE: i32                  = 6
-const GL_STENCIL_SIZE: i32                = 7
-const GL_ACCUM_RED_SIZE: i32              = 8
-const GL_ACCUM_GREEN_SIZE: i32            = 9
-const GL_ACCUM_BLUE_SIZE: i32             = 10
-const GL_ACCUM_ALPHA_SIZE: i32            = 11
-const GL_STEREO: i32                      = 12
-const GL_MULTISAMPLEBUFFERS: i32          = 13
-const GL_MULTISAMPLESAMPLES: i32          = 14
-const GL_ACCELERATED_VISUAL: i32          = 15
-const GL_RETAINED_BACKING: i32            = 16
-const GL_CONTEXT_MAJOR_VERSION: i32       = 17
-const GL_CONTEXT_MINOR_VERSION: i32       = 18
-const GL_CONTEXT_EGL: i32                 = 19
-const GL_CONTEXT_FLAGS: i32               = 20
-const GL_CONTEXT_PROFILE_MASK: i32        = 21
-const GL_SHARE_WITH_CURRENT_CONTEXT: i32  = 22
-const GL_FRAMEBUFFER_SRGB_CAPABLE: i32    = 23
-const GL_CONTEXT_RELEASE_BEHAVIOR: i32    = 24
-const GL_CONTEXT_RESET_NOTIFICATION: i32  = 25
-const GL_CONTEXT_NO_ERROR: i32            = 26
-const GL_FLOATBUFFERS: i32                = 27
+/// SDL_GLattr — keys for `glSetAttribute` / `glGetAttribute`.
+enum GLAttr: i32 {
+    redSize                  = 0
+    greenSize                = 1
+    blueSize                 = 2
+    alphaSize                = 3
+    bufferSize               = 4
+    doubleBuffer             = 5
+    depthSize                = 6
+    stencilSize              = 7
+    accumRedSize             = 8
+    accumGreenSize           = 9
+    accumBlueSize            = 10
+    accumAlphaSize           = 11
+    stereo                   = 12
+    multisampleBuffers       = 13
+    multisampleSamples       = 14
+    acceleratedVisual        = 15
+    retainedBacking          = 16
+    contextMajorVersion      = 17
+    contextMinorVersion      = 18
+    contextEgl               = 19
+    contextFlags             = 20
+    contextProfileMask       = 21
+    shareWithCurrentContext  = 22
+    framebufferSrgbCapable   = 23
+    contextReleaseBehavior   = 24
+    contextResetNotification = 25
+    contextNoError           = 26
+    floatbuffers             = 27
+}
 
-// SDL_GLcontextFlag (bit-flags for GL_CONTEXT_FLAGS)
-const GL_CONTEXT_DEBUG_FLAG: i32              = 0x0001
-const GL_CONTEXT_FORWARD_COMPATIBLE_FLAG: i32 = 0x0002
-const GL_CONTEXT_ROBUST_ACCESS_FLAG: i32      = 0x0004
-const GL_CONTEXT_RESET_ISOLATION_FLAG: i32    = 0x0008
+/// SDL_GLcontextFlag — bitflag values for `GLAttr.contextFlags`.
+@flags
+enum GLContextFlag: i32 {
+    debug             = 0x0001
+    forwardCompatible = 0x0002
+    robustAccess      = 0x0004
+    resetIsolation    = 0x0008
+}
 
-// SDL_GLprofile (values for GL_CONTEXT_PROFILE_MASK)
-const GL_CONTEXT_PROFILE_CORE: i32          = 0x0001
-const GL_CONTEXT_PROFILE_COMPATIBILITY: i32 = 0x0002
-const GL_CONTEXT_PROFILE_ES: i32            = 0x0004
+/// SDL_GLprofile — values for `GLAttr.contextProfileMask`.
+@flags
+enum GLProfile: i32 {
+    core          = 0x0001
+    compatibility = 0x0002
+    es            = 0x0004
+}

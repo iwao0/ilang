@@ -2958,6 +2958,24 @@ impl TypeChecker {
                 if matches!(from, Type::Object(ref n) if self.enums.contains_key(n)) && ty.is_numeric() {
                     return Ok(ty.clone());
                 }
+                // Numeric → enum: reinterpret an integer as one of
+                // the enum's discriminants. Only allowed for
+                // fieldless (unit-variant-only) enums; payloaded
+                // enums have no integer representation. Lets C-side
+                // out values (`SDL_GetKeyFromScancode(...) as
+                // Keycode`) round-trip into the typed enum.
+                if from.is_numeric() {
+                    if let Type::Object(n) = ty {
+                        if let Some(sig) = self.enums.get(n) {
+                            let fieldless = sig.variants.iter().all(|v| {
+                                matches!(v.payload, VariantPayloadSig::Unit)
+                            });
+                            if fieldless {
+                                return Ok(ty.clone());
+                            }
+                        }
+                    }
+                }
                 // FFI escape hatch — `i64 ↔ opaque-extern class
                 // (without deinit)`. Lets out-pointer slots from C
                 // be reinterpreted as an opaque handle and vice
