@@ -15,6 +15,8 @@ pub enum LexError {
     UnterminatedString { span: Span },
     #[error("{span}: invalid escape {seq:?} in string literal")]
     BadEscape { seq: String, span: Span },
+    #[error("{span}: unterminated block comment")]
+    UnterminatedBlockComment { span: Span },
 }
 
 impl LexError {
@@ -23,7 +25,8 @@ impl LexError {
             LexError::UnexpectedChar { span, .. }
             | LexError::InvalidNumber { span, .. }
             | LexError::UnterminatedString { span }
-            | LexError::BadEscape { span, .. } => *span,
+            | LexError::BadEscape { span, .. }
+            | LexError::UnterminatedBlockComment { span } => *span,
         }
     }
 }

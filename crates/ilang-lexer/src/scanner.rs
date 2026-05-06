@@ -72,7 +72,7 @@ impl<'a> Lexer<'a> {
         Some(c)
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&mut self) -> Result<(), LexError> {
         loop {
             match self.peek() {
                 Some(c) if c.is_whitespace() => {
@@ -99,12 +99,20 @@ impl<'a> Lexer<'a> {
                 // `/* ... */` works. Newlines inside still set
                 // `pending_newline` to keep ASI behavior unsurprising.
                 Some('/') if self.peek_second() == Some('*') => {
+                    let start_span = Span {
+                        line: self.line,
+                        col: self.col,
+                    };
                     self.bump(); // /
                     self.bump(); // *
                     let mut depth: u32 = 1;
                     while depth > 0 {
                         match self.peek() {
-                            None => break, // unterminated; leave for the next token to surface
+                            None => {
+                                return Err(LexError::UnterminatedBlockComment {
+                                    span: start_span,
+                                });
+                            }
                             Some('/') if self.peek_second() == Some('*') => {
                                 self.bump();
                                 self.bump();
@@ -128,6 +136,7 @@ impl<'a> Lexer<'a> {
                 _ => break,
             }
         }
+        Ok(())
     }
 
     fn peek_second(&mut self) -> Option<char> {
@@ -138,7 +147,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_token(&mut self) -> Result<Token, LexError> {
-        self.skip_whitespace();
+        self.skip_whitespace()?;
         let leading_newline = std::mem::take(&mut self.pending_newline);
         let line = self.line;
         let col = self.col;
@@ -384,6 +393,16 @@ impl<'a> Lexer<'a> {
             None
         };
 
+        // An integer literal with a float suffix (`1_f32`) is treated as
+        // the equivalent float literal, so the parser doesn't need to
+        // special-case it.
+        let kind = match (&kind, &numeric_suffix) {
+            (TokenKind::Int(n), Some(ilang_ast::Type::F32 | ilang_ast::Type::F64)) => {
+                TokenKind::Float(*n as f64)
+            }
+            _ => kind,
+        };
+
         Ok(Token {
             kind,
             span,
@@ -574,18 +593,10 @@ impl<'a> Lexer<'a> {
         let mut buf = String::new();
         let mut is_float = false;
 
-        // Integer part. `_` is allowed between digits (not at the very
-        // start, since the entry condition required an ASCII digit).
-        while let Some(c) = self.peek() {
-            if c.is_ascii_digit() {
-                buf.push(c);
-                self.bump();
-            } else if c == '_' {
-                self.bump();
-            } else {
-                break;
-            }
-        }
+        // Integer part. `_` is only consumed when it sits between digits;
+        // otherwise it stays for the next token (so `1_foo` is `Int(1)`
+        // followed by `_foo`, not `Int(1)` with `_` silently dropped).
+        Self::scan_digits(self, &mut buf, 10);
 
         // `1..5` and `1..=5` are range tokens — don't grab the `.` as
         // part of a float. Look one char past `.` and bail if it's
@@ -594,19 +605,10 @@ impl<'a> Lexer<'a> {
             if matches!(self.peek_second(), Some('.')) {
                 // It's a range — leave both dots for the next token.
             } else {
-            is_float = true;
-            buf.push('.');
-            self.bump();
-            while let Some(c) = self.peek() {
-                if c.is_ascii_digit() {
-                    buf.push(c);
-                    self.bump();
-                } else if c == '_' {
-                    self.bump();
-                } else {
-                    break;
-                }
-            }
+                is_float = true;
+                buf.push('.');
+                self.bump();
+                Self::scan_digits(self, &mut buf, 10);
             }
         }
 
@@ -621,19 +623,9 @@ impl<'a> Lexer<'a> {
                         self.bump();
                     }
                 }
-                let mut saw_digit = false;
-                while let Some(c) = self.peek() {
-                    if c.is_ascii_digit() {
-                        buf.push(c);
-                        self.bump();
-                        saw_digit = true;
-                    } else if c == '_' {
-                        self.bump();
-                    } else {
-                        break;
-                    }
-                }
-                if !saw_digit {
+                let before = buf.len();
+                Self::scan_digits(self, &mut buf, 10);
+                if buf.len() == before {
                     return Err(LexError::InvalidNumber {
                         text: buf,
                         span,
@@ -652,13 +644,36 @@ impl<'a> Lexer<'a> {
                     reason: e.to_string(),
                 })
         } else {
-            buf.parse::<i64>()
-                .map(TokenKind::Int)
-                .map_err(|e| LexError::InvalidNumber {
-                    text: buf.clone(),
-                    span,
-                    reason: e.to_string(),
-                })
+            // Try i64 first; fall back to u64 (reinterpreted) so values
+            // in `(i64::MAX, u64::MAX]` round-trip via the `_u64` suffix.
+            match buf.parse::<i64>() {
+                Ok(n) => Ok(TokenKind::Int(n)),
+                Err(_) => match buf.parse::<u64>() {
+                    Ok(n) => Ok(TokenKind::Int(n as i64)),
+                    Err(e) => Err(LexError::InvalidNumber {
+                        text: buf,
+                        span,
+                        reason: e.to_string(),
+                    }),
+                },
+            }
+        }
+    }
+
+    /// Append digits in the given radix to `buf`, treating `_` as a
+    /// separator only when it sits strictly between two digits.
+    fn scan_digits(&mut self, buf: &mut String, radix: u32) {
+        loop {
+            match self.peek() {
+                Some(c) if c.is_digit(radix) => {
+                    buf.push(c);
+                    self.bump();
+                }
+                Some('_') if matches!(self.peek_second(), Some(n) if n.is_digit(radix)) => {
+                    self.bump();
+                }
+                _ => break,
+            }
         }
     }
 
@@ -672,16 +687,7 @@ impl<'a> Lexer<'a> {
         label: &str,
     ) -> Result<TokenKind, LexError> {
         let mut digits = String::new();
-        while let Some(c) = self.peek() {
-            if c.is_digit(radix) {
-                digits.push(c);
-                self.bump();
-            } else if c == '_' {
-                self.bump();
-            } else {
-                break;
-            }
-        }
+        Self::scan_digits(self, &mut digits, radix);
         if digits.is_empty() {
             let prefix = match radix {
                 16 => "x",

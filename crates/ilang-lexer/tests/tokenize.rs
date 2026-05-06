@@ -319,10 +319,55 @@ fn numeric_suffix_attached_to_token() {
 
 #[test]
 fn unknown_suffix_does_not_consume() {
-    // `1_foo` should leave `foo` as a separate identifier (the `_` is
-    // eaten by the number's own separator rule, but the rest rolls back).
+    // `_` only acts as a separator strictly between digits, so the `_`
+    // in `1_foo` is left for the identifier rather than being silently
+    // swallowed (which would let `_` substitute for whitespace).
     let toks = tokenize("1_foo").unwrap();
     assert_eq!(toks[0].kind, TokenKind::Int(1));
     assert_eq!(toks[0].numeric_suffix, None);
-    assert!(matches!(toks[1].kind, TokenKind::Ident(ref n) if n == "foo"));
+    assert!(matches!(toks[1].kind, TokenKind::Ident(ref n) if n == "_foo"));
+}
+
+#[test]
+fn underscore_only_between_digits() {
+    // `1__2` should not collapse to `Int(12)` — the second `_` isn't
+    // followed by a digit, so the first `_` doesn't see a digit on its
+    // right either and the run stops at `1`.
+    let toks = tokenize("1__2").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Int(1));
+    assert!(matches!(toks[1].kind, TokenKind::Ident(ref n) if n == "__2"));
+}
+
+#[test]
+fn unterminated_block_comment_errors() {
+    assert!(matches!(
+        tokenize("/* unterminated"),
+        Err(LexError::UnterminatedBlockComment { .. })
+    ));
+    // Nested: outer never closes.
+    assert!(matches!(
+        tokenize("/* outer /* inner */ "),
+        Err(LexError::UnterminatedBlockComment { .. })
+    ));
+}
+
+#[test]
+fn u64_max_decimal_literal() {
+    // 18446744073709551615 is u64::MAX — outside i64 but inside u64.
+    // It should lex via the u64 fallback (reinterpreted as i64).
+    let toks = tokenize("18446744073709551615_u64").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Int(-1));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::U64));
+}
+
+#[test]
+fn integer_with_float_suffix_promotes_to_float() {
+    // `1_f32` is shorthand for `1.0_f32` — token kind reflects that.
+    let toks = tokenize("1_f32").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Float(1.0));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::F32));
+
+    let toks = tokenize("42f64").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Float(42.0));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::F64));
 }
