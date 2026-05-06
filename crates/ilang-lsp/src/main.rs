@@ -528,6 +528,43 @@ impl LanguageServer for Backend {
                     ret_ty: None,
                     is_static: false,
                 });
+            } else if let Some((recv, method)) = call.callee.rsplit_once('.') {
+                // Method call: `obj.method(`. Resolve the receiver to a
+                // class (instance, class name, or `console` singleton),
+                // then look up the method on that class. Fall back to
+                // built-in string / array signatures when the receiver
+                // is one of those primitives.
+                let class = if doc.classes.contains_key(recv) {
+                    Some(recv.to_string())
+                } else if recv == "console" {
+                    Some("Console".to_string())
+                } else {
+                    doc.var_classes.get(recv).cloned()
+                };
+                if let Some(c) = class {
+                    if let Some(info) = doc.classes.get(&c) {
+                        if let Some(m) = info.methods.get(method) {
+                            out.push(m.clone());
+                        }
+                    }
+                }
+                if out.is_empty() {
+                    let builtin = match doc.var_types.get(recv) {
+                        Some(Type::Str) => string_method_sig(method),
+                        Some(Type::Array { elem, .. }) => {
+                            array_method_sig(method, elem)
+                        }
+                        _ => None,
+                    };
+                    if let Some(sig) = builtin {
+                        out.push(MemberInfo {
+                            span: Span::dummy(),
+                            signature: sig,
+                            ret_ty: None,
+                            is_static: false,
+                        });
+                    }
+                }
             }
             out
         };
