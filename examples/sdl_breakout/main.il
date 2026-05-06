@@ -201,33 +201,12 @@ fn play() {
     bloomTex.setScaleMode(1)
 
     // Background star field — scrolls top→down with a twinkle.
-    let bgStars: star.Star[] = []
-    let sI: i32 = 0
-    while sI < 80 {
-        bgStars.push(new star.Star(
-            rng.randf() * (WIN_W as f64),
-            rng.randf() * (WIN_H as f64),
-            0.4 + rng.randf() * 1.6,
-            rng.randf() * 6.2831853,
-            0.04 + rng.randf() * 0.06
-        ))
-        sI += 1
-    }
+    let sky = new star.BgStars(80, WIN_W, WIN_H)
 
     // Build the brick grid.
-    let bricks: brick.Brick[] = []
-    let row: i32 = 0
-    while row < ROWS {
-        let col: i32 = 0
-        while col < COLS {
-            let x = col * (BRICK_W + BRICK_GAP) +
-                    (WIN_W - COLS * (BRICK_W + BRICK_GAP) + BRICK_GAP) / 2
-            let y = BRICK_TOP + row * (BRICK_H + BRICK_GAP)
-            bricks.push(new brick.Brick(x, y, palette.paletteR(row), palette.paletteG(row), palette.paletteB(row)))
-            col += 1
-        }
-        row += 1
-    }
+    let grid = new brick.BrickGrid(
+        COLS, ROWS, BRICK_W, BRICK_H, BRICK_GAP, BRICK_TOP, WIN_W
+    )
 
     // State.
     let pad = new paddle.Paddle(
@@ -240,14 +219,15 @@ fn play() {
     let balls: ball.Ball[] = []
     balls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
     let score: i32 = 0
-    let bricksLeft: i32 = COLS * ROWS
     let lives: i32 = 5
     let started: bool = false
     let gameOver: bool = false
     let won: bool = false
     let combo: i32 = 0              // bricks hit since last paddle bounce
     let shake: f64 = 0.0            // current screen-shake amplitude (px)
-    let popups: particle.Popup[] = []
+    // Visual effects (Particle bursts + score popups). The `fx`
+    // system owns both arrays plus their per-frame step.
+    let fx = new particle.ParticleSystem()
     // Frames the ball has been in flight (this game). Drives the
     // gradual speed-up. Doesn't reset on lose-life so tension keeps
     // building across attempts.
@@ -281,7 +261,6 @@ fn play() {
     // average down to 58fps.
     let nextFrameMs: f64 = sdl.getTicks() as f64
     let framePeriodMs: f64 = 1000.0 / 60.0
-    let particles: particle.Particle[] = []
 
     // Trails live on each `Ball` (see the `trail` / `trailHead`
     // fields), so multi-ball renders an independent fading streak
@@ -323,22 +302,22 @@ fn play() {
             if !wonCelebrated {
                 let bi: i32 = 0
                 while bi < 12 {
-                    let fx = rng.randf() * (WIN_W as f64)
-                    let fy = (0.15 + rng.randf() * 0.55) * (WIN_H as f64)
+                    let fwX = rng.randf() * (WIN_W as f64)
+                    let fwY = (0.15 + rng.randf() * 0.55) * (WIN_H as f64)
                     let pick = (rng.randf() * 5.0) as i32
-                    particle.spawnParticles(particles, fx, fy,
-                                   palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
+                    fx.spawn(fwX, fwY,
+                             palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
                     bi += 1
                 }
                 wonCelebrated = true
             }
             // ~10 fireworks per second while celebrating.
             if rng.randf() < 0.18 {
-                let fx = rng.randf() * (WIN_W as f64)
-                let fy = (0.10 + rng.randf() * 0.65) * (WIN_H as f64)
+                let fwX = rng.randf() * (WIN_W as f64)
+                let fwY = (0.10 + rng.randf() * 0.65) * (WIN_H as f64)
                 let pick = (rng.randf() * 5.0) as i32
-                particle.spawnParticles(particles, fx, fy,
-                               palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
+                fx.spawn(fwX, fwY,
+                         palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
             }
         }
 
@@ -367,22 +346,11 @@ fn play() {
 
         // Restart after game over.
         if gameOver && (sdl.Keyboard.isPressed(sdl.Scancode.r) || padStart) {
-            let r2: i32 = 0
-            while r2 < ROWS {
-                let c2: i32 = 0
-                while c2 < COLS {
-                    let br = bricks[r2 * COLS + c2]
-                    br.alive = true
-                    br.dying = 0.0
-                    c2 += 1
-                }
-                r2 += 1
-            }
+            grid.reset()
             let freshBalls: ball.Ball[] = []
             freshBalls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
             balls = freshBalls
             score = 0
-            bricksLeft = COLS * ROWS
             lives = 5
             started = false
             gameOver = false
@@ -392,10 +360,7 @@ fn play() {
             pad.widerTimer = 0
             pad.prevW = pad.baseW
             slowTimer = 0
-            let empty: particle.Particle[] = []
-            particles = empty
-            let emptyPops: particle.Popup[] = []
-            popups = emptyPops
+            fx.reset()
             combo = 0
             shake = 0.0
             playTime = 0
@@ -497,9 +462,9 @@ fn play() {
 
                 // Bricks. First-hit-wins-this-frame for this ball.
                 let i: i32 = 0
-                let n: i32 = bricks.length as i32
+                let n: i32 = grid.bricks.length as i32
                 while i < n {
-                    let br = bricks[i]
+                    let br = grid.bricks[i]
                     if br.alive {
                         let rxLo = br.x as f64
                         let rxHi = (br.x + BRICK_W) as f64
@@ -509,7 +474,7 @@ fn play() {
                                 && byHi > ryLo && byLo < ryHi {
                             br.alive = false
                             br.dying = 1.0
-                            bricksLeft = bricksLeft - 1
+                            grid.aliveCount = grid.aliveCount - 1
                             combo = combo + 1
                             let earned = 100 * combo
                             score = score + earned
@@ -522,11 +487,11 @@ fn play() {
                             }
                             let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
                             let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
-                            particle.spawnParticles(particles, cx, cy, br.r, br.g, br.b)
-                            popups.push(new particle.Popup(
+                            fx.spawn(cx, cy, br.r, br.g, br.b)
+                            fx.spawnPopup(
                                 cx, cy - 4.0, "+" + intToStr(earned),
                                 br.r, br.g, br.b
-                            ))
+                            )
                             let bump = 4.0 + (combo as f64) * 1.5
                             shake = shake + bump
                             if shake > 14.0 { shake = 14.0 }
@@ -544,7 +509,7 @@ fn play() {
 
                 // Win: all bricks cleared. Don't break the ball
                 // loop — remaining balls finish their frame.
-                if bricksLeft <= 0 {
+                if grid.aliveCount <= 0 {
                     gameOver = true
                     won = true
                 }
@@ -660,40 +625,8 @@ fn play() {
         }
         powerups = alivePu
 
-        // ─── particle step ───────────────────────────────────────
-
-        let aliveParticles: particle.Particle[] = []
-        let i: i32 = 0
-        let n: i32 = particles.length as i32
-        while i < n {
-            let p = particles[i]
-            p.x = p.x + p.vx
-            p.y = p.y + p.vy
-            p.vy = p.vy + 0.18    // gentle gravity
-            p.angle = p.angle + p.spin
-            p.life = p.life - 1
-            if p.life > 0 {
-                aliveParticles.push(p)
-            }
-            i = i + 1
-        }
-        particles = aliveParticles
-
-        // Score-popup step: drift up, fade, drop dead ones.
-        let alivePopups: particle.Popup[] = []
-        let pi: i32 = 0
-        let pn: i32 = popups.length as i32
-        while pi < pn {
-            let pp = popups[pi]
-            pp.y = pp.y + pp.vy
-            pp.vy = pp.vy * 0.96       // ease toward stop
-            pp.life = pp.life - 1
-            if pp.life > 0 {
-                alivePopups.push(pp)
-            }
-            pi = pi + 1
-        }
-        popups = alivePopups
+        // ─── particle / popup step ───────────────────────────────
+        fx.step()
 
         // Decay screen-shake exponentially. Compute per-frame
         // jitter offsets here so all draw calls share them.
@@ -707,18 +640,7 @@ fn play() {
         if shake < 0.05 { shake = 0.0 }
 
         // Background star scroll + twinkle phase.
-        let bsI: i32 = 0
-        let bsN: i32 = bgStars.length as i32
-        while bsI < bsN {
-            let s = bgStars[bsI]
-            s.y = s.y + s.speed
-            s.phase = s.phase + s.twinkle
-            if s.y > WIN_H as f64 {
-                s.y = -2.0
-                s.x = rng.randf() * (WIN_W as f64)
-            }
-            bsI = bsI + 1
-        }
+        sky.step(WIN_W, WIN_H)
 
         // ─── render ──────────────────────────────────────────────
         // The world is drawn into `sceneTex` so we can post-process
@@ -730,9 +652,9 @@ fn play() {
 
         // Background stars (drawn first, beneath everything).
         let bgI: i32 = 0
-        let bgN: i32 = bgStars.length as i32
+        let bgN: i32 = sky.stars.length as i32
         while bgI < bgN {
-            let s = bgStars[bgI]
+            let s = sky.stars[bgI]
             // Brightness pulses with phase.
             let bright = 0.4 + 0.6 * (0.5 + 0.5 * math.sin(s.phase))
             let a8 = (bright * 220.0) as u8
@@ -752,9 +674,9 @@ fn play() {
         let glowPadY: i32 = 32
         let glowPadX: i32 = glowPadY * BRICK_W / BRICK_H
         let i2: i32 = 0
-        let n2: i32 = bricks.length as i32
+        let n2: i32 = grid.bricks.length as i32
         while i2 < n2 {
-            let br = bricks[i2]
+            let br = grid.bricks[i2]
             // Drop-in intro: each column is delayed by INTRO_STAGGER
             // frames so the grid cascades in left→right. The brick
             // falls from above its target with an ease-out curve.
@@ -832,9 +754,9 @@ fn play() {
         // particle's colour. Drawn behind paddle/ball so big hits
         // don't hide them.
         let i3: i32 = 0
-        let n3: i32 = particles.length as i32
+        let n3: i32 = fx.particles.length as i32
         while i3 < n3 {
-            let p = particles[i3]
+            let p = fx.particles[i3]
             let alpha = (p.life * 8) as i32
             let a: u8 = if alpha > 255 { 255 } else { alpha as u8 }
             starTex.setColorMod(p.r, p.g, p.b)
@@ -941,9 +863,9 @@ fn play() {
         // Score popups — part of the world so they pick up shake
         // and chromatic aberration.
         let popI: i32 = 0
-        let popN: i32 = popups.length as i32
+        let popN: i32 = fx.popups.length as i32
         while popI < popN {
-            let pp = popups[popI]
+            let pp = fx.popups[popI]
             let alphaI = pp.life * 6
             let pa: u8 = if alphaI > 255 { 255 as u8 } else { alphaI as u8 }
             let scaleP: i32 = 2

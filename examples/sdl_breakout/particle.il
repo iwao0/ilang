@@ -57,6 +57,77 @@ class Popup {
     }
 }
 
+/// Owns the `particles` and `popups` arrays plus the per-frame
+/// step (advance position / spin / life, prune dead entries).
+/// Spawning / drawing the colour-tinted particles still goes
+/// through `spawnParticles` / the renderer in main.il.
+class ParticleSystem {
+    particles: Particle[]
+    popups: Popup[]
+
+    init() {
+        let p: Particle[] = []
+        let pp: Popup[] = []
+        this.particles = p
+        this.popups = pp
+    }
+
+    /// Spawn a 14-particle burst at `(cx, cy)` tinted `(r, g, b)`.
+    spawn(cx: f64, cy: f64, r: u8, g: u8, b: u8) {
+        spawnParticles(this.particles, cx, cy, r, g, b)
+    }
+
+    /// Push a "+100"-style floating text popup.
+    spawnPopup(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
+        this.popups.push(new Popup(x, y, text, r, g, b))
+    }
+
+    /// Advance every particle / popup by one frame and prune the
+    /// dead. Particles fall under a gentle gravity; popups drift
+    /// upward and decelerate.
+    step() {
+        let aliveP: Particle[] = []
+        let i: i64 = 0
+        let n: i64 = this.particles.length
+        while i < n {
+            let p = this.particles[i]
+            p.x = p.x + p.vx
+            p.y = p.y + p.vy
+            p.vy = p.vy + 0.18    // gentle gravity
+            p.angle = p.angle + p.spin
+            p.life = p.life - 1
+            if p.life > 0 {
+                aliveP.push(p)
+            }
+            i = i + 1
+        }
+        this.particles = aliveP
+
+        let alivePop: Popup[] = []
+        let j: i64 = 0
+        let m: i64 = this.popups.length
+        while j < m {
+            let pp = this.popups[j]
+            pp.y = pp.y + pp.vy
+            pp.vy = pp.vy * 0.96       // ease toward stop
+            pp.life = pp.life - 1
+            if pp.life > 0 {
+                alivePop.push(pp)
+            }
+            j = j + 1
+        }
+        this.popups = alivePop
+    }
+
+    /// Drop everything (used on game restart).
+    reset() {
+        let p: Particle[] = []
+        let pp: Popup[] = []
+        this.particles = p
+        this.popups = pp
+    }
+}
+
 /// Burst 14 colour-tinted particles outward from `(cx, cy)`, mixing
 /// random angles, speeds and spins so the cloud doesn't move
 /// uniformly.
