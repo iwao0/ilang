@@ -345,6 +345,10 @@ impl LanguageServer for Backend {
             if preceding_kw_introduces_binder(&doc.text, off) {
                 return Ok(Some(CompletionResponse::Array(Vec::new())));
             }
+            // After `:` we're in a type position — only suggest types.
+            if at_type_position(&doc.text, off) {
+                return Ok(Some(CompletionResponse::Array(type_completions(doc))));
+            }
             let at_top_level = brace_depth_at(&doc.text, off) <= 0;
             return Ok(Some(CompletionResponse::Array(global_completions(
                 doc,
@@ -3041,6 +3045,79 @@ enum KwScope {
     Block,
     /// Allowed in both contexts.
     Both,
+}
+
+/// `true` when the cursor follows a `:` (with optional whitespace and
+/// a partial ident underway). That's the type slot of `let x: T`,
+/// `const x: T`, `fn f(x: T)`, `field: T` etc.
+fn at_type_position(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
+        i -= 1;
+    }
+    i > 0 && bytes[i - 1] == b':'
+}
+
+const PRIMITIVE_TYPES: &[&str] = &[
+    "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "string",
+];
+
+/// Identifiers valid in a type position: primitive types, user classes
+/// / enums (incl. structs / unions), and `module.X` names imported via
+/// `use`.
+fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
+    let mut out: Vec<CompletionItem> = Vec::new();
+    for t in PRIMITIVE_TYPES {
+        out.push(CompletionItem {
+            label: (*t).to_string(),
+            kind: Some(CompletionItemKind::TYPE_PARAMETER),
+            ..CompletionItem::default()
+        });
+    }
+    for (name, sym) in doc.symbols.iter() {
+        let is_type = sym.signature.starts_with("class ")
+            || sym.signature.starts_with("struct ")
+            || sym.signature.starts_with("union ")
+            || sym.signature.starts_with("enum ");
+        if !is_type {
+            continue;
+        }
+        out.push(CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::CLASS),
+            detail: Some(sym.signature.clone()),
+            ..CompletionItem::default()
+        });
+    }
+    // Imported types brought in via `use module` show as
+    // `module.TypeName`.
+    for (name, sig) in doc.external_signatures.iter() {
+        let is_type = sig.starts_with("class ")
+            || sig.starts_with("struct ")
+            || sig.starts_with("union ")
+            || sig.starts_with("enum ");
+        if !is_type {
+            continue;
+        }
+        out.push(CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::CLASS),
+            detail: Some(sig.clone()),
+            ..CompletionItem::default()
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
 }
 
 /// `true` when the cursor is right after a `let` / `const` keyword
