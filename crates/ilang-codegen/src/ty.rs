@@ -96,9 +96,9 @@ impl JitTy {
         map_kinds: &mut Vec<MapKind>,
         tuple_kinds: &mut Vec<TupleKind>,
     ) -> Result<Self, CodegenError> {
-        if let Type::Fn { params, ret } = t {
-            let mut p = Vec::with_capacity(params.len());
-            for pt in params {
+        if let Type::Fn(ft) = t {
+            let mut p = Vec::with_capacity(ft.params.len());
+            for pt in &ft.params {
                 p.push(Self::from_ast(
                     pt,
                     span,
@@ -113,7 +113,7 @@ impl JitTy {
                 )?);
             }
             let r = Self::from_ast(
-                ret,
+                &ft.ret,
                 span,
                 class_ids,
                 enum_ids,
@@ -149,14 +149,14 @@ impl JitTy {
         // Built-in `Map<K, V>` flows through monomorphization as
         // `Type::Generic { base: "Map", args: [K, V] }`. Resolve K and V
         // recursively, intern the pair, and produce a JitTy::Map handle.
-        if let Type::Generic { base, args } = t {
-            if base == "Map" && args.len() == 2 {
+        if let Type::Generic(g) = t {
+            if g.base == "Map" && g.args.len() == 2 {
                 let key = Self::from_ast(
-                    &args[0], span, class_ids, enum_ids, enum_layouts,
+                    &g.args[0], span, class_ids, enum_ids, enum_layouts,
                     array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds,
                 )?;
                 let val = Self::from_ast(
-                    &args[1], span, class_ids, enum_ids, enum_layouts,
+                    &g.args[1], span, class_ids, enum_ids, enum_layouts,
                     array_kinds, optional_inners, fn_signatures, map_kinds, tuple_kinds,
                 )?;
                 let id = intern_map_kind(map_kinds, MapKind { key, val });

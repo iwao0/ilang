@@ -16,4 +16,4 @@ pub use item::{
 pub use program::Program;
 pub use span::Span;
 pub use stmt::{Block, Stmt, StmtKind};
-pub use types::Type;
+pub use types::{FnTy, GenericTy, Type};

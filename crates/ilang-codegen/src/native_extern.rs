@@ -459,9 +459,9 @@ fn is_native_abi_type(
         // for now). Capture-free top-level fns can be passed via
         // `func_addr` at the call site; closure values aren't
         // supported yet (the C side has no env-ptr slot).
-        Type::Fn { params, ret } => {
-            params.iter().all(|p| is_callback_arg_type(p))
-                && (matches!(ret.as_ref(), Type::Unit) || is_callback_arg_type(ret))
+        Type::Fn(ft) => {
+            ft.params.iter().all(|p| is_callback_arg_type(p))
+                && (matches!(ft.ret, Type::Unit) || is_callback_arg_type(&ft.ret))
         }
         // Numeric arrays passed as a `void *` buffer pointer. The
         // C side reads or writes bytes within `len * sizeof(elem)`;

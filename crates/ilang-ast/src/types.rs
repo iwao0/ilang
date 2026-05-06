@@ -18,14 +18,18 @@ pub enum Type {
     Object(String),
     /// Instance of a user-defined generic class with concrete type
     /// arguments (e.g. `Box<i64>`). Non-generic classes use `Object`.
-    Generic { base: String, args: Vec<Type> },
+    /// Boxed because `GenericTy` is significantly larger than the
+    /// remaining variants — keeps the enum compact.
+    Generic(Box<GenericTy>),
     /// Reference to a type parameter inside a generic class body
     /// (e.g. `T` in `class Box<T> { x: T }`). Replaced with concrete
     /// types via substitution when the class is instantiated.
     TypeVar(String),
     /// Function value type — `fn(T1, T2): R`. Carries no captured
     /// state (no closures yet); at runtime it's a code pointer.
-    Fn { params: Vec<Type>, ret: Box<Type> },
+    /// Boxed for the same reason as `Generic` — keeps the enum size
+    /// down to the width of the smaller variants.
+    Fn(Box<FnTy>),
     /// Value of a user-defined `enum`, identified by name. The set of
     /// variants and their payloads live in the type checker's enum
     /// signature table.
@@ -75,6 +79,32 @@ pub enum Type {
     SSize,
 }
 
+/// Inner data for `Type::Generic` — kept separate so `Type` can box it
+/// and stay small.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericTy {
+    pub base: String,
+    pub args: Vec<Type>,
+}
+
+/// Inner data for `Type::Fn` — kept separate for the same reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FnTy {
+    pub params: Vec<Type>,
+    pub ret: Type,
+}
+
+impl Type {
+    /// Convenience constructor for `Type::Generic`.
+    pub fn generic(base: impl Into<String>, args: Vec<Type>) -> Self {
+        Type::Generic(Box::new(GenericTy { base: base.into(), args }))
+    }
+    /// Convenience constructor for `Type::Fn`.
+    pub fn func(params: Vec<Type>, ret: Type) -> Self {
+        Type::Fn(Box::new(FnTy { params, ret }))
+    }
+}
+
 impl Type {
     pub fn is_signed_int(&self) -> bool {
         matches!(self, Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::SSize)
@@ -121,9 +151,9 @@ impl std::fmt::Display for Type {
             Type::Bool => write!(f, "bool"),
             Type::Unit => write!(f, "()"),
             Type::Object(name) => write!(f, "{name}"),
-            Type::Generic { base, args } => {
-                write!(f, "{base}<")?;
-                for (i, a) in args.iter().enumerate() {
+            Type::Generic(g) => {
+                write!(f, "{}<", g.base)?;
+                for (i, a) in g.args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -132,18 +162,18 @@ impl std::fmt::Display for Type {
                 write!(f, ">")
             }
             Type::TypeVar(name) => write!(f, "{name}"),
-            Type::Fn { params, ret } => {
+            Type::Fn(ft) => {
                 write!(f, "fn(")?;
-                for (i, p) in params.iter().enumerate() {
+                for (i, p) in ft.params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, "{p}")?;
                 }
-                if matches!(ret.as_ref(), Type::Unit) {
+                if matches!(ft.ret, Type::Unit) {
                     write!(f, ")")
                 } else {
-                    write!(f, "): {ret}")
+                    write!(f, "): {}", ft.ret)
                 }
             }
             Type::Enum(name) => write!(f, "{name}"),

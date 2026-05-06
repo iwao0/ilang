@@ -1071,18 +1071,18 @@ fn prefix_type(t: &Type, prefix: &str) -> Type {
         },
         Type::Optional(inner) => Type::Optional(Box::new(prefix_type(inner, prefix))),
         Type::Weak(inner) => Type::Weak(Box::new(prefix_type(inner, prefix))),
-        Type::Generic { base, args } => Type::Generic {
-            base: if !base.contains('.') && !is_builtin_type(base) {
-                format!("{prefix}.{base}")
+        Type::Generic(g) => Type::generic(
+            if !g.base.contains('.') && !is_builtin_type(&g.base) {
+                format!("{prefix}.{}", g.base)
             } else {
-                base.clone()
+                g.base.clone()
             },
-            args: args.iter().map(|a| prefix_type(a, prefix)).collect(),
-        },
-        Type::Fn { params, ret } => Type::Fn {
-            params: params.iter().map(|p| prefix_type(p, prefix)).collect(),
-            ret: Box::new(prefix_type(ret, prefix)),
-        },
+            g.args.iter().map(|a| prefix_type(a, prefix)).collect(),
+        ),
+        Type::Fn(ft) => Type::func(
+            ft.params.iter().map(|p| prefix_type(p, prefix)).collect(),
+            prefix_type(&ft.ret, prefix),
+        ),
         Type::RawPtr { is_const, inner } => Type::RawPtr {
             is_const: *is_const,
             inner: Box::new(prefix_type(inner, prefix)),

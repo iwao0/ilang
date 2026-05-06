@@ -23,13 +23,9 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     // Generic instantiations: same base, args must be pairwise
     // assignable. (We don't do variance — invariant for now, matches
     // Rust's defaults.)
-    if let (
-        Type::Generic { base: b1, args: a1 },
-        Type::Generic { base: b2, args: a2 },
-    ) = (from, to)
-    {
-        if b1 == b2 && a1.len() == a2.len() {
-            return a1.iter().zip(a2.iter()).all(|(p, q)| assignable(p, q));
+    if let (Type::Generic(g1), Type::Generic(g2)) = (from, to) {
+        if g1.base == g2.base && g1.args.len() == g2.args.len() {
+            return g1.args.iter().zip(g2.args.iter()).all(|(p, q)| assignable(p, q));
         }
         return false;
     }
