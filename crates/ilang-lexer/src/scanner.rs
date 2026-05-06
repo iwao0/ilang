@@ -95,7 +95,7 @@ impl<'a> Lexer<'a> {
                     self.bump();
                     self.bump();
                     while let Some(c) = self.peek() {
-                        if c == '\n' {
+                        if c == '\n' || c == '\r' {
                             break;
                         }
                         self.bump();
@@ -696,18 +696,18 @@ impl<'a> Lexer<'a> {
         // followed by `_foo`, not `Int(1)` with `_` silently dropped).
         Self::scan_digits(self, &mut buf, 10);
 
-        // `1..5` and `1..=5` are range tokens — don't grab the `.` as
-        // part of a float. Look one char past `.` and bail if it's
-        // also `.` (the start of the `..` operator).
-        if let Some('.') = self.peek() {
-            if matches!(self.peek_second(), Some('.')) {
-                // It's a range — leave both dots for the next token.
-            } else {
-                is_float = true;
-                buf.push('.');
-                self.bump();
-                Self::scan_digits(self, &mut buf, 10);
-            }
+        // Only treat `.` as the start of a fractional part when a digit
+        // immediately follows. This keeps `1..5` (range), `1.method()`
+        // (method call on int), and `1.foo` (field access) out of the
+        // float body. A bare trailing `.` (`1.` at EOF or before a
+        // non-digit) becomes `Int(1) Dot`, so write `1.0` for the float.
+        if self.peek() == Some('.')
+            && matches!(self.peek_second(), Some(c) if c.is_ascii_digit())
+        {
+            is_float = true;
+            buf.push('.');
+            self.bump();
+            Self::scan_digits(self, &mut buf, 10);
         }
 
         if let Some(c) = self.peek() {
@@ -804,10 +804,41 @@ impl<'a> Lexer<'a> {
                     self.bump();
                 }
                 Some('_') if matches!(self.peek_second(), Some(n) if n.is_digit(radix)) => {
+                    // For radix 16, `_f32` / `_f64` are float type
+                    // suffixes whose first char also happens to be a
+                    // hex digit. Stop the digit scan in that case so
+                    // the suffix handler can pick them up.
+                    if radix == 16 && self.underscore_starts_float_suffix() {
+                        break;
+                    }
                     self.bump();
                 }
                 _ => break,
             }
+        }
+    }
+
+    /// Inspect (without consuming) the chars after the current `_`. Returns
+    /// `true` when they form exactly `f32` or `f64` followed by a non-ident
+    /// char — i.e., a complete numeric type suffix that would otherwise be
+    /// swallowed as more hex digits.
+    fn underscore_starts_float_suffix(&self) -> bool {
+        let mut iter = self.chars.clone();
+        let mut s = String::new();
+        for _ in 0..3 {
+            match iter.next() {
+                Some(c) if c.is_ascii_alphanumeric() => s.push(c),
+                _ => break,
+            }
+        }
+        if s != "f32" && s != "f64" {
+            return false;
+        }
+        // The next char must terminate the ident-like run, otherwise this
+        // is something like `_f32x` and not actually a clean suffix.
+        match iter.next() {
+            Some(c) if c.is_ascii_alphanumeric() || c == '_' => false,
+            _ => true,
         }
     }
 
@@ -822,6 +853,22 @@ impl<'a> Lexer<'a> {
     ) -> Result<TokenKind, LexError> {
         let mut digits = String::new();
         Self::scan_digits(self, &mut digits, radix);
+        // Catch out-of-range digits like `0b102` or `0o78`. Without this,
+        // the scan stops at the first invalid digit and the next call
+        // to `next_token` would silently lex it as a new integer.
+        if let Some(c) = self.peek() {
+            if c.is_ascii_digit() && !c.is_digit(radix) {
+                let bad_span = Span {
+                    line: self.line,
+                    col: self.col,
+                };
+                return Err(LexError::InvalidNumber {
+                    text: format!("{digits}{c}"),
+                    span: bad_span,
+                    reason: format!("{c:?} is not a valid {label} digit"),
+                });
+            }
+        }
         if digits.is_empty() {
             let prefix = match radix {
                 16 => "x",

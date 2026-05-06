@@ -471,13 +471,13 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
-            obj,
+            obj: Box::new(rewrite_expr(*obj, ctx)),
             field,
             value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
-            obj,
-            index,
+            obj: Box::new(rewrite_expr(*obj, ctx)),
+            index: Box::new(rewrite_expr(*index, ctx)),
             value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::Array(items) => ExprKind::Array(

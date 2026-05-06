@@ -1245,10 +1245,19 @@ impl TypeChecker {
         match t {
             Type::RawPtr { .. } => Some(format!("`{t}`")),
             Type::Array { elem, .. } => self.find_raw_pointer(elem, visiting),
-            Type::Optional(inner) => self.find_raw_pointer(inner, visiting),
+            Type::Optional(inner) | Type::Weak(inner) => {
+                self.find_raw_pointer(inner, visiting)
+            }
             Type::Tuple(items) => items
                 .iter()
                 .find_map(|x| self.find_raw_pointer(x, visiting)),
+            Type::Generic { args, .. } => args
+                .iter()
+                .find_map(|a| self.find_raw_pointer(a, visiting)),
+            Type::Fn { params, ret } => params
+                .iter()
+                .find_map(|p| self.find_raw_pointer(p, visiting))
+                .or_else(|| self.find_raw_pointer(ret, visiting)),
             Type::Object(name) => {
                 if !visiting.insert(name.clone()) {
                     return None;
@@ -1641,6 +1650,22 @@ impl TypeChecker {
                         ),
                         span,
                     });
+                }
+            }
+            Type::Tuple(elems) => {
+                for e in elems {
+                    self.validate_type(e, span, type_params_in_scope)?;
+                }
+            }
+            Type::Fn { params, ret } => {
+                for p in params {
+                    self.validate_type(p, span, type_params_in_scope)?;
+                }
+                self.validate_type(ret, span, type_params_in_scope)?;
+            }
+            Type::Generic { args, .. } => {
+                for a in args {
+                    self.validate_type(a, span, type_params_in_scope)?;
                 }
             }
             _ => {}
@@ -2476,7 +2501,7 @@ impl TypeChecker {
                                 return Err(TypeError::Mismatch {
                                     expected: ot.clone(),
                                     got: at,
-                                    span,
+                                    span: args[0].span,
                                 });
                             }
                             return Ok(Type::Bool);
@@ -2743,13 +2768,23 @@ impl TypeChecker {
                         });
                     }
                     if st != et {
-                        return Err(TypeError::Mismatch {
-                            expected: st,
-                            got: et,
-                            span: end.span,
-                        });
+                        // Same literal-coercion rule as if-branches and
+                        // let bindings: a bare numeric literal endpoint
+                        // adopts the other side's int type when it fits.
+                        if numeric_literal_fits(start, &et) {
+                            et
+                        } else if numeric_literal_fits(end, &st) {
+                            st
+                        } else {
+                            return Err(TypeError::Mismatch {
+                                expected: st,
+                                got: et,
+                                span: end.span,
+                            });
+                        }
+                    } else {
+                        st
                     }
-                    st
                 } else {
                     let it = self.check_expr(iter, env, ret_ty, in_class, loop_depth)?;
                     match &it {
@@ -2809,11 +2844,27 @@ impl TypeChecker {
                             None => *acc = Some(new_ty),
                             Some(prev) => {
                                 if *prev != new_ty {
-                                    return Err(TypeError::Mismatch {
-                                        expected: prev.clone(),
-                                        got: new_ty,
-                                        span: val_ty.map(|(_, s)| s).unwrap_or(span),
-                                    });
+                                    // Same fallback as if/else branch
+                                    // unification: try to merge generic
+                                    // holes, then accept a bare numeric
+                                    // literal that fits the prior type.
+                                    if let Some(merged) =
+                                        merge_generic_with_holes(prev, &new_ty)
+                                    {
+                                        *prev = merged;
+                                    } else if value
+                                        .as_deref()
+                                        .is_some_and(|e| numeric_literal_fits(e, prev))
+                                    {
+                                        // keep `prev` — current break's
+                                        // literal coerces into it.
+                                    } else {
+                                        return Err(TypeError::Mismatch {
+                                            expected: prev.clone(),
+                                            got: new_ty,
+                                            span: val_ty.map(|(_, s)| s).unwrap_or(span),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -3341,6 +3392,26 @@ impl TypeChecker {
                         Ok(then_ty)
                     } else if assignable(&then_ty, &else_ty) {
                         Ok(else_ty)
+                    } else if let Some(merged) = merge_generic_with_holes(&then_ty, &else_ty) {
+                        // Each branch fixed a different generic hole
+                        // (e.g. `Result<i64, Any>` and `Result<Any, string>`)
+                        // — merge to the more specific shape. Mirrors the
+                        // regular if/else path.
+                        Ok(merged)
+                    } else if let Some(t) = then_branch.tail.as_deref() {
+                        if numeric_literal_fits(t, &else_ty) {
+                            Ok(else_ty)
+                        } else if numeric_literal_fits(eb, &then_ty) {
+                            Ok(then_ty)
+                        } else {
+                            Err(TypeError::Mismatch {
+                                expected: then_ty,
+                                got: else_ty,
+                                span,
+                            })
+                        }
+                    } else if numeric_literal_fits(eb, &then_ty) {
+                        Ok(then_ty)
                     } else {
                         Err(TypeError::Mismatch {
                             expected: then_ty,
@@ -3853,6 +3924,7 @@ fn first_c_only_type(t: &Type) -> Option<&Type> {
             .iter()
             .find_map(first_c_only_type)
             .or_else(|| first_c_only_type(ret)),
+        Type::Tuple(elems) => elems.iter().find_map(first_c_only_type),
         _ => None,
     }
 }
@@ -3886,6 +3958,20 @@ fn collect_type_var_bindings(
         }
         (Type::RawPtr { inner: pi, .. }, Type::RawPtr { inner: ai, .. }) => {
             collect_type_var_bindings(pi, ai, bindings);
+        }
+        (Type::Tuple(pe), Type::Tuple(ae)) => {
+            for (p, a) in pe.iter().zip(ae.iter()) {
+                collect_type_var_bindings(p, a, bindings);
+            }
+        }
+        (
+            Type::Fn { params: pp, ret: pr },
+            Type::Fn { params: ap, ret: ar },
+        ) => {
+            for (p, a) in pp.iter().zip(ap.iter()) {
+                collect_type_var_bindings(p, a, bindings);
+            }
+            collect_type_var_bindings(pr, ar, bindings);
         }
         _ => {}
     }
@@ -4246,6 +4332,11 @@ fn class_signature(
         .unwrap_or_default();
     let mut vtable_len: usize = parent.map(|p| p.vtable_len).unwrap_or(0);
     let has_parent = parent.is_some();
+    // Track which init/deinit names this child has declared this
+    // pass — needed because `methods` starts with parent entries
+    // already populated, so a "first child decl overwrites parent"
+    // is legitimate but a second one is a duplicate.
+    let mut child_special_seen: HashSet<String> = HashSet::new();
     // Pass 1: handle inheritance interactions (override / hiding / no-overload).
     for m in &c.methods {
         // `init` and `deinit` are per-class — they're NOT inherited
@@ -4254,6 +4345,19 @@ fn class_signature(
         // them since `has_parent` is true.
         if m.name == "init" || m.name == "deinit" {
             if has_parent {
+                // Inheritance disallows overloading, including for
+                // init/deinit. The root-class dup check below only
+                // runs when there's no parent, so catch duplicates
+                // here.
+                if !child_special_seen.insert(m.name.clone()) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "class {:?} declares `{}` more than once",
+                            c.name, m.name
+                        ),
+                        span: m.span,
+                    });
+                }
                 let mut sig = signature_of(m);
                 for p in sig.params.iter_mut() {
                     *p = rewrite_type_params(p, &c.type_params);
@@ -4605,6 +4709,17 @@ fn rewrite_type_params(t: &Type, params: &[String]) -> Type {
                 .map(|a| rewrite_type_params(a, params))
                 .collect(),
         },
+        Type::Tuple(elems) => Type::Tuple(
+            elems.iter().map(|e| rewrite_type_params(e, params)).collect(),
+        ),
+        Type::Fn { params: ps, ret } => Type::Fn {
+            params: ps.iter().map(|p| rewrite_type_params(p, params)).collect(),
+            ret: Box::new(rewrite_type_params(ret, params)),
+        },
+        Type::RawPtr { is_const, inner } => Type::RawPtr {
+            is_const: *is_const,
+            inner: Box::new(rewrite_type_params(inner, params)),
+        },
         _ => t.clone(),
     }
 }
@@ -4632,6 +4747,13 @@ fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
         Type::RawPtr { is_const, inner } => Type::RawPtr {
             is_const: *is_const,
             inner: Box::new(subst_type(inner, params, args)),
+        },
+        Type::Tuple(elems) => Type::Tuple(
+            elems.iter().map(|e| subst_type(e, params, args)).collect(),
+        ),
+        Type::Fn { params: ps, ret } => Type::Fn {
+            params: ps.iter().map(|p| subst_type(p, params, args)).collect(),
+            ret: Box::new(subst_type(ret, params, args)),
         },
         _ => t.clone(),
     }

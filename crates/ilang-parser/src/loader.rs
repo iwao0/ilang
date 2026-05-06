@@ -649,6 +649,14 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
     for f in &mut c.fields {
         f.ty = prefix_type(&f.ty, prefix);
     }
+    for sf in &mut c.static_fields {
+        sf.ty = prefix_type(&sf.ty, prefix);
+        let value = std::mem::replace(
+            &mut sf.value,
+            Expr::new(ExprKind::None, sf.span),
+        );
+        sf.value = prefix_expr(value, prefix);
+    }
     for prop in &mut c.properties {
         prop.ty = prefix_type(&prop.ty, prefix);
         if let Some(g) = prop.getter.as_mut() {
@@ -726,7 +734,17 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
         Item::Use(u) => Item::Use(u),
         Item::Const(mut c) => {
             c.name = format!("{prefix}.{}", c.name);
-            // The value is a literal — no inner refs to rewrite.
+            c.ty = c.ty.as_ref().map(|t| prefix_type(t, prefix));
+            // RHS is folded to a literal later by `inline_constants`,
+            // but it can still contain `ModuleEnum.Variant` /
+            // `ClassName.staticField` / `Call(fn)` references that
+            // need the same prefix rewrite as fn bodies before the
+            // fold runs.
+            let value = std::mem::replace(
+                &mut c.value,
+                Expr::new(ExprKind::None, c.span),
+            );
+            c.value = prefix_expr(value, prefix);
             Item::Const(c)
         }
         Item::ExternStatic(mut s) => {

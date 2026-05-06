@@ -123,11 +123,13 @@ pub(crate) fn int_literal_fits(n: i64, t: &Type) -> bool {
         Type::I8 => i8::try_from(n).is_ok(),
         Type::I16 => i16::try_from(n).is_ok(),
         Type::I32 => i32::try_from(n).is_ok(),
-        Type::I64 => true,
+        // `ssize_t` aliases `i64` on 64-bit targets.
+        Type::I64 | Type::SSize => true,
         Type::U8 => u8::try_from(n).is_ok(),
         Type::U16 => u16::try_from(n).is_ok(),
         Type::U32 => u32::try_from(n).is_ok(),
-        Type::U64 => true,
+        // `size_t` aliases `u64` on 64-bit targets.
+        Type::U64 | Type::Size => true,
         _ => false,
     }
 }
