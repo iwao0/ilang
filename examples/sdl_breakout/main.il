@@ -24,6 +24,8 @@ use particle
 use powerup
 use star
 use neon
+use paddle
+use rng
 
 const WIN_W: i32 = 900
 const WIN_H: i32 = 700
@@ -53,50 +55,6 @@ const INTRO_DURATION: i32 = 24
 const INTRO_DROP_PX: f64 = 280.0
 
 // ─── tiny utilities ───────────────────────────────────────────────
-
-// Tiny LCG so particles / stars can fly off in pseudo-random
-// directions without pulling in a real RNG dependency. Lives in
-// main.il (not its own module) because ilang's loader currently
-// double-registers fns on diamond `use`s; only one file owns the
-// rng so we never trigger that.
-class Rng {
-    static state: i64 = 0x5fe7c1a3
-}
-
-fn randNext(): i64 {
-    Rng.state = Rng.state * 6364136223846793005 + 1442695040888963407
-    Rng.state
-}
-
-// Returns a float in [0, 1).
-fn randf(): f64 {
-    let r = randNext()
-    let bits = r & 0x7fffffff
-    (bits as f64) / 2147483648.0
-}
-
-fn spawnParticles(particles: particle.Particle[], cx: f64, cy: f64,
-                  r: u8, g: u8, b: u8) {
-    let n: i32 = 14
-    let i: i32 = 0
-    while i < n {
-        let ang = randf() * 6.2831853
-        let speed = 1.5 + randf() * 4.0
-        let vx = math.cos(ang) * speed
-        let vy = math.sin(ang) * speed - 1.5
-        let life = 24 + (randf() * 16.0) as i32
-        // Right-going particles spin clockwise (positive degrees per
-        // frame), left-going counter-clockwise. Magnitude random so
-        // the cloud doesn't rotate uniformly.
-        let dir: f64 = if vx >= 0.0 { 1.0 } else { -1.0 }
-        let spin = dir * (4.0 + randf() * 12.0)
-        let startAngle = randf() * 360.0
-        particles.push(
-            new particle.Particle(cx, cy, vx, vy, startAngle, spin, life, r, g, b)
-        )
-        i += 1
-    }
-}
 
 // ilang's `as` cast is numeric-only; this stringifies a counter for
 // the on-screen text.
@@ -177,7 +135,7 @@ fn play() {
     // Open the first attached gamepad if any. `pad.handle == 0`
     // when nothing is plugged in — every poll degrades to
     // returning 0/false, so the keyboard path keeps working.
-    let pad = new sdl.Gamepad()
+    let gamepad = new sdl.Gamepad()
 
     let beepWall = audio.makeBeep(440.0, 40)
     let beepPaddle = audio.makeBeep(660.0, 50)
@@ -247,11 +205,11 @@ fn play() {
     let sI: i32 = 0
     while sI < 80 {
         bgStars.push(new star.Star(
-            randf() * (WIN_W as f64),
-            randf() * (WIN_H as f64),
-            0.4 + randf() * 1.6,
-            randf() * 6.2831853,
-            0.04 + randf() * 0.06
+            rng.randf() * (WIN_W as f64),
+            rng.randf() * (WIN_H as f64),
+            0.4 + rng.randf() * 1.6,
+            rng.randf() * 6.2831853,
+            0.04 + rng.randf() * 0.06
         ))
         sI += 1
     }
@@ -272,8 +230,13 @@ fn play() {
     }
 
     // State.
-    let paddleX: f64 = ((WIN_W - PADDLE_W) / 2) as f64
-    let paddleY: i32 = WIN_H - 60
+    let pad = new paddle.Paddle(
+        ((WIN_W - PADDLE_W) / 2) as f64,
+        WIN_H - 60,
+        PADDLE_W,
+        PADDLE_H,
+        PADDLE_SPEED
+    )
     let balls: ball.Ball[] = []
     balls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
     let score: i32 = 0
@@ -299,12 +262,7 @@ fn play() {
     // effect is applied. Multi-ball is one-shot so it doesn't need
     // a timer.
     let powerups: powerup.PowerUp[] = []
-    let widerTimer: i32 = 0
     let slowTimer: i32 = 0
-    // Tracks the paddle width from the previous frame so we can
-    // re-anchor `paddleX` (which is the LEFT edge) when WIDER
-    // turns on or off — the visible paddle centre stays put.
-    let prevPaddleW: i32 = PADDLE_W
 
     // Visual effect state.
     let wavePhase: f64 = 0.0       // brick highlight wave (rad)
@@ -365,21 +323,21 @@ fn play() {
             if !wonCelebrated {
                 let bi: i32 = 0
                 while bi < 12 {
-                    let fx = randf() * (WIN_W as f64)
-                    let fy = (0.15 + randf() * 0.55) * (WIN_H as f64)
-                    let pick = (randf() * 5.0) as i32
-                    spawnParticles(particles, fx, fy,
+                    let fx = rng.randf() * (WIN_W as f64)
+                    let fy = (0.15 + rng.randf() * 0.55) * (WIN_H as f64)
+                    let pick = (rng.randf() * 5.0) as i32
+                    particle.spawnParticles(particles, fx, fy,
                                    palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
                     bi += 1
                 }
                 wonCelebrated = true
             }
             // ~10 fireworks per second while celebrating.
-            if randf() < 0.18 {
-                let fx = randf() * (WIN_W as f64)
-                let fy = (0.10 + randf() * 0.65) * (WIN_H as f64)
-                let pick = (randf() * 5.0) as i32
-                spawnParticles(particles, fx, fy,
+            if rng.randf() < 0.18 {
+                let fx = rng.randf() * (WIN_W as f64)
+                let fy = (0.10 + rng.randf() * 0.65) * (WIN_H as f64)
+                let pick = (rng.randf() * 5.0) as i32
+                particle.spawnParticles(particles, fx, fy,
                                palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
             }
         }
@@ -388,12 +346,12 @@ fn play() {
         // paddle (digital), A → launch, START → restart, BACK →
         // quit. The keyboard mappings below stack with these so
         // either device works.
-        let padLx = pad.getAxis(sdl.Axis.leftX) as i32  // [-32768, 32767]
-        let padDpadL = pad.isPressed(sdl.Button.dpadLeft)
-        let padDpadR = pad.isPressed(sdl.Button.dpadRight)
-        let padA = pad.isPressed(sdl.Button.a)
-        let padStart = pad.isPressed(sdl.Button.start)
-        let padBack = pad.isPressed(sdl.Button.back)
+        let padLx = gamepad.getAxis(sdl.Axis.leftX) as i32  // [-32768, 32767]
+        let padDpadL = gamepad.isPressed(sdl.Button.dpadLeft)
+        let padDpadR = gamepad.isPressed(sdl.Button.dpadRight)
+        let padA = gamepad.isPressed(sdl.Button.a)
+        let padStart = gamepad.isPressed(sdl.Button.start)
+        let padBack = gamepad.isPressed(sdl.Button.back)
 
         if sdl.Keyboard.isPressed(sdl.Scancode.escape) || padBack {
             running = false
@@ -431,9 +389,9 @@ fn play() {
             won = false
             let emptyPu: powerup.PowerUp[] = []
             powerups = emptyPu
-            widerTimer = 0
+            pad.widerTimer = 0
+            pad.prevW = pad.baseW
             slowTimer = 0
-            prevPaddleW = PADDLE_W
             let empty: particle.Particle[] = []
             particles = empty
             let emptyPops: particle.Popup[] = []
@@ -447,38 +405,20 @@ fn play() {
 
         // ─── input ────────────────────────────────────────────────
 
-        // Effective paddle width — temporarily widened by the
-        // WIDER power-up. Used by both physics and rendering.
-        let paddleWWide: i32 = PADDLE_W + (PADDLE_W as i32) / (2 as i32)
-        let paddleW: i32 = if widerTimer > 0 { paddleWWide } else { PADDLE_W }
-        // Re-anchor on width change so the paddle grows/shrinks
-        // around its centre rather than its left edge.
-        if paddleW != prevPaddleW {
-            let delta = paddleW - prevPaddleW
-            paddleX = paddleX - (delta as f64) / 2.0
-            prevPaddleW = paddleW
-        }
+        // Tick the paddle's WIDER timer + re-anchor `pad.x` if the
+        // width changed since last frame. The current width is then
+        // pinned to a local for the physics formulas below.
+        pad.tick()
+        let paddleW: i32 = pad.width()
 
         if sdl.Keyboard.isPressed(sdl.Scancode.left) || sdl.Keyboard.isPressed(sdl.Scancode.a) || padDpadL {
-            paddleX = paddleX - PADDLE_SPEED
+            pad.moveLeft()
         }
         if sdl.Keyboard.isPressed(sdl.Scancode.right) || sdl.Keyboard.isPressed(sdl.Scancode.d) || padDpadR {
-            paddleX = paddleX + PADDLE_SPEED
+            pad.moveRight()
         }
-        // Analogue stick: deadzone ~24% then linear scale to paddle
-        // speed. Ignored when the stick is centred.
-        let absLx: i32 = if padLx < 0 { -padLx } else { padLx }
-        if absLx > 8000 {
-            let norm = (padLx as f64) / 32767.0
-            paddleX = paddleX + norm * PADDLE_SPEED
-        }
-        if paddleX < 0.0 {
-            paddleX = 0.0
-        }
-        let paddleMax: f64 = (WIN_W - paddleW) as f64
-        if paddleX > paddleMax {
-            paddleX = paddleMax
-        }
+        pad.moveAnalog(padLx)
+        pad.clamp(WIN_W)
 
         // Space to launch the ball (idle on paddle until pressed).
         // Wait for the brick drop-in animation to finish before
@@ -494,8 +434,8 @@ fn play() {
         // centre.
         if !started && balls.length as i32 > 0 {
             let b0 = balls[0]
-            b0.x = paddleX + (paddleW as f64) / 2.0 - (BALL_SIZE as f64) / 2.0
-            b0.y = (paddleY as f64) - (BALL_SIZE as f64)
+            b0.x = pad.x + (paddleW as f64) / 2.0 - (BALL_SIZE as f64) / 2.0
+            b0.y = (pad.y as f64) - (BALL_SIZE as f64)
         }
 
         // ─── ball physics ─────────────────────────────────────────
@@ -535,10 +475,10 @@ fn play() {
                 let bxHi = b.x + (BALL_SIZE as f64)
                 let byLo = b.y
                 let byHi = b.y + (BALL_SIZE as f64)
-                let pxLo = paddleX
-                let pxHi = paddleX + (paddleW as f64)
-                let pyLo = paddleY as f64
-                let pyHi = (paddleY + PADDLE_H) as f64
+                let pxLo = pad.x
+                let pxHi = pad.x + (paddleW as f64)
+                let pyLo = pad.y as f64
+                let pyHi = (pad.y + PADDLE_H) as f64
                 if b.vy > 0.0 && bxHi > pxLo && bxLo < pxHi
                         && byHi > pyLo && byLo < pyHi {
                     b.y = pyLo - (BALL_SIZE as f64)
@@ -582,7 +522,7 @@ fn play() {
                             }
                             let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
                             let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
-                            spawnParticles(particles, cx, cy, br.r, br.g, br.b)
+                            particle.spawnParticles(particles, cx, cy, br.r, br.g, br.b)
                             popups.push(new particle.Popup(
                                 cx, cy - 4.0, "+" + intToStr(earned),
                                 br.r, br.g, br.b
@@ -592,8 +532,8 @@ fn play() {
                             if shake > 14.0 { shake = 14.0 }
                             sfxDevice.queue(beepBrick)
                             // 14% drop chance per brick break.
-                            if randf() < 0.14 {
-                                let kind = (randf() * 3.0) as i32
+                            if rng.randf() < 0.14 {
+                                let kind = (rng.randf() * 3.0) as i32
                                 powerups.push(new powerup.PowerUp(cx, cy, kind))
                             }
                             i = n   // stop after first hit this frame
@@ -662,7 +602,8 @@ fn play() {
         }
 
         // ─── power-up step: fall, catch, expire ──────────────────
-        if widerTimer > 0 { widerTimer = widerTimer - 1 }
+        // (paddle's WIDER timer ticks down inside `pad.tick()` at
+        // the top of the frame.)
         if slowTimer > 0 { slowTimer = slowTimer - 1 }
         let alivePu: powerup.PowerUp[] = []
         let pui: i32 = 0
@@ -677,15 +618,15 @@ fn play() {
             let cxHi = pu.x + chipW / 2.0
             let cyLo = pu.y - chipH / 2.0
             let cyHi = pu.y + chipH / 2.0
-            let pdl = paddleX
-            let pdr = paddleX + (paddleW as f64)
-            let pdt = paddleY as f64
-            let pdb = (paddleY + PADDLE_H) as f64
+            let pdl = pad.x
+            let pdr = pad.x + (paddleW as f64)
+            let pdt = pad.y as f64
+            let pdb = (pad.y + PADDLE_H) as f64
             let caught = cxHi > pdl && cxLo < pdr && cyHi > pdt && cyLo < pdb
             let removed: bool = caught
             if caught {
                 if pu.kind == 0 {
-                    widerTimer = 600           // 10s
+                    pad.widerTimer = 600       // 10s
                 } elif pu.kind == 1 {
                     // Multi-ball: clone first ball into two new balls
                     // with slightly diverged angles.
@@ -759,8 +700,8 @@ fn play() {
         let shakeOffX: i32 = 0
         let shakeOffY: i32 = 0
         if shake > 0.5 {
-            shakeOffX = ((randf() - 0.5) * 2.0 * shake) as i32
-            shakeOffY = ((randf() - 0.5) * 2.0 * shake) as i32
+            shakeOffX = ((rng.randf() - 0.5) * 2.0 * shake) as i32
+            shakeOffY = ((rng.randf() - 0.5) * 2.0 * shake) as i32
         }
         shake = shake * 0.82
         if shake < 0.05 { shake = 0.0 }
@@ -774,7 +715,7 @@ fn play() {
             s.phase = s.phase + s.twinkle
             if s.y > WIN_H as f64 {
                 s.y = -2.0
-                s.x = randf() * (WIN_W as f64)
+                s.x = rng.randf() * (WIN_W as f64)
             }
             bsI = bsI + 1
         }
@@ -937,10 +878,10 @@ fn play() {
         // Paddle (white/cyan glow, rounded ends). The colour shifts
         // toward magenta while the WIDER power-up is active so the
         // boost is obvious.
-        let pr: u8 = if widerTimer > 0 { 255 as u8 } else { 200 as u8 }
-        let pg: u8 = if widerTimer > 0 { 180 as u8 } else { 240 as u8 }
-        let pb: u8 = if widerTimer > 0 { 255 as u8 } else { 255 as u8 }
-        neonR.fillStadium(paddleX as i32 + shakeOffX, paddleY + shakeOffY,
+        let pr: u8 = if pad.widerTimer > 0 { 255 as u8 } else { 200 as u8 }
+        let pg: u8 = if pad.widerTimer > 0 { 180 as u8 } else { 240 as u8 }
+        let pb: u8 = if pad.widerTimer > 0 { 255 as u8 } else { 255 as u8 }
+        neonR.fillStadium(pad.x as i32 + shakeOffX, pad.y + shakeOffY,
                         paddleW, PADDLE_H, pr, pg, pb)
 
         // Ball trails — one per ball, fading from oldest
@@ -1026,8 +967,8 @@ fn play() {
 
         // Active power-up countdowns (in whole seconds, 60fps).
         let puY: i32 = 80
-        if widerTimer > 0 {
-            let s = "WIDER " + intToStr((widerTimer + 59) / 60) + "S"
+        if pad.widerTimer > 0 {
+            let s = "WIDER " + intToStr((pad.widerTimer + 59) / 60) + "S"
             font.drawText(ren, s, 20, puY, 2, 120, 220, 255, 255)
             puY = puY + 24
         }
