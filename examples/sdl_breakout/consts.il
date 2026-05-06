@@ -39,3 +39,11 @@ const introDropPx: f64 = 280.0
 // Procedural-sprite atlas sizes.
 const starTexSize: i32 = 32
 const glowTexSize: i32 = 64
+
+// Bloom downsample target. The scene is drawn shrunk into a
+// `bloomW×bloomH` texture (= winW/4 × winH/4); thanks to linear
+// filtering each pixel averages a 4×4 block. Drawing that
+// upscaled back over the window blurs the highlights into a
+// neon halo.
+const bloomW: i32 = 225
+const bloomH: i32 = 175
