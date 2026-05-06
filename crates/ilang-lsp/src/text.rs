@@ -133,6 +133,52 @@ pub(crate) fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<
     None
 }
 
+/// Extract a Rust-style doc comment block (`/// line` form) immediately
+/// above the line containing `decl_line` (1-based). Returns the joined
+/// body lines (without the leading `///` or single space) or `None`
+/// when no contiguous `///` block precedes the decl.
+pub(crate) fn extract_doc_above(text: &str, decl_line: u32) -> Option<String> {
+    if decl_line <= 1 {
+        return None;
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut doc_lines: Vec<&str> = Vec::new();
+    // Decl is at lines[decl_line - 1] (0-based). Walk back from there.
+    let mut i = (decl_line as usize).saturating_sub(2); // line above
+    loop {
+        let Some(line) = lines.get(i) else { break };
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("///") {
+            // Strip a single leading space (so `/// foo` -> `foo`,
+            // `///foo` -> `foo`, `/// foo bar` -> `foo bar`).
+            let body = rest.strip_prefix(' ').unwrap_or(rest);
+            doc_lines.push(body);
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+            continue;
+        }
+        // Allow `@attribute(args)` between docs and decl; everything
+        // else (blank line, code) ends the block.
+        if trimmed.starts_with('@') || trimmed.is_empty() && doc_lines.is_empty() {
+            // Blank line *before* any doc lines → no doc block here.
+            // `@attr` lines between docs and decl are silently skipped.
+            if i == 0 {
+                break;
+            }
+            i -= 1;
+            continue;
+        }
+        break;
+    }
+    if doc_lines.is_empty() {
+        return None;
+    }
+    doc_lines.reverse();
+    Some(doc_lines.join("\n"))
+}
+
 /// Convert a 1-based ilang `Span` to a 0-based LSP `Range`.
 pub(crate) fn span_to_range(span: Span, len: usize) -> Range {
     let line = span.line.saturating_sub(1);

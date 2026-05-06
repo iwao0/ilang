@@ -32,6 +32,8 @@ struct Symbol {
     name: String,
     span: Span,
     signature: String,
+    /// `///`-prefixed doc comment lines immediately above the decl.
+    doc: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +70,8 @@ struct MemberInfo {
     /// `true` for `static` fields / methods. Drives `Counter.<.>`
     /// completion (which should only list static members).
     is_static: bool,
+    /// `///`-prefixed doc comment lines above the member.
+    doc: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +91,7 @@ struct RefEntry {
     /// `target_span` instead of the current document. Used for
     /// `use module`-imported decls whose source lives in another file.
     target_uri: Option<Url>,
+    doc: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -116,6 +121,9 @@ struct Doc {
     /// file paths.
     #[allow(dead_code)]
     external_signatures: HashMap<String, String>,
+    /// Doc comments (`///`) attached to imported `module.X` decls.
+    /// Same key shape as `external_signatures`.
+    external_docs: HashMap<String, String>,
     /// Return types for `module.fn` declarations brought in via
     /// `use module`. Populated alongside `external_signatures` so
     /// `let x = math.sqrt(...)` infers as f64.
@@ -169,6 +177,7 @@ impl Backend {
         // constants away, so they're not in the merged program. Parse
         // each `use module` source separately to recover them.
         let mut external_sources: ExternalSources = HashMap::new();
+        let mut external_docs: HashMap<String, String> = HashMap::new();
         // Harvest imports from the buffer's `use module` items even
         // without a saved file — built-in modules (math/test/os) still
         // resolve, and on-disk modules resolve relative to the entry
@@ -182,6 +191,7 @@ impl Backend {
             &text,
             &mut external_sigs,
             &mut external_sources,
+            &mut external_docs,
         );
         let external_classes = merged
             .as_ref()
@@ -192,26 +202,31 @@ impl Backend {
         // doc's classes/symbols so completion / hover still work, but
         // refresh the text + external maps.
         let doc = match parse_ok(&text) {
-            Ok(prog) => build_doc(
-                text,
-                &prog,
-                &external_sigs,
-                &external_rets,
-                &external_classes,
-                &external_sources,
-            ),
+            Ok(prog) => {
+                let mut d = build_doc(
+                    text,
+                    &prog,
+                    &external_sigs,
+                    &external_rets,
+                    &external_classes,
+                    &external_sources,
+                    &external_docs,
+                );
+                d.external_docs = external_docs;
+                d
+            }
             Err(_) => {
                 let docs = self.docs.lock().unwrap();
                 let mut prev = docs.get(&uri).cloned().unwrap_or_default();
                 prev.text = text;
-                // Keep the previous successful external maps when the
-                // mid-edit refresh produced empty ones (e.g. the
-                // buffer's `use` items couldn't be re-parsed).
                 if !external_sigs.is_empty() {
                     prev.external_signatures = external_sigs;
                 }
                 if !external_rets.is_empty() {
                     prev.external_returns = external_rets;
+                }
+                if !external_docs.is_empty() {
+                    prev.external_docs = external_docs;
                 }
                 prev
             }
@@ -281,11 +296,17 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         if let Some(entry) = lookup_ref(doc, pos) {
-            return Ok(Some(make_hover(&entry.signature)));
+            return Ok(Some(make_hover_with_doc(
+                &entry.signature,
+                entry.doc.as_deref(),
+            )));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
             if let Some(sym) = doc.symbols.get(&word) {
-                return Ok(Some(make_hover(&sym.signature)));
+                return Ok(Some(make_hover_with_doc(
+                    &sym.signature,
+                    sym.doc.as_deref(),
+                )));
             }
         }
         Ok(None)
@@ -463,10 +484,17 @@ impl LanguageServer for Backend {
                     };
                     let (insert_text, fmt) = call_snippet(suffix, kind);
                     let command = trigger_sig_help_command(kind);
+                    let documentation = doc.external_docs.get(k).cloned().map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d,
+                        })
+                    });
                     Some(CompletionItem {
                         label: suffix.to_string(),
                         kind: Some(kind),
                         detail: Some(sig.clone()),
+                        documentation,
                         insert_text,
                         insert_text_format: fmt,
                         command,
@@ -494,6 +522,12 @@ impl LanguageServer for Backend {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::FIELD),
                 detail: Some(display.signature.clone()),
+                documentation: display.doc.clone().map(|d| {
+                    Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: d,
+                    })
+                }),
                 ..CompletionItem::default()
             });
         }
@@ -512,6 +546,12 @@ impl LanguageServer for Backend {
                 label: name.clone(),
                 kind: Some(CompletionItemKind::METHOD),
                 detail: Some(m.signature.clone()),
+                documentation: m.doc.clone().map(|d| {
+                    Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: d,
+                    })
+                }),
                 insert_text,
                 insert_text_format: fmt,
                 command,
@@ -551,6 +591,7 @@ impl LanguageServer for Backend {
                     signature: sym.signature.clone(),
                     ret_ty: None,
                     is_static: false,
+                    doc: None,
                 });
             } else if let Some(sig) = ffi_helper_signature(&call.callee) {
                 out.push(MemberInfo {
@@ -558,6 +599,7 @@ impl LanguageServer for Backend {
                     signature: sig.to_string(),
                     ret_ty: None,
                     is_static: false,
+                    doc: None,
                 });
             } else if let Some(s) = doc.external_signatures.get(&call.callee) {
                 out.push(MemberInfo {
@@ -565,6 +607,7 @@ impl LanguageServer for Backend {
                     signature: s.clone(),
                     ret_ty: None,
                     is_static: false,
+                    doc: None,
                 });
             } else if let Some((recv, method)) = call.callee.rsplit_once('.') {
                 // Method call: `obj.method(`. Resolve the receiver to a
@@ -600,6 +643,7 @@ impl LanguageServer for Backend {
                             signature: sig,
                             ret_ty: None,
                             is_static: false,
+                doc: None,
                         });
                     }
                 }
@@ -652,11 +696,15 @@ impl LanguageServer for Backend {
     }
 }
 
-fn make_hover(sig: &str) -> Hover {
+fn make_hover_with_doc(sig: &str, doc: Option<&str>) -> Hover {
+    let value = match doc {
+        Some(d) if !d.is_empty() => format!("```ilang\n{sig}\n```\n\n{d}"),
+        _ => format!("```ilang\n{sig}\n```"),
+    };
     Hover {
         contents: HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: format!("```ilang\n{sig}\n```"),
+            value,
         }),
         range: None,
     }
@@ -747,13 +795,11 @@ fn harvest_imported_consts(
     entry_src: &str,
     out: &mut HashMap<String, String>,
     sources: &mut ExternalSources,
+    docs: &mut HashMap<String, String>,
 ) {
     let Ok(tokens) = tokenize(entry_src) else { return };
-    // The buffer may fail to parse mid-edit (e.g. trailing `.`). Pull
-    // `use module` items from the token stream directly so the
-    // harvest still runs.
     if let Ok(prog) = parse(&tokens) {
-        harvest_from_program(&prog, entry_path, out, sources);
+        harvest_from_program(&prog, entry_path, out, sources, docs);
         return;
     }
     use ilang_lexer::TokenKind;
@@ -768,7 +814,7 @@ fn harvest_imported_consts(
         if matches!(tokens[i].kind, TokenKind::Use) {
             if let Some(t) = tokens.get(i + 1) {
                 if let TokenKind::Ident(name) = &t.kind {
-                    walk_module(name, &entry_dir, &extra, &mut visited, out, sources);
+                    walk_module(name, &entry_dir, &extra, &mut visited, out, sources, docs);
                     i += 2;
                     continue;
                 }
@@ -783,6 +829,7 @@ fn harvest_from_program(
     entry_path: &Path,
     out: &mut HashMap<String, String>,
     sources: &mut ExternalSources,
+    docs: &mut HashMap<String, String>,
 ) {
     let extra = collect_dep_paths(entry_path).unwrap_or_default();
     let entry_dir = entry_path
@@ -795,7 +842,7 @@ fn harvest_from_program(
         if u.selective.is_some() {
             continue;
         }
-        walk_module(&u.module, &entry_dir, &extra, &mut visited, out, sources);
+        walk_module(&u.module, &entry_dir, &extra, &mut visited, out, sources, docs);
     }
 }
 
@@ -806,6 +853,7 @@ fn walk_module(
     visited: &mut HashSet<PathBuf>,
     out: &mut HashMap<String, String>,
     sources: &mut ExternalSources,
+    docs: &mut HashMap<String, String>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
@@ -827,6 +875,13 @@ fn walk_module(
     if !visited.insert(module_path.clone()) {
         return;
     }
+    // F12 on the module name itself (e.g. `sdl` in `use sdl` or
+    // `new sdl.Window()`) navigates to the start of the module file.
+    sources.entry(prefix.to_string()).or_insert(ExternalLoc {
+        path: module_path.clone(),
+        span: Span::new(1, 1),
+        name_len: 0,
+    });
     let Ok(tokens) = tokenize(&module_src) else { return };
     let Ok(mod_prog) = parse(&tokens) else { return };
     let mod_dir = module_path
@@ -860,22 +915,34 @@ fn walk_module(
                 let key = format!("{prefix}.{}", c.name);
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
                 track(&key, c.span, c.name.len() as u32, sources, &module_path);
+                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
+                    docs.insert(key, d);
+                }
             }
             Item::Fn(f) => {
                 let key = format!("{prefix}.{}", f.name);
                 let sig = format!("fn {}", fn_body(f));
                 out.insert(key.clone(), format!("fn {}", sig.trim_start_matches("fn ")));
                 track(&key, f.span, f.name.len() as u32, sources, &module_path);
+                if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
+                    docs.insert(key, d);
+                }
             }
             Item::Class(c) => {
                 let key = format!("{prefix}.{}", c.name);
                 out.insert(key.clone(), format!("class {key}"));
                 track(&key, c.span, c.name.len() as u32, sources, &module_path);
+                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
+                    docs.insert(key, d);
+                }
             }
             Item::Enum(e) => {
                 let key = format!("{prefix}.{}", e.name);
                 out.insert(key.clone(), format!("enum {key}"));
                 track(&key, e.span, e.name.len() as u32, sources, &module_path);
+                if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
+                    docs.insert(key, d);
+                }
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -937,6 +1004,9 @@ fn walk_module(
                     let key = format!("{prefix}.{n}");
                     out.insert(key.clone(), sig);
                     track(&key, span, n.len() as u32, sources, &module_path);
+                    if let Some(d) = text::extract_doc_above(&module_src, span.line) {
+                        docs.insert(key, d);
+                    }
                 }
             }
             // Follow `@export use` chains so umbrella modules
@@ -951,6 +1021,7 @@ fn walk_module(
                     visited,
                     out,
                     sources,
+                    docs,
                 );
                 // Loader collapses one-deep umbrella prefixes so the
                 // entry sees `sdl.X` (not `sdl.sdl_renderer.X`). Mirror
@@ -963,6 +1034,7 @@ fn walk_module(
                     visited,
                     out,
                     sources,
+                    docs,
                 );
             }
             _ => {}
@@ -978,6 +1050,7 @@ fn walk_module_aliased(
     visited: &mut HashSet<PathBuf>,
     out: &mut HashMap<String, String>,
     sources: &mut ExternalSources,
+    docs: &mut HashMap<String, String>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(actual) {
@@ -1021,25 +1094,31 @@ fn walk_module_aliased(
                     .unwrap_or_default();
                 out.insert(key.clone(), format!("const {key}{ty}{value}"));
                 put(&key, c.span, c.name.len() as u32, sources);
+                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
+                    docs.insert(key, d);
+                }
             }
-            Item::Fn(f) => put(
-                &format!("{alias_prefix}.{}", f.name),
-                f.span,
-                f.name.len() as u32,
-                sources,
-            ),
-            Item::Class(c) => put(
-                &format!("{alias_prefix}.{}", c.name),
-                c.span,
-                c.name.len() as u32,
-                sources,
-            ),
-            Item::Enum(e) => put(
-                &format!("{alias_prefix}.{}", e.name),
-                e.span,
-                e.name.len() as u32,
-                sources,
-            ),
+            Item::Fn(f) => {
+                let key = format!("{alias_prefix}.{}", f.name);
+                put(&key, f.span, f.name.len() as u32, sources);
+                if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
+                    docs.insert(key, d);
+                }
+            }
+            Item::Class(c) => {
+                let key = format!("{alias_prefix}.{}", c.name);
+                put(&key, c.span, c.name.len() as u32, sources);
+                if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
+                    docs.insert(key, d);
+                }
+            }
+            Item::Enum(e) => {
+                let key = format!("{alias_prefix}.{}", e.name);
+                put(&key, e.span, e.name.len() as u32, sources);
+                if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
+                    docs.insert(key, d);
+                }
+            }
             Item::ExternC(b) => {
                 for inner in &b.items {
                     let entry = match inner {
@@ -1060,7 +1139,11 @@ fn walk_module_aliased(
                     };
                     if let Some((n, span)) = entry {
                         let len = n.len() as u32;
-                        put(&format!("{alias_prefix}.{n}"), span, len, sources);
+                        let key = format!("{alias_prefix}.{n}");
+                        put(&key, span, len, sources);
+                        if let Some(d) = text::extract_doc_above(&module_src, span.line) {
+                            docs.insert(key, d);
+                        }
                     }
                 }
             }
@@ -1077,6 +1160,7 @@ fn walk_module_aliased(
                     visited,
                     out,
                     sources,
+                    docs,
                 );
             }
             _ => {}
@@ -1114,6 +1198,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
+                doc: None,
                                     },
                                 );
                             }
@@ -1148,6 +1233,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                     ret_ty: Some(f.ty.clone()),
                     is_static: false,
+                doc: None,
                 },
             );
         }
@@ -1162,6 +1248,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     ),
                     ret_ty: Some(f.ty.clone()),
                     is_static: true,
+                doc: None,
                 },
             );
         }
@@ -1175,6 +1262,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
                     ret_ty: Some(prop.ty.clone()),
                     is_static: false,
+                doc: None,
                 },
             );
             if let Some(g) = &prop.getter {
@@ -1185,6 +1273,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
+                        doc: None,
                     },
                 );
             }
@@ -1196,6 +1285,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
+                        doc: None,
                     },
                 );
             }
@@ -1209,6 +1299,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 signature: format!("(method) {}.{}", c.name, fn_body(m)),
                 ret_ty: m.ret.clone(),
                 is_static: false,
+                doc: None,
             };
             if m.name == "init" {
                 init_overloads += 1;
@@ -1222,6 +1313,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 signature: format!("(static method) {}.{}", c.name, fn_body(m)),
                 is_static: true,
                 ret_ty: m.ret.clone(),
+                doc: None,
             });
         }
         out.insert(
@@ -1363,9 +1455,10 @@ fn build_doc(
     external_returns: &HashMap<String, Type>,
     external_classes: &HashMap<String, ClassInfo>,
     external_sources: &ExternalSources,
+    external_docs: &HashMap<String, String>,
 ) -> Doc {
-    let symbols = collect_symbols(prog);
-    let mut classes = collect_classes(prog);
+    let symbols = collect_symbols(prog, &text);
+    let mut classes = collect_classes(prog, &text);
     install_builtin_classes(&mut classes);
     // Merge in classes the loader pulled in via `use module`. Buffer-
     // local classes win on name collisions.
@@ -1408,6 +1501,7 @@ fn build_doc(
             classes: &classes,
             fn_returns: &fn_returns,
             external_signatures,
+            external_docs,
             external_returns,
             external_sources,
             refs: &mut refs,
@@ -1420,18 +1514,32 @@ fn build_doc(
                 Item::Class(c) => walker.walk_class(c),
                 Item::Use(u) => {
                     // `use module` — push a hover entry on the module
-                    // identifier itself.
+                    // identifier itself, with F12 navigating to the
+                    // module file's first line.
                     if let Some(name_span) = locate_let_name_with_kw(
                         &text,
                         u.span,
                         "use",
                         &u.module,
                     ) {
-                        walker.push_decl(
-                            &u.module,
-                            name_span,
-                            format!("(module) {}", u.module),
-                        );
+                        let loc = walker.external_sources.get(&u.module);
+                        let target_uri = loc
+                            .and_then(|l| Url::from_file_path(&l.path).ok());
+                        let (target_span, target_name_len, no_def) = match &loc {
+                            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                            _ => (name_span, u.module.len() as u32, target_uri.is_none()),
+                        };
+                        walker.refs.push(RefEntry {
+                            line: name_span.line,
+                            start_col: name_span.col,
+                            end_col: name_span.col + u.module.len() as u32,
+                            target_span,
+                            target_name_len,
+                            signature: format!("(module) {}", u.module),
+                            no_definition: no_def,
+                            target_uri,
+                            doc: None,
+                        });
                     }
                 }
                 Item::ExternC(b) => {
@@ -1478,11 +1586,12 @@ fn build_doc(
         var_classes,
         var_types,
         external_signatures: external_signatures.clone(),
+        external_docs: external_docs.clone(),
         external_returns: external_returns.clone(),
     }
 }
 
-fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
+fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
     let put_fn = |f: &FnDecl, m: &mut HashMap<String, Symbol>| {
@@ -1492,6 +1601,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                 name: f.name.clone(),
                 span: f.span,
                 signature: fn_signature(f),
+                doc: text::extract_doc_above(src, f.span.line),
             },
         );
     };
@@ -1506,6 +1616,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                         name: c.name.clone(),
                         span: c.span,
                         signature,
+                        doc: text::extract_doc_above(src, c.span.line),
                     },
                 );
             }
@@ -1526,6 +1637,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                         name: e.name.clone(),
                         span: e.span,
                         signature,
+                        doc: text::extract_doc_above(src, e.span.line),
                     },
                 );
             }
@@ -1544,6 +1656,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                         name: c.name.clone(),
                         span: c.span,
                         signature,
+                        doc: text::extract_doc_above(src, c.span.line),
                     },
                 );
             }
@@ -1578,6 +1691,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                     name: name.clone(),
                                     span: *span,
                                     signature: format!("{libs_prefix}fn {}({}){}", name, ps, r),
+                doc: None,
                                 },
                             );
                         }
@@ -1589,6 +1703,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                     name: name.clone(),
                                     span: *span,
                                     signature: format!("static {}: {}", name, ty),
+                doc: None,
                                 },
                             );
                         }
@@ -1599,6 +1714,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                     name: name.clone(),
                                     span: *span,
                                     signature: format!("struct {}", name),
+                doc: None,
                                 },
                             );
                         }
@@ -1609,6 +1725,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                     name: name.clone(),
                                     span: *span,
                                     signature: format!("union {}", name),
+                doc: None,
                                 },
                             );
                         }
@@ -1619,6 +1736,7 @@ fn collect_symbols(prog: &Program) -> HashMap<String, Symbol> {
                                     name: c.name.clone(),
                                     span: c.span,
                                     signature: format!("class {}", c.name),
+                doc: None,
                                 },
                             );
                         }
@@ -1643,6 +1761,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
             signature: "(method) Console.log(...args): ()".to_string(),
             ret_ty: Some(Type::Unit),
             is_static: false,
+                doc: None,
         },
     );
     out.entry("Console".to_string()).or_insert(ClassInfo {
@@ -1657,7 +1776,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
     });
 }
 
-fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
+fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
     use ilang_ast::ExternCItem;
     let mut classes: Vec<&ClassDecl> = Vec::new();
     let mut out = HashMap::new();
@@ -1685,6 +1804,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
+                doc: None,
                                     },
                                 );
                             }
@@ -1722,6 +1842,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                         ret_ty: Some(f.ty.clone()),
                         is_static: false,
+                        doc: text::extract_doc_above(src, f.span.line),
                     },
                 );
             }
@@ -1736,6 +1857,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         ),
                         ret_ty: Some(f.ty.clone()),
                         is_static: true,
+                        doc: text::extract_doc_above(src, f.span.line),
                     },
                 );
             }
@@ -1752,6 +1874,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                         ),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
+                        doc: text::extract_doc_above(src, prop.span.line),
                     },
                 );
                 if let Some(g) = &prop.getter {
@@ -1765,6 +1888,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                             ),
                             ret_ty: Some(prop.ty.clone()),
                             is_static: false,
+                            doc: text::extract_doc_above(src, g.span.line),
                         },
                     );
                 }
@@ -1779,6 +1903,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                             ),
                             ret_ty: Some(prop.ty.clone()),
                             is_static: false,
+                            doc: text::extract_doc_above(src, s.span.line),
                         },
                     );
                 }
@@ -1792,6 +1917,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     signature: format!("(method) {}.{}", c.name, fn_body(m)),
                     ret_ty: m.ret.clone(),
                     is_static: false,
+                    doc: text::extract_doc_above(src, m.span.line),
                 };
                 if m.name == "init" {
                     init_overloads += 1;
@@ -1805,6 +1931,7 @@ fn collect_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                     signature: format!("(static method) {}.{}", c.name, fn_body(m)),
                     ret_ty: m.ret.clone(),
                     is_static: true,
+                    doc: text::extract_doc_above(src, m.span.line),
                 });
             }
             out.insert(
@@ -1897,6 +2024,9 @@ struct Walker<'a> {
     /// Hover signatures for `module.name` references that the loader
     /// brought in from a `use module` statement.
     external_signatures: &'a HashMap<String, String>,
+    /// Doc comments for external (imported) decls, keyed the same as
+    /// `external_signatures`.
+    external_docs: &'a HashMap<String, String>,
     /// Return types for the same set of external fns. Used when
     /// inferring `let x = math.sqrt(...)` etc.
     external_returns: &'a HashMap<String, Type>,
@@ -2116,6 +2246,7 @@ impl<'a> Walker<'a> {
                                 signature: format!("(property) {prefix}.length: i64"),
                                 no_definition: true,
                                 target_uri: None,
+                            doc: None,
                             });
                             return;
                         }
@@ -2147,6 +2278,7 @@ impl<'a> Walker<'a> {
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
+                                    doc: m.doc.clone(),
                                 });
                             }
                         }
@@ -2175,6 +2307,7 @@ impl<'a> Walker<'a> {
                             signature: sig,
                             no_definition: true,
                             target_uri: None,
+                        doc: None,
                         });
                         return;
                     }
@@ -2201,6 +2334,7 @@ impl<'a> Walker<'a> {
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
+                                    doc: m.doc.clone(),
                                 });
                             }
                         }
@@ -2246,6 +2380,7 @@ impl<'a> Walker<'a> {
                         signature: sig.to_string(),
                         no_definition: true,
                         target_uri: None,
+                    doc: None,
                     });
                 }
                 for a in args {
@@ -2275,15 +2410,24 @@ impl<'a> Walker<'a> {
                 if let Some(dot) = class.find('.') {
                     let prefix = &class[..dot];
                     let suffix = &class[dot + 1..];
+                    let prefix_loc = self.external_sources.get(prefix);
+                    let prefix_uri = prefix_loc
+                        .and_then(|l| Url::from_file_path(&l.path).ok());
+                    let (prefix_target_span, prefix_target_name_len, prefix_no_def) =
+                        match prefix_loc {
+                            Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
+                            _ => (class_start, prefix.len() as u32, true),
+                        };
                     self.refs.push(RefEntry {
                         line: class_start.line,
                         start_col: class_start.col,
                         end_col: class_start.col + prefix.len() as u32,
-                        target_span: class_start,
-                        target_name_len: prefix.len() as u32,
+                        target_span: prefix_target_span,
+                        target_name_len: prefix_target_name_len,
                         signature: format!("(module) {prefix}"),
-                        no_definition: true,
-                        target_uri: None,
+                        no_definition: prefix_no_def,
+                        target_uri: prefix_uri,
+                        doc: None,
                     });
                     if let Some((line, col)) = locate_dot_name(self.text, class_start, suffix) {
                         let loc = self.external_sources.get(class);
@@ -2318,6 +2462,7 @@ impl<'a> Walker<'a> {
                             signature: class_sig,
                             no_definition: no_def,
                             target_uri,
+                        doc: None,
                         });
                     }
                 } else if let Some(sym) = self.symbols.get(class) {
@@ -2331,6 +2476,7 @@ impl<'a> Walker<'a> {
                         signature: class_sig,
                         no_definition: false,
                         target_uri: None,
+                    doc: None,
                     });
                 }
                 for a in args {
@@ -2463,6 +2609,7 @@ impl<'a> Walker<'a> {
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
+                                doc: None,
                                 });
                             }
                         }
@@ -2623,15 +2770,24 @@ impl<'a> Walker<'a> {
         let suffix = &dotted[dot + 1..];
         // Hover at the receiver name itself (e.g. `math` in `math.sqrt`).
         // The Call/Var AST span points at the start of the dotted form.
+        // F12 on the prefix navigates to the start of the module file.
+        let prefix_loc = self.external_sources.get(prefix);
+        let prefix_uri = prefix_loc
+            .and_then(|l| Url::from_file_path(&l.path).ok());
+        let (prefix_target_span, prefix_target_name_len, prefix_no_def) = match prefix_loc {
+            Some(l) if prefix_uri.is_some() => (l.span, l.name_len, false),
+            _ => (receiver_span, prefix.len() as u32, true),
+        };
         self.refs.push(RefEntry {
             line: receiver_span.line,
             start_col: receiver_span.col,
             end_col: receiver_span.col + prefix.len() as u32,
-            target_span: receiver_span,
-            target_name_len: prefix.len() as u32,
+            target_span: prefix_target_span,
+            target_name_len: prefix_target_name_len,
             signature: format!("(module) {prefix}"),
-            no_definition: true,
-            target_uri: None,
+            no_definition: prefix_no_def,
+            target_uri: prefix_uri,
+            doc: None,
         });
         if let Some((line, col)) = locate_dot_name(self.text, receiver_span, suffix) {
             // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
@@ -2653,6 +2809,7 @@ impl<'a> Walker<'a> {
                 signature: sig.clone(),
                 no_definition: target_uri.is_none(),
                 target_uri,
+                doc: self.external_docs.get(dotted).cloned(),
             });
         }
     }
@@ -2667,6 +2824,7 @@ impl<'a> Walker<'a> {
             signature,
             no_definition: false,
             target_uri: None,
+            doc: None,
         });
     }
 
@@ -2687,6 +2845,7 @@ impl<'a> Walker<'a> {
             signature,
             no_definition: false,
             target_uri: None,
+            doc: None,
         });
     }
 
@@ -3425,6 +3584,12 @@ fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
             label: name.clone(),
             kind: Some(kind),
             detail: Some(sym.signature.clone()),
+            documentation: sym.doc.clone().map(|d| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: d,
+                })
+            }),
             insert_text,
             insert_text_format: fmt,
             command,
