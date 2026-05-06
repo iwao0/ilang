@@ -5,17 +5,18 @@
 //! | Operator                | l_bp / r_bp | Assoc  |
 //! |-------------------------|-------------|--------|
 //! | `=` `+=` …              | 2 / 1       | right  |
-//! | `\|\|`                  | 3 / 4       | left   |
-//! | `&&`                    | 5 / 6       | left   |
-//! | `\|` (bit or)           | 7 / 8       | left   |
-//! | `^` (bit xor)           | 9 / 10      | left   |
-//! | `&` (bit and)           | 11 / 12     | left   |
-//! | `==` `!=`               | 13 / 14     | left   |
-//! | `<` `<=` `>` `>=`       | 15 / 16     | left   |
-//! | `<<` `>>`               | 17 / 18     | left   |
-//! | `+` `-`                 | 19 / 20     | left   |
-//! | `*` `/` `%`             | 21 / 22     | left   |
-//! | `as` (cast)             | 23 / —      | postfix|
+//! | `..` `..=` (range)      | 3 / 4       | left   |
+//! | `\|\|`                  | 5 / 6       | left   |
+//! | `&&`                    | 7 / 8       | left   |
+//! | `\|` (bit or)           | 9 / 10      | left   |
+//! | `^` (bit xor)           | 11 / 12     | left   |
+//! | `&` (bit and)           | 13 / 14     | left   |
+//! | `==` `!=`               | 15 / 16     | left   |
+//! | `<` `<=` `>` `>=`       | 17 / 18     | left   |
+//! | `<<` `>>`               | 19 / 20     | left   |
+//! | `+` `-`                 | 21 / 22     | left   |
+//! | `*` `/` `%`             | 23 / 24     | left   |
+//! | `as` (cast)             | 25 / —      | postfix|
 //! | prefix `-` `+` `!` `~`  | — / 30      | prefix |
 
 use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
@@ -129,8 +130,8 @@ impl<'a> Parser<'a> {
 
             // Short-circuit logical operators.
             if let Some((logop, l_bp, r_bp)) = match self.peek().kind {
-                TokenKind::PipePipe => Some((LogicalOp::Or, 3u8, 4u8)),
-                TokenKind::AmpAmp => Some((LogicalOp::And, 5u8, 6u8)),
+                TokenKind::PipePipe => Some((LogicalOp::Or, 5u8, 6u8)),
+                TokenKind::AmpAmp => Some((LogicalOp::And, 7u8, 8u8)),
                 _ => None,
             } {
                 if l_bp < min_bp {
@@ -154,7 +155,7 @@ impl<'a> Parser<'a> {
             // an expression. Tighter than any binary op so `1 + 2 as f64`
             // parses as `1 + ((2) as f64)`.
             if matches!(self.peek().kind, TokenKind::As) {
-                let l_bp = 23u8;
+                let l_bp = 25u8;
                 if l_bp < min_bp {
                     break;
                 }
@@ -173,22 +174,22 @@ impl<'a> Parser<'a> {
 
             // Regular binary operators.
             let (op, l_bp, r_bp) = match &self.peek().kind {
-                TokenKind::Pipe => (BinOp::BitOr, 7, 8),
-                TokenKind::Caret => (BinOp::BitXor, 9, 10),
-                TokenKind::Amp => (BinOp::BitAnd, 11, 12),
-                TokenKind::EqEq => (BinOp::Eq, 13, 14),
-                TokenKind::BangEq => (BinOp::Ne, 13, 14),
-                TokenKind::Lt => (BinOp::Lt, 15, 16),
-                TokenKind::LtEq => (BinOp::Le, 15, 16),
-                TokenKind::Gt => (BinOp::Gt, 15, 16),
-                TokenKind::GtEq => (BinOp::Ge, 15, 16),
-                TokenKind::LtLt => (BinOp::Shl, 17, 18),
-                TokenKind::GtGt => (BinOp::Shr, 17, 18),
-                TokenKind::Plus => (BinOp::Add, 19, 20),
-                TokenKind::Minus => (BinOp::Sub, 19, 20),
-                TokenKind::Star => (BinOp::Mul, 21, 22),
-                TokenKind::Slash => (BinOp::Div, 21, 22),
-                TokenKind::Percent => (BinOp::Rem, 21, 22),
+                TokenKind::Pipe => (BinOp::BitOr, 9, 10),
+                TokenKind::Caret => (BinOp::BitXor, 11, 12),
+                TokenKind::Amp => (BinOp::BitAnd, 13, 14),
+                TokenKind::EqEq => (BinOp::Eq, 15, 16),
+                TokenKind::BangEq => (BinOp::Ne, 15, 16),
+                TokenKind::Lt => (BinOp::Lt, 17, 18),
+                TokenKind::LtEq => (BinOp::Le, 17, 18),
+                TokenKind::Gt => (BinOp::Gt, 17, 18),
+                TokenKind::GtEq => (BinOp::Ge, 17, 18),
+                TokenKind::LtLt => (BinOp::Shl, 19, 20),
+                TokenKind::GtGt => (BinOp::Shr, 19, 20),
+                TokenKind::Plus => (BinOp::Add, 21, 22),
+                TokenKind::Minus => (BinOp::Sub, 21, 22),
+                TokenKind::Star => (BinOp::Mul, 23, 24),
+                TokenKind::Slash => (BinOp::Div, 23, 24),
+                TokenKind::Percent => (BinOp::Rem, 23, 24),
                 _ => break,
             };
             if l_bp < min_bp {
@@ -1080,11 +1081,13 @@ impl<'a> Parser<'a> {
                     fs.push((fname, bname));
                     if matches!(self.peek().kind, TokenKind::Comma) {
                         self.bump();
-                    } else if !matches!(self.peek().kind, TokenKind::RBrace) {
+                    } else if !matches!(self.peek().kind, TokenKind::RBrace)
+                        && !self.peek().leading_newline
+                    {
                         let p = self.peek();
                         return Err(ParseError::Unexpected {
                             found: p.kind.clone(),
-                            expected: "',' between struct-pattern fields".into(),
+                            expected: "',' or newline between struct-pattern fields".into(),
                             span: p.span,
                         });
                     }
@@ -1113,18 +1116,27 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Equals, "'='")?;
         let scrut = self.parse_expr(0)?;
         let then_branch = parse_block(self)?;
-        let else_branch = if matches!(self.peek().kind, TokenKind::Else) {
-            self.bump();
-            if matches!(self.peek().kind, TokenKind::If) {
-                let inner = self.parse_if()?;
+        let else_branch = match self.peek().kind {
+            TokenKind::Elif => {
+                let inner = self.parse_elif_chain()?;
                 Some(Box::new(inner))
-            } else {
+            }
+            TokenKind::Else => {
+                self.bump();
+                if matches!(self.peek().kind, TokenKind::If) {
+                    let p = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: p.kind.clone(),
+                        expected: "'elif' (use `elif` for chained conditions, not `else if`)"
+                            .into(),
+                        span: p.span,
+                    });
+                }
                 let block_span = self.peek().span;
                 let block = parse_block(self)?;
                 Some(Box::new(Expr::new(ExprKind::Block(block), block_span)))
             }
-        } else {
-            None
+            _ => None,
         };
         Ok(Expr::new(
             ExprKind::IfLet {

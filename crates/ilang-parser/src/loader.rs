@@ -294,14 +294,22 @@ fn apply_use(
         .map(str::to_string)
         .unwrap_or_else(|| u.module.clone());
     // Whole-module + selective imports both prefix the items by
-    // `effective_prefix` (selective keeps bare names, but is rare
-    // and covered by the `(canon, "")` key below). If we've already
-    // merged the same module under the same prefix, skip — diamond
-    // dependencies (main + sibling both `use math`) would otherwise
-    // double-register every fn.
+    // `effective_prefix` (selective keeps bare names, listed in the
+    // key so distinct selective imports of the same module don't
+    // collide). If we've already merged the same module under the
+    // same prefix / same name list, skip — diamond dependencies
+    // (main + sibling both `use math`) would otherwise double-
+    // register every fn.
     let dedup_key: (PathBuf, String) = match &u.selective {
         None => (canon.clone(), effective_prefix.clone()),
-        Some(_) => (canon.clone(), String::new()),
+        Some(names) => {
+            let mut sorted: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+            sorted.sort();
+            sorted.dedup();
+            // `@sel:` prefix can't collide with a real module prefix
+            // (identifiers don't start with `@`).
+            (canon.clone(), format!("@sel:{}", sorted.join(",")))
+        }
     };
     if !applied.insert(dedup_key) {
         return Ok(());
