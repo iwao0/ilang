@@ -819,6 +819,14 @@ impl LanguageServer for Backend {
         // anchors fn / class spans at the keyword, not the name.
         let (target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
         {
+            // `this` is a keyword — its RefEntry shares (target_span,
+            // target_name_len) with the enclosing class, so letting
+            // the rename through would also rewrite every reference
+            // to the class. Refuse instead of silently corrupting
+            // the file.
+            if entry.signature.starts_with("this:") {
+                return Ok(None);
+            }
             (
                 (entry.target_span, entry.target_name_len),
                 entry.target_span,
@@ -851,6 +859,10 @@ impl LanguageServer for Backend {
                 r.target_uri.is_none()
                     && r.target_span == target.0
                     && r.target_name_len == target.1
+                    // `this` refs share their target with the
+                    // enclosing class — exclude them so renaming the
+                    // class doesn't rewrite `this` to the new name.
+                    && !r.signature.starts_with("this:")
             })
             .map(|r| TextEdit {
                 range: Range {
