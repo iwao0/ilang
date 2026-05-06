@@ -4574,24 +4574,79 @@ fn try_lower_extern_c_helper(
             let arr = lower_extern_c_array_copy(b, lc, pv, n_i64, JitTy::U8);
             Ok(Some(Some((arr, JitTy::Array(intern_array_kind_u8(lc))))))
         }
-        // readU8(p: *const void, offset: i64): u8
-        "readU8" => {
+        // read{IN,UN,FN}(p: *const void, offset: i64): TN —
+        // primitive load at `p + offset` (offset in bytes).
+        "readI8" | "readI16" | "readI32" | "readI64" | "readU8" | "readU16" | "readU32"
+        | "readU64" | "readF32" | "readF64" => {
             let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
                 CodegenError::Unsupported {
-                    what: "readU8 ptr is unit".into(),
+                    what: format!("{callee} ptr is unit"),
                     span: args[0].span,
                 }
             })?;
             let (ov, ot) = lower_expr(b, lc, &args[1])?.ok_or_else(|| {
                 CodegenError::Unsupported {
-                    what: "readU8 offset is unit".into(),
+                    what: format!("{callee} offset is unit"),
                     span: args[1].span,
                 }
             })?;
             let off_i64 = coerce(b, (ov, ot), JitTy::I64, args[1].span)?;
             let addr = b.ins().iadd(pv, off_i64);
-            let byte = b.ins().load(I8, MemFlags::trusted(), addr, 0);
-            Ok(Some(Some((byte, JitTy::U8))))
+            let (cl, jty) = match callee.as_ref() {
+                "readI8" => (I8, JitTy::I8),
+                "readI16" => (I16, JitTy::I16),
+                "readI32" => (I32, JitTy::I32),
+                "readI64" => (I64, JitTy::I64),
+                "readU8" => (I8, JitTy::U8),
+                "readU16" => (I16, JitTy::U16),
+                "readU32" => (I32, JitTy::U32),
+                "readU64" => (I64, JitTy::U64),
+                "readF32" => (F32, JitTy::F32),
+                "readF64" => (F64, JitTy::F64),
+                _ => unreachable!(),
+            };
+            let v = b.ins().load(cl, MemFlags::trusted(), addr, 0);
+            Ok(Some(Some((v, jty))))
+        }
+        // write{IN,UN,FN}(p: *void, offset: i64, value: TN)
+        "writeI8" | "writeI16" | "writeI32" | "writeI64" | "writeU8" | "writeU16"
+        | "writeU32" | "writeU64" | "writeF32" | "writeF64" => {
+            let (pv, _) = lower_expr(b, lc, &args[0])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: format!("{callee} ptr is unit"),
+                    span: args[0].span,
+                }
+            })?;
+            let (ov, ot) = lower_expr(b, lc, &args[1])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: format!("{callee} offset is unit"),
+                    span: args[1].span,
+                }
+            })?;
+            let off_i64 = coerce(b, (ov, ot), JitTy::I64, args[1].span)?;
+            let addr = b.ins().iadd(pv, off_i64);
+            let (vv, vt) = lower_expr(b, lc, &args[2])?.ok_or_else(|| {
+                CodegenError::Unsupported {
+                    what: format!("{callee} value is unit"),
+                    span: args[2].span,
+                }
+            })?;
+            let target = match callee.as_ref() {
+                "writeI8" => JitTy::I8,
+                "writeI16" => JitTy::I16,
+                "writeI32" => JitTy::I32,
+                "writeI64" => JitTy::I64,
+                "writeU8" => JitTy::U8,
+                "writeU16" => JitTy::U16,
+                "writeU32" => JitTy::U32,
+                "writeU64" => JitTy::U64,
+                "writeF32" => JitTy::F32,
+                "writeF64" => JitTy::F64,
+                _ => unreachable!(),
+            };
+            let coerced = coerce(b, (vv, vt), target, args[2].span)?;
+            b.ins().store(MemFlags::trusted(), coerced, addr, 0);
+            Ok(Some(None))
         }
         // fnAddr(f): i64 — code-pointer of an ilang fn for passing
         // into C as a callback. The argument must be a bare fn name

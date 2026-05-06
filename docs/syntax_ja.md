@@ -957,6 +957,12 @@ console.log(ts.tv_sec)
 | `stringFromCstr` | `(p: *const char): string` | C ポインタから新しい `StringRc` にコピー (NUL 終端で長さ検出) |
 | `freeCstr` | `(p: *const char): unit` | `cstrFromString` で確保した C 文字列を解放 |
 | `bytesFromBuffer` | `(p: *const void, n: size_t): u8[]` | 指定長のバイト列をコピーして `u8[]` を返す |
+| `readI8`/`readI16`/`readI32`/`readI64` | `(p: *const void, offset: i64): iN` | アロケーション無しでポインタ + オフセット (**バイト** 単位) から符号付き整数を読み込み。アラインメントは呼び出し側責任 |
+| `readU8`/`readU16`/`readU32`/`readU64` | `(p: *const void, offset: i64): uN` | 同上、符号無し |
+| `readF32`/`readF64` | `(p: *const void, offset: i64): fN` | 浮動小数版 |
+| `writeI8`/`writeI16`/`writeI32`/`writeI64` | `(p: *void, offset: i64, value: iN)` | `p + offset` に書き込む符号付き版 |
+| `writeU8`/`writeU16`/`writeU32`/`writeU64` | `(p: *void, offset: i64, value: uN)` | 同上、符号無し |
+| `writeF32`/`writeF64` | `(p: *void, offset: i64, value: fN)` | 浮動小数版 |
 | `arrayFromCArray<T>` | `(p: *const T, n: size_t): T[]` | プリミティブ配列をコピー (T は数値 / bool) |
 | `cstrArrayToStrings` | `(p: *const *const char): string[]` | NULL 終端 `char**` を ilang `string[]` に変換 (`environ` / argv 系) |
 | `errnoCheck` | `(rc: i32): i32?` | POSIX 流 "戻り値 < 0 は失敗" を `i32?` に。失敗 → `none`、成功 → `some(rc)` |

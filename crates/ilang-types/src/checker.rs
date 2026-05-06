@@ -614,6 +614,8 @@ impl TypeChecker {
         let raw_char = Type::RawPtr { is_const: false, inner: Box::new(Type::CChar) };
         let raw_const_void =
             Type::RawPtr { is_const: true, inner: Box::new(Type::CVoid) };
+        let raw_void =
+            Type::RawPtr { is_const: false, inner: Box::new(Type::CVoid) };
         let raw_const_const_char = Type::RawPtr {
             is_const: true,
             inner: Box::new(raw_const_char.clone()),
@@ -650,18 +652,54 @@ impl TypeChecker {
                 Vec::new(),
             )],
         );
-        // readU8(p: *const void, offset: i64): u8 — alloc-free
-        // single-byte read at the given pointer + offset. For
-        // hot polling paths where allocating a u8[] each call
-        // (`bytesFromBuffer`) is too heavy.
-        self.fns.insert(
-            "readU8".into(),
-            vec![mk_sig(
-                vec![raw_const_void.clone(), Type::I64],
-                Type::U8,
-                Vec::new(),
-            )],
-        );
+        // read{IN,UN,FN}(p: *const void, offset: i64): TN — alloc-free
+        // primitive load at `p + offset` (offset is in BYTES). Mirrors
+        // C99-style `*(TN*)((char*)p + offset)`. Caller is responsible
+        // for alignment.
+        for (name, ty) in [
+            ("readI8", Type::I8),
+            ("readI16", Type::I16),
+            ("readI32", Type::I32),
+            ("readI64", Type::I64),
+            ("readU8", Type::U8),
+            ("readU16", Type::U16),
+            ("readU32", Type::U32),
+            ("readU64", Type::U64),
+            ("readF32", Type::F32),
+            ("readF64", Type::F64),
+        ] {
+            self.fns.insert(
+                name.to_string(),
+                vec![mk_sig(
+                    vec![raw_const_void.clone(), Type::I64],
+                    ty,
+                    Vec::new(),
+                )],
+            );
+        }
+        // write{IN,UN,FN}(p: *void, offset: i64, value: TN) — companion
+        // store at `p + offset`. Same alignment caveat as the readers.
+        for (name, ty) in [
+            ("writeI8", Type::I8),
+            ("writeI16", Type::I16),
+            ("writeI32", Type::I32),
+            ("writeI64", Type::I64),
+            ("writeU8", Type::U8),
+            ("writeU16", Type::U16),
+            ("writeU32", Type::U32),
+            ("writeU64", Type::U64),
+            ("writeF32", Type::F32),
+            ("writeF64", Type::F64),
+        ] {
+            self.fns.insert(
+                name.to_string(),
+                vec![mk_sig(
+                    vec![raw_void.clone(), Type::I64, ty],
+                    Type::Unit,
+                    Vec::new(),
+                )],
+            );
+        }
         // fnAddr(f): i64 — code-pointer of an ilang fn, suitable
         // for passing into C as a callback (e.g. SDL_AddTimer).
         // The callback's signature must already be C-ABI compatible
@@ -3543,7 +3581,26 @@ const FFI_HELPERS: &[&str] = &[
     "cstrFromString",
     "freeCstr",
     "bytesFromBuffer",
+    "readI8",
+    "readI16",
+    "readI32",
+    "readI64",
     "readU8",
+    "readU16",
+    "readU32",
+    "readU64",
+    "readF32",
+    "readF64",
+    "writeI8",
+    "writeI16",
+    "writeI32",
+    "writeI64",
+    "writeU8",
+    "writeU16",
+    "writeU32",
+    "writeU64",
+    "writeF32",
+    "writeF64",
     "fnAddr",
     "arrayFromCArray",
     "cstrArrayToStrings",

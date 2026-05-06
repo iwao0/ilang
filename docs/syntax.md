@@ -1291,6 +1291,12 @@ functions described below.
 | `stringFromCstr` | `(p: *const char): string` | Copies a C pointer into a fresh `StringRc` (length detected via NUL). |
 | `freeCstr` | `(p: *const char): unit` | Frees a buffer obtained from `cstrFromString`. |
 | `bytesFromBuffer` | `(p: *const void, n: size_t): u8[]` | Copies `n` bytes into a fresh `u8[]`. |
+| `readI8`/`readI16`/`readI32`/`readI64` | `(p: *const void, offset: i64): iN` | Alloc-free signed primitive load at `p + offset` (offset in **bytes**). Caller is responsible for alignment. |
+| `readU8`/`readU16`/`readU32`/`readU64` | `(p: *const void, offset: i64): uN` | Same shape, unsigned. |
+| `readF32`/`readF64` | `(p: *const void, offset: i64): fN` | Float variant. |
+| `writeI8`/`writeI16`/`writeI32`/`writeI64` | `(p: *void, offset: i64, value: iN)` | Companion store at `p + offset`. |
+| `writeU8`/`writeU16`/`writeU32`/`writeU64` | `(p: *void, offset: i64, value: uN)` | Same shape, unsigned. |
+| `writeF32`/`writeF64` | `(p: *void, offset: i64, value: fN)` | Float variant. |
 | `arrayFromCArray<T>` | `(p: *const T, n: size_t): T[]` | Copies a primitive array (T = numeric / bool). |
 | `cstrArrayToStrings` | `(p: *const *const char): string[]` | Walks a NULL-terminated `char**` and copies each element (`environ` / argv style). |
 | `errnoCheck` | `(rc: i32): i32?` | POSIX "negative return = failure". `rc < 0` → `none`, else `some(rc)`. |
