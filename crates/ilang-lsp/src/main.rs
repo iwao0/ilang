@@ -339,6 +339,12 @@ impl LanguageServer for Backend {
         let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
             let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
                 .unwrap_or(doc.text.len());
+            // After `let` / `const` the user is naming a new binding —
+            // suppress all suggestions so VSCode doesn't autocomplete
+            // an unrelated identifier into the binder slot.
+            if preceding_kw_introduces_binder(&doc.text, off) {
+                return Ok(Some(CompletionResponse::Array(Vec::new())));
+            }
             let at_top_level = brace_depth_at(&doc.text, off) <= 0;
             return Ok(Some(CompletionResponse::Array(global_completions(
                 doc,
@@ -3035,6 +3041,41 @@ enum KwScope {
     Block,
     /// Allowed in both contexts.
     Both,
+}
+
+/// `true` when the cursor is right after a `let` / `const` keyword
+/// (with optional whitespace and possibly a partial ident underway).
+/// Used to suppress completion at the binder position — anything we
+/// suggest there would shadow / overwrite the new name.
+fn preceding_kw_introduces_binder(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    // Skip the in-progress ident the user is typing.
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
+        i -= 1;
+    }
+    for kw in ["let", "const"] {
+        let n = kw.len();
+        if i >= n && &bytes[i - n..i] == kw.as_bytes() {
+            let prev = if i > n { Some(bytes[i - n - 1]) } else { None };
+            let boundary = prev
+                .map(|c| !c.is_ascii_alphanumeric() && c != b'_')
+                .unwrap_or(true);
+            if boundary {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Brace depth of `text` at byte offset `offset`. Counts `{` and `}`
