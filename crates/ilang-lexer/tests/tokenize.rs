@@ -436,6 +436,77 @@ fn lone_cr_triggers_asi() {
 }
 
 #[test]
+fn out_of_radix_digit_errors() {
+    // `0b102`, `0o78` used to silently lex as two adjacent integers.
+    assert!(matches!(
+        tokenize("0b102"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+    assert!(matches!(
+        tokenize("0o78"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+    assert!(matches!(
+        tokenize("0o39"),
+        Err(LexError::InvalidNumber { .. })
+    ));
+}
+
+#[test]
+fn line_comment_breaks_on_lone_cr() {
+    // After we made `\r` an ASI trigger, the line comment scanner must
+    // also stop at it so `// foo\rbar` doesn't swallow `bar`.
+    assert_eq!(
+        kinds("// foo\rbar"),
+        vec![TokenKind::Ident("bar".into()), TokenKind::Eof]
+    );
+}
+
+#[test]
+fn hex_float_suffix() {
+    // `0xff_f32` should parse as `Int(0xff)` with an `f32` suffix —
+    // and then promote to `Float(255.0)` because of the float suffix.
+    let toks = tokenize("0xff_f32").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Float(255.0));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::F32));
+
+    let toks = tokenize("0xFF_f64").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Float(255.0));
+    assert_eq!(toks[0].numeric_suffix, Some(ilang_ast::Type::F64));
+
+    // Hex digits that *aren't* a complete `f32`/`f64` suffix are still
+    // treated as part of the number.
+    let toks = tokenize("0xff_f0").unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Int(0xfff0));
+    assert_eq!(toks[0].numeric_suffix, None);
+}
+
+#[test]
+fn method_call_on_int_literal() {
+    // `1.foo` is now `Int(1) Dot Ident("foo")`, enabling method calls
+    // on integer literals.
+    assert_eq!(
+        kinds("1.foo"),
+        vec![
+            TokenKind::Int(1),
+            TokenKind::Dot,
+            TokenKind::Ident("foo".into()),
+            TokenKind::Eof,
+        ]
+    );
+    // Floats with explicit fractional digits still work.
+    assert_eq!(
+        kinds("1.5"),
+        vec![TokenKind::Float(1.5), TokenKind::Eof]
+    );
+    // `1.` (no fractional digit) is now `Int(1) Dot`.
+    assert_eq!(
+        kinds("1."),
+        vec![TokenKind::Int(1), TokenKind::Dot, TokenKind::Eof]
+    );
+}
+
+#[test]
 fn integer_with_float_suffix_promotes_to_float() {
     // `1_f32` is shorthand for `1.0_f32` — token kind reflects that.
     let toks = tokenize("1_f32").unwrap();
