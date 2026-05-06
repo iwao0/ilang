@@ -377,8 +377,12 @@ impl LanguageServer for Backend {
                         .into_iter()
                         .filter_map(|n| string_method_sig(n).map(|s| (n.to_string(), s)))
                         .collect(),
-                    Type::Array { elem, .. } => array_method_names()
+                    Type::Array { elem, fixed } => array_method_names()
                         .into_iter()
+                        .filter(|n| {
+                            // Fixed-length arrays can't grow / shrink.
+                            !(fixed.is_some() && matches!(**n, "push" | "pop"))
+                        })
                         .filter_map(|n| {
                             array_method_sig(n, elem).map(|s| (n.to_string(), s))
                         })
