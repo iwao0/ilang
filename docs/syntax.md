@@ -32,12 +32,12 @@ match patterns):
 
 ```
 as       class    extends  false    in       none     override
-some     super    this     true
+return   some     super    this     true
 ```
 
 This is a practical concession for binding to C enums whose members
 happen to collide (e.g. `SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`,
-`SDL_FALSE` / `SDL_TRUE`).
+`SDL_FALSE` / `SDL_TRUE`, `SDL_SCANCODE_RETURN`).
 
 **Contextual keywords** — only special inside specific positions,
 otherwise plain identifiers:

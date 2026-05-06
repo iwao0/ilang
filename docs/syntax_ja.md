@@ -23,10 +23,10 @@ true     use      while
 
 ```
 as       class    extends  false    in       none     override
-some     super    this     true
+return   some     super    this     true
 ```
 
-C ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`, `SDL_FALSE` / `SDL_TRUE` など) と衝突しないようにするための実用上の配慮です。
+C ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`, `SDL_FALSE` / `SDL_TRUE`, `SDL_SCANCODE_RETURN` など) と衝突しないようにするための実用上の配慮です。
 
 **文脈依存キーワード** — 特定位置でのみキーワード扱い、それ以外では通常の識別子:
 

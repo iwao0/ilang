@@ -138,9 +138,8 @@
     }
 }
 /// SDL_Scancode — physical key, layout-independent.
-/// `SCANCODE_RETURN` is renamed to `return_` because
-/// `return` is reserved in ilang. Number-row keys use the
-/// `digit0..digit9` form (idents can't start with a digit).
+/// Number-row keys use the `digit0..digit9` form (idents can't
+/// start with a digit).
 enum Scancode: i32 {
     unknown                     = 0
     a                           = 4
@@ -179,7 +178,7 @@ enum Scancode: i32 {
     digit8                      = 37
     digit9                      = 38
     digit0                      = 39
-    return_                     = 40
+    return                      =40
     escape                      = 41
     backspace                   = 42
     tab                         = 43
@@ -298,11 +297,11 @@ enum Scancode: i32 {
 }
 
 /// SDL_Keycode — virtual key (current keyboard layout).
-/// Same renaming rules as `Scancode` (`return_`, `digit0..9`).
+/// Same renaming rule as `Scancode` (`digit0..9`).
 enum Keycode: i32 {
     scancodeMask                = 0x40000000
     unknown                     = 0
-    return_                     = 13  // '\r'
+    return                      =13  // '\r'
     escape                      = 27  // '\033'
     backspace                   = 8  // '\b'
     tab                         = 9  // '\t'

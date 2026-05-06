@@ -832,6 +832,7 @@ impl<'a> Parser<'a> {
                     | TokenKind::Super
                     | TokenKind::This
                     | TokenKind::Extends
+                    | TokenKind::Return
             )
         };
         let t0 = &self.tokens[self.pos].kind;
