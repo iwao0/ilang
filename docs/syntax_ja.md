@@ -8,6 +8,39 @@
 
 ---
 
+## 予約語
+
+```
+as       break    class    const    continue elif     else     enum
+extends  false    fn       for      if       in       let      loop
+match    new      none     override return   some     super    this
+true     use      while
+```
+
+これらは予約語で、変数 / 引数 / フィールド / 関数 / クラス名には使えません。
+
+**例外**: 以下の予約語は **enum の variant 名としてのみ** 使えます (宣言、`Enum.<name>` アクセス、match の短縮形 / 修飾形パターン):
+
+```
+as       class    extends  false    in       none     override
+some     super    this     true
+```
+
+C ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`, `SDL_FALSE` / `SDL_TRUE` など) と衝突しないようにするための実用上の配慮です。
+
+**文脈依存キーワード** — 特定位置でのみキーワード扱い、それ以外では通常の識別子:
+
+| 単語 | キーワード扱いになる場所 |
+| --- | --- |
+| `static` | クラス本体内のメンバ修飾子 |
+| `get` / `set` | クラス内のプロパティ getter / setter 宣言 |
+| `weak` | 型位置のサフィックス `ClassName.weak` |
+
+**予約識別子** — variant 名・フィールド名としては使えるが、トップレベルで上書きするとエラー:
+
+- `console` — 組み込みシングルトン
+- `Result` — 組み込み 2-variant enum
+
 ## 1. リテラル
 
 | 種類 | 例 | 自然な型 |

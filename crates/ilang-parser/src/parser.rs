@@ -80,6 +80,51 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Like `expect_ident` but additionally accepts a fixed set of
+    /// keyword tokens as if they were identifiers. Used in
+    /// member-access / enum-variant positions so the user can name a
+    /// variant after a C constant like `SDL_HINT_OVERRIDE`.
+    ///
+    /// The promoted set is the keywords most likely to appear as C
+    /// enum members: `class`, `none`, `override`, `true`, `false`,
+    /// `some`, `as`, `in`, `super`, `this`, `extends`. (`static`
+    /// already lexes as an ident.)
+    pub(crate) fn expect_member_name(
+        &mut self,
+        label: &str,
+    ) -> Result<String, ParseError> {
+        let t = self.peek().clone();
+        let name: Option<&'static str> = match &t.kind {
+            TokenKind::Ident(n) => {
+                let s = n.clone();
+                self.bump();
+                return Ok(s);
+            }
+            TokenKind::Class => Some("class"),
+            TokenKind::None_ => Some("none"),
+            TokenKind::Override => Some("override"),
+            TokenKind::True => Some("true"),
+            TokenKind::False => Some("false"),
+            TokenKind::Some_ => Some("some"),
+            TokenKind::As => Some("as"),
+            TokenKind::In => Some("in"),
+            TokenKind::Super => Some("super"),
+            TokenKind::This => Some("this"),
+            TokenKind::Extends => Some("extends"),
+            _ => None,
+        };
+        if let Some(s) = name {
+            self.bump();
+            Ok(s.to_string())
+        } else {
+            Err(ParseError::Unexpected {
+                found: t.kind,
+                expected: label.into(),
+                span: t.span,
+            })
+        }
+    }
+
     /// After parsing an expression in statement-position, decide whether it
     /// becomes a statement (followed by `;`, JS-style implicit terminator
     /// from a leading newline on the next token, or block-like form) or the

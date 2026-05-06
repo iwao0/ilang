@@ -220,13 +220,11 @@ enum LogCategory: i32 {
 
 // ─── SDL_HintPriority ─────────────────────────────────────────────
 
-/// Hint priority passed to `setHintWithPriority`. `override_` is
-/// renamed from `SDL_HINT_OVERRIDE` because `override` is reserved
-/// in ilang.
+/// Hint priority passed to `setHintWithPriority`.
 enum HintPriority: i32 {
-    default   = 0
-    normal    = 1
-    override_ = 2
+    default  = 0
+    normal   = 1
+    override = 2
 }
 
 // ─── SDL_HINT_* names ────────────────────────────────────────────

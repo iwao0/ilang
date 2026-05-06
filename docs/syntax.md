@@ -14,6 +14,46 @@ separators (JS-style ASI).
 
 ---
 
+## Reserved words
+
+```
+as       break    class    const    continue elif     else     enum
+extends  false    fn       for      if       in       let      loop
+match    new      none     override return   some     super    this
+true     use      while
+```
+
+These tokens are reserved and cannot be used as variable / parameter
+/ field / function / class names.
+
+**Carve-outs** — the following reserved words *can* be used as enum
+variant names (declaration, `Enum.<name>` access, and short / qualified
+match patterns):
+
+```
+as       class    extends  false    in       none     override
+some     super    this     true
+```
+
+This is a practical concession for binding to C enums whose members
+happen to collide (e.g. `SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`,
+`SDL_FALSE` / `SDL_TRUE`).
+
+**Contextual keywords** — only special inside specific positions,
+otherwise plain identifiers:
+
+| Word | Where it's a keyword |
+| --- | --- |
+| `static` | class-body member modifier |
+| `get` / `set` | property accessor declarations inside a class |
+| `weak` | type-position suffix `ClassName.weak` |
+
+**Reserved identifiers** — usable as variant / field names but
+shadowing them at top-level is rejected:
+
+- `console` — built-in singleton.
+- `Result` — built-in two-variant enum.
+
 ## 1. Literals
 
 | Kind | Examples | Natural type |
@@ -800,6 +840,12 @@ match day {
   colon (`red`).
 - **Variant casing**: any case is syntactically OK, but lowercase
   is recommended to match the built-in `Result.ok` / `Result.err`.
+- **Keyword-named variants**: `override`, `class`, and `none` can
+  be used as variant names (and accessed as `Enum.override` etc.)
+  even though they're reserved elsewhere. Useful when binding to C
+  enums whose members happen to collide with ilang keywords (e.g.
+  `SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`). `static` was never
+  reserved, so it works without any special handling.
 - **Match arms**: no `=>`, just write `{ body }` after the
   pattern (`Color.red { "red" }`).
 - Construction needs the `Enum.` prefix (`Shape.circle(3.0)`).

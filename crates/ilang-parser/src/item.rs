@@ -494,7 +494,7 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             let v_span = self.peek().span;
-            let v_name = self.expect_ident("variant name")?;
+            let v_name = self.expect_member_name("variant name")?;
             // Payload is introduced by `:` — either `: (Ty, ...)` for
             // tuple or `: { name: Ty, ... }` for struct. Without a `:`
             // the variant is a unit (no payload).

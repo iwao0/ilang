@@ -28,29 +28,25 @@ enum ScaleMode: i32 {
     best    = 2
 }
 
-/// SDL_TextureAccess. `static_` is renamed from `SDL_TEXTUREACCESS_STATIC`
-/// to avoid clashing with ilang's `static` keyword.
+/// SDL_TextureAccess.
 enum TextureAccess: i32 {
-    static_   = 0
+    static    = 0
     streaming = 1
     target    = 2
 }
 
 /// SDL_TextureModulate — multiplied against texture color/alpha on draw.
-/// `none_` mirrors `SDL_TEXTUREMODULATE_NONE` (renamed to avoid clashing
-/// with ilang's `none` Optional literal).
 @flags
 enum TextureModulate: i32 {
-    none_ = 0x00000000
+    none  = 0x00000000
     color = 0x00000001
     alpha = 0x00000002
 }
 
-/// SDL_RendererFlip — bit flags for `RenderCopyEx`. `none_` mirrors
-/// `SDL_FLIP_NONE`.
+/// SDL_RendererFlip — bit flags for `RenderCopyEx`.
 @flags
 enum RendererFlip: i32 {
-    none_      = 0x00000000
+    none       = 0x00000000
     horizontal = 0x00000001
     vertical   = 0x00000002
 }

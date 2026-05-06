@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
     fn parse_dot_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
         while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
-            let name = self.expect_ident("field or method name")?;
+            let name = self.expect_member_name("field or method name")?;
             let span = expr.span;
             if matches!(self.peek().kind, TokenKind::LParen) {
                 self.bump();
@@ -815,18 +815,37 @@ impl<'a> Parser<'a> {
         // For the short form we still want the same disambiguation.
         // (Wildcard `_` and `ok`/`err` Result short forms never end up
         // here — they're handled inside parse_pattern.)
+        // Variant names accept ident plus the promoted keywords.
+        // Mirrors `Parser::expect_member_name`.
+        let is_name = |k: &TokenKind| {
+            matches!(
+                k,
+                TokenKind::Ident(_)
+                    | TokenKind::Class
+                    | TokenKind::None_
+                    | TokenKind::Override
+                    | TokenKind::True
+                    | TokenKind::False
+                    | TokenKind::Some_
+                    | TokenKind::As
+                    | TokenKind::In
+                    | TokenKind::Super
+                    | TokenKind::This
+                    | TokenKind::Extends
+            )
+        };
         let t0 = &self.tokens[self.pos].kind;
-        if !matches!(t0, TokenKind::Ident(_)) {
+        if !is_name(t0) {
             return false;
         }
         let t1 = self.tokens.get(self.pos + 1).map(|t| &t.kind);
         let brace_pos = if matches!(t1, Some(TokenKind::Dot)) {
             // long form `Enum.Variant`
             let t2 = self.tokens.get(self.pos + 2).map(|t| &t.kind);
-            if !matches!(t2, Some(TokenKind::Ident(_))) {
-                return false;
+            match t2 {
+                Some(k) if is_name(k) => self.pos + 3,
+                _ => return false,
             }
-            self.pos + 3
         } else if matches!(t1, Some(TokenKind::LBrace)) {
             // short form `Ident { ... }`
             self.pos + 1
@@ -876,10 +895,10 @@ impl<'a> Parser<'a> {
                 });
             }
         }
-        let first = self.expect_ident("variant name")?;
+        let first = self.expect_member_name("variant name")?;
         let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
-            let v = self.expect_ident("variant name")?;
+            let v = self.expect_member_name("variant name")?;
             (Some(first), v)
         } else {
             (None, first)
@@ -909,10 +928,10 @@ impl<'a> Parser<'a> {
         // Long form `EnumName.Variant` vs. short form `Variant` (the
         // checker fills in the enum name from the scrutinee). Detect
         // by looking for `::` after the first ident.
-        let first = self.expect_ident("pattern (variant or `_`)")?;
+        let first = self.expect_member_name("pattern (variant or `_`)")?;
         let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
-            let v = self.expect_ident("variant name")?;
+            let v = self.expect_member_name("variant name")?;
             (Some(first), v)
         } else {
             (None, first)
