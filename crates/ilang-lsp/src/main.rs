@@ -217,9 +217,12 @@ async fn refresh_impl(
         .unwrap_or_default();
     // When the buffer parses cleanly, rebuild the doc from scratch.
     // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
-    // doc's classes/symbols so completion / hover still work, but
-    // refresh the text + external maps.
-    let doc = match parse_ok(&text) {
+    // doc's classes/symbols so completion / hover still work, and
+    // patch only the fields that changed — cloning the entire prev
+    // Doc just to swap a few fields was the single largest cost on
+    // the keystroke path when the buffer had a transient parse
+    // error (which is most of the time during typing).
+    match parse_ok(&text) {
         Ok(prog) => {
             let mut d = build_doc(
                 text,
@@ -231,41 +234,41 @@ async fn refresh_impl(
                 &external_docs,
             );
             d.external_docs = external_docs;
-            d
+            let mut docs_lock = docs.lock().unwrap();
+            // If the user typed more characters between the start
+            // of this refresh and now, `did_change` will have
+            // written the newer text into `docs[uri].text`
+            // synchronously. Keep that — overwriting it with our
+            // (now-stale) `text` would cause cursor-context queries
+            // to read characters that no longer match the editor.
+            if let Some(existing) = docs_lock.get(&uri) {
+                if existing.text != d.text {
+                    d.text = existing.text.clone();
+                }
+            }
+            docs_lock.insert(uri.clone(), d);
         }
         Err(_) => {
-            let docs_lock = docs.lock().unwrap();
-            let mut prev = docs_lock.get(&uri).cloned().unwrap_or_default();
-            prev.text = text;
+            let mut docs_lock = docs.lock().unwrap();
+            let entry = docs_lock.entry(uri.clone()).or_default();
+            // `did_change` always seeds `entry.text` synchronously
+            // before spawning a refresh, so by the time we get here
+            // the live text is already there and we can leave it
+            // alone. The empty-text guard covers `did_open` of a
+            // file whose initial buffer fails to parse.
+            if entry.text.is_empty() {
+                entry.text = text;
+            }
             if !external_sigs.is_empty() {
-                prev.external_signatures = external_sigs;
+                entry.external_signatures = external_sigs;
             }
             if !external_rets.is_empty() {
-                prev.external_returns = external_rets;
+                entry.external_returns = external_rets;
             }
             if !external_docs.is_empty() {
-                prev.external_docs = external_docs;
-            }
-            prev
-        }
-    };
-    {
-        let mut docs_lock = docs.lock().unwrap();
-        // If the user typed more characters between the start of
-        // this refresh and now, `did_change` will have written the
-        // newer text into `docs[uri].text` synchronously. Keep that
-        // — overwriting it with our (now-stale) `text` would cause
-        // cursor-context queries to read characters that no longer
-        // match the editor. Compare in place; only clone when the
-        // live text really diverged (i.e. the user typed during the
-        // refresh) so the common path skips a multi-KB string copy.
-        let mut next = doc;
-        if let Some(d) = docs_lock.get(&uri) {
-            if d.text != next.text {
-                next.text = d.text.clone();
+                entry.external_docs = external_docs;
             }
         }
-        docs_lock.insert(uri.clone(), next);
     }
     client.publish_diagnostics(uri, diags, None).await;
 }
