@@ -608,31 +608,35 @@ class Game {
                 let caught = cxHi > pdl && cxLo < pdr && cyHi > pdt && cyLo < pdb
                 let removed: bool = caught
                 if caught {
-                    if pu.kind == 0 {
-                        this.pad.widerTimer = 600       // 10s
-                    } elif pu.kind == 1 {
-                        // Multi-ball: clone first ball into two new this.balls
-                        // with slightly diverged angles.
-                        if this.balls.length as i32 > 0 {
-                            let src = this.balls[0]
-                            let extra: ball.Ball[] = []
-                            let ki: i32 = 0
-                            while ki < 2 {
-                                let dvx = if ki == 0 { src.vy * 0.5 } else { 0.0 - src.vy * 0.5 }
-                                let dvy = if ki == 0 { 0.0 - src.vx * 0.5 } else { src.vx * 0.5 }
-                                extra.push(new ball.Ball(src.x, src.y,
-                                                    src.vx + dvx, src.vy + dvy))
-                                ki = ki + 1
-                            }
-                            let kj: i32 = 0
-                            let kn: i32 = extra.length as i32
-                            while kj < kn {
-                                this.balls.push(extra[kj])
-                                kj = kj + 1
+                    match pu.kind {
+                        0 {
+                            this.pad.widerTimer = 600       // 10s
+                        }
+                        1 {
+                            // Multi-ball: clone first ball into two new this.balls
+                            // with slightly diverged angles.
+                            if this.balls.length as i32 > 0 {
+                                let src = this.balls[0]
+                                let extra: ball.Ball[] = []
+                                let ki: i32 = 0
+                                while ki < 2 {
+                                    let dvx = if ki == 0 { src.vy * 0.5 } else { 0.0 - src.vy * 0.5 }
+                                    let dvy = if ki == 0 { 0.0 - src.vx * 0.5 } else { src.vx * 0.5 }
+                                    extra.push(new ball.Ball(src.x, src.y,
+                                                        src.vx + dvx, src.vy + dvy))
+                                    ki = ki + 1
+                                }
+                                let kj: i32 = 0
+                                let kn: i32 = extra.length as i32
+                                while kj < kn {
+                                    this.balls.push(extra[kj])
+                                    kj = kj + 1
+                                }
                             }
                         }
-                    } else {
-                        this.slowTimer = 480            // 8s
+                        _ {
+                            this.slowTimer = 480            // 8s
+                        }
                     }
                     this.sfxDevice.queue(this.beepPaddle)
                 }
@@ -803,13 +807,29 @@ class Game {
             let prn: i32 = this.powerups.length as i32
             while pri < prn {
                 let pu = this.powerups[pri]
-                let pr2: u8 = if pu.kind == 0 { 120 as u8 } elif pu.kind == 1 { 255 as u8 } else { 200 as u8 }
-                let pg2: u8 = if pu.kind == 0 { 220 as u8 } elif pu.kind == 1 { 220 as u8 } else { 120 as u8 }
-                let pb2: u8 = if pu.kind == 0 { 255 as u8 } elif pu.kind == 1 { 120 as u8 } else { 255 as u8 }
+                let pr2: u8 = match pu.kind {
+                    0 { 120 as u8 }
+                    1 { 255 as u8 }
+                    _ { 200 as u8 }
+                }
+                let pg2: u8 = match pu.kind {
+                    0 { 220 as u8 }
+                    1 { 220 as u8 }
+                    _ { 120 as u8 }
+                }
+                let pb2: u8 = match pu.kind {
+                    0 { 255 as u8 }
+                    1 { 120 as u8 }
+                    _ { 255 as u8 }
+                }
                 let chipX = (pu.x as i32) - 18 + shakeOffX
                 let chipY = (pu.y as i32) - 8 + shakeOffY
                 this.neonR.fillStadium(chipX, chipY, 36, 16, pr2, pg2, pb2)
-                let label: string = if pu.kind == 0 { "W" } elif pu.kind == 1 { "M" } else { "S" }
+                let label: string = match pu.kind {
+                    0 { "W" }
+                    1 { "M" }
+                    _ { "S" }
+                }
                 this.font.drawText(this.ren, label, chipX + 14, chipY + 2,
                               2, 20 as u8, 10 as u8, 30 as u8, 255 as u8)
                 pri = pri + 1

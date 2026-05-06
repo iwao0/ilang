@@ -35,8 +35,16 @@ class NeonRenderer {
         let ren = this.ren
         let pass: i32 = 0
         while pass < 3 {
-            let extra: i32 = if pass == 0 { 6 } elif pass == 1 { 3 } else { 0 }
-            let alpha: u8 = if pass == 0 { 50 as u8 } elif pass == 1 { 110 as u8 } else { 255 as u8 }
+            let extra: i32 = match pass {
+                0 { 6 }
+                1 { 3 }
+                _ { 0 }
+            }
+            let alpha: u8 = match pass {
+                0 { 50 as u8 }
+                1 { 110 as u8 }
+                _ { 255 as u8 }
+            }
             let xx = x - extra
             let yy = y - extra
             let ww = w + 2 * extra
@@ -67,8 +75,16 @@ class NeonRenderer {
         let ren = this.ren
         let pass: i32 = 0
         while pass < 3 {
-            let extra: i32 = if pass == 0 { 6 } elif pass == 1 { 3 } else { 0 }
-            let alpha: u8 = if pass == 0 { 50 as u8 } elif pass == 1 { 110 as u8 } else { 255 as u8 }
+            let extra: i32 = match pass {
+                0 { 6 }
+                1 { 3 }
+                _ { 0 }
+            }
+            let alpha: u8 = match pass {
+                0 { 50 as u8 }
+                1 { 110 as u8 }
+                _ { 255 as u8 }
+            }
             let xx = x - extra
             let yy = y - extra
             let ww = w + 2 * extra
@@ -101,8 +117,16 @@ class NeonRenderer {
         let ren = this.ren
         let pass: i32 = 0
         while pass < 3 {
-            let extra: i32 = if pass == 0 { 6 } elif pass == 1 { 3 } else { 0 }
-            let alpha: u8 = if pass == 0 { 50 as u8 } elif pass == 1 { 110 as u8 } else { 255 as u8 }
+            let extra: i32 = match pass {
+                0 { 6 }
+                1 { 3 }
+                _ { 0 }
+            }
+            let alpha: u8 = match pass {
+                0 { 50 as u8 }
+                1 { 110 as u8 }
+                _ { 255 as u8 }
+            }
             let rad = radius + extra
             ren.setColor(r, g, b, alpha)
             let dy: i32 = -rad
