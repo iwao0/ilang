@@ -64,7 +64,7 @@ pub(crate) fn register_native_externs(
             _ => None,
         })
         .collect();
-    // Pre-collect names of `@repr(C) class Foo { ... }` — C-compat
+    // Pre-collect names of `@extern(C) struct Foo { ... }` — C-compat
     // structs that flow into native fns as `T *` (a pointer to the
     // user data area).
     let synth_classes = crate::compiler::synthesize_extern_c_classes(prog);
@@ -476,7 +476,7 @@ fn is_native_abi_type(
         ),
         // Opaque-handle types: `@extern("lib") class Foo {}`. Stored
         // at runtime as a raw i64 C pointer.
-        // C-compat structs: `@repr(C) class Foo { ... }`. Marshalled
+        // C-compat structs: `@extern(C) struct Foo { ... }`. Marshalled
         // as a `T *` to the user-data area (ARC header sits before
         // the pointer; C only sees the field bytes).
         Type::Object(name) => {

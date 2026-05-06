@@ -169,7 +169,7 @@ pub enum ExprKind {
     /// integer literal.
     Tuple(Vec<Expr>),
     /// `Foo { f1: v1, f2: v2 }` — aggregate literal for an
-    /// `@repr(C) class`. The post-typecheck mangling pass desugars
+    /// `@extern(C) struct`. The post-typecheck mangling pass desugars
     /// this into `new Foo()` plus a sequence of field assignments,
     /// so downstream stages (interpreter / JIT) never see this
     /// node directly.

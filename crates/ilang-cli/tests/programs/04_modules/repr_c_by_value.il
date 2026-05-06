@@ -1,4 +1,4 @@
-// Pass `@repr(C) struct`s **by value** to a host C-ABI fn. The JIT
+// Pass `@extern(C) struct`s **by value** to a host C-ABI fn. The JIT
 // expands each struct param into 1–2 i64 chunks per the AArch64 /
 // SysV "integer-only ≤ 16 B composite" rule. The Rust-side host
 // helpers (`test_sum_point2`, etc.) are declared with `extern "C"`

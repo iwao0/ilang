@@ -1,5 +1,5 @@
 // C99 flexible array member: `T[]` as the last field of a
-// `@repr(C) struct`. `new StructName(n)` widens the allocation by
+// `@extern(C) struct`. `new StructName(n)` widens the allocation by
 // `n * sizeof(T)` bytes for the trailing variable area; the FAM
 // field returns a base pointer at `instance + sizeof(fixed area)`.
 // Bounds checks are skipped — like in C, the user maintains the

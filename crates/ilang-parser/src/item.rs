@@ -884,7 +884,7 @@ impl<'a> Parser<'a> {
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
         // Inside `@extern(C) {}` the C layout is implicit, so
-        // `@repr(C)` is redundant (and rejected). Only `@packed` is
+        // `@extern(C) struct` is redundant (and rejected). Only `@packed` is
         // accepted, marking the layout as packed (no padding).
         let mut is_packed = false;
         for a in &attrs {

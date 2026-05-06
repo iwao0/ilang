@@ -1,5 +1,5 @@
-// Nested `@repr(C) struct`: an outer struct can embed another
-// `@repr(C) struct` inline (no pointer, no separate allocation).
+// Nested `@extern(C) struct`: an outer struct can embed another
+// `@extern(C) struct` inline (no pointer, no separate allocation).
 // Field offsets follow C struct layout, so the bytes are exactly
 // where a C compiler would place them.
 use test

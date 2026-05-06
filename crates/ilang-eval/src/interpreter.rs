@@ -1692,7 +1692,7 @@ impl Interpreter {
             }
         }
         for (name, ty, recurse) in field_specs {
-            // Embedded `@repr(C)` field: recursively allocate so
+            // Embedded `@extern(C) struct` field: recursively allocate so
             // chained `outer.inner.x` writes have a real Object to
             // mutate. Skipping this leaves the field as `Unit`,
             // tripping the next field access.
@@ -1725,7 +1725,7 @@ impl Interpreter {
                 span,
             )?;
         } else if !evaluated.is_empty() {
-            // C99 flexible array member: `@repr(C)` class ending in
+            // C99 flexible array member: `@extern(C) struct` ending in
             // `T[]` accepts a single i64 arg (the trailing element
             // count). Initialise that field with `n` zero-valued
             // elements so subsequent index access works.

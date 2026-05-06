@@ -93,7 +93,7 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     }
     // ilang Object pointer → `*T` raw pointer when T is the same
     // class. ilang's Object value is a pointer to the user data
-    // area of a `@repr(C) struct` allocation, so handing it to C
+    // area of a `@extern(C) struct` allocation, so handing it to C
     // as a `*MyStruct` argument is direct (the ARC header sits at
     // negative offsets and stays invisible to the C side).
     if let (Type::Object(from_n), Type::RawPtr { inner, .. }) = (from, to) {

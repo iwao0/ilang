@@ -201,7 +201,7 @@ fn jit_run_inner(
     //     `class_ids`. Enums were finalized at declaration time
     //     (variants don't refer to other types in Phase 1).
     //
-    //     `@repr(C)` classes can embed each other inline (nested
+    //     `@extern(C) struct`es can embed each other inline (nested
     //     struct field), so the inner must be laid out before the
     //     outer. We sort the classes into dependency order with a
     //     small DFS topological sort — declaration order then no
@@ -543,7 +543,7 @@ pub(crate) struct JitCompiler {
         std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
 }
 
-/// How a `@repr(C)` struct flows across a `by_value` call boundary.
+/// How a `@extern(C) struct` struct flows across a `by_value` call boundary.
 /// `Chunks(n)` means "split into `n` i64 GPR slots" (≤ 16 B integer
 /// struct, AArch64 / SysV composite rule). `Indirect` means "pass a
 /// pointer per the platform's struct-by-value ABI" — Cranelift's
@@ -594,7 +594,7 @@ pub(crate) fn repr_c_by_value_kind(layout: &crate::ty::ClassLayout) -> ByValueKi
 
 /// Topological sort of class declarations by inline-embedding edges.
 ///
-/// A `@repr(C)` class that embeds another `@repr(C)` class must be
+/// A `@extern(C) struct` that embeds another `@extern(C) struct` must be
 /// laid out *after* the embedded one (we need `inner.size` to assign
 /// the field offset and grow the outer's size). Inheritance also
 /// creates a parent-before-child dependency. The sort lets users
@@ -603,7 +603,7 @@ pub(crate) fn repr_c_by_value_kind(layout: &crate::ty::ClassLayout) -> ByValueKi
 /// Materialise a `ClassDecl` for every `struct` / `union` declared
 /// inside an `@extern(C) { ... }` block. The synthesised decls go
 /// through the same layout / drop / vtable pipeline as user-written
-/// `@repr(C) class` decls — `is_repr_c` is always set, and `is_packed`
+/// `@extern(C) struct` decls — `is_repr_c` is always set, and `is_packed`
 /// / `is_union` flow through from the block's attributes.
 pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
     let mut out = Vec::new();
@@ -769,7 +769,7 @@ fn topo_sort_classes(classes: &[&ClassDecl]) -> Result<Vec<usize>, CodegenError>
         }
         for f in &c.fields {
             // Only nested-by-value fields create a layout dependency.
-            // `@repr(C)` -> `@repr(C)` Object, or any fixed-length
+            // `@extern(C) struct` -> `@extern(C) struct` Object, or any fixed-length
             // array of a class type, embeds bytes inline.
             let referenced_class = match &f.ty {
                 ilang_ast::Type::Object(name) => Some(name),
@@ -802,7 +802,7 @@ fn topo_sort_classes(classes: &[&ClassDecl]) -> Result<Vec<usize>, CodegenError>
         if !on_stack.insert(i) {
             return Err(CodegenError::Unsupported {
                 what: format!(
-                    "@repr(C) class {:?} participates in a cyclic embedding \
+                    "@extern(C) struct {:?} participates in a cyclic embedding \
                      (would require an infinite-size struct)",
                     classes[i].name
                 ),
@@ -1440,7 +1440,7 @@ impl JitCompiler {
             )?;
             // Bitfield: pack into a shared storage unit. The
             // type-checker restricts these to unsigned ints inside a
-            // `@repr(C)` class, so jty here is one of U8/U16/U32/U64.
+            // `@extern(C) struct`, so jty here is one of U8/U16/U32/U64.
             if let Some(width) = field.bits {
                 let unit = jty.size_bytes();
                 let unit_bits = unit * 8;
@@ -1475,11 +1475,11 @@ impl JitCompiler {
                 bf_unit_size = 0;
                 bf_used_bits = 0;
             }
-            // Embedded nested struct: a `@repr(C)` field of another
-            // `@repr(C)` class lays its bytes inline (same as C
+            // Embedded nested struct: a `@extern(C) struct` field of another
+            // `@extern(C) struct` lays its bytes inline (same as C
             // `struct A { struct B b; }`).
             //
-            // Embedded numeric array: a `T[N]` field of a `@repr(C)`
+            // Embedded numeric array: a `T[N]` field of a `@extern(C) struct`
             // class lays its bytes inline (same as C `T arr[N];`)
             // and the field's JIT type becomes `EmbeddedArray` so
             // index access knows to compute `base + i * elem_size`
@@ -1518,14 +1518,14 @@ impl JitCompiler {
             } else {
                 (jty.size_bytes(), jty.size_bytes().max(1), jty)
             };
-            // `@repr(C, union)`: every field sits at offset 0; the
+            // `@extern(C) union`: every field sits at offset 0; the
             // class size becomes the maximum field size and the
             // alignment becomes the maximum field alignment. Writing
             // one field overwrites the others — the type checker
             // already restricted fields to non-heap primitives so
             // ARC integrity isn't at risk.
             //
-            // `@repr(C, packed)`: every field sits at the next byte
+            // `@packed`: every field sits at the next byte
             // (no alignment padding). Bitfield runs ignore packed —
             // they already use the storage unit width directly.
             let (field_offset, advance) = if c.is_union {
@@ -1689,7 +1689,7 @@ impl JitCompiler {
         if let Some(t) = this_ty {
             sig.params.push(AbiParam::new(t.cl().expect("object pointer")));
         }
-        // `@extern("c", by_value)`: each `@repr(C)` struct param expands
+        // `@extern("c", by_value)`: each `@extern(C) struct` struct param expands
         // into 1–2 i64 chunks per the integer-only ≤ 16 B composite
         // rule (AArch64 AAPCS64 / x86_64 SysV).
         let is_by_value = self.native_extern_by_value.contains(&f.name);

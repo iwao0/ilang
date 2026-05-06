@@ -1,4 +1,4 @@
-// `string` field on a `@repr(C) struct`. Storage is a heap pointer
+// `string` field on a `@extern(C) struct`. Storage is a heap pointer
 // to ilang's `StringRc` (8 bytes), pre-initialised to an interned
 // empty string at construction so reads on a fresh instance are
 // safe. ARC works as on any other heap field — struct drop releases

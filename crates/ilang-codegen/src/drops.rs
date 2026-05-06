@@ -24,7 +24,7 @@ use crate::ty::{
 
 
 
-/// True when `(outer_class, fty)` is an embedded `@repr(C)`
+/// True when `(outer_class, fty)` is an embedded `@extern(C) struct`
 /// struct — the inner's bytes live inline in the outer's
 /// allocation, so it must NOT be ARC-released as a heap pointer.
 fn is_embedded_repr_c_field(

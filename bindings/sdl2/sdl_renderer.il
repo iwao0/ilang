@@ -365,11 +365,36 @@ enum RendererFlip: i32 {
         SDL_GetNumRenderDrivers()
     }
 
-    /// Driver info at `index` (0..numDrivers). Caller owns the
-    /// returned struct; `name` is a const pointer into SDL data.
-    fn driverInfo(index: i32): SDL_RendererInfo {
-        let info = new SDL_RendererInfo()
-        SDL_GetRenderDriverInfo(index, info)
+    /// Public ilang return type for `driverInfo` / `Renderer.info`.
+    /// Mirrors `SDL_RendererInfo` but converts the raw `*const char`
+    /// name into an owned `string` and the fixed-length texture
+    /// format slot into a `u32[]` so callers never see a raw
+    /// pointer.
+    class RendererInfo {
+        name: string
+        flags: u32
+        texture_formats: u32[]
+        max_texture_width: i32
+        max_texture_height: i32
+    }
+
+    /// Driver info at `index` (0..numDrivers).
+    fn driverInfo(index: i32): RendererInfo {
+        let raw = new SDL_RendererInfo()
+        SDL_GetRenderDriverInfo(index, raw)
+        let info = new RendererInfo()
+        info.name = stringFromCstr(raw.name)
+        info.flags = raw.flags
+        info.max_texture_width = raw.max_texture_width
+        info.max_texture_height = raw.max_texture_height
+        let n: i64 = raw.num_texture_formats as i64
+        let fmts: u32[] = []
+        let i: i64 = 0
+        while i < n {
+            fmts.push(raw.texture_formats[i])
+            i += 1
+        }
+        info.texture_formats = fmts
         info
     }
 
@@ -434,10 +459,23 @@ enum RendererFlip: i32 {
         // ─── info ─────────────────────────────────────────────────
 
         /// Driver / capability info for *this* renderer.
-        info(): SDL_RendererInfo {
-            let i = new SDL_RendererInfo()
-            SDL_GetRendererInfo(this.handle as *SDL_Renderer, i)
-            i
+        info(): RendererInfo {
+            let raw = new SDL_RendererInfo()
+            SDL_GetRendererInfo(this.handle as *SDL_Renderer, raw)
+            let info = new RendererInfo()
+            info.name = stringFromCstr(raw.name)
+            info.flags = raw.flags
+            info.max_texture_width = raw.max_texture_width
+            info.max_texture_height = raw.max_texture_height
+            let n: i64 = raw.num_texture_formats as i64
+            let fmts: u32[] = []
+            let i: i64 = 0
+            while i < n {
+                fmts.push(raw.texture_formats[i])
+                i += 1
+            }
+            info.texture_formats = fmts
+            info
         }
 
         /// Drawable output size in pixels (may differ from window

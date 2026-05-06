@@ -521,7 +521,7 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
-            // Embedded `@repr(C)` field: writing a struct value
+            // Embedded `@extern(C) struct` field: writing a struct value
             // means COPYING the inner's bytes into the embedded
             // slot, not storing the pointer (which is what a heap
             // class field would do).
@@ -733,7 +733,7 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 }
             })?;
-            // Nested embedded `@repr(C)` field: the inner struct's
+            // Nested embedded `@extern(C) struct` field: the inner struct's
             // bytes live inline in the outer's allocation. Return a
             // pointer into the embedded slot (no load) so chain
             // access `outer.inner.x` reads/writes the right slot.
@@ -1439,7 +1439,7 @@ pub(crate) fn lower_expr(
                     } else if lc.native_extern_by_value.contains(callee)
                         && matches!(param_tys[i], JitTy::Object(_))
                     {
-                        // Pass-by-value `@repr(C)` struct: load the
+                        // Pass-by-value `@extern(C) struct` struct: load the
                         // user data area as 1–2 i64 chunks (per the
                         // integer-only ≤ 16 B composite rule). The
                         // sig was built with the same chunk count so
@@ -1786,7 +1786,7 @@ pub(crate) fn lower_expr(
             if let JitTy::Map(map_id) = obj_t {
                 return lower_map_index_get(b, lc, map_id, obj_v, index);
             }
-            // Embedded array (`@repr(C)` field of fixed numeric
+            // Embedded array (`@extern(C) struct` field of fixed numeric
             // type). `obj_v` holds the base address; compute
             // `base + i * elem_size` and load. Bounds check uses
             // the kind's known length.
@@ -2099,7 +2099,7 @@ pub(crate) fn lower_expr(
             let alloc_call =
                 b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
-            // `@repr(C)` `str` fields: alloc_object zero-fills user
+            // `@extern(C) struct` `str` fields: alloc_object zero-fills user
             // bytes, but a NULL StringRc would crash on any read
             // (length, concat, etc.). Pre-fill each Str slot with an
             // interned empty string (rc saturated → release is a

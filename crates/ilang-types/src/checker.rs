@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
     Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
@@ -192,7 +192,7 @@ struct ClassSig {
     /// is an opaque handle whose values come from native extern fns.
     /// `new`, fields, methods are all rejected on these.
     extern_lib: Option<String>,
-    /// `true` for `@repr(C) class Foo { ... }`. Field-type validation
+    /// `true` for `@extern(C) struct Foo { ... }`. Field-type validation
     /// (primitives + repr_c only) and embedded-struct layout depend
     /// on this flag.
     is_repr_c: bool,
@@ -1064,15 +1064,114 @@ impl TypeChecker {
         for item in &block.items {
             match item {
                 ilang_ast::ExternCItem::FnDef(f) => {
+                    self.reject_pointer_in_signature(
+                        &format!("fn {:?}", f.name),
+                        f.params.iter().map(|p| &p.ty),
+                        f.ret.as_ref(),
+                        f.span,
+                    )?;
                     self.check_fn(f, None)?;
                 }
                 ilang_ast::ExternCItem::Class(c) => {
+                    for m in &c.methods {
+                        self.reject_pointer_in_signature(
+                            &format!("method {:?}.{:?}", c.name, m.name),
+                            m.params.iter().map(|p| &p.ty),
+                            m.ret.as_ref(),
+                            m.span,
+                        )?;
+                    }
+                    for m in &c.static_methods {
+                        self.reject_pointer_in_signature(
+                            &format!("static {:?}.{:?}", c.name, m.name),
+                            m.params.iter().map(|p| &p.ty),
+                            m.ret.as_ref(),
+                            m.span,
+                        )?;
+                    }
                     self.check_class(c)?;
                 }
                 _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Walks `params` + `ret` of an ilang-side fn declared inside an
+    /// `@extern(C) { ... }` block (i.e. no `@lib(...)`) and rejects
+    /// any raw-pointer type — directly or via a `@extern(C) struct`
+    /// field that contains one. Raw pointers are meant to stay
+    /// inside the FFI block; if a wrapper exposes them, ilang user
+    /// code outside the block has no safe way to handle the value.
+    fn reject_pointer_in_signature<'a>(
+        &self,
+        what: &str,
+        params: impl IntoIterator<Item = &'a Type>,
+        ret: Option<&Type>,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        let mut visiting: HashSet<String> = HashSet::new();
+        for p in params {
+            if let Some(reason) = self.find_raw_pointer(p, &mut visiting) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "{what}: parameter of type `{p}` exposes a raw pointer ({reason}). \
+                         Raw pointers are not allowed in ilang-side wrappers — keep them \
+                         inside @lib(...) declarations."
+                    ),
+                    span,
+                });
+            }
+        }
+        if let Some(r) = ret {
+            if let Some(reason) = self.find_raw_pointer(r, &mut visiting) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "{what}: return type `{r}` exposes a raw pointer ({reason}). \
+                         Raw pointers are not allowed in ilang-side wrappers — keep them \
+                         inside @lib(...) declarations."
+                    ),
+                    span,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns `Some(reason)` if `t` is a raw pointer or transitively
+    /// references one through a `@extern(C) struct` field. `visiting`
+    /// breaks cycles in mutually-referencing structs.
+    fn find_raw_pointer(
+        &self,
+        t: &Type,
+        visiting: &mut HashSet<String>,
+    ) -> Option<String> {
+        match t {
+            Type::RawPtr { .. } => Some(format!("`{t}`")),
+            Type::Array { elem, .. } => self.find_raw_pointer(elem, visiting),
+            Type::Optional(inner) => self.find_raw_pointer(inner, visiting),
+            Type::Tuple(items) => items
+                .iter()
+                .find_map(|x| self.find_raw_pointer(x, visiting)),
+            Type::Object(name) => {
+                if !visiting.insert(name.clone()) {
+                    return None;
+                }
+                let res = self.classes.get(name).and_then(|cs| {
+                    if !cs.is_repr_c {
+                        return None;
+                    }
+                    cs.fields.iter().find_map(|(fname, fty)| {
+                        self.find_raw_pointer(fty, visiting).map(|inner| {
+                            format!("{name}.{fname}: {inner}")
+                        })
+                    })
+                });
+                visiting.remove(name);
+                res
+            }
+            _ => None,
+        }
     }
 
     fn check_enum(&self, e: &EnumDecl) -> Result<(), TypeError> {
@@ -1118,9 +1217,9 @@ impl TypeChecker {
         for FieldDecl { ty, span, .. } in &c.fields {
             self.validate_type(ty, *span, &c.type_params)?;
         }
-        // `@repr(C)` classes must have C-compatible field types so
+        // `@extern(C) struct`es must have C-compatible field types so
         // the in-memory bytes line up with what native code expects.
-        // Allowed: numeric primitives, bool, and other `@repr(C)`
+        // Allowed: numeric primitives, bool, and other `@extern(C) struct`
         // classes (which embed inline). Reject ARC types, regular
         // classes (heap-managed), arrays, optional, etc.
         if !c.is_repr_c {
@@ -1129,7 +1228,7 @@ impl TypeChecker {
                     return Err(TypeError::Unsupported {
                         what: format!(
                             "@bits on field {:?} of class {:?}: bitfields are \
-                             only supported inside `@repr(C)` classes",
+                             only supported inside `@extern(C) struct`es",
                             f.name, c.name
                         ),
                         span: f.span,
@@ -1138,7 +1237,7 @@ impl TypeChecker {
             }
         }
         if c.is_repr_c {
-            // `@repr(C, union)` extra restrictions: every field
+            // `@extern(C) union` extra restrictions: every field
             // shares offset 0 so writing one overwrites the others.
             // Heap fields (string / object / array) would leak or
             // dangle when the storage is reused, so reject them.
@@ -1147,7 +1246,7 @@ impl TypeChecker {
                 if c.fields.is_empty() {
                     return Err(TypeError::Unsupported {
                         what: format!(
-                            "@repr(C, union) class {:?}: union must have at \
+                            "@extern(C) union {:?}: union must have at \
                              least one field",
                             c.name
                         ),
@@ -1159,7 +1258,7 @@ impl TypeChecker {
                         return Err(TypeError::Unsupported {
                             what: format!(
                                 "@bits on union field {:?}: bitfields aren't \
-                                 supported inside `@repr(C, union)` classes",
+                                 supported inside `@extern(C) union` classes",
                                 f.name
                             ),
                             span: f.span,
@@ -1179,7 +1278,7 @@ impl TypeChecker {
                     if !union_ok {
                         return Err(TypeError::Unsupported {
                             what: format!(
-                                "@repr(C, union) class {:?} field {:?}: type {} \
+                                "@extern(C) union {:?} field {:?}: type {} \
                                  not supported (allowed inside a union: numeric \
                                  primitives / bool / fixed-length numeric array \
                                  `T[N]`. Heap types and nested aggregates aren't \
@@ -1255,9 +1354,9 @@ impl TypeChecker {
                 if !ok {
                     return Err(TypeError::Unsupported {
                         what: format!(
-                            "@repr(C) class {:?} field {:?}: type {} not supported \
+                            "@extern(C) struct {:?} field {:?}: type {} not supported \
                              (allowed: numeric primitives / bool / str (owned C-string) / \
-                             other @repr(C) class / fixed-length primitive array `T[N]`)",
+                             other @extern(C) struct / fixed-length primitive array `T[N]`)",
                             c.name, f.name, f.ty
                         ),
                         span: f.span,
@@ -2389,7 +2488,7 @@ impl TypeChecker {
                         class, "init", &substituted, args, env, ret_ty, in_class, loop_depth, span,
                     )?;
                 } else if !args.is_empty() {
-                    // C99 flexible array member: `@repr(C)` class
+                    // C99 flexible array member: `@extern(C) struct`
                     // ending in `T[]` accepts exactly one i64 arg
                     // (the trailing element count) at construction.
                     if cls.has_fam && args.len() == 1 {

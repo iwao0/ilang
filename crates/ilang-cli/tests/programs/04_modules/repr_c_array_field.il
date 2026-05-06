@@ -1,4 +1,4 @@
-// Fixed-length numeric array as a `@repr(C) struct` field. Bytes
+// Fixed-length numeric array as a `@extern(C) struct` field. Bytes
 // are embedded inline (no heap header) so the layout matches the
 // C `T arr[N];` declaration. Index access on the field reads /
 // writes the embedded slot directly.

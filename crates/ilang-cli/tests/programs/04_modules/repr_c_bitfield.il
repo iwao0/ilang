@@ -1,4 +1,4 @@
-// `@bits(N)` bitfields on `@repr(C) struct` fields. Consecutive
+// `@bits(N)` bitfields on `@extern(C) struct` fields. Consecutive
 // bitfields of the same underlying integer width pack into a single
 // shared storage unit (GCC-style packing); the JIT emits a
 // shift+mask read and a read-modify-write store.

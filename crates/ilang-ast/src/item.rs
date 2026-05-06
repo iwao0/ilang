@@ -62,7 +62,7 @@ pub struct FieldDecl {
     pub ty: Type,
     pub span: Span,
     /// Bitfield width in bits, set by `@bits(N)` on the field. Only
-    /// valid inside `@repr(C)` classes on unsigned integer types.
+    /// valid inside `@extern(C) struct`es on unsigned integer types.
     /// `None` means a normal full-width field.
     pub bits: Option<u32>,
 }
@@ -76,19 +76,19 @@ pub struct ClassDecl {
     /// checker for these classes; the type tag exists only to keep
     /// different libraries' handles from being mixed up.
     pub extern_lib: Option<String>,
-    /// `true` for `@repr(C) class Foo { ... }` — the class is laid
+    /// `true` for `@extern(C) struct Foo { ... }` — the class is laid
     /// out with C-compatible field offsets (each field at its
     /// natural alignment, no ilang-specific padding) so native
     /// extern fns can marshal it as a `T *`. Methods, init, and
     /// inheritance are forbidden for these classes; `new ClassName`
     /// (no args) zero-initializes the storage.
     pub is_repr_c: bool,
-    /// `@repr(C, packed)` — drop natural alignment so every field
+    /// `@packed` — drop natural alignment so every field
     /// sits at offset = sum-of-prior-sizes (no padding) and the
     /// struct's overall alignment is 1. Mirrors C's
     /// `__attribute__((packed))`. Only meaningful with `is_repr_c`.
     pub is_packed: bool,
-    /// `@repr(C, union)` — every field shares the same offset (0)
+    /// `@extern(C) union` — every field shares the same offset (0)
     /// and the struct size is the maximum field size. C union
     /// semantics: writing one field overwrites the others.
     pub is_union: bool,
@@ -235,7 +235,7 @@ pub struct ExternCBlock {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExternCItem {
-    /// C struct (= `@repr(C) class` equivalent inside the block).
+    /// C struct (= `@extern(C) struct` equivalent inside the block).
     /// Methods / properties are not allowed; only fields. `packed`
     /// and `@bits(N)` are still supported.
     Struct {

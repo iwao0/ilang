@@ -3424,7 +3424,6 @@ fn attribute_completions() -> Vec<CompletionItem> {
         ("flags", None, "@flags"),
         ("export", None, "@export"),
         ("override", None, "@override"),
-        ("repr", Some("repr($1)"), "@repr(C)"),
         ("requires", Some("requires($1)"), "@requires(cap)"),
         ("deprecated", Some("deprecated($1)"), "@deprecated(reason)"),
     ];

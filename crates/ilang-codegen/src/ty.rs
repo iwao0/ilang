@@ -64,15 +64,15 @@ pub(crate) enum JitTy {
     /// reuse the object helpers. The id indexes the compiler's
     /// `tuple_kinds` side table for per-element layout.
     Tuple(u32),
-    /// Fixed-length numeric array embedded inline in a `@repr(C)`
+    /// Fixed-length numeric array embedded inline in a `@extern(C) struct`
     /// class. Unlike `JitTy::Array`, there is no heap header —
     /// the value carried at runtime is the **base address of the
     /// element bytes** (i.e. `outer_ptr + field_offset`). Only
-    /// reachable via field access on a `@repr(C)` class; the id
+    /// reachable via field access on a `@extern(C) struct`; the id
     /// indexes `array_kinds` for the element type and length.
     EmbeddedArray(u32),
     /// C99 flexible array member: `T[]` as the **last** field of a
-    /// `@repr(C)` class. Like `EmbeddedArray` the value carries the
+    /// `@extern(C) struct`. Like `EmbeddedArray` the value carries the
     /// base address of the trailing element bytes (`outer_ptr +
     /// field_offset`), but the element count isn't statically known —
     /// allocation size is set at `new ClassName(n)`. Index access
@@ -399,7 +399,7 @@ pub(crate) struct ClassLayout {
     /// allocation). retain/release are skipped, fields are empty,
     /// `new` is rejected by the type checker.
     pub extern_lib: Option<String>,
-    /// `true` for `@repr(C) class Foo { ... }`. Field offsets use
+    /// `true` for `@extern(C) struct Foo { ... }`. Field offsets use
     /// natural C alignment, no methods/init, and nested repr_c
     /// fields are embedded inline.
     pub is_repr_c: bool,
@@ -408,13 +408,13 @@ pub(crate) struct ClassLayout {
     /// nested repr_c). Total `size` is rounded up to this.
     pub align: u32,
     /// Per-field bitfield metadata. Present for fields declared with
-    /// `@bits(N)` inside a `@repr(C)` class. The field's `(offset,
+    /// `@bits(N)` inside a `@extern(C) struct`. The field's `(offset,
     /// JitTy)` entry in `fields` already points at the **shared
     /// storage unit** that all consecutive bitfields of the same
     /// underlying type pack into; this map adds the bit-level
     /// position within that unit.
     pub bitfields: HashMap<String, BitfieldInfo>,
-    /// If this `@repr(C)` class ends in a C99-style flexible array
+    /// If this `@extern(C) struct` ends in a C99-style flexible array
     /// member (`T[]` last field), `Some` records the array kind id
     /// for the trailing element. `new ClassName(n)` allocates
     /// `size + n * elem_size` bytes; field access on the FAM

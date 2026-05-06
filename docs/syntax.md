@@ -1401,6 +1401,13 @@ outside the block at the type level:
    ```
 3. **Marshalling helpers** (`cstrFromString` …) cannot be called
    outside the block.
+4. **ilang-side fns inside the block (no `@lib`) cannot expose raw
+   pointers in their parameter or return types**, directly *or*
+   through a `@extern(C) struct` field that contains one. The check
+   walks struct fields recursively. So `fn driverInfo(): SDL_RendererInfo`
+   is rejected because `SDL_RendererInfo.name: *const char` —
+   build a plain ilang class (e.g. `RendererInfo` with `name:
+   string`) and convert at the boundary instead.
 
 This physically prevents accidents like "ilang code keeps holding
 strdup's return value". FFI wrapping always stays inside an

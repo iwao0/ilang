@@ -96,7 +96,7 @@ extern "C" fn test_apply_i32_cb(
     cb(a, b)
 }
 
-// ─── pass-by-value `@repr(C)` struct (by_value flag) ─────────────────
+// ─── pass-by-value `@extern(C) struct` struct (by_value flag) ─────────────────
 // 8-byte struct: passes in a single GPR on AArch64 / SysV.
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -320,7 +320,7 @@ extern "C" fn test_maybe_byte_slice(ok: i32) -> U8Slice {
 }
 
 // Read a raw byte from an address — used by layout tests to verify
-// `@repr(C, packed)` actually packs (no padding bytes inserted).
+// `@packed` actually packs (no padding bytes inserted).
 extern "C" fn test_byte_at(ptr: i64, offset: i64) -> i32 {
     if ptr == 0 {
         return 0;
