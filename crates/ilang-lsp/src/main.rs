@@ -2957,6 +2957,13 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
+    // Built-in singleton — always available.
+    out.push(CompletionItem {
+        label: "console".to_string(),
+        kind: Some(CompletionItemKind::VARIABLE),
+        detail: Some("(builtin) console: Console".to_string()),
+        ..CompletionItem::default()
+    });
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
