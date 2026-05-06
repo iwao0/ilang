@@ -626,6 +626,26 @@ fn shift_out_of_range_returns_zero() {
 }
 
 #[test]
+fn i64_min_decimal_literal() {
+    // The parser folds `-<IntLit>` into a single Int literal so that
+    // `i64::MIN` round-trips: ordinary `checked_neg` would reject it.
+    assert_eq!(
+        run("-9223372036854775808").unwrap(),
+        Value::Int(i64::MIN)
+    );
+    // i64::MAX still works the usual way.
+    assert_eq!(
+        run("9223372036854775807").unwrap(),
+        Value::Int(i64::MAX)
+    );
+    // Negating a non-literal i64::MIN at runtime is still an overflow.
+    assert!(matches!(
+        run("let x = -9223372036854775808; -x"),
+        Err(RuntimeError::Overflow { .. })
+    ));
+}
+
+#[test]
 fn shift_at_width_boundary() {
     // Shift by exactly (width - 1) is still valid.
     assert_eq!(run("1 << 63").unwrap(), Value::Int(i64::MIN));

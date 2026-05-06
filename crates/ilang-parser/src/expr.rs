@@ -619,6 +619,12 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
+                // Fold `-<IntLit>` into a single `Int` literal so that
+                // `i64::MIN` is writable as `-9223372036854775808`
+                // (ordinary `checked_neg` would reject it).
+                if let ExprKind::Int(n) = e.kind {
+                    return Ok(Expr::new(ExprKind::Int(n.wrapping_neg()), span));
+                }
                 Ok(Expr::new(
                     ExprKind::Unary {
                         op: UnOp::Neg,
