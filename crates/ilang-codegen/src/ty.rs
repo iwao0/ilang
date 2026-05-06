@@ -518,6 +518,7 @@ pub(crate) struct EnumLayout {
     pub max_payload_size: u32,
     /// `@flags` enum — bitwise ops are allowed and the runtime
     /// representation is the underlying integer (`flags_repr`).
+    #[allow(dead_code)]
     pub flags: bool,
     /// Underlying integer JitTy for `@flags` enums (default `U64`).
     /// `None` for non-flags enums.

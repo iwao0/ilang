@@ -286,13 +286,13 @@ extern "C" fn test_get_cstr_array() -> *const *const u8 {
             PTRS[2] = b"third\0".as_ptr();
             PTRS[3] = std::ptr::null();
         });
-        PTRS.as_ptr()
+        std::ptr::addr_of!(PTRS).cast::<*const u8>()
     }
 }
 
 extern "C" fn test_get_empty_cstr_array() -> *const *const u8 {
     static mut PTRS: [*const u8; 1] = [std::ptr::null()];
-    unsafe { PTRS.as_ptr() }
+    std::ptr::addr_of!(PTRS).cast::<*const u8>()
 }
 
 // Mimics a POSIX call that returns -1 on failure (and would set
@@ -329,14 +329,12 @@ extern "C" fn test_byte_at(ptr: i64, offset: i64) -> i32 {
 }
 
 pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<String, i64>) {
-    unsafe {
-        out.insert(
-            "test_static_i32".into(),
-            std::ptr::addr_of_mut!(TEST_STATIC_I32) as i64,
-        );
-        out.insert(
-            "test_static_f64".into(),
-            std::ptr::addr_of_mut!(TEST_STATIC_F64) as i64,
-        );
-    }
+    out.insert(
+        "test_static_i32".into(),
+        std::ptr::addr_of_mut!(TEST_STATIC_I32) as i64,
+    );
+    out.insert(
+        "test_static_f64".into(),
+        std::ptr::addr_of_mut!(TEST_STATIC_F64) as i64,
+    );
 }

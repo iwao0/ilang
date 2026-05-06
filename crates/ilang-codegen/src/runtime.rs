@@ -391,10 +391,11 @@ pub(crate) extern "C" fn ilang_jit_libc_free(ptr: i64) {
         return;
     }
     extern "C" {
-        fn free(ptr: *mut std::ffi::c_void);
+        #[link_name = "free"]
+        fn libc_free_inner(ptr: i64);
     }
     unsafe {
-        free(ptr as *mut std::ffi::c_void);
+        libc_free_inner(ptr);
     }
 }
 

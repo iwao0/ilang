@@ -42,10 +42,12 @@ pub(crate) struct Env {
     /// to a no-value (`Ok(None)`) result, matching the interpreter
     /// where Unit values can flow through bindings.
     pub unit_bindings: HashSet<String>,
+    #[allow(dead_code)]
     next_id: u32,
 }
 
 impl Env {
+    #[allow(dead_code)]
     pub fn next_var_id(&mut self) -> usize {
         let id = self.next_id as usize;
         self.next_id += 1;
@@ -91,6 +93,7 @@ pub(crate) struct StrFns {
     pub c_str_to_string: FuncId,
     pub cstr_array_to_strings: FuncId,
     /// `libc::free` for `@extern(..., owned_return)` returns.
+    #[allow(dead_code)]
     pub libc_free: FuncId,
 }
 

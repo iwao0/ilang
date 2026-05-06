@@ -4337,7 +4337,7 @@ fn jit_ty_from_primitive(t: &ilang_ast::Type) -> JitTy {
 }
 
 fn ensure_trampoline(
-    b: &mut FunctionBuilder,
+    _b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     name: &str,
     target_id: cranelift_module::FuncId,

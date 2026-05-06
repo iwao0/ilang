@@ -319,7 +319,7 @@ fn validate_by_value_fn(
     repr_c_classes: &HashSet<String>,
     opaque_classes: &HashSet<String>,
 ) -> Result<(), CodegenError> {
-    let mut check = |ty: &Type, role: &str, span: ilang_ast::Span| -> Result<(), CodegenError> {
+    let check = |ty: &Type, role: &str, span: ilang_ast::Span| -> Result<(), CodegenError> {
         let Type::Object(name) = ty else { return Ok(()); };
         if !repr_c_classes.contains(name) && !opaque_classes.contains(name) {
             return Err(CodegenError::Unsupported {

@@ -301,7 +301,7 @@ fn init_static_field_storage(
     let mut types: std::collections::HashMap<(String, String), ilang_ast::Type> =
         std::collections::HashMap::new();
     let mut values: Vec<i64> = Vec::new();
-    let mut record_class = |c: &ilang_ast::ClassDecl,
+    let record_class = |c: &ilang_ast::ClassDecl,
                              values: &mut Vec<i64>,
                              slots: &mut std::collections::HashMap<(String, String), usize>,
                              types: &mut std::collections::HashMap<(String, String), ilang_ast::Type>| {

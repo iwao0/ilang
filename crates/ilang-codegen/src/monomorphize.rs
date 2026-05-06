@@ -2444,7 +2444,7 @@ pub(crate) fn monomorphize_enums(
 
     // Closure that classifies an instantiation as either an enum
     // (worklist-bound) or anything else (skipped).
-    let mut enqueue_enum =
+    let enqueue_enum =
         |name: &str, args: &[Type], wl: &mut Vec<InstKey>, req: &mut HashSet<String>| {
             if !generic_enums.contains_key(name) {
                 return;
@@ -2656,7 +2656,7 @@ fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type])) {
                 }
             }
         }
-       Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
     }
 }
 
