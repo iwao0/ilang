@@ -618,14 +618,6 @@ fn mixed_width_arithmetic_promotes() {
 }
 
 #[test]
-fn shift_out_of_range_returns_zero() {
-    assert_eq!(run("1 << 64").unwrap(), Value::Int(0));
-    assert_eq!(run("1 << 65").unwrap(), Value::Int(0));
-    assert_eq!(run("1 << 1000").unwrap(), Value::Int(0));
-    assert_eq!(run("256 >> 100").unwrap(), Value::Int(0));
-}
-
-#[test]
 fn i64_min_decimal_literal() {
     // The parser folds `-<IntLit>` into a single Int literal so that
     // `i64::MIN` round-trips: ordinary `checked_neg` would reject it.
@@ -646,27 +638,36 @@ fn i64_min_decimal_literal() {
 }
 
 #[test]
-fn shift_at_width_boundary() {
-    // Shift by exactly (width - 1) is still valid.
+fn typed_min_literals() {
+    // Each width's MIN should be writable directly with a negative
+    // literal + suffix. The parser fold peels through the `Cast`
+    // wrapper that the suffix introduces.
+    assert_eq!(run("-128_i8").unwrap(), Value::Int8(i8::MIN));
+    assert_eq!(run("-32768_i16").unwrap(), Value::Int16(i16::MIN));
+    assert_eq!(run("-2147483648_i32").unwrap(), Value::Int32(i32::MIN));
+    assert_eq!(
+        run("-9223372036854775808_i64").unwrap(),
+        Value::Int(i64::MIN)
+    );
+}
+
+#[test]
+fn shift_amount_masked_to_operand_width() {
+    // Shift amount is masked mod operand width (matching Cranelift's
+    // ishl / sshr / ushr), so interpreter and JIT agree.
+
+    // i64: amount masked to 6 bits.
     assert_eq!(run("1 << 63").unwrap(), Value::Int(i64::MIN));
-    // Shift by width = 0 (one bit beyond the highest valid amount).
-    assert_eq!(run("1 << 64").unwrap(), Value::Int(0));
-}
+    // 64 mod 64 = 0 → no shift.
+    assert_eq!(run("1 << 64").unwrap(), Value::Int(1));
+    // 65 mod 64 = 1.
+    assert_eq!(run("1 << 65").unwrap(), Value::Int(2));
+    // -1 as u32 lower 6 bits = 63.
+    assert_eq!(run("1 << (0 - 1)").unwrap(), Value::Int(i64::MIN));
 
-#[test]
-fn negative_shift_amount_errors() {
-    assert!(matches!(
-        run("1 << (0 - 1)"),
-        Err(RuntimeError::NegativeShift { amount: -1, .. })
-    ));
-}
-
-#[test]
-fn shift_i32_out_of_range_returns_zero() {
-    // Both sides i32, so the shift dispatches in i32 (width 32) and an
-    // amount >= 32 returns 0.
+    // i32: amount masked to 5 bits. 32 mod 32 = 0.
     let src = "let a: i32 = 1; let b: i32 = 32; a << b";
-    assert_eq!(run(src).unwrap(), Value::Int32(0));
+    assert_eq!(run(src).unwrap(), Value::Int32(1));
 }
 
 #[test]

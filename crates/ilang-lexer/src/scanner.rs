@@ -851,6 +851,12 @@ impl<'a> Lexer<'a> {
         radix: u32,
         label: &str,
     ) -> Result<TokenKind, LexError> {
+        let prefix = match radix {
+            16 => "0x",
+            2 => "0b",
+            8 => "0o",
+            _ => "0?",
+        };
         let mut digits = String::new();
         Self::scan_digits(self, &mut digits, radix);
         // Catch out-of-range digits like `0b102` or `0o78`. Without this,
@@ -863,21 +869,15 @@ impl<'a> Lexer<'a> {
                     col: self.col,
                 };
                 return Err(LexError::InvalidNumber {
-                    text: format!("{digits}{c}"),
+                    text: format!("{prefix}{digits}{c}"),
                     span: bad_span,
                     reason: format!("{c:?} is not a valid {label} digit"),
                 });
             }
         }
         if digits.is_empty() {
-            let prefix = match radix {
-                16 => "x",
-                2 => "b",
-                8 => "o",
-                _ => "?",
-            };
             return Err(LexError::InvalidNumber {
-                text: format!("0{prefix}"),
+                text: prefix.into(),
                 span,
                 reason: format!("{label} literal needs at least one digit"),
             });
@@ -888,7 +888,7 @@ impl<'a> Lexer<'a> {
         u64::from_str_radix(&digits, radix)
             .map(|n| TokenKind::Int(n as i64))
             .map_err(|e| LexError::InvalidNumber {
-                text: digits,
+                text: format!("{prefix}{digits}"),
                 span,
                 reason: e.to_string(),
             })

@@ -170,7 +170,13 @@ async fn refresh_impl(
     // that does `use sdl`. Skip load-based diagnostics in that
     // case; only syntax errors from the buffer survive.
     let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
-    let merged = if is_submodule {
+    // Parse the buffer once up front. The loader injects the buffer
+    // as an overlay, so a buffer that doesn't parse makes the whole
+    // merged-program load fail anyway — skipping it here saves the
+    // file IO + tokenize + parse for every imported module on each
+    // mid-edit refresh (the common case while typing).
+    let parsed_buffer = parse_ok(&text);
+    let merged = if is_submodule || parsed_buffer.is_err() {
         None
     } else {
         path.as_deref()
@@ -217,9 +223,12 @@ async fn refresh_impl(
         .unwrap_or_default();
     // When the buffer parses cleanly, rebuild the doc from scratch.
     // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
-    // doc's classes/symbols so completion / hover still work, but
-    // refresh the text + external maps.
-    let doc = match parse_ok(&text) {
+    // doc's classes/symbols so completion / hover still work, and
+    // patch only the fields that changed — cloning the entire prev
+    // Doc just to swap a few fields was the single largest cost on
+    // the keystroke path when the buffer had a transient parse
+    // error (which is most of the time during typing).
+    match parsed_buffer {
         Ok(prog) => {
             let mut d = build_doc(
                 text,
@@ -231,40 +240,41 @@ async fn refresh_impl(
                 &external_docs,
             );
             d.external_docs = external_docs;
-            d
+            let mut docs_lock = docs.lock().unwrap();
+            // If the user typed more characters between the start
+            // of this refresh and now, `did_change` will have
+            // written the newer text into `docs[uri].text`
+            // synchronously. Keep that — overwriting it with our
+            // (now-stale) `text` would cause cursor-context queries
+            // to read characters that no longer match the editor.
+            if let Some(existing) = docs_lock.get(&uri) {
+                if existing.text != d.text {
+                    d.text = existing.text.clone();
+                }
+            }
+            docs_lock.insert(uri.clone(), d);
         }
         Err(_) => {
-            let docs_lock = docs.lock().unwrap();
-            let mut prev = docs_lock.get(&uri).cloned().unwrap_or_default();
-            prev.text = text;
+            let mut docs_lock = docs.lock().unwrap();
+            let entry = docs_lock.entry(uri.clone()).or_default();
+            // `did_change` always seeds `entry.text` synchronously
+            // before spawning a refresh, so by the time we get here
+            // the live text is already there and we can leave it
+            // alone. The empty-text guard covers `did_open` of a
+            // file whose initial buffer fails to parse.
+            if entry.text.is_empty() {
+                entry.text = text;
+            }
             if !external_sigs.is_empty() {
-                prev.external_signatures = external_sigs;
+                entry.external_signatures = external_sigs;
             }
             if !external_rets.is_empty() {
-                prev.external_returns = external_rets;
+                entry.external_returns = external_rets;
             }
             if !external_docs.is_empty() {
-                prev.external_docs = external_docs;
-            }
-            prev
-        }
-    };
-    {
-        let mut docs_lock = docs.lock().unwrap();
-        // If the user typed more characters between the start of
-        // this refresh and now, `did_change` will have written the
-        // newer text into `docs[uri].text` synchronously. Keep that
-        // — overwriting it with our (now-stale) `text` would cause
-        // cursor-context queries to read characters that no longer
-        // match the editor.
-        let live_text = docs_lock.get(&uri).map(|d| d.text.clone());
-        let mut next = doc;
-        if let Some(t) = live_text {
-            if t != next.text {
-                next.text = t;
+                entry.external_docs = external_docs;
             }
         }
-        docs_lock.insert(uri.clone(), next);
     }
     client.publish_diagnostics(uri, diags, None).await;
 }
@@ -771,21 +781,23 @@ impl LanguageServer for Backend {
             // Buffer is already canonical — no edit to publish.
             return Ok(Some(Vec::new()));
         };
-        // Replace the entire buffer in one shot. Computing the
-        // covering range from the existing text avoids an off-by-one
-        // when the file ends without a trailing newline.
-        let line_count = doc.text.lines().count() as u32;
-        let last_line_len = doc
-            .text
-            .lines()
+        // Replace the entire buffer in one shot. `split('\n')` (unlike
+        // `lines()`) yields a trailing empty segment for files that end
+        // in `\n`, so the covering range correctly extends past the
+        // final newline — without this, the formatter's own trailing
+        // `\n` was being appended *after* the existing one, doubling
+        // the line break at EOF.
+        let segments: Vec<&str> = doc.text.split('\n').collect();
+        let end_line = segments.len().saturating_sub(1) as u32;
+        let end_char = segments
             .last()
-            .map(|l| l.chars().count() as u32)
+            .map(|s| s.chars().count() as u32)
             .unwrap_or(0);
         let range = Range {
             start: Position { line: 0, character: 0 },
             end: Position {
-                line: line_count.saturating_sub(1).max(0),
-                character: last_line_len,
+                line: end_line,
+                character: end_char,
             },
         };
         Ok(Some(vec![TextEdit {
@@ -817,6 +829,14 @@ impl LanguageServer for Backend {
         // anchors fn / class spans at the keyword, not the name.
         let (target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
         {
+            // `this` is a keyword — its RefEntry shares (target_span,
+            // target_name_len) with the enclosing class, so letting
+            // the rename through would also rewrite every reference
+            // to the class. Refuse instead of silently corrupting
+            // the file.
+            if entry.signature.starts_with("this:") {
+                return Ok(None);
+            }
             (
                 (entry.target_span, entry.target_name_len),
                 entry.target_span,
@@ -849,6 +869,10 @@ impl LanguageServer for Backend {
                 r.target_uri.is_none()
                     && r.target_span == target.0
                     && r.target_name_len == target.1
+                    // `this` refs share their target with the
+                    // enclosing class — exclude them so renaming the
+                    // class doesn't rewrite `this` to the new name.
+                    && !r.signature.starts_with("this:")
             })
             .map(|r| TextEdit {
                 range: Range {

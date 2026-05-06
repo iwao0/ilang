@@ -141,7 +141,13 @@ pub(crate) fn extract_doc_above(text: &str, decl_line: u32) -> Option<String> {
     if decl_line <= 1 {
         return None;
     }
-    let lines: Vec<&str> = text.split('\n').collect();
+    // Only collect lines 0..decl_line-1 — we never look past the decl
+    // itself. `split` is lazy, so `take` lets it stop early instead of
+    // scanning the entire (possibly multi-thousand-line) source.
+    let lines: Vec<&str> = text
+        .split('\n')
+        .take(decl_line.saturating_sub(1) as usize)
+        .collect();
     let mut doc_lines: Vec<&str> = Vec::new();
     // Decl is at lines[decl_line - 1] (0-based). Walk back from there.
     let mut i = (decl_line as usize).saturating_sub(2); // line above
