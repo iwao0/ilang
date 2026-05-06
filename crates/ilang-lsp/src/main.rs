@@ -771,21 +771,23 @@ impl LanguageServer for Backend {
             // Buffer is already canonical — no edit to publish.
             return Ok(Some(Vec::new()));
         };
-        // Replace the entire buffer in one shot. Computing the
-        // covering range from the existing text avoids an off-by-one
-        // when the file ends without a trailing newline.
-        let line_count = doc.text.lines().count() as u32;
-        let last_line_len = doc
-            .text
-            .lines()
+        // Replace the entire buffer in one shot. `split('\n')` (unlike
+        // `lines()`) yields a trailing empty segment for files that end
+        // in `\n`, so the covering range correctly extends past the
+        // final newline — without this, the formatter's own trailing
+        // `\n` was being appended *after* the existing one, doubling
+        // the line break at EOF.
+        let segments: Vec<&str> = doc.text.split('\n').collect();
+        let end_line = segments.len().saturating_sub(1) as u32;
+        let end_char = segments
             .last()
-            .map(|l| l.chars().count() as u32)
+            .map(|s| s.chars().count() as u32)
             .unwrap_or(0);
         let range = Range {
             start: Position { line: 0, character: 0 },
             end: Position {
-                line: line_count.saturating_sub(1).max(0),
-                character: last_line_len,
+                line: end_line,
+                character: end_char,
             },
         };
         Ok(Some(vec![TextEdit {
