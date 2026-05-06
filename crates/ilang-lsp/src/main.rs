@@ -2961,8 +2961,7 @@ fn trigger_sig_help_command(kind: CompletionItemKind) -> Option<Command> {
 /// `init` / `return` / `break` out of top-level suggestions and
 /// `fn` / `class` / `use` out of block-internal ones.
 const KEYWORDS: &[(&str, KwScope)] = &[
-    ("let", KwScope::Both),
-    ("const", KwScope::Both),
+    // Item kw (top level) and class-body-only kw stay in their scope.
     ("fn", KwScope::TopLevel),
     ("class", KwScope::TopLevel),
     ("enum", KwScope::TopLevel),
@@ -2974,25 +2973,31 @@ const KEYWORDS: &[(&str, KwScope)] = &[
     ("static", KwScope::Block),
     ("get", KwScope::Block),
     ("set", KwScope::Block),
-    ("if", KwScope::Block),
-    ("elif", KwScope::Block),
-    ("else", KwScope::Block),
-    ("while", KwScope::Block),
-    ("loop", KwScope::Block),
-    ("for", KwScope::Block),
-    ("in", KwScope::Block),
-    ("break", KwScope::Block),
-    ("continue", KwScope::Block),
-    ("return", KwScope::Block),
-    ("match", KwScope::Block),
-    ("new", KwScope::Block),
-    ("this", KwScope::Block),
-    ("super", KwScope::Block),
-    ("as", KwScope::Block),
+    // Stmt / expr keywords are valid in either context — top-level
+    // script-style code is a thing in ilang.
+    ("let", KwScope::Both),
+    ("const", KwScope::Both),
+    ("if", KwScope::Both),
+    ("elif", KwScope::Both),
+    ("else", KwScope::Both),
+    ("while", KwScope::Both),
+    ("loop", KwScope::Both),
+    ("for", KwScope::Both),
+    ("in", KwScope::Both),
+    ("match", KwScope::Both),
+    ("new", KwScope::Both),
+    ("as", KwScope::Both),
     ("true", KwScope::Both),
     ("false", KwScope::Both),
     ("none", KwScope::Both),
     ("some", KwScope::Both),
+    // Need a surrounding fn / loop / class — but distinguishing those
+    // contexts requires more than brace depth, so keep them at Block.
+    ("return", KwScope::Block),
+    ("break", KwScope::Block),
+    ("continue", KwScope::Block),
+    ("this", KwScope::Block),
+    ("super", KwScope::Block),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
