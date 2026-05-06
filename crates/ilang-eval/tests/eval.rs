@@ -444,7 +444,9 @@ fn runtime_error_carries_span() {
     let prog = parse(&toks).unwrap();
     let err = ilang_eval::run_program(&prog).unwrap_err();
     let s = format!("{err}");
-    assert!(s.starts_with("[1:1]:"), "got: {s}");
+    // Span format is `[L:C]` for a point or `[L:C-L:C]` for a range —
+    // both should start at line 1 column 1 here.
+    assert!(s.starts_with("[1:1"), "got: {s}");
 }
 
 #[test]

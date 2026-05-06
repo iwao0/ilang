@@ -49,6 +49,19 @@ impl Span {
     pub const fn is_point(&self) -> bool {
         self.line == self.end_line && self.col == self.end_col
     }
+
+    /// Build a span that starts where `self` starts and ends where
+    /// `other` ends. Used by the parser to extend a leading token's
+    /// span to cover everything up through the trailing one (e.g.
+    /// the LHS span widened by the RHS span of a binary expression).
+    pub const fn to(&self, other: Span) -> Span {
+        Span {
+            line: self.line,
+            col: self.col,
+            end_line: other.end_line,
+            end_col: other.end_col,
+        }
+    }
 }
 
 impl std::fmt::Display for Span {

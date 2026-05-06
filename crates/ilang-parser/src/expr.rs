@@ -173,7 +173,7 @@ impl<'a> Parser<'a> {
                 }
                 self.bump();
                 let rhs = self.parse_expr(r_bp)?;
-                let span = lhs.span;
+                let span = lhs.span.to(rhs.span);
                 lhs = Expr::new(
                     ExprKind::Logical {
                         op: logop,
@@ -231,7 +231,7 @@ impl<'a> Parser<'a> {
             }
             self.bump();
             let rhs = self.parse_expr(r_bp)?;
-            let span = lhs.span;
+            let span = lhs.span.to(rhs.span);
             lhs = Expr::new(
                 ExprKind::Binary {
                     op,
@@ -252,8 +252,9 @@ impl<'a> Parser<'a> {
                 TokenKind::LBracket => {
                     self.bump();
                     let index = self.parse_expr(0)?;
+                    let close_span = self.peek().span;
                     self.expect(&TokenKind::RBracket, "']'")?;
-                    let span = expr.span;
+                    let span = expr.span.to(close_span);
                     expr = Expr::new(
                         ExprKind::Index {
                             obj: Box::new(expr),
@@ -325,8 +326,8 @@ impl<'a> Parser<'a> {
     fn parse_dot_postfix(&mut self, mut expr: Expr) -> Result<Expr, ParseError> {
         while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
+            let name_span = self.peek().span;
             let name = self.expect_member_name("field or method name")?;
-            let span = expr.span;
             if matches!(self.peek().kind, TokenKind::LParen) {
                 self.bump();
                 let mut args = Vec::new();
@@ -340,7 +341,9 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
+                let close_span = self.peek().span;
                 self.expect(&TokenKind::RParen, "')'")?;
+                let span = expr.span.to(close_span);
                 expr = Expr::new(
                     ExprKind::MethodCall {
                         obj: Box::new(expr),
@@ -386,7 +389,9 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+                let close_span = self.peek().span;
                 self.expect(&TokenKind::RBrace, "'}'")?;
+                let span = expr.span.to(close_span);
                 let enum_name = match expr.kind {
                     ExprKind::Var(n) => n,
                     _ => unreachable!(),
@@ -400,6 +405,7 @@ impl<'a> Parser<'a> {
                     span,
                 );
             } else {
+                let span = expr.span.to(name_span);
                 expr = Expr::new(
                     ExprKind::Field {
                         obj: Box::new(expr),
@@ -581,23 +587,25 @@ impl<'a> Parser<'a> {
             TokenKind::Bang => {
                 self.bump();
                 let e = self.parse_expr(30)?;
+                let full = span.to(e.span);
                 Ok(Expr::new(
                     ExprKind::Unary {
                         op: UnOp::Not,
                         expr: Box::new(e),
                     },
-                    span,
+                    full,
                 ))
             }
             TokenKind::Tilde => {
                 self.bump();
                 let e = self.parse_expr(30)?;
+                let full = span.to(e.span);
                 Ok(Expr::new(
                     ExprKind::Unary {
                         op: UnOp::BitNot,
                         expr: Box::new(e),
                     },
-                    span,
+                    full,
                 ))
             }
             TokenKind::Ident(name) => {
@@ -652,12 +660,13 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
+                let full = span.to(e.span);
                 // Fold `-<IntLit>` into a single `Int` so that minimum
                 // values (`i64::MIN`, `i32::MIN`, ...) are writable as
                 // `-N`. The suffixed form (`-128_i8`) shows up as
                 // `Cast{Int(n), ty}`, so peel that wrapper too.
                 if let ExprKind::Int(n) = e.kind {
-                    return Ok(Expr::new(ExprKind::Int(n.wrapping_neg()), span));
+                    return Ok(Expr::new(ExprKind::Int(n.wrapping_neg()), full));
                 }
                 if let ExprKind::Cast { expr: inner, ty } = &e.kind {
                     if let ExprKind::Int(n) = inner.kind {
@@ -667,7 +676,7 @@ impl<'a> Parser<'a> {
                                 expr: Box::new(neg),
                                 ty: ty.clone(),
                             },
-                            span,
+                            full,
                         ));
                     }
                 }
@@ -676,18 +685,19 @@ impl<'a> Parser<'a> {
                         op: UnOp::Neg,
                         expr: Box::new(e),
                     },
-                    span,
+                    full,
                 ))
             }
             TokenKind::Plus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
+                let full = span.to(e.span);
                 Ok(Expr::new(
                     ExprKind::Unary {
                         op: UnOp::Pos,
                         expr: Box::new(e),
                     },
-                    span,
+                    full,
                 ))
             }
             TokenKind::LParen => {
