@@ -1,4 +1,5 @@
 mod builtins;
+mod formatter;
 mod project;
 mod text;
 
@@ -274,6 +275,7 @@ impl LanguageServer for Backend {
                     retrigger_characters: None,
                     work_done_progress_options: WorkDoneProgressOptions::default(),
                 }),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -729,6 +731,42 @@ impl LanguageServer for Backend {
             active_signature: Some(0),
             active_parameter: Some(call.arg_index as u32),
         }))
+    }
+
+    async fn formatting(
+        &self,
+        p: DocumentFormattingParams,
+    ) -> LspResult<Option<Vec<TextEdit>>> {
+        let uri = p.text_document.uri;
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        let Some(formatted) = formatter::format(&doc.text) else {
+            // Buffer is already canonical — no edit to publish.
+            return Ok(Some(Vec::new()));
+        };
+        // Replace the entire buffer in one shot. Computing the
+        // covering range from the existing text avoids an off-by-one
+        // when the file ends without a trailing newline.
+        let line_count = doc.text.lines().count() as u32;
+        let last_line_len = doc
+            .text
+            .lines()
+            .last()
+            .map(|l| l.chars().count() as u32)
+            .unwrap_or(0);
+        let range = Range {
+            start: Position { line: 0, character: 0 },
+            end: Position {
+                line: line_count.saturating_sub(1).max(0),
+                character: last_line_len,
+            },
+        };
+        Ok(Some(vec![TextEdit {
+            range,
+            new_text: formatted,
+        }]))
     }
 
     async fn shutdown(&self) -> LspResult<()> {
