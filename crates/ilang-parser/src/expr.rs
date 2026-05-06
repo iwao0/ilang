@@ -1032,7 +1032,7 @@ impl<'a> Parser<'a> {
         }
         // Long form `EnumName.Variant` vs. short form `Variant` (the
         // checker fills in the enum name from the scrutinee). Detect
-        // by looking for `::` after the first ident.
+        // by looking for `.` after the first ident.
         let first = self.expect_member_name("pattern (variant or `_`)")?;
         let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();

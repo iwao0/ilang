@@ -26,6 +26,7 @@ pub(crate) fn is_block_like(e: &Expr) -> bool {
             | ExprKind::While { .. }
             | ExprKind::Loop { .. }
             | ExprKind::ForIn { .. }
+            | ExprKind::Match { .. }
     )
 }
 

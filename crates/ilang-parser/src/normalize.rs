@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 
 use ilang_ast::{
-    Block, CtorArgs, Expr, ExprKind, Item, MatchArm, Pattern, Program, Stmt, StmtKind,
+    Block, CtorArgs, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind,
 };
 
 /// Built-in enum names that are always available.
@@ -428,6 +428,5 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         | ExprKind::None
         | ExprKind::Continue) => other,
     };
-    let _ = std::any::type_name::<Pattern>(); // silence unused import on Pattern
     Expr { kind, span }
 }
