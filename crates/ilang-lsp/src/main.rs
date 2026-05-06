@@ -235,7 +235,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![".".to_string()]),
+                    trigger_characters: Some(vec![".".to_string(), "@".to_string()]),
                     ..CompletionOptions::default()
                 }),
                 signature_help_provider: Some(SignatureHelpOptions {
@@ -350,6 +350,10 @@ impl LanguageServer for Backend {
             // an unrelated identifier into the binder slot.
             if preceding_kw_introduces_binder(&doc.text, off) {
                 return Ok(Some(CompletionResponse::Array(Vec::new())));
+            }
+            // `@x` -> attribute completion.
+            if at_attribute_position(&doc.text, off) {
+                return Ok(Some(CompletionResponse::Array(attribute_completions())));
             }
             // After `:` we're in a type position — only suggest types.
             if at_type_position(&doc.text, off) {
@@ -3036,6 +3040,54 @@ enum KwScope {
     Block,
     /// Allowed in both contexts.
     Both,
+}
+
+/// `true` when the cursor sits in attribute syntax — i.e. an `@`
+/// (followed by an in-progress identifier) is the previous non-ident
+/// character on the line.
+fn at_attribute_position(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    i > 0 && bytes[i - 1] == b'@'
+}
+
+/// ilang attributes for completion. `(args)` snippets are inserted
+/// where the attribute typically takes arguments.
+fn attribute_completions() -> Vec<CompletionItem> {
+    let entries: &[(&str, Option<&str>, &str)] = &[
+        ("extern", Some("extern(C)"), "@extern(C) { ... }"),
+        ("lib", Some("lib(\"$1\")"), "@lib(\"libname\")"),
+        ("optional", None, "@optional"),
+        ("symbol", Some("symbol(\"$1\")"), "@symbol(\"name\")"),
+        ("packed", None, "@packed"),
+        ("bits", Some("bits($1)"), "@bits(N)"),
+        ("flags", None, "@flags"),
+        ("export", None, "@export"),
+        ("override", None, "@override"),
+        ("repr", Some("repr($1)"), "@repr(C)"),
+        ("requires", Some("requires($1)"), "@requires(cap)"),
+        ("deprecated", Some("deprecated($1)"), "@deprecated(reason)"),
+    ];
+    entries
+        .iter()
+        .map(|(label, snippet, detail)| CompletionItem {
+            label: (*label).to_string(),
+            kind: Some(CompletionItemKind::PROPERTY),
+            detail: Some((*detail).to_string()),
+            insert_text: snippet.map(|s| (*s).to_string()),
+            insert_text_format: snippet.map(|_| InsertTextFormat::SNIPPET),
+            ..CompletionItem::default()
+        })
+        .collect()
 }
 
 /// `true` when the cursor follows a `:` (with optional whitespace and
