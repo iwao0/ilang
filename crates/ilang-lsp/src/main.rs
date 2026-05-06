@@ -3274,6 +3274,20 @@ fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
+    // Local variables / params seen anywhere in the file. Last-write-
+    // wins so the type info attached is approximate when names recur
+    // across scopes.
+    for (name, ty) in doc.var_types.iter() {
+        if doc.symbols.contains_key(name) {
+            continue;
+        }
+        out.push(CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            detail: Some(format!("{name}: {ty}")),
+            ..CompletionItem::default()
+        });
+    }
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for key in doc.external_signatures.keys() {
         if let Some((m, _)) = key.split_once('.') {
