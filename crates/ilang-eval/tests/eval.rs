@@ -638,6 +638,20 @@ fn i64_min_decimal_literal() {
 }
 
 #[test]
+fn typed_min_literals() {
+    // Each width's MIN should be writable directly with a negative
+    // literal + suffix. The parser fold peels through the `Cast`
+    // wrapper that the suffix introduces.
+    assert_eq!(run("-128_i8").unwrap(), Value::Int8(i8::MIN));
+    assert_eq!(run("-32768_i16").unwrap(), Value::Int16(i16::MIN));
+    assert_eq!(run("-2147483648_i32").unwrap(), Value::Int32(i32::MIN));
+    assert_eq!(
+        run("-9223372036854775808_i64").unwrap(),
+        Value::Int(i64::MIN)
+    );
+}
+
+#[test]
 fn shift_amount_masked_to_operand_width() {
     // Shift amount is masked mod operand width (matching Cranelift's
     // ishl / sshr / ushr), so interpreter and JIT agree.
