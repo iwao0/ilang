@@ -19,7 +19,8 @@ use crate::compiler::JitCompiler;
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
 use crate::ty::{
-    ArrayKind, ClassLayout, EnumVariantLayout, JitTy, ENUM_PAYLOAD_OFFSET, ENUM_TAG_OFFSET,
+    ArrayKind, ClassLayout, EnumVariantLayout, JitTy, TupleKind, ENUM_PAYLOAD_OFFSET,
+    ENUM_TAG_OFFSET,
 };
 
 
@@ -111,6 +112,7 @@ fn define_one_class_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -145,6 +147,7 @@ fn define_one_class_drop(
             class_layouts,
             array_kinds,
             optional_inners,
+            tuple_kinds,
             *release_object_id,
             *release_string_id,
             *release_array_id,
@@ -229,6 +232,7 @@ fn define_one_tuple_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -257,6 +261,7 @@ fn define_one_tuple_drop(
             class_layouts,
             array_kinds,
             optional_inners,
+            tuple_kinds,
             *release_object_id,
             *release_string_id,
             *release_array_id,
@@ -338,6 +343,7 @@ fn define_one_enum_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -392,11 +398,12 @@ fn define_one_enum_drop(
                         class_layouts,
                         array_kinds,
                         optional_inners,
+                        tuple_kinds,
                         *release_object_id,
                         *release_string_id,
                         *release_array_id,
                         *release_weak_id,
-            *release_map_id,
+                        *release_map_id,
                         *optional_box_release_id,
                         &mut builder,
                         v,
@@ -417,11 +424,12 @@ fn define_one_enum_drop(
                         class_layouts,
                         array_kinds,
                         optional_inners,
+                        tuple_kinds,
                         *release_object_id,
                         *release_string_id,
                         *release_array_id,
                         *release_weak_id,
-            *release_map_id,
+                        *release_map_id,
                         *optional_box_release_id,
                         &mut builder,
                         v,
@@ -478,6 +486,7 @@ fn define_one_array_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -526,11 +535,12 @@ fn define_one_array_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         *release_object_id,
         *release_string_id,
         *release_array_id,
         *release_weak_id,
-            *release_map_id,
+        *release_map_id,
         *optional_box_release_id,
         &mut builder,
         elem,
@@ -560,6 +570,7 @@ fn emit_release_for(
     class_layouts: &[ClassLayout],
     array_kinds: &[ArrayKind],
     optional_inners: &[JitTy],
+    tuple_kinds: &[TupleKind],
     release_object_id: FuncId,
     release_string_id: FuncId,
     release_array_id: FuncId,
@@ -598,6 +609,7 @@ fn emit_release_for(
                     class_layouts,
                     array_kinds,
                     optional_inners,
+                    tuple_kinds,
                     release_object_id,
                     release_string_id,
                     release_array_id,
@@ -624,20 +636,16 @@ fn emit_release_for(
             let r = module.declare_func_in_func(release_map_id, b.func);
             b.ins().call(r, &[ptr]);
         }
-        JitTy::Tuple(_) => {
+        JitTy::Tuple(id) => {
             // Tuples share the object header; release_object dispatches
             // through the embedded drop_fn to release each heap element.
-            // The user_size arg is purely for dealloc bookkeeping; pass
-            // 0 — the runtime falls back to header-only size which is
-            // correct because alloc_object zeroes the user area, but
-            // the actual user size was the kind's `size`. To free the
-            // exact storage we'd need the layout here; a 0 mismatch
-            // is benign (Layout uses .max(1) and the alloc rounds up).
-            // TODO: thread tuple_kinds through if leak-free dealloc
-            // matters.
+            // user_size must match what alloc_object received so the
+            // GlobalAlloc dealloc Layout is identical to the alloc
+            // Layout (mismatched Layout is UB).
             let r = module.declare_func_in_func(release_object_id, b.func);
-            let zero = b.ins().iconst(I64, 0);
-            b.ins().call(r, &[ptr, zero]);
+            let user_size = tuple_kinds[id as usize].size as i64;
+            let size_v = b.ins().iconst(I64, user_size);
+            b.ins().call(r, &[ptr, size_v]);
         }
         _ => {}
     }
@@ -854,6 +862,7 @@ fn define_one_map_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         release_object_id,
         release_string_id,
         release_array_id,
@@ -875,6 +884,7 @@ fn define_one_map_drop(
         class_layouts,
         array_kinds,
         optional_inners,
+        tuple_kinds,
         *release_object_id,
         *release_string_id,
         *release_array_id,
