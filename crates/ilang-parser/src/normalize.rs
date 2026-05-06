@@ -94,6 +94,14 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                     m
                 })
                 .collect();
+            let static_fields = std::mem::take(&mut c.static_fields);
+            c.static_fields = static_fields
+                .into_iter()
+                .map(|mut sf| {
+                    sf.value = rewrite_expr(sf.value, ctx);
+                    sf
+                })
+                .collect();
             let properties = std::mem::take(&mut c.properties);
             c.properties = properties
                 .into_iter()
@@ -126,12 +134,70 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             // calls (`test.foo(x)`) get rewritten to `Call("test.foo", x)`
             // the same way they would in regular fn bodies.
             for inner in &mut b.items {
-                if let ilang_ast::ExternCItem::FnDef(f) = inner {
-                    let body = std::mem::replace(
-                        &mut f.body,
-                        Block { stmts: Vec::new(), tail: None },
-                    );
-                    f.body = rewrite_block(body, ctx);
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        let body = std::mem::replace(
+                            &mut f.body,
+                            Block { stmts: Vec::new(), tail: None },
+                        );
+                        f.body = rewrite_block(body, ctx);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        let methods = std::mem::take(&mut c.methods);
+                        c.methods = methods
+                            .into_iter()
+                            .map(|mut m| {
+                                let body = std::mem::replace(
+                                    &mut m.body,
+                                    Block { stmts: Vec::new(), tail: None },
+                                );
+                                m.body = rewrite_block(body, ctx);
+                                m
+                            })
+                            .collect();
+                        let static_methods = std::mem::take(&mut c.static_methods);
+                        c.static_methods = static_methods
+                            .into_iter()
+                            .map(|mut m| {
+                                let body = std::mem::replace(
+                                    &mut m.body,
+                                    Block { stmts: Vec::new(), tail: None },
+                                );
+                                m.body = rewrite_block(body, ctx);
+                                m
+                            })
+                            .collect();
+                        let static_fields = std::mem::take(&mut c.static_fields);
+                        c.static_fields = static_fields
+                            .into_iter()
+                            .map(|mut sf| {
+                                sf.value = rewrite_expr(sf.value, ctx);
+                                sf
+                            })
+                            .collect();
+                        let properties = std::mem::take(&mut c.properties);
+                        c.properties = properties
+                            .into_iter()
+                            .map(|mut p| {
+                                if let Some(g) = p.getter.as_mut() {
+                                    let body = std::mem::replace(
+                                        &mut g.body,
+                                        Block { stmts: Vec::new(), tail: None },
+                                    );
+                                    g.body = rewrite_block(body, ctx);
+                                }
+                                if let Some(s) = p.setter.as_mut() {
+                                    let body = std::mem::replace(
+                                        &mut s.body,
+                                        Block { stmts: Vec::new(), tail: None },
+                                    );
+                                    s.body = rewrite_block(body, ctx);
+                                }
+                                p
+                            })
+                            .collect();
+                    }
+                    _ => {}
                 }
             }
             Item::ExternC(b)

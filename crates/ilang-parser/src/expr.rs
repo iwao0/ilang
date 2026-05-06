@@ -810,11 +810,15 @@ impl<'a> Parser<'a> {
         // Read an optional leading `-` then an Int. Returns the
         // signed value and how many tokens it consumed (1 for plain
         // Int, 2 for `-Int`).
+        // `wrapping_neg` so the absolute value of `i64::MIN`
+        // (`9223372036854775808u64`) round-trips through `-` without
+        // overflowing — `-9223372036854775808` is a valid `i64::MIN`
+        // literal.
         let read_signed_int = |this: &Self, start: usize| -> Option<(i64, usize)> {
             match &this.tokens.get(start)?.kind {
                 TokenKind::Int(n) => Some((*n as i64, 1)),
                 TokenKind::Minus => match &this.tokens.get(start + 1)?.kind {
-                    TokenKind::Int(n) => Some((-(*n as i64), 2)),
+                    TokenKind::Int(n) => Some(((*n as i64).wrapping_neg(), 2)),
                     _ => None,
                 },
                 _ => None,
@@ -866,7 +870,7 @@ impl<'a> Parser<'a> {
                 // token is actually an Int literal.
                 if let Some(next) = self.tokens.get(self.pos + 1) {
                     if let TokenKind::Int(n) = next.kind {
-                        let v = -(n as i64);
+                        let v = (n as i64).wrapping_neg();
                         self.bump(); // -
                         self.bump(); // Int
                         return Ok(Some(ilang_ast::Pattern {
