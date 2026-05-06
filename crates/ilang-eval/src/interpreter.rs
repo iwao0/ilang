@@ -13,6 +13,23 @@ use crate::value::{EnumPayload, ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
 
+/// Coerce any integer-typed `Value` to `i64` for use as an index, length,
+/// or range bound. Mirrors the type checker's policy that integer literals
+/// and narrower int widths flow into `i64` slots.
+fn int_value_to_i64(v: &Value) -> Option<i64> {
+    match v {
+        Value::Int(n) => Some(*n),
+        Value::Int8(n) => Some(*n as i64),
+        Value::Int16(n) => Some(*n as i64),
+        Value::Int32(n) => Some(*n as i64),
+        Value::UInt8(n) => Some(*n as i64),
+        Value::UInt16(n) => Some(*n as i64),
+        Value::UInt32(n) => Some(*n as i64),
+        Value::UInt64(n) => Some(*n as i64),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Interpreter {
     fns: HashMap<String, FnDecl>,
@@ -511,20 +528,16 @@ impl Interpreter {
                     if method == "slice" {
                         // slice(start, end) — JS-style: start inclusive,
                         // end exclusive; clamps to [0, len].
-                        let start = match self.eval_expr(&args[0])? {
-                            Value::Int(n) => n,
-                            other => return Err(RuntimeError::TypeError {
-                                msg: format!("slice start must be i64, got {other:?}"),
-                                span: args[0].span,
-                            }),
-                        };
-                        let end = match self.eval_expr(&args[1])? {
-                            Value::Int(n) => n,
-                            other => return Err(RuntimeError::TypeError {
-                                msg: format!("slice end must be i64, got {other:?}"),
-                                span: args[1].span,
-                            }),
-                        };
+                        let start_v = self.eval_expr(&args[0])?;
+                        let start = int_value_to_i64(&start_v).ok_or_else(|| RuntimeError::TypeError {
+                            msg: format!("slice start must be int, got {start_v:?}"),
+                            span: args[0].span,
+                        })?;
+                        let end_v = self.eval_expr(&args[1])?;
+                        let end = int_value_to_i64(&end_v).ok_or_else(|| RuntimeError::TypeError {
+                            msg: format!("slice end must be int, got {end_v:?}"),
+                            span: args[1].span,
+                        })?;
                         let inner = arr.borrow();
                         let len = inner.len() as i64;
                         let s = start.max(0).min(len) as usize;
@@ -666,15 +679,11 @@ impl Interpreter {
                     let s = s.clone();
                     match method.as_str() {
                         "charAt" => {
-                            let idx = match self.eval_expr(&args[0])? {
-                                Value::Int(n) => n,
-                                other => {
-                                    return Err(RuntimeError::TypeError {
-                                        msg: format!("charAt expects int, got {other:?}"),
-                                        span,
-                                    });
-                                }
-                            };
+                            let idx_v = self.eval_expr(&args[0])?;
+                            let idx = int_value_to_i64(&idx_v).ok_or_else(|| RuntimeError::TypeError {
+                                msg: format!("charAt expects int, got {idx_v:?}"),
+                                span,
+                            })?;
                             let out = if idx < 0 {
                                 String::new()
                             } else {
@@ -827,24 +836,16 @@ impl Interpreter {
                 // Range iter is special-cased: don't eval it as a value
                 // (Range has no Value representation by design).
                 if let ExprKind::Range { start, end, inclusive } = &iter.kind {
-                    let s = match self.eval_expr(start)? {
-                        Value::Int(n) => n,
-                        other => {
-                            return Err(RuntimeError::TypeError {
-                                msg: format!("range start must be integer, got {other:?}"),
-                                span: start.span,
-                            });
-                        }
-                    };
-                    let e = match self.eval_expr(end)? {
-                        Value::Int(n) => n,
-                        other => {
-                            return Err(RuntimeError::TypeError {
-                                msg: format!("range end must be integer, got {other:?}"),
-                                span: end.span,
-                            });
-                        }
-                    };
+                    let s_v = self.eval_expr(start)?;
+                    let s = int_value_to_i64(&s_v).ok_or_else(|| RuntimeError::TypeError {
+                        msg: format!("range start must be integer, got {s_v:?}"),
+                        span: start.span,
+                    })?;
+                    let e_v = self.eval_expr(end)?;
+                    let e = int_value_to_i64(&e_v).ok_or_else(|| RuntimeError::TypeError {
+                        msg: format!("range end must be integer, got {e_v:?}"),
+                        span: end.span,
+                    })?;
                     let prev = self.vars.remove(var);
                     let mut result: Result<Value, RuntimeError> = Ok(Value::Unit);
                     let mut i = s;
