@@ -444,17 +444,21 @@ impl<'a> Lexer<'a> {
 
     /// Consume a `"..."` string literal (the leading `"` is the next char).
     /// Supports the basic C-style escapes; everything else is an error.
+    /// Raw newlines inside the literal are forbidden — strings must close
+    /// on the line they started on.
     fn read_string(&mut self, span: Span) -> Result<TokenKind, LexError> {
         self.bump(); // opening "
         let mut buf = String::new();
         loop {
             match self.peek() {
                 None => return Err(LexError::UnterminatedString { span }),
+                Some('\n') => return Err(LexError::UnterminatedString { span }),
                 Some('"') => {
                     self.bump();
                     return Ok(TokenKind::Str(buf));
                 }
                 Some('\\') => {
+                    let esc_span = Span { line: self.line, col: self.col };
                     self.bump();
                     match self.peek() {
                         Some('n') => {
@@ -484,7 +488,7 @@ impl<'a> Lexer<'a> {
                         Some(c) => {
                             return Err(LexError::BadEscape {
                                 seq: format!("\\{c}"),
-                                span,
+                                span: esc_span,
                             });
                         }
                         None => return Err(LexError::UnterminatedString { span }),
@@ -679,8 +683,14 @@ impl<'a> Lexer<'a> {
             }
         }
         if digits.is_empty() {
+            let prefix = match radix {
+                16 => "x",
+                2 => "b",
+                8 => "o",
+                _ => "?",
+            };
             return Err(LexError::InvalidNumber {
-                text: format!("0{}", if radix == 16 { "x" } else { "b" }),
+                text: format!("0{prefix}"),
                 span,
                 reason: format!("{label} literal needs at least one digit"),
             });
