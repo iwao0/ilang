@@ -620,11 +620,24 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => {
                 self.bump();
                 let e = self.parse_expr(30)?;
-                // Fold `-<IntLit>` into a single `Int` literal so that
-                // `i64::MIN` is writable as `-9223372036854775808`
-                // (ordinary `checked_neg` would reject it).
+                // Fold `-<IntLit>` into a single `Int` so that minimum
+                // values (`i64::MIN`, `i32::MIN`, ...) are writable as
+                // `-N`. The suffixed form (`-128_i8`) shows up as
+                // `Cast{Int(n), ty}`, so peel that wrapper too.
                 if let ExprKind::Int(n) = e.kind {
                     return Ok(Expr::new(ExprKind::Int(n.wrapping_neg()), span));
+                }
+                if let ExprKind::Cast { expr: inner, ty } = &e.kind {
+                    if let ExprKind::Int(n) = inner.kind {
+                        let neg = Expr::new(ExprKind::Int(n.wrapping_neg()), inner.span);
+                        return Ok(Expr::new(
+                            ExprKind::Cast {
+                                expr: Box::new(neg),
+                                ty: ty.clone(),
+                            },
+                            span,
+                        ));
+                    }
                 }
                 Ok(Expr::new(
                     ExprKind::Unary {
