@@ -251,7 +251,20 @@ async fn refresh_impl(
     };
     {
         let mut docs_lock = docs.lock().unwrap();
-        docs_lock.insert(uri.clone(), doc);
+        // If the user typed more characters between the start of
+        // this refresh and now, `did_change` will have written the
+        // newer text into `docs[uri].text` synchronously. Keep that
+        // — overwriting it with our (now-stale) `text` would cause
+        // cursor-context queries to read characters that no longer
+        // match the editor.
+        let live_text = docs_lock.get(&uri).map(|d| d.text.clone());
+        let mut next = doc;
+        if let Some(t) = live_text {
+            if t != next.text {
+                next.text = t;
+            }
+        }
+        docs_lock.insert(uri.clone(), next);
     }
     client.publish_diagnostics(uri, diags, None).await;
 }
@@ -306,6 +319,17 @@ impl LanguageServer for Backend {
         {
             let mut versions = self.latest_versions.lock().unwrap();
             versions.insert(uri.clone(), version);
+        }
+        // Update `doc.text` immediately so cursor-context queries
+        // (`@` attribute completion, `.` member completion) see the
+        // characters the user just typed even when the heavier
+        // index rebuild is still debounced. Symbol / class data
+        // stays stale until the spawned refresh fires, which is
+        // fine — that's just member listings.
+        {
+            let mut docs = self.docs.lock().unwrap();
+            let entry = docs.entry(uri.clone()).or_default();
+            entry.text = change.text.clone();
         }
         let client = self.client.clone();
         let docs = self.docs.clone();
