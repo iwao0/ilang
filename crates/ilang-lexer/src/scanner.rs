@@ -28,6 +28,10 @@ struct Lexer<'a> {
     peeked: Option<char>,
     line: u32,
     col: u32,
+    /// Position of the most recently bumped character (1-based, inclusive).
+    /// Used to populate the end of a token's `Span` after reading.
+    last_line: u32,
+    last_col: u32,
     /// Becomes `true` whenever whitespace contains at least one `\n`; the
     /// next token consumes this flag so it knows a newline preceded it.
     pending_newline: bool,
@@ -40,6 +44,8 @@ struct LexerSnapshot<'a> {
     peeked: Option<char>,
     line: u32,
     col: u32,
+    last_line: u32,
+    last_col: u32,
     pending_newline: bool,
 }
 
@@ -54,6 +60,8 @@ impl<'a> Lexer<'a> {
             peeked: None,
             line: 1,
             col: 1,
+            last_line: 1,
+            last_col: 1,
             pending_newline: false,
         }
     }
@@ -67,6 +75,10 @@ impl<'a> Lexer<'a> {
 
     fn bump(&mut self) -> Option<char> {
         let c = self.peeked.take().or_else(|| self.chars.next())?;
+        // Remember the position of *this* char so that token spans can
+        // record their last char (inclusive end position).
+        self.last_line = self.line;
+        self.last_col = self.col;
         // Treat both `\n` and a lone `\r` (old-Mac line ending) as line
         // breaks. CRLF is handled by letting the `\n` advance the line —
         // the preceding `\r` only bumps `col`.
@@ -106,10 +118,7 @@ impl<'a> Lexer<'a> {
                 // `/* ... */` works. Newlines inside still set
                 // `pending_newline` to keep ASI behavior unsurprising.
                 Some('/') if self.peek_second() == Some('*') => {
-                    let start_span = Span {
-                        line: self.line,
-                        col: self.col,
-                    };
+                    let start_span = Span::new(self.line, self.col);
                     self.bump(); // /
                     self.bump(); // *
                     let mut depth: u32 = 1;
@@ -158,7 +167,10 @@ impl<'a> Lexer<'a> {
         let leading_newline = std::mem::take(&mut self.pending_newline);
         let line = self.line;
         let col = self.col;
-        let span = Span { line, col };
+        // Inner read sites use this as a point span (start position) for
+        // any error they raise. The token's final span is widened below
+        // to cover the last char actually consumed.
+        let span = Span::new(line, col);
 
         let Some(c) = self.peek() else {
             return Ok(Token {
@@ -415,6 +427,10 @@ impl<'a> Lexer<'a> {
             _ => kind,
         };
 
+        // Widen the span to cover the last character actually consumed
+        // (inclusive end). All bumps update `last_line` / `last_col`.
+        let span = Span::range(line, col, self.last_line, self.last_col);
+
         Ok(Token {
             kind,
             span,
@@ -442,12 +458,11 @@ impl<'a> Lexer<'a> {
             peeked: self.peeked,
             line: self.line,
             col: self.col,
+            last_line: self.last_line,
+            last_col: self.last_col,
             pending_newline: self.pending_newline,
         };
-        let suffix_span = Span {
-            line: self.line,
-            col: self.col,
-        };
+        let suffix_span = Span::new(self.line, self.col);
         let mut full = String::new();
         while let Some(c) = self.peek() {
             if is_ident_continue(c) {
@@ -479,6 +494,8 @@ impl<'a> Lexer<'a> {
             self.peeked = snap.peeked;
             self.line = snap.line;
             self.col = snap.col;
+            self.last_line = snap.last_line;
+            self.last_col = snap.last_col;
             self.pending_newline = snap.pending_newline;
             return Ok(None);
         }
@@ -504,10 +521,7 @@ impl<'a> Lexer<'a> {
                     return Ok(TokenKind::Str(buf));
                 }
                 Some('\\') => {
-                    let esc_span = Span {
-                        line: self.line,
-                        col: self.col,
-                    };
+                    let esc_span = Span::new(self.line, self.col);
                     self.bump();
                     match self.peek() {
                         Some('n') => { self.bump(); buf.push('\n'); }
@@ -864,10 +878,7 @@ impl<'a> Lexer<'a> {
         // to `next_token` would silently lex it as a new integer.
         if let Some(c) = self.peek() {
             if c.is_ascii_digit() && !c.is_digit(radix) {
-                let bad_span = Span {
-                    line: self.line,
-                    col: self.col,
-                };
+                let bad_span = Span::new(self.line, self.col);
                 return Err(LexError::InvalidNumber {
                     text: format!("{prefix}{digits}{c}"),
                     span: bad_span,
