@@ -2948,6 +2948,15 @@ fn trigger_sig_help_command(kind: CompletionItemKind) -> Option<Command> {
     }
 }
 
+/// ilang keywords offered in global completion. Mirrors the lexer's
+/// keyword table.
+const KEYWORDS: &[&str] = &[
+    "let", "const", "fn", "class", "enum", "use", "extends", "override", "init", "deinit",
+    "static", "get", "set", "if", "elif", "else", "while", "loop", "for", "in", "break",
+    "continue", "return", "match", "new", "this", "super", "as", "true", "false", "none",
+    "some",
+];
+
 /// Top-level identifiers visible in `doc`, used as completion fallback
 /// when the user is just typing a name (no receiver). Only the bare
 /// names appear — `use module` namespaces show up as the module name
@@ -3001,6 +3010,15 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
         detail: Some("(builtin) console: Console".to_string()),
         ..CompletionItem::default()
     });
+    // ilang keywords — listed last so user identifiers rank ahead
+    // when prefixes overlap.
+    for kw in KEYWORDS {
+        out.push(CompletionItem {
+            label: (*kw).to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            ..CompletionItem::default()
+        });
+    }
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
