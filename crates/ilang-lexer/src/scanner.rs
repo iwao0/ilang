@@ -16,11 +16,11 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
 }
 
 fn is_ident_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_'
+    c.is_alphabetic() || c == '_'
 }
 
 fn is_ident_continue(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
+    c.is_alphanumeric() || c == '_'
 }
 
 struct Lexer<'a> {
@@ -45,6 +45,10 @@ struct LexerSnapshot<'a> {
 
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
+        // Skip a leading UTF-8 BOM (U+FEFF) if present — many editors
+        // insert one and we don't want it surfacing as an unexpected
+        // character on the first token.
+        let src = src.strip_prefix('\u{FEFF}').unwrap_or(src);
         Self {
             chars: src.chars(),
             peeked: None,
@@ -63,7 +67,10 @@ impl<'a> Lexer<'a> {
 
     fn bump(&mut self) -> Option<char> {
         let c = self.peeked.take().or_else(|| self.chars.next())?;
-        if c == '\n' {
+        // Treat both `\n` and a lone `\r` (old-Mac line ending) as line
+        // breaks. CRLF is handled by letting the `\n` advance the line —
+        // the preceding `\r` only bumps `col`.
+        if c == '\n' || (c == '\r' && self.peek() != Some('\n')) {
             self.line += 1;
             self.col = 1;
         } else {
@@ -76,7 +83,7 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 Some(c) if c.is_whitespace() => {
-                    if c == '\n' {
+                    if c == '\n' || c == '\r' {
                         self.pending_newline = true;
                     }
                     self.bump();
@@ -123,7 +130,7 @@ impl<'a> Lexer<'a> {
                                 self.bump();
                                 depth -= 1;
                             }
-                            Some('\n') => {
+                            Some('\n') | Some('\r') => {
                                 self.pending_newline = true;
                                 self.bump();
                             }
@@ -351,6 +358,11 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 TokenKind::Tilde
             }
+            '.' if matches!(self.peek_second(), Some(d) if d.is_ascii_digit()) => {
+                // Leading-dot float (`.5`). Only enter here when the next
+                // char is a digit, so `.foo` and `..` keep their meaning.
+                self.read_leading_dot_float(span)?
+            }
             '.' => {
                 self.bump();
                 if self.peek() == Some('.') {
@@ -388,7 +400,7 @@ impl<'a> Lexer<'a> {
         // (`1_i32`, `1.5f32`, ...). Suffix on a non-numeric token would
         // be nonsensical, so only attempt for Int / Float.
         let numeric_suffix = if matches!(kind, TokenKind::Int(_) | TokenKind::Float(_)) {
-            self.try_read_numeric_suffix()
+            self.try_read_numeric_suffix()?
         } else {
             None
         };
@@ -412,11 +424,19 @@ impl<'a> Lexer<'a> {
     }
 
     /// Attempt to consume a numeric type suffix at the current position.
-    /// Accepts an optional leading `_` followed by one of the known type
-    /// names (`i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`/`f32`/`f64`).
-    /// Restores lexer state if no valid suffix is present, so a literal
-    /// like `1` followed by an identifier `foo` is unaffected.
-    fn try_read_numeric_suffix(&mut self) -> Option<ilang_ast::Type> {
+    /// Reads the trailing identifier-like sequence as a whole, optionally
+    /// strips one leading `_`, and matches against the known type names.
+    ///
+    /// - Match → `Ok(Some(type))`.
+    /// - No trailing ident-like chars → `Ok(None)`.
+    /// - Unknown candidate that started with `_` → roll back and return
+    ///   `Ok(None)`, since `_xxx` is also a valid identifier.
+    /// - Unknown candidate without a leading `_` → `Err(InvalidNumericSuffix)`,
+    ///   so `1foo` / `1u8x` don't silently split into two tokens.
+    fn try_read_numeric_suffix(&mut self) -> Result<Option<ilang_ast::Type>, LexError> {
+        if !matches!(self.peek(), Some(c) if is_ident_start(c)) {
+            return Ok(None);
+        }
         let snap = LexerSnapshot {
             chars: self.chars.clone(),
             peeked: self.peeked,
@@ -424,20 +444,21 @@ impl<'a> Lexer<'a> {
             col: self.col,
             pending_newline: self.pending_newline,
         };
-        // Optional separating underscore.
-        if matches!(self.peek(), Some('_')) {
-            self.bump();
-        }
-        let mut buf = String::new();
+        let suffix_span = Span {
+            line: self.line,
+            col: self.col,
+        };
+        let mut full = String::new();
         while let Some(c) = self.peek() {
-            if c.is_ascii_alphanumeric() {
-                buf.push(c);
+            if is_ident_continue(c) {
+                full.push(c);
                 self.bump();
             } else {
                 break;
             }
         }
-        let ty = match buf.as_str() {
+        let candidate = full.strip_prefix('_').unwrap_or(&full);
+        let ty = match candidate {
             "i8" => Some(ilang_ast::Type::I8),
             "i16" => Some(ilang_ast::Type::I16),
             "i32" => Some(ilang_ast::Type::I32),
@@ -450,15 +471,21 @@ impl<'a> Lexer<'a> {
             "f64" => Some(ilang_ast::Type::F64),
             _ => None,
         };
-        if ty.is_none() {
-            // Roll back: pretend we never looked at the suffix candidate.
+        if let Some(t) = ty {
+            return Ok(Some(t));
+        }
+        if full.starts_with('_') {
             self.chars = snap.chars;
             self.peeked = snap.peeked;
             self.line = snap.line;
             self.col = snap.col;
             self.pending_newline = snap.pending_newline;
+            return Ok(None);
         }
-        ty
+        Err(LexError::InvalidNumericSuffix {
+            name: full,
+            span: suffix_span,
+        })
     }
 
     /// Consume a `"..."` string literal (the leading `"` is the next char).
@@ -471,38 +498,35 @@ impl<'a> Lexer<'a> {
         loop {
             match self.peek() {
                 None => return Err(LexError::UnterminatedString { span }),
-                Some('\n') => return Err(LexError::UnterminatedString { span }),
+                Some('\n') | Some('\r') => return Err(LexError::UnterminatedString { span }),
                 Some('"') => {
                     self.bump();
                     return Ok(TokenKind::Str(buf));
                 }
                 Some('\\') => {
-                    let esc_span = Span { line: self.line, col: self.col };
+                    let esc_span = Span {
+                        line: self.line,
+                        col: self.col,
+                    };
                     self.bump();
                     match self.peek() {
-                        Some('n') => {
+                        Some('n') => { self.bump(); buf.push('\n'); }
+                        Some('t') => { self.bump(); buf.push('\t'); }
+                        Some('r') => { self.bump(); buf.push('\r'); }
+                        Some('\\') => { self.bump(); buf.push('\\'); }
+                        Some('"') => { self.bump(); buf.push('"'); }
+                        Some('0') => { self.bump(); buf.push('\0'); }
+                        Some('a') => { self.bump(); buf.push('\x07'); }
+                        Some('b') => { self.bump(); buf.push('\x08'); }
+                        Some('f') => { self.bump(); buf.push('\x0c'); }
+                        Some('v') => { self.bump(); buf.push('\x0b'); }
+                        Some('x') => {
                             self.bump();
-                            buf.push('\n');
+                            self.read_hex_byte_escape(esc_span, &mut buf)?;
                         }
-                        Some('t') => {
+                        Some('u') => {
                             self.bump();
-                            buf.push('\t');
-                        }
-                        Some('r') => {
-                            self.bump();
-                            buf.push('\r');
-                        }
-                        Some('\\') => {
-                            self.bump();
-                            buf.push('\\');
-                        }
-                        Some('"') => {
-                            self.bump();
-                            buf.push('"');
-                        }
-                        Some('0') => {
-                            self.bump();
-                            buf.push('\0');
+                            self.read_unicode_escape(esc_span, &mut buf)?;
                         }
                         Some(c) => {
                             return Err(LexError::BadEscape {
@@ -518,6 +542,80 @@ impl<'a> Lexer<'a> {
                     buf.push(c);
                 }
             }
+        }
+    }
+
+    /// `\xNN` — exactly two hex digits, must encode an ASCII char
+    /// (≤ 0x7F) so we don't synthesize invalid UTF-8.
+    fn read_hex_byte_escape(&mut self, esc_span: Span, buf: &mut String) -> Result<(), LexError> {
+        let mut hex = String::new();
+        for _ in 0..2 {
+            match self.peek() {
+                Some(c) if c.is_ascii_hexdigit() => {
+                    hex.push(c);
+                    self.bump();
+                }
+                _ => {
+                    return Err(LexError::BadEscape {
+                        seq: format!("\\x{hex}"),
+                        span: esc_span,
+                    });
+                }
+            }
+        }
+        let val = u32::from_str_radix(&hex, 16).unwrap();
+        if val > 0x7F {
+            return Err(LexError::BadEscape {
+                seq: format!("\\x{hex}"),
+                span: esc_span,
+            });
+        }
+        buf.push(val as u8 as char);
+        Ok(())
+    }
+
+    /// `\u{NNNN}` — 1 to 6 hex digits inside braces, must be a valid
+    /// Unicode scalar value (excluding surrogates).
+    fn read_unicode_escape(&mut self, esc_span: Span, buf: &mut String) -> Result<(), LexError> {
+        if self.peek() != Some('{') {
+            return Err(LexError::BadEscape {
+                seq: "\\u".into(),
+                span: esc_span,
+            });
+        }
+        self.bump();
+        let mut hex = String::new();
+        while let Some(c) = self.peek() {
+            if c.is_ascii_hexdigit() && hex.len() < 6 {
+                hex.push(c);
+                self.bump();
+            } else {
+                break;
+            }
+        }
+        if self.peek() != Some('}') {
+            return Err(LexError::BadEscape {
+                seq: format!("\\u{{{hex}"),
+                span: esc_span,
+            });
+        }
+        self.bump();
+        if hex.is_empty() {
+            return Err(LexError::BadEscape {
+                seq: "\\u{}".into(),
+                span: esc_span,
+            });
+        }
+        let val = u32::from_str_radix(&hex, 16).unwrap();
+        match char::from_u32(val) {
+            Some(c) => {
+                buf.push(c);
+                Ok(())
+            }
+            None => Err(LexError::BadEscape {
+                seq: format!("\\u{{{hex}}}"),
+                span: esc_span,
+            }),
         }
     }
 
@@ -658,6 +756,42 @@ impl<'a> Lexer<'a> {
                 },
             }
         }
+    }
+
+    /// `.5`-style float — entered when the main scanner sees `.` followed
+    /// by a digit. The integer part is implicitly `0`.
+    fn read_leading_dot_float(&mut self, span: Span) -> Result<TokenKind, LexError> {
+        self.bump(); // consume `.`
+        let mut buf = String::from(".");
+        self.scan_digits(&mut buf, 10);
+        if let Some(c) = self.peek() {
+            if c == 'e' || c == 'E' {
+                buf.push(c);
+                self.bump();
+                if let Some(s) = self.peek() {
+                    if s == '+' || s == '-' {
+                        buf.push(s);
+                        self.bump();
+                    }
+                }
+                let before = buf.len();
+                self.scan_digits(&mut buf, 10);
+                if buf.len() == before {
+                    return Err(LexError::InvalidNumber {
+                        text: buf,
+                        span,
+                        reason: "exponent has no digits".into(),
+                    });
+                }
+            }
+        }
+        buf.parse::<f64>()
+            .map(TokenKind::Float)
+            .map_err(|e| LexError::InvalidNumber {
+                text: buf.clone(),
+                span,
+                reason: e.to_string(),
+            })
     }
 
     /// Append digits in the given radix to `buf`, treating `_` as a

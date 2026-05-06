@@ -361,6 +361,91 @@ fn u64_max_decimal_literal() {
 }
 
 #[test]
+fn leading_dot_float() {
+    assert_eq!(kinds(".5"), vec![TokenKind::Float(0.5), TokenKind::Eof]);
+    assert_eq!(
+        kinds(".25e2"),
+        vec![TokenKind::Float(25.0), TokenKind::Eof]
+    );
+    // `.foo` is still field access, not a float.
+    assert_eq!(
+        kinds(".foo"),
+        vec![TokenKind::Dot, TokenKind::Ident("foo".into()), TokenKind::Eof]
+    );
+    // `..` and `..=` keep their range meaning.
+    assert!(matches!(kinds("..").as_slice(), [TokenKind::DotDot, TokenKind::Eof]));
+}
+
+#[test]
+fn invalid_numeric_suffix_errors() {
+    // `1foo` looks like a typo'd suffix — surface as error rather than
+    // silently splitting into `Int(1)` + `Ident("foo")`.
+    assert!(matches!(
+        tokenize("1foo"),
+        Err(LexError::InvalidNumericSuffix { ref name, .. }) if name == "foo"
+    ));
+    assert!(matches!(
+        tokenize("1u8x"),
+        Err(LexError::InvalidNumericSuffix { ref name, .. }) if name == "u8x"
+    ));
+}
+
+#[test]
+fn bom_is_skipped() {
+    let toks = tokenize("\u{FEFF}let x = 1").unwrap();
+    assert!(matches!(toks[0].kind, TokenKind::Let));
+}
+
+#[test]
+fn extended_string_escapes() {
+    let toks = tokenize(r#""\a\b\f\v""#).unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Str("\x07\x08\x0c\x0b".into()));
+
+    let toks = tokenize(r#""\x41\x7F""#).unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Str("A\x7F".into()));
+
+    let toks = tokenize(r#""\u{1F600}""#).unwrap();
+    assert_eq!(toks[0].kind, TokenKind::Str("\u{1F600}".into()));
+}
+
+#[test]
+fn bad_extended_escapes_error() {
+    // \x exceeds 0x7F
+    assert!(matches!(tokenize(r#""\x80""#), Err(LexError::BadEscape { .. })));
+    // \x with non-hex
+    assert!(matches!(tokenize(r#""\xZZ""#), Err(LexError::BadEscape { .. })));
+    // \u missing braces
+    assert!(matches!(tokenize(r#""\u41""#), Err(LexError::BadEscape { .. })));
+    // \u with surrogate
+    assert!(matches!(tokenize(r#""\u{D800}""#), Err(LexError::BadEscape { .. })));
+    // \u{} empty
+    assert!(matches!(tokenize(r#""\u{}""#), Err(LexError::BadEscape { .. })));
+}
+
+#[test]
+fn lone_cr_triggers_asi() {
+    // A single `\r` (old-Mac line ending) should mark the next token as
+    // following a newline, just like `\n` and `\r\n`.
+    let toks = tokenize("1\r2").unwrap();
+    let two = toks.iter().find(|t| matches!(t.kind, TokenKind::Int(2))).unwrap();
+    assert!(two.leading_newline);
+    // `\r\n` shouldn't double-count: line should be 2, not 3.
+    let toks = tokenize("a\r\nb").unwrap();
+    let b = toks.iter().find(|t| matches!(&t.kind, TokenKind::Ident(n) if n == "b")).unwrap();
+    assert_eq!(b.span.line, 2);
+}
+
+#[test]
+fn unicode_identifiers() {
+    let toks = tokenize("let 名前 = 1").unwrap();
+    assert!(matches!(toks[0].kind, TokenKind::Let));
+    assert!(matches!(&toks[1].kind, TokenKind::Ident(n) if n == "名前"));
+    // Continue chars include Unicode digits + alphabetics.
+    let toks = tokenize("café_2").unwrap();
+    assert!(matches!(&toks[0].kind, TokenKind::Ident(n) if n == "café_2"));
+}
+
+#[test]
 fn integer_with_float_suffix_promotes_to_float() {
     // `1_f32` is shorthand for `1.0_f32` — token kind reflects that.
     let toks = tokenize("1_f32").unwrap();

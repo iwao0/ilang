@@ -17,6 +17,8 @@ pub enum LexError {
     BadEscape { seq: String, span: Span },
     #[error("{span}: unterminated block comment")]
     UnterminatedBlockComment { span: Span },
+    #[error("{span}: invalid numeric suffix {name:?}")]
+    InvalidNumericSuffix { name: String, span: Span },
 }
 
 impl LexError {
@@ -26,7 +28,8 @@ impl LexError {
             | LexError::InvalidNumber { span, .. }
             | LexError::UnterminatedString { span }
             | LexError::BadEscape { span, .. }
-            | LexError::UnterminatedBlockComment { span } => *span,
+            | LexError::UnterminatedBlockComment { span }
+            | LexError::InvalidNumericSuffix { span, .. } => *span,
         }
     }
 }
