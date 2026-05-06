@@ -3146,6 +3146,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
     match &p.kind {
         PatternKind::Wildcard
         | PatternKind::IntLit(_)
+        | PatternKind::IntRange { .. }
         | PatternKind::BoolLit(_)
         | PatternKind::StrLit(_) => {}
         PatternKind::Variant { bindings, .. } => match bindings {

@@ -800,6 +800,51 @@ impl<'a> Parser<'a> {
     /// bool.
     fn try_parse_literal_pattern(&mut self) -> Result<Option<ilang_ast::Pattern>, ParseError> {
         let span = self.peek().span;
+        // Read an optional leading `-` then an Int. Returns the
+        // signed value and how many tokens it consumed (1 for plain
+        // Int, 2 for `-Int`).
+        let read_signed_int = |this: &Self, start: usize| -> Option<(i64, usize)> {
+            match &this.tokens.get(start)?.kind {
+                TokenKind::Int(n) => Some((*n as i64, 1)),
+                TokenKind::Minus => match &this.tokens.get(start + 1)?.kind {
+                    TokenKind::Int(n) => Some((-(*n as i64), 2)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        };
+        // Look ahead: is this a range pattern? Either `Int .. Int`,
+        // `Int ..= Int`, or with a leading `-` on either side.
+        if let Some((low, low_len)) = read_signed_int(self, self.pos) {
+            let after_low = self.pos + low_len;
+            let dotdot = self.tokens.get(after_low).map(|t| &t.kind);
+            let inclusive = match dotdot {
+                Some(TokenKind::DotDot) => Some(false),
+                Some(TokenKind::DotDotEq) => Some(true),
+                _ => None,
+            };
+            if let Some(inc) = inclusive {
+                if let Some((high, high_len)) = read_signed_int(self, after_low + 1) {
+                    // Commit: consume low (`-`?+Int), `..` / `..=`,
+                    // high (`-`?+Int).
+                    for _ in 0..low_len {
+                        self.bump();
+                    }
+                    self.bump(); // dot-dot token
+                    for _ in 0..high_len {
+                        self.bump();
+                    }
+                    return Ok(Some(ilang_ast::Pattern {
+                        kind: ilang_ast::PatternKind::IntRange {
+                            low,
+                            high,
+                            inclusive: inc,
+                        },
+                        span,
+                    }));
+                }
+            }
+        }
         match &self.peek().kind {
             TokenKind::Int(n) => {
                 let v = *n;

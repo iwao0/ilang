@@ -1089,6 +1089,21 @@ impl TypeChecker {
                     true
                 }
                 PatternKind::IntLit(_) => st.is_numeric(),
+                PatternKind::IntRange { low, high, inclusive } => {
+                    if !st.is_numeric() {
+                        false
+                    } else if *low > *high || (!*inclusive && *low == *high) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "empty integer range pattern `{low}{}{high}`",
+                                if *inclusive { "..=" } else { ".." }
+                            ),
+                            span: pspan,
+                        });
+                    } else {
+                        true
+                    }
+                }
                 PatternKind::BoolLit(p) => {
                     if *st == Type::Bool {
                         if *p { bool_true_covered = true; } else { bool_false_covered = true; }
@@ -3521,6 +3536,7 @@ impl TypeChecker {
                             has_wildcard = true;
                         }
                         PatternKind::IntLit(_)
+                        | PatternKind::IntRange { .. }
                         | PatternKind::BoolLit(_)
                         | PatternKind::StrLit(_) => {
                             return Err(TypeError::Unsupported {

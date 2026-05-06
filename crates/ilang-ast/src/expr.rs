@@ -268,6 +268,10 @@ pub enum PatternKind {
     /// `i64`; the type checker coerces to the scrutinee's type when
     /// it's a same-signed narrower / wider integer.
     IntLit(i64),
+    /// `1..5` (exclusive) or `1..=5` (inclusive) — integer range
+    /// pattern for primitive `match`. `low <= x` and either
+    /// `x < high` or `x <= high`.
+    IntRange { low: i64, high: i64, inclusive: bool },
     /// `true` / `false` — bool literal pattern.
     BoolLit(bool),
     /// `"hello"` — string literal pattern, structural equality.

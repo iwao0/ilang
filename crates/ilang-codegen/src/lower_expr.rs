@@ -2459,6 +2459,24 @@ fn lower_match_primitive(
                 let want = b.ins().iconst(cl, *n);
                 b.ins().icmp(IntCC::Equal, sv, want)
             }
+            (
+                ilang_ast::PatternKind::IntRange { low, high, inclusive },
+                t,
+            ) if t.is_int() => {
+                let cl = t.cl().expect("int has cranelift type");
+                let low_v = b.ins().iconst(cl, *low);
+                let high_v = b.ins().iconst(cl, *high);
+                let signed = t.is_signed_int();
+                let lo_cc = if signed { IntCC::SignedGreaterThanOrEqual } else { IntCC::UnsignedGreaterThanOrEqual };
+                let hi_cc_inc = if signed { IntCC::SignedLessThanOrEqual } else { IntCC::UnsignedLessThanOrEqual };
+                let hi_cc_excl = if signed { IntCC::SignedLessThan } else { IntCC::UnsignedLessThan };
+                let lo_ok = b.ins().icmp(lo_cc, sv, low_v);
+                let hi_ok = b.ins().icmp(
+                    if *inclusive { hi_cc_inc } else { hi_cc_excl },
+                    sv, high_v,
+                );
+                b.ins().band(lo_ok, hi_ok)
+            }
             (ilang_ast::PatternKind::BoolLit(p), JitTy::Bool) => {
                 let want = b.ins().iconst(I8, *p as i64);
                 b.ins().icmp(IntCC::Equal, sv, want)

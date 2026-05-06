@@ -874,6 +874,14 @@ let label = match n {
     _  { "other" }
 }
 
+// Integer ranges — exclusive `..` and inclusive `..=`.
+let bucket = match n {
+    -10..0  { "neg" }
+    0..10   { "small" }
+    10..=99 { "tens" }
+    _       { "big" }
+}
+
 let s = match flag {
     true  { "on" }
     false { "off" }
@@ -888,6 +896,10 @@ let kind = match name {
 
 - Integer patterns (`1`, `-7`) match same-signed integer scrutinees
   via structural equality.
+- Integer range patterns (`a..b`, `a..=b`) match when
+  `a <= x < b` / `a <= x <= b`. The bounds must be the same signed
+  integer literal (or `-Lit`); empty ranges (`5..5`, `5..3`) are
+  rejected at compile time.
 - `bool` patterns require both `true` and `false` arms (exhaustive)
   *or* a `_` wildcard.
 - All other primitive matches need a `_` wildcard — the value space

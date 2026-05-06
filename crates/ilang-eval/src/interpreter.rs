@@ -1325,6 +1325,12 @@ impl Interpreter {
                         let hit = match (&arm.pattern.kind, &v) {
                             (PatternKind::Wildcard, _) => true,
                             (PatternKind::IntLit(p), _) if v_as_i64.is_some() => *p == v_as_i64.unwrap(),
+                            (PatternKind::IntRange { low, high, inclusive }, _)
+                                if v_as_i64.is_some() =>
+                            {
+                                let x = v_as_i64.unwrap();
+                                *low <= x && (if *inclusive { x <= *high } else { x < *high })
+                            }
                             (PatternKind::BoolLit(p), Value::Bool(x)) => *p == *x,
                             (PatternKind::StrLit(p), Value::Str(x)) => *p == **x,
                             // `true` / `false` arrive as `Variant`
@@ -2217,6 +2223,7 @@ fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<S
     match &p.kind {
         PatternKind::Wildcard
         | PatternKind::IntLit(_)
+        | PatternKind::IntRange { .. }
         | PatternKind::BoolLit(_)
         | PatternKind::StrLit(_) => {}
         PatternKind::Variant { bindings, .. } => match bindings {
