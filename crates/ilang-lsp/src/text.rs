@@ -59,7 +59,7 @@ pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Opt
         let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
         if !next.is_ascii_alphanumeric() && next != b'_' {
             let (line, col) = offset_to_line_col(text, i)?;
-            return Some(Span::new(line, col));
+            return Some(name_span(line, col, name));
         }
     }
     None
@@ -90,7 +90,7 @@ pub(crate) fn locate_let_name_with_kw(
         let next = bytes.get(i + nb.len()).copied().unwrap_or(b' ');
         if !next.is_ascii_alphanumeric() && next != b'_' {
             let (line, col) = offset_to_line_col(text, i)?;
-            return Some(Span::new(line, col));
+            return Some(name_span(line, col, name));
         }
     }
     None
@@ -185,7 +185,20 @@ pub(crate) fn extract_doc_above(text: &str, decl_line: u32) -> Option<String> {
     Some(doc_lines.join("\n"))
 }
 
-/// Convert a 1-based ilang `Span` to a 0-based LSP `Range`.
+/// Build a single-line span that covers the given identifier's full
+/// extent (start at `(line, col)`, ending after `name` chars).
+fn name_span(line: u32, col: u32, name: &str) -> Span {
+    let chars = name.chars().count() as u32;
+    let end_col = col + chars.saturating_sub(1);
+    Span::range(line, col, line, end_col.max(col))
+}
+
+/// Convert a 1-based ilang `Span` to a 0-based LSP `Range`. `len` is the
+/// number of characters to highlight starting at `span.col` — used when
+/// the caller has the identifier length but `span.end_col` points
+/// somewhere else (e.g. the span was widened to cover a whole
+/// expression). For spans whose extent is already correct, prefer
+/// `span_full_to_range`.
 pub(crate) fn span_to_range(span: Span, len: usize) -> Range {
     let line = span.line.saturating_sub(1);
     let start_char = span.col.saturating_sub(1);
@@ -198,6 +211,23 @@ pub(crate) fn span_to_range(span: Span, len: usize) -> Range {
         end: Position {
             line,
             character: end_char,
+        },
+    }
+}
+
+/// Convert a 1-based ilang `Span` to a 0-based LSP `Range`, using the
+/// span's recorded extent (`end_line` / `end_col`). Span's `end_col` is
+/// inclusive in 1-based coords, which matches LSP's exclusive 0-based
+/// end (`end.character = span.end_col`).
+pub(crate) fn span_full_to_range(span: Span) -> Range {
+    Range {
+        start: Position {
+            line: span.line.saturating_sub(1),
+            character: span.col.saturating_sub(1),
+        },
+        end: Position {
+            line: span.end_line.saturating_sub(1),
+            character: span.end_col,
         },
     }
 }

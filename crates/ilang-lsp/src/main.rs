@@ -26,7 +26,8 @@ use builtins::{
 use project::{collect_dep_paths, find_umbrella};
 use text::{
     call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
-    locate_property_name, parameter_offsets, receiver_before_dot, span_to_range, word_at,
+    locate_property_name, parameter_offsets, receiver_before_dot, span_full_to_range,
+    span_to_range, word_at,
 };
 
 #[derive(Clone, Debug)]
@@ -1671,7 +1672,7 @@ fn collect_external_signatures(
 
 fn diag(span: Span, msg: String) -> Diagnostic {
     Diagnostic {
-        range: span_to_range(span, 1),
+        range: span_full_to_range(span),
         severity: Some(DiagnosticSeverity::ERROR),
         source: Some("ilang".into()),
         message: msg,
