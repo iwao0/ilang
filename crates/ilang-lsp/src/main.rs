@@ -717,7 +717,41 @@ fn harvest_imported_consts(
     sources: &mut ExternalSources,
 ) {
     let Ok(tokens) = tokenize(entry_src) else { return };
-    let Ok(prog) = parse(&tokens) else { return };
+    // The buffer may fail to parse mid-edit (e.g. trailing `.`). Pull
+    // `use module` items from the token stream directly so the
+    // harvest still runs.
+    if let Ok(prog) = parse(&tokens) {
+        harvest_from_program(&prog, entry_path, out, sources);
+        return;
+    }
+    use ilang_lexer::TokenKind;
+    let extra = collect_dep_paths(entry_path).unwrap_or_default();
+    let entry_dir = entry_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        if matches!(tokens[i].kind, TokenKind::Use) {
+            if let Some(t) = tokens.get(i + 1) {
+                if let TokenKind::Ident(name) = &t.kind {
+                    walk_module(name, &entry_dir, &extra, &mut visited, out, sources);
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+fn harvest_from_program(
+    prog: &Program,
+    entry_path: &Path,
+    out: &mut HashMap<String, String>,
+    sources: &mut ExternalSources,
+) {
     let extra = collect_dep_paths(entry_path).unwrap_or_default();
     let entry_dir = entry_path
         .parent()
@@ -729,14 +763,7 @@ fn harvest_imported_consts(
         if u.selective.is_some() {
             continue;
         }
-        walk_module(
-            &u.module,
-            &entry_dir,
-            &extra,
-            &mut visited,
-            out,
-            sources,
-        );
+        walk_module(&u.module, &entry_dir, &extra, &mut visited, out, sources);
     }
 }
 
