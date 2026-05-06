@@ -641,7 +641,7 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
                 name: p.name.clone(),
                 ty: prefix_type(&p.ty, prefix),
                 span: p.span,
-                default: p.default.clone(),
+                default: p.default.clone().map(|d| prefix_expr(d, prefix)),
             })
             .collect();
         m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
@@ -680,7 +680,7 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
                     name: p.name.clone(),
                     ty: prefix_type(&p.ty, prefix),
                     span: p.span,
-                    default: p.default.clone(),
+                    default: p.default.clone().map(|d| prefix_expr(d, prefix)),
                 })
                 .collect();
         }
@@ -698,7 +698,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                     name: p.name.clone(),
                     ty: prefix_type(&p.ty, prefix),
                     span: p.span,
-                    default: p.default.clone(),
+                    default: p.default.clone().map(|d| prefix_expr(d, prefix)),
                 })
                 .collect();
             f.ret = f.ret.as_ref().map(|t| prefix_type(t, prefix));
@@ -918,7 +918,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
                     name: p.name,
                     ty: prefix_type(&p.ty, prefix),
                     span: p.span,
-                    default: p.default,
+                    default: p.default.map(|d| prefix_expr(d, prefix)),
                 })
                 .collect(),
             ret: ret.map(|t| prefix_type(&t, prefix)),
@@ -1253,7 +1253,7 @@ fn fold_const_expr(e: &Expr, consts: &HashMap<String, Expr>) -> Result<Expr, Str
         ExprKind::Unary { op, expr } => {
             let v = fold_const_expr(expr, consts)?;
             match (op, &v.kind) {
-                (UnOp::Neg, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(-n))),
+                (UnOp::Neg, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(n.wrapping_neg()))),
                 (UnOp::Neg, ExprKind::Float(x)) => Ok(lit(ExprKind::Float(-x))),
                 (UnOp::Not, ExprKind::Bool(b)) => Ok(lit(ExprKind::Bool(!b))),
                 (UnOp::BitNot, ExprKind::Int(n)) => Ok(lit(ExprKind::Int(!n))),
@@ -1310,13 +1310,15 @@ fn fold_binary(op: BinOp, l: &Expr, r: &Expr, span: Span) -> Result<Expr, String
                 if *b == 0 {
                     return Err("division by zero in const expression".into());
                 }
-                Int(a / b)
+                // `wrapping_div` so `i64::MIN / -1` doesn't panic;
+                // matches the wrapping behaviour of `+` / `-` / `*`.
+                Int(a.wrapping_div(*b))
             }
             BinOp::Rem => {
                 if *b == 0 {
                     return Err("modulo by zero in const expression".into());
                 }
-                Int(a % b)
+                Int(a.wrapping_rem(*b))
             }
             BinOp::BitAnd => Int(a & b),
             BinOp::BitOr => Int(a | b),
