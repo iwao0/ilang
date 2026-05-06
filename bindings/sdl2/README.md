@@ -33,7 +33,7 @@ Then:
 use sdl
 
 fn main() {
-    let rc = sdl.init(sdl.INIT_VIDEO)
+    let rc = sdl.init(sdl.InitFlag.video)
     if rc < 0 { return }
     let win = new sdl.Window("my game", 640, 480)
     let ren = new sdl.Renderer(win.handle)

@@ -73,19 +73,19 @@
     // ─── friendlier ilang wrappers ───────────────────────────────
 
     // Returns 0 on success, < 0 on failure (matches SDL_Init).
-    fn init(flags: u32): i32 {
-        SDL_Init(flags)
+    fn init(flags: InitFlag): i32 {
+        SDL_Init(flags as u32)
     }
-    fn initSubSystem(flags: u32): i32 {
-        SDL_InitSubSystem(flags)
+    fn initSubSystem(flags: InitFlag): i32 {
+        SDL_InitSubSystem(flags as u32)
     }
-    fn quitSubSystem(flags: u32) {
-        SDL_QuitSubSystem(flags)
+    fn quitSubSystem(flags: InitFlag) {
+        SDL_QuitSubSystem(flags as u32)
     }
     // Returns the bitmask of subsystems currently initialised. Pass
-    // 0 to query everything.
-    fn wasInit(flags: u32): u32 {
-        SDL_WasInit(flags)
+    // `InitFlag.everything` (or any combo) to filter.
+    fn wasInit(flags: InitFlag): u32 {
+        SDL_WasInit(flags as u32)
     }
     fn quit() {
         SDL_Quit()
@@ -106,9 +106,9 @@
     fn setHint(name: string, value: string): bool {
         SDL_SetHint(cstrFromString(name), cstrFromString(value)) != 0
     }
-    fn setHintWithPriority(name: string, value: string, priority: i32): bool {
+    fn setHintWithPriority(name: string, value: string, priority: HintPriority): bool {
         SDL_SetHintWithPriority(
-            cstrFromString(name), cstrFromString(value), priority
+            cstrFromString(name), cstrFromString(value), priority as i32
         ) != 0
     }
     fn getHint(name: string): string {
@@ -128,20 +128,20 @@
         SDL_ClearHints()
     }
 
-    fn logSetAllPriority(priority: i32) {
-        SDL_LogSetAllPriority(priority)
+    fn logSetAllPriority(priority: LogPriority) {
+        SDL_LogSetAllPriority(priority as i32)
     }
-    fn logSetPriority(category: i32, priority: i32) {
-        SDL_LogSetPriority(category, priority)
+    fn logSetPriority(category: LogCategory, priority: LogPriority) {
+        SDL_LogSetPriority(category as i32, priority as i32)
     }
-    fn logGetPriority(category: i32): i32 {
-        SDL_LogGetPriority(category)
+    fn logGetPriority(category: LogCategory): i32 {
+        SDL_LogGetPriority(category as i32)
     }
     fn logResetPriorities() {
         SDL_LogResetPriorities()
     }
-    fn logMessage(category: i32, priority: i32, msg: string) {
-        SDL_LogMessage(category, priority, cstrFromString(msg))
+    fn logMessage(category: LogCategory, priority: LogPriority, msg: string) {
+        SDL_LogMessage(category as i32, priority as i32, cstrFromString(msg))
     }
 
     fn getRevision(): string {
@@ -171,42 +171,63 @@
     }
 }
 
-// ─── SDL_INIT_* flag constants ────────────────────────────────────
-const INIT_TIMER: u32          = 0x00000001
-const INIT_AUDIO: u32          = 0x00000010
-const INIT_VIDEO: u32          = 0x00000020   // implies EVENTS
-const INIT_JOYSTICK: u32       = 0x00000200   // implies EVENTS
-const INIT_HAPTIC: u32         = 0x00001000
-const INIT_GAMECONTROLLER: u32 = 0x00002000   // implies JOYSTICK
-const INIT_EVENTS: u32         = 0x00004000
-const INIT_SENSOR: u32         = 0x00008000
-const INIT_NOPARACHUTE: u32    = 0x00100000   // legacy / no-op
-// Bitwise-OR of all the practical subsystems above.
-const INIT_EVERYTHING: u32     = 0x0000F231
+// ─── SDL_INIT_* flags (SDL_INIT_*) ────────────────────────────────
+
+/// Subsystem bitflags passed to `SDL_Init` / `init` /
+/// `initSubSystem` / `wasInit`.
+@flags
+enum InitFlag: u32 {
+    timer          = 0x00000001
+    audio          = 0x00000010
+    video          = 0x00000020   // implies events
+    joystick       = 0x00000200   // implies events
+    haptic         = 0x00001000
+    gameController = 0x00002000   // implies joystick
+    events         = 0x00004000
+    sensor         = 0x00008000
+    noParachute    = 0x00100000   // legacy / no-op
+    // Bitwise-OR of all the practical subsystems above.
+    everything     = 0x0000F231
+}
 
 // ─── SDL_LogPriority ──────────────────────────────────────────────
-const LOG_PRIORITY_VERBOSE: i32  = 1
-const LOG_PRIORITY_DEBUG: i32    = 2
-const LOG_PRIORITY_INFO: i32     = 3
-const LOG_PRIORITY_WARN: i32     = 4
-const LOG_PRIORITY_ERROR: i32    = 5
-const LOG_PRIORITY_CRITICAL: i32 = 6
+
+/// Severity passed to the `Log*` family.
+enum LogPriority: i32 {
+    verbose  = 1
+    debug    = 2
+    info     = 3
+    warn     = 4
+    error    = 5
+    critical = 6
+}
 
 // ─── SDL_LogCategory ──────────────────────────────────────────────
-const LOG_CATEGORY_APPLICATION: i32 = 0
-const LOG_CATEGORY_ERROR: i32       = 1
-const LOG_CATEGORY_ASSERT: i32      = 2
-const LOG_CATEGORY_SYSTEM: i32      = 3
-const LOG_CATEGORY_AUDIO: i32       = 4
-const LOG_CATEGORY_VIDEO: i32       = 5
-const LOG_CATEGORY_RENDER: i32      = 6
-const LOG_CATEGORY_INPUT: i32       = 7
-const LOG_CATEGORY_TEST: i32        = 8
+
+/// Built-in log categories. User-defined categories start at
+/// `custom` (= 19, matching `SDL_LOG_CATEGORY_CUSTOM`).
+enum LogCategory: i32 {
+    application = 0
+    error       = 1
+    assert      = 2
+    system      = 3
+    audio       = 4
+    video       = 5
+    render      = 6
+    input       = 7
+    test        = 8
+}
 
 // ─── SDL_HintPriority ─────────────────────────────────────────────
-const HINT_PRIORITY_DEFAULT: i32  = 0
-const HINT_PRIORITY_NORMAL: i32   = 1
-const HINT_PRIORITY_OVERRIDE: i32 = 2
+
+/// Hint priority passed to `setHintWithPriority`. `override_` is
+/// renamed from `SDL_HINT_OVERRIDE` because `override` is reserved
+/// in ilang.
+enum HintPriority: i32 {
+    default   = 0
+    normal    = 1
+    override_ = 2
+}
 
 // ─── SDL_HINT_* names ────────────────────────────────────────────
 // String constants matching the C `SDL_HINT_*` macros. Pass these

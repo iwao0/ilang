@@ -1603,7 +1603,7 @@ fn play() {
     }
 }
 
-let rc = sdl.init(sdl.INIT_VIDEO | sdl.INIT_AUDIO | sdl.INIT_GAMECONTROLLER)
+let rc = sdl.init(sdl.InitFlag.video | sdl.InitFlag.audio | sdl.InitFlag.gameController)
 if rc < 0 {
     console.log("SDL_Init failed: " + sdl.getError())
     return
