@@ -2961,38 +2961,19 @@ fn render_const_value(e: &Expr) -> Option<String> {
     }
 }
 
-/// For function-like completion items, produce a snippet that inserts
-/// `name($0)` so the cursor lands inside the parens (and signature
-/// help pops up). Non-callables get no snippet — VSCode falls back
-/// to inserting the bare label.
+/// Function / method completion items insert just their bare name.
+/// (We used to insert `name($0)` to trigger signature help, but that
+/// mangled valid uses where the user wants the name alone — passing a
+/// fn as a value, referring to a method without calling it, etc.)
 fn call_snippet(
-    name: &str,
-    kind: CompletionItemKind,
+    _name: &str,
+    _kind: CompletionItemKind,
 ) -> (Option<String>, Option<InsertTextFormat>) {
-    if matches!(kind, CompletionItemKind::FUNCTION | CompletionItemKind::METHOD) {
-        (
-            Some(format!("{name}($0)")),
-            Some(InsertTextFormat::SNIPPET),
-        )
-    } else {
-        (None, None)
-    }
+    (None, None)
 }
 
-/// Editor command to trigger signature help right after a function
-/// completion is committed. The LSP-inserted `(` doesn't fire the
-/// `(` trigger character, so we ask the editor to run the action
-/// explicitly.
-fn trigger_sig_help_command(kind: CompletionItemKind) -> Option<Command> {
-    if matches!(kind, CompletionItemKind::FUNCTION | CompletionItemKind::METHOD) {
-        Some(Command {
-            title: "Trigger Parameter Hints".to_string(),
-            command: "editor.action.triggerParameterHints".to_string(),
-            arguments: None,
-        })
-    } else {
-        None
-    }
+fn trigger_sig_help_command(_kind: CompletionItemKind) -> Option<Command> {
+    None
 }
 
 /// ilang keywords. Each entry tags whether the keyword may appear at
