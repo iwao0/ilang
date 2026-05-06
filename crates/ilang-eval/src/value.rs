@@ -69,14 +69,21 @@ pub enum Value {
 
 /// Hashable wrapper for the subset of `Value`s that can serve as
 /// `Map` keys. Construction is fallible (`MapKey::from_value`) — only
-/// strings, integers (signed widened to i64, unsigned to u64), and
-/// booleans are accepted. Float keys are intentionally rejected (NaN
-/// breaks `Eq`).
+/// strings, integers (each width preserved so `keys()` round-trips back
+/// to the source variant), and booleans are accepted. Float keys are
+/// intentionally rejected (NaN breaks `Eq`). The type checker enforces
+/// a single key type per Map, so cross-width collisions can't arise.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
     Str(Rc<String>),
-    Int(i64),
-    UInt(u64),
+    Int8(i8),
+    Int16(i16),
+    Int32(i32),
+    Int64(i64),
+    UInt8(u8),
+    UInt16(u16),
+    UInt32(u32),
+    UInt64(u64),
     Bool(bool),
 }
 
@@ -84,14 +91,14 @@ impl MapKey {
     pub fn from_value(v: &Value) -> Option<Self> {
         Some(match v {
             Value::Str(s) => MapKey::Str(s.clone()),
-            Value::Int8(n) => MapKey::Int(*n as i64),
-            Value::Int16(n) => MapKey::Int(*n as i64),
-            Value::Int32(n) => MapKey::Int(*n as i64),
-            Value::Int(n) => MapKey::Int(*n),
-            Value::UInt8(n) => MapKey::UInt(*n as u64),
-            Value::UInt16(n) => MapKey::UInt(*n as u64),
-            Value::UInt32(n) => MapKey::UInt(*n as u64),
-            Value::UInt64(n) => MapKey::UInt(*n),
+            Value::Int8(n) => MapKey::Int8(*n),
+            Value::Int16(n) => MapKey::Int16(*n),
+            Value::Int32(n) => MapKey::Int32(*n),
+            Value::Int(n) => MapKey::Int64(*n),
+            Value::UInt8(n) => MapKey::UInt8(*n),
+            Value::UInt16(n) => MapKey::UInt16(*n),
+            Value::UInt32(n) => MapKey::UInt32(*n),
+            Value::UInt64(n) => MapKey::UInt64(*n),
             Value::Bool(b) => MapKey::Bool(*b),
             _ => return None,
         })
@@ -100,8 +107,14 @@ impl MapKey {
     pub fn into_value(self) -> Value {
         match self {
             MapKey::Str(s) => Value::Str(s),
-            MapKey::Int(n) => Value::Int(n),
-            MapKey::UInt(n) => Value::UInt64(n),
+            MapKey::Int8(n) => Value::Int8(n),
+            MapKey::Int16(n) => Value::Int16(n),
+            MapKey::Int32(n) => Value::Int32(n),
+            MapKey::Int64(n) => Value::Int(n),
+            MapKey::UInt8(n) => Value::UInt8(n),
+            MapKey::UInt16(n) => Value::UInt16(n),
+            MapKey::UInt32(n) => Value::UInt32(n),
+            MapKey::UInt64(n) => Value::UInt64(n),
             MapKey::Bool(b) => Value::Bool(b),
         }
     }
