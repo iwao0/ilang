@@ -32,6 +32,9 @@ const PADDLE_W: i32 = 110
 const PADDLE_H: i32 = 14
 const PADDLE_SPEED: f64 = 9.0
 const BALL_SIZE: i32 = 14
+// Length of each ball's trail ring buffer. Drawn each frame as
+// fading dots behind the ball.
+const TRAIL_LEN: i32 = 12
 
 const FRAME_MS: u32 = 16
 const SAMPLE_RATE: i32 = 44100
@@ -399,11 +402,25 @@ class Ball {
     y: f64
     vx: f64
     vy: f64
+    // Ring buffer of recent positions for the fading trail. Each
+    // ball owns its own buffer so multi-ball renders independent
+    // trails. Initialised to the spawn point so the trail starts
+    // collapsed onto the ball rather than streaming from (0, 0).
+    trail: TrailPoint[]
+    trail_head: i32
     init(x: f64, y: f64, vx: f64, vy: f64) {
         this.x = x
         this.y = y
         this.vx = vx
         this.vy = vy
+        let tr: TrailPoint[] = []
+        let i: i32 = 0
+        while i < TRAIL_LEN {
+            tr.push(new TrailPoint(x, y))
+            i = i + 1
+        }
+        this.trail = tr
+        this.trail_head = 0
     }
 }
 
@@ -498,7 +515,10 @@ fn play() {
         return
     }
 
-    let ren = new sdl.Renderer(win)
+    // VSync ties `present()` to the display refresh, smoothing
+    // frame delivery. Without it the manual `sdl.delay` pacing
+    // below visibly stutters even at a steady 60fps.
+    let ren = new sdl.Renderer(win, -1, sdl.RendererFlags.presentVsync as u32)
     if ren.handle == 0 {
         console.log("SDL_CreateRenderer failed: " + sdl.getError())
         return
@@ -790,17 +810,9 @@ fn play() {
     let frame_period_ms: f64 = 1000.0 / 60.0
     let particles: Particle[] = []
 
-    // Ball trail — a small ring buffer of recent positions, oldest
-    // overwritten first. Drawn each frame as fading dots behind the
-    // ball.
-    let TRAIL_LEN: i32 = 12
-    let trail: TrailPoint[] = []
-    let trail_init: i32 = 0
-    while trail_init < TRAIL_LEN {
-        trail.push(new TrailPoint(balls[0].x, balls[0].y))
-        trail_init = trail_init + 1
-    }
-    let trail_head: i32 = 0
+    // Trails live on each `Ball` (see the `trail` / `trail_head`
+    // fields), so multi-ball renders an independent fading streak
+    // for every active ball.
 
     console.log("playing — ESC to quit")
 
@@ -1120,15 +1132,18 @@ fn play() {
             }
         }
 
-        // Record the (first) ball's position into the trail ring
-        // buffer. Multi-ball still draws a single trail tied to the
-        // primary; secondary balls don't smear, which keeps the
-        // image readable when several are in flight.
-        if balls.length as i32 > 0 {
-            let tp = trail[trail_head]
-            tp.x = balls[0].x
-            tp.y = balls[0].y
-            trail_head = (trail_head + 1) % TRAIL_LEN
+        // Record every ball's current position into its own ring
+        // buffer. Each Ball owns the buffer so multi-ball produces
+        // independent trails.
+        let tr_bi: i32 = 0
+        let tr_bn: i32 = balls.length as i32
+        while tr_bi < tr_bn {
+            let bb = balls[tr_bi]
+            let tp = bb.trail[bb.trail_head]
+            tp.x = bb.x
+            tp.y = bb.y
+            bb.trail_head = (bb.trail_head + 1) % TRAIL_LEN
+            tr_bi = tr_bi + 1
         }
 
         // ─── power-up step: fall, catch, expire ──────────────────
@@ -1413,32 +1428,38 @@ fn play() {
         fillNeonStadium(paddle_x as i32 + shake_off_x, paddle_y + shake_off_y,
                         paddle_w, PADDLE_H, pr, pg, pb)
 
-        // Ball trail — fade from oldest (just-overwritten slot) to
-        // newest (slot before head). Draw as soft circles on top of
-        // the background but beneath the ball itself.
-        let tr_i: i32 = 0
-        while tr_i < TRAIL_LEN {
-            // age 0 = oldest (trail_head), age TRAIL_LEN-1 = newest
-            let slot = (trail_head + tr_i) % TRAIL_LEN
-            let pt = trail[slot]
-            let age_norm = (tr_i as f64) / (TRAIL_LEN as f64)
-            let a = (age_norm * age_norm * 140.0) as u8
-            if a > 0 as u8 {
-                let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
-                let cy = (pt.y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
-                let radius = (BALL_SIZE / 2) + (age_norm * 4.0) as i32
-                ren.setColor(255, 255, 255, a)
-                let dy: i32 = -radius
-                while dy <= radius {
-                    let dyf = dy as f64
-                    let radf = radius as f64
-                    let w = math.sqrt(radf * radf - dyf * dyf)
-                    let half = w as i32
-                    ren.fillRect(cx - half, cy + dy, half * 2 + 1, 1)
-                    dy += 1
+        // Ball trails — one per ball, fading from oldest
+        // (just-overwritten slot) to newest (slot before head).
+        // Drawn beneath the ball itself.
+        let tb_i: i32 = 0
+        let tb_n: i32 = balls.length as i32
+        while tb_i < tb_n {
+            let bb = balls[tb_i]
+            let tr_i: i32 = 0
+            while tr_i < TRAIL_LEN {
+                // age 0 = oldest (trail_head), age TRAIL_LEN-1 = newest
+                let slot = (bb.trail_head + tr_i) % TRAIL_LEN
+                let pt = bb.trail[slot]
+                let age_norm = (tr_i as f64) / (TRAIL_LEN as f64)
+                let a = (age_norm * age_norm * 140.0) as u8
+                if a > 0 as u8 {
+                    let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_x
+                    let cy = (pt.y + (BALL_SIZE as f64) / 2.0) as i32 + shake_off_y
+                    let radius = (BALL_SIZE / 2) + (age_norm * 4.0) as i32
+                    ren.setColor(255, 255, 255, a)
+                    let dy: i32 = -radius
+                    while dy <= radius {
+                        let dyf = dy as f64
+                        let radf = radius as f64
+                        let w = math.sqrt(radf * radf - dyf * dyf)
+                        let half = w as i32
+                        ren.fillRect(cx - half, cy + dy, half * 2 + 1, 1)
+                        dy += 1
+                    }
                 }
+                tr_i = tr_i + 1
             }
-            tr_i = tr_i + 1
+            tb_i = tb_i + 1
         }
 
         // Ball (round).
