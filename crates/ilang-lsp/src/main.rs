@@ -4,7 +4,8 @@ mod text;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Pattern, PatternBindings, PatternKind,
@@ -133,110 +134,125 @@ struct Doc {
 
 struct Backend {
     client: Client,
-    docs: Mutex<HashMap<Url, Doc>>,
+    docs: Arc<Mutex<HashMap<Url, Doc>>>,
+    /// Latest document version per URI, used to drop stale
+    /// `did_change` events. Each `did_change` bumps the entry, then
+    /// schedules a debounced refresh; when the timer fires we skip
+    /// the work if a newer version has arrived in the meantime.
+    latest_versions: Arc<Mutex<HashMap<Url, i32>>>,
 }
 
 impl Backend {
     fn new(client: Client) -> Self {
         Self {
             client,
-            docs: Mutex::new(HashMap::new()),
+            docs: Arc::new(Mutex::new(HashMap::new())),
+            latest_versions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     async fn refresh(&self, uri: Url, text: String) {
-        let path = uri.to_file_path().ok();
-        // Sub-modules (re-exported by an umbrella sibling like
-        // `sdl_window.il` ← `sdl.il`) can't be type-checked alone —
-        // their bare `sdl.X` references only resolve inside an entry
-        // that does `use sdl`. Skip load-based diagnostics in that
-        // case; only syntax errors from the buffer survive.
-        let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
-        let merged = if is_submodule {
-            None
-        } else {
-            path.as_deref()
-                .filter(|p| p.exists())
-                .and_then(|p| {
-                    let extra = collect_dep_paths(p).unwrap_or_default();
-                    // Use the buffer's text for the entry file so
-                    // diagnostics reflect unsaved edits immediately.
-                    let mut overlay: HashMap<PathBuf, String> = HashMap::new();
-                    if let Ok(canon) = p.canonicalize() {
-                        overlay.insert(canon, text.clone());
-                    }
-                    ilang_parser::loader::load_program_with_overlay(p, &extra, &overlay).ok()
-                })
-        };
-        let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
-        let (mut external_sigs, external_rets) = merged
-            .as_ref()
-            .map(collect_external_signatures)
-            .unwrap_or_default();
-        // Augment with `module.const_name` entries — the loader inlines
-        // constants away, so they're not in the merged program. Parse
-        // each `use module` source separately to recover them.
-        let mut external_sources: ExternalSources = HashMap::new();
-        let mut external_docs: HashMap<String, String> = HashMap::new();
-        // Harvest imports from the buffer's `use module` items even
-        // without a saved file — built-in modules (math/test/os) still
-        // resolve, and on-disk modules resolve relative to the entry
-        // directory when we have one.
-        let harvest_anchor = path
-            .as_deref()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("/__lsp_buffer__.il"));
-        harvest_imported_consts(
-            &harvest_anchor,
-            &text,
-            &mut external_sigs,
-            &mut external_sources,
-            &mut external_docs,
-        );
-        let external_classes = merged
-            .as_ref()
-            .map(collect_external_classes)
-            .unwrap_or_default();
-        // When the buffer parses cleanly, rebuild the doc from scratch.
-        // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
-        // doc's classes/symbols so completion / hover still work, but
-        // refresh the text + external maps.
-        let doc = match parse_ok(&text) {
-            Ok(prog) => {
-                let mut d = build_doc(
-                    text,
-                    &prog,
-                    &external_sigs,
-                    &external_rets,
-                    &external_classes,
-                    &external_sources,
-                    &external_docs,
-                );
-                d.external_docs = external_docs;
-                d
-            }
-            Err(_) => {
-                let docs = self.docs.lock().unwrap();
-                let mut prev = docs.get(&uri).cloned().unwrap_or_default();
-                prev.text = text;
-                if !external_sigs.is_empty() {
-                    prev.external_signatures = external_sigs;
-                }
-                if !external_rets.is_empty() {
-                    prev.external_returns = external_rets;
-                }
-                if !external_docs.is_empty() {
-                    prev.external_docs = external_docs;
-                }
-                prev
-            }
-        };
-        {
-            let mut docs = self.docs.lock().unwrap();
-            docs.insert(uri.clone(), doc);
-        }
-        self.client.publish_diagnostics(uri, diags, None).await;
+        refresh_impl(&self.client, &self.docs, uri, text).await
     }
+}
+
+async fn refresh_impl(
+    client: &Client,
+    docs: &Mutex<HashMap<Url, Doc>>,
+    uri: Url,
+    text: String,
+) {
+    let path = uri.to_file_path().ok();
+    // Sub-modules (re-exported by an umbrella sibling like
+    // `sdl_window.il` ← `sdl.il`) can't be type-checked alone —
+    // their bare `sdl.X` references only resolve inside an entry
+    // that does `use sdl`. Skip load-based diagnostics in that
+    // case; only syntax errors from the buffer survive.
+    let is_submodule = path.as_deref().and_then(find_umbrella).is_some();
+    let merged = if is_submodule {
+        None
+    } else {
+        path.as_deref()
+            .filter(|p| p.exists())
+            .and_then(|p| {
+                let extra = collect_dep_paths(p).unwrap_or_default();
+                // Use the buffer's text for the entry file so
+                // diagnostics reflect unsaved edits immediately.
+                let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+                if let Ok(canon) = p.canonicalize() {
+                    overlay.insert(canon, text.clone());
+                }
+                ilang_parser::loader::load_program_with_overlay(p, &extra, &overlay).ok()
+            })
+    };
+    let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
+    let (mut external_sigs, external_rets) = merged
+        .as_ref()
+        .map(collect_external_signatures)
+        .unwrap_or_default();
+    // Augment with `module.const_name` entries — the loader inlines
+    // constants away, so they're not in the merged program. Parse
+    // each `use module` source separately to recover them.
+    let mut external_sources: ExternalSources = HashMap::new();
+    let mut external_docs: HashMap<String, String> = HashMap::new();
+    // Harvest imports from the buffer's `use module` items even
+    // without a saved file — built-in modules (math/test/os) still
+    // resolve, and on-disk modules resolve relative to the entry
+    // directory when we have one.
+    let harvest_anchor = path
+        .as_deref()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/__lsp_buffer__.il"));
+    harvest_imported_consts(
+        &harvest_anchor,
+        &text,
+        &mut external_sigs,
+        &mut external_sources,
+        &mut external_docs,
+    );
+    let external_classes = merged
+        .as_ref()
+        .map(collect_external_classes)
+        .unwrap_or_default();
+    // When the buffer parses cleanly, rebuild the doc from scratch.
+    // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
+    // doc's classes/symbols so completion / hover still work, but
+    // refresh the text + external maps.
+    let doc = match parse_ok(&text) {
+        Ok(prog) => {
+            let mut d = build_doc(
+                text,
+                &prog,
+                &external_sigs,
+                &external_rets,
+                &external_classes,
+                &external_sources,
+                &external_docs,
+            );
+            d.external_docs = external_docs;
+            d
+        }
+        Err(_) => {
+            let docs_lock = docs.lock().unwrap();
+            let mut prev = docs_lock.get(&uri).cloned().unwrap_or_default();
+            prev.text = text;
+            if !external_sigs.is_empty() {
+                prev.external_signatures = external_sigs;
+            }
+            if !external_rets.is_empty() {
+                prev.external_returns = external_rets;
+            }
+            if !external_docs.is_empty() {
+                prev.external_docs = external_docs;
+            }
+            prev
+        }
+    };
+    {
+        let mut docs_lock = docs.lock().unwrap();
+        docs_lock.insert(uri.clone(), doc);
+    }
+    client.publish_diagnostics(uri, diags, None).await;
 }
 
 #[tower_lsp::async_trait]
@@ -278,9 +294,33 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, mut p: DidChangeTextDocumentParams) {
-        if let Some(change) = p.content_changes.pop() {
-            self.refresh(p.text_document.uri, change.text).await;
+        let Some(change) = p.content_changes.pop() else { return };
+        let uri = p.text_document.uri.clone();
+        let version = p.text_document.version;
+        // Record this as the latest version for `uri`. Spawned tasks
+        // compare against the stored value after their debounce
+        // timer fires and bail if a newer change has arrived.
+        {
+            let mut versions = self.latest_versions.lock().unwrap();
+            versions.insert(uri.clone(), version);
         }
+        let client = self.client.clone();
+        let docs = self.docs.clone();
+        let versions = self.latest_versions.clone();
+        let text = change.text;
+        tokio::spawn(async move {
+            // Coalesce bursts: a 120 ms idle window catches the
+            // typical "user is typing" rate while still feeling
+            // immediate when they stop.
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            {
+                let v = versions.lock().unwrap();
+                if v.get(&uri).copied() != Some(version) {
+                    return;
+                }
+            }
+            refresh_impl(&client, &docs, uri, text).await;
+        });
     }
 
     async fn did_close(&self, p: DidCloseTextDocumentParams) {

@@ -12,13 +12,20 @@ export function activate(context: ExtensionContext) {
   // Resolve the LSP binary. Order:
   // 1. Setting `ilang.serverPath` (absolute path)
   // 2. ILANG_LSP_PATH env var
-  // 3. `target/debug/ilang-lsp` relative to the workspace root
+  // 3. `target/release/ilang-lsp` relative to the workspace root
+  // 4. `target/debug/ilang-lsp` as a fallback
+  // The release build is roughly 20× faster on the bigger files
+  // (sdl_breakout.il, etc.); the debug build keeps tripping VSCode's
+  // unresponsive-process timeout under sustained typing.
   const config = workspace.getConfiguration("ilang");
   let serverPath = config.get<string>("serverPath") || process.env.ILANG_LSP_PATH;
   if (!serverPath) {
     const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) {
-      serverPath = path.join(root, "target", "debug", "ilang-lsp");
+      const fs = require("fs");
+      const release = path.join(root, "target", "release", "ilang-lsp");
+      const debug = path.join(root, "target", "debug", "ilang-lsp");
+      serverPath = fs.existsSync(release) ? release : debug;
     }
   }
   if (!serverPath) {
