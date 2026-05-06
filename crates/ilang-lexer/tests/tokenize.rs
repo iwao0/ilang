@@ -436,16 +436,6 @@ fn lone_cr_triggers_asi() {
 }
 
 #[test]
-fn unicode_identifiers() {
-    let toks = tokenize("let 名前 = 1").unwrap();
-    assert!(matches!(toks[0].kind, TokenKind::Let));
-    assert!(matches!(&toks[1].kind, TokenKind::Ident(n) if n == "名前"));
-    // Continue chars include Unicode digits + alphabetics.
-    let toks = tokenize("café_2").unwrap();
-    assert!(matches!(&toks[0].kind, TokenKind::Ident(n) if n == "café_2"));
-}
-
-#[test]
 fn integer_with_float_suffix_promotes_to_float() {
     // `1_f32` is shorthand for `1.0_f32` — token kind reflects that.
     let toks = tokenize("1_f32").unwrap();
