@@ -256,12 +256,13 @@ async fn refresh_impl(
         // newer text into `docs[uri].text` synchronously. Keep that
         // — overwriting it with our (now-stale) `text` would cause
         // cursor-context queries to read characters that no longer
-        // match the editor.
-        let live_text = docs_lock.get(&uri).map(|d| d.text.clone());
+        // match the editor. Compare in place; only clone when the
+        // live text really diverged (i.e. the user typed during the
+        // refresh) so the common path skips a multi-KB string copy.
         let mut next = doc;
-        if let Some(t) = live_text {
-            if t != next.text {
-                next.text = t;
+        if let Some(d) = docs_lock.get(&uri) {
+            if d.text != next.text {
+                next.text = d.text.clone();
             }
         }
         docs_lock.insert(uri.clone(), next);
