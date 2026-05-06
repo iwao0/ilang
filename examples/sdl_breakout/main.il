@@ -26,33 +26,7 @@ use star
 use neon
 use paddle
 use rng
-
-const WIN_W: i32 = 900
-const WIN_H: i32 = 700
-
-// Brick grid.
-const COLS: i32 = 9
-const ROWS: i32 = 5
-const BRICK_W: i32 = 80
-const BRICK_H: i32 = 26
-const BRICK_GAP: i32 = 8
-const BRICK_TOP: i32 = 80
-
-// Paddle / ball.
-const PADDLE_W: i32 = 110
-const PADDLE_H: i32 = 14
-const PADDLE_SPEED: f64 = 9.0
-const BALL_SIZE: i32 = 14
-
-const FRAME_MS: u32 = 16
-
-// Brick drop-in intro tuning. With STAGGER=4 and COLS=9 the last
-// column starts at frame 32 and finishes 24 frames later → ~0.93s
-// total, ≈0.5s "perceived" since most bricks are already settled
-// by then.
-const INTRO_STAGGER: i32 = 4
-const INTRO_DURATION: i32 = 24
-const INTRO_DROP_PX: f64 = 280.0
+use consts
 
 // ─── tiny utilities ───────────────────────────────────────────────
 
@@ -85,7 +59,7 @@ fn intToStr(n: i32): string {
 // outlived the SDL subsystem teardown they'd call SDL_Destroy* on
 // shut-down state and the OS would surface a crash dialog.
 fn play() {
-    let win = new sdl.Window("ilang × SDL2 — NEON BREAKOUT", WIN_W, WIN_H)
+    let win = new sdl.Window("ilang × SDL2 — NEON BREAKOUT", consts.winW, consts.winH)
     if win.handle == 0 {
         console.log("SDL_CreateWindow failed: " + sdl.getError())
         return
@@ -100,10 +74,10 @@ fn play() {
         return
     }
 
-    // Pin the renderer to our virtual WIN_W×WIN_H so toggling
+    // Pin the renderer to our virtual consts.winW×consts.winH so toggling
     // fullscreen-desktop just changes the window backing — the
     // game's coordinates stay the same and SDL letterboxes to fit.
-    ren.setLogicalSize(WIN_W, WIN_H)
+    ren.setLogicalSize(consts.winW, consts.winH)
 
     // Wraps `ren` and exposes neon-style fill helpers (rect /
     // rounded rect / stadium / circle), all with a 3-pass halo to
@@ -112,7 +86,7 @@ fn play() {
 
     let font = new sdl.Font(ren)
 
-    let sfxDevice = new sdl.AudioDevice(audio.SAMPLE_RATE, 1)
+    let sfxDevice = new sdl.AudioDevice(consts.sampleRate, 1)
     if sfxDevice.id == 0 {
         console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
         return
@@ -122,7 +96,7 @@ fn play() {
     // Second audio device dedicated to BGM. SDL allows multiple
     // simultaneous open devices, so the music keeps playing even
     // while SFX queue/dequeue rapidly on the first device.
-    let audioMusic = new sdl.AudioDevice(audio.SAMPLE_RATE, 1)
+    let audioMusic = new sdl.AudioDevice(consts.sampleRate, 1)
     let bgm = audio.makeBgmLoop()
     let bgmBytes = (bgm.length * 2) as u32   // one loop in queued-bytes
     if audioMusic.id != 0 {
@@ -143,7 +117,7 @@ fn play() {
 
     // White star sprite for particle bursts. Tinted at draw time
     // via `setColorMod`, rotated via `drawTextureRot`.
-    let starTex = new sdl.Texture(ren, sprites.STAR_TEX_SIZE, sprites.STAR_TEX_SIZE, 1)
+    let starTex = new sdl.Texture(ren, consts.starTexSize, consts.starTexSize, 1)
     if starTex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
@@ -153,7 +127,7 @@ fn play() {
     // Soft radial-gradient sprite, tinted per-brick at draw time so
     // the wave highlight blooms as a blurry circle rather than a
     // rectangle.
-    let glowTex = new sdl.Texture(ren, sprites.GLOW_TEX_SIZE, sprites.GLOW_TEX_SIZE, 1)
+    let glowTex = new sdl.Texture(ren, consts.glowTexSize, consts.glowTexSize, 1)
     if glowTex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
@@ -164,18 +138,18 @@ fn play() {
     // channel encodes scanlines + vignette, the colour is black,
     // so blending it on top darkens each pixel by the right
     // amount.
-    let crtTex = new sdl.Texture(ren, WIN_W, WIN_H, 1)
+    let crtTex = new sdl.Texture(ren, consts.winW, consts.winH, 1)
     if crtTex.handle == 0 {
         console.log("SDL_CreateTexture failed: " + sdl.getError())
         return
     }
-    crtTex.update(sprites.makeCrtOverlay(WIN_W, WIN_H))
+    crtTex.update(sprites.makeCrtOverlay(consts.winW, consts.winH))
 
     // Off-screen accumulator for the world. Drawn into each frame
     // (with a small per-frame fade applied first) and then composited
     // back to the window with chromatic-aberration channel offsets.
     // SDL_TEXTUREACCESS_TARGET = 2.
-    let sceneTex = new sdl.Texture(ren, WIN_W, WIN_H, 2)
+    let sceneTex = new sdl.Texture(ren, consts.winW, consts.winH, 2)
     if sceneTex.handle == 0 {
         console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
         return
@@ -191,8 +165,8 @@ fn play() {
     // out at full window size additively — the upscale spreads
     // each averaged pixel across many output pixels, giving a
     // soft glow around the bright stuff in the scene.
-    let BLOOM_W: i32 = 225              // WIN_W / 4
-    let BLOOM_H: i32 = 175              // WIN_H / 4
+    let BLOOM_W: i32 = 225              // consts.winW / 4
+    let BLOOM_H: i32 = 175              // consts.winH / 4
     let bloomTex = new sdl.Texture(ren, BLOOM_W, BLOOM_H, 2)
     if bloomTex.handle == 0 {
         console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
@@ -201,23 +175,23 @@ fn play() {
     bloomTex.setScaleMode(1)
 
     // Background star field — scrolls top→down with a twinkle.
-    let sky = new star.BgStars(80, WIN_W, WIN_H)
+    let sky = new star.BgStars(80, consts.winW, consts.winH)
 
     // Build the brick grid.
     let grid = new brick.BrickGrid(
-        COLS, ROWS, BRICK_W, BRICK_H, BRICK_GAP, BRICK_TOP, WIN_W
+        consts.cols, consts.rows, consts.brickW, consts.brickH, consts.brickGap, consts.brickTop, consts.winW
     )
 
     // State.
     let pad = new paddle.Paddle(
-        ((WIN_W - PADDLE_W) / 2) as f64,
-        WIN_H - 60,
-        PADDLE_W,
-        PADDLE_H,
-        PADDLE_SPEED
+        ((consts.winW - consts.paddleW) / 2) as f64,
+        consts.winH - 60,
+        consts.paddleW,
+        consts.paddleH,
+        consts.paddleSpeed
     )
     let balls: ball.Ball[] = []
-    balls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+    balls.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
     let score: i32 = 0
     let lives: i32 = 5
     let started: bool = false
@@ -302,8 +276,8 @@ fn play() {
             if !wonCelebrated {
                 let bi: i32 = 0
                 while bi < 12 {
-                    let fwX = rng.randf() * (WIN_W as f64)
-                    let fwY = (0.15 + rng.randf() * 0.55) * (WIN_H as f64)
+                    let fwX = rng.randf() * (consts.winW as f64)
+                    let fwY = (0.15 + rng.randf() * 0.55) * (consts.winH as f64)
                     let pick = (rng.randf() * 5.0) as i32
                     fx.spawn(fwX, fwY,
                              palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
@@ -313,8 +287,8 @@ fn play() {
             }
             // ~10 fireworks per second while celebrating.
             if rng.randf() < 0.18 {
-                let fwX = rng.randf() * (WIN_W as f64)
-                let fwY = (0.10 + rng.randf() * 0.65) * (WIN_H as f64)
+                let fwX = rng.randf() * (consts.winW as f64)
+                let fwY = (0.10 + rng.randf() * 0.65) * (consts.winH as f64)
                 let pick = (rng.randf() * 5.0) as i32
                 fx.spawn(fwX, fwY,
                          palette.paletteR(pick), palette.paletteG(pick), palette.paletteB(pick))
@@ -348,7 +322,7 @@ fn play() {
         if gameOver && (sdl.Keyboard.isPressed(sdl.Scancode.r) || padStart) {
             grid.reset()
             let freshBalls: ball.Ball[] = []
-            freshBalls.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+            freshBalls.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
             balls = freshBalls
             score = 0
             lives = 5
@@ -383,13 +357,13 @@ fn play() {
             pad.moveRight()
         }
         pad.moveAnalog(padLx)
-        pad.clamp(WIN_W)
+        pad.clamp(consts.winW)
 
         // Space to launch the ball (idle on paddle until pressed).
         // Wait for the brick drop-in animation to finish before
         // accepting the launch input — otherwise the player can
         // shoot through unfilled rows.
-        let introTotal = (COLS - 1) * INTRO_STAGGER + INTRO_DURATION
+        let introTotal = (consts.cols - 1) * consts.introStagger + consts.introDuration
         if !started && !gameOver && introPhase >= introTotal &&
                 (sdl.Keyboard.isPressed(sdl.Scancode.space) || padA) {
             started = true
@@ -399,8 +373,8 @@ fn play() {
         // centre.
         if !started && balls.length as i32 > 0 {
             let b0 = balls[0]
-            b0.x = pad.x + (paddleW as f64) / 2.0 - (BALL_SIZE as f64) / 2.0
-            b0.y = (pad.y as f64) - (BALL_SIZE as f64)
+            b0.x = pad.x + (paddleW as f64) / 2.0 - (consts.ballSize as f64) / 2.0
+            b0.y = (pad.y as f64) - (consts.ballSize as f64)
         }
 
         // ─── ball physics ─────────────────────────────────────────
@@ -424,8 +398,8 @@ fn play() {
                     b.vx = -b.vx
                     sfxDevice.queue(beepWall)
                 }
-                if b.x + (BALL_SIZE as f64) > WIN_W as f64 {
-                    b.x = (WIN_W - BALL_SIZE) as f64
+                if b.x + (consts.ballSize as f64) > consts.winW as f64 {
+                    b.x = (consts.winW - consts.ballSize) as f64
                     b.vx = -b.vx
                     sfxDevice.queue(beepWall)
                 }
@@ -437,18 +411,18 @@ fn play() {
 
                 // Paddle (only on the way down).
                 let bxLo = b.x
-                let bxHi = b.x + (BALL_SIZE as f64)
+                let bxHi = b.x + (consts.ballSize as f64)
                 let byLo = b.y
-                let byHi = b.y + (BALL_SIZE as f64)
+                let byHi = b.y + (consts.ballSize as f64)
                 let pxLo = pad.x
                 let pxHi = pad.x + (paddleW as f64)
                 let pyLo = pad.y as f64
-                let pyHi = (pad.y + PADDLE_H) as f64
+                let pyHi = (pad.y + consts.paddleH) as f64
                 if b.vy > 0.0 && bxHi > pxLo && bxLo < pxHi
                         && byHi > pyLo && byLo < pyHi {
-                    b.y = pyLo - (BALL_SIZE as f64)
+                    b.y = pyLo - (consts.ballSize as f64)
                     let hitCentre = pxLo + (paddleW as f64) / 2.0
-                    let ballCentre = b.x + (BALL_SIZE as f64) / 2.0
+                    let ballCentre = b.x + (consts.ballSize as f64) / 2.0
                     let rel = (ballCentre - hitCentre) / ((paddleW as f64) / 2.0)
                     let relClamped: f64 = if rel < -1.0 { -1.0 } elif rel > 1.0 { 1.0 } else { rel }
                     let maxAngle: f64 = 1.04   // ≈60°
@@ -467,9 +441,9 @@ fn play() {
                     let br = grid.bricks[i]
                     if br.alive {
                         let rxLo = br.x as f64
-                        let rxHi = (br.x + BRICK_W) as f64
+                        let rxHi = (br.x + consts.brickW) as f64
                         let ryLo = br.y as f64
-                        let ryHi = (br.y + BRICK_H) as f64
+                        let ryHi = (br.y + consts.brickH) as f64
                         if bxHi > rxLo && bxLo < rxHi
                                 && byHi > ryLo && byLo < ryHi {
                             br.alive = false
@@ -485,8 +459,8 @@ fn play() {
                             } else {
                                 b.vy = -b.vy
                             }
-                            let cx = (br.x as f64) + (BRICK_W as f64) / 2.0
-                            let cy = (br.y as f64) + (BRICK_H as f64) / 2.0
+                            let cx = (br.x as f64) + (consts.brickW as f64) / 2.0
+                            let cy = (br.y as f64) + (consts.brickH as f64) / 2.0
                             fx.spawn(cx, cy, br.r, br.g, br.b)
                             fx.spawnPopup(
                                 cx, cy - 4.0, "+" + intToStr(earned),
@@ -528,7 +502,7 @@ fn play() {
                 }
 
                 // Survives if it didn't fall below the bottom.
-                if b.y <= WIN_H as f64 {
+                if b.y <= consts.winH as f64 {
                     surviving.push(b)
                 }
                 bi = bi + 1
@@ -546,7 +520,7 @@ fn play() {
                     started = false
                     combo = 0
                     let respawn: ball.Ball[] = []
-                    respawn.push(new ball.Ball((WIN_W / 2) as f64, (WIN_H / 2) as f64, 5.0, -5.0))
+                    respawn.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
                     balls = respawn
                 }
             }
@@ -562,7 +536,7 @@ fn play() {
             let tp = bb.trail[bb.trailHead]
             tp.x = bb.x
             tp.y = bb.y
-            bb.trailHead = (bb.trailHead + 1) % ball.TRAIL_LEN
+            bb.trailHead = (bb.trailHead + 1) % consts.trailLen
             trBi = trBi + 1
         }
 
@@ -586,7 +560,7 @@ fn play() {
             let pdl = pad.x
             let pdr = pad.x + (paddleW as f64)
             let pdt = pad.y as f64
-            let pdb = (pad.y + PADDLE_H) as f64
+            let pdb = (pad.y + consts.paddleH) as f64
             let caught = cxHi > pdl && cxLo < pdr && cyHi > pdt && cyLo < pdb
             let removed: bool = caught
             if caught {
@@ -618,7 +592,7 @@ fn play() {
                 }
                 sfxDevice.queue(beepPaddle)
             }
-            if !removed && pu.y < (WIN_H + 40) as f64 {
+            if !removed && pu.y < (consts.winH + 40) as f64 {
                 alivePu.push(pu)
             }
             pui = pui + 1
@@ -640,7 +614,7 @@ fn play() {
         if shake < 0.05 { shake = 0.0 }
 
         // Background star scroll + twinkle phase.
-        sky.step(WIN_W, WIN_H)
+        sky.step(consts.winW, consts.winH)
 
         // ─── render ──────────────────────────────────────────────
         // The world is drawn into `sceneTex` so we can post-process
@@ -672,31 +646,31 @@ fn play() {
         // bloom around a wide brick is wider than tall (matching
         // the brick's shape).
         let glowPadY: i32 = 32
-        let glowPadX: i32 = glowPadY * BRICK_W / BRICK_H
+        let glowPadX: i32 = glowPadY * consts.brickW / consts.brickH
         let i2: i32 = 0
         let n2: i32 = grid.bricks.length as i32
         while i2 < n2 {
             let br = grid.bricks[i2]
-            // Drop-in intro: each column is delayed by INTRO_STAGGER
+            // Drop-in intro: each column is delayed by consts.introStagger
             // frames so the grid cascades in left→right. The brick
             // falls from above its target with an ease-out curve.
-            let col = i2 % COLS
-            let ownPhase = introPhase - col * INTRO_STAGGER
-            let introActive = ownPhase < INTRO_DURATION
+            let col = i2 % consts.cols
+            let ownPhase = introPhase - col * consts.introStagger
+            let introActive = ownPhase < consts.introDuration
             let introOffsetY: i32 = if ownPhase < 0 {
                 // Pre-arrival: keep the brick well above the playfield.
-                0 - ((INTRO_DROP_PX as i32) + 100)
-            } elif ownPhase < INTRO_DURATION {
-                let p = (ownPhase as f64) / (INTRO_DURATION as f64)
+                0 - ((consts.introDropPx as i32) + 100)
+            } elif ownPhase < consts.introDuration {
+                let p = (ownPhase as f64) / (consts.introDuration as f64)
                 let inv = 1.0 - p
-                0 - ((inv * inv * INTRO_DROP_PX) as i32)
+                0 - ((inv * inv * consts.introDropPx) as i32)
             } else {
                 0
             }
             if br.alive {
                 neonR.fillRoundedRect(br.x + shakeOffX,
                                     br.y + introOffsetY + shakeOffY,
-                                    BRICK_W, BRICK_H, 6, br.r, br.g, br.b)
+                                    consts.brickW, consts.brickH, 6, br.r, br.g, br.b)
                 // Wave glow only after the brick has landed — looks
                 // odd to highlight a brick that's mid-fall.
                 let k: f64 = 0.012
@@ -710,8 +684,8 @@ fn play() {
                         ren.drawTexture(glowTex,
                                         br.x - glowPadX + shakeOffX,
                                         br.y - glowPadY + shakeOffY,
-                                        BRICK_W + 2 * glowPadX,
-                                        BRICK_H + 2 * glowPadY)
+                                        consts.brickW + 2 * glowPadX,
+                                        consts.brickH + 2 * glowPadY)
                     }
                 }
             } elif br.dying > 0.0 {
@@ -722,16 +696,16 @@ fn play() {
                 let t = br.dying     // 1.0 → 0.0
                 let progress = 1.0 - t
                 let scale = 1.0 + progress * 0.6
-                let cx = br.x + BRICK_W / 2
-                let cy = br.y + BRICK_H / 2
-                let dw = ((BRICK_W as f64) * scale) as i32
-                let dh = ((BRICK_H as f64) * scale) as i32
+                let cx = br.x + consts.brickW / 2
+                let cy = br.y + consts.brickH / 2
+                let dw = ((consts.brickW as f64) * scale) as i32
+                let dh = ((consts.brickH as f64) * scale) as i32
                 let alpha = (t * 220.0) as u8
                 // Soft bloom (radial gradient) — biggest, dimmest.
                 glowTex.setColorMod(br.r, br.g, br.b)
                 glowTex.setAlphaMod((t * 180.0) as u8)
-                let bw = ((BRICK_W + 2 * glowPadX) as f64) * scale
-                let bh = ((BRICK_H + 2 * glowPadY) as f64) * scale
+                let bw = ((consts.brickW + 2 * glowPadX) as f64) * scale
+                let bh = ((consts.brickH + 2 * glowPadY) as f64) * scale
                 ren.drawTexture(glowTex,
                                 cx - (bw as i32) / 2 + shakeOffX,
                                 cy - (bh as i32) / 2 + shakeOffY,
@@ -804,7 +778,7 @@ fn play() {
         let pg: u8 = if pad.widerTimer > 0 { 180 as u8 } else { 240 as u8 }
         let pb: u8 = if pad.widerTimer > 0 { 255 as u8 } else { 255 as u8 }
         neonR.fillStadium(pad.x as i32 + shakeOffX, pad.y + shakeOffY,
-                        paddleW, PADDLE_H, pr, pg, pb)
+                        paddleW, consts.paddleH, pr, pg, pb)
 
         // Ball trails — one per ball, fading from oldest
         // (just-overwritten slot) to newest (slot before head).
@@ -814,16 +788,16 @@ fn play() {
         while tbI < tbN {
             let bb = balls[tbI]
             let trI: i32 = 0
-            while trI < ball.TRAIL_LEN {
-                // age 0 = oldest (trailHead), age ball.TRAIL_LEN-1 = newest
-                let slot = (bb.trailHead + trI) % ball.TRAIL_LEN
+            while trI < consts.trailLen {
+                // age 0 = oldest (trailHead), age consts.trailLen-1 = newest
+                let slot = (bb.trailHead + trI) % consts.trailLen
                 let pt = bb.trail[slot]
-                let ageNorm = (trI as f64) / (ball.TRAIL_LEN as f64)
+                let ageNorm = (trI as f64) / (consts.trailLen as f64)
                 let a = (ageNorm * ageNorm * 140.0) as u8
                 if a > 0 as u8 {
-                    let cx = (pt.x + (BALL_SIZE as f64) / 2.0) as i32 + shakeOffX
-                    let cy = (pt.y + (BALL_SIZE as f64) / 2.0) as i32 + shakeOffY
-                    let radius = (BALL_SIZE / 2) + (ageNorm * 4.0) as i32
+                    let cx = (pt.x + (consts.ballSize as f64) / 2.0) as i32 + shakeOffX
+                    let cy = (pt.y + (consts.ballSize as f64) / 2.0) as i32 + shakeOffY
+                    let radius = (consts.ballSize / 2) + (ageNorm * 4.0) as i32
                     ren.setColor(255, 255, 255, a)
                     let dy: i32 = -radius
                     while dy <= radius {
@@ -845,9 +819,9 @@ fn play() {
         let brn: i32 = balls.length as i32
         while bri < brn {
             let bb = balls[bri]
-            let ballCx = (bb.x + (BALL_SIZE as f64) / 2.0) as i32 + shakeOffX
-            let ballCy = (bb.y + (BALL_SIZE as f64) / 2.0) as i32 + shakeOffY
-            neonR.fillCircle(ballCx, ballCy, BALL_SIZE / 2, 255, 255, 255)
+            let ballCx = (bb.x + (consts.ballSize as f64) / 2.0) as i32 + shakeOffX
+            let ballCy = (bb.y + (consts.ballSize as f64) / 2.0) as i32 + shakeOffY
+            neonR.fillCircle(ballCx, ballCy, consts.ballSize / 2, 255, 255, 255)
             bri = bri + 1
         }
 
@@ -901,7 +875,7 @@ fn play() {
         }
         let livesTxt = "LIVES: " + intToStr(lives)
         font.drawText(ren, livesTxt,
-                      WIN_W - textPxW(livesTxt, 2) - 20, 20,
+                      consts.winW - textPxW(livesTxt, 2) - 20, 20,
                       2, 255, 200, 220, 255)
 
         // Combo readout — only shown while a streak is active so
@@ -909,14 +883,14 @@ fn play() {
         if combo > 1 {
             let comboTxt = "COMBO x" + intToStr(combo)
             font.drawText(ren, comboTxt,
-                          (WIN_W - textPxW(comboTxt, 3)) / 2, 80,
+                          (consts.winW - textPxW(comboTxt, 3)) / 2, 80,
                           3, 255, 220, 120, 255)
         }
 
         if !started && !gameOver {
             let s = "PRESS SPACE TO START"
             font.drawText(ren, s,
-                          (WIN_W - textPxW(s, 3)) / 2, 400,
+                          (consts.winW - textPxW(s, 3)) / 2, 400,
                           3, 200, 220, 255, 255)
         }
 
@@ -924,17 +898,17 @@ fn play() {
             if won {
                 let t = "CLEAR!"
                 font.drawText(ren, t,
-                              (WIN_W - textPxW(t, 6)) / 2, 300,
+                              (consts.winW - textPxW(t, 6)) / 2, 300,
                               6, 120, 255, 200, 255)
             } else {
                 let t = "GAME OVER"
                 font.drawText(ren, t,
-                              (WIN_W - textPxW(t, 6)) / 2, 300,
+                              (consts.winW - textPxW(t, 6)) / 2, 300,
                               6, 255, 100, 200, 255)
             }
             let s = "PRESS R TO RESTART"
             font.drawText(ren, s,
-                          (WIN_W - textPxW(s, 3)) / 2, 400,
+                          (consts.winW - textPxW(s, 3)) / 2, 400,
                           3, 200, 220, 255, 255)
         }
 
@@ -959,11 +933,11 @@ fn play() {
         sceneTex.setBlendMode(2)   // SDL_BLENDMODE_ADD
         let chroma: i32 = 3
         sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
-        ren.drawTexture(sceneTex, -chroma, 0, WIN_W, WIN_H)
+        ren.drawTexture(sceneTex, -chroma, 0, consts.winW, consts.winH)
         sceneTex.setColorMod(0 as u8, 255 as u8, 0 as u8)
-        ren.drawTexture(sceneTex, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(sceneTex, 0, 0, consts.winW, consts.winH)
         sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
-        ren.drawTexture(sceneTex, chroma, 0, WIN_W, WIN_H)
+        ren.drawTexture(sceneTex, chroma, 0, consts.winW, consts.winH)
         // Restore for next frame's setTarget pass.
         sceneTex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
         sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
@@ -977,12 +951,12 @@ fn play() {
         bloomTex.setBlendMode(2)
         bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
         bloomTex.setAlphaMod(255 as u8)
-        ren.drawTexture(bloomTex, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(bloomTex, 0, 0, consts.winW, consts.winH)
         bloomTex.setBlendMode(1)
         bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
         // CRT overlay (scanlines + vignette).
-        ren.drawTexture(crtTex, 0, 0, WIN_W, WIN_H)
+        ren.drawTexture(crtTex, 0, 0, consts.winW, consts.winH)
 
         ren.present()
 

@@ -6,9 +6,7 @@
 // All return `u8[]` buffers ready to feed into `Texture.update`.
 
 use math
-
-const STAR_TEX_SIZE: i32 = 32
-const GLOW_TEX_SIZE: i32 = 64
+use consts
 
 // Render a 5-point white star into a 32×32 RGBA8 buffer suitable
 // for `Texture.update`. The shape is computed as the union of the
@@ -18,7 +16,7 @@ const GLOW_TEX_SIZE: i32 = 64
 // a soft glow that drops to transparent at the edge. Color
 // modulation at draw time tints it.
 fn makeStarSprite(): u8[] {
-    let size: i32 = STAR_TEX_SIZE
+    let size: i32 = consts.starTexSize
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
     let cy = (size as f64) / 2.0
@@ -69,7 +67,7 @@ fn makeStarSprite(): u8[] {
 // size is needed for a blurry bloom — used for the brick wave
 // highlight so the glow doesn't look rectangular.
 fn makeGlowSprite(): u8[] {
-    let size: i32 = GLOW_TEX_SIZE
+    let size: i32 = consts.glowTexSize
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
     let cy = (size as f64) / 2.0

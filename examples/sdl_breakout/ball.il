@@ -2,8 +2,7 @@
 // renderer to draw a fading trail behind each ball. Multi-ball
 // keeps a separate trail per Ball so trails stay individual.
 
-// Length of each ball's trail ring buffer.
-const TRAIL_LEN: i32 = 12
+use consts
 
 // One sample of the ball's recent position.
 class TrailPoint {
@@ -32,7 +31,7 @@ class Ball {
         this.vy = vy
         let tr: TrailPoint[] = []
         let i: i32 = 0
-        while i < TRAIL_LEN {
+        while i < consts.trailLen {
             tr.push(new TrailPoint(x, y))
             i = i + 1
         }

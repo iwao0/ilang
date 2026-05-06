@@ -1,19 +1,18 @@
 // Short PCM beep generators + the BGM arpeggio loop. All buffers
-// are i16 mono at SAMPLE_RATE.
+// are i16 mono at `consts.sampleRate`.
 
 use math
-
-const SAMPLE_RATE: i32 = 44100
+use consts
 
 // Short sine-wave beep with a 5ms attack/release ramp so the start
 // and end don't click.
 fn makeBeep(freqHz: f64, ms: i32): i16[] {
-    let n = (SAMPLE_RATE * ms) / 1000
+    let n = (consts.sampleRate * ms) / 1000
     let buf: i16[] = []
     let twoPi: f64 = 2.0 * math.pi
     let i: i32 = 0
     while i < n {
-        let ramp = SAMPLE_RATE / 200
+        let ramp = consts.sampleRate / 200
         let env: f64 = if i < ramp {
             (i as f64) / (ramp as f64)
         } elif i > n - ramp {
@@ -21,7 +20,7 @@ fn makeBeep(freqHz: f64, ms: i32): i16[] {
         } else {
             1.0
         }
-        let t = (i as f64) / (SAMPLE_RATE as f64)
+        let t = (i as f64) / (consts.sampleRate as f64)
         let sample = math.sin(twoPi * freqHz * t) * 8000.0 * env
         buf.push(sample as i16)
         i += 1
@@ -32,11 +31,11 @@ fn makeBeep(freqHz: f64, ms: i32): i16[] {
 // Single chiptune note (square wave) of `ms` milliseconds. Used as
 // the building block for the BGM loop.
 fn makeNote(freqHz: f64, ms: i32, vol: f64): i16[] {
-    let n = (SAMPLE_RATE * ms) / 1000
+    let n = (consts.sampleRate * ms) / 1000
     let buf: i16[] = []
     let i: i32 = 0
     while i < n {
-        let ramp = SAMPLE_RATE / 100   // 10ms attack/decay
+        let ramp = consts.sampleRate / 100   // 10ms attack/decay
         let env: f64 = if i < ramp {
             (i as f64) / (ramp as f64)
         } elif i > n - ramp {
@@ -44,7 +43,7 @@ fn makeNote(freqHz: f64, ms: i32, vol: f64): i16[] {
         } else {
             1.0
         }
-        let t = (i as f64) / (SAMPLE_RATE as f64)
+        let t = (i as f64) / (consts.sampleRate as f64)
         // Square wave from sin sign — gives the classic chip-style
         // bite without needing a phase accumulator.
         let s = math.sin(2.0 * math.pi * freqHz * t)
