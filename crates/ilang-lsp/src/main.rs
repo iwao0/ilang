@@ -151,7 +151,13 @@ impl Backend {
                 .filter(|p| p.exists())
                 .and_then(|p| {
                     let extra = collect_dep_paths(p).unwrap_or_default();
-                    ilang_parser::loader::load_program_with_paths(p, &extra).ok()
+                    // Use the buffer's text for the entry file so
+                    // diagnostics reflect unsaved edits immediately.
+                    let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+                    if let Ok(canon) = p.canonicalize() {
+                        overlay.insert(canon, text.clone());
+                    }
+                    ilang_parser::loader::load_program_with_overlay(p, &extra, &overlay).ok()
                 })
         };
         let diags = analyse(&text, path.as_deref(), &merged, is_submodule);

@@ -109,6 +109,18 @@ pub fn load_program_with_paths(
     entry: &Path,
     extra_paths: &[PathBuf],
 ) -> Result<Program, LoadError> {
+    load_program_with_overlay(entry, extra_paths, &HashMap::new())
+}
+
+/// Same as `load_program_with_paths` but lets the caller supply an
+/// in-memory source for one or more files. Each `(canonical path,
+/// source)` entry overrides the on-disk content during parsing —
+/// used by the LSP so unsaved buffer edits drive diagnostics.
+pub fn load_program_with_overlay(
+    entry: &Path,
+    extra_paths: &[PathBuf],
+    overlay: &HashMap<PathBuf, String>,
+) -> Result<Program, LoadError> {
     let mut visiting: HashSet<PathBuf> = HashSet::new();
     let mut chain: Vec<String> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
@@ -116,12 +128,9 @@ pub fn load_program_with_paths(
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
-    // Recursively load entry + its use'd modules. The entry's items
-    // are kept under their original names; imported modules' items
-    // get processed per the use's mode (whole/selective).
     load_recursive(
         &entry_canon, &entry_dir, &extra_paths,
-        &mut visiting, &mut chain, &mut loaded,
+        &mut visiting, &mut chain, &mut loaded, overlay,
     )?;
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
@@ -204,6 +213,7 @@ fn load_recursive(
     visiting: &mut HashSet<PathBuf>,
     chain: &mut Vec<String>,
     loaded: &mut HashMap<PathBuf, Program>,
+    overlay: &HashMap<PathBuf, String>,
 ) -> Result<(), LoadError> {
     if loaded.contains_key(file) {
         return Ok(());
@@ -213,16 +223,12 @@ fn load_recursive(
         return Err(LoadError::CircularImport { chain: chain.clone() });
     }
     chain.push(file.display().to_string());
-    let prog = parse_file(file)?;
-    // Recurse into use items. Built-in modules don't have a dir, so
-    // pass through the importer's dir for any nested non-builtin
-    // resolutions (built-ins themselves don't import other modules
-    // for now, but the path stays correct if they ever do).
+    let prog = parse_file(file, overlay)?;
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
     for item in &prog.items {
         if let Item::Use(u) = item {
             let canon = resolve_module(&u.module, &dir, extra_paths)?;
-            load_recursive(&canon, &dir, extra_paths, visiting, chain, loaded)?;
+            load_recursive(&canon, &dir, extra_paths, visiting, chain, loaded, overlay)?;
         }
     }
     loaded.insert(file.to_path_buf(), prog);
@@ -231,8 +237,10 @@ fn load_recursive(
     Ok(())
 }
 
-fn parse_file(file: &Path) -> Result<Program, LoadError> {
-    let src = if let Some(name) = is_builtin_path(file) {
+fn parse_file(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program, LoadError> {
+    let src = if let Some(s) = overlay.get(file) {
+        s.clone()
+    } else if let Some(name) = is_builtin_path(file) {
         builtin_module_source(name)
             .expect("builtin path checked")
             .to_string()
