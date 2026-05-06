@@ -141,6 +141,47 @@ fn loop_break_continue_keywords() {
 }
 
 #[test]
+fn token_span_covers_full_extent() {
+    // Multi-char tokens (idents, numbers, keywords) should have their
+    // `span.end_col` point at the last character actually consumed.
+    let toks = tokenize("hello").unwrap();
+    let t = &toks[0];
+    assert!(matches!(&t.kind, TokenKind::Ident(n) if n == "hello"));
+    assert_eq!((t.span.line, t.span.col), (1, 1));
+    assert_eq!((t.span.end_line, t.span.end_col), (1, 5));
+
+    // Number with suffix: span covers digits + suffix.
+    let toks = tokenize("123_u64").unwrap();
+    assert_eq!((toks[0].span.line, toks[0].span.col), (1, 1));
+    assert_eq!((toks[0].span.end_line, toks[0].span.end_col), (1, 7));
+
+    // String literal: span covers the surrounding quotes.
+    let toks = tokenize(r#""hi""#).unwrap();
+    assert_eq!((toks[0].span.line, toks[0].span.col), (1, 1));
+    assert_eq!((toks[0].span.end_line, toks[0].span.end_col), (1, 4));
+
+    // Multi-char operator covers both chars.
+    let toks = tokenize("==").unwrap();
+    assert_eq!((toks[0].span.line, toks[0].span.col), (1, 1));
+    assert_eq!((toks[0].span.end_line, toks[0].span.end_col), (1, 2));
+
+    // Single-char operator: end == start.
+    let toks = tokenize("+").unwrap();
+    assert_eq!((toks[0].span.line, toks[0].span.col), (1, 1));
+    assert_eq!((toks[0].span.end_line, toks[0].span.end_col), (1, 1));
+}
+
+#[test]
+fn span_display_uses_range_for_multi_char() {
+    use ilang_ast::Span;
+    // Single-point span keeps the old `[L:C]` format so existing error
+    // messages stay readable.
+    assert_eq!(format!("{}", Span::new(3, 7)), "[3:7]");
+    // Multi-char span shows the range.
+    assert_eq!(format!("{}", Span::range(1, 1, 1, 5)), "[1:1-1:5]");
+}
+
+#[test]
 fn lex_error_format_starts_with_span() {
     let err = tokenize("$").unwrap_err();
     let s = format!("{err}");
