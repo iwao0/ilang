@@ -1245,10 +1245,19 @@ impl TypeChecker {
         match t {
             Type::RawPtr { .. } => Some(format!("`{t}`")),
             Type::Array { elem, .. } => self.find_raw_pointer(elem, visiting),
-            Type::Optional(inner) => self.find_raw_pointer(inner, visiting),
+            Type::Optional(inner) | Type::Weak(inner) => {
+                self.find_raw_pointer(inner, visiting)
+            }
             Type::Tuple(items) => items
                 .iter()
                 .find_map(|x| self.find_raw_pointer(x, visiting)),
+            Type::Generic { args, .. } => args
+                .iter()
+                .find_map(|a| self.find_raw_pointer(a, visiting)),
+            Type::Fn { params, ret } => params
+                .iter()
+                .find_map(|p| self.find_raw_pointer(p, visiting))
+                .or_else(|| self.find_raw_pointer(ret, visiting)),
             Type::Object(name) => {
                 if !visiting.insert(name.clone()) {
                     return None;
@@ -2492,7 +2501,7 @@ impl TypeChecker {
                                 return Err(TypeError::Mismatch {
                                     expected: ot.clone(),
                                     got: at,
-                                    span,
+                                    span: args[0].span,
                                 });
                             }
                             return Ok(Type::Bool);
@@ -2835,11 +2844,27 @@ impl TypeChecker {
                             None => *acc = Some(new_ty),
                             Some(prev) => {
                                 if *prev != new_ty {
-                                    return Err(TypeError::Mismatch {
-                                        expected: prev.clone(),
-                                        got: new_ty,
-                                        span: val_ty.map(|(_, s)| s).unwrap_or(span),
-                                    });
+                                    // Same fallback as if/else branch
+                                    // unification: try to merge generic
+                                    // holes, then accept a bare numeric
+                                    // literal that fits the prior type.
+                                    if let Some(merged) =
+                                        merge_generic_with_holes(prev, &new_ty)
+                                    {
+                                        *prev = merged;
+                                    } else if value
+                                        .as_deref()
+                                        .is_some_and(|e| numeric_literal_fits(e, prev))
+                                    {
+                                        // keep `prev` — current break's
+                                        // literal coerces into it.
+                                    } else {
+                                        return Err(TypeError::Mismatch {
+                                            expected: prev.clone(),
+                                            got: new_ty,
+                                            span: val_ty.map(|(_, s)| s).unwrap_or(span),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -3367,6 +3392,26 @@ impl TypeChecker {
                         Ok(then_ty)
                     } else if assignable(&then_ty, &else_ty) {
                         Ok(else_ty)
+                    } else if let Some(merged) = merge_generic_with_holes(&then_ty, &else_ty) {
+                        // Each branch fixed a different generic hole
+                        // (e.g. `Result<i64, Any>` and `Result<Any, string>`)
+                        // — merge to the more specific shape. Mirrors the
+                        // regular if/else path.
+                        Ok(merged)
+                    } else if let Some(t) = then_branch.tail.as_deref() {
+                        if numeric_literal_fits(t, &else_ty) {
+                            Ok(else_ty)
+                        } else if numeric_literal_fits(eb, &then_ty) {
+                            Ok(then_ty)
+                        } else {
+                            Err(TypeError::Mismatch {
+                                expected: then_ty,
+                                got: else_ty,
+                                span,
+                            })
+                        }
+                    } else if numeric_literal_fits(eb, &then_ty) {
+                        Ok(then_ty)
                     } else {
                         Err(TypeError::Mismatch {
                             expected: then_ty,
@@ -3879,6 +3924,7 @@ fn first_c_only_type(t: &Type) -> Option<&Type> {
             .iter()
             .find_map(first_c_only_type)
             .or_else(|| first_c_only_type(ret)),
+        Type::Tuple(elems) => elems.iter().find_map(first_c_only_type),
         _ => None,
     }
 }
@@ -3912,6 +3958,20 @@ fn collect_type_var_bindings(
         }
         (Type::RawPtr { inner: pi, .. }, Type::RawPtr { inner: ai, .. }) => {
             collect_type_var_bindings(pi, ai, bindings);
+        }
+        (Type::Tuple(pe), Type::Tuple(ae)) => {
+            for (p, a) in pe.iter().zip(ae.iter()) {
+                collect_type_var_bindings(p, a, bindings);
+            }
+        }
+        (
+            Type::Fn { params: pp, ret: pr },
+            Type::Fn { params: ap, ret: ar },
+        ) => {
+            for (p, a) in pp.iter().zip(ap.iter()) {
+                collect_type_var_bindings(p, a, bindings);
+            }
+            collect_type_var_bindings(pr, ar, bindings);
         }
         _ => {}
     }
