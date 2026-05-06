@@ -360,10 +360,11 @@ impl LanguageServer for Backend {
                 return Ok(Some(CompletionResponse::Array(type_completions(doc))));
             }
             let at_top_level = brace_depth_at(&doc.text, off) <= 0;
-            return Ok(Some(CompletionResponse::Array(global_completions(
-                doc,
-                at_top_level,
-            ))));
+            let mut items = global_completions(doc, at_top_level);
+            if in_extern_c_block(&doc.text, off) {
+                push_ffi_helper_completions(&mut items);
+            }
+            return Ok(Some(CompletionResponse::Array(items)));
         };
         // Receiver can be:
         // - a class name (`Counter.`)        -> static members
@@ -3040,6 +3041,93 @@ enum KwScope {
     Block,
     /// Allowed in both contexts.
     Both,
+}
+
+/// `true` when the cursor sits inside an `@extern(C) { ... }` block.
+/// Walks back across balanced braces; the first unmatched `{` is the
+/// enclosing block, and we check whether `@extern(C)` precedes it
+/// (with optional whitespace).
+fn in_extern_c_block(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut depth: i32 = 0;
+    let mut i = end;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'}' => depth += 1,
+            b'{' => {
+                if depth > 0 {
+                    depth -= 1;
+                } else if extern_c_precedes(bytes, i) {
+                    return true;
+                }
+                // Either way, keep walking past this `{` to inspect
+                // outer enclosing braces too.
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// `true` if `@extern(C)` (with optional whitespace) appears
+/// immediately before byte index `at`.
+fn extern_c_precedes(bytes: &[u8], at: usize) -> bool {
+    let mut j = at;
+    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t' | b'\r' | b'\n') {
+        j -= 1;
+    }
+    if j == 0 || bytes[j - 1] != b')' {
+        return false;
+    }
+    let mut k = j - 1;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    if k == 0 || bytes[k - 1] != b'C' {
+        return false;
+    }
+    k -= 1;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    if k == 0 || bytes[k - 1] != b'(' {
+        return false;
+    }
+    k -= 1;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+        k -= 1;
+    }
+    if k < 6 || &bytes[k - 6..k] != b"extern" {
+        return false;
+    }
+    let kk = k - 6;
+    kk >= 1 && bytes[kk - 1] == b'@'
+}
+
+fn push_ffi_helper_completions(out: &mut Vec<CompletionItem>) {
+    for name in [
+        "stringFromCstr",
+        "cstrFromString",
+        "freeCstr",
+        "bytesFromBuffer",
+        "readU8",
+        "fnAddr",
+        "arrayFromCArray",
+        "cstrArrayToStrings",
+        "errnoCheck",
+        "errnoCheckI64",
+    ] {
+        if let Some(sig) = ffi_helper_signature(name) {
+            out.push(CompletionItem {
+                label: name.to_string(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(sig.to_string()),
+                ..CompletionItem::default()
+            });
+        }
+    }
 }
 
 /// `true` when the cursor sits in attribute syntax — i.e. an `@`
