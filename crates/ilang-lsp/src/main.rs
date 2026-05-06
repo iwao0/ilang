@@ -337,7 +337,13 @@ impl LanguageServer for Backend {
         // (which would mix in unrelated identifiers from other open
         // files) from being the only source.
         let Some(receiver) = receiver_before_dot(&doc.text, pos) else {
-            return Ok(Some(CompletionResponse::Array(global_completions(doc))));
+            let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+                .unwrap_or(doc.text.len());
+            let at_top_level = brace_depth_at(&doc.text, off) <= 0;
+            return Ok(Some(CompletionResponse::Array(global_completions(
+                doc,
+                at_top_level,
+            ))));
         };
         // Receiver can be:
         // - a class name (`Counter.`)        -> static members
@@ -2948,21 +2954,150 @@ fn trigger_sig_help_command(kind: CompletionItemKind) -> Option<Command> {
     }
 }
 
-/// ilang keywords offered in global completion. Mirrors the lexer's
-/// keyword table.
-const KEYWORDS: &[&str] = &[
-    "let", "const", "fn", "class", "enum", "use", "extends", "override", "init", "deinit",
-    "static", "get", "set", "if", "elif", "else", "while", "loop", "for", "in", "break",
-    "continue", "return", "match", "new", "this", "super", "as", "true", "false", "none",
-    "some",
+/// ilang keywords. Each entry tags whether the keyword may appear at
+/// the file's top level, inside a block (fn / method body / class
+/// body / etc.), or both. The completion fallback filters by the
+/// receiver's current brace depth — coarse but enough to keep
+/// `init` / `return` / `break` out of top-level suggestions and
+/// `fn` / `class` / `use` out of block-internal ones.
+const KEYWORDS: &[(&str, KwScope)] = &[
+    ("let", KwScope::Both),
+    ("const", KwScope::Both),
+    ("fn", KwScope::TopLevel),
+    ("class", KwScope::TopLevel),
+    ("enum", KwScope::TopLevel),
+    ("use", KwScope::TopLevel),
+    ("extends", KwScope::TopLevel),
+    ("override", KwScope::Block),
+    ("init", KwScope::Block),
+    ("deinit", KwScope::Block),
+    ("static", KwScope::Block),
+    ("get", KwScope::Block),
+    ("set", KwScope::Block),
+    ("if", KwScope::Block),
+    ("elif", KwScope::Block),
+    ("else", KwScope::Block),
+    ("while", KwScope::Block),
+    ("loop", KwScope::Block),
+    ("for", KwScope::Block),
+    ("in", KwScope::Block),
+    ("break", KwScope::Block),
+    ("continue", KwScope::Block),
+    ("return", KwScope::Block),
+    ("match", KwScope::Block),
+    ("new", KwScope::Block),
+    ("this", KwScope::Block),
+    ("super", KwScope::Block),
+    ("as", KwScope::Block),
+    ("true", KwScope::Both),
+    ("false", KwScope::Both),
+    ("none", KwScope::Both),
+    ("some", KwScope::Both),
 ];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KwScope {
+    /// Only relevant at the file's top level (depth = 0).
+    TopLevel,
+    /// Only inside some `{ ... }` (depth > 0).
+    Block,
+    /// Allowed in both contexts.
+    Both,
+}
+
+/// Brace depth of `text` at byte offset `offset`. Counts `{` and `}`
+/// outside string / char / line / block comments. Used by completion
+/// to filter keywords by context.
+fn brace_depth_at(text: &str, offset: usize) -> i32 {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut in_line_comment = false;
+    let mut block_depth: i32 = 0;
+    let mut i = 0;
+    while i < end {
+        let b = bytes[i];
+        if in_line_comment {
+            if b == b'\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if block_depth > 0 {
+            if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
+                block_depth += 1;
+                i += 2;
+                continue;
+            }
+            if b == b'*' && i + 1 < end && bytes[i + 1] == b'/' {
+                block_depth -= 1;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'/' && i + 1 < end {
+            if bytes[i + 1] == b'/' {
+                in_line_comment = true;
+                i += 2;
+                continue;
+            }
+            if bytes[i + 1] == b'*' {
+                block_depth = 1;
+                i += 2;
+                continue;
+            }
+        }
+        if b == b'"' {
+            in_string = true;
+        } else if b == b'{' {
+            depth += 1;
+        } else if b == b'}' {
+            depth -= 1;
+        }
+        i += 1;
+    }
+    depth
+}
+
+/// Append keyword completions matching the cursor's brace context.
+fn keyword_completions(at_top_level: bool, out: &mut Vec<CompletionItem>) {
+    for (label, scope) in KEYWORDS {
+        let allowed = match scope {
+            KwScope::TopLevel => at_top_level,
+            KwScope::Block => !at_top_level,
+            KwScope::Both => true,
+        };
+        if allowed {
+            out.push(CompletionItem {
+                label: (*label).to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                ..CompletionItem::default()
+            });
+        }
+    }
+}
 
 /// Top-level identifiers visible in `doc`, used as completion fallback
 /// when the user is just typing a name (no receiver). Only the bare
 /// names appear — `use module` namespaces show up as the module name
 /// itself, not as `module.member` (those land in the `module.`
 /// completion list).
-fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
+fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
     for (name, sym) in doc.symbols.iter() {
         let kind = if sym.signature.starts_with("class ")
@@ -3010,15 +3145,7 @@ fn global_completions(doc: &Doc) -> Vec<CompletionItem> {
         detail: Some("(builtin) console: Console".to_string()),
         ..CompletionItem::default()
     });
-    // ilang keywords — listed last so user identifiers rank ahead
-    // when prefixes overlap.
-    for kw in KEYWORDS {
-        out.push(CompletionItem {
-            label: (*kw).to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            ..CompletionItem::default()
-        });
-    }
+    keyword_completions(at_top_level, &mut out);
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
 }
