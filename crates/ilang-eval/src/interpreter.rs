@@ -1293,6 +1293,62 @@ impl Interpreter {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let v = self.eval_expr(scrutinee)?;
+                // Primitive scrutinee → literal patterns dispatch.
+                // Each arm tests by structural equality; a `_`
+                // wildcard always wins.
+                let primitive_match = matches!(
+                    &v,
+                    Value::Int(_)
+                        | Value::Int8(_)
+                        | Value::Int16(_)
+                        | Value::Int32(_)
+                        | Value::UInt8(_)
+                        | Value::UInt16(_)
+                        | Value::UInt32(_)
+                        | Value::UInt64(_)
+                        | Value::Bool(_)
+                        | Value::Str(_)
+                );
+                if primitive_match {
+                    let v_as_i64: Option<i64> = match &v {
+                        Value::Int(x) => Some(*x),
+                        Value::Int8(x) => Some(*x as i64),
+                        Value::Int16(x) => Some(*x as i64),
+                        Value::Int32(x) => Some(*x as i64),
+                        Value::UInt8(x) => Some(*x as i64),
+                        Value::UInt16(x) => Some(*x as i64),
+                        Value::UInt32(x) => Some(*x as i64),
+                        Value::UInt64(x) => Some(*x as i64),
+                        _ => None,
+                    };
+                    for arm in arms {
+                        let hit = match (&arm.pattern.kind, &v) {
+                            (PatternKind::Wildcard, _) => true,
+                            (PatternKind::IntLit(p), _) if v_as_i64.is_some() => *p == v_as_i64.unwrap(),
+                            (PatternKind::BoolLit(p), Value::Bool(x)) => *p == *x,
+                            (PatternKind::StrLit(p), Value::Str(x)) => *p == **x,
+                            // `true` / `false` arrive as `Variant`
+                            // patterns from the parser; treat them
+                            // as bool literals here.
+                            (
+                                PatternKind::Variant { variant, bindings: PatternBindings::Unit, .. },
+                                Value::Bool(x),
+                            ) if variant == "true" => *x,
+                            (
+                                PatternKind::Variant { variant, bindings: PatternBindings::Unit, .. },
+                                Value::Bool(x),
+                            ) if variant == "false" => !*x,
+                            _ => false,
+                        };
+                        if hit {
+                            return self.eval_expr(&arm.body);
+                        }
+                    }
+                    return Err(RuntimeError::TypeError {
+                        msg: format!("non-exhaustive match on {v}"),
+                        span,
+                    });
+                }
                 let (sv_ty, sv_var, sv_payload) = match v {
                     Value::Enum { ty, variant, payload } => (ty, variant, payload),
                     other => {
@@ -1306,6 +1362,14 @@ impl Interpreter {
                     match &arm.pattern.kind {
                         PatternKind::Wildcard => {
                             return self.eval_expr(&arm.body);
+                        }
+                        PatternKind::IntLit(_)
+                        | PatternKind::BoolLit(_)
+                        | PatternKind::StrLit(_) => {
+                            return Err(RuntimeError::TypeError {
+                                msg: "literal pattern in enum match".into(),
+                                span,
+                            });
                         }
                         PatternKind::Variant {
                             enum_name: _,
@@ -2151,7 +2215,10 @@ fn collect_free_vars_in_expr(
 fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<String>) {
     use ilang_ast::{PatternBindings, PatternKind};
     match &p.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard
+        | PatternKind::IntLit(_)
+        | PatternKind::BoolLit(_)
+        | PatternKind::StrLit(_) => {}
         PatternKind::Variant { bindings, .. } => match bindings {
             PatternBindings::Unit => {}
             PatternBindings::Tuple(names) => {

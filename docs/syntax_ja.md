@@ -679,6 +679,35 @@ match day {
 - パターンの束縛: タプルは位置 (`Shape.circle(r)`)、struct は名前 (`{ side }` または `{ side: s }`)、`_` で無視
 - ペイロード内の heap 型 (Object / Str / Array / Optional / Weak / 別 enum) は ARC で正しく解放される
 
+### プリミティブの match
+
+`match` は **整数 / bool / 文字列** に対してもリテラルパターンで使えます:
+
+```rust
+let label = match n {
+    1 { "one" }
+    2 { "two" }
+    -1 { "neg" }
+    _  { "other" }
+}
+
+let s = match flag {
+    true  { "on" }
+    false { "off" }
+}
+
+let kind = match name {
+    "ok"   { 0 }
+    "err"  { 1 }
+    _      { -1 }
+}
+```
+
+- 整数パターン (`1`, `-7`) は **同符号の整数スクルチネ** に対し構造的等値で一致
+- `bool` は `true` / `false` 両 arm を書けば網羅 (それ以外は `_` 必須)
+- 他のプリミティブ match は **`_` ワイルドカード必須** (値空間が網羅不可能なので)
+- 浮動小数 / タプルのスクルチネは未対応 (`if`/`elif` を使う)
+
 ### 値付きフィールドレス enum
 
 ユニットバリアントには `= <整数>` で明示的な discriminant を指定できます。指定しないバリアントは `直前 + 1` (先頭は 0) が割り当てられます。enum 名のあとに `: <数値型>` を書くと、内部表現の整数型を明示できます。

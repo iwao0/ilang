@@ -1055,6 +1055,87 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Type-check `match` over a primitive scrutinee (integer /
+    /// bool / string). Each arm's pattern must be a literal of the
+    /// same shape, the wildcard `_`, or — for bool scrutinees —
+    /// a `Variant` pattern whose name parses as `true` / `false`.
+    /// A wildcard arm is mandatory: literal patterns can never be
+    /// proven exhaustive over a primitive.
+    fn check_match_primitive(
+        &self,
+        st: &Type,
+        arms: &[ilang_ast::MatchArm],
+        match_span: Span,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<&str>,
+        loop_depth: u32,
+    ) -> Result<Type, TypeError> {
+        let mut has_wildcard = false;
+        let mut bool_true_covered = false;
+        let mut bool_false_covered = false;
+        let mut result_ty: Option<Type> = None;
+        for arm in arms {
+            if has_wildcard {
+                return Err(TypeError::Unsupported {
+                    what: "match arm after wildcard `_` is unreachable".into(),
+                    span: arm.span,
+                });
+            }
+            let pspan = arm.pattern.span;
+            let ok = match &arm.pattern.kind {
+                PatternKind::Wildcard => {
+                    has_wildcard = true;
+                    true
+                }
+                PatternKind::IntLit(_) => st.is_numeric(),
+                PatternKind::BoolLit(p) => {
+                    if *st == Type::Bool {
+                        if *p { bool_true_covered = true; } else { bool_false_covered = true; }
+                        true
+                    } else { false }
+                }
+                PatternKind::StrLit(_) => *st == Type::Str,
+                // Bare `true` / `false` arrive from the parser as a
+                // unit `Variant{name:"true"|"false"}`. Accept them
+                // when matching a bool scrutinee.
+                PatternKind::Variant { enum_name: None, variant, bindings: ilang_ast::PatternBindings::Unit }
+                    if *st == Type::Bool && (variant == "true" || variant == "false") => {
+                    if variant == "true" { bool_true_covered = true; } else { bool_false_covered = true; }
+                    true
+                }
+                _ => false,
+            };
+            if !ok {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "pattern type doesn't match scrutinee `{st}`"
+                    ),
+                    span: pspan,
+                });
+            }
+            let bt = self.check_expr(&arm.body, env, ret_ty, in_class, loop_depth)?;
+            result_ty = Some(match result_ty {
+                None => bt,
+                Some(prev) => unify_branch(prev, bt, arm.body.span)?,
+            });
+        }
+        // Bool is the only primitive whose value space is enumerable
+        // — `true` + `false` together count as exhaustive, no `_`
+        // arm needed.
+        let bool_exhaustive =
+            *st == Type::Bool && bool_true_covered && bool_false_covered;
+        if !has_wildcard && !bool_exhaustive {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "non-exhaustive match on `{st}`: literal patterns require a `_` wildcard arm"
+                ),
+                span: match_span,
+            });
+        }
+        Ok(result_ty.unwrap_or(Type::Unit))
+    }
+
     /// Type-check fn bodies inside an `@extern(C) { ... }` block.
     /// Caller has already set `self.in_extern_c = true`.
     fn check_extern_c_bodies(
@@ -3397,6 +3478,14 @@ impl TypeChecker {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let st = self.check_expr(scrutinee, env, ret_ty, in_class, loop_depth)?;
+                // Match on a primitive (integer / bool / string)
+                // is allowed, with `IntLit` / `BoolLit` / `StrLit`
+                // patterns. Bool literals appear as
+                // `Variant{name: "true"|"false"}` from the parser,
+                // which we treat as `BoolLit` here.
+                if st.is_numeric() || st == Type::Bool || st == Type::Str {
+                    return self.check_match_primitive(&st, arms, span, env, ret_ty, in_class, loop_depth);
+                }
                 let (enum_name, scrut_args) = match &st {
                     Type::Object(name) if self.enums.contains_key(name) => {
                         (name.clone(), Vec::<Type>::new())
@@ -3430,6 +3519,16 @@ impl TypeChecker {
                     match &arm.pattern.kind {
                         PatternKind::Wildcard => {
                             has_wildcard = true;
+                        }
+                        PatternKind::IntLit(_)
+                        | PatternKind::BoolLit(_)
+                        | PatternKind::StrLit(_) => {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "literal pattern not allowed when matching enum {enum_name:?}"
+                                ),
+                                span: arm_kind_span,
+                            });
                         }
                         PatternKind::Variant {
                             enum_name: pat_enum,

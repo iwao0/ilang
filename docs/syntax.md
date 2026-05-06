@@ -861,6 +861,39 @@ match day {
 - Heap types inside a payload (Object / Str / Array / Optional /
   Weak / nested enum) are released correctly by ARC.
 
+### Matching on primitives
+
+`match` also works on **integer / bool / string** scrutinees with
+literal patterns:
+
+```rust
+let label = match n {
+    1 { "one" }
+    2 { "two" }
+    -1 { "neg" }
+    _  { "other" }
+}
+
+let s = match flag {
+    true  { "on" }
+    false { "off" }
+}
+
+let kind = match name {
+    "ok"   { 0 }
+    "err"  { 1 }
+    _      { -1 }
+}
+```
+
+- Integer patterns (`1`, `-7`) match same-signed integer scrutinees
+  via structural equality.
+- `bool` patterns require both `true` and `false` arms (exhaustive)
+  *or* a `_` wildcard.
+- All other primitive matches need a `_` wildcard — the value space
+  isn't enumerable.
+- Float and tuple scrutinees are not supported (use `if`/`elif`).
+
 ### Value-tagged fieldless enums
 
 Fieldless (unit-only) variants may be given an explicit integer

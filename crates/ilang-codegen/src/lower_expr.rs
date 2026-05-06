@@ -2427,6 +2427,113 @@ fn enum_drop_fn_ptr(
 /// jumps to its own block; the merge block joins everyone with a
 /// block-param of the unified result type. A trailing wildcard arm
 /// becomes the fallthrough.
+/// Match dispatch when the scrutinee is a primitive (int / bool /
+/// string). Each non-wildcard arm pattern is an `IntLit`,
+/// `BoolLit`, or `StrLit` (or a `Variant` named `true` / `false`
+/// when the scrutinee is bool — produced by the parser before the
+/// type checker's bool rewrite). A wildcard arm is the
+/// fallthrough; the type checker guarantees it exists.
+fn lower_match_primitive(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    sv: Value,
+    st: JitTy,
+    arms: &[ilang_ast::MatchArm],
+    _span: ilang_ast::Span,
+) -> Result<Option<TV>, CodegenError> {
+    let arm_blocks: Vec<Block> = arms.iter().map(|_| b.create_block()).collect();
+    let merge = b.create_block();
+    let mut merge_param: Option<Value> = None;
+    let mut result_ty: Option<JitTy> = None;
+
+    let mut wildcard_idx: Option<usize> = None;
+    for (i, arm) in arms.iter().enumerate() {
+        if matches!(arm.pattern.kind, ilang_ast::PatternKind::Wildcard) {
+            wildcard_idx = Some(i);
+            break;
+        }
+        // Build the per-pattern equality test.
+        let eq_v = match (&arm.pattern.kind, st) {
+            (ilang_ast::PatternKind::IntLit(n), t) if t.is_int() => {
+                let cl = t.cl().expect("int has cranelift type");
+                let want = b.ins().iconst(cl, *n);
+                b.ins().icmp(IntCC::Equal, sv, want)
+            }
+            (ilang_ast::PatternKind::BoolLit(p), JitTy::Bool) => {
+                let want = b.ins().iconst(I8, *p as i64);
+                b.ins().icmp(IntCC::Equal, sv, want)
+            }
+            // `true` / `false` arrive from the parser as Variant
+            // patterns — accept them when matching a bool.
+            (
+                ilang_ast::PatternKind::Variant {
+                    variant,
+                    bindings: ilang_ast::PatternBindings::Unit,
+                    ..
+                },
+                JitTy::Bool,
+            ) if variant == "true" || variant == "false" => {
+                let want = b.ins().iconst(I8, if variant == "true" { 1 } else { 0 });
+                b.ins().icmp(IntCC::Equal, sv, want)
+            }
+            (ilang_ast::PatternKind::StrLit(s), JitTy::Str) => {
+                let ptr = lc.intern_string(s);
+                let str_v = b.ins().iconst(I64, ptr);
+                let r = lc.module.declare_func_in_func(lc.strfns.eq, b.func);
+                let call = b.ins().call(r, &[sv, str_v]);
+                // `str_eq` returns i8 (0 / 1). Use as the cond.
+                b.inst_results(call)[0]
+            }
+            (other_pat, _) => {
+                return Err(CodegenError::Unsupported {
+                    what: format!(
+                        "primitive match: pattern kind {other_pat:?} not supported"
+                    ),
+                    span: arm.pattern.span,
+                });
+            }
+        };
+        let next = b.create_block();
+        b.ins().brif(eq_v, arm_blocks[i], &[], next, &[]);
+        b.switch_to_block(next);
+        b.seal_block(next);
+    }
+    // Fallthrough: jump to wildcard arm. The type checker guarantees
+    // a wildcard arm exists for primitive scrutinees.
+    if let Some(w) = wildcard_idx {
+        b.ins().jump(arm_blocks[w], &[]);
+    } else {
+        b.ins().trap(TrapCode::user(1).expect("trap code"));
+    }
+
+    // Lower each body, jumping to merge with the produced value.
+    for (i, arm) in arms.iter().enumerate() {
+        b.switch_to_block(arm_blocks[i]);
+        b.seal_block(arm_blocks[i]);
+        let body = lower_expr(b, lc, &arm.body)?;
+        match body {
+            Some((bv, bt)) => {
+                if merge_param.is_none() {
+                    let cl = bt.cl().unwrap_or(I64);
+                    let p = b.append_block_param(merge, cl);
+                    merge_param = Some(p);
+                    result_ty = Some(bt);
+                }
+                b.ins().jump(merge, &[bv.into()]);
+            }
+            None => {
+                b.ins().jump(merge, &[]);
+            }
+        }
+    }
+    b.switch_to_block(merge);
+    b.seal_block(merge);
+    Ok(match (merge_param, result_ty) {
+        (Some(p), Some(t)) => Some((p, t)),
+        _ => None,
+    })
+}
+
 fn lower_match(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
@@ -2438,6 +2545,12 @@ fn lower_match(
         what: "match scrutinee is unit".into(),
         span: scrutinee.span,
     })?;
+    // Primitive scrutinee (int / bool / string) — dispatch on
+    // equality. Each arm's pattern is an `IntLit` / `BoolLit` /
+    // `StrLit` (or `_`); the type checker has already validated.
+    if matches!(st, JitTy::Bool) || st.is_int() || matches!(st, JitTy::Str) {
+        return lower_match_primitive(b, lc, sv, st, arms, span);
+    }
     let (enum_id, is_heap) = match st {
         JitTy::Enum(id) => (id, false),
         JitTy::EnumHeap(id) => (id, true),

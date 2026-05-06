@@ -3144,7 +3144,10 @@ fn type_to_class(t: &Type) -> Option<String> {
 
 fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
     match &p.kind {
-        PatternKind::Wildcard => {}
+        PatternKind::Wildcard
+        | PatternKind::IntLit(_)
+        | PatternKind::BoolLit(_)
+        | PatternKind::StrLit(_) => {}
         PatternKind::Variant { bindings, .. } => match bindings {
             PatternBindings::Unit => {}
             // The AST stores binding names as bare strings (no per-name

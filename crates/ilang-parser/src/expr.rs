@@ -790,6 +790,53 @@ impl<'a> Parser<'a> {
     /// matching `}` is itself followed by another `{` (that second
     /// `{` is the arm body). Otherwise the `{` belongs to the arm
     /// body and the pattern is a unit variant.
+    /// Recognise integer / string literal patterns in pattern
+    /// position. `42`, `-7`, `"hi"`. Returns `None` when the next
+    /// token isn't a literal pattern (caller falls through to the
+    /// variant / wildcard path). `true` / `false` are deliberately
+    /// not handled here — they're parsed as `Variant` so that an
+    /// enum with a `true` / `false` variant still works; the type
+    /// checker rewrites them to `BoolLit` when the scrutinee is a
+    /// bool.
+    fn try_parse_literal_pattern(&mut self) -> Result<Option<ilang_ast::Pattern>, ParseError> {
+        let span = self.peek().span;
+        match &self.peek().kind {
+            TokenKind::Int(n) => {
+                let v = *n;
+                self.bump();
+                Ok(Some(ilang_ast::Pattern {
+                    kind: ilang_ast::PatternKind::IntLit(v),
+                    span,
+                }))
+            }
+            TokenKind::Minus => {
+                // `-N` integer pattern. Only consume when the next
+                // token is actually an Int literal.
+                if let Some(next) = self.tokens.get(self.pos + 1) {
+                    if let TokenKind::Int(n) = next.kind {
+                        let v = -(n as i64);
+                        self.bump(); // -
+                        self.bump(); // Int
+                        return Ok(Some(ilang_ast::Pattern {
+                            kind: ilang_ast::PatternKind::IntLit(v),
+                            span,
+                        }));
+                    }
+                }
+                Ok(None)
+            }
+            TokenKind::Str(s) => {
+                let v = s.clone();
+                self.bump();
+                Ok(Some(ilang_ast::Pattern {
+                    kind: ilang_ast::PatternKind::StrLit(v),
+                    span,
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
     fn parse_pattern_in_arm(&mut self) -> Result<ilang_ast::Pattern, ParseError> {
         // Wildcard / Result short forms / variant with explicit
         // `(...)` are unambiguous — fall through to the normal path
@@ -896,6 +943,12 @@ impl<'a> Parser<'a> {
                 });
             }
         }
+        // Literal patterns (int / string). `true` / `false` parse as
+        // Variant — the type checker rewrites them when the scrutinee
+        // is a bool, otherwise they're enum-variant patterns.
+        if let Some(p) = self.try_parse_literal_pattern()? {
+            return Ok(p);
+        }
         let first = self.expect_member_name("variant name")?;
         let (enum_name, variant) = if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
@@ -925,6 +978,12 @@ impl<'a> Parser<'a> {
                     span,
                 });
             }
+        }
+        // Literal patterns (int / string). `true` / `false` parse as
+        // Variant — the type checker rewrites them when the scrutinee
+        // is a bool, otherwise they're enum-variant patterns.
+        if let Some(p) = self.try_parse_literal_pattern()? {
+            return Ok(p);
         }
         // Long form `EnumName.Variant` vs. short form `Variant` (the
         // checker fills in the enum name from the scrutinee). Detect

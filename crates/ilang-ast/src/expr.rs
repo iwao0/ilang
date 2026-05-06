@@ -264,6 +264,14 @@ pub enum PatternKind {
         variant: String,
         bindings: PatternBindings,
     },
+    /// `42`, `-7` — integer literal pattern. The natural type is
+    /// `i64`; the type checker coerces to the scrutinee's type when
+    /// it's a same-signed narrower / wider integer.
+    IntLit(i64),
+    /// `true` / `false` — bool literal pattern.
+    BoolLit(bool),
+    /// `"hello"` — string literal pattern, structural equality.
+    StrLit(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
