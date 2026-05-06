@@ -594,7 +594,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 };
-                Some(if neg { -raw } else { raw })
+                Some(if neg { raw.wrapping_neg() } else { raw })
             } else {
                 None
             };

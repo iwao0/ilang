@@ -436,6 +436,30 @@ fn lone_cr_triggers_asi() {
 }
 
 #[test]
+fn invalid_number_text_includes_radix_prefix() {
+    // The `text` field on InvalidNumber should reflect what the user
+    // wrote in source — so `0b102`, not `102`, etc.
+    match tokenize("0b102") {
+        Err(LexError::InvalidNumber { text, .. }) => assert_eq!(text, "0b102"),
+        other => panic!("expected InvalidNumber, got {other:?}"),
+    }
+    match tokenize("0o78") {
+        Err(LexError::InvalidNumber { text, .. }) => assert_eq!(text, "0o78"),
+        other => panic!("expected InvalidNumber, got {other:?}"),
+    }
+    match tokenize("0xFFFFFFFFFFFFFFFFFFFF") {
+        Err(LexError::InvalidNumber { text, .. }) => {
+            assert_eq!(text, "0xFFFFFFFFFFFFFFFFFFFF")
+        }
+        other => panic!("expected InvalidNumber, got {other:?}"),
+    }
+    match tokenize("0x") {
+        Err(LexError::InvalidNumber { text, .. }) => assert_eq!(text, "0x"),
+        other => panic!("expected InvalidNumber, got {other:?}"),
+    }
+}
+
+#[test]
 fn out_of_radix_digit_errors() {
     // `0b102`, `0o78` used to silently lex as two adjacent integers.
     assert!(matches!(

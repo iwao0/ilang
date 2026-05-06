@@ -26,6 +26,22 @@ use crate::error::ParseError;
 use crate::parser::Parser;
 use crate::stmt::parse_block;
 
+/// Returns `Some("a.b.Foo")` for a chain of `Var`/`Field` whose root
+/// is a `Var`, otherwise `None`. Used by struct-literal disambiguation
+/// so `module.Foo { x: 1 }` is recognised the same way `Foo { x: 1 }`
+/// is — the parser emits the dotted name as the `class` of the
+/// `StructLit`, leaving module-prefix resolution to the loader.
+fn flatten_var_dot_chain(e: &Expr) -> Option<String> {
+    match &e.kind {
+        ExprKind::Var(n) => Some(n.clone()),
+        ExprKind::Field { obj, name } => {
+            let base = flatten_var_dot_chain(obj)?;
+            Some(format!("{base}.{name}"))
+        }
+        _ => None,
+    }
+}
+
 impl<'a> Parser<'a> {
     pub(crate) fn parse_expr(&mut self, min_bp: u8) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_prefix()?;
@@ -238,7 +254,7 @@ impl<'a> Parser<'a> {
                 // Lowered as `new Foo()` plus a sequence of field
                 // assignments at the type-checker / codegen stage.
                 TokenKind::LBrace
-                    if matches!(&expr.kind, ExprKind::Var(_))
+                    if flatten_var_dot_chain(&expr).is_some()
                         && matches!(
                             self.peek_n(1).map(|t| &t.kind),
                             Some(TokenKind::Ident(_))
@@ -269,10 +285,8 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(&TokenKind::RBrace, "'}'")?;
-                    let class_name = match expr.kind {
-                        ExprKind::Var(n) => n,
-                        _ => unreachable!(),
-                    };
+                    let class_name = flatten_var_dot_chain(&expr)
+                        .expect("matched in the guard above");
                     let span = expr.span;
                     expr = Expr::new(
                         ExprKind::StructLit {
@@ -683,13 +697,27 @@ impl<'a> Parser<'a> {
                 // that can start a key never form a valid statement
                 // followed by `:`, so this rule has no false positives
                 // against existing programs.
-                let is_map = matches!(
+                // `{ -1: ... }` is also a map: the key starts with a
+                // unary minus, so look one further for `Int(_)` and
+                // shift the `:` check by one slot.
+                let neg_int_key = matches!(
+                    self.peek_n(1).map(|t| &t.kind),
+                    Some(TokenKind::Minus)
+                ) && matches!(
+                    self.peek_n(2).map(|t| &t.kind),
+                    Some(TokenKind::Int(_))
+                ) && matches!(
+                    self.peek_n(3).map(|t| &t.kind),
+                    Some(TokenKind::Colon)
+                );
+                let positive_key = matches!(
                     self.peek_n(1).map(|t| &t.kind),
                     Some(TokenKind::Str(_) | TokenKind::Int(_) | TokenKind::True | TokenKind::False)
                 ) && matches!(
                     self.peek_n(2).map(|t| &t.kind),
                     Some(TokenKind::Colon)
                 );
+                let is_map = positive_key || neg_int_key;
                 if is_map {
                     self.parse_map_literal(span)
                 } else {

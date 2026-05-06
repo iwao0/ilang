@@ -63,9 +63,18 @@ pub fn normalize(prog: Program) -> Program {
     }
 }
 
+fn rewrite_params(params: &mut [ilang_ast::Param], ctx: &Ctx) {
+    for p in params.iter_mut() {
+        if let Some(d) = p.default.take() {
+            p.default = Some(rewrite_expr(d, ctx));
+        }
+    }
+}
+
 fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
     match item {
         Item::Fn(mut f) => {
+            rewrite_params(&mut f.params, ctx);
             f.body = rewrite_block(f.body, ctx);
             Item::Fn(f)
         }
@@ -74,6 +83,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             c.methods = methods
                 .into_iter()
                 .map(|mut m| {
+                    rewrite_params(&mut m.params, ctx);
                     let body = std::mem::replace(
                         &mut m.body,
                         Block { stmts: Vec::new(), tail: None },
@@ -86,6 +96,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             c.static_methods = static_methods
                 .into_iter()
                 .map(|mut m| {
+                    rewrite_params(&mut m.params, ctx);
                     let body = std::mem::replace(
                         &mut m.body,
                         Block { stmts: Vec::new(), tail: None },
@@ -114,6 +125,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                         g.body = rewrite_block(body, ctx);
                     }
                     if let Some(s) = p.setter.as_mut() {
+                        rewrite_params(&mut s.params, ctx);
                         let body = std::mem::replace(
                             &mut s.body,
                             Block { stmts: Vec::new(), tail: None },
@@ -127,7 +139,10 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
         }
         Item::Enum(e) => Item::Enum(e),
         Item::Use(u) => Item::Use(u),
-        Item::Const(c) => Item::Const(c),
+        Item::Const(mut c) => {
+            c.value = rewrite_expr(c.value, ctx);
+            Item::Const(c)
+        }
         Item::ExternStatic(s) => Item::ExternStatic(s),
         Item::ExternC(mut b) => {
             // Walk fn definitions inside the block so module-qualified
@@ -136,6 +151,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             for inner in &mut b.items {
                 match inner {
                     ilang_ast::ExternCItem::FnDef(f) => {
+                        rewrite_params(&mut f.params, ctx);
                         let body = std::mem::replace(
                             &mut f.body,
                             Block { stmts: Vec::new(), tail: None },
@@ -147,6 +163,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                         c.methods = methods
                             .into_iter()
                             .map(|mut m| {
+                                rewrite_params(&mut m.params, ctx);
                                 let body = std::mem::replace(
                                     &mut m.body,
                                     Block { stmts: Vec::new(), tail: None },
@@ -159,6 +176,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                         c.static_methods = static_methods
                             .into_iter()
                             .map(|mut m| {
+                                rewrite_params(&mut m.params, ctx);
                                 let body = std::mem::replace(
                                     &mut m.body,
                                     Block { stmts: Vec::new(), tail: None },
@@ -187,6 +205,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                                     g.body = rewrite_block(body, ctx);
                                 }
                                 if let Some(s) = p.setter.as_mut() {
+                                    rewrite_params(&mut s.params, ctx);
                                     let body = std::mem::replace(
                                         &mut s.body,
                                         Block { stmts: Vec::new(), tail: None },
