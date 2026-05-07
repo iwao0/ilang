@@ -1282,7 +1282,7 @@ fn walk_module(
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
-                let value = render_const_value(&c.value)
+                let value = render_const_value_with_src(&c.value, Some(&module_src))
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 let key = format!("{prefix}.{}", c.name);
@@ -1469,7 +1469,7 @@ fn walk_module_aliased(
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
-                let value = render_const_value(&c.value)
+                let value = render_const_value_with_src(&c.value, Some(&module_src))
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
@@ -2275,7 +2275,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
-                let value = render_const_value(&c.value)
+                let value = render_const_value_with_src(&c.value, Some(src))
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 let signature = format!("const {}{}{}", c.name, ty, value);
@@ -3923,13 +3923,26 @@ fn scan_break(
 /// hover. Covers primitive literals and a leading unary `-` / `+`; more
 /// complex expressions fall back to `None` so we don't print noise.
 fn render_const_value(e: &Expr) -> Option<String> {
+    render_const_value_with_src(e, None)
+}
+
+/// Same as `render_const_value` but, when source is provided,
+/// preserves the literal text the user wrote for `Int` / `Float`
+/// (so `const A: i32 = 0x123` keeps the hex / underscore form on
+/// hover instead of being collapsed to decimal). Falls back to
+/// the parsed value when the source slice can't be lifted.
+fn render_const_value_with_src(e: &Expr, src: Option<&str>) -> Option<String> {
     match &e.kind {
-        ExprKind::Int(n) => Some(n.to_string()),
-        ExprKind::Float(f) => Some(f.to_string()),
+        ExprKind::Int(n) => src
+            .and_then(|s| literal_token_at(s, e.span))
+            .or(Some(n.to_string())),
+        ExprKind::Float(f) => src
+            .and_then(|s| literal_token_at(s, e.span))
+            .or(Some(f.to_string())),
         ExprKind::Bool(b) => Some(b.to_string()),
         ExprKind::Str(s) => Some(format!("{s:?}")),
         ExprKind::Unary { op, expr } => {
-            let inner = render_const_value(expr)?;
+            let inner = render_const_value_with_src(expr, src)?;
             let sym = match op {
                 UnOp::Neg => "-",
                 UnOp::Pos => "+",
@@ -3939,6 +3952,30 @@ fn render_const_value(e: &Expr) -> Option<String> {
             Some(format!("{sym}{inner}"))
         }
         _ => None,
+    }
+}
+
+/// Read the literal token at `span` from `src` — captures hex /
+/// binary / octal prefixes, underscore separators, and any
+/// integer / float type suffix. Returns `None` when the span
+/// doesn't resolve to a contiguous identifier-like token.
+fn literal_token_at(src: &str, span: Span) -> Option<String> {
+    let off = text::line_col_to_offset(src, span.line, span.col)?;
+    let bytes = src.as_bytes();
+    let mut i = off;
+    if i < bytes.len() && bytes[i] == b'-' {
+        i += 1;
+    }
+    let start = i;
+    while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'.')
+    {
+        i += 1;
+    }
+    if i > start {
+        std::str::from_utf8(&bytes[off..i]).ok().map(|s| s.to_string())
+    } else {
+        None
     }
 }
 
