@@ -45,19 +45,45 @@ fn numeric_literal_fits(value: &Expr, target: &Type) -> bool {
 }
 
 fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
+    literal_assignable_with(value, vt, target, &|_, _| false)
+}
+
+/// Same as `literal_assignable` but folds in a class-subtype test at
+/// each Object-vs-Object position (the closure's contract is: "is the
+/// first class a subclass of the second?"). Lets the recursive
+/// composite-type cases (Array element, Tuple element, Optional inner)
+/// upcast a child class to its parent inside literal contexts the way
+/// the top-level binding paths already do.
+fn literal_assignable_with<F>(
+    value: &Expr,
+    vt: &Type,
+    target: &Type,
+    is_sub: &F,
+) -> bool
+where
+    F: Fn(Symbol, Symbol) -> bool,
+{
     if assignable(vt, target) {
         return true;
+    }
+    // Object-vs-Object subtype: `B extends A` ⇒ B can flow into an
+    // A slot. Mirrors `assignable_obj` at the leaves.
+    if let (Type::Object(c), Type::Object(p)) = (vt, target) {
+        if is_sub(*c, *p) {
+            return true;
+        }
     }
     // `let x: T? = literal` — auto-wrap. The literal is assignable to T?
     // iff it's assignable to the inner T (with literal coercions).
     if let Type::Optional(inner) = target {
         // `none` itself: vt = Optional<Any>, handled by `assignable`. For
         // `some(x)`, vt = Optional<U>, also handled there. The remaining
-        // case is a bare literal that should coerce to the inner.
-        if matches!(vt, Type::Optional(_)) {
-            return false; // already handled above
+        // cases are a bare literal that should coerce to the inner, and
+        // an Optional<Child> flowing into Optional<Parent>.
+        if let Type::Optional(vt_inner) = vt {
+            return literal_assignable_with(value, vt_inner, inner, is_sub);
         }
-        return literal_assignable(value, vt, inner);
+        return literal_assignable_with(value, vt, inner, is_sub);
     }
     // Array literal → array type. Lets `let a: i32[] = [1, 2, 3]` work
     // even though the literal's natural element type is i64, and lets
@@ -86,7 +112,7 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
         };
         return elements
             .iter()
-            .all(|e| literal_assignable(e, &vt_elem, target_elem));
+            .all(|e| literal_assignable_with(e, &vt_elem, target_elem, is_sub));
     }
     // Tuple literal → tuple type. Pairwise check so element-level
     // literal coercions (int width narrowing, fixed → dynamic array)
@@ -103,7 +129,7 @@ fn literal_assignable(value: &Expr, vt: &Type, target: &Type) -> bool {
             .iter()
             .zip(vt_elems.iter())
             .zip(target_elems.iter())
-            .all(|((e, vt_e), tt_e)| literal_assignable(e, vt_e, tt_e));
+            .all(|((e, vt_e), tt_e)| literal_assignable_with(e, vt_e, tt_e, is_sub));
     }
     if let ExprKind::Int(n) = &value.kind {
         if target.is_int() {
@@ -469,6 +495,17 @@ impl TypeChecker {
             return self.is_subclass(*c, *p);
         }
         false
+    }
+
+    /// `literal_assignable` with class-subtype awareness threaded
+    /// through the recursive composite (Array / Tuple / Optional)
+    /// cases. Used by call sites that previously paired the free
+    /// `literal_assignable` with `assignable_obj` at the top level —
+    /// this new helper additionally accepts e.g. `[new Child()]`
+    /// flowing into a `Parent[]` slot, `(new Child(),)` into
+    /// `(Parent,)`, and `some(new Child())` into `Parent?`.
+    fn value_assignable(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
+        literal_assignable_with(value, vt, target, &|c, p| self.is_subclass(c, p))
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because
@@ -1911,9 +1948,7 @@ impl TypeChecker {
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span, &[])?;
-                        if !literal_assignable(value, &vt, ann)
-                            && !self.assignable_obj(&vt, ann)
-                        {
+                        if !self.value_assignable(value, &vt, ann) {
                             return Err(TypeError::Mismatch {
                                 expected: ann.clone(),
                                 got: vt,
