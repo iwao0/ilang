@@ -15,7 +15,7 @@
 
 use sdl
 use sdl { InitFlag }
-use game
+use game { Game }
 
 let rc = sdl.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
 if rc < 0 {
@@ -28,7 +28,7 @@ if rc < 0 {
 // `sdl.quit()`. Without that order SDL would tear down its
 // subsystems first and the destructor calls would crash.
 {
-    let g = new game.Game()
+    let g = new Game()
     g.run()
 }
 sdl.quit()

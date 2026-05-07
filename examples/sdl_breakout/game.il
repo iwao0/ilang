@@ -8,18 +8,18 @@ use math
 use sprites
 use audio
 use palette
-use ball
-use brick
-use particle
-use powerup
-use star
-use neon
-use paddle
+use ball { Ball }
+use brick { BrickGrid }
+use particle { ParticleSystem }
+use powerup { PowerUp }
+use star { BgStars }
+use neon { NeonRenderer }
+use paddle { Paddle }
 use rng
 use consts
-use audio_session
-use input
-use assets
+use audio_session { AudioSession }
+use input { Input }
+use assets { Assets }
 
 // Width of `s` rendered through `sdl.Font.drawText`. The font is
 // 5×7 with 1 px between glyphs, so `n` chars = `n * 6 - 1` px at
@@ -54,19 +54,19 @@ fn intToStr(n: i32): string {
 class Game {
     window: sdl.Window
     renderer: sdl.Renderer
-    neonRenderer: neon.NeonRenderer
+    neonRenderer: NeonRenderer
     font: sdl.Font
     /// SFX + BGM device pair plus the pre-rendered beep buffers.
-    audioSession: audio_session.AudioSession
+    audioSession: AudioSession
     /// Keyboard / gamepad bundle.
-    input: input.Input
-    assets: assets.Assets
-    bgStars: star.BgStars
-    brickGrid: brick.BrickGrid
-    paddle: paddle.Paddle
-    particleSystem: particle.ParticleSystem
-    balls: ball.Ball[]
-    powerups: powerup.PowerUp[]
+    input: Input
+    assets: Assets
+    bgStars: BgStars
+    brickGrid: BrickGrid
+    paddle: Paddle
+    particleSystem: ParticleSystem
+    balls: Ball[]
+    powerups: PowerUp[]
     score: i32
     lives: i32
     started: bool
@@ -116,18 +116,18 @@ class Game {
         // Wraps `this.renderer` and exposes neon-style fill helpers (rect /
         // rounded rect / stadium / circle), all with a 3-pass halo to
         // fake the glow of a saturated primary on a dark background.
-        this.neonRenderer = new neon.NeonRenderer(this.renderer)
+        this.neonRenderer = new NeonRenderer(this.renderer)
 
         this.font = new sdl.Font(this.renderer)
 
-        this.audioSession = new audio_session.AudioSession()
+        this.audioSession = new AudioSession()
         if !this.audioSession.sfxOk() {
             console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
             return
         }
-        this.input = new input.Input()
+        this.input = new Input()
 
-        this.assets = new assets.Assets(this.renderer)
+        this.assets = new Assets(this.renderer)
         let starTex = this.assets.starTex
         let glowTex = this.assets.glowTex
         let crtTex = this.assets.crtTex
@@ -135,23 +135,23 @@ class Game {
         let bloomTex = this.assets.bloomTex
 
         // Background star field — scrolls top→down with a twinkle.
-        this.bgStars = new star.BgStars(80, consts.winW, consts.winH)
+        this.bgStars = new BgStars(80, consts.winW, consts.winH)
 
         // Build the brick this.brickGrid.
-        this.brickGrid = new brick.BrickGrid(
+        this.brickGrid = new BrickGrid(
             consts.cols, consts.rows, consts.brickW, consts.brickH, consts.brickGap, consts.brickTop, consts.winW
         )
 
         // State.
-        this.paddle = new paddle.Paddle(
+        this.paddle = new Paddle(
             ((consts.winW - consts.paddleW) / 2) as f64,
             consts.winH - 60,
             consts.paddleW,
             consts.paddleH,
             consts.paddleSpeed
         )
-        let bs: ball.Ball[] = []
-        bs.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
+        let bs: Ball[] = []
+        bs.push(new Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
         this.balls = bs
         this.score = 0
         this.lives = 5
@@ -162,7 +162,7 @@ class Game {
         this.shake = 0.0            // current screen-this.shake amplitude (px)
         // Visual effects (Particle bursts + this.score popups). The `this.particleSystem`
         // system owns both arrays plus their per-frame step.
-        this.particleSystem = new particle.ParticleSystem()
+        this.particleSystem = new ParticleSystem()
         // Frames the ball has been in flight (this game). Drives the
         // gradual speed-up. Doesn't reset on lose-life so tension keeps
         // building across attempts.
@@ -176,7 +176,7 @@ class Game {
         // frame while > 0; while their flag is active the matching
         // effect is applied. Multi-ball is one-shot so it doesn't need
         // a timer.
-        let pus: powerup.PowerUp[] = []
+        let pus: PowerUp[] = []
         this.powerups = pus
         this.slowTimer = 0
 
@@ -279,15 +279,15 @@ class Game {
             // Restart after game over.
             if this.gameOver && (in_.keyR || in_.padStart) {
                 this.brickGrid.reset()
-                let freshBalls: ball.Ball[] = []
-                freshBalls.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
+                let freshBalls: Ball[] = []
+                freshBalls.push(new Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
                 this.balls = freshBalls
                 this.score = 0
                 this.lives = 5
                 this.started = false
                 this.gameOver = false
                 this.won = false
-                let emptyPu: powerup.PowerUp[] = []
+                let emptyPu: PowerUp[] = []
                 this.powerups = emptyPu
                 this.paddle.widerTimer = 0
                 this.paddle.prevW = this.paddle.baseW
@@ -342,7 +342,7 @@ class Game {
                 // the same factor so target magnitude shrinks.
                 let speedFactor: f64 = if this.slowTimer > 0 { 0.55 } else { 1.0 }
 
-                let surviving: ball.Ball[] = []
+                let surviving: Ball[] = []
                 let bi: i32 = 0
                 let bn: i32 = this.balls.length as i32
                 while bi < bn {
@@ -431,7 +431,7 @@ class Game {
                                 // 14% drop chance per brick break.
                                 if rng.randf() < 0.14 {
                                     let kind = (rng.randf() * 3.0) as i32
-                                    this.powerups.push(new powerup.PowerUp(cx, cy, kind))
+                                    this.powerups.push(new PowerUp(cx, cy, kind))
                                 }
                                 i = n   // stop after first hit this frame
                             }
@@ -477,8 +477,8 @@ class Game {
                     } else {
                         this.started = false
                         this.combo = 0
-                        let respawn: ball.Ball[] = []
-                        respawn.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
+                        let respawn: Ball[] = []
+                        respawn.push(new Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
                         this.balls = respawn
                     }
                 }
@@ -502,7 +502,7 @@ class Game {
             // (paddle's WIDER timer ticks down inside `this.paddle.tick()` at
             // the top of the frame.)
             if this.slowTimer > 0 { this.slowTimer = this.slowTimer - 1 }
-            let alivePu: powerup.PowerUp[] = []
+            let alivePu: PowerUp[] = []
             let pui: i32 = 0
             let pun: i32 = this.powerups.length as i32
             while pui < pun {
@@ -531,12 +531,12 @@ class Game {
                             // with slightly diverged angles.
                             if this.balls.length as i32 > 0 {
                                 let src = this.balls[0]
-                                let extra: ball.Ball[] = []
+                                let extra: Ball[] = []
                                 let ki: i32 = 0
                                 while ki < 2 {
                                     let dvx = if ki == 0 { src.vy * 0.5 } else { 0.0 - src.vy * 0.5 }
                                     let dvy = if ki == 0 { 0.0 - src.vx * 0.5 } else { src.vx * 0.5 }
-                                    extra.push(new ball.Ball(src.x, src.y,
+                                    extra.push(new Ball(src.x, src.y,
                                                         src.vx + dvx, src.vy + dvy))
                                     ki = ki + 1
                                 }

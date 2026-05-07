@@ -313,27 +313,32 @@ fn apply_use(
     let effective_prefix: String = prefix_override
         .map(str::to_string)
         .unwrap_or_else(|| u.module.as_str().to_string());
-    // Whole-module + selective imports both prefix the items by
-    // `effective_prefix` (selective keeps bare names, listed in the
-    // key so distinct selective imports of the same module don't
-    // collide). If we've already merged the same module under the
-    // same prefix / same name list, skip — diamond dependencies
-    // (main + sibling both `use math`) would otherwise double-
-    // register every fn.
-    let dedup_key: (PathBuf, String) = match &u.selective {
-        None => (canon.clone(), effective_prefix.clone()),
-        Some(names) => {
-            let mut sorted: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-            sorted.sort();
-            sorted.dedup();
-            // `@sel:` prefix can't collide with a real module prefix
-            // (identifiers don't start with `@`).
-            (canon.clone(), format!("@sel:{}", sorted.join(",")))
-        }
-    };
-    if !applied.insert(dedup_key) {
+    // Selective and whole imports both produce the same prefix-merged
+    // view of the module — bare references in selective imports get
+    // rewritten to the prefixed form by the rename pass at the end of
+    // `load_program`, so the only thing that varies is whether we
+    // also expose any names bare. Dedup the prefix-merge step on
+    // (canon, prefix) so `use M` followed by `use M { X }` (or vice
+    // versa) doesn't double-register every item; the per-selective
+    // record below is gated by its own dedup key.
+    let merge_key = (canon.clone(), effective_prefix.clone());
+    let needs_merge = applied.insert(merge_key);
+    let sel_key: Option<(PathBuf, String)> = u.selective.as_ref().map(|names| {
+        let mut sorted: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        sorted.sort();
+        sorted.dedup();
+        // `@sel:` prefix can't collide with a real module prefix
+        // (identifiers don't start with `@`).
+        (canon.clone(), format!("@sel:{}", sorted.join(",")))
+    });
+    let needs_selective_record = sel_key
+        .as_ref()
+        .map(|k| applied.insert(k.clone()))
+        .unwrap_or(false);
+    if !needs_merge && !needs_selective_record {
         return Ok(());
     }
+
     // Recursively expand the module's own use items first, into the
     // module_prog's namespace. `@export use N` propagates the
     // current module's effective prefix to N so its items also land
@@ -348,107 +353,111 @@ fn apply_use(
     }
     module_prog.items = local_items.into();
     // Keep a copy for the selective branch's `@export use` chain
-    // search — `selective` import follows `@export use` chains to
-    // resolve names that the umbrella re-exports without redeclaring.
+    // existence check — selective imports may resolve names declared
+    // in chained modules rather than this module's own items.
     let nested_uses_for_search: Vec<UseDecl> = nested_uses.clone();
-    for nu in nested_uses {
-        let nested_override: Option<&str> = if nu.re_export {
-            Some(effective_prefix.as_str())
-        } else {
-            None
-        };
-        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports, applied, rename_rules)?;
-    }
 
-    match u.selective {
-        None => {
-            // Whole-module import: prefix every item with the
-            // effective prefix (the override when re-exporting,
-            // otherwise the module's own name).
-            //
-            // Before prefixing the items, collect the names of all
-            // module-level `const` decls and qualify any bare
-            // `Var("FOO")` references inside fn / method / extern-
-            // C bodies to `Var("prefix.FOO")`. The prefix step only
-            // rewrites call targets (`Call::callee`), `new` class
-            // names, etc. — `Var` nodes pass through unchanged, so
-            // without this qualification the later
-            // `inline_constants` pass would fail to match a
-            // const's prefixed declaration name against the bare
-            // reference.
-            // Names that need bare-`Var` refs in fn / method bodies
-            // qualified to `prefix.NAME` for the post-merge resolver:
-            // module-level consts AND any class names declared in
-            // the module (so a class's own static methods can write
-            // `ClassName.staticField` and still resolve after the
-            // class itself was renamed by the prefix pass).
-            let mut named_globals: HashSet<Symbol> = module_prog
-                .items
-                .iter()
-                .filter_map(|i| match i {
-                    Item::Const(c) => Some(c.name.clone()),
-                    Item::Class(c) => Some(c.name.clone()),
-                    _ => None,
-                })
-                .collect();
-            for item in &module_prog.items {
-                if let Item::ExternC(b) = item {
-                    for inner in &b.items {
-                        if let ilang_ast::ExternCItem::Class(c) = inner {
-                            named_globals.insert(c.name.clone());
-                        }
+    if needs_merge {
+        // Rename rules collected from THIS module's own selective
+        // imports — applied to this module's items before
+        // `prefix_item` so a `use N { Y }` inside M rewrites the
+        // bare `Y` references in M's body to `N.Y`.
+        let mut module_rename_rules: HashMap<Symbol, Symbol> = HashMap::new();
+        for nu in nested_uses {
+            let nested_override: Option<&str> = if nu.re_export {
+                Some(effective_prefix.as_str())
+            } else {
+                None
+            };
+            apply_use(
+                nu,
+                nested_override,
+                &canon,
+                extra_paths,
+                loaded,
+                merged,
+                _whole_imports,
+                applied,
+                &mut module_rename_rules,
+            )?;
+        }
+        // Prefix-merge the module's own local items. Even for
+        // selective imports we want the module's items present in
+        // the merged Program (under their prefixed names) so a
+        // selectively-imported class's internal references to other
+        // module items resolve.
+        let mut named_globals: HashSet<Symbol> = module_prog
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Const(c) => Some(c.name.clone()),
+                Item::Class(c) => Some(c.name.clone()),
+                _ => None,
+            })
+            .collect();
+        for item in &module_prog.items {
+            if let Item::ExternC(b) = item {
+                for inner in &b.items {
+                    if let ilang_ast::ExternCItem::Class(c) = inner {
+                        named_globals.insert(c.name.clone());
                     }
                 }
-            }
-            for item in module_prog.items.iter_mut() {
-                qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
-            }
-            for item in module_prog.items {
-                merged.items.push(prefix_item(item, &effective_prefix));
             }
         }
-        Some(names) => {
-            // Selective import: pull in just the listed items, keeping
-            // their bare names. If a name isn't declared directly in
-            // this module, follow `@export use` chains so umbrella
-            // modules (`@export use sdl_core` etc.) can re-expose
-            // their members for selective import.
-            //
-            // For names found via `@export use` chains, we DON'T push
-            // a bare-named copy of the item — the umbrella's nested
-            // `@export use` (already processed above) merged the
-            // chained module's items under `effective_prefix.X`, so
-            // `sdl.InitFlag` already exists in `merged`. Pushing a
-            // bare `InitFlag` would create a second enum that the
-            // type checker treats as distinct from `sdl.InitFlag`.
-            // Instead we record a rename rule so later passes rewrite
-            // bare references like `InitFlag.video` to the prefixed
-            // `sdl.InitFlag.video`. Direct hits (the name exists in
-            // the imported module's own items) keep the original
-            // bare-push behaviour — there's no prefixed counterpart
-            // to alias to.
-            let selected: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
-            let mut found: HashSet<Symbol> = HashSet::new();
-            for item in module_prog.items {
-                let item_name = item_name_of(&item);
-                if let Some(name) = item_name {
-                    if selected.contains(name.as_str()) {
-                        found.insert(name);
-                        merged.items.push(item);
-                    }
-                }
+        for item in module_prog.items.iter_mut() {
+            qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
+        }
+        // Apply this module's own selective-import rename rules
+        // BEFORE prefixing — `prefix_item` adds the module prefix to
+        // every bare `Object`/`Var`/`Call`, which would turn
+        // `NeonRenderer` (after `use neon { NeonRenderer }`) into
+        // `M.NeonRenderer` instead of the intended `neon.NeonRenderer`.
+        if !module_rename_rules.is_empty() {
+            for item in module_prog.items.iter_mut() {
+                rename_in_item(item, &module_rename_rules);
             }
-            // Anything still missing? Walk `@export use` chains.
-            let module_dir = canon
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf();
-            for name in &names {
-                if found.contains(name) {
-                    continue;
-                }
+        }
+        for item in module_prog.items {
+            merged.items.push(prefix_item(item, &effective_prefix));
+        }
+    }
+
+    // Selective imports record one rename rule per requested name so
+    // the final pass rewrites bare references in the entry's content
+    // to the prefixed form `effective_prefix.name`. We rely on the
+    // prefix-merge above (or a sibling whole-import that ran first)
+    // to make `effective_prefix.name` actually present in `merged`.
+    if let Some(names) = u.selective {
+        // Whether the requested names are visible in this module's
+        // local items or any of its `@export use` chains. We need an
+        // existence check to surface a load error for typos —
+        // skipping the check would silently accept any bare name.
+        let local_names: HashSet<&str> = nested_uses_for_search
+            .iter()
+            .filter(|nu| nu.re_export)
+            .flat_map(|_| std::iter::empty::<&str>())
+            .chain(
+                loaded
+                    .get(&canon)
+                    .map(|p| {
+                        p.items
+                            .iter()
+                            .filter_map(item_name_of_ref)
+                            .collect::<Vec<&str>>()
+                    })
+                    .unwrap_or_default()
+                    .into_iter(),
+            )
+            .collect();
+        let module_dir = canon
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        for name in &names {
+            let exists = local_names.contains(name.as_str()) || {
                 let mut visited: HashSet<PathBuf> = HashSet::new();
                 visited.insert(canon.clone());
+                let mut hit = false;
                 for nu in &nested_uses_for_search {
                     if !nu.re_export {
                         continue;
@@ -463,26 +472,36 @@ fn apply_use(
                     )?
                     .is_some()
                     {
-                        rename_rules.insert(
-                            name.clone(),
-                            Symbol::intern(&format!("{effective_prefix}.{name}")).into(),
-                        );
-                        found.insert(name.clone());
+                        hit = true;
                         break;
                     }
                 }
+                hit
+            };
+            if !exists {
+                return Err(LoadError::UnknownImport {
+                    module: u.module.clone(),
+                    name: name.clone(),
+                });
             }
-            for name in &names {
-                if !found.contains(name) {
-                    return Err(LoadError::UnknownImport {
-                        module: u.module.clone(),
-                        name: name.clone(),
-                    });
-                }
-            }
+            rename_rules.insert(
+                name.clone(),
+                Symbol::intern(&format!("{effective_prefix}.{name}")).into(),
+            );
         }
     }
     Ok(())
+}
+
+fn item_name_of_ref(item: &Item) -> Option<&str> {
+    match item {
+        Item::Fn(f) => Some(f.name.as_str()),
+        Item::Class(c) => Some(c.name.as_str()),
+        Item::Enum(e) => Some(e.name.as_str()),
+        Item::Const(c) => Some(c.name.as_str()),
+        Item::ExternStatic(s) => Some(s.name.as_str()),
+        Item::ExternC(_) | Item::Use(_) => None,
+    }
 }
 
 /// Rewrite bare `Var("X")` → `Var("prefix.X")` inside an item's
