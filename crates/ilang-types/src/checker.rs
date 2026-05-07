@@ -76,11 +76,15 @@ where
     // `let x: T? = literal` — auto-wrap. The literal is assignable to T?
     // iff it's assignable to the inner T (with literal coercions).
     if let Type::Optional(inner) = target {
-        // `none` itself: vt = Optional<Any>, handled by `assignable`. For
-        // `some(x)`, vt = Optional<U>, also handled there. The remaining
-        // cases are a bare literal that should coerce to the inner, and
-        // an Optional<Child> flowing into Optional<Parent>.
+        // `none` itself: vt = Optional<Any>, handled by `assignable`.
+        // For `some(x)` we have to descend into the wrapped expression
+        // so the recursive composite cases see the actual literal
+        // (e.g. `some([new B()])` against `A[]?` matches the array-
+        // literal branch with target=A[]).
         if let Type::Optional(vt_inner) = vt {
+            if let ExprKind::Some(inner_expr) = &value.kind {
+                return literal_assignable_with(inner_expr, vt_inner, inner, is_sub);
+            }
             return literal_assignable_with(value, vt_inner, inner, is_sub);
         }
         return literal_assignable_with(value, vt, inner, is_sub);
