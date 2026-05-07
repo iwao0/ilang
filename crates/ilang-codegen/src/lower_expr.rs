@@ -141,6 +141,46 @@ pub(crate) fn lower_expr(
                 );
                 return Ok(Some((closure_ptr, JitTy::Fn(sig_id))));
             }
+            // Top-level `let X: T = ...`: load from the global-let
+            // slot. Mirrors the static-field read path. The slot was
+            // initialized at the let's source position in `__main`;
+            // by the time any fn body runs, the value is in place.
+            if let Some(&slot) = lc.global_let_slots.get(name) {
+                if let Some(ty) = lc.global_let_types.get(name).cloned() {
+                    let addr = lc.global_let_base_addr + (slot as i64) * 8;
+                    let addr_v = b.ins().iconst(I64, addr);
+                    let raw = b.ins().load(I64, MemFlags::trusted(), addr_v, 0);
+                    let (v, jty) = match ty {
+                        ilang_ast::Type::I8 => (b.ins().ireduce(I8, raw), JitTy::I8),
+                        ilang_ast::Type::I16 => (b.ins().ireduce(I16, raw), JitTy::I16),
+                        ilang_ast::Type::I32 => (b.ins().ireduce(I32, raw), JitTy::I32),
+                        ilang_ast::Type::I64 => (raw, JitTy::I64),
+                        ilang_ast::Type::U8 => (b.ins().ireduce(I8, raw), JitTy::U8),
+                        ilang_ast::Type::U16 => (b.ins().ireduce(I16, raw), JitTy::U16),
+                        ilang_ast::Type::U32 => (b.ins().ireduce(I32, raw), JitTy::U32),
+                        ilang_ast::Type::U64 => (raw, JitTy::U64),
+                        ilang_ast::Type::F32 => {
+                            let lo = b.ins().ireduce(I32, raw);
+                            (b.ins().bitcast(F32, MemFlags::new(), lo), JitTy::F32)
+                        }
+                        ilang_ast::Type::F64 => {
+                            (b.ins().bitcast(F64, MemFlags::new(), raw), JitTy::F64)
+                        }
+                        ilang_ast::Type::Bool => {
+                            (b.ins().ireduce(I8, raw), JitTy::Bool)
+                        }
+                        _ => {
+                            return Err(CodegenError::Unsupported {
+                                what: format!(
+                                    "top-level `let` of type {ty:?} not supported by JIT yet"
+                                ),
+                                span: e.span,
+                            });
+                        }
+                    };
+                    return Ok(Some((v, jty)));
+                }
+            }
             Err(CodegenError::Unsupported {
                 what: format!("unknown variable {name:?}"),
                 span: e.span,
@@ -408,6 +448,59 @@ pub(crate) fn lower_expr(
                     if let Some(old) = old_val {
                         emit_release_heap(b, lc, old, fty);
                     }
+                    return Ok(None);
+                }
+            }
+            // Top-level `let` global write: `state = state * ...`
+            // (in a fn body) lands in the global slot.
+            if let Some(&slot) = lc.global_let_slots.get(target) {
+                if let Some(ty) = lc.global_let_types.get(target).cloned() {
+                    let target_jty = match &ty {
+                        ilang_ast::Type::I8 => JitTy::I8,
+                        ilang_ast::Type::I16 => JitTy::I16,
+                        ilang_ast::Type::I32 => JitTy::I32,
+                        ilang_ast::Type::I64 => JitTy::I64,
+                        ilang_ast::Type::U8 => JitTy::U8,
+                        ilang_ast::Type::U16 => JitTy::U16,
+                        ilang_ast::Type::U32 => JitTy::U32,
+                        ilang_ast::Type::U64 => JitTy::U64,
+                        ilang_ast::Type::F32 => JitTy::F32,
+                        ilang_ast::Type::F64 => JitTy::F64,
+                        ilang_ast::Type::Bool => JitTy::Bool,
+                        _ => {
+                            return Err(CodegenError::Unsupported {
+                                what: format!(
+                                    "assignment to top-level `let` of type {ty:?} \
+                                     not supported by JIT yet"
+                                ),
+                                span: e.span,
+                            });
+                        }
+                    };
+                    let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "assigning unit".into(),
+                            span: e.span,
+                        }
+                    })?;
+                    let coerced = coerce(b, (val, vt), target_jty, e.span)?;
+                    let bits = match target_jty {
+                        JitTy::I64 | JitTy::U64 => coerced,
+                        JitTy::I8 | JitTy::U8 | JitTy::Bool => {
+                            b.ins().uextend(I64, coerced)
+                        }
+                        JitTy::I16 | JitTy::U16 => b.ins().uextend(I64, coerced),
+                        JitTy::I32 | JitTy::U32 => b.ins().uextend(I64, coerced),
+                        JitTy::F32 => {
+                            let i = b.ins().bitcast(I32, MemFlags::new(), coerced);
+                            b.ins().uextend(I64, i)
+                        }
+                        JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), coerced),
+                        _ => unreachable!(),
+                    };
+                    let addr = lc.global_let_base_addr + (slot as i64) * 8;
+                    let addr_v = b.ins().iconst(I64, addr);
+                    b.ins().store(MemFlags::trusted(), bits, addr_v, 0);
                     return Ok(None);
                 }
             }
@@ -4761,22 +4854,69 @@ fn lower_closure_construct(
         // Look in regular env first, then in the surrounding
         // closure's capture env (so a nested closure can re-capture
         // an outer closure's captured value).
-        let (v, jty) = if let Some(&(var, vt)) = lc.env.bindings.get(cap_name) {
-            (b.use_var(var), vt)
-        } else if let Some(env) = lc.closure_capture_env.as_ref() {
-            if let Some(entry) = env.captures.iter().find(|(n, _, _)| n == cap_name) {
-                let outer_offset = entry.1 as i32;
-                let outer_jty = entry.2;
-                let env_ptr = b.use_var(env.env_var);
-                let raw = b.ins().load(I64, MemFlags::trusted(), env_ptr, outer_offset);
-                let v = match outer_jty {
-                    JitTy::I64 | JitTy::U64 => raw,
-                    JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
-                    JitTy::Bool => b.ins().ireduce(I8, raw),
-                    t if t.is_heap() => raw,
-                    _ => unreachable!(),
-                };
-                (v, outer_jty)
+        let resolved: Option<(cranelift::prelude::Value, JitTy)> =
+            if let Some(&(var, vt)) = lc.env.bindings.get(cap_name) {
+                Some((b.use_var(var), vt))
+            } else if let Some(env) = lc.closure_capture_env.as_ref() {
+                env.captures
+                    .iter()
+                    .find(|(n, _, _)| n == cap_name)
+                    .map(|entry| {
+                        let outer_offset = entry.1 as i32;
+                        let outer_jty = entry.2;
+                        let env_ptr = b.use_var(env.env_var);
+                        let raw = b
+                            .ins()
+                            .load(I64, MemFlags::trusted(), env_ptr, outer_offset);
+                        let v = match outer_jty {
+                            JitTy::I64 | JitTy::U64 => raw,
+                            JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
+                            JitTy::Bool => b.ins().ireduce(I8, raw),
+                            t if t.is_heap() => raw,
+                            _ => unreachable!(),
+                        };
+                        (v, outer_jty)
+                    })
+            } else {
+                None
+            };
+        // Fall back to the global-let slot — top-level `let X = ...`
+        // captures snapshot the slot's current value at construction
+        // time, matching the interpreter's "by-value" capture rule.
+        let (v, jty) = if let Some(tv) = resolved {
+            tv
+        } else if let Some(&slot) = lc.global_let_slots.get(cap_name) {
+            if let Some(ty) = lc.global_let_types.get(cap_name).cloned() {
+                let addr = lc.global_let_base_addr + (slot as i64) * 8;
+                let addr_v = b.ins().iconst(I64, addr);
+                let raw = b.ins().load(I64, MemFlags::trusted(), addr_v, 0);
+                match ty {
+                    ilang_ast::Type::I64 => (raw, JitTy::I64),
+                    ilang_ast::Type::U64 => (raw, JitTy::U64),
+                    ilang_ast::Type::I32 => (b.ins().ireduce(I32, raw), JitTy::I32),
+                    ilang_ast::Type::U32 => (b.ins().ireduce(I32, raw), JitTy::U32),
+                    ilang_ast::Type::I16 => (b.ins().ireduce(I16, raw), JitTy::I16),
+                    ilang_ast::Type::U16 => (b.ins().ireduce(I16, raw), JitTy::U16),
+                    ilang_ast::Type::I8 => (b.ins().ireduce(I8, raw), JitTy::I8),
+                    ilang_ast::Type::U8 => (b.ins().ireduce(I8, raw), JitTy::U8),
+                    ilang_ast::Type::F64 => {
+                        (b.ins().bitcast(F64, MemFlags::new(), raw), JitTy::F64)
+                    }
+                    ilang_ast::Type::F32 => {
+                        let lo = b.ins().ireduce(I32, raw);
+                        (b.ins().bitcast(F32, MemFlags::new(), lo), JitTy::F32)
+                    }
+                    ilang_ast::Type::Bool => (b.ins().ireduce(I8, raw), JitTy::Bool),
+                    _ => {
+                        return Err(CodegenError::Unsupported {
+                            what: format!(
+                                "closure capture of global `{cap_name}` of type \
+                                 {ty:?} not supported by JIT yet"
+                            ),
+                            span,
+                        });
+                    }
+                }
             } else {
                 return Err(CodegenError::Unsupported {
                     what: format!(

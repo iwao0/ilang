@@ -188,6 +188,19 @@ pub(crate) struct LowerCtx<'a> {
     /// Base address of the `Box<[i64]>` static-field storage,
     /// embedded as an iconst in lowered field accesses.
     pub static_field_base_addr: i64,
+    /// `name -> slot index` for top-level `let X: T = ...` bindings.
+    /// Read by `Var` / `Assign` / closure capture / `lower_stmt::Let`
+    /// to route through global memory when the local env doesn't
+    /// have the name. Visible from every fn body so cross-module
+    /// reads of `module.X` resolve.
+    pub global_let_slots: &'a std::collections::HashMap<Symbol, usize>,
+    /// `name -> declared / inferred type` for each global let slot.
+    pub global_let_types:
+        &'a std::collections::HashMap<Symbol, ilang_ast::Type>,
+    /// Base address of the `Box<[i64]>` global-let storage. One slot
+    /// per let; f32 / f64 / bool ride along via bitcast like the
+    /// static-field layout.
+    pub global_let_base_addr: i64,
     /// Per-class vtable base addresses, indexed by class id. Used
     /// at virtual-method call sites and at `new` (passed to
     /// `alloc_object`). 0 if a class has no vtable.
