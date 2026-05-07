@@ -120,6 +120,25 @@ map[k] = v                 // Map 添字代入
 this.field = v             // メソッド内
 ```
 
+### `let` のデストラクチャリング
+
+```rust
+// タプル — フラット、`_` でスロット無視。
+let pair: (i64, string) = (42, "hi")
+let (n, s) = pair                       // n: i64, s: string
+let (_, only_b, _) = (1, 2, 3)          // 他を無視
+
+// オブジェクト (構造体) — Rust 風にクラス名を書く。フィールド名は一致必須、
+// リネームや rest は v1 では未対応。
+class Point { x: f64; y: f64; init(a: f64, b: f64) { this.x = a; this.y = b } }
+let p = new Point(1.0, 2.0)
+let Point { x, y } = p                  // x: f64, y: f64
+```
+
+- 対応箇所は **`let` 文のみ** (関数引数・`for-in` の分解は今後)
+- タプル分解は **2 スロット以上** が必須 (1 個なら通常の `let`)
+- ネスト (`let ((a, b), c) = ...`) は未対応
+
 ---
 
 ## 4. 演算子 (低 → 高)

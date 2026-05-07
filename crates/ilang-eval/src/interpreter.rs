@@ -257,6 +257,43 @@ impl Interpreter {
                 self.vars.insert(name.clone(), v);
                 Ok(Value::Unit)
             }
+            StmtKind::LetTuple { elems, value } => {
+                let v = self.eval_expr(value)?;
+                let tup = match v {
+                    Value::Tuple(t) => t,
+                    _ => {
+                        return Err(RuntimeError::TypeError {
+                            msg: "tuple destructure on non-tuple value".into(),
+                            span: stmt.span,
+                        });
+                    }
+                };
+                for (slot, item) in elems.iter().zip(tup.iter()) {
+                    if let Some(name) = slot {
+                        self.vars.insert(name.clone(), item.clone());
+                    }
+                }
+                Ok(Value::Unit)
+            }
+            StmtKind::LetStruct { class: _, fields, value } => {
+                let v = self.eval_expr(value)?;
+                let obj = match v {
+                    Value::Object(o) => o,
+                    _ => {
+                        return Err(RuntimeError::TypeError {
+                            msg: "struct destructure on non-object value".into(),
+                            span: stmt.span,
+                        });
+                    }
+                };
+                let borrowed = obj.borrow();
+                for f in fields.iter() {
+                    if let Some(fv) = borrowed.fields.get(f) {
+                        self.vars.insert(f.clone(), fv.clone());
+                    }
+                }
+                Ok(Value::Unit)
+            }
             StmtKind::Expr(e) => {
                 let v = self.eval_expr(e)?;
                 // Top-level expression statement: discard the value
@@ -1647,6 +1684,45 @@ impl Interpreter {
                         shadows.push((*name, prev));
                         last = Value::Unit;
                     }
+                    StmtKind::LetTuple { elems, value } => {
+                        let v = self.eval_expr(value)?;
+                        let tup = match v {
+                            Value::Tuple(t) => t,
+                            _ => {
+                                return Err(RuntimeError::TypeError {
+                                    msg: "tuple destructure on non-tuple value".into(),
+                                    span: s.span,
+                                });
+                            }
+                        };
+                        for (slot, item) in elems.iter().zip(tup.iter()) {
+                            if let Some(name) = slot {
+                                let prev = self.vars.insert(name.clone(), item.clone());
+                                shadows.push((*name, prev));
+                            }
+                        }
+                        last = Value::Unit;
+                    }
+                    StmtKind::LetStruct { class: _, fields, value } => {
+                        let v = self.eval_expr(value)?;
+                        let obj = match v {
+                            Value::Object(o) => o,
+                            _ => {
+                                return Err(RuntimeError::TypeError {
+                                    msg: "struct destructure on non-object value".into(),
+                                    span: s.span,
+                                });
+                            }
+                        };
+                        let borrowed = obj.borrow();
+                        for f in fields.iter() {
+                            if let Some(fv) = borrowed.fields.get(f) {
+                                let prev = self.vars.insert(f.clone(), fv.clone());
+                                shadows.push((*f, prev));
+                            }
+                        }
+                        last = Value::Unit;
+                    }
                     StmtKind::Expr(e) => {
                         let v = self.eval_expr(e)?;
                         // Statement value is discarded. If it was a
@@ -2477,6 +2553,20 @@ fn collect_free_vars_in_block(
             ilang_ast::StmtKind::Let { name, value, .. } => {
                 collect_free_vars_in_expr(value, bound, frees);
                 bound.insert(name.clone());
+            }
+            ilang_ast::StmtKind::LetTuple { elems, value } => {
+                collect_free_vars_in_expr(value, bound, frees);
+                for slot in elems.iter() {
+                    if let Some(n) = slot {
+                        bound.insert(n.clone());
+                    }
+                }
+            }
+            ilang_ast::StmtKind::LetStruct { fields, value, .. } => {
+                collect_free_vars_in_expr(value, bound, frees);
+                for f in fields.iter() {
+                    bound.insert(f.clone());
+                }
             }
             ilang_ast::StmtKind::Expr(e) => {
                 collect_free_vars_in_expr(e, bound, frees);

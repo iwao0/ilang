@@ -244,6 +244,15 @@ fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
             ty: ty.clone(),
             value: hoist_in_expr(value, ctx),
         },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems: elems.clone(),
+            value: hoist_in_expr(value, ctx),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class: class.clone(),
+            fields: fields.clone(),
+            value: hoist_in_expr(value, ctx),
+        },
         StmtKind::Expr(e) => StmtKind::Expr(hoist_in_expr(e, ctx)),
     };
     Stmt {
@@ -639,6 +648,8 @@ fn scan_stmt(s: &Stmt, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
             }
             scan_expr(value, needed, work);
         }
+        StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => scan_expr(value, needed, work),
         StmtKind::Expr(e) => scan_expr(e, needed, work),
     }
 }
@@ -965,6 +976,15 @@ fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
             ty: ty.as_ref().map(|t| subst_type(t, params, args)),
+            value: subst_expr(value, params, args),
+        },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems: elems.clone(),
+            value: subst_expr(value, params, args),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class: class.clone(),
+            fields: fields.clone(),
             value: subst_expr(value, params, args),
         },
         StmtKind::Expr(e) => StmtKind::Expr(subst_expr(e, params, args)),
@@ -1300,6 +1320,15 @@ fn rewrite_stmt(s: &Stmt) -> Stmt {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
             ty: ty.as_ref().map(rewrite_type),
+            value: rewrite_expr(value),
+        },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems: elems.clone(),
+            value: rewrite_expr(value),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class: class.clone(),
+            fields: fields.clone(),
             value: rewrite_expr(value),
         },
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e)),
@@ -1814,7 +1843,9 @@ fn seed_calls_in_stmt(
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
     match &s.kind {
-        StmtKind::Let { value, .. } => {
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => {
             seed_calls_in_expr(value, table, outer_params, outer_args, visit)
         }
         StmtKind::Expr(e) => seed_calls_in_expr(e, table, outer_params, outer_args, visit),
@@ -2001,6 +2032,15 @@ fn rewrite_calls_in_stmt(
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
             ty: ty.clone(),
+            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
+        },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems: elems.clone(),
+            value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class: class.clone(),
+            fields: fields.clone(),
             value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
         },
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_calls_in_expr(
@@ -2217,7 +2257,9 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 fn walk_block_children(b: &Block, f: &mut dyn FnMut(&Expr)) {
     for s in &b.stmts {
         match &s.kind {
-            StmtKind::Let { value, .. } => f(value),
+            StmtKind::Let { value, .. }
+            | StmtKind::LetTuple { value, .. }
+            | StmtKind::LetStruct { value, .. } => f(value),
             StmtKind::Expr(e) => f(e),
         }
     }
@@ -2405,6 +2447,15 @@ fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
                     StmtKind::Let { name, ty, value } => StmtKind::Let {
                         name: name.clone(),
                         ty: ty.clone(),
+                        value: f(value),
+                    },
+                    StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+                        elems: elems.clone(),
+                        value: f(value),
+                    },
+                    StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+                        class: class.clone(),
+                        fields: fields.clone(),
                         value: f(value),
                     },
                     StmtKind::Expr(e) => StmtKind::Expr(f(e)),
@@ -2725,6 +2776,8 @@ fn seed_enums_in_stmt(s: &Stmt, visit: &mut dyn FnMut(&str, &[Type])) {
             }
             seed_enums_in_expr(value, visit);
         }
+        StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => seed_enums_in_expr(value, visit),
         StmtKind::Expr(e) => seed_enums_in_expr(e, visit),
     }
 }
@@ -2799,7 +2852,9 @@ fn seed_enum_ctors_in_stmt(
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
     match &s.kind {
-        StmtKind::Let { value, .. } => {
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => {
             seed_enum_ctors_in_expr(value, table, outer_params, outer_args, visit)
         }
         StmtKind::Expr(e) => seed_enum_ctors_in_expr(e, table, outer_params, outer_args, visit),
@@ -3044,6 +3099,27 @@ fn rewrite_enum_refs_in_stmt(
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
             ty: ty.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+            value: rewrite_enum_refs_in_expr(
+                value,
+                generic_enums,
+                table,
+                outer_params,
+                outer_args,
+            ),
+        },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems: elems.clone(),
+            value: rewrite_enum_refs_in_expr(
+                value,
+                generic_enums,
+                table,
+                outer_params,
+                outer_args,
+            ),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class: class.clone(),
+            fields: fields.clone(),
             value: rewrite_enum_refs_in_expr(
                 value,
                 generic_enums,

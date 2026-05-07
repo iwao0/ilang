@@ -37,7 +37,91 @@ pub(crate) fn parse_block(p: &mut Parser) -> Result<Block, ParseError> {
 pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
     let let_span = p.peek().span;
     p.expect(&TokenKind::Let, "'let'")?;
+    // Tuple destructure: `let (a, b, ...) = expr`. Each slot is
+    // `Ident` or `_` (wildcard). Disambiguates from the leading
+    // `let Ident ...` form by the LParen after `let`.
+    if matches!(p.peek().kind, TokenKind::LParen) {
+        p.bump(); // consume `(`
+        let mut elems: Vec<Option<ilang_ast::Symbol>> = Vec::new();
+        loop {
+            match &p.peek().kind {
+                TokenKind::RParen => break,
+                TokenKind::Ident(name) if name == "_" => {
+                    elems.push(None);
+                    p.bump();
+                }
+                TokenKind::Ident(_) => {
+                    elems.push(Some(p.expect_ident("binding name")?));
+                }
+                other => {
+                    let span = p.peek().span;
+                    return Err(ParseError::Unexpected {
+                        found: other.clone(),
+                        expected: "destructuring binding name or `_`".into(),
+                        span,
+                    });
+                }
+            }
+            if matches!(p.peek().kind, TokenKind::Comma) {
+                p.bump();
+            } else {
+                break;
+            }
+        }
+        p.expect(&TokenKind::RParen, "')'")?;
+        if elems.len() < 2 {
+            let t = p.peek();
+            return Err(ParseError::Unexpected {
+                found: t.kind.clone(),
+                expected: "tuple destructure needs at least 2 slots".into(),
+                span: t.span,
+            });
+        }
+        p.expect(&TokenKind::Equals, "'='")?;
+        let value = p.parse_expr(0)?;
+        p.consume_stmt_terminator()?;
+        return Ok(Stmt::new(
+            StmtKind::LetTuple { elems: elems.into(), value },
+            let_span,
+        ));
+    }
     let name = p.expect_ident("variable name")?;
+    // Struct destructure: `let ClassName { f1, f2, ... } = expr`.
+    // The leading ident in `let ClassName {` reads like the start
+    // of a regular binding, so we have to peek past it.
+    if matches!(p.peek().kind, TokenKind::LBrace) {
+        p.bump(); // consume `{`
+        let mut fields: Vec<ilang_ast::Symbol> = Vec::new();
+        loop {
+            match &p.peek().kind {
+                TokenKind::RBrace => break,
+                TokenKind::Ident(_) => {
+                    fields.push(p.expect_ident("destructure field name")?);
+                }
+                other => {
+                    let span = p.peek().span;
+                    return Err(ParseError::Unexpected {
+                        found: other.clone(),
+                        expected: "field name".into(),
+                        span,
+                    });
+                }
+            }
+            if matches!(p.peek().kind, TokenKind::Comma) {
+                p.bump();
+            } else {
+                break;
+            }
+        }
+        p.expect(&TokenKind::RBrace, "'}'")?;
+        p.expect(&TokenKind::Equals, "'='")?;
+        let value = p.parse_expr(0)?;
+        p.consume_stmt_terminator()?;
+        return Ok(Stmt::new(
+            StmtKind::LetStruct { class: name, fields: fields.into(), value },
+            let_span,
+        ));
+    }
     let ty = if matches!(p.peek().kind, TokenKind::Colon) {
         p.bump();
         Some(p.parse_type()?)

@@ -295,6 +295,15 @@ fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
             ty,
             value: rewrite_expr(value, ctx),
         },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems,
+            value: rewrite_expr(value, ctx),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class,
+            fields,
+            value: rewrite_expr(value, ctx),
+        },
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, ctx)),
     };
     Stmt { kind, span: s.span }

@@ -587,7 +587,11 @@ fn qualify_var_refs_in_block(b: &mut Block, prefix: &str, consts: &HashSet<Symbo
 fn qualify_var_refs_in_stmt(s: &mut Stmt, prefix: &str, consts: &HashSet<Symbol>) {
     use ilang_ast::StmtKind;
     match &mut s.kind {
-        StmtKind::Let { value, .. } => qualify_var_refs_in_expr(value, prefix, consts),
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => {
+            qualify_var_refs_in_expr(value, prefix, consts)
+        }
         StmtKind::Expr(e) => qualify_var_refs_in_expr(e, prefix, consts),
     }
 }
@@ -1037,6 +1041,15 @@ fn prefix_stmt(s: Stmt, prefix: &str) -> Stmt {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name,
             ty: ty.map(|t| prefix_type(&t, prefix)),
+            value: prefix_expr(value, prefix),
+        },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems,
+            value: prefix_expr(value, prefix),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class,
+            fields,
             value: prefix_expr(value, prefix),
         },
         StmtKind::Expr(e) => StmtKind::Expr(prefix_expr(e, prefix)),
@@ -1720,6 +1733,15 @@ fn subst_const_stmt(s: Stmt, ctx: &SubstCtx<'_>) -> Stmt {
             ty,
             value: subst_const_expr(value, ctx),
         },
+        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
+            elems,
+            value: subst_const_expr(value, ctx),
+        },
+        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
+            class,
+            fields,
+            value: subst_const_expr(value, ctx),
+        },
         StmtKind::Expr(e) => StmtKind::Expr(subst_const_expr(e, ctx)),
     };
     Stmt { kind, span: s.span }
@@ -2080,6 +2102,8 @@ fn rename_in_stmt(s: &mut Stmt, rules: &HashMap<Symbol, Symbol>) {
             }
             rename_in_expr(value, rules);
         }
+        StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => rename_in_expr(value, rules),
         StmtKind::Expr(e) => rename_in_expr(e, rules),
     }
 }

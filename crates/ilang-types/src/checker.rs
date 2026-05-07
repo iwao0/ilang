@@ -1882,6 +1882,74 @@ impl TypeChecker {
                 env.insert(name.clone(), bind);
                 Ok(Type::Unit)
             }
+            StmtKind::LetTuple { elems, value } => {
+                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                let tys = match &vt {
+                    Type::Tuple(ts) => ts,
+                    _ => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Tuple(Box::new([])),
+                            got: vt.clone(),
+                            span: value.span,
+                        });
+                    }
+                };
+                if tys.len() != elems.len() {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "tuple destructure expects {} slots, got {}",
+                            tys.len(),
+                            elems.len()
+                        ),
+                        span: stmt.span,
+                    });
+                }
+                for (slot, t) in elems.iter().zip(tys.iter()) {
+                    if let Some(name) = slot {
+                        env.insert(name.clone(), t.clone());
+                    }
+                }
+                Ok(Type::Unit)
+            }
+            StmtKind::LetStruct { class, fields, value } => {
+                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                let (vname, vargs) = match &vt {
+                    Type::Object(name) => (*name, Vec::<Type>::new()),
+                    Type::Generic(g) => (g.base, g.args.to_vec()),
+                    _ => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::Object(*class),
+                            got: vt.clone(),
+                            span: value.span,
+                        });
+                    }
+                };
+                if vname != *class {
+                    return Err(TypeError::Mismatch {
+                        expected: Type::Object(*class),
+                        got: vt.clone(),
+                        span: value.span,
+                    });
+                }
+                let cls = self.classes.get(class).ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: (*class).into(),
+                        span: stmt.span,
+                    }
+                })?;
+                for f in fields.iter() {
+                    let raw = cls.fields.get(f).cloned().ok_or_else(|| {
+                        TypeError::UnknownField {
+                            class: (*class).into(),
+                            field: *f,
+                            span: stmt.span,
+                        }
+                    })?;
+                    let ty = subst_type(&raw, &cls.type_params, &vargs);
+                    env.insert(f.clone(), ty);
+                }
+                Ok(Type::Unit)
+            }
             StmtKind::Expr(e) => self.check_expr(e, env, ret_ty, in_class, loop_depth),
         }
     }
@@ -4331,7 +4399,9 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 fn walk_block_children(b: &ilang_ast::Block, f: &mut dyn FnMut(&Expr)) {
     for s in &b.stmts {
         match &s.kind {
-            StmtKind::Let { value, .. } => f(value),
+            StmtKind::Let { value, .. }
+            | StmtKind::LetTuple { value, .. }
+            | StmtKind::LetStruct { value, .. } => f(value),
             StmtKind::Expr(e) => f(e),
         }
     }
@@ -5112,7 +5182,9 @@ fn collect_this_field_assignments(b: &ilang_ast::Block, out: &mut HashSet<Symbol
 
 fn collect_in_stmt(s: &ilang_ast::Stmt, out: &mut HashSet<Symbol>) {
     match &s.kind {
-        ilang_ast::StmtKind::Let { value, .. } => collect_in_expr(value, out),
+        ilang_ast::StmtKind::Let { value, .. }
+        | ilang_ast::StmtKind::LetTuple { value, .. }
+        | ilang_ast::StmtKind::LetStruct { value, .. } => collect_in_expr(value, out),
         ilang_ast::StmtKind::Expr(e) => collect_in_expr(e, out),
     }
 }
@@ -5190,6 +5262,20 @@ fn collect_fn_expr_free_vars(
             ilang_ast::StmtKind::Let { name, value, .. } => {
                 cfev_expr(value, bound, frees, seen);
                 bound.insert(name.clone());
+            }
+            ilang_ast::StmtKind::LetTuple { elems, value } => {
+                cfev_expr(value, bound, frees, seen);
+                for slot in elems.iter() {
+                    if let Some(n) = slot {
+                        bound.insert(n.clone());
+                    }
+                }
+            }
+            ilang_ast::StmtKind::LetStruct { fields, value, .. } => {
+                cfev_expr(value, bound, frees, seen);
+                for f in fields.iter() {
+                    bound.insert(f.clone());
+                }
             }
             ilang_ast::StmtKind::Expr(e) => cfev_expr(e, bound, frees, seen),
         }
