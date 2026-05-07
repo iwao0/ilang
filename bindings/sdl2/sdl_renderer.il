@@ -78,16 +78,16 @@ enum RendererFlip: i32 {
     struct Vertex {
         position: sdl.FPoint
         color: Color
-        tex_coord: sdl.FPoint
+        texCoord: sdl.FPoint
     }
     /// `SDL_RendererInfo` — driver / capability data.
     struct SDL_RendererInfo {
         name: *const char
         flags: u32
-        num_texture_formats: u32
-        texture_formats: u32[16]
-        max_texture_width: i32
-        max_texture_height: i32
+        numTextureFormats: u32
+        textureFormats: u32[16]
+        maxTextureWidth: i32
+        maxTextureHeight: i32
     }
 
     // ─── driver / renderer lifecycle ──────────────────────────────
@@ -372,9 +372,9 @@ enum RendererFlip: i32 {
     class RendererInfo {
         name: string
         flags: u32
-        texture_formats: u32[]
-        max_texture_width: i32
-        max_texture_height: i32
+        textureFormats: u32[]
+        maxTextureWidth: i32
+        maxTextureHeight: i32
     }
 
     /// Driver info at `index` (0..numDrivers).
@@ -384,16 +384,16 @@ enum RendererFlip: i32 {
         let info = new RendererInfo()
         info.name = stringFromCstr(raw.name)
         info.flags = raw.flags
-        info.max_texture_width = raw.max_texture_width
-        info.max_texture_height = raw.max_texture_height
-        let n: i64 = raw.num_texture_formats as i64
+        info.maxTextureWidth = raw.maxTextureWidth
+        info.maxTextureHeight = raw.maxTextureHeight
+        let n: i64 = raw.numTextureFormats as i64
         let fmts: u32[] = []
         let i: i64 = 0
         while i < n {
-            fmts.push(raw.texture_formats[i])
+            fmts.push(raw.textureFormats[i])
             i += 1
         }
-        info.texture_formats = fmts
+        info.textureFormats = fmts
         info
     }
 
@@ -451,16 +451,16 @@ enum RendererFlip: i32 {
             let info = new RendererInfo()
             info.name = stringFromCstr(raw.name)
             info.flags = raw.flags
-            info.max_texture_width = raw.max_texture_width
-            info.max_texture_height = raw.max_texture_height
-            let n: i64 = raw.num_texture_formats as i64
+            info.maxTextureWidth = raw.maxTextureWidth
+            info.maxTextureHeight = raw.maxTextureHeight
+            let n: i64 = raw.numTextureFormats as i64
             let fmts: u32[] = []
             let i: i64 = 0
             while i < n {
-                fmts.push(raw.texture_formats[i])
+                fmts.push(raw.textureFormats[i])
                 i += 1
             }
-            info.texture_formats = fmts
+            info.textureFormats = fmts
             info
         }
 
@@ -1137,33 +1137,33 @@ enum RendererFlip: i32 {
         /// Pointer to the glyph atlas texture cast to `i64`.
         atlas: i64
         /// Glyph cell width in source pixels (`5`).
-        cell_w: i32
+        cellW: i32
         /// Glyph cell height in source pixels (`7`).
-        cell_h: i32
+        cellH: i32
         /// Number of glyphs packed into the atlas.
-        cell_count: i32
+        cellCount: i32
 
         /// Build the atlas texture against `renderer`. The atlas is
         /// freed when the `Font` is dropped.
         init(renderer: Renderer) {
             let glyphs = font_glyphs()
-            this.cell_w = 5
-            this.cell_h = 7
-            this.cell_count = glyphs.length as i32
-            let atlas_w = this.cell_count * this.cell_w
+            this.cellW = 5
+            this.cellH = 7
+            this.cellCount = glyphs.length as i32
+            let atlas_w = this.cellCount * this.cellW
             // Build the atlas pixel buffer: row-major RGBA8. Each
             // glyph occupies a 5×7 cell laid out left-to-right.
             let pixels: u8[] = []
             let y: i32 = 0
-            while y < this.cell_h {
+            while y < this.cellH {
                 let x: i32 = 0
                 while x < atlas_w {
-                    let glyph_idx = x / this.cell_w
-                    let col = x - glyph_idx * this.cell_w
+                    let glyph_idx = x / this.cellW
+                    let col = x - glyph_idx * this.cellW
                     // Bit position inside the glyph: top-left first,
-                    // 5 bits per row, 7 rows. MSB → bit (cell_w-1).
-                    let bit_pos = (this.cell_h - 1 - y) * this.cell_w
-                                + (this.cell_w - 1 - col)
+                    // 5 bits per row, 7 rows. MSB → bit (cellW-1).
+                    let bit_pos = (this.cellH - 1 - y) * this.cellW
+                                + (this.cellW - 1 - col)
                     let bit = (glyphs[glyph_idx] >> (bit_pos as i64)) & 1
                     if bit != 0 {
                         pixels.push(255)
@@ -1184,7 +1184,7 @@ enum RendererFlip: i32 {
             this.atlas = SDL_CreateTexture(
                 renderer.handle as *SDL_Renderer,
                 0x16762004 as u32, 1,
-                atlas_w, this.cell_h
+                atlas_w, this.cellH
             ) as i64
             if this.atlas != 0 {
                 SDL_SetTextureBlendMode(this.atlas as *SDL_Texture, 1)
@@ -1224,22 +1224,22 @@ enum RendererFlip: i32 {
                 let idx = font_char_index(ch)
                 if idx >= 0 {
                     let src = new sdl.Rect()
-                    src.x = idx * this.cell_w
+                    src.x = idx * this.cellW
                     src.y = 0
-                    src.w = this.cell_w
-                    src.h = this.cell_h
+                    src.w = this.cellW
+                    src.h = this.cellH
                     let dst = new sdl.Rect()
                     dst.x = cursor
                     dst.y = y
-                    dst.w = this.cell_w * scale
-                    dst.h = this.cell_h * scale
+                    dst.w = this.cellW * scale
+                    dst.h = this.cellH * scale
                     SDL_RenderCopy(
                         ren.handle as *SDL_Renderer,
                         this.atlas as *SDL_Texture,
                         src, dst
                     )
                 }
-                cursor += (this.cell_w + 1) * scale
+                cursor += (this.cellW + 1) * scale
                 i += 1
             }
         }

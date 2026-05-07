@@ -5,7 +5,7 @@
 // function pointer and aren't exposed.
 
 /// SDL_EventType — subset covering the common cases. Stored in
-/// `Event.event_type` so callers can dispatch on `pollEvent`.
+/// `Event.eventType` so callers can dispatch on `pollEvent`.
 enum EventType: u32 {
     firstEvent              = 0
     quit                    = 0x100
@@ -91,21 +91,21 @@ enum EventState: i32 {
     /// size varies by SDL version (56 B in 2.0.x, up to ~88 B in
     /// newer releases). We pad to 88 bytes so SDL never writes past
     /// the end. Every sub-event lays its `Uint32 type` at offset 0,
-    /// so reading `event_type` is enough for "what kind of event".
+    /// so reading `eventType` is enough for "what kind of event".
     struct Event {
         /// Discriminant — matches an `EventType` variant.
-        event_type: u32
+        eventType: u32
         _pad: u8[84]
     }
 
     @lib("SDL2") fn SDL_PumpEvents()
     @lib("SDL2") fn SDL_PollEvent(event: *Event): i32
     @lib("SDL2") fn SDL_PushEvent(event: *Event): i32
-    @lib("SDL2") fn SDL_HasEvent(event_type: u32): i32
+    @lib("SDL2") fn SDL_HasEvent(eventType: u32): i32
     @lib("SDL2") fn SDL_HasEvents(min_type: u32, max_type: u32): i32
-    @lib("SDL2") fn SDL_FlushEvent(event_type: u32)
+    @lib("SDL2") fn SDL_FlushEvent(eventType: u32)
     @lib("SDL2") fn SDL_FlushEvents(min_type: u32, max_type: u32)
-    @lib("SDL2") fn SDL_EventState(event_type: u32, state: i32): u8
+    @lib("SDL2") fn SDL_EventState(eventType: u32, state: i32): u8
     // SDL_GetEventState is a macro in SDL_events.h
     // (`#define SDL_GetEventState(t) SDL_EventState(t, SDL_QUERY)`),
     // not a real symbol — wrap via SDL_EventState below.
@@ -215,13 +215,13 @@ enum EventState: i32 {
     }
 
     /// Args:
-    ///   event_type — variant to look for.
+    ///   eventType — variant to look for.
     ///
     /// Returns:
     ///   true iff at least one event of that type is pending.
     ///   Doesn't remove it from the queue.
-    fn hasEvent(event_type: EventType): bool {
-        SDL_HasEvent(event_type as u32) != 0
+    fn hasEvent(eventType: EventType): bool {
+        SDL_HasEvent(eventType as u32) != 0
     }
 
     /// Range version of `hasEvent`.
@@ -234,8 +234,8 @@ enum EventState: i32 {
     }
 
     /// Discard every queued event of the given type.
-    fn flushEvent(event_type: EventType) {
-        SDL_FlushEvent(event_type as u32)
+    fn flushEvent(eventType: EventType) {
+        SDL_FlushEvent(eventType as u32)
     }
 
     /// Range version of `flushEvent`.
@@ -250,7 +250,7 @@ enum EventState: i32 {
     ///
     /// Returns:
     ///   true if `event` was populated, false if the queue was
-    ///   empty. Caller looks at `event.event_type` to dispatch.
+    ///   empty. Caller looks at `event.eventType` to dispatch.
     fn pollEvent(event: Event): bool {
         SDL_PollEvent(event) != 0
     }
@@ -258,7 +258,7 @@ enum EventState: i32 {
     /// Push a synthetic event onto the queue.
     ///
     /// Args:
-    ///   event — fully-populated event (set `event.event_type`).
+    ///   event — fully-populated event (set `event.eventType`).
     ///
     /// Returns:
     ///   `1` on success, `0` if the event was filtered, `< 0` on
@@ -270,24 +270,24 @@ enum EventState: i32 {
     /// Toggle delivery / query of an event class.
     ///
     /// Args:
-    ///   event_type — class to control.
+    ///   eventType — class to control.
     ///   state      — `enable`, `ignore`, or `query`.
     ///
     /// Returns:
     ///   previous state for that class.
-    fn eventState(event_type: EventType, state: EventState): u8 {
-        SDL_EventState(event_type as u32, state as i32)
+    fn eventState(eventType: EventType, state: EventState): u8 {
+        SDL_EventState(eventType as u32, state as i32)
     }
 
     /// Read the current delivery state for an event class.
     ///
     /// Args:
-    ///   event_type — class to query.
+    ///   eventType — class to query.
     ///
     /// Returns:
     ///   current state (`0` = ignored, `1` = enabled).
-    fn getEventState(event_type: EventType): u8 {
-        SDL_EventState(event_type as u32, EventState.query as i32)
+    fn getEventState(eventType: EventType): u8 {
+        SDL_EventState(eventType as u32, EventState.query as i32)
     }
 
     /// True if the user clicked the window close button (or asked

@@ -152,7 +152,7 @@ enum GLProfile: i32 {
         format: u32
         w: i32
         h: i32
-        refresh_rate: i32
+        refreshRate: i32
         driverdata: i64
     }
 
@@ -304,7 +304,7 @@ enum GLProfile: i32 {
         format: u32
         w: i32
         h: i32
-        refresh_rate: i32
+        refreshRate: i32
     }
 
     /// DPI triple — diagonal / horizontal / vertical dots-per-inch.
@@ -641,7 +641,7 @@ enum GLProfile: i32 {
             m.format = raw.format
             m.w = raw.w
             m.h = raw.h
-            m.refresh_rate = raw.refresh_rate
+            m.refreshRate = raw.refreshRate
             m
         }
     }
@@ -715,7 +715,7 @@ enum GLProfile: i32 {
         m.format = raw.format
         m.w = raw.w
         m.h = raw.h
-        m.refresh_rate = raw.refresh_rate
+        m.refreshRate = raw.refreshRate
         m
     }
 
@@ -727,7 +727,7 @@ enum GLProfile: i32 {
         m.format = raw.format
         m.w = raw.w
         m.h = raw.h
-        m.refresh_rate = raw.refresh_rate
+        m.refreshRate = raw.refreshRate
         m
     }
 
@@ -740,7 +740,7 @@ enum GLProfile: i32 {
         m.format = raw.format
         m.w = raw.w
         m.h = raw.h
-        m.refresh_rate = raw.refresh_rate
+        m.refreshRate = raw.refreshRate
         m
     }
 
