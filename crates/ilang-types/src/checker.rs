@@ -1385,6 +1385,57 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Verify every "no safe default" field of `c` is assigned in
+    /// each of its `init` overloads. Fields that have a usable
+    /// runtime default (`0` / `false` / `none` / `""` / `[]` /
+    /// empty `Map` / dead `weak`) skip the check; everything else
+    /// (Object / Fn / Tuple — types whose zero bytes are unsafe
+    /// to read) needs an explicit `this.field = ...` along the
+    /// path.
+    fn check_init_field_coverage(&self, c: &ClassDecl) -> Result<(), TypeError> {
+        let required: Vec<&FieldDecl> = c
+            .fields
+            .iter()
+            .filter(|f| !type_has_safe_default(&f.ty))
+            .collect();
+        if required.is_empty() {
+            return Ok(());
+        }
+        let inits: Vec<&FnDecl> =
+            c.methods.iter().filter(|m| m.name == "init").collect();
+        if inits.is_empty() {
+            // No init at all — readable shorthand for the user-
+            // facing error: point at the first uncovered field.
+            let f = required[0];
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "class {:?} field {:?} of type {} has no safe default — \
+                     declare an `init` that assigns `this.{}` (or use `{}?`)",
+                    c.name, f.name, f.ty, f.name, f.ty
+                ),
+                span: f.span,
+            });
+        }
+        for init in &inits {
+            let mut assigned: HashSet<Symbol> = HashSet::new();
+            collect_this_field_assignments(&init.body, &mut assigned);
+            for f in &required {
+                if !assigned.contains(&f.name) {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "class {:?} init: field `{}` of type {} has no \
+                             safe default and is not assigned by this init \
+                             (set `this.{} = ...` or wrap the field as `{}?`)",
+                            c.name, f.name, f.ty, f.name, f.ty
+                        ),
+                        span: init.span,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
         for FieldDecl { ty, span, .. } in &c.fields {
             self.validate_type(ty, *span, &c.type_params)?;
@@ -1547,6 +1598,15 @@ impl TypeChecker {
                 return Err(TypeError::BadDeinitSignature { span: m.span });
             }
             self.check_fn(m, Some(c.name))?;
+        }
+        // Init coverage: every field whose type has no safe runtime
+        // default (Object / Fn / Tuple — anything not auto-zeroable
+        // to a usable value) must be assigned by the class's own
+        // `init`. Inherited fields are the parent's responsibility
+        // and are reached via `super(...)`. Skipped for `@extern(C)`
+        // / opaque-extern classes which don't go through ilang init.
+        if c.extern_lib.is_none() && !c.is_repr_c {
+            self.check_init_field_coverage(c)?;
         }
         for prop in &c.properties {
             self.validate_type(&prop.ty, prop.span, &c.type_params)?;
@@ -5002,6 +5062,69 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
         variants,
         flags: e.flags,
     }
+}
+
+/// True iff a runtime can synthesize a usable blank value for `t`
+/// without user-supplied initializer. Numerics / `bool` zero-init,
+/// `T?` is `none`, `string` is `""`, `T[]` is `[]`, `Map<K, V>` is
+/// empty, `T.weak` starts dead, fixed-length arrays default per
+/// element. `Object` / `Fn` / `Tuple` / `T[N]`-of-Objects have no
+/// safe shape and need explicit init.
+fn type_has_safe_default(t: &Type) -> bool {
+    use Type as T;
+    match t {
+        T::I8 | T::I16 | T::I32 | T::I64
+        | T::U8 | T::U16 | T::U32 | T::U64
+        | T::F32 | T::F64
+        | T::Bool
+        | T::Str
+        | T::Unit
+        | T::Optional(_)
+        | T::Weak(_)
+        | T::Size | T::SSize
+        | T::CChar | T::CVoid
+        | T::RawPtr { .. } => true,
+        // Dynamic `T[]` always defaults to an empty array — the
+        // element type only matters at access time, not at
+        // construction.
+        T::Array { fixed: None, .. } => true,
+        // Fixed-length `T[N]` zero-fills element-by-element, so
+        // every element must itself have a safe default.
+        T::Array { elem, fixed: Some(_) } => type_has_safe_default(elem),
+        // Object / Generic class / Map / Fn / Tuple / Enum: no
+        // safe blank in v1. Wrap in `T?` to opt in to `none`.
+        _ => false,
+    }
+}
+
+/// Walk a block recursively and collect every `this.<field> = <expr>`
+/// assignment's field name. Used by init-coverage analysis. Doesn't
+/// model control flow — any assignment along ANY path counts as
+/// covered (matches the spirit of "user knows what they're doing").
+fn collect_this_field_assignments(b: &ilang_ast::Block, out: &mut HashSet<Symbol>) {
+    for s in &b.stmts {
+        collect_in_stmt(s, out);
+    }
+    if let Some(t) = &b.tail {
+        collect_in_expr(t, out);
+    }
+}
+
+fn collect_in_stmt(s: &ilang_ast::Stmt, out: &mut HashSet<Symbol>) {
+    match &s.kind {
+        ilang_ast::StmtKind::Let { value, .. } => collect_in_expr(value, out),
+        ilang_ast::StmtKind::Expr(e) => collect_in_expr(e, out),
+    }
+}
+
+fn collect_in_expr(e: &ilang_ast::Expr, out: &mut HashSet<Symbol>) {
+    use ilang_ast::ExprKind as K;
+    if let K::AssignField { obj, field, .. } = &e.kind {
+        if matches!(obj.kind, K::This) {
+            out.insert(*field);
+        }
+    }
+    walk_children(e, &mut |c| collect_in_expr(c, out));
 }
 
 fn is_result_type(t: &Type) -> bool {

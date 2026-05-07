@@ -277,6 +277,10 @@ pub(crate) struct LowerCtx<'a> {
     pub u64_to_string: FuncId,
     pub f64_to_string: FuncId,
     pub bool_to_string: FuncId,
+    /// Per-element-type cache of saturated empty `T[]` headers used
+    /// to default-initialise `T[]` class fields at `new` time.
+    pub default_empty_arrays:
+        &'a mut std::collections::HashMap<JitTy, i64>,
     /// Per-tuple-kind drop wrapper, lazily declared during lowering.
     /// `None` means no element is heap so no drop is needed.
     pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,

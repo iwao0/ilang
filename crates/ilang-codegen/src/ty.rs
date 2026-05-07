@@ -11,7 +11,7 @@ use std::collections::HashMap as StdHashMap;
 
 use crate::error::CodegenError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum JitTy {
     I8,
     I16,

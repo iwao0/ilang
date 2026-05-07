@@ -558,6 +558,12 @@ pub(crate) struct JitCompiler {
     /// types.
     pub(crate) closure_ast_captures:
         std::collections::HashMap<Symbol, Vec<(Symbol, ilang_ast::Type)>>,
+    /// Per-element-type saturated empty `T[]` ArrayHeader used to
+    /// default-initialise `T[]` class fields at `new`. Saturated
+    /// rc so later overwrites in init don't free our shared empty.
+    /// Lazily filled as `new` lowering encounters new element types.
+    pub(crate) default_empty_arrays:
+        std::collections::HashMap<crate::ty::JitTy, i64>,
     /// RTTI: stable storage for `TypeMeta` records returned by
     /// `typeof(x): Type`. Indices are looked up via the address-only
     /// helpers below.
@@ -1368,6 +1374,7 @@ impl JitCompiler {
             closure_trampolines: std::collections::HashMap::new(),
             closure_drops: std::collections::HashMap::new(),
             closure_ast_captures: std::collections::HashMap::new(),
+            default_empty_arrays: std::collections::HashMap::new(),
             type_metas: Vec::new(),
             class_type_meta_addrs: Vec::new(),
             enum_type_meta_addrs: Vec::new(),
@@ -2144,6 +2151,7 @@ impl JitCompiler {
             u64_to_string: self.u64_to_string,
             f64_to_string: self.f64_to_string,
             bool_to_string: self.bool_to_string,
+            default_empty_arrays: &mut self.default_empty_arrays,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2359,6 +2367,7 @@ impl JitCompiler {
             u64_to_string: self.u64_to_string,
             f64_to_string: self.f64_to_string,
             bool_to_string: self.bool_to_string,
+            default_empty_arrays: &mut self.default_empty_arrays,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,

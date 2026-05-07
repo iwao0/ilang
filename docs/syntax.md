@@ -516,6 +516,28 @@ c.count                                 // field read
 - Multiple class members on the same line aren't allowed (ASI
   doesn't fire — you need a newline or `;`).
 
+#### Field defaults / required init assignment
+
+Fields whose runtime representation has a usable blank value are
+auto-zero-initialised at `new` and don't need to appear in
+`init`:
+
+| Field type | Default |
+| --- | --- |
+| `i8`..`u64`, `f32`, `f64` | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| `T?` | `none` |
+| `T[]` (dynamic) | `[]` |
+| `T[N]` (fixed) | element-wise default |
+| `T.weak` | dead weak |
+
+Other heap fields (`Object` references, `Map<K, V>`, function
+values, tuples) have no safe blank — every `init` overload **must
+assign** them, otherwise the class declaration fails to type-check
+with a clear error. Wrapping such a field in `T?` opts in to a
+`none` default.
+
 ### Generic classes
 
 ```rust

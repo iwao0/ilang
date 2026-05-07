@@ -2252,24 +2252,38 @@ pub(crate) fn lower_expr(
             let alloc_call =
                 b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, vtable_ptr]);
             let ptr = b.inst_results(alloc_call)[0];
-            // `@extern(C) struct` `str` fields: alloc_object zero-fills user
-            // bytes, but a NULL StringRc would crash on any read
-            // (length, concat, etc.). Pre-fill each Str slot with an
-            // interned empty string (rc saturated → release is a
-            // no-op, so no leak from later overwrites or class drop).
-            if lc.class_layouts[class_id as usize].is_repr_c {
-                let str_offsets: Vec<u32> = lc.class_layouts[class_id as usize]
-                    .fields
-                    .values()
-                    .filter_map(|(off, jty)| matches!(jty, JitTy::Str).then_some(*off))
-                    .collect();
-                if !str_offsets.is_empty() {
-                    let empty = lc.intern_string("");
-                    let empty_v = b.ins().iconst(I64, empty);
-                    for off in str_offsets {
-                        b.ins().store(MemFlags::trusted(), empty_v, ptr, off as i32);
+            // Default-initialise heap fields whose runtime
+            // representation isn't safe to read as zero bytes:
+            //   - `str`  → saturated empty StringRc (NULL would
+            //              crash any length / concat read)
+            //   - `T[]`  → saturated empty ArrayHeader (NULL ptr
+            //              segfaults `arr.length` etc.)
+            // The init body's later assignment naturally retains
+            // the new value and releases the old one; saturation
+            // makes that release a no-op so no double-free.
+            // Other heap fields (Object / Map / Tuple / Fn) need
+            // explicit init assignment — the type checker enforces
+            // it via `check_init_field_coverage`.
+            let prefill: Vec<(u32, JitTy)> = lc.class_layouts[class_id as usize]
+                .fields
+                .values()
+                .filter_map(|(off, jty)| match jty {
+                    JitTy::Str => Some((*off, JitTy::Str)),
+                    JitTy::Array(_) => Some((*off, *jty)),
+                    _ => None,
+                })
+                .collect();
+            for (off, jty) in prefill {
+                let val = match jty {
+                    JitTy::Str => lc.intern_string(""),
+                    JitTy::Array(arr_id) => {
+                        let elem = lc.array_kinds[arr_id as usize].elem;
+                        default_empty_array_addr(lc, elem)
                     }
-                }
+                    _ => unreachable!(),
+                };
+                let val_v = b.ins().iconst(I64, val);
+                b.ins().store(MemFlags::trusted(), val_v, ptr, off as i32);
             }
             // FAM consumed its single arg above; otherwise dispatch
             // to init / reject stray args.
@@ -5366,6 +5380,26 @@ fn lower_typeof(
     }
     let meta = b.ins().iconst(I64, meta_addr);
     Ok((meta, JitTy::TypeRef))
+}
+
+/// Get-or-allocate a saturated empty `T[]` ArrayHeader for the
+/// given element type. Cached on `lc.default_empty_arrays` so
+/// every `T[]` class field of the same element type shares one
+/// (never-freed) allocation.
+fn default_empty_array_addr(lc: &mut LowerCtx, elem: JitTy) -> i64 {
+    if let Some(&p) = lc.default_empty_arrays.get(&elem) {
+        return p;
+    }
+    let elem_size = elem.size_bytes() as i64;
+    let arr = crate::runtime::ilang_jit_array_new(elem_size, 0, 0);
+    if arr != 0 {
+        unsafe {
+            let header = arr as *mut crate::runtime::ArrayHeader;
+            (*header).rc = crate::runtime::ARRAY_RC_SATURATED;
+        }
+    }
+    lc.default_empty_arrays.insert(elem, arr);
+    arr
 }
 
 fn intern_array_kind_u8(lc: &mut LowerCtx) -> u32 {
