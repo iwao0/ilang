@@ -510,6 +510,26 @@ impl TypeChecker {
         false
     }
 
+    /// Like `is_subclass` but returns the inheritance distance
+    /// (0 for the same class, 1 for direct parent, etc.) when
+    /// the relation holds. Used by the overload resolver so
+    /// `f(B)` outranks `f(A)` when called with a `C: B: A`.
+    fn subclass_distance(&self, child: Symbol, parent: Symbol) -> Option<u32> {
+        if child == parent {
+            return Some(0);
+        }
+        let mut cur = self.classes.get(&child).and_then(|c| c.parent);
+        let mut depth: u32 = 1;
+        while let Some(name) = cur {
+            if name == parent {
+                return Some(depth);
+            }
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+            depth += 1;
+        }
+        None
+    }
+
     /// The nearest common ancestor of two classes — the type used
     /// when joining branches (`if`/`else`, `match` arms) where each
     /// arm produces a different subclass. Returns `None` when there
@@ -2448,7 +2468,14 @@ impl TypeChecker {
                     for a in args {
                         arg_tys.push(self.check_expr(a, env, ret_ty, in_class, loop_depth)?);
                     }
-                    let chosen = resolve_overload(*callee, &sigs, &arg_tys, args, span)?;
+                    let chosen = resolve_overload(
+                        *callee,
+                        &sigs,
+                        &arg_tys,
+                        args,
+                        span,
+                        &|c, p| self.subclass_distance(c, p),
+                    )?;
                     let chosen_sig = sigs[chosen].clone();
                     self.fn_overload_pick
                         .borrow_mut()
@@ -4312,7 +4339,14 @@ impl TypeChecker {
         for a in args {
             arg_tys.push(self.check_expr(a, env, ret_ty, in_class, loop_depth)?);
         }
-        let chosen = resolve_overload(method, sigs, &arg_tys, args, span)?;
+        let chosen = resolve_overload(
+            method,
+            sigs,
+            &arg_tys,
+            args,
+            span,
+            &|c, p| self.subclass_distance(c, p),
+        )?;
         let cs = sigs[chosen].clone();
         self.method_overload_pick
             .borrow_mut()
@@ -4814,7 +4848,19 @@ fn walk_block_children(b: &ilang_ast::Block, f: &mut dyn FnMut(&Expr)) {
 /// Score how well an actual arg type fits a parameter type. `None`
 /// means the conversion isn't allowed at all; lower numbers mean a
 /// closer match. Used to rank overloads when multiple are viable.
-fn score_arg(arg: &Expr, arg_ty: &Type, param_ty: &Type) -> Option<u32> {
+fn score_arg<F>(
+    arg: &Expr,
+    arg_ty: &Type,
+    param_ty: &Type,
+    is_sub: &F,
+) -> Option<u32>
+where
+    // `is_sub(child, ancestor)` returns the inheritance distance
+    // (0 for same class, n for n steps up the parent chain) when
+    // the relation holds; `None` when unrelated. Lets the
+    // overload-resolver weight closer parents above further ones.
+    F: Fn(Symbol, Symbol) -> Option<u32>,
+{
     if arg_ty == param_ty {
         return Some(0);
     }
@@ -4839,9 +4885,19 @@ fn score_arg(arg: &Expr, arg_ty: &Type, param_ty: &Type) -> Option<u32> {
     if matches!((arg_ty, param_ty), (Type::F32, Type::F64) | (Type::F64, Type::F32)) {
         return Some(1);
     }
+    // Class subtype upcast: `B` flowing into a parameter typed
+    // `A` where `B extends A`. Cost rises with inheritance
+    // distance so a closer parent outranks a further one
+    // (a `f(B)` overload beats `f(A)` when the arg is a `C`
+    // deriving through B → A).
+    if let (Type::Object(c), Type::Object(p)) = (arg_ty, param_ty) {
+        if let Some(d) = is_sub(*c, *p) {
+            return Some(5 + d);
+        }
+    }
     // T → T? auto-wrap.
     if let Type::Optional(inner) = param_ty {
-        if let Some(inner_score) = score_arg(arg, arg_ty, inner) {
+        if let Some(inner_score) = score_arg(arg, arg_ty, inner, is_sub) {
             return Some(inner_score + 3);
         }
     }
@@ -4864,13 +4920,17 @@ fn score_arg(arg: &Expr, arg_ty: &Type, param_ty: &Type) -> Option<u32> {
 /// Pick the best matching overload from `sigs`. Returns the index of
 /// the chosen signature, or a TypeError if none is viable / multiple
 /// tie for best score.
-fn resolve_overload(
+fn resolve_overload<F>(
     name: Symbol,
     sigs: &[Signature],
     arg_tys: &[Type],
     args: &[Expr],
     span: Span,
-) -> Result<usize, TypeError> {
+    is_sub: &F,
+) -> Result<usize, TypeError>
+where
+    F: Fn(Symbol, Symbol) -> Option<u32>,
+{
     // Variadic built-ins live in this slot too — accept the first that
     // matches arity (which for variadics means "any arg count").
     let mut viable: Vec<(usize, u32)> = Vec::new();
@@ -4902,7 +4962,7 @@ fn resolve_overload(
         let mut total = 0u32;
         let mut all_ok = true;
         for ((expected, actual), arg) in sig.params.iter().zip(arg_tys.iter()).zip(args.iter()) {
-            match score_arg(arg, actual, expected) {
+            match score_arg(arg, actual, expected, is_sub) {
                 Some(s) => total += s,
                 None => {
                     all_ok = false;
