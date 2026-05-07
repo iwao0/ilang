@@ -2055,6 +2055,18 @@ fn build_doc(
         }
     }
     let external_signatures = &external_signatures;
+    let mut consts: HashMap<AstSymbol, Type> = HashMap::new();
+    for item in &prog.items {
+        if let Item::Const(c) = item {
+            if let Some(t) = c
+                .ty
+                .clone()
+                .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+            {
+                consts.insert(c.name.clone(), t);
+            }
+        }
+    }
     let mut fn_returns: HashMap<AstSymbol, Type> = HashMap::new();
     for item in &prog.items {
         match item {
@@ -2097,6 +2109,7 @@ fn build_doc(
             refs: &mut refs,
             var_classes: &mut var_classes,
             var_types: &mut var_types,
+            consts: &consts,
         };
         for item in &prog.items {
             match item {
@@ -2725,6 +2738,12 @@ struct Walker<'a> {
     /// Variable-name → full type, used for completion on built-in
     /// receivers (`string`, `T[]`) where there's no class entry.
     var_types: &'a mut HashMap<AstSymbol, Type>,
+    /// Buffer-local `const NAME: T = …` types. The loader inlines
+    /// const references away in merged programs, but the buffer-side
+    /// walker still sees them as `Var(NAME)` and needs a way to
+    /// recover the const's static type for `let x = NAME`-style
+    /// bindings.
+    consts: &'a HashMap<AstSymbol, Type>,
 }
 
 impl<'a> Walker<'a> {
@@ -3521,6 +3540,15 @@ impl<'a> Walker<'a> {
     /// type and `MethodCall` to the resolved method's return type.
     fn infer_expr(&self, e: &Expr, scope: &[Binding]) -> Option<Type> {
         match &e.kind {
+            ExprKind::Var(name) => {
+                // Locals shadow consts — try scope first, then the
+                // module-level const map.
+                if let Some(b) = scope.iter().rev().find(|b| b.name == name.as_str())
+                {
+                    return b.ty.clone();
+                }
+                self.consts.get(name).cloned()
+            }
             ExprKind::Call { callee, .. } => self
                 .fn_returns
                 .get(callee)
