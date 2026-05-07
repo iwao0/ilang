@@ -1006,6 +1006,8 @@ impl<'a> Parser<'a> {
                 k,
                 TokenKind::Ident(_)
                     | TokenKind::Class
+                    | TokenKind::Enum
+                    | TokenKind::Fn
                     | TokenKind::None_
                     | TokenKind::Override
                     | TokenKind::True

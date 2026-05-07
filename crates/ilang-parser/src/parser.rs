@@ -88,9 +88,9 @@ impl<'a> Parser<'a> {
     /// variant after a C constant like `SDL_HINT_OVERRIDE`.
     ///
     /// The promoted set is the keywords most likely to appear as C
-    /// enum members: `class`, `none`, `override`, `true`, `false`,
-    /// `some`, `as`, `in`, `super`, `this`, `extends`, `return`.
-    /// (`static` already lexes as an ident.)
+    /// enum members: `class`, `enum`, `fn`, `none`, `override`,
+    /// `true`, `false`, `some`, `as`, `in`, `super`, `this`,
+    /// `extends`, `return`. (`static` already lexes as an ident.)
     pub(crate) fn expect_member_name(
         &mut self,
         label: &str,
@@ -103,6 +103,8 @@ impl<'a> Parser<'a> {
                 return Ok(s.into());
             }
             TokenKind::Class => Some("class"),
+            TokenKind::Enum => Some("enum"),
+            TokenKind::Fn => Some("fn"),
             TokenKind::None_ => Some("none"),
             TokenKind::Override => Some("override"),
             TokenKind::True => Some("true"),
