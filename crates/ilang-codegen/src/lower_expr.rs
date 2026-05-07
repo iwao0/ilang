@@ -768,6 +768,19 @@ pub(crate) fn lower_expr(
                     );
                     return Ok(Some((arr, JitTy::Array(array_id))));
                 }
+                if name == "typeArgs" {
+                    let arr = b.ins().load(
+                        I64,
+                        MemFlags::trusted(),
+                        obj_v,
+                        crate::runtime::TYPE_META_TYPE_ARGS_OFFSET,
+                    );
+                    let array_id = crate::ty::intern_array_kind(
+                        lc.array_kinds,
+                        crate::ty::ArrayKind { elem: JitTy::TypeRef, fixed: None },
+                    );
+                    return Ok(Some((arr, JitTy::Array(array_id))));
+                }
             }
             // Built-in Optional properties: `isSome` / `isNone`.
             // Optional values are nullable pointers (i64); compare to 0.

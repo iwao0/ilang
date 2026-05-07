@@ -454,6 +454,15 @@ impl Interpreter {
                         }
                         return Ok(Value::None);
                     }
+                    if name.as_str() == "typeArgs" {
+                        // The interpreter doesn't track per-value
+                        // generic arguments yet — Value::Enum /
+                        // Value::Object carry only base names — so
+                        // typeArgs is empty here. The JIT, which
+                        // monomorphises generics, returns the
+                        // concrete args.
+                        return Ok(Value::Array(Rc::new(RefCell::new(Vec::new()))));
+                    }
                     if name.as_str() == "fields" || name.as_str() == "methods" {
                         // Only classes expose declared field/method
                         // names. Non-class types yield an empty array.

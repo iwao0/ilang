@@ -2215,6 +2215,12 @@ impl TypeChecker {
                     if name == "fields" || name == "methods" {
                         return Ok(Type::Array { elem: Box::new(Type::Str), fixed: None });
                     }
+                    if name == "typeArgs" {
+                        return Ok(Type::Array {
+                            elem: Box::new(Type::Object("Type".into())),
+                            fixed: None,
+                        });
+                    }
                 }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(&class_name).ok_or_else(|| {

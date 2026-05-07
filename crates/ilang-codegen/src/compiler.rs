@@ -782,6 +782,39 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
     out
 }
 
+/// Parse the type-arg list out of a monomorphised name like
+/// `Result<i64, string>` or `Box<Result<i64, string>>`. Splits the
+/// inside of the outermost `<...>` on top-level commas (handles
+/// nested generics by tracking bracket depth). Returns an empty
+/// vec for non-generic names.
+fn parse_mangled_type_args(name: &str) -> Vec<String> {
+    let Some((_, rest)) = name.split_once('<') else {
+        return Vec::new();
+    };
+    let Some(inner) = rest.strip_suffix('>') else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0usize;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(inner[start..i].trim().to_string());
+                start = i + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let last = inner[start..].trim();
+    if !last.is_empty() {
+        out.push(last.to_string());
+    }
+    out
+}
+
 fn topo_sort_classes(classes: &[&ClassDecl]) -> Result<Vec<usize>, CodegenError> {
     use std::collections::HashSet;
     let mut name_to_idx = HashMap::with_capacity(classes.len());
@@ -2469,7 +2502,10 @@ impl JitCompiler {
     /// — `Vec` reallocations would invalidate them, so we reserve
     /// the final capacity up front.
     fn build_type_metas(&mut self, prog: &Program) {
-        use crate::runtime::{alloc_str_saturated, alloc_string_array_saturated, TypeMeta};
+        use crate::runtime::{
+            alloc_str_saturated, alloc_string_array_saturated,
+            alloc_typeref_array_saturated, TypeMeta,
+        };
         // Capture each user class's declared field/method names in
         // source order so `Type.fields` / `Type.methods` give a
         // stable, predictable listing. Inherited members are NOT
@@ -2534,6 +2570,7 @@ impl JitCompiler {
         // TypeMeta so reading `t.fields` / `t.methods` always yields
         // a non-null `string[]` (saving a per-entry allocation).
         let empty_strings = alloc_string_array_saturated(&[]);
+        let empty_typerefs = alloc_typeref_array_saturated(&[]);
         // Per-class entries — preserve class_id ordering so the
         // address vec lines up with `class_layouts`. Parent links
         // are filled in a second pass below (need every class's
@@ -2556,6 +2593,11 @@ impl JitCompiler {
                 parent: 0,
                 fields: fields_ptr,
                 methods: methods_ptr,
+                // Filled in once every per-type TypeMeta has a
+                // stable address (second pass below). Generic
+                // class instantiations like `Box<i64>` parse their
+                // type args from the mangled class name.
+                type_args: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             self.class_type_meta_addrs
@@ -2588,6 +2630,9 @@ impl JitCompiler {
                 parent: 0,
                 fields: empty_strings,
                 methods: empty_strings,
+                // Filled in below — generic enum instances need
+                // every TypeMeta address resolved first.
+                type_args: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             self.enum_type_meta_addrs
@@ -2603,11 +2648,62 @@ impl JitCompiler {
                 parent: 0,
                 fields: empty_strings,
                 methods: empty_strings,
+                type_args: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             let addr = &self.type_metas[idx] as *const TypeMeta as i64;
             self.prim_type_meta_addrs.insert(*name, addr);
         }
+
+        // Final pass: resolve `type_args` for monomorphised generic
+        // entries. The mangled name for `Box<i64>` /
+        // `Result<i64, string>` carries the args inline; parse and
+        // map each to its TypeMeta pointer.
+        let n_class = self.class_layouts.len();
+        let n_enum = self.enum_layouts.len();
+        for i in 0..n_class {
+            let raw = self.class_layouts[i].name.as_str().to_string();
+            let args = parse_mangled_type_args(&raw);
+            if args.is_empty() {
+                continue;
+            }
+            let metas: Vec<i64> = args
+                .iter()
+                .map(|a| self.lookup_type_meta_addr(a))
+                .collect();
+            self.type_metas[i].type_args = alloc_typeref_array_saturated(&metas);
+        }
+        for j in 0..n_enum {
+            let idx = n_class + j;
+            let raw = self.enum_layouts[j].name.as_str().to_string();
+            let args = parse_mangled_type_args(&raw);
+            if args.is_empty() {
+                continue;
+            }
+            let metas: Vec<i64> = args
+                .iter()
+                .map(|a| self.lookup_type_meta_addr(a))
+                .collect();
+            self.type_metas[idx].type_args = alloc_typeref_array_saturated(&metas);
+        }
+    }
+
+    /// Look up an argument-name's TypeMeta address. Falls back to
+    /// the fixed primitive table, then the class / enum tables.
+    /// Returns 0 (which renders as a null TypeRef on the JIT side)
+    /// when nothing matches — should never happen for a
+    /// well-formed monomorphised name.
+    fn lookup_type_meta_addr(&self, name: &str) -> i64 {
+        if let Some(&p) = self.prim_type_meta_addrs.get(name) {
+            return p;
+        }
+        if let Some(&id) = self.class_ids.get(&Symbol::intern(name)) {
+            return self.class_type_meta_addrs[id as usize];
+        }
+        if let Some(&id) = self.enum_ids.get(&Symbol::intern(name)) {
+            return self.enum_type_meta_addrs[id as usize];
+        }
+        0
     }
 
     fn run_main(&mut self, ret: JitTy) -> JitValue {
