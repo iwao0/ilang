@@ -61,6 +61,26 @@ struct ClassInfo {
     /// All `init` overload signatures in declaration order, used by
     /// signature help on `new ClassName(...)`.
     inits: Vec<MemberInfo>,
+    /// Decl keyword used in source (`class` / `struct` / `union`).
+    /// Drives hover phrasing for ARC classes vs `@extern(C)` structs.
+    kind: ClassKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClassKind {
+    Class,
+    Struct,
+    Union,
+}
+
+impl ClassKind {
+    fn keyword(self) -> &'static str {
+        match self {
+            ClassKind::Class => "class",
+            ClassKind::Struct => "struct",
+            ClassKind::Union => "union",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1522,6 +1542,12 @@ fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
                         | ExternCItem::Union { name, fields: fs, span, .. }
                             if name.as_str().contains('.') =>
                         {
+                            let kind = matches!(
+                                inner,
+                                ExternCItem::Struct { .. }
+                            )
+                                .then_some(ClassKind::Struct)
+                                .unwrap_or(ClassKind::Union);
                             let mut fields = HashMap::new();
                             for f in fs {
                                 fields.insert(
@@ -1549,6 +1575,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
                                     external: true,
                                     init_overloads: 0,
                                     inits: Vec::new(),
+                                    kind,
                                 },
                             );
                         }
@@ -1663,6 +1690,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
                 external: true,
                 init_overloads,
                 inits,
+                kind: ClassKind::Class,
             },
         );
     }
@@ -2215,6 +2243,7 @@ fn install_builtin_classes(out: &mut HashMap<AstSymbol, ClassInfo>) {
         external: true,
         init_overloads: 0,
                                     inits: Vec::new(),
+        kind: ClassKind::Class,
     });
 }
 
@@ -2234,6 +2263,12 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
                         // ClassInfo so `point.x` hovers / F12s.
                         ExternCItem::Struct { name, fields: fs, span, .. }
                         | ExternCItem::Union { name, fields: fs, span, .. } => {
+                            let kind = matches!(
+                                inner,
+                                ExternCItem::Struct { .. }
+                            )
+                                .then_some(ClassKind::Struct)
+                                .unwrap_or(ClassKind::Union);
                             let mut fields = HashMap::new();
                             for f in fs {
                                 fields.insert(
@@ -2261,6 +2296,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
                                     external: false,
                                     init_overloads: 0,
                                     inits: Vec::new(),
+                                    kind,
                                 },
                             );
                         }
@@ -2387,6 +2423,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
                     external: false,
                     init_overloads,
                     inits,
+                    kind: ClassKind::Class,
                 },
             );
         }
@@ -3411,7 +3448,7 @@ fn class_hover(class: &str, info: &ClassInfo) -> String {
         }
         out
     } else {
-        format!("class {class}")
+        format!("{} {class}", info.kind.keyword())
     }
 }
 
