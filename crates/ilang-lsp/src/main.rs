@@ -329,6 +329,15 @@ impl LanguageServer for Backend {
                 }),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
+                code_action_provider: Some(CodeActionProviderCapability::Options(
+                    CodeActionOptions {
+                        code_action_kinds: Some(vec![
+                            CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                        ]),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                        resolve_provider: Some(false),
+                    },
+                )),
                 ..ServerCapabilities::default()
             },
             server_info: Some(ServerInfo {
@@ -995,9 +1004,191 @@ impl LanguageServer for Backend {
         }))
     }
 
+    async fn code_action(
+        &self,
+        p: CodeActionParams,
+    ) -> LspResult<Option<CodeActionResponse>> {
+        let uri = p.text_document.uri;
+        // Only respond if `source.organizeImports` is among the
+        // requested action kinds (or no kinds were requested at all,
+        // which means the editor wants every action we can offer).
+        let want_organize = p
+            .context
+            .only
+            .as_ref()
+            .map(|kinds| {
+                kinds.iter().any(|k| {
+                    *k == CodeActionKind::SOURCE_ORGANIZE_IMPORTS
+                        || *k == CodeActionKind::SOURCE
+                })
+            })
+            .unwrap_or(true);
+        if !want_organize {
+            return Ok(None);
+        }
+        let docs = self.docs.lock().unwrap();
+        let Some(doc) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        let text = doc.text.clone();
+        drop(docs);
+        let Ok(tokens) = tokenize(&text) else {
+            return Ok(None);
+        };
+        let Ok(prog) = parse(&tokens) else {
+            return Ok(None);
+        };
+        let Some((start_byte, end_byte, new_text)) =
+            organize_imports(&text, &prog)
+        else {
+            return Ok(None);
+        };
+        let range = byte_range_to_lsp_range(&text, start_byte, end_byte);
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        changes.insert(
+            uri,
+            vec![TextEdit {
+                range,
+                new_text,
+            }],
+        );
+        let action = CodeAction {
+            title: "Organize imports".into(),
+            kind: Some(CodeActionKind::SOURCE_ORGANIZE_IMPORTS),
+            edit: Some(WorkspaceEdit {
+                changes: Some(changes),
+                document_changes: None,
+                change_annotations: None,
+            }),
+            diagnostics: None,
+            is_preferred: None,
+            disabled: None,
+            data: None,
+            command: None,
+        };
+        Ok(Some(vec![CodeActionOrCommand::CodeAction(action)]))
+    }
+
     async fn shutdown(&self) -> LspResult<()> {
         Ok(())
     }
+}
+
+/// Reorganise a file's leading `use` statements: sort by module
+/// (re-exports treated as a separate group), merge selective
+/// imports of the same module, dedupe whole-module imports, and
+/// emit one `use` per line. Returns `(start_byte, end_byte,
+/// replacement)` covering only the leading `use` block — items
+/// after the first non-`Use` are left alone.
+fn organize_imports(
+    text: &str,
+    prog: &Program,
+) -> Option<(usize, usize, String)> {
+    let mut uses: Vec<&ilang_ast::UseDecl> = Vec::new();
+    for item in &prog.items {
+        match item {
+            Item::Use(u) => uses.push(u),
+            _ => break,
+        }
+    }
+    if uses.is_empty() {
+        return None;
+    }
+    let line_starts = compute_line_starts(text);
+    let first_line = uses[0].span.line as usize;
+    let last_line = uses.last().unwrap().span.line as usize;
+    let first_byte = line_starts.get(first_line - 1).copied().unwrap_or(0);
+    let after_last = line_starts.get(last_line).copied().unwrap_or(text.len());
+    let original = &text[first_byte..after_last];
+    let canonical = render_uses(&uses);
+    if canonical == original {
+        return None;
+    }
+    Some((first_byte, after_last, canonical))
+}
+
+/// Build the canonical, sorted, deduped form of a list of
+/// `UseDecl`s. Whole-module and selective imports of the same
+/// module coexist on separate lines; selective names are sorted
+/// alphabetically; re-exports group with the same module but are
+/// emitted with the `@export ` prefix.
+fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut groups: BTreeMap<(String, bool), (bool, BTreeSet<String>)> = BTreeMap::new();
+    for u in uses {
+        let key = (u.module.as_str().to_string(), u.re_export);
+        let entry = groups.entry(key).or_insert_with(|| (false, BTreeSet::new()));
+        match &u.selective {
+            None => entry.0 = true,
+            Some(names) => {
+                for n in names.iter() {
+                    entry.1.insert(n.as_str().to_string());
+                }
+            }
+        }
+    }
+    let mut out = String::new();
+    for ((module, re_export), (has_whole, names)) in groups.iter() {
+        let prefix = if *re_export { "@export use " } else { "use " };
+        if *has_whole {
+            out.push_str(prefix);
+            out.push_str(module);
+            out.push('\n');
+        }
+        if !names.is_empty() {
+            out.push_str(prefix);
+            out.push_str(module);
+            out.push_str(" { ");
+            let joined: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+            out.push_str(&joined.join(", "));
+            out.push_str(" }\n");
+        }
+    }
+    out
+}
+
+fn compute_line_starts(src: &str) -> Vec<usize> {
+    let mut starts = vec![0usize];
+    for (i, ch) in src.char_indices() {
+        if ch == '\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
+fn byte_range_to_lsp_range(text: &str, start: usize, end: usize) -> Range {
+    let (s_line, s_col) = byte_to_line_col(text, start);
+    let (e_line, e_col) = byte_to_line_col(text, end);
+    Range {
+        start: Position {
+            line: s_line,
+            character: s_col,
+        },
+        end: Position {
+            line: e_line,
+            character: e_col,
+        },
+    }
+}
+
+fn byte_to_line_col(text: &str, target: usize) -> (u32, u32) {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    let mut byte = 0usize;
+    for ch in text.chars() {
+        if byte >= target {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+        byte += ch.len_utf8();
+    }
+    (line, col)
 }
 
 fn make_hover_with_doc(sig: &str, doc: Option<&str>) -> Hover {
@@ -4631,4 +4822,76 @@ async fn main() {
     let stdout = tokio::io::stdout();
     let (service, socket) = LspService::new(Backend::new);
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+#[cfg(test)]
+mod organize_imports_tests {
+    use super::organize_imports;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+
+    fn run(src: &str) -> Option<String> {
+        let toks = tokenize(src).ok()?;
+        let prog = parse(&toks).ok()?;
+        let (s, e, new) = organize_imports(src, &prog)?;
+        let mut out = src.to_string();
+        out.replace_range(s..e, &new);
+        Some(out)
+    }
+
+    #[test]
+    fn already_sorted_is_no_op() {
+        let src = "use math\nuse test\n";
+        assert!(run(src).is_none() || run(src).as_deref() == Some(src));
+    }
+
+    #[test]
+    fn sorts_modules_alphabetically() {
+        let src = "use test\nuse math\n";
+        let want = "use math\nuse test\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn dedupes_whole_module() {
+        let src = "use math\nuse math\nuse test\n";
+        let want = "use math\nuse test\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn merges_selective_names_alphabetically() {
+        let src = "use math { sin }\nuse math { cos, abs }\n";
+        let want = "use math { abs, cos, sin }\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn whole_and_selective_coexist() {
+        // sdl_breakout/main.il has both `use sdl` and `use sdl { ... }`.
+        let src = "use sdl { InitFlag }\nuse sdl\n";
+        let want = "use sdl\nuse sdl { InitFlag }\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn re_export_grouped_separately() {
+        let src = "@export use beta\nuse alpha\n";
+        // Non-export comes first (re_export = false sorts before true).
+        let want = "use alpha\n@export use beta\n";
+        assert_eq!(run(src).unwrap(), want);
+    }
+
+    #[test]
+    fn leaves_non_use_items_alone() {
+        // Disordered leading uses should sort, but the trailing
+        // `use later` after the `fn` stays put — only the leading
+        // contiguous block is reorganised.
+        let src = "use test\nuse math\nfn foo() {}\nuse later\n";
+        let out = run(src).unwrap();
+        assert!(
+            out.starts_with("use math\nuse test\nfn foo() {}\nuse later\n"),
+            "out:\n{out}"
+        );
+    }
 }
