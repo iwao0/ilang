@@ -1126,6 +1126,9 @@ pub(crate) fn lower_expr(
                         lc.optional_inners,
                         JitTy::Object(class_id),
                     );
+                    if !is_aliased_heap_source(&obj.kind) {
+                        emit_release_heap(b, lc, obj_v, obj_t);
+                    }
                     return Ok(Some((result, JitTy::Optional(opt_id))));
                 }
                 return Err(CodegenError::Unsupported {
