@@ -176,6 +176,9 @@ struct ClassSig {
     /// `static` fields — class-level mutable storage. Read/write
     /// dispatched at `ClassName.field` field expressions.
     static_fields: HashMap<Symbol, Type>,
+    /// Subset of `static_fields` declared with `const` (immutable —
+    /// reassignment is rejected at type-check time).
+    static_const_fields: HashSet<Symbol>,
     /// `extends Parent` — single-inheritance parent. None for root
     /// classes (or built-ins). Used by `is_subclass`, super
     /// resolution, and vtable layout.
@@ -517,6 +520,7 @@ impl TypeChecker {
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
                 static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
                 parent: None,
                 method_slots: HashMap::new(),
                 vtable_len: 0,
@@ -589,6 +593,7 @@ impl TypeChecker {
                 properties: HashMap::new(),
                 static_methods: HashMap::new(),
                 static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
                 parent: None,
                 method_slots: HashMap::new(),
                 vtable_len: 0,
@@ -3254,6 +3259,15 @@ impl TypeChecker {
                     if !is_local_shadow {
                         if let Some(cls) = self.classes.get(&rname) {
                             if let Some(ft) = cls.static_fields.get(field).cloned() {
+                                if cls.static_const_fields.contains(field) {
+                                    return Err(TypeError::Unsupported {
+                                        what: format!(
+                                            "cannot assign to const static field {:?}.{:?}",
+                                            rname, field
+                                        ),
+                                        span,
+                                    });
+                                }
                                 let vt =
                                     self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                                 if !literal_assignable(value, &vt, &ft) && !self.assignable_obj(&vt, &ft) {
@@ -4586,6 +4600,7 @@ fn class_signature(
         static_methods.insert(m.name.clone(), sig);
     }
     let mut static_fields: HashMap<Symbol, Type> = HashMap::new();
+    let mut static_const_fields: HashSet<Symbol> = HashSet::new();
     for sf in &c.static_fields {
         if static_fields.contains_key(&sf.name)
             || fields.contains_key(&sf.name)
@@ -4635,6 +4650,9 @@ fn class_signature(
             });
         }
         static_fields.insert(sf.name.clone(), sf.ty.clone());
+        if sf.is_const {
+            static_const_fields.insert(sf.name.clone());
+        }
     }
     Ok(ClassSig {
         type_params: Vec::from(c.type_params.clone()),
@@ -4643,6 +4661,7 @@ fn class_signature(
         properties,
         static_methods,
         static_fields,
+        static_const_fields,
         parent: c.parent.clone(),
         method_slots,
         vtable_len,
