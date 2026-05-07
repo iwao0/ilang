@@ -620,11 +620,12 @@ let d = Vec2.dot(z, p)
   dispatch resolves to the binding, not the class).
 - Both interpreter and JIT support static methods.
 
-#### `static` fields
+#### `static` fields and `const` constants
 
 `static name: T = const_expr` declares class-level mutable
-storage shared by all instances. Read or write it through
-`ClassName.field`.
+storage shared by all instances. `const name: T = const_expr`
+declares the same storage as immutable — reassignment is a
+compile-time error. Read either through `ClassName.field`.
 
 ```rust
 class Counter {
@@ -634,11 +635,13 @@ class Counter {
 
     static total: i64 = 0
     static threshold: i64 = 1 + 2 * 5      // 11 (const folding)
+    const max: i64 = 1000                  // immutable; Counter.max = ... is rejected
 }
 
 let a = new Counter(); let b = new Counter()
 a.bump(); a.bump(); b.bump()
 Counter.total              // 3
+Counter.max                // 1000
 ```
 
 - Type is restricted to **`i64` / `f64` / `bool`** for now. String
@@ -646,7 +649,8 @@ Counter.total              // 3
 - The initialiser must be a **compile-time constant expression**
   (the same folder used for top-level `const`); runtime expressions
   (calls etc.) are rejected.
-- Mutable: `Counter.total = 100` is allowed.
+- `static` is mutable (`Counter.total = 100` is allowed).
+- `const` is immutable — `Counter.max = 100` is a type error.
 - Names must not collide with fields, methods, properties, or
   other static members.
 - Static fields on generic classes are unsupported (same reason

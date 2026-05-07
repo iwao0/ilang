@@ -133,6 +133,10 @@ pub struct StaticFieldDecl {
     /// Compile-time-evaluable initializer. After the loader's
     /// `inline_constants` pass this is a literal Expr.
     pub value: crate::expr::Expr,
+    /// `true` for `const name: T = expr` (immutable, reassignment is
+    /// a type error). `false` for `static name: T = expr` (mutable
+    /// class-level slot).
+    pub is_const: bool,
     pub span: Span,
 }
 

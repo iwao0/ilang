@@ -265,6 +265,15 @@ impl<'a> Parser<'a> {
                     m.is_override = true;
                     methods.push(m);
                 }
+                TokenKind::Const => {
+                    // `const name: T = expr` — class-level immutable
+                    // static. Reassignment is rejected by the type
+                    // checker. Reads are `ClassName.name` (same path
+                    // as `static`).
+                    self.bump(); // consume `const`
+                    let f = self.parse_static_field(true)?;
+                    static_fields.push(f);
+                }
                 TokenKind::Ident(ref name) => {
                     // Contextual keywords `get` / `set` introduce a
                     // property accessor when followed by `<ident> (`.
@@ -304,7 +313,7 @@ impl<'a> Parser<'a> {
                             }
                             Some(TokenKind::Colon) => {
                                 self.bump(); // consume `static`
-                                let f = self.parse_static_field()?;
+                                let f = self.parse_static_field(false)?;
                                 static_fields.push(f);
                                 continue;
                             }
@@ -363,14 +372,16 @@ impl<'a> Parser<'a> {
 
     /// `static <name>: <type> = <expr>` — caller has already
     /// consumed the `static` keyword; we start at the field name.
-    fn parse_static_field(&mut self) -> Result<StaticFieldDecl, ParseError> {
+    /// `is_const` distinguishes `static` (mutable) from `const`
+    /// (immutable; reassignment is rejected by the type checker).
+    fn parse_static_field(&mut self, is_const: bool) -> Result<StaticFieldDecl, ParseError> {
         let span = self.peek().span;
         let name = self.expect_ident("static field name")?;
         self.expect(&TokenKind::Colon, "':'")?;
         let ty = self.parse_type()?;
         self.expect(&TokenKind::Equals, "'='")?;
         let value = self.parse_expr(0)?;
-        Ok(StaticFieldDecl { name, ty, value, span })
+        Ok(StaticFieldDecl { name, ty, value, is_const, span })
     }
 
     /// Parse one `get name(): T { body }` or `set name(v: T) { body }`

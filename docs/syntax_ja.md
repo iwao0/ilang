@@ -496,9 +496,9 @@ let d = Vec2.dot(z, p)
 - ローカル変数 `let Vec2 = ...` がある場合はそちら優先 (シャドウ)
 - interpreter / JIT とも対応
 
-#### `static` フィールド
+#### `static` フィールドと `const` 定数
 
-`static name: T = const_expr` でクラスレベルの可変ストレージを宣言できます。全インスタンスで共有され、`ClassName.field` で読み書き。
+`static name: T = const_expr` でクラスレベルの可変ストレージを宣言できます。`const name: T = const_expr` は同じストレージを **immutable** として宣言し、再代入は型エラーになります。どちらも `ClassName.field` で読みます。
 
 ```rust
 class Counter {
@@ -508,16 +508,19 @@ class Counter {
 
     static total: i64 = 0
     static threshold: i64 = 1 + 2 * 5      // 11 (const 折りたたみ)
+    const max: i64 = 1000                  // immutable; Counter.max = ... は型エラー
 }
 
 let a = new Counter(); let b = new Counter()
 a.bump(); a.bump(); b.bump()
 Counter.total              // 3
+Counter.max                // 1000
 ```
 
 - 型は **`i64` / `f64` / `bool`** のみ (Phase 1)。string / オブジェクトなどヒープ型は ARC 設計が確定するまで未対応
 - 初期値は **コンパイル時定数式** 限定 (top-level `const` と同じ folder で評価)。関数呼び出し等のランタイム式は不可
-- mutable: `Counter.total = 100` で書き換え可
+- `static` は mutable (`Counter.total = 100` で書き換え可)
+- `const` は immutable (`Counter.max = 100` は型エラー)
 - 同名の他フィールド・メソッド・プロパティ・静的メソッドとは衝突不可
 - ジェネリッククラスでの静的フィールドは未対応 (静的メソッドと同じ理由)
 - 内部実装: JIT は `Box<[i64]>` を確保してスロット割り当て、アクセスは絶対アドレスの load/store で f64/bool は bitcast / truncate
