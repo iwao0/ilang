@@ -666,9 +666,6 @@ impl<'a> Parser<'a> {
                 TokenKind::Ident(n) if n == "struct" => {
                     self.parse_extern_c_struct(inner_attrs)?
                 }
-                TokenKind::Ident(n) if n == "static" => {
-                    self.parse_extern_c_static(inner_attrs)?
-                }
                 TokenKind::Ident(n) if n == "union" => {
                     if !inner_attrs.is_empty() {
                         let t = self.peek();
@@ -835,59 +832,6 @@ impl<'a> Parser<'a> {
                 span,
             })
         }
-    }
-
-    fn parse_extern_c_static(
-        &mut self,
-        attrs: Vec<Attribute>,
-    ) -> Result<ilang_ast::ExternCItem, ParseError> {
-        let mut libs: Vec<Symbol> = Vec::new();
-        let mut optional = false;
-        for a in &attrs {
-            match a.name.as_str() {
-                "lib" => {
-                    if a.args.is_empty() {
-                        let t = self.peek();
-                        return Err(ParseError::Unexpected {
-                            found: t.kind.clone(),
-                            expected: "@lib(\"libname\", ...) requires at least one string argument".into(),
-                            span: t.span,
-                        });
-                    }
-                    for arg in &a.args {
-                        match arg {
-                            ilang_ast::AttrArg::Str(s) => libs.push(s.as_str().into()),
-                            _ => {
-                                let t = self.peek();
-                                return Err(ParseError::Unexpected {
-                                    found: t.kind.clone(),
-                                    expected: "@lib(...) takes string arguments only".into(),
-                                    span: t.span,
-                                });
-                            }
-                        }
-                    }
-                }
-                "optional" if a.args.is_empty() => {
-                    optional = true;
-                }
-                _ => {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "@lib(...) or @optional (no other attributes accepted on extern(C) static)".into(),
-                        span: t.span,
-                    });
-                }
-            }
-        }
-        let span = self.peek().span;
-        self.bump(); // consume `static`
-        let name = self.expect_ident("static name")?;
-        self.expect(&TokenKind::Colon, "':'")?;
-        let ty = self.parse_type()?;
-        self.consume_stmt_terminator()?;
-        Ok(ilang_ast::ExternCItem::Static { name, ty, libs: libs.into(), optional, span })
     }
 
     fn parse_extern_c_struct(

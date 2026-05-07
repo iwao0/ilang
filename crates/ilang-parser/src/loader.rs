@@ -514,7 +514,6 @@ fn apply_use(
                         match inner {
                             ilang_ast::ExternCItem::Struct { name, .. }
                             | ilang_ast::ExternCItem::Union { name, .. }
-                            | ilang_ast::ExternCItem::Static { name, .. }
                             | ilang_ast::ExternCItem::FnDecl { name, .. } => {
                                 local_names.insert(name.as_str());
                             }
@@ -577,7 +576,6 @@ fn item_name_of_ref(item: &Item) -> Option<&str> {
         Item::Class(c) => Some(c.name.as_str()),
         Item::Enum(e) => Some(e.name.as_str()),
         Item::Const(c) => Some(c.name.as_str()),
-        Item::ExternStatic(s) => Some(s.name.as_str()),
         Item::ExternC(_) | Item::Use(_) => None,
     }
 }
@@ -843,7 +841,6 @@ fn find_in_export_chain(
                 let n = match inner {
                     ilang_ast::ExternCItem::Struct { name, .. }
                     | ilang_ast::ExternCItem::Union { name, .. }
-                    | ilang_ast::ExternCItem::Static { name, .. }
                     | ilang_ast::ExternCItem::FnDecl { name, .. } => name.as_str(),
                     ilang_ast::ExternCItem::FnDef(f) => f.name.as_str(),
                     ilang_ast::ExternCItem::Class(c) => c.name.as_str(),
@@ -885,7 +882,6 @@ fn item_name_of(item: &Item) -> Option<Symbol> {
         Item::Class(c) => Some(c.name.clone()),
         Item::Enum(e) => Some(e.name.clone()),
         Item::Const(c) => Some(c.name.clone()),
-        Item::ExternStatic(s) => Some(s.name.clone()),
         Item::ExternC(_) => None,
         Item::Use(_) => None,
     }
@@ -1012,14 +1008,6 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             c.value = prefix_expr(value, prefix);
             Item::Const(c)
         }
-        Item::ExternStatic(mut s) => {
-            // Module-prefix the ilang-side name (so `use mymod` lets
-            // callers write `mymod.errno`). The C symbol resolved
-            // via dlsym uses the original unprefixed name, so we
-            // stash that for the dlsym pass to find.
-            s.name = format!("{prefix}.{}", s.name).into();
-            Item::ExternStatic(s)
-        }
         Item::ExternC(mut b) => {
             // Prefix the ilang-side names of the block's items so
             // callers can write `module.fn` etc. For library-form
@@ -1040,10 +1028,6 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         for f in fields {
                             f.ty = prefix_type(&f.ty, prefix);
                         }
-                    }
-                    ilang_ast::ExternCItem::Static { name, ty, .. } => {
-                        *name = Symbol::intern(&format!("{prefix}.{name}")).into();
-                        *ty = prefix_type(ty, prefix);
                     }
                     ilang_ast::ExternCItem::FnDecl {
                         name, libs, c_symbol, params, ret, ..
@@ -2073,7 +2057,6 @@ fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
             }
             rename_in_expr(&mut c.value, rules);
         }
-        Item::ExternStatic(s) => rename_in_type(&mut s.ty, rules),
         Item::ExternC(b) => {
             for inner in b.items.iter_mut() {
                 match inner {
@@ -2105,9 +2088,6 @@ fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                         for f in fields.iter_mut() {
                             rename_in_type(&mut f.ty, rules);
                         }
-                    }
-                    ilang_ast::ExternCItem::Static { ty, .. } => {
-                        rename_in_type(ty, rules);
                     }
                     ilang_ast::ExternCItem::Class(c) => rename_in_class(c, rules),
                 }

@@ -2246,11 +2246,6 @@ fn walk_module(
                             f.span,
                             format!("fn {prefix}.{} {}", f.name, fn_body(f)).trim_start_matches("fn ").to_string(),
                         ),
-                        ilang_ast::ExternCItem::Static { name, span, ty, .. } => (
-                            *name,
-                            *span,
-                            format!("static {prefix}.{name}: {ty}"),
-                        ),
                         ilang_ast::ExternCItem::Struct { name, span, .. } => (
                             *name,
                             *span,
@@ -2404,9 +2399,6 @@ fn walk_module_aliased(
                             Some((name.clone(), *span))
                         }
                         ilang_ast::ExternCItem::FnDef(f) => Some((f.name.clone(), f.span)),
-                        ilang_ast::ExternCItem::Static { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
                         ilang_ast::ExternCItem::Struct { name, span, .. } => {
                             Some((name.clone(), *span))
                         }
@@ -2873,9 +2865,6 @@ fn collect_external_signatures(
                                 }
                             }
                         }
-                        ExternCItem::Static { name, ty, .. } => {
-                            put_dotted(name.as_str(), format!("static {}: {}", name, ty), &mut out);
-                        }
                         ExternCItem::Struct { name, .. } => {
                             put_dotted(name.as_str(), format!("struct {}", name), &mut out);
                         }
@@ -3262,17 +3251,6 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                             );
                         }
                         ExternCItem::FnDef(f) => put_fn(f, &mut out),
-                        ExternCItem::Static { name, ty, span, .. } => {
-                            out.insert(
-                                name.clone(),
-                                Symbol {
-                                    name: name.as_str().to_string(),
-                                    span: *span,
-                                    signature: format!("static {}: {}", name, ty),
-                                    doc: text::extract_doc_above(src, span.line),
-                                },
-                            );
-                        }
                         ExternCItem::Struct { name, span, .. } => {
                             out.insert(
                                 name.clone(),

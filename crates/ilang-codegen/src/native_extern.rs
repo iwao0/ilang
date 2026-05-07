@@ -31,12 +31,6 @@ pub(crate) struct NativeExternRegistry {
     /// "integer-only ≤ 16 B" composite rule). Always set for fns
     /// synthesized from `@extern(C) {}` blocks.
     pub by_value: HashSet<Symbol>,
-    /// Resolved address for each `static name: T` declaration inside
-    /// `@extern(C) {}`: the C global's runtime location, ready to
-    /// be embedded as `iconst` at every read/write site. Library-form
-    /// statics resolve via dlsym; host-form use the addresses
-    /// pre-registered by host modules.
-    pub static_addrs: std::collections::HashMap<Symbol, i64>,
 }
 
 pub(crate) fn register_native_externs(
@@ -48,11 +42,6 @@ pub(crate) fn register_native_externs(
     let mut names: HashSet<Symbol> = HashSet::new();
     let mut variadic: HashSet<Symbol> = HashSet::new();
     let mut by_value: HashSet<Symbol> = HashSet::new();
-    let mut static_addrs: HashMap<Symbol, i64> = HashMap::new();
-    // Host modules pre-register addresses for `@extern static`
-    // declarations they own. Library-form statics are dlsym'd
-    // below.
-    crate::test_externs::register_test_static_addrs(&mut static_addrs);
     // Pre-collect names of opaque-handle classes — `@extern("lib")
     // class Foo {}`. These are valid as native-extern fn parameter
     // and return types (marshalled as raw i64 pointers).
@@ -69,7 +58,6 @@ pub(crate) fn register_native_externs(
     // user data area).
     let synth_classes = crate::compiler::synthesize_extern_c_classes(prog);
     let synth_fns = crate::compiler::synthesize_extern_c_fns(prog);
-    let synth_statics = crate::compiler::synthesize_extern_c_statics(prog);
     let repr_c_classes: HashSet<Symbol> = prog
         .items
         .iter()
@@ -260,52 +248,11 @@ pub(crate) fn register_native_externs(
         }
         validate_by_value_fn(f, prog, &synth_classes, &repr_c_classes, &opaque_classes)?;
     }
-    // Resolve `@extern static` addresses. Library-form goes through
-    // dlsym in whichever lib was named (opening it now if it wasn't
-    // already opened by a fn declaration). Host-form must already be
-    // present in `static_addrs` from a host registration call.
-    let all_statics = prog
-        .items
-        .iter()
-        .filter_map(|i| if let Item::ExternStatic(s) = i { Some(s) } else { None })
-        .chain(synth_statics.iter());
-    for s in all_statics {
-        if let Some(lib_name) = &s.lib {
-            if !libs.contains_key(lib_name) {
-                let lib = open_library(lib_name.as_str()).map_err(|e| {
-                    CodegenError::Module(format!(
-                        "@extern(\"{lib_name}\") static {}: {e}",
-                        s.name
-                    ))
-                })?;
-                libs.insert(lib_name.clone(), lib);
-            }
-            let lib = &libs[lib_name];
-            let sym_result: Result<libloading::Symbol<*const u8>, libloading::Error> =
-                unsafe { lib.get(s.name.as_str().as_bytes()) };
-            let ptr = match sym_result {
-                Ok(sym) => (unsafe { *sym.into_raw() }) as i64,
-                Err(e) => {
-                    return Err(CodegenError::Module(format!(
-                        "@extern(\"{lib_name}\") static {}: symbol not found: {e}",
-                        s.name
-                    )));
-                }
-            };
-            static_addrs.insert(s.name.clone(), ptr);
-        } else if !static_addrs.contains_key(&s.name) {
-            return Err(CodegenError::Module(format!(
-                "@extern static {}: no host-side address registered for this name",
-                s.name
-            )));
-        }
-    }
     Ok(NativeExternRegistry {
         libs: libs.into_values().collect(),
         names,
         variadic,
         by_value,
-        static_addrs,
     })
 }
 

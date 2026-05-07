@@ -241,7 +241,7 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.declare_fn(f)?,
             Item::Class(c) => compiler.declare_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
         }
     }
     for f in &extern_c_fns {
@@ -284,7 +284,7 @@ fn jit_run_inner(
             Item::Fn(f) => compiler.define_fn(f)?,
             Item::Class(c) => compiler.define_methods(c)?,
             Item::Enum(_) => {}
-            Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
         }
     }
     for f in &extern_c_fns {
@@ -564,13 +564,6 @@ pub(crate) struct JitCompiler {
         ilang_ast::Span,
         (Symbol, Vec<ilang_ast::Type>),
     >,
-    /// Resolved address per `@extern static` name, embedded as
-    /// `iconst` at every read/write site so the load/store goes
-    /// straight to the C global's storage.
-    pub(crate) extern_static_addrs: std::collections::HashMap<Symbol, i64>,
-    /// Declared type per `@extern static` name. The lower path uses
-    /// it to pick the right Cranelift load/store width.
-    pub(crate) extern_static_types: std::collections::HashMap<Symbol, ilang_ast::Type>,
     /// Every `@extern fn` (host or native lib). The fn-pointer arg
     /// marshalling at Call sites uses this to know whether to pass
     /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
@@ -792,30 +785,6 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
 /// "lib"])` fns (no body, dlsym'd / host-registered); definitions
 /// reuse the parsed body unchanged with a synthetic `@extern(C)`
 /// attribute so the JIT applies the C calling convention.
-pub(crate) fn synthesize_extern_c_statics(
-    prog: &Program,
-) -> Vec<ilang_ast::ExternStaticDecl> {
-    let mut out = Vec::new();
-    for item in &prog.items {
-        let Item::ExternC(block) = item else { continue };
-        for inner in &block.items {
-            if let ilang_ast::ExternCItem::Static { name, ty, libs, optional: _, span } = inner {
-                // `@optional` on statics is parsed but currently
-                // ignored at registration time — host-form statics
-                // must always be registered, and the only library
-                // form path is dlsym which propagates lookup errors.
-                out.push(ilang_ast::ExternStaticDecl {
-                    name: name.clone(),
-                    ty: ty.clone(),
-                    lib: libs.first().cloned(),
-                    span: *span,
-                });
-            }
-        }
-    }
-    out
-}
-
 pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> {
     use ilang_ast::AttrArg;
     let mut out = Vec::new();
@@ -1432,16 +1401,6 @@ impl JitCompiler {
             native_extern_variadic: native_reg.variadic,
             native_extern_by_value: native_reg.by_value,
             fn_call_type_args: std::collections::HashMap::new(),
-            extern_static_addrs: native_reg.static_addrs,
-            extern_static_types: prog
-                .items
-                .iter()
-                .filter_map(|i| match i {
-                    Item::ExternStatic(s) => Some((s.name.clone(), s.ty.clone())),
-                    _ => None,
-                })
-                .chain(synthesize_extern_c_statics(prog).into_iter().map(|s| (s.name, s.ty)))
-                .collect(),
             extern_fn_names: prog
                 .items
                 .iter()
@@ -2261,8 +2220,6 @@ impl JitCompiler {
             native_extern_variadic: &self.native_extern_variadic,
             native_extern_by_value: &self.native_extern_by_value,
             fn_call_type_args: &self.fn_call_type_args,
-            extern_static_addrs: &self.extern_static_addrs,
-            extern_static_types: &self.extern_static_types,
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
@@ -2526,8 +2483,6 @@ impl JitCompiler {
             loop_break_types: &self.loop_break_types,
             native_extern_fns: &self.native_extern_fns,
             extern_fn_names: &self.extern_fn_names,
-            extern_static_addrs: &self.extern_static_addrs,
-            extern_static_types: &self.extern_static_types,
             native_extern_variadic: &self.native_extern_variadic,
             fn_call_type_args: &self.fn_call_type_args,
             native_extern_by_value: &self.native_extern_by_value,

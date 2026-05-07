@@ -175,8 +175,6 @@ pub(crate) struct LowerCtx<'a> {
         ilang_ast::Span,
         (Symbol, Vec<ilang_ast::Type>),
     >,
-    pub extern_static_addrs: &'a std::collections::HashMap<Symbol, i64>,
-    pub extern_static_types: &'a std::collections::HashMap<Symbol, ilang_ast::Type>,
     /// `(class, field) -> slot index` into `static_field_base_addr`.
     /// Read by Field / AssignField lowering on `ClassName.field`.
     pub static_field_slots:
