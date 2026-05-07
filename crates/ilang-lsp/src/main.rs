@@ -2161,7 +2161,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("{libs_prefix}fn {}({}){}", name, ps, r),
-                doc: None,
+                                    doc: text::extract_doc_above(src, span.line),
                                 },
                             );
                         }
@@ -2173,7 +2173,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("static {}: {}", name, ty),
-                doc: None,
+                                    doc: text::extract_doc_above(src, span.line),
                                 },
                             );
                         }
@@ -2184,7 +2184,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("struct {}", name),
-                doc: None,
+                                    doc: text::extract_doc_above(src, span.line),
                                 },
                             );
                         }
@@ -2195,7 +2195,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("union {}", name),
-                doc: None,
+                                    doc: text::extract_doc_above(src, span.line),
                                 },
                             );
                         }
@@ -2206,7 +2206,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     name: c.name.as_str().to_string(),
                                     span: c.span,
                                     signature: format!("class {}", c.name),
-                doc: None,
+                doc: text::extract_doc_above(src, c.span.line),
                                 },
                             );
                         }
