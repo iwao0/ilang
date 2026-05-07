@@ -4083,6 +4083,28 @@ fn emit_array_index_of(
 /// Convert a JIT key value to the i64 bit pattern the runtime expects.
 /// Strings pass their `*mut StringRc` pointer; ints/uints/bools sign-
 /// or zero-extend into i64.
+/// Release the original string-key value when the caller handed us a
+/// fresh allocation (`m.has("a" + b)`, `m.delete(format(...))`, etc.).
+/// The map runtime clones the string content into its own `MapKey`, so
+/// the input rc is never decremented on its own — without this drop
+/// the string sticks around for the rest of the program. No-op for
+/// primitive keys or for aliased / borrowed sources where the caller
+/// still owns the +1.
+fn release_fresh_string_key(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    (kv, kt): TV,
+    expected: JitTy,
+    key_kind: &ilang_ast::ExprKind,
+) {
+    if matches!(expected, JitTy::Str)
+        && matches!(kt, JitTy::Str)
+        && !is_aliased_heap_source(key_kind)
+    {
+        emit_release_string(b, lc, kv);
+    }
+}
+
 fn coerce_map_key(
     b: &mut FunctionBuilder,
     _lc: &mut LowerCtx,
@@ -4198,6 +4220,7 @@ pub(crate) fn lower_map_method(
             };
             let r = lc.module.declare_func_in_func(lc.map_set_id, b.func);
             b.ins().call(r, &[obj_v, key_bits, val_bits]);
+            release_fresh_string_key(b, lc, key_tv, kind.key, &args[0].kind);
             Ok(None)
         }
         "has" => {
@@ -4208,6 +4231,7 @@ pub(crate) fn lower_map_method(
             let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
             let r = lc.module.declare_func_in_func(lc.map_has_id, b.func);
             let call = b.ins().call(r, &[obj_v, key_bits]);
+            release_fresh_string_key(b, lc, key_tv, kind.key, &args[0].kind);
             Ok(Some((b.inst_results(call)[0], JitTy::Bool)))
         }
         "delete" => {
@@ -4218,6 +4242,7 @@ pub(crate) fn lower_map_method(
             let key_bits = coerce_map_key(b, lc, key_tv, kind.key, args[0].span)?;
             let r = lc.module.declare_func_in_func(lc.map_delete_id, b.func);
             let call = b.ins().call(r, &[obj_v, key_bits]);
+            release_fresh_string_key(b, lc, key_tv, kind.key, &args[0].kind);
             Ok(Some((b.inst_results(call)[0], JitTy::Bool)))
         }
         "size" => {
@@ -4235,6 +4260,7 @@ pub(crate) fn lower_map_method(
             let r = lc.module.declare_func_in_func(lc.map_get_or_null_id, b.func);
             let call = b.ins().call(r, &[obj_v, key_bits]);
             let raw = b.inst_results(call)[0];
+            release_fresh_string_key(b, lc, key_tv, kind.key, &args[0].kind);
             let opt_id = intern_optional_inner(lc.optional_inners, kind.val);
             if kind.val.is_heap() {
                 // Heap V: returned pointer IS the value. Bump rc so the
@@ -4339,6 +4365,7 @@ pub(crate) fn lower_map_index_get(
     let r = lc.module.declare_func_in_func(lc.map_index_get_id, b.func);
     let call = b.ins().call(r, &[obj_v, key_bits]);
     let raw = b.inst_results(call)[0];
+    release_fresh_string_key(b, lc, key_tv, kind.key, &index.kind);
     // Decode the i64 slot back to V's representation.
     let v = match kind.val {
         JitTy::I8 | JitTy::U8 | JitTy::Bool => b.ins().ireduce(I8, raw),
@@ -4385,6 +4412,7 @@ pub(crate) fn lower_map_index_set(
     };
     let r = lc.module.declare_func_in_func(lc.map_set_id, b.func);
     b.ins().call(r, &[obj_v, key_bits, val_bits]);
+    release_fresh_string_key(b, lc, key_tv, kind.key, &index.kind);
     Ok(None)
 }
 
