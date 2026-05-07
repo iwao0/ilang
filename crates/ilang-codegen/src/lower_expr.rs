@@ -702,6 +702,45 @@ pub(crate) fn lower_expr(
                 }
                 return Ok(Some((n, JitTy::I64)));
             }
+            // Built-in Optional properties: `isSome` / `isNone`.
+            // Optional values are nullable pointers (i64); compare to 0.
+            if let JitTy::Optional(_) = obj_t {
+                if name == "isSome" || name == "isNone" {
+                    let zero = b.ins().iconst(I64, 0);
+                    let cc = if name == "isSome" {
+                        IntCC::NotEqual
+                    } else {
+                        IntCC::Equal
+                    };
+                    let v = b.ins().icmp(cc, obj_v, zero);
+                    return Ok(Some((v, JitTy::Bool)));
+                }
+            }
+            // Built-in Result properties: `isOk` / `isErr`. Read the
+            // i32 tag at offset 0 and compare to the variant's tag.
+            if let JitTy::EnumHeap(eid) = obj_t {
+                if name == "isOk" || name == "isErr" {
+                    let layout = &lc.enum_layouts[eid as usize];
+                    let lname = layout.name.as_str();
+                    if lname == "Result" || lname.starts_with("Result<") {
+                        let target_variant = if name == "isOk" { "ok" } else { "err" };
+                        let target_sym = Symbol::intern(target_variant);
+                        let tag = layout
+                            .variants
+                            .iter()
+                            .zip(layout.tags.iter())
+                            .find_map(|(v, t)| (*v == target_sym).then_some(*t))
+                            .expect("Result variant tag");
+                        let tag_v = b.ins().load(I32, MemFlags::trusted(), obj_v, ENUM_TAG_OFFSET);
+                        let want = b.ins().iconst(I32, tag);
+                        let v = b.ins().icmp(IntCC::Equal, tag_v, want);
+                        if !is_aliased_heap_source(&obj.kind) {
+                            emit_release_heap(b, lc, obj_v, obj_t);
+                        }
+                        return Ok(Some((v, JitTy::Bool)));
+                    }
+                }
+            }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
                 _ => {
@@ -866,20 +905,10 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 });
             }
-            // Built-in Optional methods. The Optional value is a
-            // nullable pointer (i64); these inspect it without
-            // touching rc.
+            // Built-in Optional methods: `unwrap`. (`isSome` / `isNone`
+            // are properties — see ExprKind::Field above.)
             if let JitTy::Optional(id) = obj_t {
-                let zero = b.ins().iconst(I64, 0);
                 match method.as_str() {
-                    "isSome" => {
-                        let v = b.ins().icmp(IntCC::NotEqual, obj_v, zero);
-                        return Ok(Some((v, JitTy::Bool)));
-                    }
-                    "isNone" => {
-                        let v = b.ins().icmp(IntCC::Equal, obj_v, zero);
-                        return Ok(Some((v, JitTy::Bool)));
-                    }
                     "unwrap" => {
                         // Null-check the box pointer. On none, panic
                         // matching the interpreter's "unwrap on `none`"

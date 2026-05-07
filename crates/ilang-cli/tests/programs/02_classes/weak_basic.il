@@ -13,7 +13,7 @@ let w: Node.weak = strong          // strong → weak auto-downgrade
 // While the strong ref is alive, weak.get() returns Some.
 {
     let g1 = w.get()
-    test.expectBool(g1.isSome(), true)
+    test.expectBool(g1.isSome, true)
     test.expect(g1.unwrap().label, 42)
 }
 // `g1` is gone now; only `strong` keeps Node 42 alive.
@@ -24,12 +24,12 @@ strong = new Node(7)
 
 // Old weak now sees None.
 let g2 = w.get()
-test.expectBool(g2.isNone(), true)
+test.expectBool(g2.isNone, true)
 
 // Get a fresh weak from the new Node and confirm it's alive.
 let w2: Node.weak = strong
 {
     let g3 = w2.get()
-    test.expectBool(g3.isSome(), true)
+    test.expectBool(g3.isSome, true)
     test.expect(g3.unwrap().label, 7)
 }

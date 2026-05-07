@@ -621,8 +621,8 @@ if let some(v) = a {             // パターン分岐
     use(v)
 }
 
-a.isSome()                       // bool
-a.isNone()                       // bool
+a.isSome                       // bool
+a.isNone                       // bool
 a.unwrap()                       // T (none ならランタイム panic)
 ```
 
@@ -796,9 +796,14 @@ match divide(10, 2) {
     ok(v) { v }            // ← match のパターンは scrutinee 型から推論されるので `Result.` 省略可
     err(_) { -1 }
 }
+
+let r = divide(10, 2)
+r.isOk                     // bool — variant が `ok` なら true
+r.isErr                    // bool — variant が `err` なら true
 ```
 
 - 構築は **`Result.ok(v)` / `Result.err(e)`** (`Enum.variant(...)` の通常形式)
+- `r.isOk` / `r.isErr` は **プロパティ** (括弧なし) で `bool` を返す。Optional の `isSome` / `isNone` と同じ形式
 - match パターンでは `ok(v)` / `err(e)` と短縮可 (バリアント短縮形と同じ仕組み)
 - `ok` / `err` は **予約語ではない** — 変数名として使える (使うと混乱するのでおすすめしないが)
 - 名前 `Result` は予約 (ユーザが `enum Result { ... }` を定義するとエラー)

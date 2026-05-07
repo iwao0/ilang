@@ -5,7 +5,7 @@ use test
 // Empty array.
 let xs: i64[] = []
 test.expect(xs.length, 0)
-test.expectBool(xs.pop().isNone(), true)
+test.expectBool(xs.pop().isNone, true)
 test.expect(xs.indexOf(1), -1)
 test.expectBool(xs.includes(1), false)
 let sliced = xs.slice(0, 0)
@@ -20,7 +20,7 @@ test.expect(counter, 0)
 let m = new Map<string, i64>()
 test.expect(m.size(), 0)
 test.expectBool(m.has("x"), false)
-test.expectBool(m.get("x").isNone(), true)
+test.expectBool(m.get("x").isNone, true)
 test.expectBool(m.delete("x"), false)
 test.expect(m.keys().length, 0)
 test.expect(m.values().length, 0)

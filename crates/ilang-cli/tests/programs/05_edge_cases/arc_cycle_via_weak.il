@@ -43,5 +43,5 @@ let weak_handle: Parent.weak = {
 // p2 fell out of the inner block; weak_handle now points to a freed
 // Parent. .get() must return None.
 let g = weak_handle.get()
-test.expectBool(g.isNone(), true)
+test.expectBool(g.isNone, true)
 test.expect(w_view.get(), 1)   // Parent's deinit fired

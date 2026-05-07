@@ -8,10 +8,10 @@ m.set("carol", 40)
 
 // get returns Some(v) / None.
 let g_alice = m.get("alice")
-test.expectBool(g_alice.isSome(), true)
+test.expectBool(g_alice.isSome, true)
 test.expect(g_alice.unwrap(), 30)
 let g_dave = m.get("dave")
-test.expectBool(g_dave.isNone(), true)
+test.expectBool(g_dave.isNone, true)
 
 // keys() — order is unspecified; assert via membership + length.
 let ks = m.keys()

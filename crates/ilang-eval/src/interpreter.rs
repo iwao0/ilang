@@ -398,6 +398,26 @@ impl Interpreter {
                         return Ok(Value::Int(s.chars().count() as i64));
                     }
                 }
+                // Built-in Optional properties.
+                if matches!(v, Value::Some(_) | Value::None) {
+                    if name.as_str() == "isSome" {
+                        return Ok(Value::Bool(matches!(v, Value::Some(_))));
+                    }
+                    if name.as_str() == "isNone" {
+                        return Ok(Value::Bool(matches!(v, Value::None)));
+                    }
+                }
+                // Built-in Result properties.
+                if let Value::Enum { ty, variant, .. } = &v {
+                    if ty.as_str() == "Result" {
+                        if name.as_str() == "isOk" {
+                            return Ok(Value::Bool(variant.as_str() == "ok"));
+                        }
+                        if name.as_str() == "isErr" {
+                            return Ok(Value::Bool(variant.as_str() == "err"));
+                        }
+                    }
+                }
                 let o = expect_object(v, obj.span)?;
                 // Property getter: dispatch through the synthetic FnDecl.
                 let class_name = o.borrow().class.clone();
@@ -475,11 +495,10 @@ impl Interpreter {
                     });
                 }
                 // Built-in Optional methods. The type checker has
-                // verified arity (0 args).
+                // verified arity (0 args). `isSome` / `isNone` are
+                // properties — see ExprKind::Field above.
                 if matches!(v, Value::None | Value::Some(_)) {
                     match method.as_str() {
-                        "isSome" => return Ok(Value::Bool(matches!(v, Value::Some(_)))),
-                        "isNone" => return Ok(Value::Bool(matches!(v, Value::None))),
                         "unwrap" => {
                             return match v {
                                 Value::Some(inner) => Ok(*inner),
