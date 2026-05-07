@@ -295,6 +295,14 @@ pub struct TypeChecker {
     /// stable (insertion order); the JIT uses it as the offset
     /// order in the closure struct.
     fn_expr_captures: std::cell::RefCell<HashMap<Span, Vec<(Symbol, Type)>>>,
+    /// Per-`FnExpr` span: the lexical class of the enclosing method
+    /// when the closure body directly references `this`. The JIT's
+    /// hoist pass uses this to add a synthetic `this` capture and
+    /// rewrite `ExprKind::This` references in the wrapper body to
+    /// `Var("this")` so the captured value flows in via the standard
+    /// closure-env mechanism. Empty for closures defined outside a
+    /// class method or that don't mention `this`.
+    fn_expr_this_class: std::cell::RefCell<HashMap<Span, Symbol>>,
     /// Used by the JIT's post-hoist re-typecheck: for each
     /// closure wrapper FnDecl, the body's "free vars" actually
     /// resolve to captured values. Pre-populating the body's
@@ -388,6 +396,14 @@ impl TypeChecker {
     /// when the closure is purely top-level / no locals captured.
     pub fn fn_expr_captures(&self) -> HashMap<Span, Vec<(Symbol, Type)>> {
         self.fn_expr_captures.borrow().clone()
+    }
+
+    /// Per-`FnExpr` span → lexical class symbol when the closure
+    /// body directly mentions `this`. Used by the JIT hoist pass to
+    /// add a synthetic `this` capture and route `ExprKind::This` in
+    /// the wrapper body through the standard closure-env load.
+    pub fn fn_expr_this_class(&self) -> HashMap<Span, Symbol> {
+        self.fn_expr_this_class.borrow().clone()
     }
 
     /// `(class, slot) -> method_name` for every class — used by the
@@ -3479,6 +3495,19 @@ impl TypeChecker {
                 self.fn_expr_captures
                     .borrow_mut()
                     .insert(span, captures);
+                // If we're inside a method body and the closure body
+                // directly mentions `this`, record the lexical class
+                // so the JIT hoist pass can promote `this` to a
+                // synthetic capture. (Captures via inner closures
+                // are handled transitively — each FnExpr records its
+                // own direct `this` use only.)
+                if let Some(class_name) = in_class {
+                    if block_uses_this_directly(body) {
+                        self.fn_expr_this_class
+                            .borrow_mut()
+                            .insert(span, class_name);
+                    }
+                }
                 let expected = ret.clone().unwrap_or(Type::Unit);
                 let body_ty =
                     self.check_block(body, &inner, Some(&expected), in_class, 0)?;
@@ -4326,6 +4355,122 @@ fn refine_returns(tc: &TypeChecker, e: &Expr, target: &Type) {
         tc.refine_enum_ctor_args(inner, target);
     }
     walk_children(e, &mut |c| refine_returns(tc, c, target));
+}
+
+/// True if `b` contains any `ExprKind::This` reference, including ones
+/// inside nested `FnExpr` bodies. We need to mark every FnExpr along
+/// the chain from the method down to the innermost `this` user,
+/// because the JIT routes `this` through captures: each level loads
+/// it from the surrounding closure's env, so the marker has to fire
+/// at every intermediate FnExpr too — not just the one that wrote
+/// `this` literally.
+fn block_uses_this_directly(b: &ilang_ast::Block) -> bool {
+    for s in &b.stmts {
+        match &s.kind {
+            StmtKind::Let { value, .. }
+            | StmtKind::LetTuple { value, .. }
+            | StmtKind::LetStruct { value, .. } => {
+                if expr_uses_this_directly(value) {
+                    return true;
+                }
+            }
+            StmtKind::Expr(e) => {
+                if expr_uses_this_directly(e) {
+                    return true;
+                }
+            }
+        }
+    }
+    if let Some(t) = &b.tail {
+        if expr_uses_this_directly(t) {
+            return true;
+        }
+    }
+    false
+}
+
+fn expr_uses_this_directly(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::This => true,
+        // Recurse INTO nested FnExpr too — see the comment on
+        // `block_uses_this_directly`. The TC visits each FnExpr in
+        // turn, so an inner `this` will independently mark its own
+        // span; we additionally need outer FnExprs to see through
+        // their nested closures.
+        ExprKind::FnExpr { body, .. } => block_uses_this_directly(body),
+        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => {
+            expr_uses_this_directly(x)
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            expr_uses_this_directly(lhs) || expr_uses_this_directly(rhs)
+        }
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => expr_uses_this_directly(expr),
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => args.iter().any(expr_uses_this_directly),
+        ExprKind::Field { obj, .. } => expr_uses_this_directly(obj),
+        ExprKind::MethodCall { obj, args, .. } => {
+            expr_uses_this_directly(obj) || args.iter().any(expr_uses_this_directly)
+        }
+        ExprKind::Block(b) => block_uses_this_directly(b),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            expr_uses_this_directly(cond)
+                || block_uses_this_directly(then_branch)
+                || else_branch.as_deref().map_or(false, expr_uses_this_directly)
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            expr_uses_this_directly(expr)
+                || block_uses_this_directly(then_branch)
+                || else_branch.as_deref().map_or(false, expr_uses_this_directly)
+        }
+        ExprKind::While { cond, body } => {
+            expr_uses_this_directly(cond) || block_uses_this_directly(body)
+        }
+        ExprKind::Loop { body } => block_uses_this_directly(body),
+        ExprKind::ForIn { iter, body, .. } => {
+            expr_uses_this_directly(iter) || block_uses_this_directly(body)
+        }
+        ExprKind::Range { start, end, .. } => {
+            start.as_deref().map_or(false, expr_uses_this_directly)
+                || end.as_deref().map_or(false, expr_uses_this_directly)
+        }
+        ExprKind::Return(opt) | ExprKind::Break(opt) => {
+            opt.as_deref().map_or(false, expr_uses_this_directly)
+        }
+        ExprKind::Assign { value, .. } => expr_uses_this_directly(value),
+        ExprKind::AssignField { obj, value, .. } => {
+            expr_uses_this_directly(obj) || expr_uses_this_directly(value)
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            expr_uses_this_directly(obj)
+                || expr_uses_this_directly(index)
+                || expr_uses_this_directly(value)
+        }
+        ExprKind::Array(items) | ExprKind::Tuple(items) => {
+            items.iter().any(expr_uses_this_directly)
+        }
+        ExprKind::StructLit { fields, .. } => {
+            fields.iter().any(|(_, v)| expr_uses_this_directly(v))
+        }
+        ExprKind::MapLit(entries) => entries
+            .iter()
+            .any(|(k, v)| expr_uses_this_directly(k) || expr_uses_this_directly(v)),
+        ExprKind::Index { obj, index } => {
+            expr_uses_this_directly(obj) || expr_uses_this_directly(index)
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => false,
+            ilang_ast::CtorArgs::Tuple(es) => es.iter().any(expr_uses_this_directly),
+            ilang_ast::CtorArgs::Struct(fs) => fs.iter().any(|(_, v)| expr_uses_this_directly(v)),
+        },
+        ExprKind::Match { scrutinee, arms } => {
+            expr_uses_this_directly(scrutinee)
+                || arms.iter().any(|a| expr_uses_this_directly(&a.body))
+        }
+        _ => false,
+    }
 }
 
 /// Visit every direct child Expr of `e`. Used by `refine_returns` (to

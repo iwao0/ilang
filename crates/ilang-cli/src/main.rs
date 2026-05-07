@@ -125,6 +125,7 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             &tc.class_method_slots(),
             &tc.class_vtable_lens(),
             &tc.fn_expr_captures(),
+            &tc.fn_expr_this_class(),
         ) {
             Ok(v) => {
                 let s = format!("{v}");

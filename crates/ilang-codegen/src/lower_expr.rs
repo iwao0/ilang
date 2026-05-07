@@ -4758,10 +4758,40 @@ fn lower_closure_construct(
     // Write each capture at offset 8, 16, 24, ...
     for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
         let offset = 8 + (i as i32) * 8;
-        // Look in regular env first, then in the surrounding
-        // closure's capture env (so a nested closure can re-capture
-        // an outer closure's captured value).
-        let (v, jty) = if let Some(&(var, vt)) = lc.env.bindings.get(cap_name) {
+        // Special-case the synthetic `this` capture: comes straight
+        // from `lc.this` (the enclosing method's receiver) instead
+        // of looking it up by name. The hoist pass injected this
+        // entry only when the closure body actually references
+        // `this`, so `lc.this` must be set here.
+        let is_this_capture = cap_name.as_str() == "this";
+        let (v, jty) = if is_this_capture {
+            if let Some((var, class_id)) = lc.this {
+                (b.use_var(var), JitTy::Object(class_id))
+            } else if let Some(env) = lc.closure_capture_env.as_ref() {
+                // We're nested inside another closure that already
+                // captured `this`. Pull it from that env.
+                let entry = env
+                    .captures
+                    .iter()
+                    .find(|(n, _, _)| n.as_str() == "this")
+                    .ok_or_else(|| CodegenError::Unsupported {
+                        what: "synthetic `this` capture not in scope at construction site".into(),
+                        span,
+                    })?;
+                let outer_offset = entry.1 as i32;
+                let outer_jty = entry.2;
+                let env_ptr = b.use_var(env.env_var);
+                let raw =
+                    b.ins()
+                        .load(I64, MemFlags::trusted(), env_ptr, outer_offset);
+                (raw, outer_jty)
+            } else {
+                return Err(CodegenError::Unsupported {
+                    what: "synthetic `this` capture has no source at construction site".into(),
+                    span,
+                });
+            }
+        } else if let Some(&(var, vt)) = lc.env.bindings.get(cap_name) {
             (b.use_var(var), vt)
         } else if let Some(env) = lc.closure_capture_env.as_ref() {
             if let Some(entry) = env.captures.iter().find(|(n, _, _)| n == cap_name) {

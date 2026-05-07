@@ -450,8 +450,8 @@ impl Interpreter {
                 if let Some(Value::Fn(f, env, this_ctx)) = self.vars.get(callee).cloned() {
                     return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
                 }
-                if let Some(Value::Fn(f, env)) = self.globals.get(callee).cloned() {
-                    return self.invoke_fn_value(&f, &env, args, span);
+                if let Some(Value::Fn(f, env, this_ctx)) = self.globals.get(callee).cloned() {
+                    return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
                 }
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();

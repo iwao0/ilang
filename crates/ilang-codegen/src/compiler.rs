@@ -46,6 +46,7 @@ pub fn jit_run(prog: &Program) -> Result<JitValue, CodegenError> {
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
         &std::collections::HashMap::new(),
+        &std::collections::HashMap::new(),
     )
 }
 
@@ -75,14 +76,18 @@ pub fn jit_run_with(
         ilang_ast::Span,
         Vec<(Symbol, ilang_ast::Type)>,
     >,
+    fn_expr_this_class: &std::collections::HashMap<ilang_ast::Span, Symbol>,
 ) -> Result<JitValue, CodegenError> {
     // Pipeline:
     //   hoist anon fns → monomorphize classes → monomorphize enums
     //   → monomorphize fns. After all four passes the program contains
     //   zero `Type::Generic` (except built-in `Map`), zero `FnExpr`,
     //   and zero generic decls.
-    let (hoisted, closure_meta_in) =
-        crate::monomorphize::hoist_anon_fns(prog, fn_expr_captures);
+    let (hoisted, closure_meta_in) = crate::monomorphize::hoist_anon_fns(
+        prog,
+        fn_expr_captures,
+        fn_expr_this_class,
+    );
     let mono = crate::monomorphize::monomorphize(&hoisted);
     let mono = crate::monomorphize::monomorphize_enums(&mono, enum_ctor_type_args);
     let mono = crate::monomorphize::monomorphize_fns(&mono, fn_call_type_args);
