@@ -1263,6 +1263,13 @@ pub(crate) fn lower_expr(
                     };
                     let r = lc.module.declare_func_in_func(push_id, b.func);
                     b.ins().call(r, &[obj_v, coerced]);
+                    // Fresh receiver (`make_arr().push(x)`): the
+                    // surrounding scope holds no reference to the
+                    // array, so without release here the rc=1 sticks
+                    // forever and the allocation leaks.
+                    if !is_aliased_heap_source(&obj.kind) {
+                        emit_release_heap(b, lc, obj_v, obj_t);
+                    }
                     return Ok(None);
                 }
                 if method == "pop" {
@@ -3370,6 +3377,13 @@ fn lower_console_log(
             span: a.span,
         })?;
         emit_print_value(b, lc, av, at, a.span)?;
+        // A fresh heap-typed argument (`console.log(make_arr(...))`,
+        // `console.log("a" + b)`) hands its rc=1 to print and never
+        // gets bound, so without release here it sticks around for
+        // the rest of the program.
+        if at.is_heap() && !is_aliased_heap_source(&a.kind) {
+            emit_release_heap(b, lc, av, at);
+        }
     }
     let r = lc.module.declare_func_in_func(lc.print.newline, b.func);
     b.ins().call(r, &[]);
