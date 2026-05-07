@@ -987,7 +987,22 @@ impl TypeChecker {
                     } else {
                         None
                     };
-                    let sig = class_signature(c, parent_sig.as_ref())?;
+                    let classes_ref = &self.classes;
+                    let is_sub = |child: Symbol, ancestor: Symbol| -> bool {
+                        if child == ancestor {
+                            return true;
+                        }
+                        let mut cur = classes_ref.get(&child).and_then(|c| c.parent);
+                        while let Some(name) = cur {
+                            if name == ancestor {
+                                return true;
+                            }
+                            cur = classes_ref.get(&name).and_then(|c| c.parent);
+                        }
+                        false
+                    };
+                    let sig = class_signature(c, parent_sig.as_ref(), &is_sub)?;
+                    drop(is_sub);
                     self.classes.insert(c.name.clone(), sig);
                 }
                 Item::Enum(e) => {
@@ -1106,7 +1121,7 @@ impl TypeChecker {
                         is_union: false,
                         span: *span,
                     };
-                    let sig = class_signature(&synth, None)?;
+                    let sig = class_signature(&synth, None, &|_, _| false)?;
                     self.classes.insert(name.clone(), sig);
                 }
                 ilang_ast::ExternCItem::Union { name, fields, span } => {
@@ -1125,7 +1140,7 @@ impl TypeChecker {
                         is_union: true,
                         span: *span,
                     };
-                    let sig = class_signature(&synth, None)?;
+                    let sig = class_signature(&synth, None, &|_, _| false)?;
                     self.classes.insert(name.clone(), sig);
                 }
                 ilang_ast::ExternCItem::FnDecl { name, params, ret, variadic, span, .. } => {
@@ -1158,7 +1173,7 @@ impl TypeChecker {
                     self.fns.entry(f.name.clone()).or_default().push(sig);
                 }
                 ilang_ast::ExternCItem::Class(c) => {
-                    let sig = class_signature(c, None)?;
+                    let sig = class_signature(c, None, &|_, _| false)?;
                     self.classes.insert(c.name.clone(), sig);
                 }
             }
@@ -4833,6 +4848,7 @@ fn signature_of(f: &FnDecl) -> Signature {
 fn class_signature(
     c: &ClassDecl,
     parent: Option<&ClassSig>,
+    is_subclass: &dyn Fn(Symbol, Symbol) -> bool,
 ) -> Result<ClassSig, TypeError> {
     // Inheritance restrictions: the parent must not be generic
     // (we don't substitute type params across the boundary), and
@@ -4952,7 +4968,20 @@ fn class_signature(
                 *p = rewrite_type_params(p, &c.type_params);
             }
             sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
-            if sig.params != parent_sig.params || sig.ret != parent_sig.ret {
+            // Param types must match exactly (contravariant params
+            // would relax this, but we keep params invariant — same
+            // as Rust's trait-method rule). Return type may be a
+            // class subtype of the parent's, matching standard OO
+            // covariant-return semantics: callers expecting the
+            // parent's return type still get a subtype.
+            let ret_compatible = sig.ret == parent_sig.ret
+                || match (&sig.ret, &parent_sig.ret) {
+                    (Type::Object(child), Type::Object(par)) => {
+                        is_subclass(*child, *par)
+                    }
+                    _ => false,
+                };
+            if sig.params != parent_sig.params || !ret_compatible {
                 return Err(TypeError::Unsupported {
                     what: format!(
                         "override of method {:?} in class {:?} has a different \
