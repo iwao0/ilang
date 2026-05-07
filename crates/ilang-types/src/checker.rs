@@ -1147,14 +1147,24 @@ impl TypeChecker {
                 PatternKind::IntRange { low, high, inclusive } => {
                     if !st.is_numeric() {
                         false
-                    } else if *low > *high || (!*inclusive && *low == *high) {
+                    } else if low.is_none() && high.is_none() {
                         return Err(TypeError::Unsupported {
-                            what: format!(
-                                "empty integer range pattern `{low}{}{high}`",
-                                if *inclusive { "..=" } else { ".." }
-                            ),
+                            what: "integer range pattern needs at least one bound".into(),
                             span: pspan,
                         });
+                    } else if let (Some(lo), Some(hi)) = (low, high) {
+                        if *lo > *hi || (!*inclusive && *lo == *hi) {
+                            let l_s = lo.to_string();
+                            let h_s = hi.to_string();
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "empty integer range pattern `{l_s}{}{h_s}`",
+                                    if *inclusive { "..=" } else { ".." }
+                                ),
+                                span: pspan,
+                            });
+                        }
+                        true
                     } else {
                         true
                     }
@@ -2873,8 +2883,16 @@ impl TypeChecker {
                 // Range iter: check both endpoints are integer types of
                 // a single common int type, bind `var` to that type.
                 let elem = if let ExprKind::Range { start, end, .. } = &iter.kind {
+                    let start = match start {
+                        Some(s) => s,
+                        None => {
+                            return Err(TypeError::Unsupported {
+                                what: "for-in range needs a start (`..N` is not iterable; use `0..N`)".into(),
+                                span: iter.span,
+                            });
+                        }
+                    };
                     let st = self.check_expr(start, env, ret_ty, in_class, loop_depth)?;
-                    let et = self.check_expr(end, env, ret_ty, in_class, loop_depth)?;
                     if !st.is_int() {
                         return Err(TypeError::Mismatch {
                             expected: Type::I64,
@@ -2882,29 +2900,33 @@ impl TypeChecker {
                             span: start.span,
                         });
                     }
-                    if !et.is_int() {
-                        return Err(TypeError::Mismatch {
-                            expected: st.clone(),
-                            got: et,
-                            span: end.span,
-                        });
-                    }
-                    if st != et {
-                        // Same literal-coercion rule as if-branches and
-                        // let bindings: a bare numeric literal endpoint
-                        // adopts the other side's int type when it fits.
-                        if numeric_literal_fits(start, &et) {
-                            et
-                        } else if numeric_literal_fits(end, &st) {
-                            st
-                        } else {
+                    if let Some(end) = end {
+                        let et = self.check_expr(end, env, ret_ty, in_class, loop_depth)?;
+                        if !et.is_int() {
                             return Err(TypeError::Mismatch {
-                                expected: st,
+                                expected: st.clone(),
                                 got: et,
                                 span: end.span,
                             });
                         }
+                        if st != et {
+                            if numeric_literal_fits(start, &et) {
+                                et
+                            } else if numeric_literal_fits(end, &st) {
+                                st
+                            } else {
+                                return Err(TypeError::Mismatch {
+                                    expected: st,
+                                    got: et,
+                                    span: end.span,
+                                });
+                            }
+                        } else {
+                            st
+                        }
                     } else {
+                        // Open-ended `start..` — iter type is just
+                        // start's type. Body must `break` to exit.
                         st
                     }
                 } else {
@@ -4192,8 +4214,12 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             walk_block_children(body, f);
         }
         ExprKind::Range { start, end, .. } => {
-            f(start);
-            f(end);
+            if let Some(s) = start {
+                f(s);
+            }
+            if let Some(e) = end {
+                f(e);
+            }
         }
         ExprKind::Return(Some(x)) => f(x),
         ExprKind::Assign { value, .. }
@@ -5118,8 +5144,12 @@ fn cfev_expr(
             *bound = snap;
         }
         ExprKind::Range { start, end, .. } => {
-            cfev_expr(start, bound, frees, seen);
-            cfev_expr(end, bound, frees, seen);
+            if let Some(s) = start {
+                cfev_expr(s, bound, frees, seen);
+            }
+            if let Some(e) = end {
+                cfev_expr(e, bound, frees, seen);
+            }
         }
         ExprKind::Assign { target, value } => {
             if !bound.contains(target) && !seen.contains(target) {

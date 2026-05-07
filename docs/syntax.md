@@ -228,6 +228,8 @@ for x in xs { console.log(x) }     // break / continue allowed
 // ranges (Rust-style) — exclusive `..` and inclusive `..=`
 for i in 1..5 { console.log(i) }   // 1, 2, 3, 4
 for i in 1..=5 { console.log(i) }  // 1, 2, 3, 4, 5
+// open-ended `1..` (RangeFrom) — body must `break` to exit
+for i in 1.. { if i > 100 { break }; sum += i }
 
 // if let — pattern match on Optional (the only pattern form
 // outside `match`)
@@ -242,10 +244,14 @@ if let some(v) = x {
 `break` / `continue` only work inside loops (the type checker
 rejects them outside).
 
-Range expressions `a..b` / `a..=b` are valid **only as the iterator
-of a `for-in`**. Trying to bind a range to a value (`let r = 1..10`)
-is a type error. Both endpoints must be the same integer type and
-the loop variable is bound to that type.
+Range expressions `a..b` / `a..=b` / `a..` are valid **only as the
+iterator of a `for-in`**. Trying to bind a range to a value
+(`let r = 1..10`) is a type error. The bounded forms require both
+endpoints to be the same integer type; the loop variable is bound
+to that type. The half-open `a..` (RangeFrom) form has no upper
+bound — the body must `break` to exit (running to integer
+overflow wraps without panic). Mirroring Rust, the start-less
+forms (`..N`, `..`) are **not** iterable and are rejected.
 
 `loop` can break with a value (`break v`); the value becomes the
 type and value of the `loop` expression itself (Rust-style).
@@ -894,12 +900,14 @@ let label = match n {
     _  { "other" }
 }
 
-// Integer ranges — exclusive `..` and inclusive `..=`.
+// Integer ranges — exclusive `..`, inclusive `..=`, and the
+// half-open forms `..N`, `..=N`, `N..` (Rust-style).
 let bucket = match n {
-    -10..0  { "neg" }
+    ..0     { "neg" }
     0..10   { "small" }
     10..=99 { "tens" }
-    _       { "big" }
+    100..   { "big" }
+    _       { "?" }
 }
 
 let s = match flag {
@@ -916,10 +924,12 @@ let kind = match name {
 
 - Integer patterns (`1`, `-7`) match same-signed integer scrutinees
   via structural equality.
-- Integer range patterns (`a..b`, `a..=b`) match when
-  `a <= x < b` / `a <= x <= b`. The bounds must be the same signed
-  integer literal (or `-Lit`); empty ranges (`5..5`, `5..3`) are
-  rejected at compile time.
+- Integer range patterns (`a..b`, `a..=b`, `a..`, `..b`, `..=b`)
+  match when `x` falls in the range. Bounds are integer literals
+  (optionally with a `-` sign); empty bounded ranges (`5..5`,
+  `5..3`) are rejected at compile time. Half-open forms have no
+  bound on the missing side. The `a..=` form (no upper bound,
+  inclusive) is rejected — it makes no sense.
 - `bool` patterns require both `true` and `false` arms (exhaustive)
   *or* a `_` wildcard.
 - All other primitive matches need a `_` wildcard — the value space

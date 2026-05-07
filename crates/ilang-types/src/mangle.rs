@@ -461,8 +461,8 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             body: rewrite_block(body, ctx),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(rewrite_expr(*start, ctx)),
-            end: Box::new(rewrite_expr(*end, ctx)),
+            start: start.map(|s| Box::new(rewrite_expr(*s, ctx))),
+            end: end.map(|e| Box::new(rewrite_expr(*e, ctx))),
             inclusive,
         },
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {

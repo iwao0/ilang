@@ -3252,8 +3252,12 @@ impl<'a> Walker<'a> {
                 self.walk_expr(index, scope, this_class);
             }
             ExprKind::Range { start, end, .. } => {
-                self.walk_expr(start, scope, this_class);
-                self.walk_expr(end, scope, this_class);
+                if let Some(s) = start {
+                    self.walk_expr(s, scope, this_class);
+                }
+                if let Some(e) = end {
+                    self.walk_expr(e, scope, this_class);
+                }
             }
             ExprKind::Match { scrutinee, arms } => {
                 self.walk_expr(scrutinee, scope, this_class);

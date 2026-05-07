@@ -680,8 +680,12 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
         }
         ExprKind::Block(b) => qualify_var_refs_in_block(b, prefix, consts),
         ExprKind::Range { start, end, .. } => {
-            qualify_var_refs_in_expr(start, prefix, consts);
-            qualify_var_refs_in_expr(end, prefix, consts);
+            if let Some(s) = start {
+                qualify_var_refs_in_expr(s, prefix, consts);
+            }
+            if let Some(e) = end {
+                qualify_var_refs_in_expr(e, prefix, consts);
+            }
         }
         ExprKind::Array(es) => {
             for e in es.iter_mut() {
@@ -1185,8 +1189,8 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             body: prefix_block_calls(body, prefix),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(prefix_expr(*start, prefix)),
-            end: Box::new(prefix_expr(*end, prefix)),
+            start: start.map(|s| Box::new(prefix_expr(*s, prefix))),
+            end: end.map(|e| Box::new(prefix_expr(*e, prefix))),
             inclusive,
         },
         ExprKind::Closure { fn_name, captures } => {
@@ -1834,8 +1838,8 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             body: subst_const_block(body, ctx),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(subst_const_expr(*start, ctx)),
-            end: Box::new(subst_const_expr(*end, ctx)),
+            start: start.map(|s| Box::new(subst_const_expr(*s, ctx))),
+            end: end.map(|e| Box::new(subst_const_expr(*e, ctx))),
             inclusive,
         },
         ExprKind::Closure { fn_name, captures } => {
@@ -2175,8 +2179,12 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
             rename_in_block(body, rules);
         }
         ExprKind::Range { start, end, .. } => {
-            rename_in_expr(start, rules);
-            rename_in_expr(end, rules);
+            if let Some(s) = start.as_mut() {
+                rename_in_expr(s, rules);
+            }
+            if let Some(e) = end.as_mut() {
+                rename_in_expr(e, rules);
+            }
         }
         ExprKind::Loop { body } => rename_in_block(body, rules),
         ExprKind::Break(opt) => {
