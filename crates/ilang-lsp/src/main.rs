@@ -1278,7 +1278,11 @@ fn walk_module(
     for it in &mod_prog.items {
         match it {
             Item::Const(c) => {
-                let ty = match &c.ty {
+                let ty = match c
+                    .ty
+                    .clone()
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+                {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
@@ -1465,7 +1469,11 @@ fn walk_module_aliased(
         match it {
             Item::Const(c) => {
                 let key = format!("{alias_prefix}.{}", c.name);
-                let ty = match &c.ty {
+                let ty = match c
+                    .ty
+                    .clone()
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+                {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
@@ -1905,7 +1913,11 @@ fn collect_external_signatures(
                 }
             }
             Item::Const(c) => {
-                let ty = match &c.ty {
+                let ty = match c
+                    .ty
+                    .clone()
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+                {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
@@ -2297,7 +2309,11 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                 );
             }
             Item::Const(c) => {
-                let ty = match &c.ty {
+                let ty = match c
+                    .ty
+                    .clone()
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+                {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
