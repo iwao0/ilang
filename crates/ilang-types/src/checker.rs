@@ -4425,7 +4425,6 @@ fn expr_uses_this_directly(e: &Expr) -> bool {
         | ExprKind::TypeTest { expr, .. }
         | ExprKind::TypeDowncast { expr, .. } => expr_uses_this_directly(expr),
         ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. }
         | ExprKind::New { args, .. } => args.iter().any(expr_uses_this_directly),
         ExprKind::Field { obj, .. } => expr_uses_this_directly(obj),
         ExprKind::MethodCall { obj, args, .. } => {
