@@ -4288,8 +4288,15 @@ fn refine_returns(tc: &TypeChecker, e: &Expr, target: &Type) {
     walk_children(e, &mut |c| refine_returns(tc, c, target));
 }
 
-/// Visit every direct child Expr of `e`. A small structural walk used
-/// only by `refine_returns`; not optimized.
+/// Visit every direct child Expr of `e`. Used by `refine_returns` (to
+/// propagate the enclosing fn's declared return type into early-return
+/// enum-ctor sites) and by `collect_in_expr` (to record `this.f = v`
+/// assignments for init-coverage analysis).
+///
+/// `FnExpr` is intentionally NOT recursed into: its body has its own
+/// `return` target and its own `this` semantics (the closure may
+/// never be called), so neither caller wants to treat the inner
+/// expressions as belonging to the surrounding function.
 fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match &e.kind {
         ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
@@ -4308,6 +4315,11 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         ExprKind::Field { obj, .. } => f(obj),
         ExprKind::MethodCall { obj, args, .. } => {
             f(obj);
+            for a in args {
+                f(a);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
             for a in args {
                 f(a);
             }
@@ -4350,9 +4362,21 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             }
         }
         ExprKind::Return(Some(x)) => f(x),
-        ExprKind::Assign { value, .. }
-        | ExprKind::AssignField { value, .. }
-        | ExprKind::AssignIndex { value, .. } => f(value),
+        ExprKind::Assign { value, .. } => f(value),
+        ExprKind::AssignField { obj, value, .. } => {
+            f(obj);
+            f(value);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            f(obj);
+            f(index);
+            f(value);
+        }
+        ExprKind::StructLit { fields, .. } => {
+            for (_, v) in fields.iter() {
+                f(v);
+            }
+        }
         ExprKind::Array(items) => {
             for i in items {
                 f(i);
