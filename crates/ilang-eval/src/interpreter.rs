@@ -47,6 +47,11 @@ pub struct Interpreter {
     vars: HashMap<Symbol, Value>,
     this: Option<ObjectRef>,
     depth: usize,
+    /// Per-`EnumCtor` call site → inferred type args. Forwarded
+    /// from the type checker so RTTI (`Type.typeArgs` on
+    /// `Result<T, E>` etc.) can recover the args at construction
+    /// time. Empty when not provided (older callers / REPL).
+    enum_ctor_type_args: HashMap<Span, (Symbol, Vec<ilang_ast::Type>)>,
 }
 
 impl Interpreter {
@@ -63,9 +68,20 @@ impl Interpreter {
         let console: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: "Console".into(),
             fields: HashMap::new(),
+            type_args: Vec::new(),
         }));
         self.vars
             .insert("console".into(), Value::Object(console));
+    }
+
+    /// Forward the type checker's `enum_ctor_type_args` table so
+    /// `Value::Enum`s can record their inferred T/E at construction
+    /// (used by `Type.typeArgs` reflection).
+    pub fn set_enum_ctor_type_args(
+        &mut self,
+        table: HashMap<Span, (Symbol, Vec<ilang_ast::Type>)>,
+    ) {
+        self.enum_ctor_type_args = table;
     }
 
     pub fn run(&mut self, prog: &Program) -> Result<Value, RuntimeError> {
@@ -361,8 +377,7 @@ impl Interpreter {
                 // already enforced arity 1.
                 if callee.as_str() == "typeof" {
                     let v = self.eval_expr(&args[0])?;
-                    let (name, kind) = type_of_value(&v);
-                    return Ok(Value::TypeVal { name, kind });
+                    return Ok(self.type_of_value_full(&v));
                 }
                 // Indirect call through a function-typed local first
                 // (matches the type checker's lookup order — locals
@@ -426,7 +441,7 @@ impl Interpreter {
                     }
                 }
                 // Built-in `Type` properties (RTTI).
-                if let Value::TypeVal { name: tname, kind } = &v {
+                if let Value::TypeVal { name: tname, kind, type_args } = &v {
                     if name.as_str() == "name" {
                         return Ok(Value::Str(Rc::new(tname.as_str().to_string())));
                     }
@@ -435,6 +450,7 @@ impl Interpreter {
                             ty: Symbol::intern("TypeKind"),
                             variant: *kind,
                             payload: EnumPayload::Unit,
+                            type_args: Vec::new(),
                         });
                     }
                     if name.as_str() == "parent" {
@@ -448,6 +464,7 @@ impl Interpreter {
                                     return Ok(Value::Some(Box::new(Value::TypeVal {
                                         name: p,
                                         kind: Symbol::intern("class"),
+                                        type_args: Vec::new(),
                                     })));
                                 }
                             }
@@ -455,13 +472,9 @@ impl Interpreter {
                         return Ok(Value::None);
                     }
                     if name.as_str() == "typeArgs" {
-                        // The interpreter doesn't track per-value
-                        // generic arguments yet — Value::Enum /
-                        // Value::Object carry only base names — so
-                        // typeArgs is empty here. The JIT, which
-                        // monomorphises generics, returns the
-                        // concrete args.
-                        return Ok(Value::Array(Rc::new(RefCell::new(Vec::new()))));
+                        // Return the TypeVals captured at typeof()
+                        // time. Each entry is itself a Value::TypeVal.
+                        return Ok(Value::Array(Rc::new(RefCell::new(type_args.clone()))));
                     }
                     if name.as_str() == "fields" || name.as_str() == "methods" {
                         // Only classes expose declared field/method
@@ -884,8 +897,14 @@ impl Interpreter {
                 let o = expect_object(v, obj.span)?;
                 self.call_method(o, method.as_str(), args, span)
             }
-            ExprKind::New { class, type_args: _, args, init_method } => {
-                self.new_object(class.as_str(), args, init_method.as_ref().map(|s| s.as_str()), span)
+            ExprKind::New { class, type_args, args, init_method } => {
+                self.new_object(
+                    class.as_str(),
+                    args,
+                    init_method.as_ref().map(|s| s.as_str()),
+                    type_args,
+                    span,
+                )
             }
             ExprKind::Block(b) => self.eval_block(b),
             ExprKind::If {
@@ -1388,10 +1407,20 @@ impl Interpreter {
                         EnumPayload::Struct(fs)
                     }
                 };
+                // Recover the inferred generic args (e.g.
+                // `[i64, string]` for `Result.ok::<i64, string>(42)`)
+                // from the type checker's side table so RTTI can
+                // surface them via `typeof(v).typeArgs`.
+                let type_args = self
+                    .enum_ctor_type_args
+                    .get(&span)
+                    .map(|(_, args)| args.clone())
+                    .unwrap_or_default();
                 Ok(Value::Enum {
                     ty: *enum_name,
                     variant: *variant,
                     payload,
+                    type_args,
                 })
             }
             ExprKind::Match { scrutinee, arms } => {
@@ -1459,7 +1488,7 @@ impl Interpreter {
                     });
                 }
                 let (sv_ty, sv_var, sv_payload) = match v {
-                    Value::Enum { ty, variant, payload } => (ty, variant, payload),
+                    Value::Enum { ty, variant, payload, .. } => (ty, variant, payload),
                     other => {
                         return Err(RuntimeError::TypeError {
                             msg: format!("match on non-enum value {other}"),
@@ -1840,6 +1869,7 @@ impl Interpreter {
         class: &str,
         args: &[Expr],
         init_method: Option<&str>,
+        type_args: &[ilang_ast::Type],
         span: Span,
     ) -> Result<Value, RuntimeError> {
         // Built-in `new Map<K, V>()` — returns an empty Value::Map.
@@ -1902,7 +1932,7 @@ impl Interpreter {
             // mutate. Skipping this leaves the field as `Unit`,
             // tripping the next field access.
             let v = if let Some(inner_class) = recurse {
-                self.new_object(inner_class.as_str(), &[], None, span)?
+                self.new_object(inner_class.as_str(), &[], None, &[], span)?
             } else {
                 default_value(&ty)
             };
@@ -1911,6 +1941,7 @@ impl Interpreter {
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: class.into(),
             fields,
+            type_args: type_args.to_vec(),
         }));
         // Pick the init to run. The mangler may have set
         // `init_method` to a specific overload mangle (e.g.
@@ -1980,6 +2011,99 @@ impl Interpreter {
 
     fn eval_args(&mut self, args: &[Expr]) -> Result<Vec<Value>, RuntimeError> {
         args.iter().map(|a| self.eval_expr(a)).collect()
+    }
+
+    /// Build a fully-populated `Value::TypeVal` for `v` — same
+    /// `name` / `kind` shape as `type_of_value`, plus `type_args`
+    /// recursively materialised from the source value's stored
+    /// `ilang_ast::Type` arguments. Used by `typeof(x)`.
+    fn type_of_value_full(&self, v: &Value) -> Value {
+        let (name, kind) = type_of_value(v);
+        let type_args = match v {
+            Value::Object(o) => o
+                .borrow()
+                .type_args
+                .iter()
+                .map(|t| self.ast_type_to_type_val(t))
+                .collect(),
+            Value::Enum { type_args, .. } => type_args
+                .iter()
+                .map(|t| self.ast_type_to_type_val(t))
+                .collect(),
+            _ => Vec::new(),
+        };
+        Value::TypeVal { name, kind, type_args }
+    }
+
+    /// Convert an `ilang_ast::Type` to a `Value::TypeVal`. Recurses
+    /// into generic args / array elements / optional inner / fn
+    /// signatures so `typeof(...).typeArgs[0].typeArgs` etc. report
+    /// the nested shape.
+    fn ast_type_to_type_val(&self, t: &ilang_ast::Type) -> Value {
+        use ilang_ast::Type as T;
+        let mk = |name: &str, kind: &str, args: Vec<Value>| Value::TypeVal {
+            name: Symbol::intern(name),
+            kind: Symbol::intern(kind),
+            type_args: args,
+        };
+        match t {
+            T::I8 => mk("i8", "primitive", vec![]),
+            T::I16 => mk("i16", "primitive", vec![]),
+            T::I32 => mk("i32", "primitive", vec![]),
+            T::I64 => mk("i64", "primitive", vec![]),
+            T::U8 => mk("u8", "primitive", vec![]),
+            T::U16 => mk("u16", "primitive", vec![]),
+            T::U32 => mk("u32", "primitive", vec![]),
+            T::U64 => mk("u64", "primitive", vec![]),
+            T::F32 => mk("f32", "primitive", vec![]),
+            T::F64 => mk("f64", "primitive", vec![]),
+            T::Bool => mk("bool", "primitive", vec![]),
+            T::Str => mk("string", "string", vec![]),
+            T::Unit => mk("()", "unit", vec![]),
+            T::Optional(inner) => mk(
+                "optional",
+                "optional",
+                vec![self.ast_type_to_type_val(inner)],
+            ),
+            T::Array { elem, .. } => mk(
+                "array",
+                "array",
+                vec![self.ast_type_to_type_val(elem)],
+            ),
+            T::Weak(_) => mk("weak", "class", vec![]),
+            T::Fn(_) => mk("fn", "fn", vec![]),
+            T::Object(name) => {
+                let kind = if self.enums.contains_key(name) {
+                    "enum"
+                } else {
+                    "class"
+                };
+                mk(name.as_str(), kind, vec![])
+            }
+            T::Generic(g) => {
+                let kind = if self.enums.contains_key(&g.base) {
+                    "enum"
+                } else {
+                    "class"
+                };
+                let args: Vec<Value> =
+                    g.args.iter().map(|a| self.ast_type_to_type_val(a)).collect();
+                mk(g.base.as_str(), kind, args)
+            }
+            T::TypeVar(name) => mk(name.as_str(), "primitive", vec![]),
+            T::Size => mk("u64", "primitive", vec![]),
+            T::SSize => mk("i64", "primitive", vec![]),
+            T::CChar => mk("i8", "primitive", vec![]),
+            T::CVoid => mk("()", "unit", vec![]),
+            T::RawPtr { .. } => mk("rawptr", "primitive", vec![]),
+            T::Enum(name) => mk(name.as_str(), "enum", vec![]),
+            T::Tuple(elems) => {
+                let args: Vec<Value> =
+                    elems.iter().map(|e| self.ast_type_to_type_val(e)).collect();
+                mk("tuple", "tuple", args)
+            }
+            T::Any => mk("any", "primitive", vec![]),
+        }
     }
 
     fn invoke(

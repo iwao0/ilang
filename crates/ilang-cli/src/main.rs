@@ -129,8 +129,10 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
         eprintln!("{display_path} {e}");
         return ExitCode::FAILURE;
     }
+    let enum_ctor_args = tc.enum_ctor_type_args();
     let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
     let mut interp = Interpreter::new();
+    interp.set_enum_ctor_type_args(enum_ctor_args);
     match interp.run(&prog) {
         Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
@@ -157,6 +159,7 @@ fn eval_in(
     let toks = tokenize(src).map_err(|e| format!("{source_label} {e}"))?;
     let prog = parse(&toks).map_err(|e| format!("{source_label} {e}"))?;
     tc.check(&prog).map_err(|e| format!("{source_label} {e}"))?;
+    interp.set_enum_ctor_type_args(tc.enum_ctor_type_args());
     interp.run(&prog).map_err(|e| format!("{source_label} {e}"))
 }
 

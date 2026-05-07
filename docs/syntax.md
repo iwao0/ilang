@@ -1117,7 +1117,7 @@ typeof(r).name         // "Result"  (type args surfaced separately
 | `.parent` | `Type?` | Direct parent class for `extends`; `none` for non-class types or root classes |
 | `.fields` | `string[]` | Names of declared fields (classes only; empty for other kinds). Inherited fields are NOT included — chase `.parent` for those |
 | `.methods` | `string[]` | Names of declared methods (classes only; empty for other kinds). `init` is included |
-| `.typeArgs` | `Type[]` | Generic-instance arguments (e.g. `[Type("i64"), Type("string")]` for `Result<i64, string>`). Empty for non-generic types. **JIT-only** — the interpreter currently returns an empty array even for generic instances |
+| `.typeArgs` | `Type[]` | Generic-instance arguments (e.g. `[Type("i64"), Type("string")]` for `Result<i64, string>`). Empty for non-generic types. Interpreter and JIT both report the inferred args |
 
 ### Type tests and downcasts
 
@@ -1155,9 +1155,6 @@ let label = match typeof(x).kind {
 - `.fields` / `.methods` currently expose only **declared**
   members (no inherited names) and only their names — the field
   type / method signature is not surfaced yet.
-- `.typeArgs` is JIT-only at the moment. The tree-walking
-  interpreter doesn't track per-value generic arguments, so it
-  reports an empty array even for `Result<i64, string>` etc.
 
 ---
 

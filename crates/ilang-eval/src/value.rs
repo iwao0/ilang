@@ -10,6 +10,10 @@ use ilang_ast::Symbol;
 pub struct ObjectData {
     pub class: Symbol,
     pub fields: HashMap<Symbol, Value>,
+    /// Generic-class type arguments captured at construction time
+    /// (e.g. `[i64]` for `new Box<i64>()`). Empty for non-generic
+    /// classes. Used by `typeof(x).typeArgs` reflection.
+    pub type_args: Vec<ilang_ast::Type>,
 }
 
 pub type ObjectRef = Rc<RefCell<ObjectData>>;
@@ -54,6 +58,11 @@ pub enum Value {
         ty: Symbol,
         variant: Symbol,
         payload: EnumPayload,
+        /// Inferred generic type arguments (e.g. `[i64, string]` for
+        /// `Result.ok::<i64, string>(42)`). Populated from the type
+        /// checker's side table at `EnumCtor` eval. Empty for
+        /// non-generic enums.
+        type_args: Vec<ilang_ast::Type>,
     },
     /// First-class function value. Wraps a `FnDecl` (named or
     /// anonymous) plus an optional captured environment. The
@@ -75,6 +84,9 @@ pub enum Value {
     TypeVal {
         name: Symbol,
         kind: Symbol,
+        /// `typeArgs` view: each entry is itself a `Value::TypeVal`.
+        /// Empty for non-generic types.
+        type_args: Vec<Value>,
     },
 }
 
@@ -166,11 +178,13 @@ impl PartialEq for Value {
                     ty: ta,
                     variant: va,
                     payload: pa,
+                    ..
                 },
                 Enum {
                     ty: tb,
                     variant: vb,
                     payload: pb,
+                    ..
                 },
             ) => ta == tb && va == vb && pa == pb,
             _ => false,
@@ -233,7 +247,7 @@ impl std::fmt::Display for Value {
                 Some(_) => write!(f, "weak(<alive>)"),
                 None => write!(f, "weak(<dead>)"),
             },
-            Value::Enum { ty, variant, payload } => match payload {
+            Value::Enum { ty, variant, payload, .. } => match payload {
                 EnumPayload::Unit => write!(f, "{ty}::{variant}"),
                 EnumPayload::Tuple(items) => {
                     write!(f, "{ty}::{variant}(")?;
