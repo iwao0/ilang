@@ -135,9 +135,15 @@ pub fn load_program_with_overlay(
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
     // Process the entry's use items into actual merged content.
+    // Sub-module top-level stmts are appended to `merged.stmts` first
+    // (in dependency order) by `apply_use`, then the entry's own
+    // top-level stmts are appended last so they run after every
+    // imported module's initialization code (Python-style import
+    // semantics).
+    let entry_stmts = entry_prog.stmts;
     let mut merged = Program {
         items: Vec::new(),
-        stmts: entry_prog.stmts,
+        stmts: Vec::new(),
         tail: entry_prog.tail,
     };
     let mut whole_imports: HashSet<Symbol> = HashSet::new();
@@ -163,6 +169,10 @@ pub fn load_program_with_overlay(
             other => merged.items.push(other),
         }
     }
+    // Entry's own top-level stmts run after all imported modules'
+    // init stmts. Per Python semantics, `import M` runs M's top-level
+    // exactly once; `apply_use` enforces the once-only via `applied`.
+    merged.stmts.extend(entry_stmts);
     // Apply rename rules accumulated from selective imports that
     // resolved through `@export use` chains. Each rule maps a bare
     // imported name (e.g. `InitFlag` from `use sdl { InitFlag }`)
@@ -416,6 +426,27 @@ fn apply_use(
                 }
             }
         }
+        // Top-level `let X = ...` in this module — fn bodies (and
+        // other top-level stmts) within the module reference X
+        // bare; the qualify pass below rewrites those refs to
+        // `prefix.X` so they line up with the prefixed `let`
+        // binding that the stmt pass below emits.
+        for s in &module_prog.stmts {
+            if let StmtKind::Let { name, .. } = &s.kind {
+                named_globals.insert(name.clone());
+            }
+        }
+        // Fold the module's trailing expression into its stmt list
+        // so it executes during import (e.g. a final `counter = 42`
+        // tail expression). The entry's tail stays separate; only
+        // sub-modules' tails get demoted.
+        if let Some(tail) = module_prog.tail.take() {
+            let span = tail.span;
+            module_prog.stmts.push(Stmt {
+                kind: StmtKind::Expr(tail),
+                span,
+            });
+        }
         for item in module_prog.items.iter_mut() {
             qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
         }
@@ -431,6 +462,27 @@ fn apply_use(
         }
         for item in module_prog.items {
             merged.items.push(prefix_item(item, &effective_prefix));
+        }
+        // Forward this module's top-level stmts (Let bindings + side
+        // effects) into the merged program so they execute when the
+        // entry runs. `applied` guarantees a given (canon, prefix)
+        // only goes through this branch once, so each module's
+        // initialization runs exactly once even if multiple `use`
+        // sites reach it.
+        for stmt in module_prog.stmts {
+            let mut s = stmt;
+            qualify_var_refs_in_stmt(&mut s, &effective_prefix, &named_globals);
+            if !module_rename_rules.is_empty() {
+                rename_in_stmt(&mut s, &module_rename_rules);
+            }
+            let mut s = prefix_stmt(s, &effective_prefix);
+            // Top-level `let X = ...` becomes `let prefix.X = ...`
+            // so cross-module references (Var("prefix.X")) resolve
+            // to the same global slot.
+            if let StmtKind::Let { name, .. } = &mut s.kind {
+                *name = Symbol::intern(&format!("{effective_prefix}.{name}")).into();
+            }
+            merged.stmts.push(s);
         }
     }
 
@@ -647,7 +699,14 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
             qualify_var_refs_in_expr(index, prefix, consts);
             qualify_var_refs_in_expr(value, prefix, consts);
         }
-        ExprKind::Assign { value, .. } => qualify_var_refs_in_expr(value, prefix, consts),
+        ExprKind::Assign { target, value } => {
+            // LHS: `state = ...` writing to a top-level let needs
+            // the same qualification as a Var read.
+            if consts.contains(target) {
+                *target = Symbol::intern(&format!("{prefix}.{target}")).into();
+            }
+            qualify_var_refs_in_expr(value, prefix, consts);
+        }
         ExprKind::New { args, .. } => {
             for a in args.iter_mut() {
                 qualify_var_refs_in_expr(a, prefix, consts);
