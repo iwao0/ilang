@@ -6,7 +6,7 @@
 use sdl
 use math
 use sprites
-use audio
+use audio { AudioSession }
 use palette
 use ball { Ball }
 use brick { BrickGrid }
@@ -17,7 +17,6 @@ use neon { NeonRenderer }
 use paddle { Paddle }
 use rng
 use consts
-use audio_session { AudioSession }
 use input { Input }
 use assets { Assets }
 
