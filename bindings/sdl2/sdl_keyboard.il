@@ -7,6 +7,7 @@
 // per frame before querying so newly pressed keys show up.
 
 use sdl_core { Rect }
+use sdl_window { Window }
 
 /// `SDL_Scancode` — physical key, layout-independent.
 /// Number-row keys use the `digit0..digit9` form (idents can't
@@ -569,7 +570,7 @@ enum KeyMod: u16 {
         /// Returns:
         ///   true when the on-screen keyboard is currently visible
         ///   for that window.
-        isScreenKeyboardShown(window: sdl.Window): bool {
+        isScreenKeyboardShown(window: Window): bool {
             SDL_IsScreenKeyboardShown(window.handle as *void) != 0
         }
 
