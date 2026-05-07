@@ -10,6 +10,8 @@
 // little-endian — SDL_PIXELFORMAT_ABGR8888). Renderer draws
 // textures with optional rotation through `drawTextureRot`.
 
+use sdl_core { Rect, Point, FPoint, Size }
+
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
 
 /// `SDL_RendererFlags` — passed to `SDL_CreateRenderer` / new
@@ -76,9 +78,9 @@ enum RendererFlip: i32 {
     /// Position + colour + UV, for `RenderGeometry`. Mirrors C
     /// `SDL_Vertex`.
     struct Vertex {
-        position: sdl.FPoint
+        position: FPoint
         color: Color
-        texCoord: sdl.FPoint
+        texCoord: FPoint
     }
     /// `SDL_RendererInfo` — driver / capability data.
     struct SDL_RendererInfo {
@@ -159,26 +161,26 @@ enum RendererFlip: i32 {
     @lib("SDL2") fn SDL_GetTextureUserData(tex: *SDL_Texture): *void
 
     @lib("SDL2") fn SDL_UpdateTexture(
-        tex: *SDL_Texture, rect: *sdl.Rect,
+        tex: *SDL_Texture, rect: *Rect,
         pixels: *const void, pitch: i32
     ): i32
     @lib("SDL2") fn SDL_UpdateYUVTexture(
-        tex: *SDL_Texture, rect: *sdl.Rect,
+        tex: *SDL_Texture, rect: *Rect,
         Yplane: *const u8, Ypitch: i32,
         Uplane: *const u8, Upitch: i32,
         Vplane: *const u8, Vpitch: i32
     ): i32
     @lib("SDL2") fn SDL_UpdateNVTexture(
-        tex: *SDL_Texture, rect: *sdl.Rect,
+        tex: *SDL_Texture, rect: *Rect,
         Yplane: *const u8, Ypitch: i32,
         UVplane: *const u8, UVpitch: i32
     ): i32
     @lib("SDL2") fn SDL_LockTexture(
-        tex: *SDL_Texture, rect: *sdl.Rect,
+        tex: *SDL_Texture, rect: *Rect,
         pixels: **void, pitch: *i32
     ): i32
     @lib("SDL2") fn SDL_LockTextureToSurface(
-        tex: *SDL_Texture, rect: *sdl.Rect, surface: **void
+        tex: *SDL_Texture, rect: *Rect, surface: **void
     ): i32
     @lib("SDL2") fn SDL_UnlockTexture(tex: *SDL_Texture)
 
@@ -206,16 +208,16 @@ enum RendererFlip: i32 {
         renderer: *SDL_Renderer
     ): i32
     @lib("SDL2") fn SDL_RenderSetViewport(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     ): i32
     @lib("SDL2") fn SDL_RenderGetViewport(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     )
     @lib("SDL2") fn SDL_RenderSetClipRect(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     ): i32
     @lib("SDL2") fn SDL_RenderGetClipRect(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     )
     @lib("SDL2") fn SDL_RenderIsClipEnabled(
         renderer: *SDL_Renderer
@@ -257,34 +259,34 @@ enum RendererFlip: i32 {
         renderer: *SDL_Renderer, x: i32, y: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawPoints(
-        renderer: *SDL_Renderer, points: *const sdl.Point, count: i32
+        renderer: *SDL_Renderer, points: *const Point, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawLine(
         renderer: *SDL_Renderer, x1: i32, y1: i32, x2: i32, y2: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawLines(
-        renderer: *SDL_Renderer, points: *const sdl.Point, count: i32
+        renderer: *SDL_Renderer, points: *const Point, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawRect(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     ): i32
     @lib("SDL2") fn SDL_RenderDrawRects(
-        renderer: *SDL_Renderer, rects: *const sdl.Rect, count: i32
+        renderer: *SDL_Renderer, rects: *const Rect, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderFillRect(
-        renderer: *SDL_Renderer, rect: *sdl.Rect
+        renderer: *SDL_Renderer, rect: *Rect
     ): i32
     @lib("SDL2") fn SDL_RenderFillRects(
-        renderer: *SDL_Renderer, rects: *const sdl.Rect, count: i32
+        renderer: *SDL_Renderer, rects: *const Rect, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderCopy(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *sdl.Rect, dstrect: *sdl.Rect
+        srcrect: *Rect, dstrect: *Rect
     ): i32
     @lib("SDL2") fn SDL_RenderCopyEx(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *sdl.Rect, dstrect: *sdl.Rect,
-        angle: f64, center: *const sdl.Point, flip: i32
+        srcrect: *Rect, dstrect: *Rect,
+        angle: f64, center: *const Point, flip: i32
     ): i32
 
     // ─── primitive draw / fill (float coords) ─────────────────────
@@ -292,13 +294,13 @@ enum RendererFlip: i32 {
         renderer: *SDL_Renderer, x: f32, y: f32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawPointsF(
-        renderer: *SDL_Renderer, points: *const sdl.FPoint, count: i32
+        renderer: *SDL_Renderer, points: *const FPoint, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawLineF(
         renderer: *SDL_Renderer, x1: f32, y1: f32, x2: f32, y2: f32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawLinesF(
-        renderer: *SDL_Renderer, points: *const sdl.FPoint, count: i32
+        renderer: *SDL_Renderer, points: *const FPoint, count: i32
     ): i32
     @lib("SDL2") fn SDL_RenderDrawRectF(
         renderer: *SDL_Renderer, rect: *const FRect
@@ -314,12 +316,12 @@ enum RendererFlip: i32 {
     ): i32
     @lib("SDL2") fn SDL_RenderCopyF(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *sdl.Rect, dstrect: *const FRect
+        srcrect: *Rect, dstrect: *const FRect
     ): i32
     @lib("SDL2") fn SDL_RenderCopyExF(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
-        srcrect: *sdl.Rect, dstrect: *const FRect,
-        angle: f64, center: *const sdl.FPoint, flip: i32
+        srcrect: *Rect, dstrect: *const FRect,
+        angle: f64, center: *const FPoint, flip: i32
     ): i32
 
     // ─── geometry / read-back / present ───────────────────────────
@@ -337,7 +339,7 @@ enum RendererFlip: i32 {
         indices: *const void, num_indices: i32, size_indices: i32
     ): i32
     @lib("SDL2") fn SDL_RenderReadPixels(
-        renderer: *SDL_Renderer, rect: *sdl.Rect,
+        renderer: *SDL_Renderer, rect: *Rect,
         format: u32, pixels: *void, pitch: i32
     ): i32
     @lib("SDL2") fn SDL_RenderPresent(renderer: *SDL_Renderer)
@@ -466,11 +468,11 @@ enum RendererFlip: i32 {
 
         /// Drawable output size in pixels (may differ from window
         /// size on HiDPI / logical-size setups).
-        outputSize(): sdl.Size {
+        outputSize(): Size {
             let w: i32[] = [0]
             let h: i32[] = [0]
             SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, w, h)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = w[0]
             s.h = h[0]
             s
@@ -537,11 +539,11 @@ enum RendererFlip: i32 {
 
         /// Returns:
         ///   the current logical size, or `(0, 0)` if not set.
-        getLogicalSize(): sdl.Size {
+        getLogicalSize(): Size {
             let w: i32[] = [0]
             let h: i32[] = [0]
             SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, w, h)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = w[0]
             s.h = h[0]
             s
@@ -557,35 +559,35 @@ enum RendererFlip: i32 {
             SDL_RenderGetIntegerScale(this.handle as *SDL_Renderer) != 0
         }
 
-        /// Pass `0 as *sdl.Rect` (or `null`-equivalent) to clear.
-        setViewport(rect: sdl.Rect): i32 {
+        /// Pass `0 as *Rect` (or `null`-equivalent) to clear.
+        setViewport(rect: Rect): i32 {
             SDL_RenderSetViewport(this.handle as *SDL_Renderer, rect)
         }
 
         clearViewport(): i32 {
             SDL_RenderSetViewport(
-                this.handle as *SDL_Renderer, 0 as *sdl.Rect
+                this.handle as *SDL_Renderer, 0 as *Rect
             )
         }
 
-        getViewport(): sdl.Rect {
-            let r = new sdl.Rect()
+        getViewport(): Rect {
+            let r = new Rect()
             SDL_RenderGetViewport(this.handle as *SDL_Renderer, r)
             r
         }
 
-        setClipRect(rect: sdl.Rect): i32 {
+        setClipRect(rect: Rect): i32 {
             SDL_RenderSetClipRect(this.handle as *SDL_Renderer, rect)
         }
 
         clearClipRect(): i32 {
             SDL_RenderSetClipRect(
-                this.handle as *SDL_Renderer, 0 as *sdl.Rect
+                this.handle as *SDL_Renderer, 0 as *Rect
             )
         }
 
-        getClipRect(): sdl.Rect {
-            let r = new sdl.Rect()
+        getClipRect(): Rect {
+            let r = new Rect()
             SDL_RenderGetClipRect(this.handle as *SDL_Renderer, r)
             r
         }
@@ -598,35 +600,35 @@ enum RendererFlip: i32 {
             SDL_RenderSetScale(this.handle as *SDL_Renderer, x, y)
         }
 
-        getScale(): sdl.FPoint {
+        getScale(): FPoint {
             let x: f32[] = [0.0 as f32]
             let y: f32[] = [0.0 as f32]
             SDL_RenderGetScale(this.handle as *SDL_Renderer, x, y)
-            let s = new sdl.FPoint()
+            let s = new FPoint()
             s.x = x[0]
             s.y = y[0]
             s
         }
 
-        windowToLogical(wx: i32, wy: i32): sdl.FPoint {
+        windowToLogical(wx: i32, wy: i32): FPoint {
             let lx: f32[] = [0.0 as f32]
             let ly: f32[] = [0.0 as f32]
             SDL_RenderWindowToLogical(
                 this.handle as *SDL_Renderer, wx, wy, lx, ly
             )
-            let p = new sdl.FPoint()
+            let p = new FPoint()
             p.x = lx[0]
             p.y = ly[0]
             p
         }
 
-        logicalToWindow(lx: f32, ly: f32): sdl.Point {
+        logicalToWindow(lx: f32, ly: f32): Point {
             let wx: i32[] = [0]
             let wy: i32[] = [0]
             SDL_RenderLogicalToWindow(
                 this.handle as *SDL_Renderer, lx, ly, wx, wy
             )
-            let p = new sdl.Point()
+            let p = new Point()
             p.x = wx[0]
             p.y = wy[0]
             p
@@ -648,7 +650,7 @@ enum RendererFlip: i32 {
             SDL_RenderDrawPoint(this.handle as *SDL_Renderer, x, y)
         }
 
-        drawPoints(points: sdl.Point[]): i32 {
+        drawPoints(points: Point[]): i32 {
             SDL_RenderDrawPoints(
                 this.handle as *SDL_Renderer,
                 points, points.length as i32
@@ -659,7 +661,7 @@ enum RendererFlip: i32 {
             SDL_RenderDrawLine(this.handle as *SDL_Renderer, x1, y1, x2, y2)
         }
 
-        drawLines(points: sdl.Point[]): i32 {
+        drawLines(points: Point[]): i32 {
             SDL_RenderDrawLines(
                 this.handle as *SDL_Renderer,
                 points, points.length as i32
@@ -667,7 +669,7 @@ enum RendererFlip: i32 {
         }
 
         drawRect(x: i32, y: i32, w: i32, h: i32): i32 {
-            let rect = new sdl.Rect()
+            let rect = new Rect()
             rect.x = x
             rect.y = y
             rect.w = w
@@ -675,7 +677,7 @@ enum RendererFlip: i32 {
             SDL_RenderDrawRect(this.handle as *SDL_Renderer, rect)
         }
 
-        drawRects(rects: sdl.Rect[]): i32 {
+        drawRects(rects: Rect[]): i32 {
             SDL_RenderDrawRects(
                 this.handle as *SDL_Renderer,
                 rects, rects.length as i32
@@ -693,7 +695,7 @@ enum RendererFlip: i32 {
         /// Returns:
         ///   `0` on success, `< 0` on failure.
         fillRect(x: i32, y: i32, w: i32, h: i32): i32 {
-            let rect = new sdl.Rect()
+            let rect = new Rect()
             rect.x = x
             rect.y = y
             rect.w = w
@@ -701,7 +703,7 @@ enum RendererFlip: i32 {
             SDL_RenderFillRect(this.handle as *SDL_Renderer, rect)
         }
 
-        fillRects(rects: sdl.Rect[]): i32 {
+        fillRects(rects: Rect[]): i32 {
             SDL_RenderFillRects(
                 this.handle as *SDL_Renderer,
                 rects, rects.length as i32
@@ -714,7 +716,7 @@ enum RendererFlip: i32 {
             SDL_RenderDrawPointF(this.handle as *SDL_Renderer, x, y)
         }
 
-        drawPointsF(points: sdl.FPoint[]): i32 {
+        drawPointsF(points: FPoint[]): i32 {
             SDL_RenderDrawPointsF(
                 this.handle as *SDL_Renderer,
                 points, points.length as i32
@@ -725,7 +727,7 @@ enum RendererFlip: i32 {
             SDL_RenderDrawLineF(this.handle as *SDL_Renderer, x1, y1, x2, y2)
         }
 
-        drawLinesF(points: sdl.FPoint[]): i32 {
+        drawLinesF(points: FPoint[]): i32 {
             SDL_RenderDrawLinesF(
                 this.handle as *SDL_Renderer,
                 points, points.length as i32
@@ -776,7 +778,7 @@ enum RendererFlip: i32 {
         /// Returns:
         ///   `0` on success, `< 0` on failure.
         drawTexture(tex: Texture, x: i32, y: i32, w: i32, h: i32): i32 {
-            let dst = new sdl.Rect()
+            let dst = new Rect()
             dst.x = x
             dst.y = y
             dst.w = w
@@ -784,7 +786,7 @@ enum RendererFlip: i32 {
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *sdl.Rect, dst
+                0 as *Rect, dst
             )
         }
 
@@ -802,7 +804,7 @@ enum RendererFlip: i32 {
         drawTextureRot(
             tex: Texture, x: i32, y: i32, w: i32, h: i32, angle: f64
         ): i32 {
-            let dst = new sdl.Rect()
+            let dst = new Rect()
             dst.x = x
             dst.y = y
             dst.w = w
@@ -810,8 +812,8 @@ enum RendererFlip: i32 {
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
                 tex.handle as *SDL_Texture,
-                0 as *sdl.Rect, dst,
-                angle, 0 as *const sdl.Point, 0
+                0 as *Rect, dst,
+                angle, 0 as *const Point, 0
             )
         }
 
@@ -828,7 +830,7 @@ enum RendererFlip: i32 {
         ///   `0` on success, `< 0` on failure.
         copy(
             tex: Texture,
-            srcrect: sdl.Rect, dstrect: sdl.Rect
+            srcrect: Rect, dstrect: Rect
         ): i32 {
             SDL_RenderCopy(
                 this.handle as *SDL_Renderer,
@@ -839,8 +841,8 @@ enum RendererFlip: i32 {
 
         copyEx(
             tex: Texture,
-            srcrect: sdl.Rect, dstrect: sdl.Rect,
-            angle: f64, center: sdl.Point, flip: i32
+            srcrect: Rect, dstrect: Rect,
+            angle: f64, center: Point, flip: i32
         ): i32 {
             SDL_RenderCopyEx(
                 this.handle as *SDL_Renderer,
@@ -851,7 +853,7 @@ enum RendererFlip: i32 {
 
         copyF(
             tex: Texture,
-            srcrect: sdl.Rect, dstrect: FRect
+            srcrect: Rect, dstrect: FRect
         ): i32 {
             SDL_RenderCopyF(
                 this.handle as *SDL_Renderer,
@@ -862,8 +864,8 @@ enum RendererFlip: i32 {
 
         copyExF(
             tex: Texture,
-            srcrect: sdl.Rect, dstrect: FRect,
-            angle: f64, center: sdl.FPoint, flip: i32
+            srcrect: Rect, dstrect: FRect,
+            angle: f64, center: FPoint, flip: i32
         ): i32 {
             SDL_RenderCopyExF(
                 this.handle as *SDL_Renderer,
@@ -896,7 +898,7 @@ enum RendererFlip: i32 {
         /// using the supplied SDL_PixelFormat. Buffer size must be
         /// at least `pitch * rect.h` bytes.
         readPixels(
-            rect: sdl.Rect, format: u32, pixels: u8[], pitch: i32
+            rect: Rect, format: u32, pixels: u8[], pitch: i32
         ): i32 {
             let p: *u8 = pixels
             SDL_RenderReadPixels(
@@ -1044,13 +1046,13 @@ enum RendererFlip: i32 {
             let pitch = this.width * 4
             let p: *u8 = rgba
             SDL_UpdateTexture(
-                this.handle as *SDL_Texture, 0 as *sdl.Rect,
+                this.handle as *SDL_Texture, 0 as *Rect,
                 p as *const void, pitch
             )
         }
 
         /// Update a sub-rect of the texture.
-        updateRect(rect: sdl.Rect, rgba: u8[], pitch: i32): i32 {
+        updateRect(rect: Rect, rgba: u8[], pitch: i32): i32 {
             let p: *u8 = rgba
             SDL_UpdateTexture(
                 this.handle as *SDL_Texture, rect, p as *const void, pitch
@@ -1190,7 +1192,7 @@ enum RendererFlip: i32 {
                 SDL_SetTextureBlendMode(this.atlas as *SDL_Texture, 1)
                 let p: *u8 = pixels
                 SDL_UpdateTexture(
-                    this.atlas as *SDL_Texture, 0 as *sdl.Rect,
+                    this.atlas as *SDL_Texture, 0 as *Rect,
                     p as *const void, atlas_w * 4
                 )
             }
@@ -1223,12 +1225,12 @@ enum RendererFlip: i32 {
                 let ch = text.charAt(i)
                 let idx = font_char_index(ch)
                 if idx >= 0 {
-                    let src = new sdl.Rect()
+                    let src = new Rect()
                     src.x = idx * this.cellW
                     src.y = 0
                     src.w = this.cellW
                     src.h = this.cellH
-                    let dst = new sdl.Rect()
+                    let dst = new Rect()
                     dst.x = cursor
                     dst.y = y
                     dst.w = this.cellW * scale

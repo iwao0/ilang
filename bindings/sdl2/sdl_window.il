@@ -4,7 +4,7 @@
 //
 // `*SDL_Window`, `*SDL_DisplayMode`, etc. only appear inside the
 // `@extern(C) {}` block. Out-params are wrapped behind plain
-// classes (`sdl.Point` / `sdl.Size` / `sdl.Rect` / `DisplayMode`)
+// classes (`Point` / `Size` / `Rect` / `DisplayMode`)
 // so the public API hands back ordinary ilang values.
 //
 // Bindings deliberately skipped (callbacks / opaque void*):
@@ -12,6 +12,8 @@
 //   SDL_GetWindowData / SDL_SetWindowData,
 //   SDL_GetWindowGammaRamp / SDL_SetWindowGammaRamp,
 //   SDL_GL_GetProcAddress.
+
+use sdl_core { Rect, Point, Size }
 
 /// `SDL_WindowFlags` — bitflags passed to `SDL_CreateWindow` / read
 /// back via `Window.flags`.
@@ -226,8 +228,8 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_SetWindowMouseGrab(window: *SDL_Window, grabbed: i32)
     @lib("SDL2") fn SDL_GetWindowMouseGrab(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_GetGrabbedWindow(): *SDL_Window
-    @lib("SDL2") fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *sdl.Rect): i32
-    @lib("SDL2") fn SDL_GetWindowMouseRect(window: *SDL_Window): *sdl.Rect
+    @lib("SDL2") fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *Rect): i32
+    @lib("SDL2") fn SDL_GetWindowMouseRect(window: *SDL_Window): *Rect
     @lib("SDL2") fn SDL_CaptureMouse(enabled: i32): i32
 
     // ─── modal / parent ──────────────────────────────────────────
@@ -239,8 +241,8 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_GetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
     @lib("SDL2") fn SDL_GetNumVideoDisplays(): i32
     @lib("SDL2") fn SDL_GetDisplayName(displayIndex: i32): *const char
-    @lib("SDL2") fn SDL_GetDisplayBounds(displayIndex: i32, rect: *sdl.Rect): i32
-    @lib("SDL2") fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *sdl.Rect): i32
+    @lib("SDL2") fn SDL_GetDisplayBounds(displayIndex: i32, rect: *Rect): i32
+    @lib("SDL2") fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *Rect): i32
     @lib("SDL2") fn SDL_GetDisplayDPI(
         displayIndex: i32, ddpi: *FloatOut, hdpi: *FloatOut, vdpi: *FloatOut
     ): i32
@@ -277,7 +279,7 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_DestroyWindowSurface(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_UpdateWindowSurface(window: *SDL_Window): i32
     @lib("SDL2") fn SDL_UpdateWindowSurfaceRects(
-        window: *SDL_Window, rects: *sdl.Rect, numrects: i32
+        window: *SDL_Window, rects: *Rect, numrects: i32
     ): i32
 
     // ─── OpenGL ──────────────────────────────────────────────────
@@ -410,11 +412,11 @@ enum GLProfile: i32 {
         // ─── geometry ────────────────────────────────────────────
 
         /// Top-left corner in screen coordinates.
-        get position(): sdl.Point {
+        get position(): Point {
             let xx = new IntOut()
             let yy = new IntOut()
             SDL_GetWindowPosition(this.handle as *SDL_Window, xx, yy)
-            let p = new sdl.Point()
+            let p = new Point()
             p.x = xx.v
             p.y = yy.v
             p
@@ -427,11 +429,11 @@ enum GLProfile: i32 {
         }
 
         /// Logical size (matches `init`'s `w` / `h` arguments).
-        get size(): sdl.Size {
+        get size(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
             SDL_GetWindowSize(this.handle as *SDL_Window, ww, hh)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = ww.v
             s.h = hh.v
             s
@@ -442,22 +444,22 @@ enum GLProfile: i32 {
 
         /// Drawable size in physical pixels (differs from `size` on
         /// HiDPI displays).
-        get sizeInPixels(): sdl.Size {
+        get sizeInPixels(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
             SDL_GetWindowSizeInPixels(this.handle as *SDL_Window, ww, hh)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = ww.v
             s.h = hh.v
             s
         }
 
         /// Minimum size the user can resize to.
-        get minimumSize(): sdl.Size {
+        get minimumSize(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
             SDL_GetWindowMinimumSize(this.handle as *SDL_Window, ww, hh)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = ww.v
             s.h = hh.v
             s
@@ -467,11 +469,11 @@ enum GLProfile: i32 {
         }
 
         /// Maximum size the user can resize to.
-        get maximumSize(): sdl.Size {
+        get maximumSize(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
             SDL_GetWindowMaximumSize(this.handle as *SDL_Window, ww, hh)
-            let s = new sdl.Size()
+            let s = new Size()
             s.w = ww.v
             s.h = hh.v
             s
@@ -664,15 +666,15 @@ enum GLProfile: i32 {
     }
 
     /// Display bounds in screen coordinates.
-    fn displayBounds(displayIndex: i32): sdl.Rect {
-        let r = new sdl.Rect()
+    fn displayBounds(displayIndex: i32): Rect {
+        let r = new Rect()
         SDL_GetDisplayBounds(displayIndex, r)
         r
     }
 
     /// Display bounds excluding system UI (taskbar / dock).
-    fn displayUsableBounds(displayIndex: i32): sdl.Rect {
-        let r = new sdl.Rect()
+    fn displayUsableBounds(displayIndex: i32): Rect {
+        let r = new Rect()
         SDL_GetDisplayUsableBounds(displayIndex, r)
         r
     }

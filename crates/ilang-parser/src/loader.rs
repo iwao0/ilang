@@ -310,9 +310,21 @@ fn apply_use(
         .get(&canon)
         .cloned()
         .expect("loaded before via load_recursive");
-    let effective_prefix: String = prefix_override
+    let nominal_prefix: String = prefix_override
         .map(str::to_string)
         .unwrap_or_else(|| u.module.as_str().to_string());
+    // If this module's canon is already prefix-merged under some
+    // other prefix (e.g. an umbrella's `@export use` ran first and
+    // exposed the items under `sdl.X`), reuse that prefix for our
+    // rename rules instead of producing a parallel `M.X` copy. The
+    // umbrella's view and the explicit `use M { X }` view should
+    // refer to the same merged item, otherwise the type checker
+    // sees two distinct types with identical content.
+    let existing_prefix: Option<String> = applied
+        .iter()
+        .find_map(|(p, pref)| (p == &canon && !pref.starts_with("@sel:")).then(|| pref.clone()));
+    let effective_prefix: String =
+        existing_prefix.clone().unwrap_or_else(|| nominal_prefix.clone());
     // Selective and whole imports both produce the same prefix-merged
     // view of the module — bare references in selective imports get
     // rewritten to the prefixed form by the rename pass at the end of

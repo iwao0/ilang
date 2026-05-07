@@ -6,6 +6,8 @@
 // SDL's internal keyboard array — call `sdl.pumpEvents()` once
 // per frame before querying so newly pressed keys show up.
 
+use sdl_core { Rect }
+
 /// `SDL_Scancode` — physical key, layout-independent.
 /// Number-row keys use the `digit0..digit9` form (idents can't
 /// start with a digit).
@@ -314,7 +316,7 @@ enum KeyMod: u16 {
     @lib("SDL2") fn SDL_IsTextInputShown(): i32
     @lib("SDL2") fn SDL_HasScreenKeyboardSupport(): i32
     @lib("SDL2") fn SDL_ResetKeyboard()
-    @lib("SDL2") fn SDL_SetTextInputRect(rect: *sdl.Rect)
+    @lib("SDL2") fn SDL_SetTextInputRect(rect: *Rect)
     @lib("SDL2") fn SDL_IsScreenKeyboardShown(window: *void): i32
     @lib("SDL2") fn SDL_GetKeyboardFocus(): *void
 
@@ -475,7 +477,7 @@ enum KeyMod: u16 {
         ///   x, y — top-left corner of the input rect.
         ///   w, h — rectangle size in pixels.
         static setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
-            let r = new sdl.Rect()
+            let r = new Rect()
             r.x = x; r.y = y; r.w = w; r.h = h
             SDL_SetTextInputRect(r)
         }
