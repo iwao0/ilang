@@ -3311,7 +3311,7 @@ impl<'a> Walker<'a> {
                             signature: class_sig,
                             no_definition: no_def,
                             target_uri,
-                        doc: None,
+                            doc: init_member.and_then(|m| m.doc.clone()),
                         });
                     }
                 } else if let Some(sym) = self.symbols.get(class) {
@@ -3325,7 +3325,9 @@ impl<'a> Walker<'a> {
                         signature: class_sig,
                         no_definition: false,
                         target_uri: None,
-                    doc: None,
+                        doc: init_member
+                            .and_then(|m| m.doc.clone())
+                            .or_else(|| sym.doc.clone()),
                     });
                 }
                 for a in args {
