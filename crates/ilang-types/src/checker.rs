@@ -1840,15 +1840,29 @@ impl TypeChecker {
         let body_res = self.check_block(&f.body, &env, Some(&expected), in_class, 0);
         *self.loop_stack.borrow_mut() = saved_loops;
         let body_ty = body_res?;
-        let tail_assignable = f
+        // Prefer the tail-expression check via `value_assignable`
+        // when the body has a tail expression — that path catches
+        // literal-int-doesn't-fit-target ergonomically (`fn f():
+        // i8 { 200 }` rejects, `{ 100 }` accepts) and threads
+        // class-subtype upcast through composite literals. The
+        // plain `assignable` / `assignable_obj` covers
+        // non-literal narrowings (e.g. `let x: i64 = ...; x` into
+        // an `i8` return) and Object-vs-Object upcasts where
+        // there's no tail expr to inspect.
+        let tail_check = f
             .body
             .tail
             .as_deref()
-            .map_or(false, |t| self.value_assignable(t, &body_ty, &expected));
-        if !assignable(&body_ty, &expected)
-            && !self.assignable_obj(&body_ty, &expected)
-            && !tail_assignable
-        {
+            .map(|t| self.value_assignable(t, &body_ty, &expected));
+        let ok = match tail_check {
+            Some(true) => true,
+            Some(false) => false,
+            None => {
+                assignable(&body_ty, &expected)
+                    || self.assignable_obj(&body_ty, &expected)
+            }
+        };
+        if !ok {
             return Err(TypeError::BadReturn {
                 name: f.name.clone(),
                 expected,
