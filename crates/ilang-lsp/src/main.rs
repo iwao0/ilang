@@ -1073,10 +1073,66 @@ fn harvest_from_program(
     let mut visited: HashSet<PathBuf> = HashSet::new();
     for item in &prog.items {
         let Item::Use(u) = item else { continue };
-        if u.selective.is_some() {
+        if let Some(names) = &u.selective {
+            // `use M { X1, X2 }` — pull X1/X2's hover info from M
+            // (or its `@export use` chain) and key them under their
+            // bare name so the buffer-side walker can resolve a
+            // bare `Var("X1")` reference.
+            harvest_selective_names(
+                u.module.as_str(),
+                names,
+                &entry_dir,
+                &extra,
+                out,
+                sources,
+                docs,
+            );
             continue;
         }
         walk_module(u.module.as_str(), &entry_dir, &extra, &mut visited, out, sources, docs);
+    }
+}
+
+/// Walk `module`'s source (and any `@export use` chains) looking for
+/// each `name` in `names`. Each hit is registered under the BARE name
+/// (no `module.` prefix) in `out`/`sources`/`docs`, so a buffer-local
+/// `Var("X")` reference gets the same hover / F12 treatment as a
+/// dotted `Var("module.X")` would.
+fn harvest_selective_names(
+    module: &str,
+    names: &[AstSymbol],
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    out: &mut HashMap<AstSymbol, String>,
+    sources: &mut ExternalSources,
+    docs: &mut HashMap<AstSymbol, String>,
+) {
+    // Build a per-module temp index keyed by `module.X`, then re-key
+    // the requested names down to bare form.
+    let mut tmp_out: HashMap<AstSymbol, String> = HashMap::new();
+    let mut tmp_sources: ExternalSources = HashMap::new();
+    let mut tmp_docs: HashMap<AstSymbol, String> = HashMap::new();
+    let mut visited: HashSet<PathBuf> = HashSet::new();
+    walk_module(
+        module,
+        entry_dir,
+        extra,
+        &mut visited,
+        &mut tmp_out,
+        &mut tmp_sources,
+        &mut tmp_docs,
+    );
+    for name in names {
+        let prefixed = AstSymbol::intern(&format!("{module}.{name}"));
+        if let Some(sig) = tmp_out.get(&prefixed) {
+            out.insert(name.clone(), sig.clone());
+        }
+        if let Some(loc) = tmp_sources.get(&prefixed) {
+            sources.insert(name.clone(), loc.clone());
+        }
+        if let Some(d) = tmp_docs.get(&prefixed) {
+            docs.insert(name.clone(), d.clone());
+        }
     }
 }
 
@@ -2450,6 +2506,27 @@ impl<'a> Walker<'a> {
                         sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
+                } else if let Some(sig) = self.external_signatures.get(name) {
+                    // Selectively-imported bare name (`use M { X }`).
+                    // Source / doc info was harvested under the bare key.
+                    let loc = self.external_sources.get(name);
+                    let target_uri = loc
+                        .and_then(|l| Url::from_file_path(&l.path).ok());
+                    let (target_span, target_name_len, no_def) = match loc {
+                        Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                        _ => (e.span, name.as_str().len() as u32, target_uri.is_none()),
+                    };
+                    self.refs.push(RefEntry {
+                        line: e.span.line,
+                        start_col: e.span.col,
+                        end_col: e.span.col + name.as_str().len() as u32,
+                        target_span,
+                        target_name_len,
+                        signature: sig.clone(),
+                        no_definition: no_def,
+                        target_uri,
+                        doc: self.external_docs.get(name).cloned(),
+                    });
                 }
             }
             ExprKind::This => {
