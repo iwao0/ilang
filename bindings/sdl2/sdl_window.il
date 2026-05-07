@@ -158,14 +158,6 @@ enum GLProfile: i32 {
         driverdata: i64
     }
 
-    /// Single-i32 cell used as an out-param target. SDL's `int *`
-    /// out-params can't be reached from ilang directly (no field-
-    /// address-of), so we declare each `int *` slot as `*IntOut`
-    /// and the C side just writes 4 bytes at the struct address.
-    struct IntOut { v: i32 }
-    /// Float counterpart of `IntOut`.
-    struct FloatOut { v: f32 }
-
     // ─── window CRUD ─────────────────────────────────────────────
     @lib("SDL2") fn SDL_CreateWindow(
         title: *const char,
@@ -186,16 +178,16 @@ enum GLProfile: i32 {
 
     // ─── geometry ────────────────────────────────────────────────
     @lib("SDL2") fn SDL_SetWindowPosition(window: *SDL_Window, x: i32, y: i32)
-    @lib("SDL2") fn SDL_GetWindowPosition(window: *SDL_Window, x: *IntOut, y: *IntOut)
+    @lib("SDL2") fn SDL_GetWindowPosition(window: *SDL_Window, x: *i32, y: *i32)
     @lib("SDL2") fn SDL_SetWindowSize(window: *SDL_Window, w: i32, h: i32)
-    @lib("SDL2") fn SDL_GetWindowSize(window: *SDL_Window, w: *IntOut, h: *IntOut)
-    @lib("SDL2") fn SDL_GetWindowSizeInPixels(window: *SDL_Window, w: *IntOut, h: *IntOut)
+    @lib("SDL2") fn SDL_GetWindowSize(window: *SDL_Window, w: *i32, h: *i32)
+    @lib("SDL2") fn SDL_GetWindowSizeInPixels(window: *SDL_Window, w: *i32, h: *i32)
     @lib("SDL2") fn SDL_SetWindowMinimumSize(window: *SDL_Window, min_w: i32, min_h: i32)
-    @lib("SDL2") fn SDL_GetWindowMinimumSize(window: *SDL_Window, w: *IntOut, h: *IntOut)
+    @lib("SDL2") fn SDL_GetWindowMinimumSize(window: *SDL_Window, w: *i32, h: *i32)
     @lib("SDL2") fn SDL_SetWindowMaximumSize(window: *SDL_Window, max_w: i32, max_h: i32)
-    @lib("SDL2") fn SDL_GetWindowMaximumSize(window: *SDL_Window, w: *IntOut, h: *IntOut)
+    @lib("SDL2") fn SDL_GetWindowMaximumSize(window: *SDL_Window, w: *i32, h: *i32)
     @lib("SDL2") fn SDL_GetWindowBordersSize(
-        window: *SDL_Window, top: *IntOut, left: *IntOut, bottom: *IntOut, right: *IntOut
+        window: *SDL_Window, top: *i32, left: *i32, bottom: *i32, right: *i32
     ): i32
 
     // ─── decorations / state flags ───────────────────────────────
@@ -204,7 +196,7 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_SetWindowAlwaysOnTop(window: *SDL_Window, on_top: i32)
     @lib("SDL2") fn SDL_SetWindowFullscreen(window: *SDL_Window, flags: u32): i32
     @lib("SDL2") fn SDL_SetWindowOpacity(window: *SDL_Window, opacity: f32): i32
-    @lib("SDL2") fn SDL_GetWindowOpacity(window: *SDL_Window, out: *FloatOut): i32
+    @lib("SDL2") fn SDL_GetWindowOpacity(window: *SDL_Window, out: *f32): i32
 
     // ─── show / hide / focus / minimise / maximise ───────────────
     @lib("SDL2") fn SDL_ShowWindow(window: *SDL_Window)
@@ -244,7 +236,7 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_GetDisplayBounds(displayIndex: i32, rect: *Rect): i32
     @lib("SDL2") fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *Rect): i32
     @lib("SDL2") fn SDL_GetDisplayDPI(
-        displayIndex: i32, ddpi: *FloatOut, hdpi: *FloatOut, vdpi: *FloatOut
+        displayIndex: i32, ddpi: *f32, hdpi: *f32, vdpi: *f32
     ): i32
     @lib("SDL2") fn SDL_GetDisplayOrientation(displayIndex: i32): i32
     @lib("SDL2") fn SDL_GetNumDisplayModes(displayIndex: i32): i32
@@ -288,12 +280,12 @@ enum GLProfile: i32 {
     @lib("SDL2") fn SDL_GL_ExtensionSupported(extension: *const char): i32
     @lib("SDL2") fn SDL_GL_ResetAttributes()
     @lib("SDL2") fn SDL_GL_SetAttribute(attr: i32, value: i32): i32
-    @lib("SDL2") fn SDL_GL_GetAttribute(attr: i32, value: *IntOut): i32
+    @lib("SDL2") fn SDL_GL_GetAttribute(attr: i32, value: *i32): i32
     @lib("SDL2") fn SDL_GL_CreateContext(window: *SDL_Window): *SDL_GLContext
     @lib("SDL2") fn SDL_GL_MakeCurrent(window: *SDL_Window, context: *SDL_GLContext): i32
     @lib("SDL2") fn SDL_GL_GetCurrentWindow(): *SDL_Window
     @lib("SDL2") fn SDL_GL_GetCurrentContext(): *SDL_GLContext
-    @lib("SDL2") fn SDL_GL_GetDrawableSize(window: *SDL_Window, w: *IntOut, h: *IntOut)
+    @lib("SDL2") fn SDL_GL_GetDrawableSize(window: *SDL_Window, w: *i32, h: *i32)
     @lib("SDL2") fn SDL_GL_SetSwapInterval(interval: i32): i32
     @lib("SDL2") fn SDL_GL_GetSwapInterval(): i32
     @lib("SDL2") fn SDL_GL_SwapWindow(window: *SDL_Window)
@@ -413,12 +405,12 @@ enum GLProfile: i32 {
 
         /// Top-left corner in screen coordinates.
         get position(): Point {
-            let xx = new IntOut()
-            let yy = new IntOut()
+            let xx: i32[] = [0]
+            let yy: i32[] = [0]
             SDL_GetWindowPosition(this.handle as *SDL_Window, xx, yy)
             let p = new Point()
-            p.x = xx.v
-            p.y = yy.v
+            p.x = xx[0]
+            p.y = yy[0]
             p
         }
 
@@ -430,12 +422,12 @@ enum GLProfile: i32 {
 
         /// Logical size (matches `init`'s `w` / `h` arguments).
         get size(): Size {
-            let ww = new IntOut()
-            let hh = new IntOut()
+            let ww: i32[] = [0]
+            let hh: i32[] = [0]
             SDL_GetWindowSize(this.handle as *SDL_Window, ww, hh)
             let s = new Size()
-            s.w = ww.v
-            s.h = hh.v
+            s.w = ww[0]
+            s.h = hh[0]
             s
         }
         setSize(w: i32, h: i32) {
@@ -445,23 +437,23 @@ enum GLProfile: i32 {
         /// Drawable size in physical pixels (differs from `size` on
         /// HiDPI displays).
         get sizeInPixels(): Size {
-            let ww = new IntOut()
-            let hh = new IntOut()
+            let ww: i32[] = [0]
+            let hh: i32[] = [0]
             SDL_GetWindowSizeInPixels(this.handle as *SDL_Window, ww, hh)
             let s = new Size()
-            s.w = ww.v
-            s.h = hh.v
+            s.w = ww[0]
+            s.h = hh[0]
             s
         }
 
         /// Minimum size the user can resize to.
         get minimumSize(): Size {
-            let ww = new IntOut()
-            let hh = new IntOut()
+            let ww: i32[] = [0]
+            let hh: i32[] = [0]
             SDL_GetWindowMinimumSize(this.handle as *SDL_Window, ww, hh)
             let s = new Size()
-            s.w = ww.v
-            s.h = hh.v
+            s.w = ww[0]
+            s.h = hh[0]
             s
         }
         setMinimumSize(w: i32, h: i32) {
@@ -470,12 +462,12 @@ enum GLProfile: i32 {
 
         /// Maximum size the user can resize to.
         get maximumSize(): Size {
-            let ww = new IntOut()
-            let hh = new IntOut()
+            let ww: i32[] = [0]
+            let hh: i32[] = [0]
             SDL_GetWindowMaximumSize(this.handle as *SDL_Window, ww, hh)
             let s = new Size()
-            s.w = ww.v
-            s.h = hh.v
+            s.w = ww[0]
+            s.h = hh[0]
             s
         }
         setMaximumSize(w: i32, h: i32) {
@@ -484,16 +476,16 @@ enum GLProfile: i32 {
 
         /// Decoration thicknesses (title-bar / borders) in pixels.
         get borders(): WindowBorders {
-            let t = new IntOut()
-            let l = new IntOut()
-            let b = new IntOut()
-            let r = new IntOut()
+            let t: i32[] = [0]
+            let l: i32[] = [0]
+            let b: i32[] = [0]
+            let r: i32[] = [0]
             SDL_GetWindowBordersSize(this.handle as *SDL_Window, t, l, b, r)
             let wb = new WindowBorders()
-            wb.top = t.v
-            wb.left = l.v
-            wb.bottom = b.v
-            wb.right = r.v
+            wb.top = t[0]
+            wb.left = l[0]
+            wb.bottom = b[0]
+            wb.right = r[0]
             wb
         }
 
@@ -544,9 +536,9 @@ enum GLProfile: i32 {
 
         /// Window opacity in `[0.0, 1.0]`.
         get opacity(): f32 {
-            let o = new FloatOut()
+            let o: f32[] = [0.0 as f32]
             SDL_GetWindowOpacity(this.handle as *SDL_Window, o)
-            o.v
+            o[0]
         }
         set opacity(o: f32) {
             SDL_SetWindowOpacity(this.handle as *SDL_Window, o)
@@ -681,14 +673,14 @@ enum GLProfile: i32 {
 
     /// Diagonal / horizontal / vertical DPI for a display.
     fn displayDPI(displayIndex: i32): DisplayDPI {
-        let dd = new FloatOut()
-        let hd = new FloatOut()
-        let vd = new FloatOut()
+        let dd: f32[] = [0.0 as f32]
+        let hd: f32[] = [0.0 as f32]
+        let vd: f32[] = [0.0 as f32]
         SDL_GetDisplayDPI(displayIndex, dd, hd, vd)
         let d = new DisplayDPI()
-        d.diagonal = dd.v
-        d.horizontal = hd.v
-        d.vertical = vd.v
+        d.diagonal = dd[0]
+        d.horizontal = hd[0]
+        d.vertical = vd[0]
         d
     }
 
@@ -834,9 +826,9 @@ enum GLProfile: i32 {
 
     /// Read back a GL attribute.
     fn glGetAttribute(attr: GLAttr): i32 {
-        let buf = new IntOut()
+        let buf: i32[] = [0]
         SDL_GL_GetAttribute(attr as i32, buf)
-        buf.v
+        buf[0]
     }
 
     /// Args:
