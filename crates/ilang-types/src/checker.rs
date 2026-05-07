@@ -1259,7 +1259,7 @@ impl TypeChecker {
             let bt = self.check_expr(&arm.body, env, ret_ty, in_class, loop_depth)?;
             result_ty = Some(match result_ty {
                 None => bt,
-                Some(prev) => unify_branch(prev, bt, arm.body.span)?,
+                Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
             });
         }
         // Bool is the only primitive whose value space is enumerable
@@ -3010,6 +3010,22 @@ impl TypeChecker {
                         if let Some(merged) = merge_generic_with_holes(&then_ty, &else_ty) {
                             return Ok(merged);
                         }
+                        // Class subtype upcast: if one branch's
+                        // class is a subclass of the other's, the
+                        // whole `if` takes the common parent type.
+                        // (Restricted to Object↔Object so `i64 ↔
+                        // f64` still errors per the no-implicit-
+                        // numeric-widening rule above.)
+                        if let (Type::Object(a), Type::Object(b)) =
+                            (&then_ty, &else_ty)
+                        {
+                            if self.is_subclass(*b, *a) {
+                                return Ok(then_ty);
+                            }
+                            if self.is_subclass(*a, *b) {
+                                return Ok(else_ty);
+                            }
+                        }
                         // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
                         // ぶつけたらエラー)。例外として、片方のアームの末尾式
                         // が「素の数値リテラル」 (整数/浮動小数、単項マイナス
@@ -4078,7 +4094,7 @@ impl TypeChecker {
                     let bt = self.check_expr(&arm.body, &arm_env, ret_ty, in_class, loop_depth)?;
                     result_ty = Some(match result_ty {
                         None => bt,
-                        Some(prev) => unify_branch(prev, bt, arm.body.span)?,
+                        Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
                     });
                 }
                 if !has_wildcard {
@@ -5281,26 +5297,46 @@ fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
 /// Pick the unifying type between two branches of an `if`/`match`. If
 /// either side is assignable to the other, the wider one wins; otherwise
 /// surface a type-mismatch.
-fn unify_branch(a: Type, b: Type, span: Span) -> Result<Type, TypeError> {
-    if a == b {
-        return Ok(a);
+impl TypeChecker {
+    /// Join two branch result types. Equality / generic-hole merge
+    /// first, then `assignable` either way (numeric / nominal
+    /// covariance), then class-subtype upcast (so two arms
+    /// returning different subclasses of a common parent unify to
+    /// the parent). The subclass step is Object↔Object only —
+    /// numeric widening is intentionally NOT applied here so e.g.
+    /// `i64`-arm and `f64`-arm still reject like in `if/else`.
+    fn unify_branch_obj(
+        &self,
+        a: Type,
+        b: Type,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        if a == b {
+            return Ok(a);
+        }
+        if let Some(merged) = merge_generic_with_holes(&a, &b) {
+            return Ok(merged);
+        }
+        if assignable(&a, &b) {
+            return Ok(b);
+        }
+        if assignable(&b, &a) {
+            return Ok(a);
+        }
+        if let (Type::Object(ca), Type::Object(cb)) = (&a, &b) {
+            if self.is_subclass(*cb, *ca) {
+                return Ok(a);
+            }
+            if self.is_subclass(*ca, *cb) {
+                return Ok(b);
+            }
+        }
+        Err(TypeError::Mismatch {
+            expected: a,
+            got: b,
+            span,
+        })
     }
-    // Generic with `Any` placeholders (from enum-ctor inference) — try
-    // to merge the two sides into the more specific type.
-    if let Some(merged) = merge_generic_with_holes(&a, &b) {
-        return Ok(merged);
-    }
-    if assignable(&a, &b) {
-        return Ok(b);
-    }
-    if assignable(&b, &a) {
-        return Ok(a);
-    }
-    Err(TypeError::Mismatch {
-        expected: a,
-        got: b,
-        span,
-    })
 }
 
 /// When two arms each produced a `Type::Generic` with the same base
