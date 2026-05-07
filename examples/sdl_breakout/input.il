@@ -7,17 +7,17 @@
 
 use sdl
 
-/// One frame's input. `key*Held` are true while the key is held;
-/// `key*Down` fire once on the rising edge (rendered + consumed
+/// One frame's input. `*Held` are true while the key / button is
+/// held; `*Down` fire once on the rising edge (rendered + consumed
 /// the same frame); `padLx` is the raw left-stick X axis value
 /// (`[-32768, 32767]`).
 class InputSnapshot {
     padLx: i32
     padDpadL: bool
     padDpadR: bool
-    padA: bool
-    padStart: bool
-    padBack: bool
+    padADown: bool
+    padStartDown: bool
+    padBackDown: bool
     keyEscDown: bool
     keyFDown: bool
     keyRDown: bool
@@ -41,22 +41,23 @@ class Input {
     }
 
     /// Advance the OS event queue, snapshot the previous-frame
-    /// keyboard state, and read keyboard + gamepad state for the
-    /// current frame. Call once per frame — Game.run() should not
-    /// call `sdl.pumpEvents()` separately.
+    /// keyboard / gamepad state, and read keyboard + gamepad state
+    /// for the current frame. Call once per frame — Game.run()
+    /// should not call `sdl.pumpEvents()` separately.
     poll(): InputSnapshot {
-        // Snapshot previous-frame keyboard state BEFORE
-        // `sdl.pumpEvents()` mutates SDL's internal buffer; then
-        // pump events so subsequent reads see the new state.
+        // Snapshot previous-frame state BEFORE `sdl.pumpEvents()`
+        // mutates SDL's internal buffers; then pump events so
+        // subsequent reads see the new state.
         this.keyboard.pump()
+        this.gamepad.pump()
         sdl.pumpEvents()
         let s = new InputSnapshot()
         s.padLx = this.gamepad.getAxis(sdl.Axis.leftX) as i32
-        s.padDpadL = this.gamepad.isPressed(sdl.Button.dpadLeft)
-        s.padDpadR = this.gamepad.isPressed(sdl.Button.dpadRight)
-        s.padA = this.gamepad.isPressed(sdl.Button.a)
-        s.padStart = this.gamepad.isPressed(sdl.Button.start)
-        s.padBack = this.gamepad.isPressed(sdl.Button.back)
+        s.padDpadL = this.gamepad.isHeld(sdl.Button.dpadLeft)
+        s.padDpadR = this.gamepad.isHeld(sdl.Button.dpadRight)
+        s.padADown = this.gamepad.isPressed(sdl.Button.a)
+        s.padStartDown = this.gamepad.isPressed(sdl.Button.start)
+        s.padBackDown = this.gamepad.isPressed(sdl.Button.back)
         s.keyEscDown = this.keyboard.isPressed(sdl.Scancode.escape)
         s.keyFDown = this.keyboard.isPressed(sdl.Scancode.f)
         s.keyRDown = this.keyboard.isPressed(sdl.Scancode.r)

@@ -265,7 +265,7 @@ class Game {
             // works.
             let in_ = this.input.poll()
 
-            if in_.keyEscDown || in_.padBack {
+            if in_.keyEscDown || in_.padBackDown {
                 running = false
             }
 
@@ -276,7 +276,7 @@ class Game {
             }
 
             // Restart after game over.
-            if this.gameOver && (in_.keyRDown || in_.padStart) {
+            if this.gameOver && (in_.keyRDown || in_.padStartDown) {
                 this.brickGrid.reset()
                 let freshBalls: Ball[] = []
                 freshBalls.push(new Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
@@ -322,7 +322,7 @@ class Game {
             // shoot through unfilled rows.
             let introTotal = (consts.cols - 1) * consts.introStagger + consts.introDuration
             if !this.started && !this.gameOver && this.introPhase >= introTotal &&
-                    (in_.keySpaceDown || in_.padA) {
+                    (in_.keySpaceDown || in_.padADown) {
                 this.started = true
             }
 
