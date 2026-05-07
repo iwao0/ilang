@@ -660,6 +660,7 @@ impl<'a> Lexer<'a> {
             "new" => TokenKind::New,
             "this" => TokenKind::This,
             "as" => TokenKind::As,
+            "is" => TokenKind::Is,
             "none" => TokenKind::None_,
             "some" => TokenKind::Some_,
             "enum" => TokenKind::Enum,

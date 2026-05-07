@@ -18,9 +18,9 @@ separators (JS-style ASI).
 
 ```
 as       break    class    const    continue elif     else     enum
-extends  false    fn       for      if       in       let      loop
-match    new      none     override return   some     super    this
-true     use      while
+extends  false    fn       for      if       in       is       let
+loop     match    new      none     override return   some     super
+this     true     use      while
 ```
 
 These tokens are reserved and cannot be used as variable / parameter
@@ -1114,6 +1114,25 @@ typeof(r).name         // "Result"  (type args surfaced separately
 | --- | --- | --- |
 | `.name` | `string` | User-facing type name (e.g. `"Dog"`, `"i64"`, `"Result"`) |
 | `.kind` | `TypeKind` | One of `primitive`, `class`, `enum`, `optional`, `array`, `fn`, `tuple`, `string`, `unit` |
+| `.parent` | `Type?` | Direct parent class for `extends`; `none` for non-class types or root classes |
+
+### Type tests and downcasts
+
+```rust
+class Animal {}
+class Dog extends Animal {}
+let a: Animal = new Dog()    // (assuming subclass auto-coerces)
+
+a is Dog        // bool — true (parent chain walked)
+a is Animal     // bool — true
+a is Cat        // bool — false (when Cat is unrelated)
+
+let d: Dog? = a as? Dog      // some(d) on success
+let c: Cat? = a as? Cat      // none on failure
+```
+
+`is T` and `as? T` walk the dynamic class's parent chain at
+runtime. Currently `T` must be a **class** type.
 
 `TypeKind` is a built-in unit enum and can be `match`ed normally:
 
@@ -1130,8 +1149,8 @@ let label = match typeof(x).kind {
   redefine them.
 - Dynamic class dispatch goes through the vtable header, so RTTI
   works under inheritance for both interpreter and JIT.
-- `parent`, `fields()`, `methods()`, `typeArgs()`, plus the
-  `is` / `as?` operators are planned in follow-up phases.
+- `fields()`, `methods()`, and `typeArgs()` are planned in
+  follow-up phases.
 
 ---
 

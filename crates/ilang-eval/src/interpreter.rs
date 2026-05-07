@@ -437,6 +437,23 @@ impl Interpreter {
                             payload: EnumPayload::Unit,
                         });
                     }
+                    if name.as_str() == "parent" {
+                        // Only class types have a parent — others
+                        // resolve to `none`. Look up the class's
+                        // declared parent in the interpreter's
+                        // class table.
+                        if kind.as_str() == "class" {
+                            if let Some(decl) = self.classes.get(tname) {
+                                if let Some(p) = decl.parent {
+                                    return Ok(Value::Some(Box::new(Value::TypeVal {
+                                        name: p,
+                                        kind: Symbol::intern("class"),
+                                    })));
+                                }
+                            }
+                        }
+                        return Ok(Value::None);
+                    }
                 }
                 let o = expect_object(v, obj.span)?;
                 // Property getter: dispatch through the synthetic FnDecl.
@@ -997,6 +1014,18 @@ impl Interpreter {
                     }
                 }
                 Ok(cast_value(v, ty))
+            }
+            ExprKind::TypeTest { expr: inner, ty } => {
+                let v = self.eval_expr(inner)?;
+                Ok(Value::Bool(self.value_matches_type(&v, ty)))
+            }
+            ExprKind::TypeDowncast { expr: inner, ty } => {
+                let v = self.eval_expr(inner)?;
+                if self.value_matches_type(&v, ty) {
+                    Ok(Value::Some(Box::new(v)))
+                } else {
+                    Ok(Value::None)
+                }
             }
             ExprKind::FnExpr { params, ret, body } => {
                 // Build a synthetic FnDecl on the fly. Free variables
@@ -1600,6 +1629,37 @@ impl Interpreter {
         }
     }
 
+    /// Runtime type test for `is` / `as?`. Class types walk the
+    /// parent chain (so a `Dog` matches `Animal`); other type
+    /// targets do a structural shape match.
+    fn value_matches_type(&self, v: &Value, target: &ilang_ast::Type) -> bool {
+        match (target, v) {
+            (ilang_ast::Type::Object(name), Value::Object(o)) => {
+                let mut cur = Some(o.borrow().class);
+                while let Some(c) = cur {
+                    if c == *name {
+                        return true;
+                    }
+                    cur = self.classes.get(&c).and_then(|d| d.parent);
+                }
+                false
+            }
+            (ilang_ast::Type::I8, Value::Int8(_))
+            | (ilang_ast::Type::I16, Value::Int16(_))
+            | (ilang_ast::Type::I32, Value::Int32(_))
+            | (ilang_ast::Type::I64, Value::Int(_))
+            | (ilang_ast::Type::U8, Value::UInt8(_))
+            | (ilang_ast::Type::U16, Value::UInt16(_))
+            | (ilang_ast::Type::U32, Value::UInt32(_))
+            | (ilang_ast::Type::U64, Value::UInt64(_))
+            | (ilang_ast::Type::F32, Value::Float32(_))
+            | (ilang_ast::Type::F64, Value::Float(_))
+            | (ilang_ast::Type::Bool, Value::Bool(_))
+            | (ilang_ast::Type::Str, Value::Str(_)) => true,
+            _ => false,
+        }
+    }
+
     fn call_fn(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
         let sym = Symbol::intern(name);
@@ -2157,7 +2217,11 @@ fn collect_free_vars_in_expr(
             collect_free_vars_in_expr(lhs, bound, frees);
             collect_free_vars_in_expr(rhs, bound, frees);
         }
-        ExprKind::Cast { expr, .. } => collect_free_vars_in_expr(expr, bound, frees),
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => {
+            collect_free_vars_in_expr(expr, bound, frees)
+        }
         ExprKind::Call { args, .. } => {
             for a in args {
                 collect_free_vars_in_expr(a, bound, frees);

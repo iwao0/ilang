@@ -357,6 +357,12 @@ impl JitTy {
                 | JitTy::Map(_)
                 | JitTy::Fn(_)
                 | JitTy::Tuple(_)
+                // RTTI handles are pointer-shaped (`TypeMeta*`); the
+                // metadata itself is static so retain/release are
+                // no-ops, but treating it as heap-shaped here lets
+                // `Optional<TypeRef>` flow through the nullable-pointer
+                // path instead of the primitive-boxing one.
+                | JitTy::TypeRef
         )
     }
 

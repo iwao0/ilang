@@ -300,10 +300,30 @@ pub(crate) struct TypeMeta {
     /// optional=3, array=4, fn=5, tuple=6, string=7, unit=8).
     pub kind: i32,
     pub _pad: i32,
+    /// Parent class's `TypeMeta*`, or 0 if none. Set only for class
+    /// kinds; non-class entries always leave this as 0.
+    pub parent: i64,
 }
 
 pub(crate) const TYPE_META_NAME_OFFSET: i32 = 0;
 pub(crate) const TYPE_META_KIND_OFFSET: i32 = 8;
+pub(crate) const TYPE_META_PARENT_OFFSET: i32 = 16;
+
+/// Returns 1 iff `meta` is `target` or any of its transitive
+/// parents. Used by `x is T` / `x as? T` for class types.
+pub(crate) extern "C" fn ilang_jit_type_is_subtype(meta: i64, target: i64) -> i8 {
+    if target == 0 {
+        return 0;
+    }
+    let mut cur = meta;
+    while cur != 0 {
+        if cur == target {
+            return 1;
+        }
+        cur = unsafe { (*(cur as *const TypeMeta)).parent };
+    }
+    0
+}
 
 pub(crate) extern "C" fn ilang_jit_print_type_ref(meta_ptr: i64) {
     if meta_ptr == 0 {

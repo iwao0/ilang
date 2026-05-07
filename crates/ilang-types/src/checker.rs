@@ -2201,13 +2201,16 @@ impl TypeChecker {
                 if (name == "isOk" || name == "isErr") && is_result_type(&ot) {
                     return Ok(Type::Bool);
                 }
-                // Built-in RTTI: `Type.name` / `Type.kind`.
+                // Built-in RTTI: `Type.name` / `Type.kind` / `Type.parent`.
                 if matches!(&ot, Type::Object(n) if n.as_str() == "Type") {
                     if name == "name" {
                         return Ok(Type::Str);
                     }
                     if name == "kind" {
                         return Ok(Type::Object("TypeKind".into()));
+                    }
+                    if name == "parent" {
+                        return Ok(Type::Optional(Box::new(Type::Object("Type".into()))));
                     }
                 }
                 let class_name = expect_object(&ot, span)?;
@@ -3331,6 +3334,16 @@ impl TypeChecker {
                     span,
                 })
             }
+            ExprKind::TypeTest { expr: inner, ty } => {
+                self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
+                self.validate_type(ty, span, &[])?;
+                Ok(Type::Bool)
+            }
+            ExprKind::TypeDowncast { expr: inner, ty } => {
+                self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
+                self.validate_type(ty, span, &[])?;
+                Ok(Type::Optional(Box::new(ty.clone())))
+            }
             ExprKind::AssignField { obj, field, value } => {
                 // Static field write: `ClassName.field = v`.
                 if let ExprKind::Var(rname) = &obj.kind {
@@ -4078,7 +4091,9 @@ fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             f(lhs);
             f(rhs);
         }
-        ExprKind::Cast { expr, .. } => f(expr),
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => f(expr),
         ExprKind::Call { args, .. } => {
             for a in args {
                 f(a);
@@ -5005,7 +5020,9 @@ fn cfev_expr(
             cfev_expr(lhs, bound, frees, seen);
             cfev_expr(rhs, bound, frees, seen);
         }
-        ExprKind::Cast { expr, .. } => cfev_expr(expr, bound, frees, seen),
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => cfev_expr(expr, bound, frees, seen),
         ExprKind::Call { args, .. }
         | ExprKind::SuperCall { args, .. } => {
             for a in args { cfev_expr(a, bound, frees, seen); }

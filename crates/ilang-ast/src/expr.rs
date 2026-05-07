@@ -155,6 +155,20 @@ pub enum ExprKind {
         expr: Box<Expr>,
         ty: crate::types::Type,
     },
+    /// Runtime type test: `expr is Type` — returns `bool`. Walks the
+    /// dynamic class's parent chain in RTTI, mirroring the behaviour
+    /// of `typeof(expr)` lookups.
+    TypeTest {
+        expr: Box<Expr>,
+        ty: crate::types::Type,
+    },
+    /// Runtime safe downcast: `expr as? Type` — returns `Type?`,
+    /// `some(expr)` if the dynamic type is a subtype of `Type`,
+    /// `none` otherwise.
+    TypeDowncast {
+        expr: Box<Expr>,
+        ty: crate::types::Type,
+    },
     /// Anonymous function expression — `fn(p: T): R { body }`. No
     /// captures (closures); at runtime it's a code pointer with the
     /// statically-known `Type::Fn` signature.

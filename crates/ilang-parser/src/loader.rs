@@ -566,7 +566,11 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
             qualify_var_refs_in_expr(lhs, prefix, consts);
             qualify_var_refs_in_expr(rhs, prefix, consts);
         }
-        ExprKind::Cast { expr, .. } => qualify_var_refs_in_expr(expr, prefix, consts),
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => {
+            qualify_var_refs_in_expr(expr, prefix, consts)
+        }
         ExprKind::Call { args, .. } => {
             for a in args.iter_mut() {
                 qualify_var_refs_in_expr(a, prefix, consts);
@@ -1040,6 +1044,14 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             },
         },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
+            expr: Box::new(prefix_expr(*expr, prefix)),
+            ty: prefix_type(&ty, prefix),
+        },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(prefix_expr(*expr, prefix)),
+            ty: prefix_type(&ty, prefix),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
             expr: Box::new(prefix_expr(*expr, prefix)),
             ty: prefix_type(&ty, prefix),
         },
@@ -1697,6 +1709,14 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             expr: Box::new(subst_const_expr(*expr, ctx)),
             ty,
         },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(subst_const_expr(*expr, ctx)),
+            ty,
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
+            expr: Box::new(subst_const_expr(*expr, ctx)),
+            ty,
+        },
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
             params,
             ret,
@@ -2047,7 +2067,9 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
             rename_in_expr(lhs, rules);
             rename_in_expr(rhs, rules);
         }
-        ExprKind::Cast { expr, ty } => {
+        ExprKind::Cast { expr, ty }
+        | ExprKind::TypeTest { expr, ty }
+        | ExprKind::TypeDowncast { expr, ty } => {
             rename_in_expr(expr, rules);
             rename_in_type(ty, rules);
         }

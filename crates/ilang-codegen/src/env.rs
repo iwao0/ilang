@@ -264,6 +264,9 @@ pub(crate) struct LowerCtx<'a> {
     /// regular unit-only enum via `inject_type_kind_decl`). Reads of
     /// `Type.kind` lower to `JitTy::Enum(typekind_enum_id)`.
     pub typekind_enum_id: u32,
+    /// FFI helper for `x is T` / `x as? T` class subtyping. Walks
+    /// the dynamic-type's TypeMeta parent chain at runtime.
+    pub type_is_subtype: FuncId,
     /// Per-tuple-kind drop wrapper, lazily declared during lowering.
     /// `None` means no element is heap so no drop is needed.
     pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,

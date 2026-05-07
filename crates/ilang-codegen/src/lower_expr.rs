@@ -157,6 +157,12 @@ pub(crate) fn lower_expr(
             lower_closure_construct(b, lc, fn_name.as_str(), captures, e.span)
         }
         ExprKind::MapLit(entries) => lower_map_lit(b, lc, entries, e.span),
+        ExprKind::TypeTest { expr, ty } => {
+            Ok(Some(lower_type_test_or_downcast(b, lc, expr, ty, false, e.span)?))
+        }
+        ExprKind::TypeDowncast { expr, ty } => {
+            Ok(Some(lower_type_test_or_downcast(b, lc, expr, ty, true, e.span)?))
+        }
         ExprKind::Cast { expr, ty } => {
             let inner = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
                 what: "cast on unit".into(),
@@ -702,7 +708,7 @@ pub(crate) fn lower_expr(
                 }
                 return Ok(Some((n, JitTy::I64)));
             }
-            // Built-in `Type.name` / `Type.kind` (RTTI).
+            // Built-in `Type.name` / `Type.kind` / `Type.parent` (RTTI).
             if obj_t == JitTy::TypeRef {
                 if name == "name" {
                     let s = b.ins().load(
@@ -727,6 +733,23 @@ pub(crate) fn lower_expr(
                         crate::runtime::TYPE_META_KIND_OFFSET,
                     );
                     return Ok(Some((k, JitTy::Enum(lc.typekind_enum_id))));
+                }
+                if name == "parent" {
+                    // Parent slot is a nullable `TypeMeta*` (0 = none).
+                    // `Optional<TypeRef>` is just the same nullable
+                    // pointer in JIT (TypeRef is_heap), so we can
+                    // return the loaded value directly.
+                    let p = b.ins().load(
+                        I64,
+                        MemFlags::trusted(),
+                        obj_v,
+                        crate::runtime::TYPE_META_PARENT_OFFSET,
+                    );
+                    let opt_id = crate::ty::intern_optional_inner(
+                        lc.optional_inners,
+                        JitTy::TypeRef,
+                    );
+                    return Ok(Some((p, JitTy::Optional(opt_id))));
                 }
             }
             // Built-in Optional properties: `isSome` / `isNone`.
@@ -5022,6 +5045,122 @@ fn lower_errno_check(
     b.seal_block(merge);
     let opt_id = crate::ty::intern_optional_inner(lc.optional_inners, inner);
     (b.block_params(merge)[0], JitTy::Optional(opt_id))
+}
+
+/// Lower `x is T` (`downcast = false`) and `x as? T`
+/// (`downcast = true`).
+///
+/// Currently restricted to **class targets**: the whole point of
+/// `is` is the parent-chain walk, and that machinery only exists
+/// for object types. Non-class T is rejected at codegen.
+fn lower_type_test_or_downcast(
+    b: &mut FunctionBuilder<'_>,
+    lc: &mut LowerCtx,
+    expr: &Expr,
+    target: &ilang_ast::Type,
+    downcast: bool,
+    span: ilang_ast::Span,
+) -> Result<TV, CodegenError> {
+    let target_class = match target {
+        ilang_ast::Type::Object(name) => *name,
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: "is / as? require a class target type".into(),
+                span,
+            });
+        }
+    };
+    let target_class_id = match lc.class_layouts.iter().position(|c| c.name == target_class) {
+        Some(i) => i as u32,
+        None => {
+            return Err(CodegenError::Unsupported {
+                what: format!("is / as? unknown class {target_class:?}"),
+                span,
+            });
+        }
+    };
+    let target_meta_addr =
+        lc.class_layouts[target_class_id as usize].name.as_str();
+    let _ = target_meta_addr; // (silence unused; actual address fetched below)
+    // Address of the target class's TypeMeta — stored in the
+    // vtable header for that class. Computed as
+    // `class_vtable_addrs[id] - 8`.
+    let target_meta_ptr_addr = lc.class_vtable_addrs[target_class_id as usize] - 8;
+    let target_meta_ptr = unsafe { *(target_meta_ptr_addr as *const i64) };
+
+    let (val_v, val_t) = lower_expr(b, lc, expr)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "is / as? receiver is unit".into(),
+        span,
+    })?;
+    let _val_class_id = match val_t {
+        JitTy::Object(id) => id,
+        _ => {
+            return Err(CodegenError::Unsupported {
+                what: "is / as? receiver must be a class instance".into(),
+                span,
+            });
+        }
+    };
+    // Read the receiver's dynamic TypeMeta from its vtable header.
+    let vt = b.ins().load(
+        I64,
+        MemFlags::trusted(),
+        val_v,
+        crate::runtime::VTABLE_OFFSET as i32,
+    );
+    let dyn_meta = b.ins().load(I64, MemFlags::trusted(), vt, -8);
+    let target_meta_v = b.ins().iconst(I64, target_meta_ptr);
+    let r = lc.module.declare_func_in_func(lc.type_is_subtype, b.func);
+    let call = b.ins().call(r, &[dyn_meta, target_meta_v]);
+    let matched_i8 = b.inst_results(call)[0];
+    if downcast {
+        // Build Optional<Object(target_class_id)> as nullable
+        // pointer: matched ? val_v : 0. Retain on success so the
+        // resulting Optional owns its own reference.
+        let zero = b.ins().iconst(I64, 0);
+        let cond_i8 = matched_i8;
+        let cond = b.ins().icmp_imm(IntCC::NotEqual, cond_i8, 0);
+        // Use cranelift `select` for the value choice; if matched,
+        // we also need to bump the rc once. Easiest: do retain
+        // unconditionally on val_v before the select (we'll be
+        // dropping the `none` branch's retained ref ... no, that's
+        // wrong). Use brif to two blocks.
+        let then_blk = b.create_block();
+        let else_blk = b.create_block();
+        let join_blk = b.create_block();
+        b.append_block_param(join_blk, I64);
+        b.ins().brif(cond, then_blk, &[], else_blk, &[]);
+        b.switch_to_block(then_blk);
+        b.seal_block(then_blk);
+        // Matched: retain val (it's already a JitTy::Object, no
+        // class-id sub-dispatch needed) so the Optional owns its ref.
+        emit_retain_heap(b, lc, val_v, val_t);
+        b.ins().jump(join_blk, &[val_v.into()]);
+        b.switch_to_block(else_blk);
+        b.seal_block(else_blk);
+        b.ins().jump(join_blk, &[zero.into()]);
+        b.switch_to_block(join_blk);
+        b.seal_block(join_blk);
+        let opt_id = crate::ty::intern_optional_inner(
+            lc.optional_inners,
+            JitTy::Object(target_class_id),
+        );
+        // Release the original receiver (we either retained
+        // through the then-branch into the new Optional, or it
+        // wasn't transferred — same release rule as `as`).
+        if !is_aliased_heap_source(&expr.kind) {
+            emit_release_heap(b, lc, val_v, val_t);
+        }
+        let result = b.block_params(join_blk)[0];
+        Ok((result, JitTy::Optional(opt_id)))
+    } else {
+        // `is` returns bool. Release the receiver as usual.
+        if !is_aliased_heap_source(&expr.kind) {
+            emit_release_heap(b, lc, val_v, val_t);
+        }
+        // matched_i8 is i8 (0 or 1); JitTy::Bool is also i8 in cl.
+        Ok((matched_i8, JitTy::Bool))
+    }
 }
 
 /// Lower `typeof(arg)`: evaluate `arg` (so heap retains/releases

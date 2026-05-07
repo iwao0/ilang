@@ -23,6 +23,7 @@ pub enum TokenKind {
     New,
     This,
     As,
+    Is,
     None_,
     Some_,
     Enum,

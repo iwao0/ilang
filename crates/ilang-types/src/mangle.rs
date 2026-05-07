@@ -361,6 +361,14 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             expr: Box::new(rewrite_expr(*expr, ctx)),
             ty,
         },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(rewrite_expr(*expr, ctx)),
+            ty,
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
+            expr: Box::new(rewrite_expr(*expr, ctx)),
+            ty,
+        },
         ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
             params,
             ret,

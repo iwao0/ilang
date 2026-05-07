@@ -321,6 +321,14 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             expr: Box::new(hoist_in_expr(expr, ctx)),
             ty: ty.clone(),
         },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(hoist_in_expr(expr, ctx)),
+            ty: ty.clone(),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
+            expr: Box::new(hoist_in_expr(expr, ctx)),
+            ty: ty.clone(),
+        },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee: callee.clone(),
             args: args.iter().map(|a| hoist_in_expr(a, ctx)).collect(),
@@ -656,7 +664,9 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
             scan_expr(lhs, needed, work);
             scan_expr(rhs, needed, work);
         }
-        ExprKind::Cast { expr, ty } => {
+        ExprKind::Cast { expr, ty }
+        | ExprKind::TypeTest { expr, ty }
+        | ExprKind::TypeDowncast { expr, ty } => {
             scan_expr(expr, needed, work);
             scan_type(ty, needed, work);
         }
@@ -991,6 +1001,14 @@ fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
             expr: Box::new(subst_expr(expr, params, args)),
             ty: subst_type(ty, params, args),
         },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(subst_expr(expr, params, args)),
+            ty: subst_type(ty, params, args),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
+            expr: Box::new(subst_expr(expr, params, args)),
+            ty: subst_type(ty, params, args),
+        },
         ExprKind::FnExpr {
             params: ps,
             ret,
@@ -1291,6 +1309,14 @@ fn rewrite_stmt(s: &Stmt) -> Stmt {
 fn rewrite_expr(e: &Expr) -> Expr {
     let kind = match &e.kind {
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
+            expr: Box::new(rewrite_expr(expr)),
+            ty: rewrite_type(ty),
+        },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(rewrite_expr(expr)),
+            ty: rewrite_type(ty),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
             expr: Box::new(rewrite_expr(expr)),
             ty: rewrite_type(ty),
         },
@@ -2059,7 +2085,9 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             f(lhs);
             f(rhs);
         }
-        ExprKind::Cast { expr, .. } => f(expr),
+        ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => f(expr),
         ExprKind::FnExpr { .. } => {
             // Anonymous fns are hoisted out before this pass; nothing to do.
         }
@@ -2220,6 +2248,14 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             rhs: Box::new(f(rhs)),
         },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
+            expr: Box::new(f(expr)),
+            ty: ty.clone(),
+        },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(f(expr)),
+            ty: ty.clone(),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
             expr: Box::new(f(expr)),
             ty: ty.clone(),
         },

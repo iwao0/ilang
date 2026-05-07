@@ -185,10 +185,40 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            // `as`-cast: postfix-style infix that takes a type instead of
-            // an expression. Tighter than any binary op so `1 + 2 as f64`
-            // parses as `1 + ((2) as f64)`.
+            // `as`-cast / `as?`-downcast: postfix-style infix that
+            // takes a type instead of an expression. Tighter than any
+            // binary op so `1 + 2 as f64` parses as `1 + ((2) as f64)`.
             if matches!(self.peek().kind, TokenKind::As) {
+                let l_bp = 25u8;
+                if l_bp < min_bp {
+                    break;
+                }
+                self.bump();
+                let is_downcast = matches!(self.peek().kind, TokenKind::Question);
+                if is_downcast {
+                    self.bump();
+                }
+                let target = self.parse_type()?;
+                let span = lhs.span;
+                lhs = Expr::new(
+                    if is_downcast {
+                        ExprKind::TypeDowncast {
+                            expr: Box::new(lhs),
+                            ty: target,
+                        }
+                    } else {
+                        ExprKind::Cast {
+                            expr: Box::new(lhs),
+                            ty: target,
+                        }
+                    },
+                    span,
+                );
+                continue;
+            }
+            // `is T` — runtime type test, returns bool. Same precedence
+            // as `as` (postfix-style on the lhs).
+            if matches!(self.peek().kind, TokenKind::Is) {
                 let l_bp = 25u8;
                 if l_bp < min_bp {
                     break;
@@ -197,7 +227,7 @@ impl<'a> Parser<'a> {
                 let target = self.parse_type()?;
                 let span = lhs.span;
                 lhs = Expr::new(
-                    ExprKind::Cast {
+                    ExprKind::TypeTest {
                         expr: Box::new(lhs),
                         ty: target,
                     },
