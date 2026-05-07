@@ -154,9 +154,9 @@ const HINT_TIMER_RESOLUTION: string              = "SDL_TIMER_RESOLUTION"
 const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
 
 @extern(C) {
-    /// Mirror of C `SDL_version` (3 u8 bytes, 1 byte tail padding).
-    /// Filled in by `SDL_GetVersion`.
-    struct SDL_Version {
+    /// SDL library version triple. Mirrors C `SDL_version` (3 u8
+    /// bytes, 1 byte tail padding). Filled in by `getVersion()`.
+    struct Version {
         major: u8
         minor: u8
         patch: u8
@@ -239,7 +239,7 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
     )
 
     // ─── SDL_version.h ───────────────────────────────────────────
-    @lib("SDL2") fn SDL_GetVersion(ver: *SDL_Version)
+    @lib("SDL2") fn SDL_GetVersion(ver: *Version)
     @lib("SDL2") fn SDL_GetRevision(): *const char
 
     // ─── SDL_platform.h ──────────────────────────────────────────
@@ -410,23 +410,11 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
         stringFromCstr(SDL_GetPlatform())
     }
 
-    /// Public version triple — plain data, no constructor. Filled
-    /// in by `getVersion()`.
-    class Version {
-        major: i32
-        minor: i32
-        patch: i32
-    }
-
     /// Returns:
     ///   the linked SDL2 library's version (major.minor.patch).
     fn getVersion(): Version {
-        let raw = new SDL_Version()
-        SDL_GetVersion(raw)
         let v = new Version()
-        v.major = raw.major as i32
-        v.minor = raw.minor as i32
-        v.patch = raw.patch as i32
+        SDL_GetVersion(v)
         v
     }
 }
