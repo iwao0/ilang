@@ -6,6 +6,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#attributes" },
+    { "include": "#enum-variant-keyword" },
     { "include": "#keywords" },
     { "include": "#types" },
     { "include": "#constants" },
@@ -50,6 +51,11 @@
       "captures": {
         "0": { "name": "entity.name.function.decorator.ilang" }
       }
+    },
+    "enum-variant-keyword": {
+      "comment": "Reserved words used as enum variant names (`return = 40`, `none = 0`, …). Match before #keywords so the keyword scope doesn't fire.",
+      "match": "\\b(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)(?=\\s*=)",
+      "name": "variable.other.enummember.ilang"
     },
     "keywords": {
       "patterns": [
