@@ -809,6 +809,9 @@ pub(crate) fn lower_expr(
                     obj_v,
                     ARRAY_LEN_OFFSET,
                 );
+                if !is_aliased_heap_source(&obj.kind) {
+                    emit_release_heap(b, lc, obj_v, obj_t);
+                }
                 return Ok(Some((len, JitTy::I64)));
             }
             // Built-in `string.length` (Unicode code-point count).
@@ -1020,6 +1023,16 @@ pub(crate) fn lower_expr(
                 obj_v,
                 offset as i32,
             );
+            // Fresh receiver: keep the loaded value alive past the
+            // object's drop. Heap fields need their own +1 first
+            // (the object's drop fn releases each heap slot when
+            // its rc hits 0); primitive fields are unaffected.
+            if !is_aliased_heap_source(&obj.kind) {
+                if fty.is_heap() {
+                    emit_retain_heap(b, lc, v, fty);
+                }
+                emit_release_heap(b, lc, obj_v, obj_t);
+            }
             Ok(Some((v, fty)))
         }
         ExprKind::MethodCall { obj, method, args } => {
@@ -1155,7 +1168,34 @@ pub(crate) fn lower_expr(
                         b.seal_block(ok_blk);
                         let inner = lc.optional_inners[id as usize];
                         if inner.is_heap() {
+                            // Promote the inner to a fresh +1 so it
+                            // matches the rest of the codegen
+                            // convention (heap producers return
+                            // owned references). When the receiver
+                            // was itself fresh, also drop its rc=1
+                            // here — without an enclosing binding
+                            // that would otherwise leak.
+                            emit_retain_heap(b, lc, obj_v, inner);
+                            if !is_aliased_heap_source(&obj.kind) {
+                                emit_release_heap(b, lc, obj_v, obj_t);
+                            }
                             return Ok(Some((obj_v, inner)));
+                        }
+                        // Primitive inner: same fresh-receiver
+                        // release rule, no retain (primitives carry
+                        // no rc).
+                        if !is_aliased_heap_source(&obj.kind) {
+                            // Load payload first because release
+                            // would free the box.
+                            let cl_ty = inner.cl().expect("primitive cl ty");
+                            let v = b.ins().load(
+                                cl_ty,
+                                cranelift::prelude::MemFlags::trusted(),
+                                obj_v,
+                                crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+                            );
+                            emit_release_heap(b, lc, obj_v, obj_t);
+                            return Ok(Some((v, inner)));
                         }
                         // Primitive: load payload from box at offset 8.
                         let cl_ty = inner.cl().expect("primitive cl ty");
@@ -2067,10 +2107,25 @@ pub(crate) fn lower_expr(
                     span: obj.span,
                 }
             })?;
+            // Fresh receiver (`make_arr()[0]`, `make_tuple().0`):
+            // hand its rc=1 to this expression and release the
+            // container after we've extracted the element. Aliased
+            // receivers (Var / Field / Index / This) leave their +1
+            // on the source binding and are untouched.
+            let release_obj = obj_t.is_heap() && !is_aliased_heap_source(&obj.kind);
             // Map indexing: `m[k]` calls into the runtime, which aborts
             // when the key is missing (mirrors interpreter).
             if let JitTy::Map(map_id) = obj_t {
-                return lower_map_index_get(b, lc, map_id, obj_v, index);
+                let result = lower_map_index_get(b, lc, map_id, obj_v, index)?;
+                if release_obj {
+                    if let Some((rv, rt)) = result {
+                        if rt.is_heap() {
+                            emit_retain_heap(b, lc, rv, rt);
+                        }
+                    }
+                    emit_release_heap(b, lc, obj_v, obj_t);
+                }
+                return Ok(result);
             }
             // Embedded array (`@extern(C) struct` field of fixed numeric
             // type). `obj_v` holds the base address; compute
@@ -2151,6 +2206,12 @@ pub(crate) fn lower_expr(
                 let off = kind.offsets[n] as i32;
                 let cl = elem_jty.cl().expect("tuple element is non-unit");
                 let v = b.ins().load(cl, MemFlags::trusted(), obj_v, off);
+                if release_obj {
+                    if elem_jty.is_heap() {
+                        emit_retain_heap(b, lc, v, elem_jty);
+                    }
+                    emit_release_heap(b, lc, obj_v, obj_t);
+                }
                 return Ok(Some((v, elem_jty)));
             }
             let array_id = match obj_t {
@@ -2183,6 +2244,12 @@ pub(crate) fn lower_expr(
                 addr,
                 0,
             );
+            if release_obj {
+                if elem_jty.is_heap() {
+                    emit_retain_heap(b, lc, v, elem_jty);
+                }
+                emit_release_heap(b, lc, obj_v, obj_t);
+            }
             Ok(Some((v, elem_jty)))
         }
         ExprKind::AssignIndex { obj, index, value } => {

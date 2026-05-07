@@ -15,11 +15,21 @@ use crate::ty::JitTy;
 /// than producing a fresh one. Used to decide whether a let binding
 /// (or a call argument) needs an extra retain to balance its own
 /// scope-exit / callee release.
+///
+/// Field / Index recurse into their receiver: a chain rooted at a
+/// fresh value (`make_obj().field`, `make_arr()[0]`, deeper nestings
+/// of those) is treated as fresh, because each level's lowering
+/// retains the carried value before releasing the transient
+/// container. The final result behaves like a freshly-allocated
+/// heap value rather than something borrowed from a binding.
 pub(crate) fn is_aliased_heap_source(kind: &ExprKind) -> bool {
-    matches!(
-        kind,
-        ExprKind::Var(_) | ExprKind::Field { .. } | ExprKind::Index { .. } | ExprKind::This
-    )
+    match kind {
+        ExprKind::Var(_) | ExprKind::This => true,
+        ExprKind::Field { obj, .. } | ExprKind::Index { obj, .. } => {
+            is_aliased_heap_source(&obj.kind)
+        }
+        _ => false,
+    }
 }
 
 /// Apply rc adjustments at a heap-typed bind site (`let`, function arg,
