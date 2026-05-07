@@ -278,12 +278,20 @@ pub(crate) fn lower_expr(
                 .clone();
             let target = frame.1;
             if let Some(v_expr) = value {
-                let (v, _vt) = lower_expr(b, lc, v_expr)?.ok_or_else(|| {
+                let (v, vt) = lower_expr(b, lc, v_expr)?.ok_or_else(|| {
                     CodegenError::Unsupported {
                         what: "break value is unit".into(),
                         span: v_expr.span,
                     }
                 })?;
+                // Mirror the block-tail rule (lower_stmt.rs): when the
+                // break value is an aliased heap reference (Var /
+                // Field / Index / This), the binding it borrows from
+                // is about to be released by its enclosing block's
+                // exit, so the loop result needs its own +1.
+                if vt.is_heap() && is_aliased_heap_source(&v_expr.kind) {
+                    emit_retain_heap(b, lc, v, vt);
+                }
                 if let Some((slot, _jty)) = frame.2 {
                     b.def_var(slot, v);
                 }
