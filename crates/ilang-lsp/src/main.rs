@@ -5128,7 +5128,7 @@ fn extern_c_precedes(bytes: &[u8], at: usize) -> bool {
 /// `static` is already covered by the generic block-scope keyword
 /// list, so it's omitted here to avoid duplicates.
 fn push_extern_c_keywords(out: &mut Vec<CompletionItem>) {
-    for kw in ["fn", "struct", "union"] {
+    for kw in ["fn", "struct", "union", "class"] {
         out.push(CompletionItem {
             label: kw.to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
