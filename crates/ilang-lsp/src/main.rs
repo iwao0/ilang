@@ -2159,6 +2159,31 @@ fn build_doc(
                         }
                     }
                 }
+                Item::Enum(e) => {
+                    // Push a hover / F12 entry on each variant name
+                    // at its declaration site. The signature reuses
+                    // `register_enum_variants` formatting (preserves
+                    // hex / underscore literals via the buffer text).
+                    let mut tmp: HashMap<AstSymbol, String> = HashMap::new();
+                    register_enum_variants(e, e.name.as_str(), &mut tmp, Some(walker.text));
+                    for v in e.variants.iter() {
+                        let key = AstSymbol::intern(&format!(
+                            "{}.{}", e.name, v.name
+                        ));
+                        let sig = tmp
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                format!("(variant) {}.{}", e.name, v.name)
+                            });
+                        walker.push_decl_with_doc(
+                            v.name.as_str(),
+                            v.span,
+                            sig,
+                            text::extract_doc_above(walker.text, v.span.line),
+                        );
+                    }
+                }
                 _ => {}
             }
         }
