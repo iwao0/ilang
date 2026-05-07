@@ -118,6 +118,12 @@ where
             .iter()
             .all(|e| literal_assignable_with(e, &vt_elem, target_elem, is_sub));
     }
+    // (Map literal subtyping is intentionally not handled here:
+    // the JIT lays out Map<K, V> per (K, V) pair via interned
+    // `MapKind`s and has no coerce for `Map<K, B>` → `Map<K, A>`,
+    // so accepting it at TC time would diverge interpreter and
+    // JIT. Annotate the entries explicitly or use `m.set(k, v)`
+    // against a pre-typed `new Map<K, Parent>()` to upcast.)
     // Tuple literal → tuple type. Pairwise check so element-level
     // literal coercions (int width narrowing, fixed → dynamic array)
     // apply inside tuples just like they do at the top level.
@@ -486,6 +492,36 @@ impl TypeChecker {
             cur = self.classes.get(&name).and_then(|c| c.parent);
         }
         false
+    }
+
+    /// The nearest common ancestor of two classes — the type used
+    /// when joining branches (`if`/`else`, `match` arms) where each
+    /// arm produces a different subclass. Returns `None` when there
+    /// is no shared ancestor (independent class hierarchies). When
+    /// one is a subclass of the other, the result is the parent.
+    fn common_ancestor(&self, a: Symbol, b: Symbol) -> Option<Symbol> {
+        if a == b {
+            return Some(a);
+        }
+        // Walk a's ancestor chain, collect into a set, then walk b's
+        // until we find a member.
+        let mut a_chain: Vec<Symbol> = vec![a];
+        let mut cur = self.classes.get(&a).and_then(|c| c.parent);
+        while let Some(name) = cur {
+            a_chain.push(name);
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+        }
+        if a_chain.contains(&b) {
+            return Some(b);
+        }
+        let mut cur = self.classes.get(&b).and_then(|c| c.parent);
+        while let Some(name) = cur {
+            if a_chain.contains(&name) {
+                return Some(name);
+            }
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+        }
+        None
     }
 
     /// Object-aware extension of `assignable`: returns true if the
@@ -3025,20 +3061,18 @@ impl TypeChecker {
                         if let Some(merged) = merge_generic_with_holes(&then_ty, &else_ty) {
                             return Ok(merged);
                         }
-                        // Class subtype upcast: if one branch's
-                        // class is a subclass of the other's, the
-                        // whole `if` takes the common parent type.
-                        // (Restricted to Object↔Object so `i64 ↔
-                        // f64` still errors per the no-implicit-
-                        // numeric-widening rule above.)
+                        // Class subtype upcast: if both branches
+                        // produce Object types and they share a
+                        // common ancestor, the whole `if` takes
+                        // that ancestor. (Restricted to
+                        // Object↔Object so `i64 ↔ f64` still errors
+                        // per the no-implicit-numeric-widening rule
+                        // above.)
                         if let (Type::Object(a), Type::Object(b)) =
                             (&then_ty, &else_ty)
                         {
-                            if self.is_subclass(*b, *a) {
-                                return Ok(then_ty);
-                            }
-                            if self.is_subclass(*a, *b) {
-                                return Ok(else_ty);
+                            if let Some(anc) = self.common_ancestor(*a, *b) {
+                                return Ok(Type::Object(anc));
                             }
                         }
                         // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
@@ -3794,6 +3828,17 @@ impl TypeChecker {
                 let then_ty = self.check_block(then_branch, &then_env, ret_ty, in_class, loop_depth)?;
                 if let Some(eb) = else_branch {
                     let else_ty = self.check_expr(eb, env, ret_ty, in_class, loop_depth)?;
+                    // Class subtype upcast: if both branches produce
+                    // Object types and one is a subclass of the
+                    // other (or they share a common ancestor), the
+                    // join is the parent. Mirrors the regular
+                    // if/else path's rule.
+                    let class_join = match (&then_ty, &else_ty) {
+                        (Type::Object(t), Type::Object(e)) => {
+                            self.common_ancestor(*t, *e).map(Type::Object)
+                        }
+                        _ => None,
+                    };
                     // Pick the unifying type: if either branch is Unit, the
                     // overall expr is Unit (statement-style); otherwise the
                     // two branches must agree.
@@ -3809,6 +3854,8 @@ impl TypeChecker {
                         // — merge to the more specific shape. Mirrors the
                         // regular if/else path.
                         Ok(merged)
+                    } else if let Some(joined) = class_join {
+                        Ok(joined)
                     } else if let Some(t) = then_branch.tail.as_deref() {
                         if numeric_literal_fits(t, &else_ty) {
                             Ok(else_ty)
@@ -5363,11 +5410,8 @@ impl TypeChecker {
             return Ok(a);
         }
         if let (Type::Object(ca), Type::Object(cb)) = (&a, &b) {
-            if self.is_subclass(*cb, *ca) {
-                return Ok(a);
-            }
-            if self.is_subclass(*ca, *cb) {
-                return Ok(b);
+            if let Some(anc) = self.common_ancestor(*ca, *cb) {
+                return Ok(Type::Object(anc));
             }
         }
         Err(TypeError::Mismatch {
