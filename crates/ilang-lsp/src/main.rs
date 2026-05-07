@@ -147,6 +147,10 @@ struct Doc {
     /// Doc comments (`///`) attached to imported `module.X` decls.
     /// Same key shape as `external_signatures`.
     external_docs: HashMap<AstSymbol, String>,
+    /// Source-file location for imported decls (cross-file F12).
+    /// Keyed both by `module.X` (whole import) and by bare `X`
+    /// (selective import).
+    external_sources: ExternalSources,
     /// Return types for `module.fn` declarations brought in via
     /// `use module`. Populated alongside `external_signatures` so
     /// `let x = math.sqrt(...)` infers as f64.
@@ -294,6 +298,9 @@ async fn refresh_impl(
             }
             if !external_docs.is_empty() {
                 entry.external_docs = external_docs;
+            }
+            if !external_sources.is_empty() {
+                entry.external_sources = external_sources;
             }
         }
     }
@@ -448,12 +455,25 @@ impl LanguageServer for Backend {
             })));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+            let key = AstSymbol::intern(&word);
+            if let Some(sym) = doc.symbols.get(&key) {
                 let range = span_to_range(sym.span, sym.name.as_str().len());
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
                     range,
                 })));
+            }
+            // Selectively-imported bare type / fn (`use M { X }`) —
+            // `external_sources` carries the file path + decl span
+            // for a cross-file jump.
+            if let Some(loc) = doc.external_sources.get(&key) {
+                if let Ok(target_uri) = Url::from_file_path(&loc.path) {
+                    let range = span_to_range(loc.span, loc.name_len as usize);
+                    return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                        uri: target_uri,
+                        range,
+                    })));
+                }
             }
         }
         Ok(None)
@@ -2096,6 +2116,7 @@ fn build_doc(
         external_signatures: external_signatures.clone(),
         external_docs: external_docs.clone(),
         external_returns: external_returns.clone(),
+        external_sources: external_sources.clone(),
     }
 }
 
