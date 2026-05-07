@@ -3632,6 +3632,16 @@ impl TypeChecker {
                 if is_raw_ptr(&from) && is_raw_ptr(ty) && *self.in_extern_c.borrow() {
                     return Ok(ty.clone());
                 }
+                // Class subtype upcast: `b as A` where `B extends A`
+                // — always safe and explicit, so accept. The
+                // narrowing direction (parent → child) is reserved
+                // for `as?`, which returns `T?` to capture the
+                // possible failure.
+                if let (Type::Object(c), Type::Object(p)) = (&from, ty) {
+                    if self.is_subclass(*c, *p) {
+                        return Ok(ty.clone());
+                    }
+                }
                 Err(TypeError::Mismatch {
                     expected: ty.clone(),
                     got: from,
