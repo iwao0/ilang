@@ -3197,7 +3197,7 @@ impl<'a> Walker<'a> {
                     self.walk_expr(a, scope, this_class);
                 }
             }
-            ExprKind::EnumCtor { enum_name, args, .. } => {
+            ExprKind::EnumCtor { enum_name, variant, args } => {
                 if let Some(sym) = self.symbols.get(enum_name) {
                     self.push_ref(
                         enum_name.as_str(),
@@ -3206,6 +3206,44 @@ impl<'a> Walker<'a> {
                         sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
+                }
+                // Push a separate RefEntry for the variant name so
+                // hover / F12 work on `Enum.variant` at the variant
+                // half too. The composite `Enum.variant` key is
+                // populated by `register_enum_variants` for both
+                // buffer-local and cross-module enums.
+                let key = AstSymbol::intern(&format!(
+                    "{}.{}", enum_name, variant
+                ));
+                if let Some(sig) = self.external_signatures.get(&key).cloned() {
+                    if let Some((line, col)) =
+                        locate_dot_name(self.text, e.span, variant.as_str())
+                    {
+                        let loc = self.external_sources.get(&key);
+                        let target_uri = loc
+                            .and_then(|l| Url::from_file_path(&l.path).ok());
+                        let (target_span, target_name_len, no_def) = match loc {
+                            Some(l) if target_uri.is_some() => {
+                                (l.span, l.name_len, false)
+                            }
+                            _ => (
+                                Span::new(line, col),
+                                variant.as_str().len() as u32,
+                                target_uri.is_none(),
+                            ),
+                        };
+                        self.refs.push(RefEntry {
+                            line,
+                            start_col: col,
+                            end_col: col + variant.as_str().len() as u32,
+                            target_span,
+                            target_name_len,
+                            signature: sig,
+                            no_definition: no_def,
+                            target_uri,
+                            doc: self.external_docs.get(&key).cloned(),
+                        });
+                    }
                 }
                 match args {
                     ilang_ast::CtorArgs::Tuple(es) => {
