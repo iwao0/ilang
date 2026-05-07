@@ -28,11 +28,17 @@
 use ilang_lexer::{tokenize, Token, TokenKind};
 
 const INDENT: &str = "    ";
+/// Soft column budget. Lines longer than this trigger the
+/// "break each comma-separated arg onto its own line" pass for the
+/// outermost paren / bracket group on the line. Tuned to match the
+/// `///` doc style already used in this codebase.
+const LINE_BUDGET: usize = 100;
 
 pub fn format(src: &str) -> Option<String> {
     let tokens = tokenize(src).ok()?;
     let line_starts = compute_line_starts(src);
-    let formatted = format_tokens(src, &tokens, &line_starts);
+    let mini = format_tokens(src, &tokens, &line_starts);
+    let formatted = rewrap_long_lines(&mini);
     if formatted == src {
         None
     } else {
@@ -87,20 +93,25 @@ fn token_byte_range(
 
 fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
     let mut out = String::with_capacity(src.len());
-    let mut depth: i32 = 0;
+    let mut brace_depth: i32 = 0;
+    // Indent for unclosed `(...)` / `[...]` whose open spans a
+    // newline before its close. Each such open bumps depth by 1
+    // until matched. Single-line `f(a, b)` doesn't bump.
+    let mut paren_depth: i32 = 0;
+    let mut paren_stack: Vec<bool> = Vec::new();
     let mut prev_end: usize = 0;
     let mut prev_kind: Option<&TokenKind> = None;
     let mut prev_prev_kind: Option<&TokenKind> = None;
     let mut at_line_start = true;
 
-    for tok in tokens {
+    for (idx, tok) in tokens.iter().enumerate() {
         if matches!(tok.kind, TokenKind::Eof) {
             // Trailing gap (after last code token).
             let trailing = &src[prev_end..];
             emit_gap(
                 &mut out,
                 trailing,
-                depth,
+                brace_depth + paren_depth,
                 prev_kind,
                 None,
                 &mut at_line_start,
@@ -110,13 +121,20 @@ fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
         let (start_byte, end_byte) = token_byte_range(src, line_starts, tok);
         let gap = &src[prev_end..start_byte];
 
-        // The depth USED for indenting this token's leading
-        // newline (if any) needs to outdent for `}` because the
-        // close belongs to the outer block.
-        let indent_depth = if matches!(tok.kind, TokenKind::RBrace) {
-            (depth - 1).max(0)
+        let total_depth = brace_depth + paren_depth;
+        // `}` closes a brace-block — outdent before printing.
+        // Likewise the matching close of a multi-line `(...)` /
+        // `[...]` should sit at the OUTER indent.
+        let closing_multiline_paren = matches!(
+            tok.kind,
+            TokenKind::RParen | TokenKind::RBracket
+        ) && paren_stack.last().copied().unwrap_or(false);
+        let indent_depth = if matches!(tok.kind, TokenKind::RBrace)
+            || closing_multiline_paren
+        {
+            (total_depth - 1).max(0)
         } else {
-            depth.max(0)
+            total_depth.max(0)
         };
 
         emit_gap(
@@ -133,10 +151,28 @@ fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
         out.push_str(&src[start_byte..end_byte]);
         at_line_start = false;
 
-        // Update brace depth from this token.
+        // Update depth tracking from this token.
         match tok.kind {
-            TokenKind::LBrace => depth += 1,
-            TokenKind::RBrace => depth -= 1,
+            TokenKind::LBrace => brace_depth += 1,
+            TokenKind::RBrace => brace_depth -= 1,
+            TokenKind::LParen | TokenKind::LBracket => {
+                // Multi-line if the next non-EOF token starts on a
+                // later line than this open delimiter.
+                let multi = tokens
+                    .get(idx + 1)
+                    .map(|t| t.span.line > tok.span.end_line)
+                    .unwrap_or(false);
+                paren_stack.push(multi);
+                if multi {
+                    paren_depth += 1;
+                }
+            }
+            TokenKind::RParen | TokenKind::RBracket => {
+                let was_multi = paren_stack.pop().unwrap_or(false);
+                if was_multi {
+                    paren_depth -= 1;
+                }
+            }
             _ => {}
         }
         prev_end = end_byte;
@@ -450,6 +486,192 @@ fn prev_kind_is_callable(t: &TokenKind) -> bool {
     matches!(t, Ident(_) | RParen | RBracket | RBrace | This | Super)
 }
 
+/// Walk each line; when one exceeds the budget, try to break its
+/// outermost paren / bracket group (one with top-level commas) onto
+/// multiple lines (one element per line). Lines under budget pass
+/// through unchanged. Idempotent: a line that's already multi-line
+/// has its delimiters split across lines so this pass leaves it
+/// alone.
+fn rewrap_long_lines(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for line in s.split('\n') {
+        if line.chars().count() <= LINE_BUDGET {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        match try_break_long_line(line) {
+            Some(broken) => out.push_str(&broken),
+            None => {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    // `split('\n')` produces an extra empty trailing element when
+    // the input ends in `\n` — trim it back to a single newline.
+    if out.ends_with("\n\n") {
+        out.pop();
+    }
+    out
+}
+
+/// Find the outermost `(...)` / `[...]` group on `line` whose
+/// content has at least one top-level comma, and break it across
+/// lines (one element per line, one indent level deeper than the
+/// line's leading indent). Returns the rewrapped multi-line string
+/// (with trailing `\n`s) when a break point was found.
+fn try_break_long_line(line: &str) -> Option<String> {
+    let leading_spaces = line.chars().take_while(|c| *c == ' ').count();
+    let base_depth = (leading_spaces / INDENT.len()) as i32;
+
+    // Walk the line, tracking `(` / `[` depth and string / comment
+    // mode, looking for the first outermost paren / bracket with
+    // top-level commas.
+    let bytes = line.as_bytes();
+    let mut state = LineState::Code;
+    let mut stack: Vec<(usize, u8)> = Vec::new();
+    // (open_byte_idx, depth_at_open, has_top_level_comma)
+    let mut group_open: Option<(usize, u8)> = None;
+    let mut top_commas: Vec<usize> = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let next = bytes.get(i + 1).copied();
+        match state {
+            LineState::Code => match c {
+                b'/' if next == Some(b'/') => return None, // line comment present, leave alone
+                b'/' if next == Some(b'*') => {
+                    state = LineState::Block(1);
+                    i += 2;
+                    continue;
+                }
+                b'"' => {
+                    state = LineState::Str;
+                    i += 1;
+                    continue;
+                }
+                b'(' | b'[' => {
+                    if stack.is_empty() && group_open.is_none() {
+                        group_open = Some((i, c));
+                        top_commas.clear();
+                    }
+                    stack.push((i, c));
+                    i += 1;
+                }
+                b')' | b']' => {
+                    let last = stack.pop();
+                    if stack.is_empty() {
+                        if let Some((open_idx, open_c)) = group_open.take() {
+                            let want_close = if open_c == b'(' { b')' } else { b']' };
+                            if last.is_some() && c == want_close && !top_commas.is_empty() {
+                                return Some(emit_broken(
+                                    line,
+                                    open_idx,
+                                    i,
+                                    &top_commas,
+                                    base_depth,
+                                ));
+                            }
+                            // Group ended without commas (e.g.
+                            // `(x + y)` grouping). Keep scanning;
+                            // there may be another group later on
+                            // the line that's still over budget.
+                        }
+                    }
+                    i += 1;
+                }
+                b',' if stack.len() == 1 && group_open.is_some() => {
+                    top_commas.push(i);
+                    i += 1;
+                }
+                _ => i += 1,
+            },
+            LineState::Str => {
+                if c == b'\\' && next.is_some() {
+                    i += 2;
+                    continue;
+                }
+                if c == b'"' {
+                    state = LineState::Code;
+                }
+                i += 1;
+            }
+            LineState::Block(d) => {
+                if c == b'/' && next == Some(b'*') {
+                    state = LineState::Block(d + 1);
+                    i += 2;
+                    continue;
+                }
+                if c == b'*' && next == Some(b'/') {
+                    state = if d == 1 {
+                        LineState::Code
+                    } else {
+                        LineState::Block(d - 1)
+                    };
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LineState {
+    Code,
+    Str,
+    Block(u32),
+}
+
+/// Build the rewrapped form: head up through `open_idx + 1`,
+/// each comma-separated element on its own line at `base_depth+1`,
+/// closing delimiter + tail on a fresh line at `base_depth`.
+fn emit_broken(
+    line: &str,
+    open_idx: usize,
+    close_idx: usize,
+    commas: &[usize],
+    base_depth: i32,
+) -> String {
+    let bytes = line.as_bytes();
+    let head = &line[..=open_idx]; // includes the `(` / `[`
+    // Element ranges between (open_idx+1) ... commas ... close_idx
+    let mut elem_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut start = open_idx + 1;
+    for &c_idx in commas {
+        elem_ranges.push((start, c_idx));
+        start = c_idx + 1;
+    }
+    elem_ranges.push((start, close_idx));
+    let close_char = bytes[close_idx] as char;
+    let tail = &line[close_idx + 1..];
+
+    let inner_indent = INDENT.repeat((base_depth + 1).max(0) as usize);
+    let close_indent = INDENT.repeat(base_depth.max(0) as usize);
+    let mut out = String::new();
+    out.push_str(head);
+    out.push('\n');
+    for (s, e) in elem_ranges {
+        let elem = line[s..e].trim();
+        if elem.is_empty() {
+            // Trailing comma / empty element — skip to keep output clean.
+            continue;
+        }
+        out.push_str(&inner_indent);
+        out.push_str(elem);
+        out.push(',');
+        out.push('\n');
+    }
+    out.push_str(&close_indent);
+    out.push(close_char);
+    out.push_str(tail);
+    out.push('\n');
+    out
+}
+
 /// Strip per-line trailing whitespace, collapse 3+ blank-line
 /// runs to one blank, and ensure exactly one trailing newline.
 fn finalize(s: &str) -> String {
@@ -634,6 +856,47 @@ mod tests {
     #[test]
     fn ignores_braces_in_block_comments() {
         let src = "/* { not\n   a } block */\nlet t = 1\n";
+        assert_eq!(format(src), None);
+    }
+
+    #[test]
+    fn long_call_breaks_args() {
+        // 100+ char single-line call should fan out one arg per line.
+        let src = "let r = something_long_named_function(\
+                   alpha_value, beta_value, gamma_value, \
+                   delta_value, epsilon_value, zeta_value)\n";
+        let out = fmt(src);
+        // Head line ends with `(`.
+        let lines: Vec<&str> = out.split('\n').collect();
+        assert!(lines[0].ends_with('('), "head: {:?}", lines[0]);
+        // Each arg on its own line with a trailing comma, indented one level.
+        assert!(lines.iter().any(|l| l == &"    alpha_value,"), "lines: {lines:#?}");
+        assert!(lines.iter().any(|l| l == &"    zeta_value,"), "lines: {lines:#?}");
+        // Closing paren back at base indent.
+        assert!(lines.iter().any(|l| l == &")"), "lines: {lines:#?}");
+    }
+
+    #[test]
+    fn short_call_stays_inline() {
+        let src = "let r = f(a, b, c)\n";
+        assert_eq!(format(src), None);
+    }
+
+    #[test]
+    fn long_array_literal_breaks() {
+        let src = "let xs: i64[] = [\
+                   100000, 200000, 300000, 400000, 500000, 600000, \
+                   700000, 800000, 900000, 1000000, 1100000]\n";
+        let out = fmt(src);
+        assert!(out.contains("[\n"), "expected break after `[`:\n{out}");
+        assert!(out.contains("\n]"), "expected close on own line:\n{out}");
+    }
+
+    #[test]
+    fn broken_call_stays_idempotent() {
+        // Pre-broken multi-line — second pass shouldn't merge.
+        let src = "let r = foo(\n    a,\n    b,\n    c,\n)\n";
+        // Already canonical (4-space inner indent, `)` at column 0).
         assert_eq!(format(src), None);
     }
 

@@ -1,11 +1,14 @@
-// Tiny LCG (linear congruential generator). Single shared state at
-// the module level so any caller — main, particle spawners, the
-// background star field — pulls from the same deterministic stream.
+// Tiny xorshift64 PRNG. Single shared state at the module level so
+// any caller — main, particle spawners, the background star field —
+// pulls from the same deterministic stream. We use xorshift instead
+// of an LCG so the arithmetic stays inside i64 without overflow.
 
 let state: i64 = 0x5fe7c1a3
 
 fn randNext(): i64 {
-    state = state * 6364136223846793005 + 1442695040888963407
+    state = state ^ (state << 13)
+    state = state ^ (state >> 7)
+    state = state ^ (state << 17)
     state
 }
 
