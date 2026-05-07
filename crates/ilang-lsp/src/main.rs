@@ -1296,7 +1296,8 @@ fn walk_module(
                     .as_ref()
                     .map(|t| format!(": {t}"))
                     .unwrap_or_default();
-                out.insert(AstSymbol::intern(&key), format!("enum {key}{repr}"));
+                let flags_prefix = if e.flags { "@flags\n" } else { "" };
+                out.insert(AstSymbol::intern(&key), format!("{flags_prefix}enum {key}{repr}"));
                 track(&key, e.span, e.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -1478,7 +1479,8 @@ fn walk_module_aliased(
                     .as_ref()
                     .map(|t| format!(": {t}"))
                     .unwrap_or_default();
-                out.insert(AstSymbol::intern(&key), format!("enum {key}{repr}"));
+                let flags_prefix = if e.flags { "@flags\n" } else { "" };
+                out.insert(AstSymbol::intern(&key), format!("{flags_prefix}enum {key}{repr}"));
                 put(&key, e.span, e.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -1825,9 +1827,10 @@ fn collect_external_signatures(
                     .as_ref()
                     .map(|t| format!(": {t}"))
                     .unwrap_or_default();
+                let flags_prefix = if e.flags { "@flags\n" } else { "" };
                 put_dotted(
                     e.name.as_str(),
-                    format!("enum {}{}", e.name, repr),
+                    format!("{}enum {}{}", flags_prefix, e.name, repr),
                     &mut out,
                 );
                 if e.name.as_str().contains('.') {
@@ -2140,7 +2143,11 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                     .as_ref()
                     .map(|t| format!(": {t}"))
                     .unwrap_or_default();
-                let signature = format!("enum {}{} {{ {} }}", e.name, repr, variants);
+                let flags_prefix = if e.flags { "@flags\n" } else { "" };
+                let signature = format!(
+                    "{}enum {}{} {{ {} }}",
+                    flags_prefix, e.name, repr, variants
+                );
                 out.insert(
                     e.name.into(),
                     Symbol {
