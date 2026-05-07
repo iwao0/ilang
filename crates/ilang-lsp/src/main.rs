@@ -1103,11 +1103,19 @@ fn harvest_from_program(
     }
 }
 
-/// Walk `module`'s source (and any `@export use` chains) looking for
-/// each `name` in `names`. Each hit is registered under the BARE name
-/// (no `module.` prefix) in `out`/`sources`/`docs`, so a buffer-local
-/// `Var("X")` reference gets the same hover / F12 treatment as a
-/// dotted `Var("module.X")` would.
+/// Resolve each `name` in `names` against `module` (which may be an
+/// umbrella that re-exports its members via `@export use`) and
+/// register a bare-keyed entry under `name` in `out` / `sources` /
+/// `docs`. This lets the buffer-side walker treat a bare `Var("X")`
+/// from `use M { X }` exactly like a dotted `Var("M.X")`.
+///
+/// Lookups consult the outer maps first — by the time this is called
+/// from `harvest_from_program`, the merged-program scan and any
+/// preceding whole-module `walk_module` runs have already populated
+/// the prefixed entries we need. The local `walk_module` pass then
+/// fills in `module.X` keys that the merged-program scan misses
+/// (`Item::Const` is inlined out of the merged program; umbrella
+/// `walk_module_aliased` only registers consts in `out`).
 fn harvest_selective_names(
     module: &str,
     names: &[AstSymbol],
@@ -1117,31 +1125,18 @@ fn harvest_selective_names(
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
 ) {
-    // Build a per-module temp index keyed by `module.X`, then re-key
-    // the requested names down to bare form.
-    let mut tmp_out: HashMap<AstSymbol, String> = HashMap::new();
-    let mut tmp_sources: ExternalSources = HashMap::new();
-    let mut tmp_docs: HashMap<AstSymbol, String> = HashMap::new();
     let mut visited: HashSet<PathBuf> = HashSet::new();
-    walk_module(
-        module,
-        entry_dir,
-        extra,
-        &mut visited,
-        &mut tmp_out,
-        &mut tmp_sources,
-        &mut tmp_docs,
-    );
+    walk_module(module, entry_dir, extra, &mut visited, out, sources, docs);
     for name in names {
         let prefixed = AstSymbol::intern(&format!("{module}.{name}"));
-        if let Some(sig) = tmp_out.get(&prefixed) {
-            out.insert(name.clone(), sig.clone());
+        if let Some(sig) = out.get(&prefixed).cloned() {
+            out.insert(name.clone(), sig);
         }
-        if let Some(loc) = tmp_sources.get(&prefixed) {
-            sources.insert(name.clone(), loc.clone());
+        if let Some(loc) = sources.get(&prefixed).cloned() {
+            sources.insert(name.clone(), loc);
         }
-        if let Some(d) = tmp_docs.get(&prefixed) {
-            docs.insert(name.clone(), d.clone());
+        if let Some(d) = docs.get(&prefixed).cloned() {
+            docs.insert(name.clone(), d);
         }
     }
 }
