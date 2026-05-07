@@ -49,7 +49,7 @@ enum Scancode: i32 {
     digit8                      = 37
     digit9                      = 38
     digit0                      = 39
-    return                      =40
+    return                      = 40
     escape                      = 41
     backspace                   = 42
     tab                         = 43
@@ -172,7 +172,7 @@ enum Scancode: i32 {
 enum Keycode: i32 {
     scancodeMask                = 0x40000000
     unknown                     = 0
-    return                      =13  // '\r'
+    return                      = 13  // '\r'
     escape                      = 27  // '\033'
     backspace                   = 8  // '\b'
     tab                         = 9  // '\t'

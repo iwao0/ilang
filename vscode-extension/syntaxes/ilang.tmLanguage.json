@@ -53,9 +53,8 @@
       }
     },
     "enum-variant-keyword": {
-      "comment": "Reserved words used as enum variant names (`return = 40`, `none = 0`, …). Match before #keywords so the keyword scope doesn't fire.",
-      "match": "\\b(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)(?=\\s*=)",
-      "name": "variable.other.enummember.ilang"
+      "comment": "Reserved words used as enum variant names (`return = 40`, `none = 0`, …). Match before #keywords so the keyword scope doesn't fire — no `name` is assigned so the token renders with the editor's default identifier colour.",
+      "match": "\\b(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)(?=\\s*=)"
     },
     "keywords": {
       "patterns": [
