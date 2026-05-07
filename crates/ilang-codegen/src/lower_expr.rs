@@ -985,6 +985,16 @@ pub(crate) fn lower_expr(
                     span: e.span,
                 });
             }
+            // Built-in `Type` introspection methods (RTTI lookup).
+            if obj_t == JitTy::TypeRef
+                && (method.as_str() == "fieldType"
+                    || method.as_str() == "methodReturn"
+                    || method.as_str() == "methodParams")
+            {
+                return Ok(Some(lower_type_member_lookup(
+                    b, lc, obj_v, method.as_str(), &args[0], e.span,
+                )?));
+            }
             // Built-in Optional methods: `unwrap`. (`isSome` / `isNone`
             // are properties — see ExprKind::Field above.)
             if let JitTy::Optional(id) = obj_t {
@@ -5191,6 +5201,68 @@ fn lower_type_test_or_downcast(
         // matched_i8 is i8 (0 or 1); JitTy::Bool is also i8 in cl.
         Ok((matched_i8, JitTy::Bool))
     }
+}
+
+/// Lower `Type.fieldType(name)` / `methodReturn(name)` /
+/// `methodParams(name)`. The receiver TypeMeta carries parallel
+/// `(names, values)` saturated arrays per kind; the runtime
+/// helper does a linear-scan lookup and returns 0 (none) on miss.
+fn lower_type_member_lookup(
+    b: &mut FunctionBuilder<'_>,
+    lc: &mut LowerCtx,
+    obj_v: cranelift::prelude::Value,
+    method: &str,
+    arg_expr: &Expr,
+    span: ilang_ast::Span,
+) -> Result<TV, CodegenError> {
+    let (names_off, values_off, ret_inner) = match method {
+        "fieldType" => (
+            crate::runtime::TYPE_META_FIELDS_OFFSET,
+            crate::runtime::TYPE_META_FIELD_TYPES_OFFSET,
+            JitTy::TypeRef,
+        ),
+        "methodReturn" => (
+            crate::runtime::TYPE_META_METHODS_OFFSET,
+            crate::runtime::TYPE_META_METHOD_RETURNS_OFFSET,
+            JitTy::TypeRef,
+        ),
+        "methodParams" => {
+            // Inner element type is `Type[]` itself; the Optional
+            // wraps the outer array kind.
+            let inner_array_id = crate::ty::intern_array_kind(
+                lc.array_kinds,
+                crate::ty::ArrayKind { elem: JitTy::TypeRef, fixed: None },
+            );
+            (
+                crate::runtime::TYPE_META_METHODS_OFFSET,
+                crate::runtime::TYPE_META_METHOD_PARAMS_OFFSET,
+                JitTy::Array(inner_array_id),
+            )
+        }
+        _ => unreachable!("caller filtered"),
+    };
+    // Lower the (string) argument and feed it to the lookup helper.
+    let (arg_v, arg_t) =
+        lower_expr(b, lc, arg_expr)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "Type lookup arg is unit".into(),
+            span,
+        })?;
+    if arg_t != JitTy::Str {
+        return Err(CodegenError::Unsupported {
+            what: format!("Type.{method} expects a string arg"),
+            span,
+        });
+    }
+    let names = b.ins().load(I64, MemFlags::trusted(), obj_v, names_off);
+    let values = b.ins().load(I64, MemFlags::trusted(), obj_v, values_off);
+    let r = lc.module.declare_func_in_func(lc.type_lookup, b.func);
+    let call = b.ins().call(r, &[names, values, arg_v]);
+    let result_ptr = b.inst_results(call)[0];
+    if !is_aliased_heap_source(&arg_expr.kind) {
+        emit_release_string(b, lc, arg_v);
+    }
+    let opt_id = crate::ty::intern_optional_inner(lc.optional_inners, ret_inner);
+    Ok((result_ptr, JitTy::Optional(opt_id)))
 }
 
 /// Lower `typeof(arg)`: evaluate `arg` (so heap retains/releases

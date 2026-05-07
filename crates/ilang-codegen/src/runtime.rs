@@ -315,6 +315,17 @@ pub(crate) struct TypeMeta {
     /// generic enum / class instances (e.g. `Box<i64>`,
     /// `Result<i64, string>`); empty for non-generic types.
     pub type_args: i64,
+    /// Saturated `Type[]` parallel to `fields` — the i-th entry is
+    /// the field's declared type. Used by `fieldType(name)`.
+    pub field_types: i64,
+    /// Saturated `Type[]` parallel to `methods` — the i-th entry
+    /// is the method's return type. Used by `methodReturn(name)`.
+    pub method_returns: i64,
+    /// Saturated outer ArrayHeader holding one inner saturated
+    /// `Type[]` per method (parallel to `methods`). Each inner
+    /// array lists that method's parameter types in order. Used by
+    /// `methodParams(name)`.
+    pub method_params: i64,
 }
 
 pub(crate) const TYPE_META_NAME_OFFSET: i32 = 0;
@@ -323,6 +334,9 @@ pub(crate) const TYPE_META_PARENT_OFFSET: i32 = 16;
 pub(crate) const TYPE_META_FIELDS_OFFSET: i32 = 24;
 pub(crate) const TYPE_META_METHODS_OFFSET: i32 = 32;
 pub(crate) const TYPE_META_TYPE_ARGS_OFFSET: i32 = 40;
+pub(crate) const TYPE_META_FIELD_TYPES_OFFSET: i32 = 48;
+pub(crate) const TYPE_META_METHOD_RETURNS_OFFSET: i32 = 56;
+pub(crate) const TYPE_META_METHOD_PARAMS_OFFSET: i32 = 64;
 
 /// Build a saturated-rc `string[]` (ArrayHeader of `*const StringRc`)
 /// from a list of names, suitable for `TypeMeta::fields` /
@@ -364,6 +378,41 @@ pub(crate) fn alloc_typeref_array_saturated(metas: &[i64]) -> i64 {
         (*header).rc = ARRAY_RC_SATURATED;
     }
     arr
+}
+
+/// Linear scan helper for RTTI lookup methods. `names_arr` and
+/// `values_arr` are parallel saturated arrays (same length); the
+/// returned i64 is `values_arr[i]` for the first `i` where the
+/// `names_arr[i]` string matches `query`, or 0 if no match.
+/// Used by `Type.fieldType(name)`, `Type.methodReturn(name)`, and
+/// `Type.methodParams(name)`.
+pub(crate) extern "C" fn ilang_jit_type_lookup(
+    names_arr: i64,
+    values_arr: i64,
+    query: i64,
+) -> i64 {
+    if names_arr == 0 || values_arr == 0 || query == 0 {
+        return 0;
+    }
+    unsafe {
+        let names_h = names_arr as *const ArrayHeader;
+        let values_h = values_arr as *const ArrayHeader;
+        let len = (*names_h).len as usize;
+        let names_data = (*names_h).data_ptr as *const i64;
+        let values_data = (*values_h).data_ptr as *const i64;
+        let q = &*(query as *const StringRc);
+        for i in 0..len {
+            let n_ptr = *names_data.add(i);
+            if n_ptr == 0 {
+                continue;
+            }
+            let n = &*(n_ptr as *const StringRc);
+            if n.s == q.s {
+                return *values_data.add(i);
+            }
+        }
+        0
+    }
 }
 
 /// Returns 1 iff `meta` is `target` or any of its transitive

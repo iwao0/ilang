@@ -2280,6 +2280,38 @@ impl TypeChecker {
                     }
                 }
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+                // Built-in `Type` introspection methods.
+                if matches!(&ot, Type::Object(n) if n.as_str() == "Type") {
+                    let target = match method.as_str() {
+                        "fieldType" | "methodReturn" => Some((1, Type::Optional(Box::new(
+                            Type::Object("Type".into()),
+                        )))),
+                        "methodParams" => Some((1, Type::Optional(Box::new(Type::Array {
+                            elem: Box::new(Type::Object("Type".into())),
+                            fixed: None,
+                        })))),
+                        _ => None,
+                    };
+                    if let Some((arity, ret)) = target {
+                        if args.len() != arity {
+                            return Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected: arity,
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                        if at != Type::Str {
+                            return Err(TypeError::Mismatch {
+                                expected: Type::Str,
+                                got: at,
+                                span: args[0].span,
+                            });
+                        }
+                        return Ok(ret);
+                    }
+                }
                 // Built-in Weak method: get(): T?.
                 if let Type::Weak(inner) = &ot {
                     if method == "get" {

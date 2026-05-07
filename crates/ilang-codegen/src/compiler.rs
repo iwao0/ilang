@@ -391,6 +391,7 @@ pub(crate) struct JitCompiler {
     pub(crate) print_str: FuncId,
     pub(crate) print_type_ref: FuncId,
     pub(crate) type_is_subtype: FuncId,
+    pub(crate) type_lookup: FuncId,
     pub(crate) str_concat: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) retain_string_id: FuncId,
@@ -925,6 +926,10 @@ impl JitCompiler {
             "ilang_jit_type_is_subtype",
             crate::runtime::ilang_jit_type_is_subtype as *const u8,
         );
+        builder.symbol(
+            "ilang_jit_type_lookup",
+            crate::runtime::ilang_jit_type_lookup as *const u8,
+        );
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
         builder.symbol(
@@ -1066,6 +1071,8 @@ impl JitCompiler {
         let print_type_ref = declare_import(&mut module, "ilang_jit_print_type_ref", &[I64], None)?;
         let type_is_subtype =
             declare_import(&mut module, "ilang_jit_type_is_subtype", &[I64, I64], Some(I8))?;
+        let type_lookup =
+            declare_import(&mut module, "ilang_jit_type_lookup", &[I64, I64, I64], Some(I64))?;
         let str_concat = declare_import(
             &mut module,
             "ilang_jit_str_concat",
@@ -1231,6 +1238,7 @@ impl JitCompiler {
             print_str,
             print_type_ref,
             type_is_subtype,
+            type_lookup,
             str_concat,
             str_eq,
             retain_string_id,
@@ -2099,6 +2107,7 @@ impl JitCompiler {
             prim_type_meta_addrs: &self.prim_type_meta_addrs,
             typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             type_is_subtype: self.type_is_subtype,
+            type_lookup: self.type_lookup,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2309,6 +2318,7 @@ impl JitCompiler {
             prim_type_meta_addrs: &self.prim_type_meta_addrs,
             typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             type_is_subtype: self.type_is_subtype,
+            type_lookup: self.type_lookup,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2511,20 +2521,45 @@ impl JitCompiler {
         // stable, predictable listing. Inherited members are NOT
         // included — users can chase the parent chain via
         // `Type.parent`.
+        // The "_types" maps stay in lockstep with the name lists.
+        // `method_param_types` is `Vec<Vec<&Type>>` — one inner
+        // vec per declared method.
         let mut class_field_names: HashMap<Symbol, Vec<&'static str>> = HashMap::new();
         let mut class_method_names: HashMap<Symbol, Vec<&'static str>> = HashMap::new();
+        let mut class_field_types: HashMap<Symbol, Vec<ilang_ast::Type>> = HashMap::new();
+        let mut class_method_returns: HashMap<Symbol, Vec<ilang_ast::Type>> = HashMap::new();
+        let mut class_method_params: HashMap<Symbol, Vec<Vec<ilang_ast::Type>>> = HashMap::new();
         for item in &prog.items {
             if let Item::Class(c) = item {
                 let fnames: Vec<&'static str> =
                     c.fields.iter().map(|f| f.name.as_str()).collect();
                 class_field_names.insert(c.name, fnames);
-                let mnames: Vec<&'static str> = c
+                class_field_types.insert(
+                    c.name,
+                    c.fields.iter().map(|f| f.ty.clone()).collect(),
+                );
+                let visible_methods: Vec<&ilang_ast::FnDecl> = c
                     .methods
                     .iter()
-                    .map(|m| m.name.as_str())
-                    .filter(|n| !n.starts_with("__"))
+                    .filter(|m| !m.name.as_str().starts_with("__"))
                     .collect();
+                let mnames: Vec<&'static str> =
+                    visible_methods.iter().map(|m| m.name.as_str()).collect();
                 class_method_names.insert(c.name, mnames);
+                class_method_returns.insert(
+                    c.name,
+                    visible_methods
+                        .iter()
+                        .map(|m| m.ret.clone().unwrap_or(ilang_ast::Type::Unit))
+                        .collect(),
+                );
+                class_method_params.insert(
+                    c.name,
+                    visible_methods
+                        .iter()
+                        .map(|m| m.params.iter().map(|p| p.ty.clone()).collect())
+                        .collect(),
+                );
             }
         }
         // TypeKind variant ordinals (declaration order in checker.rs):
@@ -2598,6 +2633,9 @@ impl JitCompiler {
                 // class instantiations like `Box<i64>` parse their
                 // type args from the mangled class name.
                 type_args: empty_typerefs,
+                field_types: empty_typerefs,
+                method_returns: empty_typerefs,
+                method_params: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             self.class_type_meta_addrs
@@ -2633,6 +2671,9 @@ impl JitCompiler {
                 // Filled in below — generic enum instances need
                 // every TypeMeta address resolved first.
                 type_args: empty_typerefs,
+                field_types: empty_typerefs,
+                method_returns: empty_typerefs,
+                method_params: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             self.enum_type_meta_addrs
@@ -2649,6 +2690,9 @@ impl JitCompiler {
                 fields: empty_strings,
                 methods: empty_strings,
                 type_args: empty_typerefs,
+                field_types: empty_typerefs,
+                method_returns: empty_typerefs,
+                method_params: empty_typerefs,
             });
             let idx = self.type_metas.len() - 1;
             let addr = &self.type_metas[idx] as *const TypeMeta as i64;
@@ -2685,6 +2729,79 @@ impl JitCompiler {
                 .map(|a| self.lookup_type_meta_addr(a))
                 .collect();
             self.type_metas[idx].type_args = alloc_typeref_array_saturated(&metas);
+        }
+
+        // Per-class field / method type tables. Populates
+        // `Type.fieldType(name)` / `methodReturn(name)` /
+        // `methodParams(name)` lookup data. Done last so every
+        // referenced AST type can resolve its TypeMeta.
+        for i in 0..n_class {
+            let class_name = self.class_layouts[i].name;
+            if let Some(types) = class_field_types.get(&class_name) {
+                let metas: Vec<i64> = types
+                    .iter()
+                    .map(|t| self.lookup_ast_type_meta(t))
+                    .collect();
+                self.type_metas[i].field_types = alloc_typeref_array_saturated(&metas);
+            }
+            if let Some(rets) = class_method_returns.get(&class_name) {
+                let metas: Vec<i64> = rets
+                    .iter()
+                    .map(|t| self.lookup_ast_type_meta(t))
+                    .collect();
+                self.type_metas[i].method_returns = alloc_typeref_array_saturated(&metas);
+            }
+            if let Some(params_per_method) = class_method_params.get(&class_name) {
+                let inner_arrs: Vec<i64> = params_per_method
+                    .iter()
+                    .map(|ps| {
+                        let metas: Vec<i64> =
+                            ps.iter().map(|t| self.lookup_ast_type_meta(t)).collect();
+                        alloc_typeref_array_saturated(&metas)
+                    })
+                    .collect();
+                self.type_metas[i].method_params = alloc_typeref_array_saturated(&inner_arrs);
+            }
+        }
+    }
+
+    /// Resolve an `ilang_ast::Type` to its `TypeMeta*` (or 0 if
+    /// nothing matches). Mirrors `JitTy::from_ast`'s rough mapping
+    /// but only returns a metadata pointer.
+    fn lookup_ast_type_meta(&self, t: &ilang_ast::Type) -> i64 {
+        use ilang_ast::Type as T;
+        let pick = |name: &'static str| -> i64 {
+            self.prim_type_meta_addrs.get(name).copied().unwrap_or(0)
+        };
+        match t {
+            T::I8 => pick("i8"),
+            T::I16 => pick("i16"),
+            T::I32 => pick("i32"),
+            T::I64 => pick("i64"),
+            T::U8 => pick("u8"),
+            T::U16 => pick("u16"),
+            T::U32 => pick("u32"),
+            T::U64 => pick("u64"),
+            T::F32 => pick("f32"),
+            T::F64 => pick("f64"),
+            T::Bool => pick("bool"),
+            T::Str => pick("string"),
+            T::Unit => pick("()"),
+            T::Optional(_) => pick("optional"),
+            T::Array { .. } => pick("array"),
+            T::Weak(_) => pick("weak"),
+            T::Fn(_) => pick("fn"),
+            T::Tuple(_) => pick("tuple"),
+            T::Size => pick("u64"),
+            T::SSize => pick("i64"),
+            T::CChar => pick("i8"),
+            T::CVoid => pick("()"),
+            T::RawPtr { .. } => pick("i64"),
+            T::Any => pick("()"),
+            T::Object(name) | T::Enum(name) | T::TypeVar(name) => {
+                self.lookup_type_meta_addr(name.as_str())
+            }
+            T::Generic(g) => self.lookup_type_meta_addr(g.base.as_str()),
         }
     }
 

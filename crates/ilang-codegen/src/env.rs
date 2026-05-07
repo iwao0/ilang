@@ -267,6 +267,10 @@ pub(crate) struct LowerCtx<'a> {
     /// FFI helper for `x is T` / `x as? T` class subtyping. Walks
     /// the dynamic-type's TypeMeta parent chain at runtime.
     pub type_is_subtype: FuncId,
+    /// FFI helper for `Type.fieldType(name)` / `methodReturn(name)`
+    /// / `methodParams(name)`. Linear scan over a parallel
+    /// names/values pair, returns the matching value or 0.
+    pub type_lookup: FuncId,
     /// Per-tuple-kind drop wrapper, lazily declared during lowering.
     /// `None` means no element is heap so no drop is needed.
     pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,

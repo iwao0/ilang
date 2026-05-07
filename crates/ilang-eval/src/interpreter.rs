@@ -543,6 +543,36 @@ impl Interpreter {
                     }
                 }
                 let v = self.eval_expr(obj)?;
+                // Built-in `Type` introspection methods.
+                if let Value::TypeVal { name: tname, kind, .. } = &v {
+                    if kind.as_str() == "class"
+                        && (method.as_str() == "fieldType"
+                            || method.as_str() == "methodReturn"
+                            || method.as_str() == "methodParams")
+                    {
+                        let arg_v = self.eval_expr(&args[0])?;
+                        let query = match arg_v {
+                            Value::Str(s) => s,
+                            _ => unreachable!("type checker enforces string arg"),
+                        };
+                        let decl = self.classes.get(tname).cloned();
+                        let result = self.lookup_class_member_type(
+                            decl.as_ref(),
+                            method.as_str(),
+                            query.as_str(),
+                        );
+                        return Ok(result);
+                    }
+                    // Non-class targets always return `none` for
+                    // these lookups.
+                    if method.as_str() == "fieldType" || method.as_str() == "methodReturn"
+                        || method.as_str() == "methodParams"
+                    {
+                        // Still evaluate the arg for side-effect parity.
+                        let _ = self.eval_expr(&args[0])?;
+                        return Ok(Value::None);
+                    }
+                }
                 // `@flags` enum: `f.has(other)` lowers to `(f & other) == other`.
                 // The type checker only allows this when both sides are
                 // the same flags enum, which produces matching integer
@@ -2011,6 +2041,60 @@ impl Interpreter {
 
     fn eval_args(&mut self, args: &[Expr]) -> Result<Vec<Value>, RuntimeError> {
         args.iter().map(|a| self.eval_expr(a)).collect()
+    }
+
+    /// Implementation of `Type.fieldType` / `Type.methodReturn` /
+    /// `Type.methodParams` for the interpreter. Returns `Value::None`
+    /// when the class is unknown or the name doesn't match. Skips
+    /// `__`-prefixed methods to mirror the JIT-side filter.
+    fn lookup_class_member_type(
+        &self,
+        decl: Option<&ClassDecl>,
+        method: &str,
+        query: &str,
+    ) -> Value {
+        let Some(decl) = decl else { return Value::None };
+        match method {
+            "fieldType" => {
+                for f in decl.fields.iter() {
+                    if f.name.as_str() == query {
+                        return Value::Some(Box::new(self.ast_type_to_type_val(&f.ty)));
+                    }
+                }
+                Value::None
+            }
+            "methodReturn" => {
+                for m in decl.methods.iter() {
+                    if m.name.as_str().starts_with("__") {
+                        continue;
+                    }
+                    if m.name.as_str() == query {
+                        let ret = m.ret.clone().unwrap_or(ilang_ast::Type::Unit);
+                        return Value::Some(Box::new(self.ast_type_to_type_val(&ret)));
+                    }
+                }
+                Value::None
+            }
+            "methodParams" => {
+                for m in decl.methods.iter() {
+                    if m.name.as_str().starts_with("__") {
+                        continue;
+                    }
+                    if m.name.as_str() == query {
+                        let ps: Vec<Value> = m
+                            .params
+                            .iter()
+                            .map(|p| self.ast_type_to_type_val(&p.ty))
+                            .collect();
+                        return Value::Some(Box::new(Value::Array(Rc::new(
+                            RefCell::new(ps),
+                        ))));
+                    }
+                }
+                Value::None
+            }
+            _ => Value::None,
+        }
     }
 
     /// Build a fully-populated `Value::TypeVal` for `v` — same

@@ -1119,6 +1119,30 @@ typeof(r).name         // "Result"  (type args surfaced separately
 | `.methods` | `string[]` | Names of declared methods (classes only; empty for other kinds). `init` is included |
 | `.typeArgs` | `Type[]` | Generic-instance arguments (e.g. `[Type("i64"), Type("string")]` for `Result<i64, string>`). Empty for non-generic types. Interpreter and JIT both report the inferred args |
 
+`Type` also exposes per-member type lookups (methods, not getters):
+
+```rust
+class Foo {
+    name: string
+    init(n: string) { this.name = n }
+    greet(): string { "hi " + this.name }
+}
+
+let t = typeof(new Foo("x"))
+t.fieldType("name")            // some(Type("string"))
+t.fieldType("nope")             // none
+t.methodReturn("greet")         // some(Type("string"))
+t.methodParams("greet")         // some([])  — zero-arg method
+t.methodParams("init")          // some([Type("string")])
+t.methodReturn("nope")          // none
+```
+
+| Method | Return | Description |
+| --- | --- | --- |
+| `.fieldType(name: string)` | `Type?` | Declared type of the named field, or `none` if not a class / not declared |
+| `.methodReturn(name: string)` | `Type?` | Declared return type of the named method, or `none` |
+| `.methodParams(name: string)` | `Type[]?` | Parameter types of the named method (in order), or `none` |
+
 ### Type tests and downcasts
 
 ```rust
@@ -1153,8 +1177,8 @@ let label = match typeof(x).kind {
 - Dynamic class dispatch goes through the vtable header, so RTTI
   works under inheritance for both interpreter and JIT.
 - `.fields` / `.methods` currently expose only **declared**
-  members (no inherited names) and only their names — the field
-  type / method signature is not surfaced yet.
+  members (no inherited names). For per-member type info use
+  `fieldType(name)` / `methodReturn(name)` / `methodParams(name)`.
 
 ---
 
