@@ -2329,6 +2329,14 @@ impl JitCompiler {
                             env_ptr,
                             off as i32,
                         );
+                        // Retain the captured pointer so the wrapper
+                        // has its own +1, balanced by the function-
+                        // exit release path (an explicit `return` or
+                        // the trailing param_releases block both lean
+                        // on `lc.this`). The env keeps its own +1 via
+                        // the closure-drop fn, so this doesn't affect
+                        // the env's lifetime.
+                        crate::arc::emit_retain_object(&mut builder, &mut lc, raw);
                         let this_var = builder.declare_var(I64);
                         builder.def_var(this_var, raw);
                         lc.this = Some((this_var, class_id));
@@ -2354,8 +2362,11 @@ impl JitCompiler {
             .collect();
         // Skip releasing `this` inside `deinit` — release_object already
         // owns the lifecycle here. Releasing again would re-enter
-        // release_object on rc=0 and infinite-loop.
-        if let Some((this_var, class_id)) = this {
+        // release_object on rc=0 and infinite-loop. Read `lc.this`
+        // (not the original `this` capture above) so closure wrappers,
+        // which install their `this` from a captured env slot after
+        // `LowerCtx` is built, also see their +1 released here.
+        if let Some((this_var, class_id)) = lc.this {
             if f.name != "deinit" {
                 param_releases.push((this_var, JitTy::Object(class_id)));
             }
