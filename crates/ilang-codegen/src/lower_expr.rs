@@ -748,6 +748,13 @@ pub(crate) fn lower_expr(
             if let Some(old) = old_val {
                 emit_release_heap(b, lc, old, fty);
             }
+            // Fresh receiver (`make_obj().field = v`): nothing else
+            // owns the object after we've written its slot, so drop
+            // its rc=1 here. Aliased receivers leave their +1 with
+            // the source binding.
+            if !is_aliased_heap_source(&obj.kind) {
+                emit_release_heap(b, lc, obj_v, obj_t);
+            }
             Ok(None)
         }
         ExprKind::Field { obj, name } => {
@@ -2279,7 +2286,13 @@ pub(crate) fn lower_expr(
             })?;
             // Map[k] = v: dispatch to ilang_jit_map_set; returns Unit.
             if let JitTy::Map(map_id) = obj_t {
-                return lower_map_index_set(b, lc, map_id, obj_v, index, value, &value.kind);
+                let release_obj = !is_aliased_heap_source(&obj.kind);
+                let result =
+                    lower_map_index_set(b, lc, map_id, obj_v, index, value, &value.kind)?;
+                if release_obj {
+                    emit_release_heap(b, lc, obj_v, JitTy::Map(map_id));
+                }
+                return Ok(result);
             }
             // Embedded array element write — `obj_v` is the base
             // address of the inline bytes; compute element addr and
@@ -2388,6 +2401,12 @@ pub(crate) fn lower_expr(
             b.ins().store(MemFlags::trusted(), coerced, addr, 0);
             if let Some(old) = old_val {
                 emit_release_heap(b, lc, old, elem_jty);
+            }
+            // Fresh receiver (`make_arr()[i] = v`): no enclosing
+            // binding owns it — drop its rc=1 here. Aliased
+            // receivers leave their +1 with the source binding.
+            if !is_aliased_heap_source(&obj.kind) {
+                emit_release_heap(b, lc, obj_v, obj_t);
             }
             Ok(None)
         }
