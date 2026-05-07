@@ -133,6 +133,54 @@ pub(crate) fn locate_dot_name(text: &str, obj_span: Span, name: &str) -> Option<
     None
 }
 
+/// Find the bare identifier `name` inside a `use M { ... }` selective
+/// import, starting at the `use` keyword's span. Returns the
+/// (line, col) of the matching identifier, skipping content between
+/// `use M` and the opening `{`. Stops at the closing `}`.
+pub(crate) fn locate_selective_name(
+    text: &str,
+    use_span: Span,
+    name: &str,
+) -> Option<(u32, u32)> {
+    let off = line_col_to_offset(text, use_span.line, use_span.col)?;
+    let bytes = text.as_bytes();
+    // Walk forward to the opening `{`.
+    let mut i = off;
+    while i < bytes.len() && bytes[i] != b'{' {
+        if bytes[i] == b'\n' {
+            // Selective-import braces are required on the same logical
+            // line as the `use M` form; abandon if we hit EOL first.
+            return None;
+        }
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    i += 1; // step past `{`
+    let nb = name.as_bytes();
+    while i < bytes.len() && bytes[i] != b'}' {
+        let b = bytes[i];
+        // Identifier start: ASCII letter or `_`.
+        if b.is_ascii_alphabetic() || b == b'_' {
+            let start = i;
+            let mut j = i;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+            {
+                j += 1;
+            }
+            if &bytes[start..j] == nb {
+                return offset_to_line_col(text, start);
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Extract a Rust-style doc comment block (`/// line` form) immediately
 /// above the line containing `decl_line` (1-based). Returns the joined
 /// body lines (without the leading `///` or single space) or `None`

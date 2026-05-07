@@ -26,8 +26,8 @@ use builtins::{
 use project::{collect_dep_paths, find_umbrella};
 use text::{
     call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
-    locate_property_name, parameter_offsets, receiver_before_dot, span_full_to_range,
-    span_to_range, word_at,
+    locate_property_name, locate_selective_name, parameter_offsets, receiver_before_dot,
+    span_full_to_range, span_to_range, word_at,
 };
 
 #[derive(Clone, Debug)]
@@ -1835,6 +1835,47 @@ fn build_doc(
                             target_uri,
                             doc: None,
                         });
+                    }
+                    // `use module { name1, name2 }` — push a hover /
+                    // F12 entry on each selectively-imported name so
+                    // hovering or jumping from the import line itself
+                    // works the same as from a use site.
+                    if let Some(names) = &u.selective {
+                        for name in names.iter() {
+                            let Some((line, col)) =
+                                locate_selective_name(&text, u.span, name.as_str())
+                            else {
+                                continue;
+                            };
+                            let key = AstSymbol::intern(name.as_str());
+                            let sig = walker
+                                .external_signatures
+                                .get(&key)
+                                .cloned()
+                                .unwrap_or_else(|| format!("(import) {name}"));
+                            let loc = walker.external_sources.get(&key);
+                            let target_uri = loc
+                                .and_then(|l| Url::from_file_path(&l.path).ok());
+                            let (target_span, target_name_len, no_def) = match loc {
+                                Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                                _ => (
+                                    Span::new(line, col),
+                                    name.as_str().len() as u32,
+                                    target_uri.is_none(),
+                                ),
+                            };
+                            walker.refs.push(RefEntry {
+                                line,
+                                start_col: col,
+                                end_col: col + name.as_str().len() as u32,
+                                target_span,
+                                target_name_len,
+                                signature: sig,
+                                no_definition: no_def,
+                                target_uri,
+                                doc: walker.external_docs.get(&key).cloned(),
+                            });
+                        }
                     }
                 }
                 Item::ExternC(b) => {
