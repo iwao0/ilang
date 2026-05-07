@@ -1971,15 +1971,21 @@ pub(crate) fn lower_expr(
             })
         }
         ExprKind::Tuple(elements) => {
-            let mut vals: Vec<TV> = Vec::with_capacity(elements.len());
+            // Track whether each element is an aliased heap source
+            // (Var / Field / Index / This): the binding it borrows
+            // from still owns its +1, so the tuple slot we're about
+            // to fill needs its own retain. Fresh heap values
+            // (call result, `new`, `[..]`, "a"+"b") already arrive
+            // with rc=1.
+            let mut vals: Vec<(TV, bool)> = Vec::with_capacity(elements.len());
             for el in elements {
                 let v = lower_expr(b, lc, el)?.ok_or_else(|| CodegenError::Unsupported {
                     what: "tuple element is unit".into(),
                     span: el.span,
                 })?;
-                vals.push(v);
+                vals.push((v, is_aliased_heap_source(&el.kind)));
             }
-            let elem_jtys: Vec<JitTy> = vals.iter().map(|(_, t)| *t).collect();
+            let elem_jtys: Vec<JitTy> = vals.iter().map(|((_, t), _)| *t).collect();
             let tuple_id = crate::ty::intern_tuple_kind(lc.tuple_kinds, elem_jtys);
             let kind = lc.tuple_kinds[tuple_id as usize].clone();
             let size_v = b.ins().iconst(I64, kind.size as i64);
@@ -1988,9 +1994,12 @@ pub(crate) fn lower_expr(
             let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
             let call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, zero_vt]);
             let ptr = b.inst_results(call)[0];
-            for ((val, vt), &offset) in vals.iter().zip(kind.offsets.iter()) {
+            for (((val, vt), aliased), &offset) in vals.iter().zip(kind.offsets.iter()) {
                 let cl = vt.cl().expect("non-unit tuple element");
                 let _ = cl;
+                if vt.is_heap() && *aliased {
+                    crate::arc::emit_retain_heap(b, lc, *val, *vt);
+                }
                 b.ins().store(MemFlags::trusted(), *val, ptr, offset as i32);
             }
             Ok(Some((ptr, JitTy::Tuple(tuple_id))))
@@ -2012,7 +2021,8 @@ pub(crate) fn lower_expr(
                     span: elements[0].span,
                 }
             })?;
-            let mut tail: Vec<(Value, JitTy, ilang_ast::Span)> =
+            let first_aliased = is_aliased_heap_source(&elements[0].kind);
+            let mut tail: Vec<(Value, JitTy, ilang_ast::Span, bool)> =
                 Vec::with_capacity(elements.len() - 1);
             for el in &elements[1..] {
                 let (v, t) = lower_expr(b, lc, el)?.ok_or_else(|| {
@@ -2021,10 +2031,10 @@ pub(crate) fn lower_expr(
                         span: el.span,
                     }
                 })?;
-                tail.push((v, t, el.span));
+                tail.push((v, t, el.span, is_aliased_heap_source(&el.kind)));
             }
             let mut all = Vec::with_capacity(elements.len());
-            all.push((first_v, first_t, elements[0].span));
+            all.push((first_v, first_t, elements[0].span, first_aliased));
             all.extend(tail);
             build_array(b, lc, all, first_t)
         }
@@ -3169,14 +3179,14 @@ pub(crate) fn lower_array_literal(
     target_elem_jty: JitTy,
     span: ilang_ast::Span,
 ) -> Result<TV, CodegenError> {
-    let mut lowered: Vec<(Value, JitTy, ilang_ast::Span)> =
+    let mut lowered: Vec<(Value, JitTy, ilang_ast::Span, bool)> =
         Vec::with_capacity(elements.len());
     for el in elements {
         let (v, t) = lower_expr(b, lc, el)?.ok_or_else(|| CodegenError::Unsupported {
             what: "array element is unit".into(),
             span: el.span,
         })?;
-        lowered.push((v, t, el.span));
+        lowered.push((v, t, el.span, is_aliased_heap_source(&el.kind)));
     }
     let tv = build_array(b, lc, lowered, target_elem_jty)?;
     tv.ok_or_else(|| CodegenError::Unsupported {
@@ -3190,7 +3200,7 @@ pub(crate) fn lower_array_literal(
 fn build_array(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
-    lowered: Vec<(Value, JitTy, ilang_ast::Span)>,
+    lowered: Vec<(Value, JitTy, ilang_ast::Span, bool)>,
     elem_jty: JitTy,
 ) -> Result<Option<TV>, CodegenError> {
     let array_id = intern_array_kind(
@@ -3208,8 +3218,13 @@ fn build_array(
     let header = b.inst_results(call)[0];
     let data = b.ins().load(I64, MemFlags::trusted(), header, ARRAY_DATA_OFFSET);
     let elem_size_i32 = elem_jty.size_bytes() as i32;
-    for (i, (v, t, sp)) in lowered.into_iter().enumerate() {
+    for (i, (v, t, sp, aliased)) in lowered.into_iter().enumerate() {
         let coerced = coerce(b, (v, t), elem_jty, sp)?;
+        // Aliased heap element: borrow from the source binding's
+        // +1, take our own retain so the array slot is independent.
+        if elem_jty.is_heap() && aliased {
+            crate::arc::emit_retain_heap(b, lc, coerced, elem_jty);
+        }
         let offset = (i as i32) * elem_size_i32;
         b.ins().store(MemFlags::trusted(), coerced, data, offset);
     }
