@@ -22,8 +22,8 @@ true     use      while
 **例外**: 以下の予約語は **enum の variant 名としてのみ** 使えます (宣言、`Enum.<name>` アクセス、match の短縮形 / 修飾形パターン):
 
 ```
-as       class    extends  false    in       none     override
-return   some     super    this     true
+as       class    enum     extends  false    fn       in       none
+override return   some     super    this     true
 ```
 
 C ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`, `SDL_FALSE` / `SDL_TRUE`, `SDL_SCANCODE_RETURN` など) と衝突しないようにするための実用上の配慮です。

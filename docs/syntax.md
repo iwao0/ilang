@@ -31,8 +31,8 @@ variant names (declaration, `Enum.<name>` access, and short / qualified
 match patterns):
 
 ```
-as       class    extends  false    in       none     override
-return   some     super    this     true
+as       class    enum     extends  false    fn       in       none
+override return   some     super    this     true
 ```
 
 This is a practical concession for binding to C enums whose members
