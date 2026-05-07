@@ -1504,7 +1504,18 @@ pub(crate) fn lower_expr(
             }
             // Built-in Map methods.
             if let JitTy::Map(map_id) = obj_t {
-                return lower_map_method(b, lc, map_id, method.as_str(), obj_v, args, e.span);
+                let release_obj = !is_aliased_heap_source(&obj.kind);
+                let result =
+                    lower_map_method(b, lc, map_id, method.as_str(), obj_v, args, e.span)?;
+                // Map methods either return Unit/primitive or a
+                // freshly-allocated heap value (get's box / retained
+                // heap V, keys / values), so no extra retain is
+                // needed here — just drop the receiver if it's the
+                // map's only owner.
+                if release_obj {
+                    emit_release_heap(b, lc, obj_v, JitTy::Map(map_id));
+                }
+                return Ok(result);
             }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
