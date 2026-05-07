@@ -36,6 +36,14 @@ impl<'a> Parser<'a> {
         &self.tokens[self.pos]
     }
 
+    /// Span of the most recently consumed token. Used by callers that
+    /// want to widen a compound expression's span to where the parsing
+    /// helper finished (e.g. the `}` consumed inside `parse_block`).
+    pub(crate) fn prev_span(&self) -> ilang_ast::Span {
+        debug_assert!(self.pos > 0, "prev_span called before any token was consumed");
+        self.tokens[self.pos - 1].span
+    }
+
     /// Lookahead to the n-th token from the current position. Returns
     /// `None` if we'd run past the EOF sentinel.
     pub(crate) fn peek_n(&self, n: usize) -> Option<&'a Token> {

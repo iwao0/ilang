@@ -357,10 +357,11 @@ impl<'a> Parser<'a> {
                             });
                         }
                     }
+                    let close_span = self.peek().span;
                     self.expect(&TokenKind::RBrace, "'}'")?;
                     let class_name = flatten_var_dot_chain(&expr)
                         .expect("matched in the guard above");
-                    let span = expr.span;
+                    let span = expr.span.to(close_span);
                     expr = Expr::new(
                         ExprKind::StructLit {
                             class: class_name.into(),
@@ -767,8 +768,9 @@ impl<'a> Parser<'a> {
                         }
                         elems.push(self.parse_expr(0)?);
                     }
+                    let close_span = self.peek().span;
                     self.expect(&TokenKind::RParen, "')'")?;
-                    return Ok(Expr::new(ExprKind::Tuple(elems.into()), span));
+                    return Ok(Expr::new(ExprKind::Tuple(elems.into()), span.to(close_span)));
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
                 Ok(first)
@@ -1373,8 +1375,9 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+        let close_span = self.peek().span;
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(Expr::new(ExprKind::MapLit(entries.into()), span))
+        Ok(Expr::new(ExprKind::MapLit(entries.into()), span.to(close_span)))
     }
 
     /// Anonymous function expression: `fn(p: T, ...): R { body }`. The
@@ -1392,9 +1395,10 @@ impl<'a> Parser<'a> {
             None
         };
         let body = crate::stmt::parse_block(self)?;
+        let close_span = self.prev_span();
         Ok(Expr::new(
             ExprKind::FnExpr { params: params.into(), ret, body },
-            span,
+            span.to(close_span),
         ))
     }
 
@@ -1415,13 +1419,14 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::In, "'in'")?;
         let iter = self.parse_expr(0)?;
         let body = parse_block(self)?;
+        let close_span = self.prev_span();
         Ok(Expr::new(
             ExprKind::ForIn {
                 var: var.into(),
                 iter: Box::new(iter),
                 body,
             },
-            span,
+            span.to(close_span),
         ))
     }
 
