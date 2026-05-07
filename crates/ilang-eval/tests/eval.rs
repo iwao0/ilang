@@ -73,9 +73,11 @@ fn division_by_zero_int() {
 }
 
 #[test]
-fn overflow_detected() {
+fn overflow_wraps() {
+    // Add / Sub / Mul wrap silently — same as the JIT's plain
+    // `iadd` / `isub` / `imul`.
     let src = format!("{} + 1", i64::MAX);
-    assert!(matches!(run(&src), Err(RuntimeError::Overflow { .. })));
+    assert_eq!(run(&src).unwrap(), Value::Int(i64::MIN));
 }
 
 #[test]
@@ -632,11 +634,12 @@ fn i64_min_decimal_literal() {
         run("9223372036854775807").unwrap(),
         Value::Int(i64::MAX)
     );
-    // Negating a non-literal i64::MIN at runtime is still an overflow.
-    assert!(matches!(
-        run("let x = -9223372036854775808; -x"),
-        Err(RuntimeError::Overflow { .. })
-    ));
+    // Negating a non-literal i64::MIN at runtime wraps to itself
+    // (matches the JIT's plain `ineg`).
+    assert_eq!(
+        run("let x = -9223372036854775808; -x").unwrap(),
+        Value::Int(i64::MIN)
+    );
 }
 
 #[test]
@@ -696,12 +699,12 @@ fn small_signed_int_types() {
 }
 
 #[test]
-fn unsigned_overflow_errors() {
-    // u8: 200 + 100 = 300 > 255
-    assert!(matches!(
-        run("let a: u8 = 200; a + 100 as u8"),
-        Err(RuntimeError::Overflow { .. })
-    ));
+fn unsigned_overflow_wraps() {
+    // u8: 200 + 100 wraps mod 256 → 44.
+    assert_eq!(
+        run("let a: u8 = 200; a + 100 as u8").unwrap(),
+        Value::UInt8(44)
+    );
 }
 
 #[test]
