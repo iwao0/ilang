@@ -393,8 +393,8 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             body: hoist_in_block(body, ctx),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(hoist_in_expr(start, ctx)),
-            end: Box::new(hoist_in_expr(end, ctx)),
+            start: start.as_ref().map(|s| Box::new(hoist_in_expr(s, ctx))),
+            end: end.as_ref().map(|e| Box::new(hoist_in_expr(e, ctx))),
             inclusive: *inclusive,
         },
         ExprKind::Return(opt) => ExprKind::Return(
@@ -743,8 +743,12 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
             scan_block(body, needed, work);
         }
         ExprKind::Range { start, end, .. } => {
-            scan_expr(start, needed, work);
-            scan_expr(end, needed, work);
+            if let Some(s) = start {
+                scan_expr(s, needed, work);
+            }
+            if let Some(e) = end {
+                scan_expr(e, needed, work);
+            }
         }
         ExprKind::Return(opt) => {
             if let Some(e) = opt {
@@ -1092,8 +1096,8 @@ fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
             body: subst_block(body, params, args),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(subst_expr(start, params, args)),
-            end: Box::new(subst_expr(end, params, args)),
+            start: start.as_ref().map(|s| Box::new(subst_expr(s, params, args))),
+            end: end.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
             inclusive: *inclusive,
         },
         ExprKind::Return(opt) => ExprKind::Return(
@@ -1431,8 +1435,8 @@ fn rewrite_expr(e: &Expr) -> Expr {
             body: rewrite_block(body),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(rewrite_expr(start)),
-            end: Box::new(rewrite_expr(end)),
+            start: start.as_ref().map(|s| Box::new(rewrite_expr(s))),
+            end: end.as_ref().map(|e| Box::new(rewrite_expr(e))),
             inclusive: *inclusive,
         },
         ExprKind::Return(opt) => {
@@ -2148,8 +2152,12 @@ fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             walk_block_children(body, f);
         }
         ExprKind::Range { start, end, .. } => {
-            f(start);
-            f(end);
+            if let Some(s) = start {
+                f(s);
+            }
+            if let Some(e) = end {
+                f(e);
+            }
         }
         ExprKind::Return(opt) => {
             if let Some(e) = opt {
@@ -2324,8 +2332,8 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             body: map_block_children(body, f),
         },
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
-            start: Box::new(f(start)),
-            end: Box::new(f(end)),
+            start: start.as_ref().map(|s| Box::new(f(s))),
+            end: end.as_ref().map(|e| Box::new(f(e))),
             inclusive: *inclusive,
         },
         ExprKind::Return(opt) => ExprKind::Return(opt.as_ref().map(|e| Box::new(f(e)))),

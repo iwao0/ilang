@@ -123,7 +123,8 @@ pub(crate) fn lower_for_in(
 
     // Range iter: emit a counter loop, no array allocation needed.
     if let ilang_ast::ExprKind::Range { start, end, inclusive } = &iter.kind {
-        return lower_for_in_range(b, lc, var, start, end, *inclusive, body);
+        let start = start.as_deref().expect("for-in range needs start (checker enforced)");
+        return lower_for_in_range(b, lc, var, start, end.as_deref(), *inclusive, body);
     }
 
     let (iter_v, iter_t) = lower_expr(b, lc, iter)?.ok_or_else(|| {
@@ -236,7 +237,7 @@ fn lower_for_in_range(
     lc: &mut LowerCtx,
     var: &str,
     start: &Expr,
-    end: &Expr,
+    end: Option<&Expr>,
     inclusive: bool,
     body: &ilang_ast::Block,
 ) -> Result<(), CodegenError> {
@@ -244,22 +245,27 @@ fn lower_for_in_range(
         what: "range start is unit".into(),
         span: start.span,
     })?;
-    let (e_v, _e_t) = lower_expr(b, lc, end)?.ok_or_else(|| CodegenError::Unsupported {
-        what: "range end is unit".into(),
-        span: end.span,
-    })?;
     let cl = s_t.cl().ok_or_else(|| CodegenError::Unsupported {
         what: "range over unit type".into(),
         span: start.span,
     })?;
+    // Optional upper bound. `end = None` is `start..` (RangeFrom);
+    // the body must `break` to exit, otherwise the loop runs to
+    // integer overflow (wrapping semantics).
+    let end_var = if let Some(end) = end {
+        let (e_v, _e_t) = lower_expr(b, lc, end)?.ok_or_else(|| CodegenError::Unsupported {
+            what: "range end is unit".into(),
+            span: end.span,
+        })?;
+        let v = b.declare_var(cl);
+        b.def_var(v, e_v);
+        Some(v)
+    } else {
+        None
+    };
     // Counter (the loop variable). Bound for the body via env.
     let i_var = b.declare_var(cl);
     b.def_var(i_var, s_v);
-    // Stash the end value so each iteration reads it back from a
-    // Variable rather than depending on the original Value living
-    // through the loop.
-    let end_var = b.declare_var(cl);
-    b.def_var(end_var, e_v);
     let prev_binding = lc.env.bindings.insert(Symbol::intern(var), (i_var, s_t));
 
     let header = b.create_block();
@@ -269,19 +275,20 @@ fn lower_for_in_range(
 
     b.ins().jump(header, &[]);
     b.switch_to_block(header);
-    let i = b.use_var(i_var);
-    let e = b.use_var(end_var);
-    // Use signed comparison; ilang's int types are signed by default.
-    // Unsigned ranges use the same compare for now (the type checker
-    // prevents mixing signed/unsigned, so the bit pattern is what the
-    // user asked for either way).
-    let cond_op = if inclusive {
-        IntCC::SignedGreaterThan
+    if let Some(end_var) = end_var {
+        let i = b.use_var(i_var);
+        let e = b.use_var(end_var);
+        let cond_op = if inclusive {
+            IntCC::SignedGreaterThan
+        } else {
+            IntCC::SignedGreaterThanOrEqual
+        };
+        let done = b.ins().icmp(cond_op, i, e);
+        b.ins().brif(done, after, &[], body_block, &[]);
     } else {
-        IntCC::SignedGreaterThanOrEqual
-    };
-    let done = b.ins().icmp(cond_op, i, e);
-    b.ins().brif(done, after, &[], body_block, &[]);
+        // Open-ended range — header always falls through to body.
+        b.ins().jump(body_block, &[]);
+    }
 
     b.switch_to_block(body_block);
     b.seal_block(body_block);

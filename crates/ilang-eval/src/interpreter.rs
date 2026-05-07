@@ -981,21 +981,36 @@ impl Interpreter {
                 // Range iter is special-cased: don't eval it as a value
                 // (Range has no Value representation by design).
                 if let ExprKind::Range { start, end, inclusive } = &iter.kind {
+                    // Type checker rejects start-less ranges in
+                    // for-in, so unwrap is safe here.
+                    let start = start.as_ref().expect("for-in range without start");
                     let s_v = self.eval_expr(start)?;
                     let s = int_value_to_i64(&s_v).ok_or_else(|| RuntimeError::TypeError {
                         msg: format!("range start must be integer, got {s_v:?}"),
                         span: start.span,
                     })?;
-                    let e_v = self.eval_expr(end)?;
-                    let e = int_value_to_i64(&e_v).ok_or_else(|| RuntimeError::TypeError {
-                        msg: format!("range end must be integer, got {e_v:?}"),
-                        span: end.span,
-                    })?;
+                    // `end = None` means an open-ended `start..`
+                    // (RangeFrom). Body must `break` to exit; we
+                    // bound nothing here.
+                    let limit: Option<i64> = if let Some(end) = end {
+                        let e_v = self.eval_expr(end)?;
+                        let e = int_value_to_i64(&e_v).ok_or_else(|| RuntimeError::TypeError {
+                            msg: format!("range end must be integer, got {e_v:?}"),
+                            span: end.span,
+                        })?;
+                        Some(if *inclusive { e + 1 } else { e })
+                    } else {
+                        None
+                    };
                     let prev = self.vars.remove(var);
                     let mut result: Result<Value, RuntimeError> = Ok(Value::Unit);
                     let mut i = s;
-                    let limit_open = if *inclusive { e + 1 } else { e };
-                    while i < limit_open {
+                    loop {
+                        if let Some(lim) = limit {
+                            if i >= lim {
+                                break;
+                            }
+                        }
                         self.vars.insert(var.clone(), Value::Int(i));
                         match self.eval_block(body) {
                             Ok(_) => {}
@@ -1006,7 +1021,7 @@ impl Interpreter {
                                 break;
                             }
                         }
-                        i += 1;
+                        i = i.wrapping_add(1);
                     }
                     self.vars.remove(var);
                     if let Some(p) = prev {
@@ -1497,7 +1512,14 @@ impl Interpreter {
                                 if v_as_i64.is_some() =>
                             {
                                 let x = v_as_i64.unwrap();
-                                *low <= x && (if *inclusive { x <= *high } else { x < *high })
+                                let lo_ok = match low { Some(lo) => *lo <= x, None => true };
+                                let hi_ok = match high {
+                                    Some(hi) => {
+                                        if *inclusive { x <= *hi } else { x < *hi }
+                                    }
+                                    None => true,
+                                };
+                                lo_ok && hi_ok
                             }
                             (PatternKind::BoolLit(p), Value::Bool(x)) => *p == *x,
                             (PatternKind::StrLit(p), Value::Str(x)) => *p == **x,
@@ -2557,8 +2579,12 @@ fn collect_free_vars_in_expr(
             *bound = snap;
         }
         ExprKind::Range { start, end, .. } => {
-            collect_free_vars_in_expr(start, bound, frees);
-            collect_free_vars_in_expr(end, bound, frees);
+            if let Some(s) = start {
+                collect_free_vars_in_expr(s, bound, frees);
+            }
+            if let Some(e) = end {
+                collect_free_vars_in_expr(e, bound, frees);
+            }
         }
         ExprKind::Assign { target, value } => {
             // `target = value` reads the previous binding for ARC

@@ -150,11 +150,35 @@ impl<'a> Parser<'a> {
                 let inclusive = matches!(self.peek().kind, TokenKind::DotDotEq);
                 let r_span = self.peek().span;
                 self.bump();
-                let rhs = self.parse_expr(r_bp)?;
+                // Postfix `1..` form: when the next token can't
+                // start an expression (block, separator, or
+                // closing bracket), treat as an open-ended
+                // RangeFrom (`end = None`). Anything else is the
+                // usual `1..end` parse.
+                let end = if matches!(
+                    self.peek().kind,
+                    TokenKind::LBrace
+                        | TokenKind::Comma
+                        | TokenKind::Semicolon
+                        | TokenKind::RParen
+                        | TokenKind::RBracket
+                        | TokenKind::Eof
+                ) {
+                    None
+                } else {
+                    Some(Box::new(self.parse_expr(r_bp)?))
+                };
+                if inclusive && end.is_none() {
+                    return Err(ParseError::Unexpected {
+                        found: self.peek().kind.clone(),
+                        expected: "`..=` requires an upper bound (try `..` for open-ended)".into(),
+                        span: r_span,
+                    });
+                }
                 lhs = Expr::new(
                     ExprKind::Range {
-                        start: Box::new(lhs),
-                        end: Box::new(rhs),
+                        start: Some(Box::new(lhs)),
+                        end,
                         inclusive,
                     },
                     r_span,
@@ -933,7 +957,30 @@ impl<'a> Parser<'a> {
             }
         };
         // Look ahead: is this a range pattern? Either `Int .. Int`,
-        // `Int ..= Int`, or with a leading `-` on either side.
+        // `Int ..= Int`, with a leading `-` on either side, or a
+        // half-open form (`..N`, `..=N`, `N..`).
+        // Half-open `..N` / `..=N` (no low):
+        let dot_kind = match &self.peek().kind {
+            TokenKind::DotDot => Some(false),
+            TokenKind::DotDotEq => Some(true),
+            _ => None,
+        };
+        if let Some(inc) = dot_kind {
+            if let Some((high, high_len)) = read_signed_int(self, self.pos + 1) {
+                self.bump(); // dot-dot token
+                for _ in 0..high_len {
+                    self.bump();
+                }
+                return Ok(Some(ilang_ast::Pattern {
+                    kind: ilang_ast::PatternKind::IntRange {
+                        low: None,
+                        high: Some(high),
+                        inclusive: inc,
+                    },
+                    span,
+                }));
+            }
+        }
         if let Some((low, low_len)) = read_signed_int(self, self.pos) {
             let after_low = self.pos + low_len;
             let dotdot = self.tokens.get(after_low).map(|t| &t.kind);
@@ -955,9 +1002,29 @@ impl<'a> Parser<'a> {
                     }
                     return Ok(Some(ilang_ast::Pattern {
                         kind: ilang_ast::PatternKind::IntRange {
-                            low,
-                            high,
+                            low: Some(low),
+                            high: Some(high),
                             inclusive: inc,
+                        },
+                        span,
+                    }));
+                }
+                // `low..` half-open. Only the exclusive form makes
+                // sense (`low..=` without high is rejected). Commit
+                // when the next token after `..` doesn't start an
+                // integer literal — i.e. the arm-body `{`.
+                let after_dot = after_low + 1;
+                let next_kind = self.tokens.get(after_dot).map(|t| &t.kind);
+                if matches!(inc, false) && matches!(next_kind, Some(TokenKind::LBrace)) {
+                    for _ in 0..low_len {
+                        self.bump();
+                    }
+                    self.bump(); // dot-dot token
+                    return Ok(Some(ilang_ast::Pattern {
+                        kind: ilang_ast::PatternKind::IntRange {
+                            low: Some(low),
+                            high: None,
+                            inclusive: false,
                         },
                         span,
                     }));
