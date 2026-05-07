@@ -63,6 +63,30 @@ fn literal_assignable_with<F>(
 where
     F: Fn(Symbol, Symbol) -> bool,
 {
+    // Integer literals get a fits-in-target check FIRST: the
+    // general `assignable` rule allows int↔int narrowing without
+    // a cast, which is fine for runtime-typed values but wrong
+    // for compile-time literals where we can detect overflow.
+    // `let a: i8 = 999` would otherwise be silently accepted and
+    // wrap to -25 at runtime.
+    if let ExprKind::Int(n) = &value.kind {
+        if target.is_int() {
+            return int_literal_fits(*n, target);
+        }
+        if target.is_float() {
+            return true;
+        }
+    }
+    if let ExprKind::Unary { op: ilang_ast::UnOp::Neg, expr: inner } = &value.kind {
+        if let ExprKind::Int(n) = &inner.kind {
+            if target.is_int() {
+                return n.checked_neg().is_some_and(|v| int_literal_fits(v, target));
+            }
+            if target.is_float() {
+                return true;
+            }
+        }
+    }
     if assignable(vt, target) {
         return true;
     }
@@ -141,24 +165,9 @@ where
             .zip(target_elems.iter())
             .all(|((e, vt_e), tt_e)| literal_assignable_with(e, vt_e, tt_e, is_sub));
     }
-    if let ExprKind::Int(n) = &value.kind {
-        if target.is_int() {
-            return int_literal_fits(*n, target);
-        }
-        if target.is_float() {
-            return true;
-        }
-    }
-    if let ExprKind::Unary { op: ilang_ast::UnOp::Neg, expr: inner } = &value.kind {
-        if let ExprKind::Int(n) = &inner.kind {
-            if target.is_int() {
-                return n.checked_neg().is_some_and(|v| int_literal_fits(v, target));
-            }
-            if target.is_float() {
-                return true;
-            }
-        }
-    }
+    // Int / unary-neg-int / float literal cases are handled at
+    // the top of this function so they take precedence over the
+    // general `assignable` int-narrowing rule.
     if let ExprKind::Float(_) = &value.kind {
         if target.is_float() {
             return true;
