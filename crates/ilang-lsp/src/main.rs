@@ -3559,9 +3559,14 @@ impl<'a> Walker<'a> {
                 find_break_type(body, scope, self, &mut found);
                 found
             }
-            ExprKind::Match { arms, .. } => arms
-                .iter()
-                .find_map(|a| self.infer_expr(&a.body, scope)),
+            ExprKind::Match { arms, .. } => arms.iter().find_map(|a| {
+                // Pattern-bound vars (e.g. `Foo(x)` => x) must be in
+                // scope when we infer the arm body, otherwise hover on
+                // such a binding inside the body returns nothing.
+                let mut arm_scope = scope.to_vec();
+                bind_pattern(&a.pattern, &mut arm_scope);
+                self.infer_expr(&a.body, &arm_scope)
+            }),
             ExprKind::Binary { op, lhs, rhs } => {
                 use ilang_ast::BinOp;
                 if matches!(
@@ -3962,7 +3967,12 @@ fn scan_break(
                 if out.is_some() {
                     break;
                 }
-                scan_break(&a.body, scope, walker, out);
+                // Same scoping rule as `infer_expr` for Match: a
+                // `break <pattern-bound>` inside an arm needs the
+                // pattern's bindings visible to infer the break type.
+                let mut arm_scope = scope.to_vec();
+                bind_pattern(&a.pattern, &mut arm_scope);
+                scan_break(&a.body, &arm_scope, walker, out);
             }
         }
         _ => {}
