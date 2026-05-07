@@ -869,17 +869,13 @@ impl LanguageServer for Backend {
         let Some(doc) = docs.get(&uri) else {
             return Ok(None);
         };
-        // Resolve the cursor to a (target_span, name_len) pair —
-        // the unique identity of the symbol the user clicked. This
-        // pins the rename to a single declaration even when a name
-        // (`a`) is reused across unrelated decls (an `@extern(C)
-        // fn a` and a `Counter.a` property both exist).
-        // (target_span, name_len) identifies the decl that all
-        // refs share. `decl_name_span` is the span of the *name*
-        // itself (sliding past keywords like `fn` / `class`) — used
-        // only when emitting the decl-site edit, since the AST
-        // anchors fn / class spans at the keyword, not the name.
-        let (target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
+        // Resolve the cursor to a target identity:
+        //   (decl_uri, decl_span, name_len)
+        // — the file + position + length that uniquely identify the
+        // decl every reference points at. When the cursor is on a
+        // `use module` import the target lives in another file, so
+        // we read its URI from the `RefEntry`.
+        let (target_uri, target, decl_name_span) = if let Some(entry) = lookup_ref(doc, pos)
         {
             // `this` is a keyword — its RefEntry shares (target_span,
             // target_name_len) with the enclosing class, so letting
@@ -889,7 +885,9 @@ impl LanguageServer for Backend {
             if entry.signature.starts_with("this:") {
                 return Ok(None);
             }
+            let owner = entry.target_uri.clone().unwrap_or_else(|| uri.clone());
             (
+                owner,
                 (entry.target_span, entry.target_name_len),
                 entry.target_span,
             )
@@ -903,72 +901,93 @@ impl LanguageServer for Backend {
                         )
                     })
                     .unwrap_or(sym.span);
-                ((sym.span, sym.name.as_str().len() as u32), name_span)
+                (
+                    uri.clone(),
+                    (sym.span, sym.name.as_str().len() as u32),
+                    name_span,
+                )
             } else {
                 return Ok(None);
             }
         } else {
             return Ok(None);
         };
-        // Collect every RefEntry that resolves to this exact decl.
-        // Skip refs that point cross-file (`target_uri` is set) —
-        // we don't have a workspace-wide index yet, so the rename
-        // stays single-file.
-        let mut edits: Vec<TextEdit> = doc
-            .refs
-            .iter()
-            .filter(|r| {
-                r.target_uri.is_none()
-                    && r.target_span == target.0
-                    && r.target_name_len == target.1
-                    // `this` refs share their target with the
-                    // enclosing class — exclude them so renaming the
-                    // class doesn't rewrite `this` to the new name.
-                    && !r.signature.starts_with("this:")
-            })
-            .map(|r| TextEdit {
-                range: Range {
-                    start: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.start_col.saturating_sub(1),
+
+        // Collect edits per file. For the decl's owning file we
+        // also include the decl-site edit; ref-only files only get
+        // their cross-file references rewritten.
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        for (doc_uri, d) in docs.iter() {
+            let is_owner = doc_uri == &target_uri;
+            let mut edits: Vec<TextEdit> = d
+                .refs
+                .iter()
+                .filter(|r| {
+                    if r.signature.starts_with("this:") {
+                        return false;
+                    }
+                    if r.target_span != target.0 || r.target_name_len != target.1 {
+                        return false;
+                    }
+                    if is_owner {
+                        // Local refs in the decl's own file have
+                        // `target_uri == None`. Cross-file refs
+                        // here would point at OTHER files, not this
+                        // one — skip them.
+                        r.target_uri.is_none()
+                    } else {
+                        // From another file, the ref must explicitly
+                        // point back at the decl's owning URI.
+                        r.target_uri.as_ref() == Some(&target_uri)
+                    }
+                })
+                .map(|r| TextEdit {
+                    range: Range {
+                        start: Position {
+                            line: r.line.saturating_sub(1),
+                            character: r.start_col.saturating_sub(1),
+                        },
+                        end: Position {
+                            line: r.line.saturating_sub(1),
+                            character: r.end_col.saturating_sub(1),
+                        },
                     },
-                    end: Position {
-                        line: r.line.saturating_sub(1),
-                        character: r.end_col.saturating_sub(1),
+                    new_text: new_name.clone(),
+                })
+                .collect();
+            if is_owner {
+                // Always include the decl site itself. Without
+                // this an unused decl would yield zero edits in
+                // its own file and VSCode would refuse the rename.
+                edits.push(TextEdit {
+                    range: Range {
+                        start: Position {
+                            line: decl_name_span.line.saturating_sub(1),
+                            character: decl_name_span.col.saturating_sub(1),
+                        },
+                        end: Position {
+                            line: decl_name_span.line.saturating_sub(1),
+                            character: decl_name_span
+                                .col
+                                .saturating_sub(1)
+                                .saturating_add(target.1),
+                        },
                     },
-                },
-                new_text: new_name.clone(),
-            })
-            .collect();
-        // Always include the decl site itself. The walker does not
-        // push a `RefEntry` for plain top-level fn / class member
-        // names, so without this an unused decl would yield zero
-        // edits and VSCode would refuse the rename.
-        edits.push(TextEdit {
-            range: Range {
-                start: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span.col.saturating_sub(1),
-                },
-                end: Position {
-                    line: decl_name_span.line.saturating_sub(1),
-                    character: decl_name_span
-                        .col
-                        .saturating_sub(1)
-                        .saturating_add(target.1),
-                },
-            },
-            new_text: new_name.clone(),
-        });
-        // VSCode dedups identical edits, but be defensive — each
-        // (line, start_col) combination should appear once.
-        edits.sort_by(|a, b| {
-            (a.range.start.line, a.range.start.character)
-                .cmp(&(b.range.start.line, b.range.start.character))
-        });
-        edits.dedup_by(|a, b| a.range == b.range);
-        let mut changes = HashMap::new();
-        changes.insert(uri, edits);
+                    new_text: new_name.clone(),
+                });
+            }
+            if !edits.is_empty() {
+                edits.sort_by(|a, b| {
+                    (a.range.start.line, a.range.start.character)
+                        .cmp(&(b.range.start.line, b.range.start.character))
+                });
+                edits.dedup_by(|a, b| a.range == b.range);
+                changes.insert(doc_uri.clone(), edits);
+            }
+        }
+        if changes.is_empty() {
+            return Ok(None);
+        }
         Ok(Some(WorkspaceEdit {
             changes: Some(changes),
             document_changes: None,
