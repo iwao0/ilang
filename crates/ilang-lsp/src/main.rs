@@ -1570,14 +1570,36 @@ fn collect_external_classes(
     let mut classes: Vec<&ClassDecl> = Vec::new();
     let mut out: HashMap<AstSymbol, ClassInfo> = HashMap::new();
     let mut src_cache: HashMap<PathBuf, String> = HashMap::new();
-    let mut field_doc = |class_key: &AstSymbol, field_span: Span| -> Option<String> {
-        let path = &sources.get(class_key)?.path;
-        if !src_cache.contains_key(path) {
-            let txt = std::fs::read_to_string(path).ok()?;
-            src_cache.insert(path.clone(), txt);
+    fn ensure_src<'a>(
+        cache: &'a mut HashMap<PathBuf, String>,
+        sources: &ExternalSources,
+        class_key: &AstSymbol,
+    ) -> Option<&'a str> {
+        let path = sources.get(class_key)?.path.clone();
+        if !cache.contains_key(&path) {
+            let txt = std::fs::read_to_string(&path).ok()?;
+            cache.insert(path.clone(), txt);
         }
-        text::extract_doc_above(src_cache.get(path)?.as_str(), field_span.line)
-    };
+        cache.get(&path).map(|s| s.as_str())
+    }
+    fn field_doc_at(
+        cache: &mut HashMap<PathBuf, String>,
+        sources: &ExternalSources,
+        class_key: &AstSymbol,
+        line: u32,
+    ) -> Option<String> {
+        let s = ensure_src(cache, sources, class_key)?;
+        text::extract_doc_above(s, line)
+    }
+    fn static_field_value(
+        cache: &mut HashMap<PathBuf, String>,
+        sources: &ExternalSources,
+        class_key: &AstSymbol,
+        value: &Expr,
+    ) -> Option<String> {
+        let s = ensure_src(cache, sources, class_key)?;
+        render_const_value_with_src(value, Some(s))
+    }
     for item in &prog.items {
         match item {
             Item::Class(c) if c.name.as_str().contains('.') => classes.push(c),
@@ -1607,7 +1629,7 @@ fn collect_external_classes(
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
-                                        doc: field_doc(name, f.span),
+                                        doc: field_doc_at(&mut src_cache, sources, name, f.span.line),
                                     },
                                 );
                             }
@@ -1643,29 +1665,33 @@ fn collect_external_classes(
                     signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                     ret_ty: Some(f.ty.clone()),
                     is_static: false,
-                    doc: field_doc(&c.name, f.span),
+                    doc: field_doc_at(&mut src_cache, sources, &c.name, f.span.line),
                 },
             );
         }
         for f in &c.static_fields {
+            let kind = if f.is_const { "static const" } else { "static property" };
+            let value = static_field_value(&mut src_cache, sources, &c.name, &f.value)
+                .map(|v| format!(" = {v}"))
+                .unwrap_or_default();
             fields.insert(
                 f.name.into(),
                 MemberInfo {
                     span: f.span,
                     signature: format!(
-                        "(static property) {}.{}: {}",
-                        c.name, f.name, f.ty
+                        "({}) {}.{}: {}{}",
+                        kind, c.name, f.name, f.ty, value
                     ),
                     ret_ty: Some(f.ty.clone()),
                     is_static: true,
-                    doc: field_doc(&c.name, f.span),
+                    doc: field_doc_at(&mut src_cache, sources, &c.name, f.span.line),
                 },
             );
         }
         let mut getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         for prop in &c.properties {
-            let prop_doc = field_doc(&c.name, prop.span);
+            let prop_doc = field_doc_at(&mut src_cache, sources, &c.name, prop.span.line);
             fields.insert(
                 prop.name.into(),
                 MemberInfo {
@@ -1684,7 +1710,7 @@ fn collect_external_classes(
                         signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
-                        doc: field_doc(&c.name, g.span).or_else(|| prop_doc.clone()),
+                        doc: field_doc_at(&mut src_cache, sources, &c.name, g.span.line).or_else(|| prop_doc.clone()),
                     },
                 );
             }
@@ -1696,7 +1722,7 @@ fn collect_external_classes(
                         signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
-                        doc: field_doc(&c.name, s.span).or_else(|| prop_doc.clone()),
+                        doc: field_doc_at(&mut src_cache, sources, &c.name, s.span.line).or_else(|| prop_doc.clone()),
                     },
                 );
             }
@@ -1710,7 +1736,7 @@ fn collect_external_classes(
                 signature: format!("(method) {}.{}", c.name, fn_body(m)),
                 ret_ty: m.ret.clone(),
                 is_static: false,
-                doc: field_doc(&c.name, m.span),
+                doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
             };
             if m.name == "init" {
                 init_overloads += 1;
@@ -1724,7 +1750,7 @@ fn collect_external_classes(
                 signature: format!("(static method) {}.{}", c.name, fn_body(m)),
                 is_static: true,
                 ret_ty: m.ret.clone(),
-                doc: field_doc(&c.name, m.span),
+                doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
             });
         }
         out.insert(
@@ -2484,13 +2510,17 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
                 );
             }
             for f in &c.static_fields {
+                let kind = if f.is_const { "static const" } else { "static property" };
+                let value = render_const_value_with_src(&f.value, Some(src))
+                    .map(|v| format!(" = {v}"))
+                    .unwrap_or_default();
                 fields.insert(
                     f.name.into(),
                     MemberInfo {
                         span: f.span,
                         signature: format!(
-                            "(static property) {}.{}: {}",
-                            c.name, f.name, f.ty
+                            "({}) {}.{}: {}{}",
+                            kind, c.name, f.name, f.ty, value
                         ),
                         ret_ty: Some(f.ty.clone()),
                         is_static: true,
@@ -2713,10 +2743,14 @@ impl<'a> Walker<'a> {
             );
         }
         for f in &c.static_fields {
+            let kind = if f.is_const { "static const" } else { "static property" };
+            let value = render_const_value_with_src(&f.value, Some(self.text))
+                .map(|v| format!(" = {v}"))
+                .unwrap_or_default();
             self.push_decl_with_doc(
                 f.name.as_str(),
                 f.span,
-                format!("(static property) {}.{}: {}", c.name, f.name, f.ty),
+                format!("({}) {}.{}: {}{}", kind, c.name, f.name, f.ty, value),
                 text::extract_doc_above(self.text, f.span.line),
             );
         }
