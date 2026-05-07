@@ -1911,7 +1911,9 @@ impl TypeChecker {
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span, &[])?;
-                        if !literal_assignable(value, &vt, ann) {
+                        if !literal_assignable(value, &vt, ann)
+                            && !self.assignable_obj(&vt, ann)
+                        {
                             return Err(TypeError::Mismatch {
                                 expected: ann.clone(),
                                 got: vt,
