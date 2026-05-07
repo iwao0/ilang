@@ -1475,7 +1475,16 @@ pub(crate) fn lower_expr(
                     });
                 }
             };
-            call_method(b, lc, class_id, method.as_str(), obj_v, args, e.span)
+            call_method(
+                b,
+                lc,
+                class_id,
+                method.as_str(),
+                obj_v,
+                is_aliased_heap_source(&obj.kind),
+                args,
+                e.span,
+            )
         }
         ExprKind::Call { callee, args } => {
             // Built-in `typeof(x): Type`. The argument is evaluated
@@ -1975,7 +1984,7 @@ pub(crate) fn lower_expr(
             if let Some((this_var, class_id)) = lc.this {
                 if lc.class_methods[class_id as usize].contains_key(callee) {
                     let this_v = b.use_var(this_var);
-                    return call_method(b, lc, class_id, callee.as_str(), this_v, args, e.span);
+                    return call_method(b, lc, class_id, callee.as_str(), this_v, true, args, e.span);
                 }
             }
             Err(CodegenError::Unsupported {
@@ -2417,7 +2426,7 @@ pub(crate) fn lower_expr(
                 // "init__i64"); fall back to plain "init" otherwise.
                 let init_lookup: Symbol = init_method.unwrap_or_else(|| "init".into());
                 if lc.class_methods[class_id as usize].contains_key(&init_lookup) {
-                    let _ = call_method(b, lc, class_id, init_lookup.as_str(), ptr, args, e.span)?;
+                    let _ = call_method(b, lc, class_id, init_lookup.as_str(), ptr, true, args, e.span)?;
                 } else if !args.is_empty() {
                     return Err(CodegenError::Unsupported {
                         what: format!("no `init` for class {class}, but args were given"),
@@ -3819,6 +3828,7 @@ fn call_method(
     class_id: u32,
     method: &str,
     this_v: Value,
+    retain_this: bool,
     args: &[Expr],
     span: ilang_ast::Span,
 ) -> Result<Option<TV>, CodegenError> {
@@ -3832,10 +3842,17 @@ fn call_method(
             ),
             span,
         })?;
-    // The callee will release `this` and any object params at exit; the
-    // caller must retain so its own references survive. (No-op for
-    // fresh-alloc receivers/args where rc=1 is already "owned".)
-    emit_retain_object(b, lc, this_v);
+    // The callee always releases `this` at function exit. When the
+    // caller's receiver is borrowed (a Var / Field / Index / This,
+    // or a fresh-allocated object the caller still owns), it has
+    // to take its own +1 here so the callee's release doesn't kill
+    // the caller's reference. A fresh, transient receiver
+    // (`(new Foo()).bar()`, `make_foo().bar()`) hands its rc=1 to
+    // the call directly — the callee's release reclaims it on
+    // return.
+    if retain_this {
+        emit_retain_object(b, lc, this_v);
+    }
     let mut arg_vals = Vec::with_capacity(args.len() + 1);
     arg_vals.push(this_v);
     for (i, a) in args.iter().enumerate() {
