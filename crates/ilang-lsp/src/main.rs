@@ -1611,7 +1611,7 @@ fn collect_external_classes(
                     signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                     ret_ty: Some(f.ty.clone()),
                     is_static: false,
-                doc: None,
+                    doc: field_doc(&c.name, f.span),
                 },
             );
         }
@@ -1626,13 +1626,14 @@ fn collect_external_classes(
                     ),
                     ret_ty: Some(f.ty.clone()),
                     is_static: true,
-                doc: None,
+                    doc: field_doc(&c.name, f.span),
                 },
             );
         }
         let mut getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         for prop in &c.properties {
+            let prop_doc = field_doc(&c.name, prop.span);
             fields.insert(
                 prop.name.into(),
                 MemberInfo {
@@ -1640,7 +1641,7 @@ fn collect_external_classes(
                     signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
                     ret_ty: Some(prop.ty.clone()),
                     is_static: false,
-                doc: None,
+                    doc: prop_doc.clone(),
                 },
             );
             if let Some(g) = &prop.getter {
@@ -1651,7 +1652,7 @@ fn collect_external_classes(
                         signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
-                        doc: None,
+                        doc: field_doc(&c.name, g.span).or_else(|| prop_doc.clone()),
                     },
                 );
             }
@@ -1663,7 +1664,7 @@ fn collect_external_classes(
                         signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
                         ret_ty: Some(prop.ty.clone()),
                         is_static: false,
-                        doc: None,
+                        doc: field_doc(&c.name, s.span).or_else(|| prop_doc.clone()),
                     },
                 );
             }
@@ -1677,7 +1678,7 @@ fn collect_external_classes(
                 signature: format!("(method) {}.{}", c.name, fn_body(m)),
                 ret_ty: m.ret.clone(),
                 is_static: false,
-                doc: None,
+                doc: field_doc(&c.name, m.span),
             };
             if m.name == "init" {
                 init_overloads += 1;
@@ -1691,7 +1692,7 @@ fn collect_external_classes(
                 signature: format!("(static method) {}.{}", c.name, fn_body(m)),
                 is_static: true,
                 ret_ty: m.ret.clone(),
-                doc: None,
+                doc: field_doc(&c.name, m.span),
             });
         }
         out.insert(
