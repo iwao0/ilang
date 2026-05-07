@@ -1312,8 +1312,8 @@ pub(crate) extern "C" fn ilang_jit_panic_div_zero() -> ! {
     std::process::exit(1);
 }
 
-pub(crate) extern "C" fn ilang_jit_panic_overflow() -> ! {
-    eprintln!("runtime panic: integer overflow");
+pub(crate) extern "C" fn ilang_jit_panic_enum_oor(value: i64) -> ! {
+    eprintln!("runtime panic: enum cast value {value} matches no variant");
     std::process::exit(1);
 }
 

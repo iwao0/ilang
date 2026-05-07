@@ -325,6 +325,23 @@ fn bit_op(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
 /// that the conversion is permitted; here we just compute the new value.
 /// Goes through `i128` (for ints) or `f64` (for floats) as an intermediate
 /// so the source variant doesn't matter.
+/// Common-int-view of a numeric value. Returns `None` for
+/// non-numeric values (heap, enum, object, …).
+pub fn numeric_to_i128(v: &Value) -> Option<i128> {
+    match v {
+        Value::Int8(n) => Some(*n as i128),
+        Value::Int16(n) => Some(*n as i128),
+        Value::Int32(n) => Some(*n as i128),
+        Value::Int(n) => Some(*n as i128),
+        Value::UInt8(n) => Some(*n as i128),
+        Value::UInt16(n) => Some(*n as i128),
+        Value::UInt32(n) => Some(*n as i128),
+        Value::UInt64(n) => Some(*n as i128),
+        Value::Bool(b) => Some(*b as i128),
+        _ => None,
+    }
+}
+
 pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
     let from_int: Option<i128> = match &v {
         Value::Int8(n) => Some(*n as i128),

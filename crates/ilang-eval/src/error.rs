@@ -42,6 +42,15 @@ pub enum RuntimeError {
     NotAnObject { actual: String, span: Span },
     #[error("{span}: array index {index} out of bounds (length {len})")]
     IndexOutOfBounds { index: i64, len: i64, span: Span },
+    /// Thrown when a numeric `as Enum` cast lands on a value that
+    /// matches no variant. Skipped for `@flags` enums (any bit
+    /// pattern is a valid combination).
+    #[error("{span}: enum {enum_name:?} has no variant with value {value}")]
+    EnumOutOfRange {
+        enum_name: Symbol,
+        value: i128,
+        span: Span,
+    },
     /// Internal control-flow signal carried by `Result::Err` so `?` propagates
     /// it to the enclosing loop. The type checker rejects `break` outside a
     /// loop, so this never escapes a well-typed program. The payload is the
@@ -109,6 +118,9 @@ impl RuntimeError {
             RuntimeError::IndexOutOfBounds { index, len, .. } => {
                 RuntimeError::IndexOutOfBounds { index, len, span: real }
             }
+            RuntimeError::EnumOutOfRange { enum_name, value, .. } => {
+                RuntimeError::EnumOutOfRange { enum_name, value, span: real }
+            }
             other => other,
         }
     }
@@ -131,7 +143,8 @@ impl RuntimeError {
             | RuntimeError::UnknownField { span, .. }
             | RuntimeError::ThisOutsideMethod { span }
             | RuntimeError::NotAnObject { span, .. }
-            | RuntimeError::IndexOutOfBounds { span, .. } => *span,
+            | RuntimeError::IndexOutOfBounds { span, .. }
+            | RuntimeError::EnumOutOfRange { span, .. } => *span,
             RuntimeError::Break(_) | RuntimeError::Continue | RuntimeError::Return(_) => {
                 Span::dummy()
             }

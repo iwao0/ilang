@@ -8,7 +8,7 @@ use ilang_ast::{
 };
 
 use crate::error::RuntimeError;
-use crate::ops::{apply_binary, apply_unary, as_bool, cast_value};
+use crate::ops::{apply_binary, apply_unary, as_bool, cast_value, numeric_to_i128};
 use crate::value::{EnumPayload, ObjectData, ObjectRef, Value};
 
 const MAX_DEPTH: usize = 256;
@@ -1188,6 +1188,44 @@ impl Interpreter {
                                 prev = disc;
                                 if var.name == *variant {
                                     return Ok(cast_value(Value::Int(disc), ty));
+                                }
+                            }
+                        }
+                    }
+                }
+                // Numeric → non-flags enum cast: the bit pattern only
+                // makes sense if it lands on one of the declared
+                // variants. `@flags` enums hold arbitrary bit
+                // combinations of variants, so they're exempt.
+                // Numeric → enum cast lands on `Type::Object(name)`
+                // at this stage (the parser doesn't disambiguate
+                // class / enum by name; the type checker has already
+                // approved the cast). Look the name up in the enum
+                // table here at runtime.
+                let cast_to_enum_name: Option<&Symbol> = match ty {
+                    ilang_ast::Type::Enum(n) => Some(n),
+                    ilang_ast::Type::Object(n) if self.enums.contains_key(n) => {
+                        Some(n)
+                    }
+                    _ => None,
+                };
+                if let Some(enum_name) = cast_to_enum_name {
+                    if let Some(int_v) = numeric_to_i128(&v) {
+                        if let Some(decl) = self.enums.get(enum_name) {
+                            if !decl.flags {
+                                let mut prev: i64 = -1;
+                                let matched = decl.variants.iter().any(|var| {
+                                    let disc =
+                                        var.discriminant.unwrap_or(prev + 1);
+                                    prev = disc;
+                                    disc as i128 == int_v
+                                });
+                                if !matched {
+                                    return Err(RuntimeError::EnumOutOfRange {
+                                        enum_name: enum_name.clone(),
+                                        value: int_v,
+                                        span,
+                                    });
                                 }
                             }
                         }
