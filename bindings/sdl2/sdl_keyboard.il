@@ -341,7 +341,8 @@ enum KeyMod: u16 {
         /// Cached pointer to SDL's keyboard state buffer.
         state_ptr: i64
         /// Snapshot of `state_ptr`'s contents from the previous
-        /// `pump()`, used by `isPressed` / `isReleased`.
+        /// `pump()`, compared against the live state to detect
+        /// rising / falling edges.
         prev: u8[]
 
         /// Cache the state pointer and pre-allocate the previous-
@@ -394,28 +395,27 @@ enum KeyMod: u16 {
         }
 
         /// Returns:
-        ///   true if the key was held at the previous `pump()` —
-        ///   the "last frame" view used by edge detection.
-        wasHeld(scancode: Scancode): bool {
+        ///   true on the single frame the key transitions from
+        ///   "up" to "down" — rising edge.
+        isPressed(scancode: Scancode): bool {
             let s: i32 = scancode as i32
             if s < 0 || s >= 512 {
                 return false
             }
-            this.prev[s as i64] != 0 as u8
-        }
-
-        /// Returns:
-        ///   true on the single frame the key transitions from
-        ///   "up" to "down" — rising edge.
-        isPressed(scancode: Scancode): bool {
-            this.isHeld(scancode) && !this.wasHeld(scancode)
+            let was: u8 = this.prev[s as i64]
+            this.isHeld(scancode) && was == 0 as u8
         }
 
         /// Returns:
         ///   true on the single frame the key transitions from
         ///   "down" to "up" — falling edge.
         isReleased(scancode: Scancode): bool {
-            this.wasHeld(scancode) && !this.isHeld(scancode)
+            let s: i32 = scancode as i32
+            if s < 0 || s >= 512 {
+                return false
+            }
+            let was: u8 = this.prev[s as i64]
+            was != 0 as u8 && !this.isHeld(scancode)
         }
 
         // ─── modifiers ───────────────────────────────────────────
