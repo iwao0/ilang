@@ -303,6 +303,61 @@ fn jit_run_inner(
 /// pack initial values (folded literals) into a `Box<[i64]>`.
 /// Returns `(storage, slot_map, type_map)`. The storage is i64-wide
 /// per slot — f64 is bit-cast, bool is 0/1.
+/// Allocate global storage for top-level `let X: T = ...` bindings.
+/// Each slot is one i64, mirroring the static-field layout (so f64 /
+/// f32 / bool ride along via bitcasts). The initial bit pattern comes
+/// from the let's literal initializer when one is present; otherwise
+/// the slot starts at 0 and `__main`'s body writes the real value at
+/// the let's source position.
+///
+/// Heap-typed top-level lets (string / array / objects) are recorded
+/// here too with a 0 seed; the slot holds a (NULL → real-pointer)
+/// sequence written by `__main` and torn down at `__main` exit.
+fn init_top_level_let_storage(
+    prog: &Program,
+) -> (
+    Box<[i64]>,
+    std::collections::HashMap<Symbol, usize>,
+    std::collections::HashMap<Symbol, ilang_ast::Type>,
+) {
+    use ilang_ast::{ExprKind, StmtKind};
+    let mut slots: std::collections::HashMap<Symbol, usize> =
+        std::collections::HashMap::new();
+    let mut types: std::collections::HashMap<Symbol, ilang_ast::Type> =
+        std::collections::HashMap::new();
+    let mut values: Vec<i64> = Vec::new();
+    fn infer_literal_type(e: &ilang_ast::Expr) -> Option<ilang_ast::Type> {
+        match &e.kind {
+            ExprKind::Int(_) => Some(ilang_ast::Type::I64),
+            ExprKind::Float(_) => Some(ilang_ast::Type::F64),
+            ExprKind::Bool(_) => Some(ilang_ast::Type::Bool),
+            ExprKind::Str(_) => Some(ilang_ast::Type::Str),
+            ExprKind::Unary { expr, .. } => infer_literal_type(expr),
+            _ => None,
+        }
+    }
+    for s in &prog.stmts {
+        if let StmtKind::Let { name, ty, value } = &s.kind {
+            let t = ty.clone().or_else(|| infer_literal_type(value));
+            let Some(t) = t else { continue };
+            let bits: i64 = match (&value.kind, &t) {
+                (ExprKind::Int(n), _) => *n,
+                (ExprKind::Float(x), ilang_ast::Type::F64) => x.to_bits() as i64,
+                (ExprKind::Float(x), ilang_ast::Type::F32) => {
+                    (*x as f32).to_bits() as i64
+                }
+                (ExprKind::Bool(b), _) => *b as i64,
+                _ => 0,
+            };
+            let idx = values.len();
+            values.push(bits);
+            slots.insert(name.clone(), idx);
+            types.insert(name.clone(), t);
+        }
+    }
+    (values.into_boxed_slice(), slots, types)
+}
+
 fn init_static_field_storage(
     prog: &Program,
 ) -> (
@@ -524,6 +579,17 @@ pub(crate) struct JitCompiler {
     /// the lowering knows whether to bitcast / truncate.
     pub(crate) static_field_types:
         std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type>,
+    /// Storage for top-level `let X: T = ...` global bindings. Same
+    /// layout as `static_field_storage` (one i64 slot per let).
+    pub(crate) global_let_storage: Box<[i64]>,
+    /// `name -> slot index` for top-level lets that resolved to a
+    /// known type. Used by `Var` / `Assign` / `lower_stmt::Let` to
+    /// route reads / writes through the global slot when the local
+    /// env doesn't have the name.
+    pub(crate) global_let_slots: std::collections::HashMap<Symbol, usize>,
+    /// `name -> declared / inferred type` for each global let slot.
+    pub(crate) global_let_types:
+        std::collections::HashMap<Symbol, ilang_ast::Type>,
     /// `(class_name, method_name) -> vtable slot` table forwarded
     /// from the typechecker. Used at virtual-call sites to compute
     /// the per-method index into a class's vtable.
@@ -1064,6 +1130,8 @@ impl JitCompiler {
         // initial value comes from each field's folded literal.
         let (static_field_storage, static_field_slots, static_field_types) =
             init_static_field_storage(prog);
+        let (global_let_storage, global_let_slots, global_let_types) =
+            init_top_level_let_storage(prog);
         // Use an arena-backed memory provider so every JIT'd function
         // lands in a single contiguous reservation. AArch64 BL has a
         // ±128MB range; without this, mmap can scatter functions far
@@ -1375,6 +1443,9 @@ impl JitCompiler {
             static_field_storage,
             static_field_slots,
             static_field_types,
+            global_let_storage,
+            global_let_slots,
+            global_let_types,
             class_method_slots: std::collections::HashMap::new(),
             class_vtable_lens: std::collections::HashMap::new(),
             class_vtable_storage: Vec::new(),
@@ -2179,6 +2250,9 @@ impl JitCompiler {
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
+            global_let_slots: &self.global_let_slots,
+            global_let_types: &self.global_let_types,
+            global_let_base_addr: self.global_let_storage.as_ptr() as i64,
             class_vtable_addrs: &self.class_vtable_addrs,
             class_method_slots: &self.class_method_slots,
             class_parents: &self.class_parents,
@@ -2396,6 +2470,9 @@ impl JitCompiler {
             static_field_slots: &self.static_field_slots,
             static_field_types: &self.static_field_types,
             static_field_base_addr: self.static_field_storage.as_ptr() as i64,
+            global_let_slots: &self.global_let_slots,
+            global_let_types: &self.global_let_types,
+            global_let_base_addr: self.global_let_storage.as_ptr() as i64,
             class_vtable_addrs: &self.class_vtable_addrs,
             class_method_slots: &self.class_method_slots,
             class_parents: &self.class_parents,
@@ -2447,6 +2524,73 @@ impl JitCompiler {
         let before: std::collections::HashSet<Symbol> =
             lc.env.bindings.keys().cloned().collect();
         for s in &prog.stmts {
+            // Top-level `let X = ...` whose name was registered as a
+            // global slot: initialise the slot at this source position
+            // instead of allocating a local Variable. Subsequent reads
+            // / writes (here in `__main` and from any fn body) all go
+            // through the global path. Heap types fall through to
+            // ordinary lower_stmt for now — JIT support for heap
+            // globals is pending.
+            if let ilang_ast::StmtKind::Let { name, value, .. } = &s.kind {
+                if let Some(&slot) = self.global_let_slots.get(name) {
+                    if let Some(ty) = self.global_let_types.get(name).cloned() {
+                        let target_jty = match &ty {
+                            ilang_ast::Type::I8 => JitTy::I8,
+                            ilang_ast::Type::I16 => JitTy::I16,
+                            ilang_ast::Type::I32 => JitTy::I32,
+                            ilang_ast::Type::I64 => JitTy::I64,
+                            ilang_ast::Type::U8 => JitTy::U8,
+                            ilang_ast::Type::U16 => JitTy::U16,
+                            ilang_ast::Type::U32 => JitTy::U32,
+                            ilang_ast::Type::U64 => JitTy::U64,
+                            ilang_ast::Type::F32 => JitTy::F32,
+                            ilang_ast::Type::F64 => JitTy::F64,
+                            ilang_ast::Type::Bool => JitTy::Bool,
+                            _ => {
+                                // Heap / object / array global lets:
+                                // not yet supported. Fall through.
+                                lower_stmt(&mut builder, &mut lc, s)?;
+                                continue;
+                            }
+                        };
+                        let tv = lower_expr(&mut builder, &mut lc, value)?
+                            .ok_or_else(|| CodegenError::Unsupported {
+                                what: "top-level let initializer is unit".into(),
+                                span: s.span,
+                            })?;
+                        let coerced = crate::lower_op::coerce(
+                            &mut builder, tv, target_jty, s.span,
+                        )?;
+                        let bits = match target_jty {
+                            JitTy::I64 | JitTy::U64 => coerced,
+                            JitTy::I8 | JitTy::U8 | JitTy::Bool
+                            | JitTy::I16 | JitTy::U16
+                            | JitTy::I32 | JitTy::U32 => {
+                                builder.ins().uextend(I64, coerced)
+                            }
+                            JitTy::F32 => {
+                                let i = builder.ins().bitcast(
+                                    cranelift::prelude::types::I32,
+                                    MemFlags::new(),
+                                    coerced,
+                                );
+                                builder.ins().uextend(I64, i)
+                            }
+                            JitTy::F64 => builder.ins().bitcast(
+                                I64,
+                                MemFlags::new(),
+                                coerced,
+                            ),
+                            _ => unreachable!(),
+                        };
+                        let addr = self.global_let_storage.as_ptr() as i64
+                            + (slot as i64) * 8;
+                        let addr_v = builder.ins().iconst(I64, addr);
+                        builder.ins().store(MemFlags::trusted(), bits, addr_v, 0);
+                        continue;
+                    }
+                }
+            }
             lower_stmt(&mut builder, &mut lc, s)?;
         }
         let tail_kind = prog.tail.as_ref().map(|e| &e.kind);
