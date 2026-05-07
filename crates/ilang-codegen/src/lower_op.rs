@@ -417,8 +417,12 @@ pub(crate) fn coerce(
     // The type checker guarantees the target enum is fieldless.
     if matches!(to, JitTy::Enum(_)) {
         return match from {
-            JitTy::I8 | JitTy::U8 | JitTy::Bool => {
-                Ok(b.ins().sextend(cranelift_codegen::ir::types::I32, v))
+            JitTy::I8 => Ok(b.ins().sextend(cranelift_codegen::ir::types::I32, v)),
+            // Bool is logically 0/1; either extension preserves it, but
+            // pair it with U8 (zero-extend) so unsigned bytes round-trip
+            // through the I32-backed enum tag without becoming negative.
+            JitTy::U8 | JitTy::Bool => {
+                Ok(b.ins().uextend(cranelift_codegen::ir::types::I32, v))
             }
             JitTy::I16 => Ok(b.ins().sextend(cranelift_codegen::ir::types::I32, v)),
             JitTy::U16 => Ok(b.ins().uextend(cranelift_codegen::ir::types::I32, v)),
