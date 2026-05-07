@@ -19,6 +19,7 @@ use rng
 use consts
 use audio_session
 use input
+use assets
 
 // Width of `s` rendered through `sdl.Font.drawText`. The font is
 // 5×7 with 1 px between glyphs, so `n` chars = `n * 6 - 1` px at
@@ -59,11 +60,7 @@ class Game {
     sfx: audio_session.AudioSession
     /// Keyboard / gamepad bundle.
     inp: input.Input
-    starTex: sdl.Texture
-    glowTex: sdl.Texture
-    crtTex: sdl.Texture
-    sceneTex: sdl.Texture
-    bloomTex: sdl.Texture
+    asx: assets.Assets
     sky: star.BgStars
     grid: brick.BrickGrid
     pad: paddle.Paddle
@@ -130,62 +127,12 @@ class Game {
         }
         this.inp = new input.Input()
 
-        // White star sprite for particle bursts. Tinted at draw time
-        // via `setColorMod`, rotated via `drawTextureRot`.
-        this.starTex = new sdl.Texture(this.ren, consts.starTexSize, consts.starTexSize, 1)
-        if this.starTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
-            return
-        }
-        let _ = this.starTex.update(sprites.makeStarSprite())
-
-        // Soft radial-gradient sprite, tinted per-brick at draw time so
-        // the wave highlight blooms as a blurry circle rather than a
-        // rectangle.
-        this.glowTex = new sdl.Texture(this.ren, consts.glowTexSize, consts.glowTexSize, 1)
-        if this.glowTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
-            return
-        }
-        let _ = this.glowTex.update(sprites.makeGlowSprite())
-
-        // Full-window CRT-effect overlay — built once. The alpha
-        // channel encodes scanlines + vignette, the colour is black,
-        // so blending it on top darkens each pixel by the right
-        // amount.
-        this.crtTex = new sdl.Texture(this.ren, consts.winW, consts.winH, 1)
-        if this.crtTex.handle == 0 {
-            console.log("SDL_CreateTexture failed: " + sdl.getError())
-            return
-        }
-        let _ = this.crtTex.update(sprites.makeCrtOverlay(consts.winW, consts.winH))
-
-        // Off-screen accumulator for the world. Drawn into each frame
-        // (with a small per-frame fade applied first) and then composited
-        // back to the window with chromatic-aberration channel offsets.
-        // SDL_TEXTUREACCESS_TARGET = 2.
-        this.sceneTex = new sdl.Texture(this.ren, consts.winW, consts.winH, 2)
-        if this.sceneTex.handle == 0 {
-            console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
-            return
-        }
-        // Linear filtering on the scene texture so that the bloom
-        // pass's downscale + upscale produces a smooth blur instead of
-        // a chunky pixel this.grid.
-        let _ = this.sceneTex.setScaleMode(1)
-
-        // Tiny target used to "blur" the scene. We draw this.sceneTex
-        // shrunk into this.bloomTex (each downsample averages a 4×4 block
-        // thanks to linear filtering), and later draw this.bloomTex back
-        // out at full window size additively — the upscale spreads
-        // each averaged pixel across many output pixels, giving a
-        // soft glow around the bright stuff in the scene.
-        this.bloomTex = new sdl.Texture(this.ren, consts.bloomW, consts.bloomH, 2)
-        if this.bloomTex.handle == 0 {
-            console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
-            return
-        }
-        let _ = this.bloomTex.setScaleMode(1)
+        this.asx = new assets.Assets(this.ren)
+        let starTex = this.asx.starTex
+        let glowTex = this.asx.glowTex
+        let crtTex = this.asx.crtTex
+        let sceneTex = this.asx.sceneTex
+        let bloomTex = this.asx.bloomTex
 
         // Background star field — scrolls top→down with a twinkle.
         this.sky = new star.BgStars(80, consts.winW, consts.winH)
@@ -632,10 +579,10 @@ class Game {
             this.sky.step(consts.winW, consts.winH)
 
             // ─── render ──────────────────────────────────────────────
-            // The world is drawn into `this.sceneTex` so we can post-process
+            // The world is drawn into `this.asx.sceneTex` so we can post-process
             // it (chromatic aberration). HUD lands directly on the
             // window afterwards so the readouts stay sharp.
-            this.ren.setTarget(this.sceneTex)
+            this.ren.setTarget(this.asx.sceneTex)
             this.ren.setColor(8, 4, 24, 255)        // very dark navy
             this.ren.clear()
 
@@ -694,9 +641,9 @@ class Game {
                     if pulse > 0.0 && !introActive {
                         let alpha = (pulse * 220.0) as u8
                         if alpha > 0 as u8 {
-                            this.glowTex.setColorMod(br.r, br.g, br.b)
-                            this.glowTex.setAlphaMod(alpha)
-                            this.ren.drawTexture(this.glowTex,
+                            this.asx.glowTex.setColorMod(br.r, br.g, br.b)
+                            this.asx.glowTex.setAlphaMod(alpha)
+                            this.ren.drawTexture(this.asx.glowTex,
                                             br.x - glowPadX + shakeOffX,
                                             br.y - glowPadY + shakeOffY,
                                             consts.brickW + 2 * glowPadX,
@@ -717,11 +664,11 @@ class Game {
                     let dh = ((consts.brickH as f64) * scale) as i32
                     let alpha = (t * 220.0) as u8
                     // Soft bloom (radial gradient) — biggest, dimmest.
-                    this.glowTex.setColorMod(br.r, br.g, br.b)
-                    this.glowTex.setAlphaMod((t * 180.0) as u8)
+                    this.asx.glowTex.setColorMod(br.r, br.g, br.b)
+                    this.asx.glowTex.setAlphaMod((t * 180.0) as u8)
                     let bw = ((consts.brickW + 2 * glowPadX) as f64) * scale
                     let bh = ((consts.brickH + 2 * glowPadY) as f64) * scale
-                    this.ren.drawTexture(this.glowTex,
+                    this.ren.drawTexture(this.asx.glowTex,
                                     cx - (bw as i32) / 2 + shakeOffX,
                                     cy - (bh as i32) / 2 + shakeOffY,
                                     bw as i32, bh as i32)
@@ -748,20 +695,20 @@ class Game {
                 let p = this.fx.particles[i3]
                 let alpha = (p.life * 8) as i32
                 let a: u8 = if alpha > 255 { 255 } else { alpha as u8 }
-                this.starTex.setColorMod(p.r, p.g, p.b)
+                this.asx.starTex.setColorMod(p.r, p.g, p.b)
                 // Outer halo: bigger, lower alpha. Drawn first so the
                 // crisp star sits on top of its glow.
                 let haloA = ((a as i32) / 3) as u8
-                this.starTex.setAlphaMod(haloA)
+                this.asx.starTex.setAlphaMod(haloA)
                 let haloSize: i32 = 56
-                this.ren.drawTextureRot(this.starTex,
+                this.ren.drawTextureRot(this.asx.starTex,
                                    (p.x as i32) - haloSize / 2 + shakeOffX,
                                    (p.y as i32) - haloSize / 2 + shakeOffY,
                                    haloSize, haloSize, p.angle)
                 // Sharp star body (2× the previous 16px).
-                this.starTex.setAlphaMod(a)
+                this.asx.starTex.setAlphaMod(a)
                 let size: i32 = 32
-                this.ren.drawTextureRot(this.starTex,
+                this.ren.drawTextureRot(this.asx.starTex,
                                    (p.x as i32) - size / 2 + shakeOffX,
                                    (p.y as i32) - size / 2 + shakeOffY,
                                    size, size, p.angle)
@@ -878,7 +825,7 @@ class Game {
                 popI = popI + 1
             }
 
-            // ─── HUD (drawn into this.sceneTex so it gets the same CRT
+            // ─── HUD (drawn into this.asx.sceneTex so it gets the same CRT
             // ─── post-effects — chromatic aberration, scanlines, and
             // ─── vignette — as the world).
 
@@ -939,16 +886,16 @@ class Game {
                               3, 200, 220, 255, 255)
             }
 
-            // ─── bloom prep: downsample the scene into this.bloomTex ─────
+            // ─── bloom prep: downsample the scene into this.asx.bloomTex ─────
             // Linear filtering averages 4×4 source blocks into each
             // bloom pixel; later we'll upscale this back to full
             // resolution which spreads the average into a soft halo.
-            this.ren.setTarget(this.bloomTex)
+            this.ren.setTarget(this.asx.bloomTex)
             this.ren.setColor(0, 0, 0, 0)
             this.ren.clear()
-            this.ren.drawTexture(this.sceneTex, 0, 0, consts.bloomW, consts.bloomH)
+            this.ren.drawTexture(this.asx.sceneTex, 0, 0, consts.bloomW, consts.bloomH)
 
-            // ─── composite this.sceneTex (world + HUD) to window with
+            // ─── composite this.asx.sceneTex (world + HUD) to window with
             // ─── chromatic aberration. ────────────────────────────────
             this.ren.resetTarget()
             this.ren.setColor(0, 0, 0, 255)
@@ -957,17 +904,17 @@ class Game {
             // channel and offset slightly. Pixel overlap reproduces the
             // original colour; high-contrast edges (including text)
             // show RGB fringing.
-            this.sceneTex.setBlendMode(2)   // SDL_BLENDMODE_ADD
+            this.asx.sceneTex.setBlendMode(2)   // SDL_BLENDMODE_ADD
             let chroma: i32 = 3
-            this.sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
-            this.ren.drawTexture(this.sceneTex, -chroma, 0, consts.winW, consts.winH)
-            this.sceneTex.setColorMod(0 as u8, 255 as u8, 0 as u8)
-            this.ren.drawTexture(this.sceneTex, 0, 0, consts.winW, consts.winH)
-            this.sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
-            this.ren.drawTexture(this.sceneTex, chroma, 0, consts.winW, consts.winH)
+            this.asx.sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
+            this.ren.drawTexture(this.asx.sceneTex, -chroma, 0, consts.winW, consts.winH)
+            this.asx.sceneTex.setColorMod(0 as u8, 255 as u8, 0 as u8)
+            this.ren.drawTexture(this.asx.sceneTex, 0, 0, consts.winW, consts.winH)
+            this.asx.sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
+            this.ren.drawTexture(this.asx.sceneTex, chroma, 0, consts.winW, consts.winH)
             // Restore for next frame's setTarget pass.
-            this.sceneTex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
-            this.sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
+            this.asx.sceneTex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
+            this.asx.sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // ─── bloom: additively overlay the upscaled blurred
             // ─── version, brightening hot spots into a soft glow.
@@ -975,15 +922,15 @@ class Game {
             // whole bloom contribution via colour-mod so mid-brightness
             // pixels don't push the composite to white. The result is
             // a soft glow only on the hottest parts of the scene.
-            this.bloomTex.setBlendMode(2)
-            this.bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
-            this.bloomTex.setAlphaMod(255 as u8)
-            this.ren.drawTexture(this.bloomTex, 0, 0, consts.winW, consts.winH)
-            this.bloomTex.setBlendMode(1)
-            this.bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
+            this.asx.bloomTex.setBlendMode(2)
+            this.asx.bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
+            this.asx.bloomTex.setAlphaMod(255 as u8)
+            this.ren.drawTexture(this.asx.bloomTex, 0, 0, consts.winW, consts.winH)
+            this.asx.bloomTex.setBlendMode(1)
+            this.asx.bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // CRT overlay (scanlines + vignette).
-            this.ren.drawTexture(this.crtTex, 0, 0, consts.winW, consts.winH)
+            this.ren.drawTexture(this.asx.crtTex, 0, 0, consts.winW, consts.winH)
 
             this.ren.present()
 
