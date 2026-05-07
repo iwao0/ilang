@@ -523,6 +523,7 @@ impl LanguageServer for Backend {
             let mut items = global_completions(doc, at_top_level);
             if in_extern_c_block(&doc.text, off) {
                 push_ffi_helper_completions(&mut items);
+                push_extern_c_keywords(&mut items);
             }
             return Ok(Some(CompletionResponse::Array(items)));
         };
@@ -1151,6 +1152,31 @@ impl LanguageServer for Backend {
             }
         }
         if want_quickfix {
+            if let Some((insert_byte, new_text)) =
+                generate_init_at(&text, &prog, p.range.start)
+            {
+                let pos = byte_to_position(&text, insert_byte);
+                let range = Range { start: pos, end: pos };
+                let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit { range, new_text }],
+                );
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Generate init from fields".into(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        document_changes: None,
+                        change_annotations: None,
+                    }),
+                    diagnostics: None,
+                    is_preferred: None,
+                    disabled: None,
+                    data: None,
+                    command: None,
+                }));
+            }
             if let Some((insert_byte, new_text, missing_count)) =
                 fill_match_arms_at(&text, &prog, &var_types, p.range.start)
             {
@@ -1432,6 +1458,91 @@ fn fill_match_arms_at(
         out.push_str(" { todo() }\n");
     }
     Some((close_line_start, out, missing.len()))
+}
+
+/// Find the innermost `class` whose body `{...}` contains the cursor
+/// and, when the class has fields but no `init` method, return the
+/// byte offset and source text for an inserted constructor that
+/// takes one parameter per field and assigns each to `this.field`.
+/// Skips `@extern("...")` opaque-handle classes and `@extern(C)
+/// struct` classes (init is rejected for both).
+fn generate_init_at(
+    text: &str,
+    prog: &Program,
+    cursor: Position,
+) -> Option<(usize, String)> {
+    let cursor_byte =
+        text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
+    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
+    for it in &prog.items {
+        let Item::Class(c) = it else { continue };
+        let Some((open, close)) = match_brace_range(text, c.span) else {
+            continue;
+        };
+        if cursor_byte < open || cursor_byte > close {
+            continue;
+        }
+        let extent = close.saturating_sub(open);
+        match chosen {
+            None => chosen = Some((c, open, close)),
+            Some((_, c_open, c_close)) => {
+                if extent < c_close.saturating_sub(c_open) {
+                    chosen = Some((c, open, close));
+                }
+            }
+        }
+    }
+    let (cls, _open, close) = chosen?;
+    if cls.extern_lib.is_some() || cls.is_repr_c {
+        return None;
+    }
+    if cls.fields.is_empty() {
+        return None;
+    }
+    if cls
+        .methods
+        .iter()
+        .any(|m| m.name.as_str() == "init")
+    {
+        return None;
+    }
+    // Indentation: copy the closing `}`'s line indent for the class
+    // and indent body / params one level deeper.
+    let close_line_start = {
+        let bytes = text.as_bytes();
+        let mut i = close;
+        while i > 0 && bytes[i - 1] != b'\n' {
+            i -= 1;
+        }
+        i
+    };
+    let base_indent: String = text[close_line_start..close]
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
+    let body_indent = format!("{base_indent}    ");
+    let assign_indent = format!("{body_indent}    ");
+    let params: Vec<String> = cls
+        .fields
+        .iter()
+        .map(|f| format!("{}: {}", f.name.as_str(), f.ty))
+        .collect();
+    let mut out = String::new();
+    out.push_str(&body_indent);
+    out.push_str("init(");
+    out.push_str(&params.join(", "));
+    out.push_str(") {\n");
+    for f in cls.fields.iter() {
+        out.push_str(&assign_indent);
+        out.push_str("this.");
+        out.push_str(f.name.as_str());
+        out.push_str(" = ");
+        out.push_str(f.name.as_str());
+        out.push('\n');
+    }
+    out.push_str(&body_indent);
+    out.push_str("}\n");
+    Some((close_line_start, out))
 }
 
 /// Recursively walk a block, recording every `match` expression's
@@ -5013,6 +5124,19 @@ fn extern_c_precedes(bytes: &[u8], at: usize) -> bool {
     kk >= 1 && bytes[kk - 1] == b'@'
 }
 
+/// Item-introducer keywords that are valid inside `@extern(C) { }`.
+/// `static` is already covered by the generic block-scope keyword
+/// list, so it's omitted here to avoid duplicates.
+fn push_extern_c_keywords(out: &mut Vec<CompletionItem>) {
+    for kw in ["fn", "struct", "union"] {
+        out.push(CompletionItem {
+            label: kw.to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            ..CompletionItem::default()
+        });
+    }
+}
+
 fn push_ffi_helper_completions(out: &mut Vec<CompletionItem>) {
     for name in [
         "stringFromCstr",
@@ -5567,6 +5691,78 @@ fn area(s: Shape): f64 {
         let out = run(src, pos(3, 8)).unwrap();
         assert!(
             out.contains("Shape.Square(_, _) { todo() }"),
+            "out:\n{out}"
+        );
+    }
+
+    fn run_init(src: &str, cursor: Position) -> Option<String> {
+        let toks = ilang_lexer::tokenize(src).ok()?;
+        let prog = ilang_parser::parse(&toks).ok()?;
+        let (insert, new_text) = generate_init_at(src, &prog, cursor)?;
+        let mut out = src.to_string();
+        out.insert_str(insert, &new_text);
+        Some(out)
+    }
+
+    #[test]
+    fn init_generated_from_fields() {
+        let src = "\
+class Point {
+    x: f64
+    y: f64
+}
+";
+        // cursor inside class body (line 1, anywhere).
+        let out = run_init(src, pos(1, 4)).unwrap();
+        assert!(out.contains("init(x: f64, y: f64) {"), "out:\n{out}");
+        assert!(out.contains("this.x = x"), "out:\n{out}");
+        assert!(out.contains("this.y = y"), "out:\n{out}");
+    }
+
+    #[test]
+    fn init_skipped_when_already_defined() {
+        let src = "\
+class Point {
+    x: f64
+    init(x: f64) { this.x = x }
+}
+";
+        assert!(run_init(src, pos(1, 4)).is_none());
+    }
+
+    #[test]
+    fn init_skipped_for_empty_class() {
+        let src = "\
+class Empty {
+}
+";
+        assert!(run_init(src, pos(1, 0)).is_none());
+    }
+
+    #[test]
+    fn init_outside_class_returns_none() {
+        let src = "\
+class Point {
+    x: f64
+}
+fn f() {}
+";
+        // cursor is on the `fn` line — outside the class.
+        assert!(run_init(src, pos(3, 0)).is_none());
+    }
+
+    #[test]
+    fn init_renders_complex_field_types() {
+        let src = "\
+class Bag {
+    items: i32[]
+    label: string
+    count: i64
+}
+";
+        let out = run_init(src, pos(1, 4)).unwrap();
+        assert!(
+            out.contains("init(items: i32[], label: string, count: i64)"),
             "out:\n{out}"
         );
     }
