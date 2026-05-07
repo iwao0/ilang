@@ -318,6 +318,23 @@ enum LoopFrame {
 }
 
 impl TypeChecker {
+    /// Cheap literal-only type guess for `let X = expr` cases that
+    /// omit the type annotation. Returns `None` for anything that
+    /// isn't a primitive literal or a unary on one — letting the
+    /// regular type-check path produce a normal error later.
+    fn infer_literal_type(&self, e: &ilang_ast::Expr) -> Option<Type> {
+        use ilang_ast::ExprKind;
+        match &e.kind {
+            ExprKind::Int(_) => Some(Type::I64),
+            ExprKind::Float(_) => Some(Type::F64),
+            ExprKind::Bool(_) => Some(Type::Bool),
+            ExprKind::Str(_) => Some(Type::Str),
+            ExprKind::Unary { expr, .. } => self.infer_literal_type(expr),
+            _ => None,
+        }
+    }
+}
+impl TypeChecker {
     pub fn new() -> Self {
         let mut tc = Self::default();
         tc.install_builtins();
@@ -961,6 +978,29 @@ impl TypeChecker {
                 }
             }
         }
+        // Pre-register top-level `let X: T = expr` bindings as
+        // module-level globals so fn bodies can read / write them.
+        // The script-stmts loop further down still type-checks each
+        // initializer expression — we just need the names visible
+        // during fn-body checking. Without this pass, top-level
+        // `let X: T = expr` was only reachable from sibling script-
+        // stmts (and even then only in the entry file).
+        for s in &prog.stmts {
+            if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+                if is_reserved_global(name.as_str()) {
+                    continue;
+                }
+                let bind_ty = if let Some(t) = ty {
+                    Some(t.clone())
+                } else {
+                    self.infer_literal_type(value)
+                };
+                if let Some(t) = bind_ty {
+                    self.vars.insert(name.clone(), t);
+                }
+            }
+        }
+
         for item in &prog.items {
             match item {
                 Item::Fn(f) => self.check_fn(f, None)?,
