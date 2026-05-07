@@ -320,27 +320,60 @@ enum KeyMod: u16 {
     @lib("SDL2") fn SDL_IsScreenKeyboardShown(window: *void): i32
     @lib("SDL2") fn SDL_GetKeyboardFocus(): *void
 
-    /// Static-only namespace for keyboard state. Typical usage:
+    /// Polled keyboard state with rising / falling edge detection.
     ///
-    ///     sdl.Keyboard.pump()
-    ///     if sdl.Keyboard.isPressed(sdl.Scancode.left) { ... }
+    /// Typical per-frame usage:
     ///
-    /// `state_ptr` is a class-static `i64` holding the pointer SDL
-    /// handed back from `SDL_GetKeyboardState` (the same buffer,
-    /// with stable address, is mutated by SDL itself); `pump()`
-    /// refreshes it. `isPressed` reads a single byte at
-    /// `state_ptr + scancode` via `readU8` — no allocation per
-    /// call.
+    ///     let kb = new Keyboard()        // once, after `SDL_Init`
+    ///     ...
+    ///     kb.pump()                       // every frame
+    ///     if kb.isPressed(Scancode.left) { ... }       // held
+    ///     if kb.justPressed(Scancode.f) { ... }        // rising edge
+    ///     if kb.justReleased(Scancode.escape) { ... }  // falling edge
+    ///
+    /// `state_ptr` is the buffer SDL hands back from
+    /// `SDL_GetKeyboardState` — the same memory each call, mutated
+    /// by SDL itself when the OS event queue advances. `prev` is
+    /// our 512-byte snapshot of that buffer taken at the start of
+    /// each `pump()`, used to compare "this frame" against "last
+    /// frame".
     class Keyboard {
-        static state_ptr: i64 = 0
+        /// Cached pointer to SDL's keyboard state buffer.
+        state_ptr: i64
+        /// Snapshot of `state_ptr`'s contents from the previous
+        /// `pump()`, used by `justPressed` / `justReleased`.
+        prev: u8[]
 
-        /// Refresh the cached state pointer. Call once per frame
-        /// after `sdl.pumpEvents()`. (The address SDL hands back is
-        /// actually static, so calling once at startup also works,
-        /// but pumping each frame keeps the contract symmetric
-        /// with stateful APIs.)
-        static pump() {
-            Keyboard.state_ptr = SDL_GetKeyboardState(0 as *i32) as i64
+        /// Cache the state pointer and pre-allocate the previous-
+        /// frame snapshot. SDL's video subsystem must already be
+        /// initialised (`sdl.init(...)`).
+        init() {
+            this.state_ptr = SDL_GetKeyboardState(0 as *i32) as i64
+            // SDL_NUM_SCANCODES = 512.
+            let p: u8[] = []
+            let i: i32 = 0
+            while i < 512 {
+                p.push(0)
+                i += 1
+            }
+            this.prev = p
+        }
+
+        /// Snapshot the current state into `prev` and refresh the
+        /// SDL state pointer cache. Call once per frame **after**
+        /// `sdl.pumpEvents()` (which actually drains the OS event
+        /// queue) and before reading any polling methods.
+        pump() {
+            if this.state_ptr != 0 {
+                let i: i32 = 0
+                while i < 512 {
+                    this.prev[i as i64] = readU8(
+                        this.state_ptr as *const void, i as i64
+                    )
+                    i += 1
+                }
+            }
+            this.state_ptr = SDL_GetKeyboardState(0 as *i32) as i64
         }
 
         // ─── live state ──────────────────────────────────────────
@@ -352,28 +385,50 @@ enum KeyMod: u16 {
         ///   true while the key is held this frame. `false` when
         ///   `pump()` hasn't been called yet or when `scancode` is
         ///   out of range.
-        static isPressed(scancode: Scancode): bool {
+        isPressed(scancode: Scancode): bool {
             let s: i32 = scancode as i32
-            // SDL_NUM_SCANCODES = 512. Inlined because module-level
-            // consts aren't visible from inside this @extern block
-            // once the file is imported through the umbrella.
-            if Keyboard.state_ptr == 0 || s < 0 || s >= 512 {
+            if this.state_ptr == 0 || s < 0 || s >= 512 {
                 return false
             }
-            readU8(Keyboard.state_ptr as *const void, s as i64) != 0 as u8
+            readU8(this.state_ptr as *const void, s as i64) != 0 as u8
+        }
+
+        /// Returns:
+        ///   true if the key was held at the previous `pump()` —
+        ///   the "last frame" view used by edge detection.
+        wasPressed(scancode: Scancode): bool {
+            let s: i32 = scancode as i32
+            if s < 0 || s >= 512 {
+                return false
+            }
+            this.prev[s as i64] != 0 as u8
+        }
+
+        /// Returns:
+        ///   true on the single frame the key transitions from
+        ///   "up" to "down" — rising edge.
+        justPressed(scancode: Scancode): bool {
+            this.isPressed(scancode) && !this.wasPressed(scancode)
+        }
+
+        /// Returns:
+        ///   true on the single frame the key transitions from
+        ///   "down" to "up" — falling edge.
+        justReleased(scancode: Scancode): bool {
+            this.wasPressed(scancode) && !this.isPressed(scancode)
         }
 
         // ─── modifiers ───────────────────────────────────────────
 
         /// Returns:
         ///   bitmask of currently-held modifier keys.
-        static modState(): KeyMod {
+        modState(): KeyMod {
             SDL_GetModState() as KeyMod
         }
 
         /// Force-set the modifier state. Useful for emulating
         /// modifiers in tests.
-        static setModState(modstate: KeyMod) {
+        setModState(modstate: KeyMod) {
             SDL_SetModState(modstate as u16)
         }
 
@@ -382,14 +437,14 @@ enum KeyMod: u16 {
         /// Returns:
         ///   the keycode (layout-dependent) corresponding to a
         ///   physical scancode in the current layout.
-        static keyFromScancode(scancode: Scancode): Keycode {
+        keyFromScancode(scancode: Scancode): Keycode {
             SDL_GetKeyFromScancode(scancode as i32) as Keycode
         }
 
         /// Returns:
         ///   the scancode that produces `key` in the current
         ///   layout.
-        static scancodeFromKey(key: Keycode): Scancode {
+        scancodeFromKey(key: Keycode): Scancode {
             SDL_GetScancodeFromKey(key as i32) as Scancode
         }
 
@@ -397,7 +452,7 @@ enum KeyMod: u16 {
 
         /// Returns:
         ///   human-readable name (e.g. `"Left Shift"`).
-        static scancodeName(scancode: Scancode): string {
+        scancodeName(scancode: Scancode): string {
             stringFromCstr(SDL_GetScancodeName(scancode as i32))
         }
 
@@ -407,14 +462,14 @@ enum KeyMod: u16 {
         /// Returns:
         ///   the matching scancode, or `Scancode.unknown` for
         ///   unrecognised names.
-        static scancodeFromName(name: string): Scancode {
+        scancodeFromName(name: string): Scancode {
             SDL_GetScancodeFromName(cstrFromString(name)) as Scancode
         }
 
         /// Returns:
         ///   localised key name (depends on layout — `"Q"` on
         ///   QWERTY but `"A"` on AZERTY).
-        static keyName(key: Keycode): string {
+        keyName(key: Keycode): string {
             stringFromCstr(SDL_GetKeyName(key as i32))
         }
 
@@ -423,7 +478,7 @@ enum KeyMod: u16 {
         ///
         /// Returns:
         ///   the matching keycode, or `Keycode.unknown`.
-        static keyFromName(name: string): Keycode {
+        keyFromName(name: string): Keycode {
             SDL_GetKeyFromName(cstrFromString(name)) as Keycode
         }
 
@@ -431,43 +486,49 @@ enum KeyMod: u16 {
 
         /// Begin receiving `textInput` events; opens the on-screen
         /// keyboard on platforms that have one.
-        static startTextInput() {
+        startTextInput() {
             SDL_StartTextInput()
         }
 
         /// Pair to `startTextInput`.
-        static stopTextInput() {
+        stopTextInput() {
             SDL_StopTextInput()
         }
 
         /// Returns:
         ///   true if `textInput` events are currently flowing.
-        static isTextInputActive(): bool {
+        isTextInputActive(): bool {
             SDL_IsTextInputActive() != 0
         }
 
         /// Drop any in-progress IME composition without committing.
-        static clearComposition() {
+        clearComposition() {
             SDL_ClearComposition()
         }
 
         /// Returns:
         ///   true when the on-screen text input UI is visible.
-        static isTextInputShown(): bool {
+        isTextInputShown(): bool {
             SDL_IsTextInputShown() != 0
         }
 
         /// Returns:
         ///   true when the platform offers an on-screen keyboard
         ///   (mobile / tablet / game console).
-        static hasScreenKeyboardSupport(): bool {
+        hasScreenKeyboardSupport(): bool {
             SDL_HasScreenKeyboardSupport() != 0
         }
 
         /// Clear all "key currently held" state — useful after
-        /// regaining focus to avoid spurious held keys.
-        static reset() {
+        /// regaining focus to avoid spurious held keys. Also resets
+        /// the local `prev` snapshot.
+        reset() {
             SDL_ResetKeyboard()
+            let i: i32 = 0
+            while i < 512 {
+                this.prev[i as i64] = 0
+                i += 1
+            }
         }
 
         /// Hint to IMEs / on-screen keyboards where the user is
@@ -476,7 +537,7 @@ enum KeyMod: u16 {
         /// Args:
         ///   x, y — top-left corner of the input rect.
         ///   w, h — rectangle size in pixels.
-        static setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
+        setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
             let r = new Rect()
             r.x = x; r.y = y; r.w = w; r.h = h
             SDL_SetTextInputRect(r)
@@ -488,7 +549,7 @@ enum KeyMod: u16 {
         /// Returns:
         ///   true when the on-screen keyboard is currently visible
         ///   for that window.
-        static isScreenKeyboardShown(window: sdl.Window): bool {
+        isScreenKeyboardShown(window: sdl.Window): bool {
             SDL_IsScreenKeyboardShown(window.handle as *void) != 0
         }
 
@@ -496,7 +557,7 @@ enum KeyMod: u16 {
         ///   raw handle of the window that currently owns keyboard
         ///   focus, or `0` if no SDL window owns it. Compare against
         ///   `myWindow.handle` to test focus.
-        static focusHandle(): i64 {
+        focusHandle(): i64 {
             SDL_GetKeyboardFocus() as i64
         }
     }

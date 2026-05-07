@@ -80,7 +80,6 @@ class Game {
     slowTimer: i32
     wavePhase: f64
     fullscreen: bool
-    fWasDown: bool
     fps: i32
     fpsFrames: i32
     fpsLastMs: u32
@@ -183,9 +182,9 @@ class Game {
         // Visual effect state.
         this.wavePhase = 0.0       // brick highlight wave (rad)
 
-        // F toggles this.fullscreen — track edge so a held key doesn't flap.
+        // F toggles this.fullscreen — `Keyboard.justPressed`
+        // already gives us a one-frame rising edge.
         this.fullscreen = false
-        this.fWasDown = false
 
         // FPS counter.
         this.fps = 0
@@ -211,8 +210,9 @@ class Game {
     run() {
         let running = true
         while running {
-            sdl.pumpEvents()
-            sdl.Keyboard.pump()
+            // `Input.poll()` (called below) drains the event queue
+            // and pumps the keyboard. We just need the quit-request
+            // peek here, which itself runs `pumpEvents` internally.
             if sdl.quitRequested() {
                 running = false
             }
@@ -265,19 +265,18 @@ class Game {
             // works.
             let in_ = this.input.poll()
 
-            if in_.keyEsc || in_.padBack {
+            if in_.keyEscDown || in_.padBack {
                 running = false
             }
 
             // F: toggle this.fullscreen on key-down (rising edge).
-            if in_.keyF && !this.fWasDown {
+            if in_.keyFDown {
                 this.fullscreen = !this.fullscreen
                 this.window.fullscreen = this.fullscreen
             }
-            this.fWasDown = in_.keyF
 
             // Restart after game over.
-            if this.gameOver && (in_.keyR || in_.padStart) {
+            if this.gameOver && (in_.keyRDown || in_.padStart) {
                 this.brickGrid.reset()
                 let freshBalls: Ball[] = []
                 freshBalls.push(new Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
@@ -323,7 +322,7 @@ class Game {
             // shoot through unfilled rows.
             let introTotal = (consts.cols - 1) * consts.introStagger + consts.introDuration
             if !this.started && !this.gameOver && this.introPhase >= introTotal &&
-                    (in_.keySpace || in_.padA) {
+                    (in_.keySpaceDown || in_.padA) {
                 this.started = true
             }
 
