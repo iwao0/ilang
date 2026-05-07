@@ -963,33 +963,6 @@ impl TypeChecker {
                 // pass — they shouldn't appear here in the normal
                 // pipeline. Skip if any survives.
                 Item::Const(_) => {}
-                Item::ExternStatic(s) => {
-                    // Restrict to numeric / bool. The dlsym address
-                    // gives back a raw pointer; the JIT loads/stores
-                    // a fixed-width value through it. Strings, arrays,
-                    // structs would need marshalling we don't ship
-                    // for globals yet.
-                    let ok = matches!(
-                        &s.ty,
-                        Type::I8 | Type::I16 | Type::I32 | Type::I64
-                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                        | Type::F32 | Type::F64
-                        | Type::Bool
-                    );
-                    if !ok {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "@extern static {:?}: type {} not supported \
-                                 (allowed: numeric primitives or bool)",
-                                s.name, s.ty
-                            ),
-                            span: s.span,
-                        });
-                    }
-                    // Register as a typed global so `errno = 5` and
-                    // `let x = errno` resolve.
-                    self.vars.insert(s.name.clone(), s.ty.clone());
-                }
                 Item::ExternC(block) => {
                     // Walk the block's items in extern_c context so
                     // raw pointer / C-only types are accepted.
@@ -1028,7 +1001,7 @@ impl TypeChecker {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
                 Item::Enum(e) => self.check_enum(e)?,
-                Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) => {}
+                Item::Use(_) | Item::Const(_) => {}
                 Item::ExternC(block) => {
                     *self.in_extern_c.borrow_mut() = true;
                     let result = self.check_extern_c_bodies(block);
@@ -1142,26 +1115,6 @@ impl TypeChecker {
                 ilang_ast::ExternCItem::FnDef(f) => {
                     let sig = signature_of(f);
                     self.fns.entry(f.name.clone()).or_default().push(sig);
-                }
-                ilang_ast::ExternCItem::Static { name, ty, span, .. } => {
-                    let ok = matches!(
-                        ty,
-                        Type::I8 | Type::I16 | Type::I32 | Type::I64
-                        | Type::U8 | Type::U16 | Type::U32 | Type::U64
-                        | Type::F32 | Type::F64
-                        | Type::Bool
-                    );
-                    if !ok {
-                        return Err(TypeError::Unsupported {
-                            what: format!(
-                                "@extern(C) static {:?}: type {} not supported \
-                                 (allowed: numeric primitives or bool)",
-                                name, ty
-                            ),
-                            span: *span,
-                        });
-                    }
-                    self.vars.insert(name.clone(), ty.clone());
                 }
                 ilang_ast::ExternCItem::Class(c) => {
                     let sig = class_signature(c, None)?;

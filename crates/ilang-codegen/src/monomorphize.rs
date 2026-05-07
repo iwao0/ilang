@@ -231,7 +231,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
-        Item::ExternStatic(s) => Item::ExternStatic(s.clone()),
+        
     }
 }
 
@@ -589,7 +589,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
                 }
             }
             Item::Fn(f) => scan_fn(f, &mut needed, &mut worklist),
-            Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+            Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
         }
     }
     for s in &prog.stmts {
@@ -1315,7 +1315,7 @@ fn rewrite_item(item: &Item) -> Item {
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
-        Item::ExternStatic(s) => Item::ExternStatic(s.clone()),
+        
     }
 }
 
@@ -1849,7 +1849,7 @@ fn seed_calls_in_item(
                 seed_calls_in_block(&m.body, table, outer_params, outer_args, visit);
             }
         }
-        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
     }
 }
 
@@ -2025,7 +2025,7 @@ fn rewrite_calls_in_item(
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
-        Item::ExternStatic(s) => Item::ExternStatic(s.clone()),
+        
     }
 }
 
@@ -2778,7 +2778,7 @@ fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type])) {
                 }
             }
         }
-        Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
     }
 }
 
@@ -2858,7 +2858,7 @@ fn seed_enum_ctors_in_item(
                 seed_enum_ctors_in_block(&m.body, table, outer_params, outer_args, visit);
             }
         }
-        Item::Enum(_) | Item::Use(_) | Item::Const(_) | Item::ExternStatic(_) | Item::ExternC(_) => {}
+        Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
     }
 }
 
@@ -3090,7 +3090,7 @@ fn rewrite_enum_refs_in_item(
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
-        Item::ExternStatic(s) => Item::ExternStatic(s.clone()),
+        
     }
 }
 

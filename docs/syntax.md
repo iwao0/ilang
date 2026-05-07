@@ -1367,9 +1367,6 @@ their values from leaking outside.
         tv_nsec: i64
     }
     @lib("c") fn clock_gettime(clk: i32, tp: *timespec): i32
-
-    // C global
-    static stdout_fd: i32   // host-registered (example)
 }
 ```
 
@@ -1388,7 +1385,6 @@ exception).
 - **`union Name { fields }`** — C union (every field at offset 0)
 - **`@packed struct Name { ... }`** — `__attribute__((packed))`
   equivalent (no padding, align=1)
-- **`static name: T`** — C global
 - **`class Name { ... }`** — ARC-managed wrapper class with
   method bodies type-checked in the @extern(C) context
 
@@ -1596,20 +1592,6 @@ SysV "integer-only ≤ 16 B composite" rule, splitting structs into
   (V0..V3 / XMM0..XMM3).
 - > 16 B return → sret (hidden first parameter pointing at the
   caller-allocated buffer).
-
-#### Static globals (`static name: T`)
-
-```rust
-@extern(C) {
-    @lib("c") static optarg: *const char    // resolved via dlsym
-    static test_static_i32: i32             // host-form
-}
-```
-
-- Type restricted to **numeric primitives / bool**.
-- Read/write becomes a load/store at the resolved address.
-- Use cases: `errno` (`os.errno()` already wraps it) / `optarg` /
-  `tzname` etc.
 
 #### Encapsulation (no escapes outside the block)
 

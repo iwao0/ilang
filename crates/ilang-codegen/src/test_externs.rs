@@ -3,7 +3,6 @@
 //! (`test.expect`, `test.expectStr`, ...). Each helper aborts with
 //! exit code 2 on mismatch so the harness sees a non-zero status.
 
-use ilang_ast::Symbol;
 
 use cranelift_jit::JITBuilder;
 
@@ -228,15 +227,6 @@ pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("get_empty_cstr_array", test_get_empty_cstr_array as *const u8);
 }
 
-// ─── @extern static globals (test-only) ─────────────────────────────
-// Real C globals (`errno`, `stdin`, ...) are resolved by dlsym on the
-// platform libc. For self-contained tests we expose plain Rust statics
-// at fixed addresses; test fixtures declare `@extern static <name>: T`
-// with the same name and the JIT lowers reads/writes to load/store
-// against the registered address.
-static mut TEST_STATIC_I32: i32 = 0;
-static mut TEST_STATIC_F64: f64 = 0.0;
-
 // `slice_return`: C-side helpers return a `{ ptr, len }` 16 B struct
 // that the JIT marshals into a fresh ilang `T[]`. The data they
 // reference lives in static storage so the JIT-side memcpy reads
@@ -330,13 +320,3 @@ extern "C" fn test_byte_at(ptr: i64, offset: i64) -> i32 {
     unsafe { *((ptr + offset) as *const u8) as i32 }
 }
 
-pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<Symbol, i64>) {
-    out.insert(
-        "test_static_i32".into(),
-        std::ptr::addr_of_mut!(TEST_STATIC_I32) as i64,
-    );
-    out.insert(
-        "test_static_f64".into(),
-        std::ptr::addr_of_mut!(TEST_STATIC_F64) as i64,
-    );
-}

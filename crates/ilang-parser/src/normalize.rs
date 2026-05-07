@@ -512,7 +512,6 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             c.value = rewrite_expr(c.value, ctx);
             Item::Const(c)
         }
-        Item::ExternStatic(s) => Item::ExternStatic(s),
         Item::ExternC(mut b) => {
             // Walk fn definitions inside the block so module-qualified
             // calls (`test.foo(x)`) get rewritten to `Call("test.foo", x)`

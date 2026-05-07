@@ -94,11 +94,6 @@ impl Interpreter {
                 Item::Fn(f) => {
                     self.fns.insert(f.name.clone(), f.clone());
                 }
-                Item::ExternStatic(_) => {
-                    // JIT-only: the interpreter has no dlsym path to
-                    // a real C global. References resolve at the call
-                    // site (where the interpreter would error).
-                }
                 Item::ExternC(block) => {
                     // Walk the block and register struct / union as
                     // classes (with is_repr_c and the relevant flags
@@ -187,11 +182,6 @@ impl Interpreter {
                                     is_override: false,
                                 };
                                 self.fns.insert(name.clone(), synth);
-                            }
-                            ilang_ast::ExternCItem::Static { .. } => {
-                                // Resolved via dlsym/host registration at
-                                // JIT time only — the interpreter doesn't
-                                // touch C globals.
                             }
                             ilang_ast::ExternCItem::Class(c) => {
                                 // Plain ilang ARC class declared next

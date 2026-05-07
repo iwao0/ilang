@@ -82,19 +82,6 @@ pub(crate) fn lower_expr(
             if let Some(&(var, vt)) = lc.env.bindings.get(name) {
                 return Ok(Some((b.use_var(var), vt)));
             }
-            // `@extern static`: load the value through the resolved
-            // C address. The width follows the declared type.
-            if let Some(&addr) = lc.extern_static_addrs.get(name) {
-                let ast_ty = lc
-                    .extern_static_types
-                    .get(name)
-                    .expect("static type recorded alongside addr");
-                let jty = jit_ty_from_primitive(ast_ty);
-                let cl_ty = jty.cl().expect("primitive static");
-                let addr_v = b.ins().iconst(I64, addr);
-                let v = b.ins().load(cl_ty, MemFlags::trusted(), addr_v, 0);
-                return Ok(Some((v, jty)));
-            }
             // Unit-typed bindings (`let x = loop {...}`) carry no
             // Cranelift value — return Ok(None), letting void-tolerant
             // contexts (statement positions, further `let` RHS) handle
@@ -418,26 +405,6 @@ pub(crate) fn lower_expr(
                 if let Some(old) = old_val {
                     emit_release_heap(b, lc, old, var_ty);
                 }
-                return Ok(None);
-            }
-            // `@extern static` write: store the (coerced) value at
-            // the resolved address.
-            if let Some(&addr) = lc.extern_static_addrs.get(target) {
-                let ast_ty = lc
-                    .extern_static_types
-                    .get(target)
-                    .expect("static type recorded alongside addr")
-                    .clone();
-                let jty = jit_ty_from_primitive(&ast_ty);
-                let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
-                    CodegenError::Unsupported {
-                        what: "assigning unit".into(),
-                        span: e.span,
-                    }
-                })?;
-                let coerced = coerce(b, (val, vt), jty, e.span)?;
-                let addr_v = b.ins().iconst(I64, addr);
-                b.ins().store(MemFlags::trusted(), coerced, addr_v, 0);
                 return Ok(None);
             }
             if let Some((this_var, class_id)) = lc.this {
