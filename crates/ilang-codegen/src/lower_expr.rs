@@ -2437,8 +2437,15 @@ pub(crate) fn lower_expr(
             })?;
             let id = intern_optional_inner(lc.optional_inners, vt);
             if vt.is_heap() {
-                // Heap inner: pointer is the value; rc was set when
-                // the inner was constructed.
+                // Heap inner: pointer is the value. A fresh inner
+                // arrives with rc=1 and `some(...)` consumes that
+                // directly. An aliased source (Var / Field / Index /
+                // This), though, still belongs to the original
+                // binding — take our own +1 so the Optional is
+                // independent.
+                if is_aliased_heap_source(&inner.kind) {
+                    emit_retain_heap(b, lc, v, vt);
+                }
                 return Ok(Some((v, JitTy::Optional(id))));
             }
             // Primitive inner: heap-box the payload so we have a
