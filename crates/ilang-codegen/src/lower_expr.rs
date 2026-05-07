@@ -2725,6 +2725,7 @@ fn lower_match_primitive(
     st: JitTy,
     arms: &[ilang_ast::MatchArm],
     _span: ilang_ast::Span,
+    release_scrut: bool,
 ) -> Result<Option<TV>, CodegenError> {
     let arm_blocks: Vec<Block> = arms.iter().map(|_| b.create_block()).collect();
     let merge = b.create_block();
@@ -2842,6 +2843,9 @@ fn lower_match_primitive(
     }
     b.switch_to_block(merge);
     b.seal_block(merge);
+    if release_scrut {
+        emit_release_heap(b, lc, sv, st);
+    }
     Ok(match (merge_param, result_ty) {
         (Some(p), Some(t)) => Some((p, t)),
         _ => None,
@@ -2859,11 +2863,17 @@ fn lower_match(
         what: "match scrutinee is unit".into(),
         span: scrutinee.span,
     })?;
+    // A fresh heap scrutinee (call result, `new`, ...) arrives with
+    // rc=1 and isn't held by any binding, so the match expression
+    // itself owns that +1 and must release it once dispatching is
+    // done. An aliased scrutinee (Var / Field / Index / This) leaves
+    // its rc on the source binding and we don't touch it here.
+    let release_scrut = st.is_heap() && !is_aliased_heap_source(&scrutinee.kind);
     // Primitive scrutinee (int / bool / string) — dispatch on
     // equality. Each arm's pattern is an `IntLit` / `BoolLit` /
     // `StrLit` (or `_`); the type checker has already validated.
     if matches!(st, JitTy::Bool) || st.is_int() || matches!(st, JitTy::Str) {
-        return lower_match_primitive(b, lc, sv, st, arms, span);
+        return lower_match_primitive(b, lc, sv, st, arms, span, release_scrut);
     }
     let (enum_id, is_heap) = match st {
         JitTy::Enum(id) => (id, false),
@@ -3036,6 +3046,9 @@ fn lower_match(
 
     b.switch_to_block(merge);
     b.seal_block(merge);
+    if release_scrut {
+        emit_release_heap(b, lc, sv, st);
+    }
     Ok(merge_param.zip(result_ty).map(|(v, t)| (v, t)))
 }
 
