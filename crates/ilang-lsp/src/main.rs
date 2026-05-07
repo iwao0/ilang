@@ -2082,10 +2082,11 @@ fn build_doc(
                                 name, fields, ..
                             } => {
                                 for f in fields {
-                                    walker.push_decl(
+                                    walker.push_decl_with_doc(
                                         f.name.as_str(),
                                         f.span,
                                         format!("(property) {}.{}: {}", name, f.name, f.ty),
+                                        text::extract_doc_above(walker.text, f.span.line),
                                     );
                                 }
                             }
@@ -2614,17 +2615,19 @@ impl<'a> Walker<'a> {
     fn walk_class(&mut self, c: &ClassDecl) {
         // Field declaration name: hover shows the field decl line.
         for f in &c.fields {
-            self.push_decl(
+            self.push_decl_with_doc(
                 f.name.as_str(),
                 f.span,
                 format!("(property) {}.{}: {}", c.name, f.name, f.ty),
+                text::extract_doc_above(self.text, f.span.line),
             );
         }
         for f in &c.static_fields {
-            self.push_decl(
+            self.push_decl_with_doc(
                 f.name.as_str(),
                 f.span,
                 format!("(static property) {}.{}: {}", c.name, f.name, f.ty),
+                text::extract_doc_above(self.text, f.span.line),
             );
         }
         for p in &c.properties {
@@ -2632,6 +2635,7 @@ impl<'a> Walker<'a> {
             // the name identifier sits a few columns to its right. Push
             // a decl entry at that exact location for hover and F12,
             // distinguishing the getter from the setter.
+            let prop_doc = text::extract_doc_above(self.text, p.span.line);
             for (kind, accessor_span) in [
                 ("getter", p.getter.as_ref().map(|g| g.span)),
                 ("setter", p.setter.as_ref().map(|s| s.span)),
@@ -2641,23 +2645,33 @@ impl<'a> Walker<'a> {
                 if let Some(name_span) =
                     locate_property_name(self.text, span, p.name.as_str())
                 {
-                    self.push_decl(p.name.as_str(), name_span, sig);
+                    let accessor_doc =
+                        text::extract_doc_above(self.text, span.line)
+                            .or_else(|| prop_doc.clone());
+                    self.push_decl_with_doc(
+                        p.name.as_str(),
+                        name_span,
+                        sig,
+                        accessor_doc,
+                    );
                 }
             }
         }
         for m in &c.methods {
-            self.push_decl(
+            self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
                 format!("(method) {}.{}", c.name, fn_body(m)),
+                text::extract_doc_above(self.text, m.span.line),
             );
             self.walk_fn(m, Some(c.name.as_str()));
         }
         for m in &c.static_methods {
-            self.push_decl(
+            self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
                 format!("(static method) {}.{}", c.name, fn_body(m)),
+                text::extract_doc_above(self.text, m.span.line),
             );
             self.walk_fn(m, None);
         }
@@ -3429,6 +3443,16 @@ impl<'a> Walker<'a> {
     }
 
     fn push_decl(&mut self, name: &str, span: Span, signature: String) {
+        self.push_decl_with_doc(name, span, signature, None);
+    }
+
+    fn push_decl_with_doc(
+        &mut self,
+        name: &str,
+        span: Span,
+        signature: String,
+        doc: Option<String>,
+    ) {
         self.refs.push(RefEntry {
             line: span.line,
             start_col: span.col,
@@ -3438,7 +3462,7 @@ impl<'a> Walker<'a> {
             signature,
             no_definition: false,
             target_uri: None,
-            doc: None,
+            doc,
         });
     }
 
