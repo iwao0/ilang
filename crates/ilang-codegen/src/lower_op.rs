@@ -295,9 +295,9 @@ pub(crate) fn lower_binary(
     } else {
         let signed = common.is_signed_int();
         match op {
-            BinOp::Add => b.ins().iadd(lv, rv),
-            BinOp::Sub => b.ins().isub(lv, rv),
-            BinOp::Mul => b.ins().imul(lv, rv),
+            BinOp::Add => emit_checked_arith(b, lc, OvfOp::Add, signed, lv, rv),
+            BinOp::Sub => emit_checked_arith(b, lc, OvfOp::Sub, signed, lv, rv),
+            BinOp::Mul => emit_checked_arith(b, lc, OvfOp::Mul, signed, lv, rv),
             BinOp::Div => {
                 emit_div_zero_check(b, lc, rv);
                 if signed {
@@ -555,6 +555,48 @@ fn widen_int(
 fn narrow_int(b: &mut FunctionBuilder, v: Value, _to_width: u32, to: JitTy) -> Value {
     let to_cl = to.cl().expect("non-unit");
     b.ins().ireduce(to_cl, v)
+}
+
+/// Tag for the three integer arithmetic ops that need overflow detection.
+#[derive(Clone, Copy)]
+enum OvfOp {
+    Add,
+    Sub,
+    Mul,
+}
+
+/// Emit `(result, ovf) = <s|u><op>_overflow(lv, rv); if ovf { panic_overflow() }`
+/// matching the interpreter's `checked_*` semantics so that
+/// `255u8 + 1u8` traps in both modes instead of silently wrapping in
+/// the JIT.
+fn emit_checked_arith(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    op: OvfOp,
+    signed: bool,
+    lv: Value,
+    rv: Value,
+) -> Value {
+    use cranelift::prelude::InstBuilder;
+    let (result, ovf) = match (op, signed) {
+        (OvfOp::Add, true) => b.ins().sadd_overflow(lv, rv),
+        (OvfOp::Add, false) => b.ins().uadd_overflow(lv, rv),
+        (OvfOp::Sub, true) => b.ins().ssub_overflow(lv, rv),
+        (OvfOp::Sub, false) => b.ins().usub_overflow(lv, rv),
+        (OvfOp::Mul, true) => b.ins().smul_overflow(lv, rv),
+        (OvfOp::Mul, false) => b.ins().umul_overflow(lv, rv),
+    };
+    let trap_blk = b.create_block();
+    let ok_blk = b.create_block();
+    b.ins().brif(ovf, trap_blk, &[], ok_blk, &[]);
+    b.switch_to_block(trap_blk);
+    b.seal_block(trap_blk);
+    let r = lc.module.declare_func_in_func(lc.panic_overflow_id, b.func);
+    b.ins().call(r, &[]);
+    b.ins().trap(cranelift_codegen::ir::TrapCode::user(3).expect("trap code"));
+    b.switch_to_block(ok_blk);
+    b.seal_block(ok_blk);
+    result
 }
 
 /// Emit `if rhs == 0 { panic_div_zero() }` before integer div / mod.

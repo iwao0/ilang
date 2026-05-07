@@ -1312,6 +1312,11 @@ pub(crate) extern "C" fn ilang_jit_panic_div_zero() -> ! {
     std::process::exit(1);
 }
 
+pub(crate) extern "C" fn ilang_jit_panic_overflow() -> ! {
+    eprintln!("runtime panic: integer overflow");
+    std::process::exit(1);
+}
+
 pub(crate) extern "C" fn ilang_jit_panic_unwrap_none() -> ! {
     eprintln!("runtime panic: unwrap on `none`");
     std::process::exit(1);
