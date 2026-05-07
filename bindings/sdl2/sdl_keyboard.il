@@ -2,7 +2,7 @@
 // lookups, and text-input mode control. Mirrors SDL_keyboard.h
 // + the SDL_Scancode / SDL_Keycode / SDL_Keymod enums.
 //
-// The state polled by `Keyboard.isPressed(scancode)` reflects
+// The state polled by `Keyboard.isHeld(scancode)` reflects
 // SDL's internal keyboard array — call `sdl.pumpEvents()` once
 // per frame before querying so newly pressed keys show up.
 
@@ -327,9 +327,9 @@ enum KeyMod: u16 {
     ///     let kb = new Keyboard()        // once, after `SDL_Init`
     ///     ...
     ///     kb.pump()                       // every frame
-    ///     if kb.isPressed(Scancode.left) { ... }       // held
-    ///     if kb.justPressed(Scancode.f) { ... }        // rising edge
-    ///     if kb.justReleased(Scancode.escape) { ... }  // falling edge
+    ///     if kb.isHeld(Scancode.left) { ... }      // currently held
+    ///     if kb.isPressed(Scancode.f) { ... }      // rising edge
+    ///     if kb.isReleased(Scancode.escape) { ... } // falling edge
     ///
     /// `state_ptr` is the buffer SDL hands back from
     /// `SDL_GetKeyboardState` — the same memory each call, mutated
@@ -341,7 +341,7 @@ enum KeyMod: u16 {
         /// Cached pointer to SDL's keyboard state buffer.
         state_ptr: i64
         /// Snapshot of `state_ptr`'s contents from the previous
-        /// `pump()`, used by `justPressed` / `justReleased`.
+        /// `pump()`, used by `isPressed` / `isReleased`.
         prev: u8[]
 
         /// Cache the state pointer and pre-allocate the previous-
@@ -382,10 +382,10 @@ enum KeyMod: u16 {
         ///   scancode — physical key code.
         ///
         /// Returns:
-        ///   true while the key is held this frame. `false` when
+        ///   true while the key is currently held. `false` when
         ///   `pump()` hasn't been called yet or when `scancode` is
         ///   out of range.
-        isPressed(scancode: Scancode): bool {
+        isHeld(scancode: Scancode): bool {
             let s: i32 = scancode as i32
             if this.state_ptr == 0 || s < 0 || s >= 512 {
                 return false
@@ -396,7 +396,7 @@ enum KeyMod: u16 {
         /// Returns:
         ///   true if the key was held at the previous `pump()` —
         ///   the "last frame" view used by edge detection.
-        wasPressed(scancode: Scancode): bool {
+        wasHeld(scancode: Scancode): bool {
             let s: i32 = scancode as i32
             if s < 0 || s >= 512 {
                 return false
@@ -407,15 +407,15 @@ enum KeyMod: u16 {
         /// Returns:
         ///   true on the single frame the key transitions from
         ///   "up" to "down" — rising edge.
-        justPressed(scancode: Scancode): bool {
-            this.isPressed(scancode) && !this.wasPressed(scancode)
+        isPressed(scancode: Scancode): bool {
+            this.isHeld(scancode) && !this.wasHeld(scancode)
         }
 
         /// Returns:
         ///   true on the single frame the key transitions from
         ///   "down" to "up" — falling edge.
-        justReleased(scancode: Scancode): bool {
-            this.wasPressed(scancode) && !this.isPressed(scancode)
+        isReleased(scancode: Scancode): bool {
+            this.wasHeld(scancode) && !this.isHeld(scancode)
         }
 
         // ─── modifiers ───────────────────────────────────────────

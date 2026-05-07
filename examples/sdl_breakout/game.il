@@ -182,7 +182,7 @@ class Game {
         // Visual effect state.
         this.wavePhase = 0.0       // brick highlight wave (rad)
 
-        // F toggles this.fullscreen — `Keyboard.justPressed`
+        // F toggles this.fullscreen — `Keyboard.isPressed`
         // already gives us a one-frame rising edge.
         this.fullscreen = false
 

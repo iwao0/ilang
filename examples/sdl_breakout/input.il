@@ -57,14 +57,14 @@ class Input {
         s.padA = this.gamepad.isPressed(sdl.Button.a)
         s.padStart = this.gamepad.isPressed(sdl.Button.start)
         s.padBack = this.gamepad.isPressed(sdl.Button.back)
-        s.keyEscDown = this.keyboard.justPressed(sdl.Scancode.escape)
-        s.keyFDown = this.keyboard.justPressed(sdl.Scancode.f)
-        s.keyRDown = this.keyboard.justPressed(sdl.Scancode.r)
-        s.keyLeft = this.keyboard.isPressed(sdl.Scancode.left)
-        s.keyRight = this.keyboard.isPressed(sdl.Scancode.right)
-        s.keyA = this.keyboard.isPressed(sdl.Scancode.a)
-        s.keyD = this.keyboard.isPressed(sdl.Scancode.d)
-        s.keySpaceDown = this.keyboard.justPressed(sdl.Scancode.space)
+        s.keyEscDown = this.keyboard.isPressed(sdl.Scancode.escape)
+        s.keyFDown = this.keyboard.isPressed(sdl.Scancode.f)
+        s.keyRDown = this.keyboard.isPressed(sdl.Scancode.r)
+        s.keyLeft = this.keyboard.isHeld(sdl.Scancode.left)
+        s.keyRight = this.keyboard.isHeld(sdl.Scancode.right)
+        s.keyA = this.keyboard.isHeld(sdl.Scancode.a)
+        s.keyD = this.keyboard.isHeld(sdl.Scancode.d)
+        s.keySpaceDown = this.keyboard.isPressed(sdl.Scancode.space)
         s
     }
 }
