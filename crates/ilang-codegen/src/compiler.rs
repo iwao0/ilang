@@ -129,6 +129,10 @@ fn jit_run_inner(
     //     is declared after Child, and likewise for enum forward-refs.
     //     This must happen BEFORE closure-meta conversion so captures
     //     of class types resolve to the correct JIT class id.
+    // Register the built-in `TypeKind` enum first so its id is
+    // stable across runs and `lower_typeof` can refer to it without
+    // requiring user code to mention the name.
+    compiler.declare_typekind_enum();
     for item in &prog.items {
         match item {
             Item::Class(c) => compiler.declare_class_name(c)?,
@@ -241,7 +245,13 @@ fn jit_run_inner(
     //     their function pointers in the allocation header. Bodies are
     //     defined later (need user methods to be defined first).
     crate::drops::declare_class_drops(&mut compiler)?;
-    // 2c. Allocate per-class vtable storage (zeroed for now). Stable
+    // 2c. Build RTTI `TypeMeta` table. Must run before
+    //     `allocate_vtables` so the latter can refer to per-class
+    //     TypeMeta addresses by index. Stable storage in
+    //     `compiler.type_metas` (capacity reserved upfront so
+    //     pointers stay valid).
+    compiler.build_type_metas();
+    // 2d. Allocate per-class vtable storage (zeroed for now). Stable
     //     addresses are needed before lowering since `new` and
     //     virtual call sites embed them as `iconst`. Actual function
     //     pointers are written in by `populate_vtables` after
@@ -379,6 +389,7 @@ pub(crate) struct JitCompiler {
     pub(crate) print_space: FuncId,
     pub(crate) print_newline: FuncId,
     pub(crate) print_str: FuncId,
+    pub(crate) print_type_ref: FuncId,
     pub(crate) str_concat: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) retain_string_id: FuncId,
@@ -541,6 +552,22 @@ pub(crate) struct JitCompiler {
     /// types.
     pub(crate) closure_ast_captures:
         std::collections::HashMap<Symbol, Vec<(Symbol, ilang_ast::Type)>>,
+    /// RTTI: stable storage for `TypeMeta` records returned by
+    /// `typeof(x): Type`. Indices are looked up via the address-only
+    /// helpers below.
+    pub(crate) type_metas: Vec<crate::runtime::TypeMeta>,
+    /// `TypeMeta*` for each class, indexed by class_id. Used at the
+    /// `typeof(class_value)` lowering to read the metadata pointer
+    /// out of the object's vtable header (vtable[-1]).
+    pub(crate) class_type_meta_addrs: Vec<i64>,
+    /// `TypeMeta*` for each enum, indexed by enum_id (the enum's
+    /// runtime type is its monomorphised name — the same for every
+    /// value of that enum, so this needs no runtime dispatch).
+    pub(crate) enum_type_meta_addrs: Vec<i64>,
+    /// `TypeMeta*` for fixed primitive / structural types whose
+    /// names don't depend on type arguments. Lookup by the
+    /// `JitTy`-shaped key produced by `prim_type_meta_key`.
+    pub(crate) prim_type_meta_addrs: std::collections::HashMap<&'static str, i64>,
 }
 
 /// How a `@extern(C) struct` struct flows across a `by_value` call boundary.
@@ -856,6 +883,10 @@ impl JitCompiler {
             ilang_jit_print_newline as *const u8,
         );
         builder.symbol("ilang_jit_print_str", ilang_jit_print_str as *const u8);
+        builder.symbol(
+            "ilang_jit_print_type_ref",
+            crate::runtime::ilang_jit_print_type_ref as *const u8,
+        );
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
         builder.symbol(
@@ -994,6 +1025,7 @@ impl JitCompiler {
         let print_newline =
             declare_import(&mut module, "ilang_jit_print_newline", &[], None)?;
         let print_str = declare_import(&mut module, "ilang_jit_print_str", &[I64], None)?;
+        let print_type_ref = declare_import(&mut module, "ilang_jit_print_type_ref", &[I64], None)?;
         let str_concat = declare_import(
             &mut module,
             "ilang_jit_str_concat",
@@ -1157,6 +1189,7 @@ impl JitCompiler {
             print_space,
             print_newline,
             print_str,
+            print_type_ref,
             str_concat,
             str_eq,
             retain_string_id,
@@ -1254,6 +1287,10 @@ impl JitCompiler {
             closure_trampolines: std::collections::HashMap::new(),
             closure_drops: std::collections::HashMap::new(),
             closure_ast_captures: std::collections::HashMap::new(),
+            type_metas: Vec::new(),
+            class_type_meta_addrs: Vec::new(),
+            enum_type_meta_addrs: Vec::new(),
+            prim_type_meta_addrs: std::collections::HashMap::new(),
         })
     }
 
@@ -1263,6 +1300,36 @@ impl JitCompiler {
     /// for the tagged-union allocation. Resolving inner field types
     /// piggybacks on `JitTy::from_ast`, which can see the in-progress
     /// `enum_layouts` table for forward refs.
+    /// Synthesize the built-in `TypeKind` enum's codegen layout.
+    /// `TypeKind` is reserved at the type-checker level (so user code
+    /// can't shadow it), which means it never appears as an
+    /// `Item::Enum` here — we install it directly. Variant order
+    /// must match the type checker's registration so the runtime
+    /// tag values agree.
+    fn declare_typekind_enum(&mut self) {
+        let id = self.enum_layouts.len() as u32;
+        self.enum_ids.insert("TypeKind".into(), id);
+        let variants: Vec<Symbol> = [
+            "primitive", "class", "enum", "optional", "array", "fn",
+            "tuple", "string", "unit",
+        ]
+        .iter()
+        .map(|s| (*s).into())
+        .collect();
+        let tags: Vec<i64> = (0..variants.len() as i64).collect();
+        let n_variants = variants.len();
+        self.enum_layouts.push(EnumLayout {
+            name: "TypeKind".into(),
+            variants,
+            tags,
+            all_unit: true,
+            payloads: vec![EnumVariantLayout::Unit; n_variants],
+            max_payload_size: 0,
+            flags: false,
+            flags_repr: None,
+        });
+    }
+
     fn declare_enum_layout(&mut self, e: &EnumDecl) -> Result<(), CodegenError> {
         let id = self.enum_layouts.len() as u32;
         self.enum_ids.insert(e.name.clone(), id);
@@ -1921,6 +1988,7 @@ impl JitCompiler {
                 space: self.print_space,
                 newline: self.print_newline,
                 str: self.print_str,
+                type_ref: self.print_type_ref,
             },
             strfns: StrFns {
                 concat: self.str_concat,
@@ -1985,6 +2053,10 @@ impl JitCompiler {
             fn_signatures: &mut self.fn_signatures,
             map_kinds: &mut self.map_kinds,
             tuple_kinds: &mut self.tuple_kinds,
+            class_type_meta_addrs: &self.class_type_meta_addrs,
+            enum_type_meta_addrs: &self.enum_type_meta_addrs,
+            prim_type_meta_addrs: &self.prim_type_meta_addrs,
+            typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2125,6 +2197,7 @@ impl JitCompiler {
                 space: self.print_space,
                 newline: self.print_newline,
                 str: self.print_str,
+                type_ref: self.print_type_ref,
             },
             strfns: StrFns {
                 concat: self.str_concat,
@@ -2189,6 +2262,10 @@ impl JitCompiler {
             fn_signatures: &mut self.fn_signatures,
             map_kinds: &mut self.map_kinds,
             tuple_kinds: &mut self.tuple_kinds,
+            class_type_meta_addrs: &self.class_type_meta_addrs,
+            enum_type_meta_addrs: &self.enum_type_meta_addrs,
+            prim_type_meta_addrs: &self.prim_type_meta_addrs,
+            typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2317,24 +2394,29 @@ impl JitCompiler {
     }
 
     /// Allocate one zero-initialised `Box<[i64]>` per class, sized
-    /// according to the typechecker's `class_vtable_lens` table.
-    /// Stable address per class lands in `class_vtable_addrs`.
+    /// according to the typechecker's `class_vtable_lens` table plus
+    /// one leading slot reserved for the class's `TypeMeta*`. The
+    /// reported `class_vtable_addrs[i]` points at slot 1 (the first
+    /// method slot), so virtual-call sites address it at
+    /// `vtable_ptr + slot*8` unchanged. RTTI reads `vtable_ptr - 8`
+    /// to fetch the TypeMeta pointer.
     fn allocate_vtables(&mut self) {
         let n = self.class_layouts.len();
         self.class_vtable_storage = Vec::with_capacity(n);
         self.class_vtable_addrs = Vec::with_capacity(n);
         for layout in &self.class_layouts {
-            let len = self
+            let method_len = self
                 .class_vtable_lens
                 .get(&layout.name)
                 .copied()
                 .unwrap_or(0);
-            let buf: Box<[i64]> = vec![0i64; len].into_boxed_slice();
-            let addr = if buf.is_empty() {
-                0
-            } else {
-                buf.as_ptr() as i64
-            };
+            // +1 leading slot for `TypeMeta*` (always present so
+            // typeof works even on classes with no methods).
+            let buf: Box<[i64]> = vec![0i64; method_len + 1].into_boxed_slice();
+            // Reported address points at slot 1 — i.e. past the
+            // TypeMeta header — so existing slot arithmetic stays
+            // valid and `vt_ptr - 8` reads the TypeMeta pointer.
+            let addr = buf.as_ptr() as i64 + 8;
             self.class_vtable_storage.push(buf);
             self.class_vtable_addrs.push(addr);
         }
@@ -2345,8 +2427,14 @@ impl JitCompiler {
     /// per-class `class_methods` table already contains inherited
     /// method entries (from the parent's table) for methods this
     /// class doesn't override, so the lookup is a single map hit.
+    /// Also writes the TypeMeta pointer into slot 0.
     fn populate_vtables(&mut self) {
         for (class_idx, layout) in self.class_layouts.iter().enumerate() {
+            // RTTI: store the class's TypeMeta pointer in slot 0
+            // (addressed as `vtable_ptr - 8` from JITed code).
+            if let Some(meta_ptr) = self.class_type_meta_addrs.get(class_idx).copied() {
+                self.class_vtable_storage[class_idx][0] = meta_ptr;
+            }
             let slots = match self.class_method_slots.get(&layout.name) {
                 Some(s) => s.clone(),
                 None => continue,
@@ -2357,8 +2445,103 @@ impl JitCompiler {
                     None => continue,
                 };
                 let ptr = self.module.get_finalized_function(info.id) as i64;
-                self.class_vtable_storage[class_idx][slot] = ptr;
+                // +1 to skip the leading TypeMeta slot.
+                self.class_vtable_storage[class_idx][slot + 1] = ptr;
             }
+        }
+    }
+
+    /// Build the `TypeMeta` table covering every type the program
+    /// might query at runtime: each class, each (monomorphised)
+    /// enum, and a fixed roster of structural / primitive kinds.
+    /// Pre-allocating into a `Vec<TypeMeta>` gives stable addresses
+    /// — `Vec` reallocations would invalidate them, so we reserve
+    /// the final capacity up front.
+    fn build_type_metas(&mut self) {
+        use crate::runtime::{alloc_str_saturated, TypeMeta};
+        // TypeKind variant ordinals (declaration order in checker.rs):
+        // primitive=0, class=1, enum=2, optional=3, array=4, fn=5,
+        // tuple=6, string=7, unit=8.
+        const K_PRIMITIVE: i32 = 0;
+        const K_CLASS: i32 = 1;
+        const K_ENUM: i32 = 2;
+        const K_OPTIONAL: i32 = 3;
+        const K_ARRAY: i32 = 4;
+        const K_FN: i32 = 5;
+        const K_TUPLE: i32 = 6;
+        const K_STRING: i32 = 7;
+        const K_UNIT: i32 = 8;
+        // Pre-size so push() never reallocates and the addresses we
+        // hand out below stay valid. We push `n_class + n_enum +
+        // n_prim` entries total.
+        let primitives: &[(&'static str, i32)] = &[
+            ("i8", K_PRIMITIVE),
+            ("i16", K_PRIMITIVE),
+            ("i32", K_PRIMITIVE),
+            ("i64", K_PRIMITIVE),
+            ("u8", K_PRIMITIVE),
+            ("u16", K_PRIMITIVE),
+            ("u32", K_PRIMITIVE),
+            ("u64", K_PRIMITIVE),
+            ("f32", K_PRIMITIVE),
+            ("f64", K_PRIMITIVE),
+            ("bool", K_PRIMITIVE),
+            ("string", K_STRING),
+            ("()", K_UNIT),
+            ("optional", K_OPTIONAL),
+            ("array", K_ARRAY),
+            ("fn", K_FN),
+            ("tuple", K_TUPLE),
+            ("weak", K_CLASS),
+            ("Map", K_CLASS),
+            ("Type", K_CLASS),
+        ];
+        let total = self.class_layouts.len() + self.enum_layouts.len() + primitives.len();
+        self.type_metas = Vec::with_capacity(total);
+        // Per-class entries — preserve class_id ordering so the
+        // address vec lines up with `class_layouts`.
+        self.class_type_meta_addrs = Vec::with_capacity(self.class_layouts.len());
+        for layout in &self.class_layouts {
+            let name_ptr = alloc_str_saturated(layout.name.as_str().to_string());
+            self.type_metas.push(TypeMeta {
+                name: name_ptr,
+                kind: K_CLASS,
+                _pad: 0,
+            });
+            let idx = self.type_metas.len() - 1;
+            self.class_type_meta_addrs
+                .push(&self.type_metas[idx] as *const TypeMeta as i64);
+        }
+        // Per-enum entries. After monomorphisation `layout.name` is
+        // `Result<i64, string>`; strip the `<...>` so the v1 RTTI
+        // surface stays consistent with the interpreter (which has
+        // no monomorphised name available). Phase 4's `typeArgs()`
+        // will surface the args separately.
+        self.enum_type_meta_addrs = Vec::with_capacity(self.enum_layouts.len());
+        for layout in &self.enum_layouts {
+            let raw = layout.name.as_str();
+            let base = raw.split_once('<').map(|(b, _)| b).unwrap_or(raw);
+            let name_ptr = alloc_str_saturated(base.to_string());
+            self.type_metas.push(TypeMeta {
+                name: name_ptr,
+                kind: K_ENUM,
+                _pad: 0,
+            });
+            let idx = self.type_metas.len() - 1;
+            self.enum_type_meta_addrs
+                .push(&self.type_metas[idx] as *const TypeMeta as i64);
+        }
+        // Structural / primitive entries — looked up by static name.
+        for (name, kind) in primitives {
+            let name_ptr = alloc_str_saturated((*name).to_string());
+            self.type_metas.push(TypeMeta {
+                name: name_ptr,
+                kind: *kind,
+                _pad: 0,
+            });
+            let idx = self.type_metas.len() - 1;
+            let addr = &self.type_metas[idx] as *const TypeMeta as i64;
+            self.prim_type_meta_addrs.insert(*name, addr);
         }
     }
 
@@ -2494,6 +2677,12 @@ impl JitCompiler {
                     "embedded arrays only flow through chained access; the program's \
                      tail value would need to be a heap-managed type, not an inline slot"
                 ),
+                JitTy::TypeRef => {
+                    let meta_ptr = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
+                    let name_ptr = *(meta_ptr as *const i64);
+                    let s = (*(name_ptr as *const StringRc)).s.clone();
+                    JitValue::TypeRef(s)
+                }
                 JitTy::Unit => {
                     (std::mem::transmute::<_, extern "C" fn()>(ptr))();
                     JitValue::Unit

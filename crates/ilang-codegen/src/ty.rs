@@ -79,6 +79,12 @@ pub(crate) enum JitTy {
     /// computes `base + i * elem_size` with no bounds check (matches
     /// C's FAM idiom; the user maintains the count themselves).
     FlexArray(u32),
+    /// RTTI handle returned by `typeof(x)`. Stored as an `i64` pointer
+    /// to a static `TypeMeta` struct; same shape as a string-pointer
+    /// from the JIT's perspective. Field reads (`.name`, `.kind`) are
+    /// intercepted in lower_expr — there's no real ilang class behind
+    /// it.
+    TypeRef,
     Unit,
 }
 
@@ -187,6 +193,12 @@ impl JitTy {
             Type::Size => JitTy::U64,
             Type::SSize => JitTy::I64,
             Type::Object(name) => {
+                // Built-in `Type` (returned by `typeof`) is not a real
+                // user class — keep it as a virtual JitTy whose field
+                // reads are intercepted in lower_expr.
+                if name.as_str() == "Type" {
+                    JitTy::TypeRef
+                } else
                 // The parser produces Object(name) for any user-defined
                 // type — could be a class or an enum. Enum lookup wins
                 // when the name matches one. We need access to the
@@ -298,7 +310,8 @@ impl JitTy {
             | JitTy::Map(_)
             | JitTy::Tuple(_)
             | JitTy::EmbeddedArray(_)
-            | JitTy::FlexArray(_) => I64,
+            | JitTy::FlexArray(_)
+            | JitTy::TypeRef => I64,
             JitTy::F32 => F32,
             JitTy::F64 => F64,
             JitTy::Unit => return None,
@@ -322,7 +335,8 @@ impl JitTy {
             | JitTy::Fn(_)
             | JitTy::Map(_)
             | JitTy::Tuple(_)
-            | JitTy::EmbeddedArray(_) => 8,
+            | JitTy::EmbeddedArray(_)
+            | JitTy::TypeRef => 8,
             JitTy::FlexArray(_) => 0,
             JitTy::Unit => 0,
         }

@@ -65,6 +65,8 @@ pub(crate) struct PrintFns {
     pub space: FuncId,
     pub newline: FuncId,
     pub str: FuncId,
+    /// `Type(<name>)` formatter for `console.log(typeof(x))`.
+    pub type_ref: FuncId,
 }
 
 /// FFI helpers for the heap String runtime.
@@ -244,6 +246,24 @@ pub(crate) struct LowerCtx<'a> {
     pub fn_signatures: &'a mut Vec<FnSignature>,
     pub map_kinds: &'a mut Vec<crate::ty::MapKind>,
     pub tuple_kinds: &'a mut Vec<crate::ty::TupleKind>,
+    /// RTTI: per-class `TypeMeta*`, indexed by class_id. Lowered
+    /// `typeof(class_value)` reads the dynamic-type metadata
+    /// pointer from `vtable_ptr - 8` (populated by
+    /// `JitCompiler::populate_vtables`), so this slice isn't read
+    /// from the lowering side directly — it's threaded for
+    /// completeness / future use.
+    #[allow(dead_code)]
+    pub class_type_meta_addrs: &'a [i64],
+    /// RTTI: per-enum `TypeMeta*`, indexed by enum_id.
+    pub enum_type_meta_addrs: &'a [i64],
+    /// RTTI: `TypeMeta*` for the structural / primitive types
+    /// (`i8`..`u64`, `f32`/`f64`, `bool`, `string`, `()`,
+    /// `optional`, `array`, `fn`, `tuple`, `weak`, `Map`, `Type`).
+    pub prim_type_meta_addrs: &'a std::collections::HashMap<&'static str, i64>,
+    /// JIT enum id of the built-in `TypeKind` enum (registered as a
+    /// regular unit-only enum via `inject_type_kind_decl`). Reads of
+    /// `Type.kind` lower to `JitTy::Enum(typekind_enum_id)`.
+    pub typekind_enum_id: u32,
     /// Per-tuple-kind drop wrapper, lazily declared during lowering.
     /// `None` means no element is heap so no drop is needed.
     pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,

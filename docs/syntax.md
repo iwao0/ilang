@@ -1085,6 +1085,56 @@ console.log(arr, obj, opt)           // arrays / objects / optionals are formatt
 
 ---
 
+## 13a. RTTI: `typeof` and `Type`
+
+Every value can be inspected at runtime via the `typeof(x): Type`
+built-in. Returns a `Type` handle exposing the value's *dynamic*
+type (a `Parent`-typed slot holding a `Child` reports `Child`).
+
+```rust
+class Animal { sound(): string { "?" } }
+class Dog extends Animal { override sound(): string { "woof" } }
+
+let a: Animal = new Dog()
+typeof(a).name         // "Dog" (dynamic — not "Animal")
+typeof(a).kind         // TypeKind.class
+
+typeof(42).name        // "i64"
+typeof("hi").name      // "string"
+typeof(some(1)).name   // "optional"
+
+let r: Result<i64, string> = Result.ok(1)
+typeof(r).name         // "Result"  (type args surfaced separately
+                       //  by `typeArgs()` in a later phase)
+```
+
+`Type` exposes:
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `.name` | `string` | User-facing type name (e.g. `"Dog"`, `"i64"`, `"Result"`) |
+| `.kind` | `TypeKind` | One of `primitive`, `class`, `enum`, `optional`, `array`, `fn`, `tuple`, `string`, `unit` |
+
+`TypeKind` is a built-in unit enum and can be `match`ed normally:
+
+```rust
+let label = match typeof(x).kind {
+    primitive { "num" }
+    string { "text" }
+    class { "obj" }
+    _ { "other" }
+}
+```
+
+- `Type` and `TypeKind` are reserved names — user code can't
+  redefine them.
+- Dynamic class dispatch goes through the vtable header, so RTTI
+  works under inheritance for both interpreter and JIT.
+- `parent`, `fields()`, `methods()`, `typeArgs()`, plus the
+  `is` / `as?` operators are planned in follow-up phases.
+
+---
+
 ## 13b. Modules (`use`)
 
 Imports `fn` / `class` / `enum` items from another file. Rust-style

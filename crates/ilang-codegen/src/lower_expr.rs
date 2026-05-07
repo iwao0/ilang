@@ -702,6 +702,33 @@ pub(crate) fn lower_expr(
                 }
                 return Ok(Some((n, JitTy::I64)));
             }
+            // Built-in `Type.name` / `Type.kind` (RTTI).
+            if obj_t == JitTy::TypeRef {
+                if name == "name" {
+                    let s = b.ins().load(
+                        I64,
+                        MemFlags::trusted(),
+                        obj_v,
+                        crate::runtime::TYPE_META_NAME_OFFSET,
+                    );
+                    // The metadata's name string is allocated with a
+                    // saturated rc, so retain/release stay no-ops —
+                    // but emit retain for symmetry with other paths
+                    // that produce owned strings.
+                    let r = lc.module.declare_func_in_func(lc.strfns.retain, b.func);
+                    b.ins().call(r, &[s]);
+                    return Ok(Some((s, JitTy::Str)));
+                }
+                if name == "kind" {
+                    let k = b.ins().load(
+                        I32,
+                        MemFlags::trusted(),
+                        obj_v,
+                        crate::runtime::TYPE_META_KIND_OFFSET,
+                    );
+                    return Ok(Some((k, JitTy::Enum(lc.typekind_enum_id))));
+                }
+            }
             // Built-in Optional properties: `isSome` / `isNone`.
             // Optional values are nullable pointers (i64); compare to 0.
             if let JitTy::Optional(_) = obj_t {
@@ -1250,6 +1277,16 @@ pub(crate) fn lower_expr(
             call_method(b, lc, class_id, method.as_str(), obj_v, args, e.span)
         }
         ExprKind::Call { callee, args } => {
+            // Built-in `typeof(x): Type`. The argument is evaluated
+            // (so heap retains/releases stay correct), then the
+            // resulting `TypeMeta*` is computed by static dispatch on
+            // the argument's compile-time JitTy — except for
+            // class-typed arguments, which read the dynamic class's
+            // TypeMeta pointer from the vtable's leading slot
+            // (vtable_ptr - 8).
+            if callee.as_str() == "typeof" && args.len() == 1 {
+                return Ok(Some(lower_typeof(b, lc, &args[0])?));
+            }
             // Indirect call through a function-typed local. Matches the
             // type checker's lookup order — a `let` shadows top-level
             // fns of the same name.
@@ -3178,6 +3215,13 @@ fn emit_print_value(
                 span,
             });
         }
+        JitTy::TypeRef => {
+            // Print as `Type(<name>)` to match the interpreter.
+            // Dedicated helper avoids needing static prefix/suffix
+            // strings here.
+            let r = lc.module.declare_func_in_func(lc.print.type_ref, b.func);
+            b.ins().call(r, &[v]);
+        }
         JitTy::EmbeddedArray(_) | JitTy::FlexArray(_) => {
             // Embedded / flex arrays only flow through `Index`
             // access; a bare `outer.arr` value reaching this print
@@ -4978,6 +5022,74 @@ fn lower_errno_check(
     b.seal_block(merge);
     let opt_id = crate::ty::intern_optional_inner(lc.optional_inners, inner);
     (b.block_params(merge)[0], JitTy::Optional(opt_id))
+}
+
+/// Lower `typeof(arg)`: evaluate `arg` (so heap retains/releases
+/// happen normally) and produce a `JitTy::TypeRef` whose pointer
+/// is the `TypeMeta*` for the value's runtime type.
+///
+/// All non-class types resolve to a compile-time-known TypeMeta
+/// pointer (their static and dynamic types coincide). Class
+/// receivers go through the vtable: each class's vtable header
+/// stores its TypeMeta pointer at `vtable_ptr - 8`, so a
+/// `Parent`-typed slot holding a `Child` value reports the
+/// dynamic class.
+fn lower_typeof(
+    b: &mut FunctionBuilder<'_>,
+    lc: &mut LowerCtx,
+    arg: &Expr,
+) -> Result<TV, CodegenError> {
+    let (arg_v, arg_t) = lower_expr(b, lc, arg)?.ok_or_else(|| CodegenError::Unsupported {
+        what: "typeof argument is unit".into(),
+        span: arg.span,
+    })?;
+    let release = !is_aliased_heap_source(&arg.kind);
+    let meta_addr = match arg_t {
+        JitTy::Object(_) => {
+            // Read the dynamic class's TypeMeta pointer from the
+            // vtable header (slot at `vtable_ptr - 8`). The vtable
+            // pointer itself lives at `obj_ptr - 8` (VTABLE_OFFSET).
+            let vt = b.ins().load(
+                I64,
+                MemFlags::trusted(),
+                arg_v,
+                crate::runtime::VTABLE_OFFSET as i32,
+            );
+            let meta = b.ins().load(I64, MemFlags::trusted(), vt, -8);
+            if release {
+                emit_release_heap(b, lc, arg_v, arg_t);
+            }
+            return Ok((meta, JitTy::TypeRef));
+        }
+        JitTy::Weak(_) => *lc.prim_type_meta_addrs.get("weak").expect("weak meta"),
+        JitTy::Map(_) => *lc.prim_type_meta_addrs.get("Map").expect("Map meta"),
+        JitTy::Enum(eid) | JitTy::EnumHeap(eid) => lc.enum_type_meta_addrs[eid as usize],
+        JitTy::Optional(_) => *lc.prim_type_meta_addrs.get("optional").expect("optional meta"),
+        JitTy::Array(_) | JitTy::EmbeddedArray(_) | JitTy::FlexArray(_) => {
+            *lc.prim_type_meta_addrs.get("array").expect("array meta")
+        }
+        JitTy::Tuple(_) => *lc.prim_type_meta_addrs.get("tuple").expect("tuple meta"),
+        JitTy::Fn(_) => *lc.prim_type_meta_addrs.get("fn").expect("fn meta"),
+        JitTy::Str => *lc.prim_type_meta_addrs.get("string").expect("string meta"),
+        JitTy::Bool => *lc.prim_type_meta_addrs.get("bool").expect("bool meta"),
+        JitTy::I8 => *lc.prim_type_meta_addrs.get("i8").expect("i8 meta"),
+        JitTy::I16 => *lc.prim_type_meta_addrs.get("i16").expect("i16 meta"),
+        JitTy::I32 => *lc.prim_type_meta_addrs.get("i32").expect("i32 meta"),
+        JitTy::I64 => *lc.prim_type_meta_addrs.get("i64").expect("i64 meta"),
+        JitTy::U8 => *lc.prim_type_meta_addrs.get("u8").expect("u8 meta"),
+        JitTy::U16 => *lc.prim_type_meta_addrs.get("u16").expect("u16 meta"),
+        JitTy::U32 => *lc.prim_type_meta_addrs.get("u32").expect("u32 meta"),
+        JitTy::U64 => *lc.prim_type_meta_addrs.get("u64").expect("u64 meta"),
+        JitTy::F32 => *lc.prim_type_meta_addrs.get("f32").expect("f32 meta"),
+        JitTy::F64 => *lc.prim_type_meta_addrs.get("f64").expect("f64 meta"),
+        JitTy::TypeRef => *lc.prim_type_meta_addrs.get("Type").expect("Type meta"),
+        JitTy::Unit => *lc.prim_type_meta_addrs.get("()").expect("unit meta"),
+    };
+    if release && arg_t.is_heap() {
+        emit_release_heap(b, lc, arg_v, arg_t);
+    }
+    let meta = b.ins().iconst(I64, meta_addr);
+    Ok((meta, JitTy::TypeRef))
 }
 
 fn intern_array_kind_u8(lc: &mut LowerCtx) -> u32 {

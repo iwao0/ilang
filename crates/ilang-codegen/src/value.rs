@@ -101,6 +101,11 @@ unsafe fn read_field(
         JitTy::F32 => JitValue::F32(*(addr as *const f32)),
         JitTy::F64 => JitValue::F64(*(addr as *const f64)),
         JitTy::Bool => JitValue::Bool(*(addr as *const i8) != 0),
+        JitTy::TypeRef => {
+            let meta_ptr = *(addr as *const i64);
+            let name_ptr = *(meta_ptr as *const i64);
+            JitValue::TypeRef((*(name_ptr as *const StringRc)).s.clone())
+        }
         JitTy::Str => JitValue::Str((*(*(addr as *const i64) as *const StringRc)).s.clone()),
         JitTy::Object(id) => JitValue::Object {
             class: class_layouts[id as usize].name.as_str().to_string(),
@@ -288,6 +293,8 @@ pub enum JitValue {
     /// summarized; full key/value enumeration would require dispatching
     /// on K/V kinds and is out of scope for the simple Display.
     Map { key_ty: String, val_ty: String, size: i64 },
+    /// RTTI handle (`typeof(x): Type`) surfaced to the host.
+    TypeRef(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -333,6 +340,7 @@ impl std::fmt::Display for JitValue {
             JitValue::Map { key_ty, val_ty, size } => {
                 write!(f, "<Map<{key_ty}, {val_ty}> size={size}>")
             }
+            JitValue::TypeRef(name) => write!(f, "Type({name})"),
             JitValue::Enum { ty, variant, payload } => match payload {
                 JitEnumPayload::Unit => write!(f, "{ty}::{variant}"),
                 JitEnumPayload::Tuple(items) => {
@@ -466,6 +474,11 @@ pub(crate) unsafe fn read_array(
             JitTy::EmbeddedArray(_) | JitTy::FlexArray(_) => unreachable!(
                 "embedded arrays are inline bytes — not surfaced through read paths"
             ),
+            JitTy::TypeRef => {
+                let meta_ptr = *(p as *const i64);
+                let name_ptr = *(meta_ptr as *const i64);
+                JitValue::TypeRef((*(name_ptr as *const StringRc)).s.clone())
+            }
             JitTy::Unit => JitValue::Unit,
         };
         out.push(v);

@@ -67,6 +67,15 @@ pub enum Value {
     /// Wrapped in `Rc<RefCell>` so passing/cloning is cheap and
     /// mutations through one binding are visible to all aliases.
     Map(Rc<RefCell<std::collections::HashMap<MapKey, Value>>>),
+    /// RTTI handle returned by `typeof(x)`. `name` is the user-facing
+    /// type name (e.g. `"i64"`, `"Dog"`, `"Result<i64, string>"`);
+    /// `kind` is the corresponding `TypeKind` enum variant name.
+    /// Named `TypeVal` (not `Type`) to avoid colliding with the
+    /// `ilang_ast::Type` import elsewhere in the crate.
+    TypeVal {
+        name: Symbol,
+        kind: Symbol,
+    },
 }
 
 /// Hashable wrapper for the subset of `Value`s that can serve as
@@ -299,6 +308,7 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
+            Value::TypeVal { name, .. } => write!(f, "Type({name})"),
         }
     }
 }

@@ -357,6 +357,13 @@ impl Interpreter {
                 }
             }
             ExprKind::Call { callee, args } => {
+                // Built-in `typeof(x): Type` — the type checker has
+                // already enforced arity 1.
+                if callee.as_str() == "typeof" {
+                    let v = self.eval_expr(&args[0])?;
+                    let (name, kind) = type_of_value(&v);
+                    return Ok(Value::TypeVal { name, kind });
+                }
                 // Indirect call through a function-typed local first
                 // (matches the type checker's lookup order — locals
                 // shadow methods and top-level fns).
@@ -416,6 +423,19 @@ impl Interpreter {
                         if name.as_str() == "isErr" {
                             return Ok(Value::Bool(variant.as_str() == "err"));
                         }
+                    }
+                }
+                // Built-in `Type` properties (RTTI).
+                if let Value::TypeVal { name: tname, kind } = &v {
+                    if name.as_str() == "name" {
+                        return Ok(Value::Str(Rc::new(tname.as_str().to_string())));
+                    }
+                    if name.as_str() == "kind" {
+                        return Ok(Value::Enum {
+                            ty: Symbol::intern("TypeKind"),
+                            variant: *kind,
+                            payload: EnumPayload::Unit,
+                        });
                     }
                 }
                 let o = expect_object(v, obj.span)?;
@@ -1953,6 +1973,41 @@ impl Interpreter {
             other => other,
         }
     }
+}
+
+/// Map a runtime value to its `Type` metadata: the user-facing type
+/// name plus the `TypeKind` enum variant. Used by `typeof(x)`.
+/// Class / enum values report their **dynamic** runtime type (heap
+/// header), not the static slot they're stored in.
+fn type_of_value(v: &Value) -> (Symbol, Symbol) {
+    let (name, kind): (&str, &str) = match v {
+        Value::Int8(_) => ("i8", "primitive"),
+        Value::Int16(_) => ("i16", "primitive"),
+        Value::Int32(_) => ("i32", "primitive"),
+        Value::Int(_) => ("i64", "primitive"),
+        Value::UInt8(_) => ("u8", "primitive"),
+        Value::UInt16(_) => ("u16", "primitive"),
+        Value::UInt32(_) => ("u32", "primitive"),
+        Value::UInt64(_) => ("u64", "primitive"),
+        Value::Float32(_) => ("f32", "primitive"),
+        Value::Float(_) => ("f64", "primitive"),
+        Value::Bool(_) => ("bool", "primitive"),
+        Value::Str(_) => ("string", "string"),
+        Value::Unit => ("()", "unit"),
+        Value::Array(_) => ("array", "array"),
+        Value::Tuple(_) => ("tuple", "tuple"),
+        Value::None | Value::Some(_) => ("optional", "optional"),
+        Value::Weak(_) => ("weak", "class"),
+        Value::Object(o) => {
+            let cls = o.borrow().class;
+            return (cls, Symbol::intern("class"));
+        }
+        Value::Enum { ty, .. } => return (*ty, Symbol::intern("enum")),
+        Value::Fn(_, _) => ("fn", "fn"),
+        Value::Map(_) => ("Map", "class"),
+        Value::TypeVal { .. } => ("Type", "class"),
+    };
+    (Symbol::intern(name), Symbol::intern(kind))
 }
 
 fn expect_object(v: Value, span: Span) -> Result<ObjectRef, RuntimeError> {

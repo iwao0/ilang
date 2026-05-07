@@ -274,6 +274,51 @@ fn alloc_str(s: String) -> i64 {
     Box::into_raw(Box::new(StringRc { rc: 1, s })) as i64
 }
 
+/// Allocate a saturated-rc StringRc — the JIT's "immortal string"
+/// form, used for static metadata (e.g. `TypeMeta::name`) so reads
+/// can retain freely without ever freeing the storage.
+pub(crate) fn alloc_str_saturated(s: String) -> i64 {
+    Box::into_raw(Box::new(StringRc {
+        rc: STRING_RC_SATURATED,
+        s,
+    })) as i64
+}
+
+// ─── RTTI: Type metadata for `typeof(x): Type` ────────────────────────
+// Each `TypeMeta` describes one user-visible type at runtime. The JIT
+// allocates a static array of these at compile time (one per class /
+// enum / primitive), and `typeof(x)` returns a pointer into that
+// array. Field reads (`.name` / `.kind`) are lowered to direct loads
+// from this struct.
+
+#[repr(C)]
+pub(crate) struct TypeMeta {
+    /// Pointer to a saturated-rc StringRc — never freed by the runtime.
+    pub name: i64,
+    /// Discriminant matching the built-in `TypeKind` enum's variant
+    /// ordinals (declaration order: primitive=0, class=1, enum=2,
+    /// optional=3, array=4, fn=5, tuple=6, string=7, unit=8).
+    pub kind: i32,
+    pub _pad: i32,
+}
+
+pub(crate) const TYPE_META_NAME_OFFSET: i32 = 0;
+pub(crate) const TYPE_META_KIND_OFFSET: i32 = 8;
+
+pub(crate) extern "C" fn ilang_jit_print_type_ref(meta_ptr: i64) {
+    if meta_ptr == 0 {
+        print!("Type(?)");
+        return;
+    }
+    let meta = unsafe { &*(meta_ptr as *const TypeMeta) };
+    if meta.name == 0 {
+        print!("Type(?)");
+        return;
+    }
+    let s = unsafe { &*(meta.name as *const StringRc) };
+    print!("Type({})", s.s);
+}
+
 // ─── Native extern string marshalling ──────────────────────────────────
 // `@extern("libfoo") fn f(s: string)` needs to hand C the
 // `*const c_char` it expects, not our StringRc pointer. The JIT

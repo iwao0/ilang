@@ -782,6 +782,61 @@ impl TypeChecker {
                 flags: false,
             },
         );
+
+        // Built-in RTTI: `Type` (returned by `typeof(x)`) plus the
+        // `TypeKind` enum it exposes. Both are introspection-only and
+        // user code can't construct or extend them.
+        self.enums.insert(
+            "TypeKind".into(),
+            EnumSig {
+                type_params: vec![],
+                variants: vec![
+                    EnumVariantSig { name: "primitive".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "class".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "enum".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "optional".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "array".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "fn".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "tuple".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "string".into(), payload: VariantPayloadSig::Unit },
+                    EnumVariantSig { name: "unit".into(), payload: VariantPayloadSig::Unit },
+                ],
+                flags: false,
+            },
+        );
+        self.classes.insert(
+            "Type".into(),
+            ClassSig {
+                type_params: Vec::new(),
+                fields: HashMap::new(),
+                methods: HashMap::new(),
+                properties: HashMap::new(),
+                static_methods: HashMap::new(),
+                static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
+                parent: None,
+                method_slots: HashMap::new(),
+                vtable_len: 0,
+                extern_lib: None,
+                is_repr_c: false,
+                has_fam: false,
+            },
+        );
+
+        // `typeof(x): Type` — global builtin. Polymorphic in arg type;
+        // we register the variadic flag and special-case the call site
+        // in check_expr to relax the param-type check.
+        self.fns.insert(
+            "typeof".into(),
+            vec![Signature {
+                params: vec![Type::Object("Type".into())], // placeholder; arg type is any
+                ret: Type::Object("Type".into()),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+            }],
+        );
     }
 
     pub fn check(&mut self, prog: &Program) -> Result<Type, TypeError> {
@@ -1974,6 +2029,21 @@ impl TypeChecker {
                 if callee == "deinit" {
                     return Err(TypeError::CannotCallDeinit { span });
                 }
+                // Built-in `typeof(x): Type` — RTTI introspection.
+                // Accepts any single value; the JIT / interpreter
+                // synthesise the right Type metadata at runtime.
+                if callee == "typeof" {
+                    if args.len() != 1 {
+                        return Err(TypeError::ArityMismatch {
+                            name: callee.clone(),
+                            expected: 1,
+                            got: args.len(),
+                            span,
+                        });
+                    }
+                    self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
+                    return Ok(Type::Object("Type".into()));
+                }
                 // FFI marshalling helpers are only callable inside an
                 // `@extern(C) {}` block — they exist to bridge raw C
                 // values to ilang-native ones, which only matters at
@@ -2130,6 +2200,15 @@ impl TypeChecker {
                 // Built-in Result properties: `isOk` / `isErr`.
                 if (name == "isOk" || name == "isErr") && is_result_type(&ot) {
                     return Ok(Type::Bool);
+                }
+                // Built-in RTTI: `Type.name` / `Type.kind`.
+                if matches!(&ot, Type::Object(n) if n.as_str() == "Type") {
+                    if name == "name" {
+                        return Ok(Type::Str);
+                    }
+                    if name == "kind" {
+                        return Ok(Type::Object("TypeKind".into()));
+                    }
                 }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(&class_name).ok_or_else(|| {
@@ -3973,11 +4052,11 @@ fn is_valid_map_key_type(t: &Type) -> bool {
 }
 
 fn is_reserved_class(name: &str) -> bool {
-    matches!(name, "Console" | "Map" | "Result")
+    matches!(name, "Console" | "Map" | "Result" | "Type" | "TypeKind")
 }
 
 fn is_reserved_global(name: &str) -> bool {
-    matches!(name, "console")
+    matches!(name, "console" | "typeof")
 }
 
 /// Walk `e` and call `tc.refine_enum_ctor_args(inner, target)` on
