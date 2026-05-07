@@ -386,7 +386,6 @@ fn validate_program(prog: &Program, modules: &HashSet<Symbol>) -> Result<(), Par
                 }
                 validate_expr(&c.value, modules)?;
             }
-            Item::ExternStatic(s) => validate_type(&s.ty, s.span, modules)?,
             Item::ExternC(b) => {
                 for inner in b.items.iter() {
                     use ilang_ast::ExternCItem;
@@ -413,9 +412,6 @@ fn validate_program(prog: &Program, modules: &HashSet<Symbol>) -> Result<(), Par
                             for f in fields.iter() {
                                 validate_type(&f.ty, *span, modules)?;
                             }
-                        }
-                        ExternCItem::Static { ty, span, .. } => {
-                            validate_type(ty, *span, modules)?;
                         }
                         ExternCItem::Class(c) => validate_class(c, modules)?,
                     }
