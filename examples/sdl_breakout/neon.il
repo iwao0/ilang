@@ -8,16 +8,16 @@ use sdl
 use math
 
 class NeonRenderer {
-    ren: sdl.Renderer
+    renderer: sdl.Renderer
     init(ren: sdl.Renderer) {
-        this.ren = ren
+        this.renderer = ren
     }
 
     /// Filled rectangle with two semi-transparent halo passes
     /// around it.
     fillRect(x: i32, y: i32, w: i32, h: i32,
              r: u8, g: u8, b: u8) {
-        let ren = this.ren
+        let ren = this.renderer
         ren.setColor(r, g, b, 50)
         ren.fillRect(x - 6, y - 6, w + 12, h + 12)
         ren.setColor(r, g, b, 110)
@@ -32,7 +32,7 @@ class NeonRenderer {
     /// glow as `fillRect`.
     fillRoundedRect(x: i32, y: i32, w: i32, h: i32, radius: i32,
                     r: u8, g: u8, b: u8) {
-        let ren = this.ren
+        let ren = this.renderer
         let pass: i32 = 0
         while pass < 3 {
             let extra: i32 = match pass {
@@ -72,7 +72,7 @@ class NeonRenderer {
     /// the paddle. Three accumulating halo passes again.
     fillStadium(x: i32, y: i32, w: i32, h: i32,
                 r: u8, g: u8, b: u8) {
-        let ren = this.ren
+        let ren = this.renderer
         let pass: i32 = 0
         while pass < 3 {
             let extra: i32 = match pass {
@@ -114,7 +114,7 @@ class NeonRenderer {
     /// alphas give the same neon halo as the rectangles.
     fillCircle(cx: i32, cy: i32, radius: i32,
                r: u8, g: u8, b: u8) {
-        let ren = this.ren
+        let ren = this.renderer
         let pass: i32 = 0
         while pass < 3 {
             let extra: i32 = match pass {
