@@ -303,11 +303,42 @@ pub(crate) struct TypeMeta {
     /// Parent class's `TypeMeta*`, or 0 if none. Set only for class
     /// kinds; non-class entries always leave this as 0.
     pub parent: i64,
+    /// `string[]` of the class's declared field names (saturated-rc
+    /// ArrayHeader, populated once at JIT init). 0 for non-class
+    /// entries.
+    pub fields: i64,
+    /// `string[]` of the class's declared method names (same
+    /// representation as `fields`). 0 for non-class entries.
+    pub methods: i64,
 }
 
 pub(crate) const TYPE_META_NAME_OFFSET: i32 = 0;
 pub(crate) const TYPE_META_KIND_OFFSET: i32 = 8;
 pub(crate) const TYPE_META_PARENT_OFFSET: i32 = 16;
+pub(crate) const TYPE_META_FIELDS_OFFSET: i32 = 24;
+pub(crate) const TYPE_META_METHODS_OFFSET: i32 = 32;
+
+/// Build a saturated-rc `string[]` (ArrayHeader of `*const StringRc`)
+/// from a list of names, suitable for `TypeMeta::fields` /
+/// `TypeMeta::methods`. Each element string is also saturated, so
+/// retain/release never frees the storage. The array's `drop_fn`
+/// is left as 0 — saturation prevents release_array from running
+/// it anyway.
+pub(crate) fn alloc_string_array_saturated(names: &[&str]) -> i64 {
+    let arr = ilang_jit_array_new(8, names.len() as i64, 0);
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let header = arr as *mut ArrayHeader;
+        let data = (*header).data_ptr as *mut i64;
+        for (i, n) in names.iter().enumerate() {
+            *data.add(i) = alloc_str_saturated((*n).to_string());
+        }
+        (*header).rc = ARRAY_RC_SATURATED;
+    }
+    arr
+}
 
 /// Returns 1 iff `meta` is `target` or any of its transitive
 /// parents. Used by `x is T` / `x as? T` for class types.
@@ -648,12 +679,20 @@ pub(crate) extern "C" fn ilang_jit_array_new(elem_size: i64, len: i64, drop_fn_p
     header as i64
 }
 
+/// `release_array` skips when `rc >= ARRAY_RC_SATURATED` so static
+/// metadata arrays (e.g. `Type.fields` / `Type.methods`) never get
+/// freed by the runtime. Mirrors the string interner's saturation.
+pub(crate) const ARRAY_RC_SATURATED: i64 = i64::MAX / 2;
+
 pub(crate) extern "C" fn ilang_jit_retain_array(ptr: i64) {
     if ptr == 0 {
         return;
     }
     unsafe {
         let rc = ptr as *mut i64;
+        if *rc >= ARRAY_RC_SATURATED {
+            return;
+        }
         *rc += 1;
     }
 }
@@ -667,6 +706,9 @@ pub(crate) extern "C" fn ilang_jit_release_array(ptr: i64, elem_size: i64) {
     }
     unsafe {
         let header = ptr as *mut ArrayHeader;
+        if (*header).rc >= ARRAY_RC_SATURATED {
+            return;
+        }
         (*header).rc -= 1;
         if (*header).rc != 0 {
             return;

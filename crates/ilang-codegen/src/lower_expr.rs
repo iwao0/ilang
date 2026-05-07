@@ -751,6 +751,23 @@ pub(crate) fn lower_expr(
                     );
                     return Ok(Some((p, JitTy::Optional(opt_id))));
                 }
+                if name == "fields" || name == "methods" {
+                    // Both slots hold a saturated-rc `string[]`
+                    // (ArrayHeader). Loading and returning works just
+                    // like a regular `string[]` field — retain is
+                    // a no-op for saturated arrays.
+                    let off = if name == "fields" {
+                        crate::runtime::TYPE_META_FIELDS_OFFSET
+                    } else {
+                        crate::runtime::TYPE_META_METHODS_OFFSET
+                    };
+                    let arr = b.ins().load(I64, MemFlags::trusted(), obj_v, off);
+                    let array_id = crate::ty::intern_array_kind(
+                        lc.array_kinds,
+                        crate::ty::ArrayKind { elem: JitTy::Str, fixed: None },
+                    );
+                    return Ok(Some((arr, JitTy::Array(array_id))));
+                }
             }
             // Built-in Optional properties: `isSome` / `isNone`.
             // Optional values are nullable pointers (i64); compare to 0.

@@ -2212,6 +2212,9 @@ impl TypeChecker {
                     if name == "parent" {
                         return Ok(Type::Optional(Box::new(Type::Object("Type".into()))));
                     }
+                    if name == "fields" || name == "methods" {
+                        return Ok(Type::Array { elem: Box::new(Type::Str), fixed: None });
+                    }
                 }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(&class_name).ok_or_else(|| {

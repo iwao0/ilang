@@ -250,7 +250,7 @@ fn jit_run_inner(
     //     TypeMeta addresses by index. Stable storage in
     //     `compiler.type_metas` (capacity reserved upfront so
     //     pointers stay valid).
-    compiler.build_type_metas();
+    compiler.build_type_metas(prog);
     // 2d. Allocate per-class vtable storage (zeroed for now). Stable
     //     addresses are needed before lowering since `new` and
     //     virtual call sites embed them as `iconst`. Actual function
@@ -2468,8 +2468,29 @@ impl JitCompiler {
     /// Pre-allocating into a `Vec<TypeMeta>` gives stable addresses
     /// — `Vec` reallocations would invalidate them, so we reserve
     /// the final capacity up front.
-    fn build_type_metas(&mut self) {
-        use crate::runtime::{alloc_str_saturated, TypeMeta};
+    fn build_type_metas(&mut self, prog: &Program) {
+        use crate::runtime::{alloc_str_saturated, alloc_string_array_saturated, TypeMeta};
+        // Capture each user class's declared field/method names in
+        // source order so `Type.fields` / `Type.methods` give a
+        // stable, predictable listing. Inherited members are NOT
+        // included — users can chase the parent chain via
+        // `Type.parent`.
+        let mut class_field_names: HashMap<Symbol, Vec<&'static str>> = HashMap::new();
+        let mut class_method_names: HashMap<Symbol, Vec<&'static str>> = HashMap::new();
+        for item in &prog.items {
+            if let Item::Class(c) = item {
+                let fnames: Vec<&'static str> =
+                    c.fields.iter().map(|f| f.name.as_str()).collect();
+                class_field_names.insert(c.name, fnames);
+                let mnames: Vec<&'static str> = c
+                    .methods
+                    .iter()
+                    .map(|m| m.name.as_str())
+                    .filter(|n| !n.starts_with("__"))
+                    .collect();
+                class_method_names.insert(c.name, mnames);
+            }
+        }
         // TypeKind variant ordinals (declaration order in checker.rs):
         // primitive=0, class=1, enum=2, optional=3, array=4, fn=5,
         // tuple=6, string=7, unit=8.
@@ -2509,6 +2530,10 @@ impl JitCompiler {
         ];
         let total = self.class_layouts.len() + self.enum_layouts.len() + primitives.len();
         self.type_metas = Vec::with_capacity(total);
+        // Single empty-array sentinel reused for every non-class
+        // TypeMeta so reading `t.fields` / `t.methods` always yields
+        // a non-null `string[]` (saving a per-entry allocation).
+        let empty_strings = alloc_string_array_saturated(&[]);
         // Per-class entries — preserve class_id ordering so the
         // address vec lines up with `class_layouts`. Parent links
         // are filled in a second pass below (need every class's
@@ -2516,11 +2541,21 @@ impl JitCompiler {
         self.class_type_meta_addrs = Vec::with_capacity(self.class_layouts.len());
         for layout in &self.class_layouts {
             let name_ptr = alloc_str_saturated(layout.name.as_str().to_string());
+            let fields_ptr = match class_field_names.get(&layout.name) {
+                Some(names) => alloc_string_array_saturated(names),
+                None => 0,
+            };
+            let methods_ptr = match class_method_names.get(&layout.name) {
+                Some(names) => alloc_string_array_saturated(names),
+                None => 0,
+            };
             self.type_metas.push(TypeMeta {
                 name: name_ptr,
                 kind: K_CLASS,
                 _pad: 0,
                 parent: 0,
+                fields: fields_ptr,
+                methods: methods_ptr,
             });
             let idx = self.type_metas.len() - 1;
             self.class_type_meta_addrs
@@ -2551,6 +2586,8 @@ impl JitCompiler {
                 kind: K_ENUM,
                 _pad: 0,
                 parent: 0,
+                fields: empty_strings,
+                methods: empty_strings,
             });
             let idx = self.type_metas.len() - 1;
             self.enum_type_meta_addrs
@@ -2564,6 +2601,8 @@ impl JitCompiler {
                 kind: *kind,
                 _pad: 0,
                 parent: 0,
+                fields: empty_strings,
+                methods: empty_strings,
             });
             let idx = self.type_metas.len() - 1;
             let addr = &self.type_metas[idx] as *const TypeMeta as i64;

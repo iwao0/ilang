@@ -454,6 +454,31 @@ impl Interpreter {
                         }
                         return Ok(Value::None);
                     }
+                    if name.as_str() == "fields" || name.as_str() == "methods" {
+                        // Only classes expose declared field/method
+                        // names. Non-class types yield an empty array.
+                        let mut out: Vec<Value> = Vec::new();
+                        if kind.as_str() == "class" {
+                            if let Some(decl) = self.classes.get(tname) {
+                                if name.as_str() == "fields" {
+                                    for f in decl.fields.iter() {
+                                        out.push(Value::Str(Rc::new(
+                                            f.name.as_str().to_string(),
+                                        )));
+                                    }
+                                } else {
+                                    for m in decl.methods.iter() {
+                                        let n = m.name.as_str();
+                                        if n.starts_with("__") {
+                                            continue;
+                                        }
+                                        out.push(Value::Str(Rc::new(n.to_string())));
+                                    }
+                                }
+                            }
+                        }
+                        return Ok(Value::Array(Rc::new(RefCell::new(out))));
+                    }
                 }
                 let o = expect_object(v, obj.span)?;
                 // Property getter: dispatch through the synthetic FnDecl.

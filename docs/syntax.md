@@ -1115,6 +1115,8 @@ typeof(r).name         // "Result"  (type args surfaced separately
 | `.name` | `string` | User-facing type name (e.g. `"Dog"`, `"i64"`, `"Result"`) |
 | `.kind` | `TypeKind` | One of `primitive`, `class`, `enum`, `optional`, `array`, `fn`, `tuple`, `string`, `unit` |
 | `.parent` | `Type?` | Direct parent class for `extends`; `none` for non-class types or root classes |
+| `.fields` | `string[]` | Names of declared fields (classes only; empty for other kinds). Inherited fields are NOT included — chase `.parent` for those |
+| `.methods` | `string[]` | Names of declared methods (classes only; empty for other kinds). `init` is included |
 
 ### Type tests and downcasts
 
@@ -1149,8 +1151,11 @@ let label = match typeof(x).kind {
   redefine them.
 - Dynamic class dispatch goes through the vtable header, so RTTI
   works under inheritance for both interpreter and JIT.
-- `fields()`, `methods()`, and `typeArgs()` are planned in
-  follow-up phases.
+- `typeArgs()` (per-instance generic arguments) is planned in a
+  follow-up phase.
+- `.fields` / `.methods` currently expose only **declared**
+  members (no inherited names) and only their names — the field
+  type / method signature is not surfaced yet.
 
 ---
 
