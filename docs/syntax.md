@@ -781,8 +781,8 @@ if let some(v) = a {             // pattern match
     use(v)
 }
 
-a.isSome()                       // bool
-a.isNone()                       // bool
+a.isSome                       // bool
+a.isNone                       // bool
 a.unwrap()                       // T (panics at runtime if none)
 ```
 
@@ -1011,10 +1011,16 @@ match divide(10, 2) {
     ok(v) { v }            // patterns can omit `Result.` (inferred from scrutinee)
     err(_) { -1 }
 }
+
+let r = divide(10, 2)
+r.isOk                     // bool — true when the variant is `ok`
+r.isErr                    // bool — true when the variant is `err`
 ```
 
 - Build with `Result.ok(v)` / `Result.err(e)` (the usual
   `Enum.variant(...)` form).
+- `r.isOk` / `r.isErr` are **properties** (no parentheses) returning
+  `bool`. Mirror Optional's `isSome` / `isNone`.
 - Match patterns can shorten to `ok(v)` / `err(e)` (the
   variant-shorthand mechanism).
 - `ok` / `err` are **not reserved words** — usable as variable

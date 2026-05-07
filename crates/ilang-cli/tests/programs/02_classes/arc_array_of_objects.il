@@ -34,7 +34,7 @@ test.expect(total.get(), 3)
 {
     let xs: Tracked[] = [new Tracked(total), new Tracked(total)]
     let popped = xs.pop()
-    test.expectBool(popped.isSome(), true)
+    test.expectBool(popped.isSome, true)
     // popped holds 1 elem; xs still holds 1 elem.
     // xs dies first (popped goes after), so 1 deinit happens here.
 }

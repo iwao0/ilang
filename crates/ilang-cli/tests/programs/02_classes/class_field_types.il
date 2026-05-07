@@ -34,7 +34,7 @@ test.expectStr(g.s, "hi")
 test.expect(g.inner.n, 40)
 test.expect(g.nums.length, 3)
 test.expect(g.nums[1], 5)
-test.expectBool(g.maybe.isSome(), true)
+test.expectBool(g.maybe.isSome, true)
 test.expect(g.maybe.unwrap(), 400)
 
 // Field assignment with various types.
@@ -43,4 +43,4 @@ g.s = "bye"
 g.maybe = none
 test.expect(g.a, 99)
 test.expectStr(g.s, "bye")
-test.expectBool(g.maybe.isNone(), true)
+test.expectBool(g.maybe.isNone, true)

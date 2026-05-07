@@ -2116,6 +2116,16 @@ impl TypeChecker {
                 if matches!(ot, Type::Str) && name == "length" {
                     return Ok(Type::I64);
                 }
+                // Built-in Optional properties: `isSome` / `isNone`.
+                if matches!(ot, Type::Optional(_))
+                    && (name == "isSome" || name == "isNone")
+                {
+                    return Ok(Type::Bool);
+                }
+                // Built-in Result properties: `isOk` / `isErr`.
+                if (name == "isOk" || name == "isErr") && is_result_type(&ot) {
+                    return Ok(Type::Bool);
+                }
                 let class_name = expect_object(&ot, span)?;
                 let cls = self.classes.get(&class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
@@ -2193,20 +2203,10 @@ impl TypeChecker {
                         span,
                     });
                 }
-                // Built-in Optional methods: is_some / is_none / unwrap.
+                // Built-in Optional methods: unwrap. (`isSome` / `isNone`
+                // are properties — see ExprKind::Field.)
                 if let Type::Optional(inner) = &ot {
                     match method.as_str() {
-                        "isSome" | "isNone" => {
-                            if !args.is_empty() {
-                                return Err(TypeError::ArityMismatch {
-                                    name: method.clone(),
-                                    expected: 0,
-                                    got: args.len(),
-                                    span,
-                                });
-                            }
-                            return Ok(Type::Bool);
-                        }
                         "unwrap" => {
                             if !args.is_empty() {
                                 return Err(TypeError::ArityMismatch {
@@ -4807,6 +4807,19 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
         variants,
         flags: e.flags,
     }
+}
+
+fn is_result_type(t: &Type) -> bool {
+    // Matches both the pre-monomorphization names (`Result` /
+    // `Result<T, E>`) and the post-monomorphization mangled object
+    // names like `Result<i64, string>` that the JIT emits.
+    let name = match t {
+        Type::Object(name) => *name,
+        Type::Generic(g) => g.base,
+        _ => return false,
+    };
+    let s = name.as_str();
+    s == "Result" || s.starts_with("Result<")
 }
 
 fn expect_object(t: &Type, span: Span) -> Result<Symbol, TypeError> {

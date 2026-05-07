@@ -950,8 +950,8 @@ fn optional_predicates_and_unwrap() {
     let src = r#"
         let a: i64? = some(5)
         let b: i64? = none
-        let r1 = if a.isSome() { a.unwrap() } else { -1 }
-        let r2 = if b.isNone() { 100 } else { -1 }
+        let r1 = if a.isSome { a.unwrap() } else { -1 }
+        let r2 = if b.isNone { 100 } else { -1 }
         r1 + r2
     "#;
     assert_eq!(run(src).unwrap(), Value::Int(105));
@@ -1007,7 +1007,7 @@ fn weak_get_returns_none_after_strong_dropped() {
         }
         let global = 0
         let w: Counter.weak = new Counter()
-        if w.get().isNone() {
+        if w.get().isNone {
             global = 99
         }
         global

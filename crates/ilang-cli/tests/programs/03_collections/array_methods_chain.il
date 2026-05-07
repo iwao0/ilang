@@ -15,7 +15,7 @@ test.expect(xs[4], 5)
 
 // pop (mutates) — returns T?.
 let p = xs.pop()
-test.expectBool(p.isSome(), true)
+test.expectBool(p.isSome, true)
 test.expect(p.unwrap(), 5)
 test.expect(xs.length, 4)
 

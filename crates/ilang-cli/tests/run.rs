@@ -427,7 +427,7 @@ fn jit_map_object_value() {
 fn jit_map_get_primitive_v_present() {
     let p = write_tmp(
         "map_get_prim.il",
-        "let m = new Map<string, i64>()\nm.set(\"a\", 42)\nlet r = m.get(\"a\")\nif r.isSome() { r.unwrap() } else { -1 }",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 42)\nlet r = m.get(\"a\")\nif r.isSome { r.unwrap() } else { -1 }",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -443,7 +443,7 @@ fn jit_map_get_primitive_v_present() {
 fn jit_map_get_primitive_v_missing() {
     let p = write_tmp(
         "map_get_prim_miss.il",
-        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nlet r = m.get(\"z\")\nif r.isNone() { -99 } else { r.unwrap() }",
+        "let m = new Map<string, i64>()\nm.set(\"a\", 1)\nlet r = m.get(\"z\")\nif r.isNone { -99 } else { r.unwrap() }",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -459,7 +459,7 @@ fn jit_map_get_primitive_v_missing() {
 fn jit_map_get_heap_v_present() {
     let p = write_tmp(
         "map_get_h.il",
-        "let m = new Map<string, string>()\nm.set(\"k\", \"v\")\nlet r = m.get(\"k\")\nif r.isSome() { r.unwrap() } else { \"?\" }",
+        "let m = new Map<string, string>()\nm.set(\"k\", \"v\")\nlet r = m.get(\"k\")\nif r.isSome { r.unwrap() } else { \"?\" }",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -475,7 +475,7 @@ fn jit_map_get_heap_v_present() {
 fn jit_map_get_heap_v_missing() {
     let p = write_tmp(
         "map_get_miss.il",
-        "let m = new Map<string, string>()\nm.set(\"a\", \"1\")\nlet r = m.get(\"z\")\nif r.isNone() { \"missing\" } else { r.unwrap() }",
+        "let m = new Map<string, string>()\nm.set(\"a\", \"1\")\nlet r = m.get(\"z\")\nif r.isNone { \"missing\" } else { r.unwrap() }",
     );
     let out = Command::new(ilang_bin())
         .arg("run")
@@ -557,7 +557,7 @@ fn jit_map_literal() {
 fn jit_optional_primitive_i64_some() {
     let p = write_tmp(
         "opt_i64.il",
-        "let x: i64? = some(42)\nif x.isSome() { x.unwrap() } else { -1 }",
+        "let x: i64? = some(42)\nif x.isSome { x.unwrap() } else { -1 }",
     );
     let out = Command::new(ilang_bin())
         .arg("run").arg("--jit").arg(&p).output().unwrap();
@@ -569,7 +569,7 @@ fn jit_optional_primitive_i64_some() {
 fn jit_optional_primitive_i64_none() {
     let p = write_tmp(
         "opt_i64_n.il",
-        "let x: i64? = none\nif x.isNone() { 99 } else { x.unwrap() }",
+        "let x: i64? = none\nif x.isNone { 99 } else { x.unwrap() }",
     );
     let out = Command::new(ilang_bin())
         .arg("run").arg("--jit").arg(&p).output().unwrap();
@@ -581,7 +581,7 @@ fn jit_optional_primitive_i64_none() {
 fn jit_optional_primitive_bool() {
     let p = write_tmp(
         "opt_bool.il",
-        "let x: bool? = some(true)\nif x.isSome() { x.unwrap() } else { false }",
+        "let x: bool? = some(true)\nif x.isSome { x.unwrap() } else { false }",
     );
     let out = Command::new(ilang_bin())
         .arg("run").arg("--jit").arg(&p).output().unwrap();
@@ -593,7 +593,7 @@ fn jit_optional_primitive_bool() {
 fn jit_optional_primitive_f64() {
     let p = write_tmp(
         "opt_f64.il",
-        "let x: f64? = some(3.14)\nif x.isSome() { x.unwrap() } else { 0.0 }",
+        "let x: f64? = some(3.14)\nif x.isSome { x.unwrap() } else { 0.0 }",
     );
     let out = Command::new(ilang_bin())
         .arg("run").arg("--jit").arg(&p).output().unwrap();
@@ -607,7 +607,7 @@ fn jit_optional_primitive_aliased_let() {
     // box (each binding has its own +1).
     let p = write_tmp(
         "opt_alias.il",
-        "let x: i64? = some(7)\nlet y = x\nif y.isSome() { y.unwrap() } else { 0 }",
+        "let x: i64? = some(7)\nlet y = x\nif y.isSome { y.unwrap() } else { 0 }",
     );
     let out = Command::new(ilang_bin())
         .arg("run").arg("--jit").arg(&p).output().unwrap();
@@ -681,7 +681,7 @@ fn jit_generic_enum_heap_payload() {
 fn jit_array_pop_primitive() {
     let p = write_tmp(
         "pop_prim.il",
-        "let xs: i64[] = [1, 2, 3]\nlet r = xs.pop()\nif r.isSome() { r.unwrap() } else { -1 }",
+        "let xs: i64[] = [1, 2, 3]\nlet r = xs.pop()\nif r.isSome { r.unwrap() } else { -1 }",
     );
     let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -692,7 +692,7 @@ fn jit_array_pop_primitive() {
 fn jit_array_pop_string() {
     let p = write_tmp(
         "pop_str.il",
-        "let xs: string[] = [\"a\", \"b\"]\nlet r = xs.pop()\nif r.isSome() { r.unwrap() } else { \"?\" }",
+        "let xs: string[] = [\"a\", \"b\"]\nlet r = xs.pop()\nif r.isSome { r.unwrap() } else { \"?\" }",
     );
     let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -703,7 +703,7 @@ fn jit_array_pop_string() {
 fn jit_array_pop_empty_returns_none() {
     let p = write_tmp(
         "pop_empty.il",
-        "let xs: i64[] = []\nlet r = xs.pop()\nif r.isNone() { -1 } else { r.unwrap() }",
+        "let xs: i64[] = []\nlet r = xs.pop()\nif r.isNone { -1 } else { r.unwrap() }",
     );
     let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
