@@ -237,6 +237,19 @@ pub(crate) fn lower_expr(
                 return Ok(Some((inner.0, target)));
             }
             let v = coerce(b, inner, target, e.span)?;
+            // Numeric → non-flags enum cast: trap when the bit
+            // pattern doesn't match any declared variant. `@flags`
+            // enums skip the check (any combination of bits is a
+            // valid mask). Ints already-typed-as-enum (a fn returning
+            // an enum, etc.) hit the early `from == to` short-circuit
+            // in `coerce` and don't reach here.
+            if let JitTy::Enum(eid) = target {
+                let layout = &lc.enum_layouts[eid as usize];
+                if !layout.flags && inner.1 != target {
+                    let tags = layout.tags.clone();
+                    emit_enum_bounds_check(b, lc, v, &tags);
+                }
+            }
             Ok(Some((v, target)))
         }
         ExprKind::Unary { op, expr } => lower_unary(b, lc, *op, expr, e.span),
@@ -4773,6 +4786,45 @@ fn jit_ty_from_primitive(t: &ilang_ast::Type) -> JitTy {
         T::Bool => JitTy::Bool,
         _ => unreachable!("type checker restricts @extern static to primitives"),
     }
+}
+
+/// Numeric → non-flags-enum cast bounds check. Compares the post-
+/// cast I32 tag against every declared variant's discriminant; on a
+/// miss, jumps to a trap block that calls
+/// `ilang_jit_panic_enum_oor(value)`. Mirrors the interpreter's
+/// `RuntimeError::EnumOutOfRange`.
+fn emit_enum_bounds_check(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    tag: cranelift::prelude::Value,
+    variant_tags: &[i64],
+) {
+    use cranelift::prelude::*;
+    use cranelift_codegen::ir::condcodes::IntCC;
+    use cranelift_codegen::ir::types::{I32, I64};
+    let ok_blk = b.create_block();
+    let trap_blk = b.create_block();
+    for &t in variant_tags {
+        let next_blk = b.create_block();
+        let want = b.ins().iconst(I32, t);
+        let eq = b.ins().icmp(IntCC::Equal, tag, want);
+        b.ins().brif(eq, ok_blk, &[], next_blk, &[]);
+        b.switch_to_block(next_blk);
+        b.seal_block(next_blk);
+    }
+    // Fell through every comparison — value matches no variant.
+    b.ins().jump(trap_blk, &[]);
+    b.switch_to_block(trap_blk);
+    b.seal_block(trap_blk);
+    let v_i64 = b.ins().sextend(I64, tag);
+    let r = lc
+        .module
+        .declare_func_in_func(lc.panic_enum_oor_id, b.func);
+    b.ins().call(r, &[v_i64]);
+    b.ins()
+        .trap(cranelift_codegen::ir::TrapCode::user(4).expect("trap code"));
+    b.switch_to_block(ok_blk);
+    b.seal_block(ok_blk);
 }
 
 fn ensure_trampoline(
