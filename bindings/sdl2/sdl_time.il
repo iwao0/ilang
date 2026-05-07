@@ -5,7 +5,7 @@
 // function pointer and aren't exposed.
 
 /// SDL_EventType — subset covering the common cases. Stored in
-/// `SDL_Event.event_type` so callers can dispatch on `pollEvent`.
+/// `Event.event_type` so callers can dispatch on `pollEvent`.
 enum EventType: u32 {
     firstEvent              = 0
     quit                    = 0x100
@@ -87,20 +87,20 @@ enum EventState: i32 {
     @lib("SDL2") fn SDL_RemoveTimer(id: i32): i32
 
     // ─── event queue ─────────────────────────────────────────────
-    /// `SDL_Event` is a union spanning every event type. The actual
+    /// `Event` is a union spanning every event type. The actual
     /// size varies by SDL version (56 B in 2.0.x, up to ~88 B in
     /// newer releases). We pad to 88 bytes so SDL never writes past
     /// the end. Every sub-event lays its `Uint32 type` at offset 0,
     /// so reading `event_type` is enough for "what kind of event".
-    struct SDL_Event {
+    struct Event {
         /// Discriminant — matches an `EventType` variant.
         event_type: u32
         _pad: u8[84]
     }
 
     @lib("SDL2") fn SDL_PumpEvents()
-    @lib("SDL2") fn SDL_PollEvent(event: *SDL_Event): i32
-    @lib("SDL2") fn SDL_PushEvent(event: *SDL_Event): i32
+    @lib("SDL2") fn SDL_PollEvent(event: *Event): i32
+    @lib("SDL2") fn SDL_PushEvent(event: *Event): i32
     @lib("SDL2") fn SDL_HasEvent(event_type: u32): i32
     @lib("SDL2") fn SDL_HasEvents(min_type: u32, max_type: u32): i32
     @lib("SDL2") fn SDL_FlushEvent(event_type: u32)
@@ -251,7 +251,7 @@ enum EventState: i32 {
     /// Returns:
     ///   true if `event` was populated, false if the queue was
     ///   empty. Caller looks at `event.event_type` to dispatch.
-    fn pollEvent(event: SDL_Event): bool {
+    fn pollEvent(event: Event): bool {
         SDL_PollEvent(event) != 0
     }
 
@@ -263,7 +263,7 @@ enum EventState: i32 {
     /// Returns:
     ///   `1` on success, `0` if the event was filtered, `< 0` on
     ///   error.
-    fn pushEvent(event: SDL_Event): i32 {
+    fn pushEvent(event: Event): i32 {
         SDL_PushEvent(event)
     }
 

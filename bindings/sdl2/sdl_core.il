@@ -162,11 +162,11 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
         patch: u8
     }
 
-    /// `SDL_Rect` — 16 B rectangle, passed by pointer to most C
-    /// routines. Lives here so every module (renderer / window /
-    /// keyboard / mouse / …) can share `sdl.SDL_Rect` instead of
-    /// declaring per-module duplicates.
-    struct SDL_Rect {
+    /// 16 B rectangle, passed by pointer to most C routines.
+    /// Lives here so every module (renderer / window / keyboard /
+    /// mouse / …) can share `sdl.Rect` instead of declaring
+    /// per-module duplicates. Mirrors C `SDL_Rect`.
+    struct Rect {
         /// Top-left x in pixels.
         x: i32
         /// Top-left y in pixels.
@@ -174,6 +174,30 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
         /// Width in pixels.
         w: i32
         /// Height in pixels.
+        h: i32
+    }
+
+    /// 2D integer point. Shared geometry type used by `Window`
+    /// (`position`) and the renderer's draw-points API. Mirrors C
+    /// `SDL_Point`.
+    struct Point {
+        x: i32
+        y: i32
+    }
+
+    /// 2D float point. Shared by the renderer's float-coordinate
+    /// API (`SDL_FPoint`) and convenience getters that return a
+    /// pair of floats (`getScale`, `windowToLogical`).
+    struct FPoint {
+        x: f32
+        y: f32
+    }
+
+    /// `(w, h)` integer size. Shared by `Window.size` /
+    /// `Renderer.outputSize` / `Renderer.getLogicalSize` and other
+    /// `(w, h)` returning APIs.
+    struct Size {
+        w: i32
         h: i32
     }
 

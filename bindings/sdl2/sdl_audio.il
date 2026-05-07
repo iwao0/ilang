@@ -10,7 +10,7 @@
     /// Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
     /// a callback (queue-based playback), so `callback` and
     /// `userdata` stay zero.
-    struct SDL_AudioSpec {
+    struct AudioSpec {
         /// Sample rate in Hz (e.g. 44100).
         freq: i32
         /// `AUDIO_*` format constant (we use `AUDIO_S16LSB = 0x8010`).
@@ -32,7 +32,7 @@
 
     @lib("SDL2") fn SDL_OpenAudioDevice(
         device: *const char, iscapture: i32,
-        desired: *SDL_AudioSpec, obtained: *SDL_AudioSpec,
+        desired: *AudioSpec, obtained: *AudioSpec,
         allowed_changes: i32
     ): u32
     @lib("SDL2") fn SDL_CloseAudioDevice(dev: u32)
@@ -56,14 +56,14 @@
         ///
         /// After construction check `id == 0` to detect failure.
         init(freq: i32, channels: u8) {
-            let desired = new SDL_AudioSpec()
+            let desired = new AudioSpec()
             desired.freq = freq
             desired.format = 0x8010              // AUDIO_S16LSB
             desired.channels = channels
             desired.samples = 4096               // device buffer size
             // callback / userdata default to 0 (NULL) — queue API.
 
-            let obtained = new SDL_AudioSpec()
+            let obtained = new AudioSpec()
             this.id = SDL_OpenAudioDevice(
                 0 as *const char, 0,
                 desired, obtained, 0

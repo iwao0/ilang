@@ -314,7 +314,7 @@ enum KeyMod: u16 {
     @lib("SDL2") fn SDL_IsTextInputShown(): i32
     @lib("SDL2") fn SDL_HasScreenKeyboardSupport(): i32
     @lib("SDL2") fn SDL_ResetKeyboard()
-    @lib("SDL2") fn SDL_SetTextInputRect(rect: *sdl.SDL_Rect)
+    @lib("SDL2") fn SDL_SetTextInputRect(rect: *sdl.Rect)
     @lib("SDL2") fn SDL_IsScreenKeyboardShown(window: *void): i32
     @lib("SDL2") fn SDL_GetKeyboardFocus(): *void
 
@@ -475,7 +475,7 @@ enum KeyMod: u16 {
         ///   x, y — top-left corner of the input rect.
         ///   w, h — rectangle size in pixels.
         static setTextInputRect(x: i32, y: i32, w: i32, h: i32) {
-            let r = new sdl.SDL_Rect()
+            let r = new sdl.Rect()
             r.x = x; r.y = y; r.w = w; r.h = h
             SDL_SetTextInputRect(r)
         }
