@@ -340,41 +340,62 @@ enum KeyMod: u16 {
     class Keyboard {
         /// Cached pointer to SDL's keyboard state buffer.
         statePtr: i64
-        /// Snapshot of `statePtr`'s contents from the previous
-        /// `pump()`, compared against the live state to detect
-        /// rising / falling edges.
+        /// Snapshot of the SDL state buffer from the previous
+        /// `pump()`, compared against `curr` to detect rising /
+        /// falling edges. Two stable snapshots (rather than peeking
+        /// at the live SDL buffer) — SDL on macOS will mutate the
+        /// live buffer during unrelated calls (`SDL_RenderPresent`,
+        /// `SDL_PollEvent`, …), so reading it directly at edge-
+        /// check time would miss most rising edges.
         prev: u8[]
+        /// Snapshot of the SDL state buffer captured at the most
+        /// recent `pump()`. `isHeld` / `isPressed` / `isReleased`
+        /// all read from this — never from the live buffer.
+        curr: u8[]
 
-        /// Cache the state pointer and pre-allocate the previous-
-        /// frame snapshot. SDL's video subsystem must already be
+        /// Cache the state pointer and pre-allocate the snapshot
+        /// buffers. SDL's video subsystem must already be
         /// initialised (`sdl.init(...)`).
         init() {
             this.statePtr = SDL_GetKeyboardState(0 as *i32) as i64
             // SDL_NUM_SCANCODES = 512.
             let p: u8[] = []
+            let c: u8[] = []
             let i: i32 = 0
             while i < 512 {
                 p.push(0)
+                c.push(0)
                 i += 1
             }
             this.prev = p
+            this.curr = c
         }
 
-        /// Snapshot the current state into `prev` and refresh the
-        /// SDL state pointer cache. Call once per frame **after**
-        /// `sdl.pumpEvents()` (which actually drains the OS event
-        /// queue) and before reading any polling methods.
+        /// Capture a fresh snapshot of SDL's keyboard state. Rolls
+        /// `curr → prev` so the pre-pump view stays available for
+        /// edge detection, then reads the live buffer into `curr`.
+        /// Call once per frame after `sdl.pumpEvents()`; subsequent
+        /// `isHeld` / `isPressed` / `isReleased` queries this
+        /// snapshot, not SDL's live buffer (which other SDL calls
+        /// may mutate before the next frame).
         pump() {
+            let i: i32 = 0
+            while i < 512 {
+                this.prev[i as i64] = this.curr[i as i64]
+                i += 1
+            }
+            if this.statePtr == 0 {
+                this.statePtr = SDL_GetKeyboardState(0 as *i32) as i64
+            }
             if this.statePtr != 0 {
-                let i: i32 = 0
-                while i < 512 {
-                    this.prev[i as i64] = readU8(
-                        this.statePtr as *const void, i as i64
+                let j: i32 = 0
+                while j < 512 {
+                    this.curr[j as i64] = readU8(
+                        this.statePtr as *const void, j as i64
                     )
-                    i += 1
+                    j += 1
                 }
             }
-            this.statePtr = SDL_GetKeyboardState(0 as *i32) as i64
         }
 
         // ─── live state ──────────────────────────────────────────
@@ -383,15 +404,15 @@ enum KeyMod: u16 {
         ///   scancode — physical key code.
         ///
         /// Returns:
-        ///   true while the key is currently held. `false` when
-        ///   `pump()` hasn't been called yet or when `scancode` is
-        ///   out of range.
+        ///   true while the key was held at the most recent
+        ///   `pump()`. `false` when `pump()` hasn't been called
+        ///   yet or when `scancode` is out of range.
         isHeld(scancode: Scancode): bool {
             let s: i32 = scancode as i32
-            if this.statePtr == 0 || s < 0 || s >= 512 {
+            if s < 0 || s >= 512 {
                 return false
             }
-            readU8(this.statePtr as *const void, s as i64) != 0 as u8
+            this.curr[s as i64] != 0 as u8
         }
 
         /// Returns:
@@ -402,8 +423,7 @@ enum KeyMod: u16 {
             if s < 0 || s >= 512 {
                 return false
             }
-            let was: u8 = this.prev[s as i64]
-            this.isHeld(scancode) && was == 0 as u8
+            this.curr[s as i64] != 0 as u8 && this.prev[s as i64] == 0 as u8
         }
 
         /// Returns:
@@ -414,8 +434,7 @@ enum KeyMod: u16 {
             if s < 0 || s >= 512 {
                 return false
             }
-            let was: u8 = this.prev[s as i64]
-            was != 0 as u8 && !this.isHeld(scancode)
+            this.prev[s as i64] != 0 as u8 && this.curr[s as i64] == 0 as u8
         }
 
         // ─── modifiers ───────────────────────────────────────────
@@ -527,6 +546,7 @@ enum KeyMod: u16 {
             let i: i32 = 0
             while i < 512 {
                 this.prev[i as i64] = 0
+                this.curr[i as i64] = 0
                 i += 1
             }
         }
