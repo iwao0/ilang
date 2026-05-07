@@ -240,7 +240,7 @@ async fn refresh_impl(
     );
     let external_classes = merged
         .as_ref()
-        .map(collect_external_classes)
+        .map(|p| collect_external_classes(p, &external_sources))
         .unwrap_or_default();
     // When the buffer parses cleanly, rebuild the doc from scratch.
     // Otherwise (mid-edit, e.g. just typed `.`), keep the previous
@@ -1526,11 +1526,26 @@ fn walk_module_aliased(
 
 /// Walk a loader-merged program for dotted-name classes (e.g.
 /// `sdl.Window`) so the hover walker can resolve method / field
-/// accesses on imported types.
-fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
+/// accesses on imported types. `sources` carries each prefixed
+/// name's file path so we can read the source and lift field doc
+/// comments — the merged Program itself doesn't carry source
+/// strings.
+fn collect_external_classes(
+    prog: &Program,
+    sources: &ExternalSources,
+) -> HashMap<AstSymbol, ClassInfo> {
     use ilang_ast::ExternCItem;
     let mut classes: Vec<&ClassDecl> = Vec::new();
     let mut out: HashMap<AstSymbol, ClassInfo> = HashMap::new();
+    let mut src_cache: HashMap<PathBuf, String> = HashMap::new();
+    let mut field_doc = |class_key: &AstSymbol, field_span: Span| -> Option<String> {
+        let path = &sources.get(class_key)?.path;
+        if !src_cache.contains_key(path) {
+            let txt = std::fs::read_to_string(path).ok()?;
+            src_cache.insert(path.clone(), txt);
+        }
+        text::extract_doc_above(src_cache.get(path)?.as_str(), field_span.line)
+    };
     for item in &prog.items {
         match item {
             Item::Class(c) if c.name.as_str().contains('.') => classes.push(c),
@@ -1560,7 +1575,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
-                doc: None,
+                                        doc: field_doc(name, f.span),
                                     },
                                 );
                             }
@@ -2281,7 +2296,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
                                         ),
                                         ret_ty: Some(f.ty.clone()),
                                         is_static: false,
-                doc: None,
+                                        doc: text::extract_doc_above(src, f.span.line),
                                     },
                                 );
                             }
