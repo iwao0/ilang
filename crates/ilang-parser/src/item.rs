@@ -101,7 +101,7 @@ impl<'a> Parser<'a> {
                         && a.args.len() == 1
                         && matches!(
                             &a.args[0],
-                            ilang_ast::AttrArg::Path(p) if p.as_slice() == ["C"]
+                            ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["C"]
                         )
                 }) =>
             {
@@ -184,7 +184,7 @@ impl<'a> Parser<'a> {
         };
         Ok(ilang_ast::UseDecl {
             module,
-            selective,
+            selective: selective.map(Into::into),
             re_export: false,
             span,
         })
@@ -231,7 +231,7 @@ impl<'a> Parser<'a> {
                         // `@bits(N)` is the only field attr today.
                         for a in &attrs {
                             if a.name == "bits" {
-                                let bits = match a.args.as_slice() {
+                                let bits = match &*a.args {
                                     [ilang_ast::AttrArg::Int(n)] if *n >= 1 && *n <= 64 => {
                                         *n as u32
                                     }
@@ -351,12 +351,12 @@ impl<'a> Parser<'a> {
             is_union: false,
             name,
             parent,
-            type_params,
-            fields,
-            methods,
-            static_methods,
-            static_fields,
-            properties,
+            type_params: type_params.into(),
+            fields: fields.into(),
+            methods: methods.into(),
+            static_methods: static_methods.into(),
+            static_fields: static_fields.into(),
+            properties: properties.into(),
             span,
         })
     }
@@ -515,7 +515,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         self.expect(&TokenKind::RParen, "')'")?;
-                        VariantPayload::Tuple(tys)
+                        VariantPayload::Tuple(tys.into())
                     }
                     TokenKind::LBrace => {
                         self.bump();
@@ -545,7 +545,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         self.expect(&TokenKind::RBrace, "'}'")?;
-                        VariantPayload::Struct(fields)
+                        VariantPayload::Struct(fields.into())
                     }
                     _ => {
                         let p = self.peek();
@@ -621,10 +621,10 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(EnumDecl {
             name,
-            type_params,
+            type_params: type_params.into(),
             repr_ty,
             flags: false,
-            variants,
+            variants: variants.into(),
             span,
         })
     }
@@ -699,7 +699,7 @@ impl<'a> Parser<'a> {
             items.push(item);
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCBlock { items, span })
+        Ok(ilang_ast::ExternCBlock { items: items.into(), span })
     }
 
     fn parse_extern_c_fn(
@@ -800,10 +800,10 @@ impl<'a> Parser<'a> {
             // Definition: ilang body, C ABI.
             let body = parse_block(self)?;
             let fn_decl = FnDecl {
-                attrs: Vec::new(),
+                attrs: Box::new([]),
                 name,
-                type_params: Vec::new(),
-                params,
+                type_params: Box::new([]),
+                params: params.into(),
                 ret,
                 body,
                 span,
@@ -815,9 +815,9 @@ impl<'a> Parser<'a> {
             self.consume_stmt_terminator()?;
             Ok(ilang_ast::ExternCItem::FnDecl {
                 name,
-                params,
+                params: params.into(),
                 ret,
-                libs,
+                libs: libs.into(),
                 optional,
                 variadic,
                 c_symbol,
@@ -876,7 +876,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Colon, "':'")?;
         let ty = self.parse_type()?;
         self.consume_stmt_terminator()?;
-        Ok(ilang_ast::ExternCItem::Static { name, ty, libs, optional, span })
+        Ok(ilang_ast::ExternCItem::Static { name, ty, libs: libs.into(), optional, span })
     }
 
     fn parse_extern_c_struct(
@@ -888,7 +888,7 @@ impl<'a> Parser<'a> {
         // accepted, marking the layout as packed (no padding).
         let mut is_packed = false;
         for a in &attrs {
-            match (a.name.as_str(), a.args.as_slice()) {
+            match (a.name.as_str(), &*a.args) {
                 ("packed", []) => {
                     is_packed = true;
                 }
@@ -912,7 +912,7 @@ impl<'a> Parser<'a> {
             let f_attrs = self.parse_attributes()?;
             let mut bits: Option<u32> = None;
             for a in &f_attrs {
-                match (a.name.as_str(), a.args.as_slice()) {
+                match (a.name.as_str(), &*a.args) {
                     ("bits", [ilang_ast::AttrArg::Int(n)]) if *n >= 1 && *n <= 64 => {
                         bits = Some(*n as u32);
                     }
@@ -934,7 +934,7 @@ impl<'a> Parser<'a> {
             fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Struct { name, fields, is_packed, span })
+        Ok(ilang_ast::ExternCItem::Struct { name, fields: fields.into(), is_packed, span })
     }
 
     fn parse_extern_c_union(
@@ -954,7 +954,7 @@ impl<'a> Parser<'a> {
             fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits: None });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Union { name, fields, span })
+        Ok(ilang_ast::ExternCItem::Union { name, fields: fields.into(), span })
     }
 
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
@@ -1003,10 +1003,10 @@ impl<'a> Parser<'a> {
         };
         let body = parse_block(self)?;
         Ok(FnDecl {
-            attrs,
+            attrs: attrs.into(),
             name,
-            type_params,
-            params,
+            type_params: type_params.into(),
+            params: params.into(),
             ret,
             body,
             span,
@@ -1042,7 +1042,7 @@ impl<'a> Parser<'a> {
                             args.push(AttrArg::Int(n));
                         } else {
                             let path = self.parse_attr_path()?;
-                            args.push(AttrArg::Path(path));
+                            args.push(AttrArg::Path(path.into()));
                         }
                         if matches!(self.peek().kind, TokenKind::Comma) {
                             self.bump();
@@ -1056,7 +1056,7 @@ impl<'a> Parser<'a> {
             } else {
                 Vec::new()
             };
-            out.push(Attribute { name, args });
+            out.push(Attribute { name, args: args.into() });
         }
         Ok(out)
     }
@@ -1091,10 +1091,10 @@ impl<'a> Parser<'a> {
         };
         let body = parse_block(self)?;
         Ok(FnDecl {
-            attrs,
+            attrs: attrs.into(),
             name,
-            type_params,
-            params,
+            type_params: type_params.into(),
+            params: params.into(),
             ret,
             body,
             span,
@@ -1276,7 +1276,7 @@ impl<'a> Parser<'a> {
                     elems.push(self.parse_type()?);
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                return Ok(Type::Tuple(elems));
+                return Ok(Type::Tuple(elems.into()));
             }
             self.expect(&TokenKind::RParen, "')'")?;
             return Ok(first);

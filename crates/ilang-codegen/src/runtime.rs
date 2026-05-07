@@ -392,7 +392,7 @@ pub(crate) extern "C" fn ilang_jit_libc_free(ptr: i64) {
     if ptr == 0 {
         return;
     }
-    extern "C" {
+    unsafe extern "C" {
         #[link_name = "free"]
         fn libc_free_inner(ptr: i64);
     }

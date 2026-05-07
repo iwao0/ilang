@@ -310,7 +310,7 @@ impl<'a> Parser<'a> {
                     expr = Expr::new(
                         ExprKind::StructLit {
                             class: class_name.into(),
-                            fields: fs,
+                            fields: fs.into(),
                         },
                         span,
                     );
@@ -348,7 +348,7 @@ impl<'a> Parser<'a> {
                     ExprKind::MethodCall {
                         obj: Box::new(expr),
                         method: name,
-                        args,
+                        args: args.into(),
                     },
                     span,
                 );
@@ -400,7 +400,7 @@ impl<'a> Parser<'a> {
                     ExprKind::EnumCtor {
                         enum_name,
                         variant: name,
-                        args: ilang_ast::CtorArgs::Struct(fs),
+                        args: ilang_ast::CtorArgs::Struct(fs.into()),
                     },
                     span,
                 );
@@ -494,7 +494,7 @@ impl<'a> Parser<'a> {
                         });
                     }
                 };
-                Ok(Expr::new(ExprKind::SuperCall { method, args }, span))
+                Ok(Expr::new(ExprKind::SuperCall { method, args: args.into() }, span))
             }
             TokenKind::New => {
                 self.bump();
@@ -529,7 +529,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                Ok(Expr::new(ExprKind::New { class, type_args, args, init_method: None }, span))
+                Ok(Expr::new(ExprKind::New { class, type_args: type_args.into(), args: args.into(), init_method: None }, span))
             }
             TokenKind::If => self.parse_if(),
             TokenKind::Fn => self.parse_fn_expr(),
@@ -614,7 +614,7 @@ impl<'a> Parser<'a> {
                 if matches!(self.peek().kind, TokenKind::LParen) {
                     self.bump();
                     let args = self.parse_call_args()?;
-                    Ok(Expr::new(ExprKind::Call { callee: name.into(), args }, span))
+                    Ok(Expr::new(ExprKind::Call { callee: name.into(), args: args.into() }, span))
                 } else {
                     Ok(Expr::new(ExprKind::Var(name.into()), span))
                 }
@@ -653,7 +653,7 @@ impl<'a> Parser<'a> {
                 Ok(Expr::new(
                     ExprKind::Match {
                         scrutinee: Box::new(scrutinee),
-                        arms,
+                        arms: arms.into(),
                     },
                     span,
                 ))
@@ -714,7 +714,7 @@ impl<'a> Parser<'a> {
                         elems.push(self.parse_expr(0)?);
                     }
                     self.expect(&TokenKind::RParen, "')'")?;
-                    return Ok(Expr::new(ExprKind::Tuple(elems), span));
+                    return Ok(Expr::new(ExprKind::Tuple(elems.into()), span));
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
                 Ok(first)
@@ -768,7 +768,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RBracket, "']'")?;
-                Ok(Expr::new(ExprKind::Array(elements), span))
+                Ok(Expr::new(ExprKind::Array(elements.into()), span))
             }
             other => Err(ParseError::Unexpected {
                 found: other,
@@ -1149,7 +1149,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RParen, "')'")?;
-                ilang_ast::PatternBindings::Tuple(names)
+                ilang_ast::PatternBindings::Tuple(names.into())
             }
             TokenKind::LBrace => {
                 self.bump();
@@ -1178,7 +1178,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&TokenKind::RBrace, "'}'")?;
-                ilang_ast::PatternBindings::Struct(fs)
+                ilang_ast::PatternBindings::Struct(fs.into())
             }
             _ => ilang_ast::PatternBindings::Unit,
         };
@@ -1275,7 +1275,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(Expr::new(ExprKind::MapLit(entries), span))
+        Ok(Expr::new(ExprKind::MapLit(entries.into()), span))
     }
 
     /// Anonymous function expression: `fn(p: T, ...): R { body }`. The
@@ -1294,7 +1294,7 @@ impl<'a> Parser<'a> {
         };
         let body = crate::stmt::parse_block(self)?;
         Ok(Expr::new(
-            ExprKind::FnExpr { params, ret, body },
+            ExprKind::FnExpr { params: params.into(), ret, body },
             span,
         ))
     }

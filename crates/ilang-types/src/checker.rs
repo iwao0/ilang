@@ -436,7 +436,7 @@ impl TypeChecker {
     /// sees a fully concrete instantiation.
     fn refine_enum_ctor_args(&self, expr: &Expr, target: &Type) {
         let target_args = match target {
-            Type::Generic(g) => Some((g.base.clone(), g.args.clone())),
+            Type::Generic(g) => Some((g.base.clone(), g.args.to_vec())),
             _ => None,
         };
         match &expr.kind {
@@ -957,13 +957,13 @@ impl TypeChecker {
                 } => {
                     let synth = ClassDecl {
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         parent: None,
                         fields: fields.clone(),
-                        methods: Vec::new(),
-                        static_methods: Vec::new(),
-                        static_fields: Vec::new(),
-                        properties: Vec::new(),
+                        methods: Box::new([]),
+                        static_methods: Box::new([]),
+                        static_fields: Box::new([]),
+                        properties: Box::new([]),
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: *is_packed,
@@ -976,13 +976,13 @@ impl TypeChecker {
                 ilang_ast::ExternCItem::Union { name, fields, span } => {
                     let synth = ClassDecl {
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         parent: None,
                         fields: fields.clone(),
-                        methods: Vec::new(),
-                        static_methods: Vec::new(),
-                        static_fields: Vec::new(),
-                        properties: Vec::new(),
+                        methods: Box::new([]),
+                        static_methods: Box::new([]),
+                        static_fields: Box::new([]),
+                        properties: Box::new([]),
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: false,
@@ -996,18 +996,18 @@ impl TypeChecker {
                     // Build a synthetic FnDecl with @extern attribute
                     // so downstream pipeline (loader, JIT) treats it
                     // like an existing top-level extern fn.
-                    let mut extern_args = vec![ilang_ast::AttrArg::Path(vec!["C".into()])];
+                    let mut extern_args = vec![ilang_ast::AttrArg::Path(Box::new([Symbol::intern("C")]))];
                     if *variadic {
-                        extern_args.push(ilang_ast::AttrArg::Path(vec!["variadic".into()]));
+                        extern_args.push(ilang_ast::AttrArg::Path(Box::new([Symbol::intern("variadic")])));
                     }
                     let attrs = vec![ilang_ast::Attribute {
                         name: "extern".into(),
-                        args: extern_args,
+                        args: extern_args.into(),
                     }];
                     let synth = FnDecl {
-                        attrs,
+                        attrs: attrs.into(),
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         params: params.clone(),
                         ret: ret.clone(),
                         body: ilang_ast::Block { stmts: Vec::new(), tail: None },
@@ -1989,7 +1989,7 @@ impl TypeChecker {
                 // `let print = ...` shadows an outer name.
                 if let Some(Type::Fn(ft)) = env.get(callee).cloned() {
                     let sig = Signature {
-                        params: ft.params.clone(),
+                        params: ft.params.to_vec(),
                         ret: ft.ret.clone(),
                         variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
                         defaults: Vec::new(),
@@ -2437,7 +2437,7 @@ impl TypeChecker {
                         if params.len() != 1 || !assignable(elem, &params[0]) && !self.assignable_obj(elem, &params[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: Type::func(vec![(**elem).clone()], Type::Any),
-                                got: Type::func(params.clone(), ret.clone()),
+                                got: Type::func(params.to_vec(), ret.clone()),
                                 span: args[0].span,
                             });
                         }
@@ -2568,7 +2568,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                let inst_args: Vec<Type> = type_args.clone();
+                let inst_args: Vec<Type> = type_args.to_vec();
                 if let Some(init_overloads) = init_raw {
                     // Substitute generic type-args once per init
                     // overload, then resolve which init to call.
@@ -2968,7 +2968,7 @@ impl TypeChecker {
                 for e in elements {
                     tys.push(self.check_expr(e, env, ret_ty, in_class, loop_depth)?);
                 }
-                Ok(Type::Tuple(tys))
+                Ok(Type::Tuple(tys.into()))
             }
             ExprKind::MapLit(entries) => {
                 // The parser only ever emits MapLit when there's at least
@@ -3550,7 +3550,7 @@ impl TypeChecker {
                         (name.clone(), Vec::<Type>::new())
                     }
                     Type::Generic(g) if self.enums.contains_key(&g.base) => {
-                        (g.base.clone(), g.args.clone())
+                        (g.base.clone(), g.args.to_vec())
                     }
                     _ => {
                         return Err(TypeError::Mismatch {
@@ -4245,14 +4245,14 @@ fn signature_of(f: &FnDecl) -> Signature {
         a.name == "extern"
             && a.args
                 .iter()
-                .any(|x| matches!(x, ilang_ast::AttrArg::Path(p) if p.as_slice() == ["variadic"]))
+                .any(|x| matches!(x, ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["variadic"]))
     });
     Signature {
         params,
         ret,
         variadic: is_variadic,
         decl_span: f.span,
-        type_params: f.type_params.clone(),
+        type_params: Vec::from(f.type_params.clone()),
         defaults: f.params.iter().map(|p| p.default.clone()).collect(),
     }
 }
@@ -4637,7 +4637,7 @@ fn class_signature(
         static_fields.insert(sf.name.clone(), sf.ty.clone());
     }
     Ok(ClassSig {
-        type_params: c.type_params.clone(),
+        type_params: Vec::from(c.type_params.clone()),
         fields,
         methods,
         properties,
@@ -4803,7 +4803,7 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
         })
         .collect();
     EnumSig {
-        type_params: e.type_params.clone(),
+        type_params: Vec::from(e.type_params.clone()),
         variants,
         flags: e.flags,
     }

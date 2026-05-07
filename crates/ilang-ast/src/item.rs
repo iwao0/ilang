@@ -21,13 +21,13 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub name: Symbol,
-    pub args: Vec<AttrArg>,
+    pub args: Box<[AttrArg]>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrArg {
     /// A capability path like `net` or `file::read`.
-    Path(Vec<Symbol>),
+    Path(Box<[Symbol]>),
     /// A quoted string literal — used by `@extern("libname")` to
     /// name the dynamic library to dlopen at JIT init.
     Str(String),
@@ -38,15 +38,15 @@ pub enum AttrArg {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
-    pub attrs: Vec<Attribute>,
+    pub attrs: Box<[Attribute]>,
     pub name: Symbol,
     /// Generic type parameters declared on the fn (e.g. `<T, U>`).
     /// Empty for non-generic fns. Inside the body, references to
     /// these names are rewritten to `Type::TypeVar` by the type
     /// checker, and concrete types are inferred from arg types at
     /// each call site.
-    pub type_params: Vec<Symbol>,
-    pub params: Vec<Param>,
+    pub type_params: Box<[Symbol]>,
+    pub params: Box<[Param]>,
     pub ret: Option<Type>,
     pub body: Block,
     pub span: Span,
@@ -101,28 +101,28 @@ pub struct ClassDecl {
     /// Generic type parameters declared on the class (e.g. `<T, U>`).
     /// Empty for non-generic classes. Inside the class body, references
     /// to these names parse as `Type::TypeVar`.
-    pub type_params: Vec<Symbol>,
-    pub fields: Vec<FieldDecl>,
+    pub type_params: Box<[Symbol]>,
+    pub fields: Box<[FieldDecl]>,
     /// All methods of the class. The constructor is the method named `init`
     /// (treated as a regular method by the parser; recognised specially by
     /// the type checker and evaluator).
-    pub methods: Vec<FnDecl>,
+    pub methods: Box<[FnDecl]>,
     /// `static` methods — callable via `ClassName.method(args)` with
     /// no `this`. Stored in their own Vec so instance-method lookups
     /// don't trip over them, and so the JIT can register each as a
     /// plain top-level fn (no receiver param).
-    pub static_methods: Vec<FnDecl>,
+    pub static_methods: Box<[FnDecl]>,
     /// `static` fields — class-level mutable storage. The initial
     /// `value` must fold to a literal at compile time (same rules
     /// as top-level `const`). Allowed types are `i64` / `f64` /
     /// `bool` for now; heap types await a Phase-2 design.
-    pub static_fields: Vec<StaticFieldDecl>,
+    pub static_fields: Box<[StaticFieldDecl]>,
     /// `get`/`set` accessors. Read/write of `obj.name` is dispatched to
     /// the corresponding accessor instead of a stored field. Both are
     /// optional (read-only or write-only OK), but at least one is set.
     /// Stored separately from `methods` so method-name lookups don't
     /// trip over property accessors.
-    pub properties: Vec<PropertyDecl>,
+    pub properties: Box<[PropertyDecl]>,
     pub span: Span,
 }
 
@@ -170,9 +170,9 @@ pub enum VariantPayload {
     /// `Color::Red` — no associated data.
     Unit,
     /// `Shape::Circle(f64)` — positional payload.
-    Tuple(Vec<Type>),
+    Tuple(Box<[Type]>),
     /// `Shape::Square { side: f64 }` — named payload.
-    Struct(Vec<FieldDecl>),
+    Struct(Box<[FieldDecl]>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,7 +182,7 @@ pub struct EnumDecl {
     /// Empty for non-generic enums. Variant payload types reference
     /// these names; the type checker rewrites them to `Type::TypeVar`
     /// when registering the enum's signature.
-    pub type_params: Vec<Symbol>,
+    pub type_params: Box<[Symbol]>,
     /// Optional explicit underlying integer type
     /// (`enum Flag: u32 { ... }`). When `None`, defaults to the
     /// codegen-internal `i32` tag. Numeric primitive types only
@@ -193,7 +193,7 @@ pub struct EnumDecl {
     /// Combined values that don't match any single variant are
     /// represented as raw bits.
     pub flags: bool,
-    pub variants: Vec<Variant>,
+    pub variants: Box<[Variant]>,
     pub span: Span,
 }
 
@@ -230,7 +230,7 @@ pub enum Item {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternCBlock {
-    pub items: Vec<ExternCItem>,
+    pub items: Box<[ExternCItem]>,
     pub span: Span,
 }
 
@@ -241,14 +241,14 @@ pub enum ExternCItem {
     /// and `@bits(N)` are still supported.
     Struct {
         name: Symbol,
-        fields: Vec<FieldDecl>,
+        fields: Box<[FieldDecl]>,
         is_packed: bool,
         span: Span,
     },
     /// C union — every field at offset 0, size = max field size.
     Union {
         name: Symbol,
-        fields: Vec<FieldDecl>,
+        fields: Box<[FieldDecl]>,
         span: Span,
     },
     /// `@lib("libname") fn name(...): T` — declaration only, dlsym'd
@@ -259,9 +259,9 @@ pub enum ExternCItem {
     /// the library can't be loaded.
     FnDecl {
         name: Symbol,
-        params: Vec<Param>,
+        params: Box<[Param]>,
         ret: Option<crate::types::Type>,
-        libs: Vec<Symbol>,
+        libs: Box<[Symbol]>,
         optional: bool,
         /// `fn snprintf(buf: *u8, n: size_t, fmt: *const char, ...)`
         /// — trailing `...` marks the C variadic. Extra arguments at
@@ -282,7 +282,7 @@ pub enum ExternCItem {
     Static {
         name: Symbol,
         ty: crate::types::Type,
-        libs: Vec<Symbol>,
+        libs: Box<[Symbol]>,
         optional: bool,
         span: Span,
     },
@@ -321,7 +321,7 @@ pub struct UseDecl {
     pub module: Symbol,
     /// `None` for whole-module import (`use utils`); `Some(names)`
     /// for selective import (`use utils { foo, bar }`).
-    pub selective: Option<Vec<Symbol>>,
+    pub selective: Option<Box<[Symbol]>>,
     /// `@export use mod` — re-export `mod`'s items under the current
     /// module's namespace. Inside the entrypoint program this flag
     /// has no effect (no parent prefix to re-export under).

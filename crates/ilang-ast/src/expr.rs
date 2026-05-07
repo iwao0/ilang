@@ -38,7 +38,7 @@ pub enum ExprKind {
     /// a child class's own `init` body.
     SuperCall {
         method: Option<Symbol>,
-        args: Vec<Expr>,
+        args: Box<[Expr]>,
     },
     Unary {
         op: UnOp,
@@ -59,7 +59,7 @@ pub enum ExprKind {
     /// Free function call: `foo(args)`. Method calls go through MethodCall.
     Call {
         callee: Symbol,
-        args: Vec<Expr>,
+        args: Box<[Expr]>,
     },
     /// `obj.field` — field read.
     Field {
@@ -70,7 +70,7 @@ pub enum ExprKind {
     MethodCall {
         obj: Box<Expr>,
         method: Symbol,
-        args: Vec<Expr>,
+        args: Box<[Expr]>,
     },
     /// `new ClassName(args)` or `new ClassName<T, U>(args)` for
     /// generic instantiations. `type_args` is empty for non-generic
@@ -80,8 +80,8 @@ pub enum ExprKind {
     /// `init` by name as before" (the common, non-overloaded case).
     New {
         class: Symbol,
-        type_args: Vec<crate::Type>,
-        args: Vec<Expr>,
+        type_args: Box<[crate::Type]>,
+        args: Box<[Expr]>,
         init_method: Option<Symbol>,
     },
     Block(Block),
@@ -120,7 +120,7 @@ pub enum ExprKind {
     /// The interpreter never produces or consumes this node.
     Closure {
         fn_name: Symbol,
-        captures: Vec<(Symbol, crate::Type)>,
+        captures: Box<[(Symbol, crate::Type)]>,
     },
     /// Infinite loop. Exits only via `break` (or returning from the
     /// enclosing function once `return` exists). The expression's type
@@ -159,16 +159,16 @@ pub enum ExprKind {
     /// captures (closures); at runtime it's a code pointer with the
     /// statically-known `Type::Fn` signature.
     FnExpr {
-        params: Vec<crate::Param>,
+        params: Box<[crate::Param]>,
         ret: Option<crate::types::Type>,
         body: crate::stmt::Block,
     },
     /// Array literal: `[a, b, c]`.
-    Array(Vec<Expr>),
+    Array(Box<[Expr]>),
     /// Tuple literal `(a, b, ...)` — always 2+ elements (`(x)` is
     /// grouping). Heterogeneous; indexed via `t[N]` with a constant
     /// integer literal.
-    Tuple(Vec<Expr>),
+    Tuple(Box<[Expr]>),
     /// `Foo { f1: v1, f2: v2 }` — aggregate literal for an
     /// `@extern(C) struct`. The post-typecheck mangling pass desugars
     /// this into `new Foo()` plus a sequence of field assignments,
@@ -176,12 +176,12 @@ pub enum ExprKind {
     /// node directly.
     StructLit {
         class: Symbol,
-        fields: Vec<(Symbol, Expr)>,
+        fields: Box<[(Symbol, Expr)]>,
     },
     /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
     /// expressions (string / int / bool literals at parse time;
     /// validated against the inferred K by the type checker).
-    MapLit(Vec<(Expr, Expr)>),
+    MapLit(Box<[(Expr, Expr)]>),
     /// Index read: `obj[idx]`.
     Index {
         obj: Box<Expr>,
@@ -216,15 +216,15 @@ pub enum ExprKind {
     /// `match scrutinee { Pattern => body, ... }`.
     Match {
         scrutinee: Box<Expr>,
-        arms: Vec<MatchArm>,
+        arms: Box<[MatchArm]>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CtorArgs {
     Unit,
-    Tuple(Vec<Expr>),
-    Struct(Vec<(Symbol, Expr)>),
+    Tuple(Box<[Expr]>),
+    Struct(Box<[(Symbol, Expr)]>),
 }
 
 #[derive(Debug, Clone)]
@@ -285,9 +285,9 @@ pub enum PatternBindings {
     Unit,
     /// `EnumName::Variant(name1, name2)` — positional bindings (`_`
     /// for "ignore"); the strings are the binding names.
-    Tuple(Vec<Symbol>),
+    Tuple(Box<[Symbol]>),
     /// `EnumName::Variant { f1: name1, f2 }` (shorthand allowed).
-    Struct(Vec<(Symbol, Symbol)>),
+    Struct(Box<[(Symbol, Symbol)]>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

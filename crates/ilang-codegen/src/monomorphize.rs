@@ -121,7 +121,7 @@ pub(crate) fn hoist_anon_fns(
     (
         Program {
             items,
-            stmts: new_stmts,
+            stmts: new_stmts.into(),
             tail: new_tail,
         },
         closure_meta,
@@ -279,10 +279,10 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             });
             wrapper_params.extend(params.iter().cloned());
             ctx.hoisted.push(Item::Fn(FnDecl {
-                attrs: Vec::new(),
+                attrs: Box::new([]),
                 name: name.clone(),
-                type_params: Vec::new(),
-                params: wrapper_params,
+                type_params: Box::new([]),
+                params: wrapper_params.into(),
                 ret: ret.clone(),
                 body,
                 span: e.span,
@@ -297,7 +297,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                     span: e.span,
                 },
             );
-            ExprKind::Closure { fn_name: name, captures }
+            ExprKind::Closure { fn_name: name, captures: captures.into() }
         }
         // Recurse through anything that might contain expressions.
         ExprKind::Some(inner) => {
@@ -696,7 +696,7 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
             }
             // The `new` itself is also an instantiation seed.
             if !type_args.is_empty() {
-                push_inst(class.clone(), type_args.clone(), needed, work);
+                push_inst(class.clone(), type_args.to_vec(), needed, work);
             }
         }
         ExprKind::Block(b) => scan_block(b, needed, work),
@@ -813,7 +813,7 @@ fn collect_instantiations(
             // concrete `Box<i64>` later, which seeds the worklist on
             // the next round.
             if !contains_type_var(t) {
-                push_inst(g.base.clone(), g.args.clone(), needed, work);
+                push_inst(g.base.clone(), g.args.to_vec(), needed, work);
             }
             for a in &g.args {
                 collect_instantiations(a, needed, work);
@@ -903,7 +903,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
             is_packed: c.is_packed,
             is_union: c.is_union,
         name: mangled.into(),
-        type_params: Vec::new(),
+        type_params: Box::new([]),
         parent: c.parent.clone(),
         fields,
         properties,
@@ -920,7 +920,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
 fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnDecl {
     FnDecl {
         name: f.name.clone(),
-        type_params: Vec::new(),
+        type_params: Box::new([]),
         params: f
             .params
             .iter()
@@ -1171,17 +1171,17 @@ fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
             let new_args: Vec<Type> =
                 g.args.iter().map(|a| subst_type(a, params, args)).collect();
             // Once concrete (no TypeVar left), collapse to Object(mangled).
-            let gen = Type::generic(g.base.clone(), new_args.clone());
-            if !contains_type_var(&gen) {
+            let gen_ty = Type::generic(g.base.clone(), new_args.clone());
+            if !contains_type_var(&gen_ty) {
                 Type::Object(
                     InstKey {
                         class: g.base.clone(),
-                        args: new_args,
+                        args: new_args.into(),
                     }
                     .mangled(),
                 )
             } else {
-                gen
+                gen_ty
             }
         }
         Type::Array { elem, fixed } => Type::Array {
@@ -1317,8 +1317,8 @@ fn rewrite_expr(e: &Expr) -> Expr {
             if type_args.is_empty() || is_builtin_generic_class(class.as_str()) {
                 ExprKind::New {
                     class: class.clone(),
-                    type_args: new_type_args,
-                    args: new_args, init_method: init_method.clone(),
+                    type_args: new_type_args.into(),
+                    args: new_args.into(), init_method: init_method.clone(),
                 }
             } else {
                 let mangled = InstKey {
@@ -1328,8 +1328,8 @@ fn rewrite_expr(e: &Expr) -> Expr {
                 .mangled();
                 ExprKind::New {
                     class: mangled,
-                    type_args: Vec::new(),
-                    args: new_args, init_method: init_method.clone(),
+                    type_args: Box::new([]),
+                    args: new_args.into(), init_method: init_method.clone(),
                 }
             }
         }
@@ -1537,7 +1537,7 @@ fn rewrite_type(t: &Type) -> Type {
                 Type::Object(
                     InstKey {
                         class: g.base.clone(),
-                        args: new_args,
+                        args: new_args.into(),
                     }
                     .mangled(),
                 )
@@ -1678,7 +1678,7 @@ pub(crate) fn monomorphize_fns(
         // 1. Substitute T → concrete throughout sig + body.
         let mut new_fn = specialize_fn(&template, &outer_params, &outer_args);
         new_fn.name = mangled.clone();
-        new_fn.type_params = Vec::new();
+        new_fn.type_params = Box::new([]);
 
         // 2. Discover & enqueue further generic-fn calls inside the
         //    substituted body (substituting outer T → concrete in the
@@ -2022,7 +2022,7 @@ fn rewrite_calls_in_expr(
             };
             ExprKind::Call {
                 callee: new_callee,
-                args: new_args,
+                args: new_args.into(),
             }
         }
         _ => {
@@ -2393,23 +2393,23 @@ fn result_template() -> EnumDecl {
     let span = Span::dummy();
     EnumDecl {
         name: "Result".into(),
-        type_params: vec!["T".into(), "E".into()],
+        type_params: Box::new(["T".into(), "E".into()]),
         repr_ty: None,
         flags: false,
-        variants: vec![
+        variants: Box::new([
             Variant {
                 name: "ok".into(),
-                payload: VariantPayload::Tuple(vec![Type::Object("T".into())]),
+                payload: VariantPayload::Tuple(Box::new([Type::Object("T".into())])),
                 discriminant: None,
                 span,
             },
             Variant {
                 name: "err".into(),
-                payload: VariantPayload::Tuple(vec![Type::Object("E".into())]),
+                payload: VariantPayload::Tuple(Box::new([Type::Object("E".into())])),
                 discriminant: None,
                 span,
             },
-        ],
+        ]),
         span,
     }
 }
@@ -2588,7 +2588,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
     let args: Vec<Type> = args.iter().map(rewrite_type).collect();
     EnumDecl {
         name: mangled.into(),
-        type_params: Vec::new(),
+        type_params: Box::new([]),
         repr_ty: e.repr_ty.clone(),
         flags: e.flags,
         variants: e
@@ -3076,7 +3076,7 @@ fn rewrite_enum_refs_in_expr(
             ExprKind::EnumCtor {
                 enum_name: new_name,
                 variant: variant.clone(),
-                args: new_args,
+                args: new_args.into(),
             }
         }
         ExprKind::Cast { expr, ty } => ExprKind::Cast {

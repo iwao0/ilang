@@ -53,8 +53,8 @@ pub fn normalize(prog: Program) -> Program {
             _ => {}
         }
     }
-    let items = prog.items.into_iter().map(|i| rewrite_item(i, &ctx)).collect();
-    let stmts = prog.stmts.into_iter().map(|s| rewrite_stmt(s, &ctx)).collect();
+    let items: Vec<Item> = prog.items.into_iter().map(|i| rewrite_item(i, &ctx)).collect();
+    let stmts: Vec<Stmt> = prog.stmts.into_iter().map(|s| rewrite_stmt(s, &ctx)).collect();
     let tail = prog.tail.map(|e| rewrite_expr(e, &ctx));
     Program {
         items,
@@ -226,7 +226,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
 
 fn rewrite_block(b: Block, ctx: &Ctx) -> Block {
     Block {
-        stmts: b.stmts.into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
+        stmts: Vec::from(b.stmts).into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
         tail: b.tail.map(|e| Box::new(rewrite_expr(*e, ctx))),
     }
 }
@@ -282,7 +282,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::MethodCall { obj, method, args } => {
             let obj = rewrite_expr(*obj, ctx);
             let new_args: Vec<Expr> =
-                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+                Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let ExprKind::Var(receiver) = &obj.kind {
                 // Whole-module function call: `module.foo(args)`
                 // becomes `Call("module.foo", args)`.
@@ -290,7 +290,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                     return Expr::new(
                         ExprKind::Call {
                             callee: Symbol::intern(&format!("{receiver}.{method}")),
-                            args: new_args,
+                            args: new_args.into(),
                         },
                         span,
                     );
@@ -300,7 +300,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                         ExprKind::EnumCtor {
                             enum_name: receiver.clone(),
                             variant: method,
-                            args: CtorArgs::Tuple(new_args),
+                            args: CtorArgs::Tuple(new_args.into()),
                         },
                         span,
                     );
@@ -309,7 +309,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             ExprKind::MethodCall {
                 obj: Box::new(obj),
                 method,
-                args: new_args,
+                args: new_args.into(),
             }
         }
         // Recurse through everything else.
@@ -338,12 +338,12 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee,
-            args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
         },
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class,
             type_args,
-            args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
             init_method,
         },
         ExprKind::Block(b) => ExprKind::Block(rewrite_block(b, ctx)),
@@ -389,7 +389,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         }
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
-            args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
         },
         ExprKind::Return(opt) => {
             ExprKind::Return(opt.map(|e| Box::new(rewrite_expr(*e, ctx))))
@@ -412,10 +412,10 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::Array(items) => {
-            ExprKind::Array(items.into_iter().map(|e| rewrite_expr(e, ctx)).collect())
+            ExprKind::Array(Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect())
         }
         ExprKind::Tuple(items) => {
-            ExprKind::Tuple(items.into_iter().map(|e| rewrite_expr(e, ctx)).collect())
+            ExprKind::Tuple(Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect())
         }
         // Struct literal: `Foo { a: 1, b: 2 }` desugars to a block
         // `{ let __sl = new Foo(); __sl.a = 1; __sl.b = 2; __sl }`.
@@ -431,8 +431,8 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                     value: Expr::new(
                         ExprKind::New {
                             class,
-                            type_args: Vec::new(),
-                            args: Vec::new(),
+                            type_args: Box::new([]),
+                            args: Box::new([]),
                             init_method: None,
                         },
                         span,
@@ -456,7 +456,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             }
             return Expr::new(
                 ExprKind::Block(ilang_ast::Block {
-                    stmts,
+                    stmts: stmts.into(),
                     tail: Some(Box::new(Expr::new(ExprKind::Var(tmp), span))),
                 }),
                 span,
@@ -483,7 +483,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             args: match args {
                 CtorArgs::Unit => CtorArgs::Unit,
                 CtorArgs::Tuple(es) => CtorArgs::Tuple(
-                    es.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
+                    Vec::from(es).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
                 ),
                 CtorArgs::Struct(fs) => CtorArgs::Struct(
                     fs.into_iter()

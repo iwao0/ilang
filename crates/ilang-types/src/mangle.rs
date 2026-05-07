@@ -155,12 +155,12 @@ pub fn mangle_overloads(
         .enumerate()
         .map(|(i, item)| rewrite_item(i, item, &ctx))
         .collect();
-    let new_stmts: Vec<Stmt> = prog.stmts.into_iter().map(|s| rewrite_stmt(s, &ctx)).collect();
+    let new_stmts: Vec<Stmt> = Vec::from(prog.stmts).into_iter().map(|s| rewrite_stmt(s, &ctx)).collect();
     let new_tail = prog.tail.map(|e| rewrite_expr(e, &ctx));
 
     Program {
-        items: new_items,
-        stmts: new_stmts,
+        items: new_items.into(),
+        stmts: new_stmts.into(),
         tail: new_tail,
     }
 }
@@ -283,7 +283,7 @@ fn rewrite_class_in_place(c: &mut ClassDecl, ctx: &Ctx) {
 
 fn rewrite_block(b: Block, ctx: &Ctx) -> Block {
     Block {
-        stmts: b.stmts.into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
+        stmts: Vec::from(b.stmts).into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
         tail: b.tail.map(|e| Box::new(rewrite_expr(*e, ctx))),
     }
 }
@@ -321,7 +321,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 callee
             };
             let mut new_args: Vec<Expr> =
-                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+                Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let Some(fills) = ctx.default_fills.get(&span) {
                 for d in fills {
                     new_args.push(rewrite_expr(d.clone(), ctx));
@@ -329,7 +329,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             }
             ExprKind::Call {
                 callee: new_callee,
-                args: new_args,
+                args: new_args.into(),
             }
         }
         // Mechanical recursion through every other expression shape.
@@ -386,7 +386,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 method
             };
             let mut new_args: Vec<Expr> =
-                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+                Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let Some(fills) = ctx.default_fills.get(&span) {
                 for d in fills {
                     new_args.push(rewrite_expr(d.clone(), ctx));
@@ -395,7 +395,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             ExprKind::MethodCall {
                 obj: Box::new(rewrite_expr(*obj, ctx)),
                 method: new_method,
-                args: new_args,
+                args: new_args.into(),
             }
         }
         ExprKind::New { class, type_args, args, init_method: existing } => {
@@ -415,7 +415,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 existing
             };
             let mut new_args: Vec<Expr> =
-                args.into_iter().map(|a| rewrite_expr(a, ctx)).collect();
+                Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let Some(fills) = ctx.default_fills.get(&span) {
                 for d in fills {
                     new_args.push(rewrite_expr(d.clone(), ctx));
@@ -424,7 +424,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             ExprKind::New {
                 class,
                 type_args,
-                args: new_args,
+                args: new_args.into(),
                 init_method: new_init,
             }
         }
@@ -459,7 +459,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         },
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
-            args: args.into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
         },
         ExprKind::Closure { fn_name, captures } => {
             ExprKind::Closure { fn_name, captures }
@@ -482,10 +482,10 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             value: Box::new(rewrite_expr(*value, ctx)),
         },
         ExprKind::Array(items) => ExprKind::Array(
-            items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
+            Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
         ExprKind::Tuple(items) => ExprKind::Tuple(
-            items.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
+            Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
         ExprKind::StructLit { class, fields } => ExprKind::StructLit {
             class,
@@ -513,7 +513,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
                 ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
+                    Vec::from(es).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
                 ),
                 ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
                     fs.into_iter().map(|(n, e)| (n, rewrite_expr(e, ctx))).collect(),

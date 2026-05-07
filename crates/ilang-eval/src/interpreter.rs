@@ -93,13 +93,13 @@ impl Interpreter {
                             } => {
                                 let synth = ilang_ast::ClassDecl {
                                     name: *name,
-                                    type_params: Vec::new(),
+                                    type_params: Box::new([]),
                                     parent: None,
                                     fields: fields.clone(),
-                                    methods: Vec::new(),
-                                    static_methods: Vec::new(),
-                                    static_fields: Vec::new(),
-                                    properties: Vec::new(),
+                                    methods: Box::new([]),
+                                    static_methods: Box::new([]),
+                                    static_fields: Box::new([]),
+                                    properties: Box::new([]),
                                     extern_lib: None,
                                     is_repr_c: true,
                                     is_packed: *is_packed,
@@ -113,13 +113,13 @@ impl Interpreter {
                             } => {
                                 let synth = ilang_ast::ClassDecl {
                                     name: *name,
-                                    type_params: Vec::new(),
+                                    type_params: Box::new([]),
                                     parent: None,
                                     fields: fields.clone(),
-                                    methods: Vec::new(),
-                                    static_methods: Vec::new(),
-                                    static_fields: Vec::new(),
-                                    properties: Vec::new(),
+                                    methods: Box::new([]),
+                                    static_methods: Box::new([]),
+                                    static_fields: Box::new([]),
+                                    properties: Box::new([]),
                                     extern_lib: None,
                                     is_repr_c: true,
                                     is_packed: false,
@@ -145,18 +145,18 @@ impl Interpreter {
                                 let is_lib = !libs.is_empty();
                                 let mut attrs = vec![ilang_ast::Attribute {
                                     name: "extern".into(),
-                                    args: Vec::new(),
+                                    args: Box::new([]),
                                 }];
                                 if is_lib {
                                     attrs.push(ilang_ast::Attribute {
                                         name: "extern_lib_only".into(),
-                                        args: Vec::new(),
+                                        args: Box::new([]),
                                     });
                                 }
                                 let synth = ilang_ast::FnDecl {
-                                    attrs,
+                                    attrs: attrs.into(),
                                     name: *name,
-                                    type_params: Vec::new(),
+                                    type_params: Box::new([]),
                                     params: params.clone(),
                                     ret: ret.clone(),
                                     body: ilang_ast::Block {
@@ -966,9 +966,9 @@ impl Interpreter {
                 // by value: the closure value bundles a `HashMap` of
                 // their current bindings.
                 let decl = ilang_ast::FnDecl {
-                    attrs: Vec::new(),
+                    attrs: Box::new([]),
                     name: "".into(),
-                    type_params: Vec::new(),
+                    type_params: Box::new([]),
                     params: params.clone(),
                     ret: ret.clone(),
                     body: body.clone(),

@@ -46,7 +46,7 @@ pub enum Type {
     /// Anonymous product type `(T1, T2, ...)`. Always 2+ elements
     /// (`(T)` parses as grouping; `()` is `Unit`). Heterogeneous —
     /// indexing requires a constant integer literal.
-    Tuple(Vec<Type>),
+    Tuple(Box<[Type]>),
     /// `T?` — value that may be present (`some(v)`) or absent (`none`).
     /// Construction auto-wraps a `T` in any context expecting a `T?`.
     Optional(Box<Type>),
@@ -86,24 +86,24 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericTy {
     pub base: Symbol,
-    pub args: Vec<Type>,
+    pub args: Box<[Type]>,
 }
 
 /// Inner data for `Type::Fn` — kept separate for the same reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnTy {
-    pub params: Vec<Type>,
+    pub params: Box<[Type]>,
     pub ret: Type,
 }
 
 impl Type {
     /// Convenience constructor for `Type::Generic`.
     pub fn generic(base: impl Into<Symbol>, args: Vec<Type>) -> Self {
-        Type::Generic(Box::new(GenericTy { base: base.into(), args }))
+        Type::Generic(Box::new(GenericTy { base: base.into(), args: args.into() }))
     }
     /// Convenience constructor for `Type::Fn`.
     pub fn func(params: Vec<Type>, ret: Type) -> Self {
-        Type::Fn(Box::new(FnTy { params, ret }))
+        Type::Fn(Box::new(FnTy { params: params.into(), ret }))
     }
 }
 

@@ -6,7 +6,7 @@ mod normalize;
 mod parser;
 mod stmt;
 
-use ilang_ast::{Expr, Program, Stmt, StmtKind};
+use ilang_ast::{Expr, Item, Program, Stmt, StmtKind};
 use ilang_lexer::{Token, TokenKind};
 
 pub use error::ParseError;
@@ -37,7 +37,9 @@ pub fn parse_expr_only(tokens: &[Token]) -> Result<Expr, ParseError> {
 }
 
 fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
-    let mut prog = Program::default();
+    let mut items: Vec<Item> = Vec::new();
+    let mut stmts: Vec<Stmt> = Vec::new();
+    let mut tail: Option<Expr> = None;
     loop {
         match &p.peek().kind {
             TokenKind::Eof => break,
@@ -48,26 +50,26 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
             | TokenKind::Use
             | TokenKind::Const => {
                 let item = p.parse_item()?;
-                prog.items.push(item);
+                items.push(item);
             }
             TokenKind::Let => {
                 let s = parse_let_stmt(p)?;
-                prog.stmts.push(s);
+                stmts.push(s);
             }
             _ => {
                 let e = p.parse_expr(0)?;
                 let span = e.span;
                 match p.classify_expr_end(&e, TokenKind::Eof)? {
                     ExprEnd::Stmt => {
-                        prog.stmts.push(Stmt::new(StmtKind::Expr(e), span));
+                        stmts.push(Stmt::new(StmtKind::Expr(e), span));
                     }
                     ExprEnd::Tail => {
-                        prog.tail = Some(e);
+                        tail = Some(e);
                         break;
                     }
                 }
             }
         }
     }
-    Ok(prog)
+    Ok(Program { items, stmts, tail })
 }

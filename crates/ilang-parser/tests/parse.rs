@@ -88,7 +88,7 @@ fn fn_call() {
         p.tail,
         Some(e(ExprKind::Call {
             callee: "id".into(),
-            args: vec![e(ExprKind::Int(5))],
+            args: Box::new([e(ExprKind::Int(5))]),
         }))
     );
 }
@@ -101,10 +101,10 @@ fn fn_with_attribute() {
     assert_eq!(f.attrs[0].name, "requires");
     assert_eq!(
         f.attrs[0].args,
-        vec![
-            AttrArg::Path(vec!["net".into()]),
-            AttrArg::Path(vec!["file".into(), "read".into()]),
-        ]
+        Box::<[_]>::from([
+            AttrArg::Path(Box::new(["net".into()])),
+            AttrArg::Path(Box::new(["file".into(), "read".into()])),
+        ])
     );
 }
 

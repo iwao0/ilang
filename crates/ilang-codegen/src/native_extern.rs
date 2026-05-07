@@ -113,16 +113,16 @@ pub(crate) fn register_native_externs(
         for arg in &extern_attr.args {
             match arg {
                 AttrArg::Str(s) => lib_names.push(s.as_str().into()),
-                AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
+                AttrArg::Path(parts) if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["optional"] => {
                     flag_optional = true;
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["variadic"] => {
+                AttrArg::Path(parts) if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["variadic"] => {
                     variadic.insert(f.name.clone());
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["byValue"] => {
+                AttrArg::Path(parts) if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["byValue"] => {
                     by_value.insert(f.name.clone());
                 }
-                AttrArg::Path(parts) if parts.as_slice() == ["C"] => {
+                AttrArg::Path(parts) if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["C"] => {
                     // Synthesized marker on `@extern(C)` block items —
                     // ignored at this layer; the synth pipeline already
                     // applied the relevant ABI rules.
@@ -246,9 +246,9 @@ pub(crate) fn register_native_externs(
         };
         for arg in &extern_attr.args {
             if let AttrArg::Path(parts) = arg {
-                if parts.as_slice() == ["byValue"] {
+                if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["byValue"] {
                     by_value.insert(f.name.clone());
-                } else if parts.as_slice() == ["variadic"] {
+                } else if parts.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["variadic"] {
                     variadic.insert(f.name.clone());
                 }
             }

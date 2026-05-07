@@ -616,13 +616,13 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
                 } => {
                     out.push(ClassDecl {
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         parent: None,
                         fields: fields.clone(),
-                        methods: Vec::new(),
-                        static_methods: Vec::new(),
-                        static_fields: Vec::new(),
-                        properties: Vec::new(),
+                        methods: Box::new([]),
+                        static_methods: Box::new([]),
+                        static_fields: Box::new([]),
+                        properties: Box::new([]),
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: *is_packed,
@@ -633,13 +633,13 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
                 ilang_ast::ExternCItem::Union { name, fields, span } => {
                     out.push(ClassDecl {
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         parent: None,
                         fields: fields.clone(),
-                        methods: Vec::new(),
-                        static_methods: Vec::new(),
-                        static_fields: Vec::new(),
-                        properties: Vec::new(),
+                        methods: Box::new([]),
+                        static_methods: Box::new([]),
+                        static_fields: Box::new([]),
+                        properties: Box::new([]),
                         extern_lib: None,
                         is_repr_c: true,
                         is_packed: false,
@@ -710,30 +710,30 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                     let mut attr_args: Vec<AttrArg> =
                         libs.iter().map(|s| AttrArg::Str(s.as_str().to_string())).collect();
                     if *optional {
-                        attr_args.push(AttrArg::Path(vec!["optional".into()]));
+                        attr_args.push(AttrArg::Path(Box::new([Symbol::intern("optional")])));
                     }
                     if *variadic {
-                        attr_args.push(AttrArg::Path(vec!["variadic".into()]));
+                        attr_args.push(AttrArg::Path(Box::new([Symbol::intern("variadic")])));
                     }
-                    attr_args.push(AttrArg::Path(vec!["byValue".into()]));
+                    attr_args.push(AttrArg::Path(Box::new([Symbol::intern("byValue")])));
                     // `@symbol("name")` rides through as a separate
                     // attribute so native_extern can use it for the
                     // dlsym lookup while keeping the ilang-side name
                     // for everything else.
                     let mut attrs = vec![ilang_ast::Attribute {
                         name: "extern".into(),
-                        args: attr_args,
+                        args: attr_args.into(),
                     }];
                     if let Some(sym) = c_symbol {
                         attrs.push(ilang_ast::Attribute {
                             name: "symbol".into(),
-                            args: vec![AttrArg::Str(sym.as_str().to_string())],
+                            args: Box::new([AttrArg::Str(sym.as_str().to_string())]),
                         });
                     }
                     out.push(ilang_ast::FnDecl {
-                        attrs,
+                        attrs: attrs.into(),
                         name: name.clone(),
-                        type_params: Vec::new(),
+                        type_params: Box::new([]),
                         params: params.clone(),
                         ret: ret.clone(),
                         body: ilang_ast::Block {

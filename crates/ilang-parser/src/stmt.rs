@@ -31,7 +31,7 @@ pub(crate) fn parse_block(p: &mut Parser) -> Result<Block, ParseError> {
         }
     }
     p.expect(&TokenKind::RBrace, "'}'")?;
-    Ok(Block { stmts, tail })
+    Ok(Block { stmts: stmts.into(), tail })
 }
 
 pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {

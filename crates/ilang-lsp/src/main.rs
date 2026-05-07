@@ -3236,7 +3236,7 @@ fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
             if type_args.is_empty() {
                 Some(Type::Object(class.clone()))
             } else {
-                Some(Type::generic(class.clone(), type_args.clone()))
+                Some(Type::generic(class.clone(), type_args.to_vec()))
             }
         }
         ExprKind::Cast { ty, .. } => Some(ty.clone()),

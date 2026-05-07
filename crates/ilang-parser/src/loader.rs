@@ -326,7 +326,7 @@ fn apply_use(
             other => local_items.push(other),
         }
     }
-    module_prog.items = local_items;
+    module_prog.items = local_items.into();
     for nu in nested_uses {
         let nested_override: Option<&str> = if nu.re_export {
             Some(effective_prefix.as_str())
@@ -715,11 +715,11 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                 v.payload = match std::mem::replace(&mut v.payload, ilang_ast::VariantPayload::Unit) {
                     ilang_ast::VariantPayload::Unit => ilang_ast::VariantPayload::Unit,
                     ilang_ast::VariantPayload::Tuple(tys) => ilang_ast::VariantPayload::Tuple(
-                        tys.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
+                        Vec::from(tys).into_iter().map(|t| prefix_type(&t, prefix)).collect(),
                     ),
                     ilang_ast::VariantPayload::Struct(fs) => {
                         ilang_ast::VariantPayload::Struct(
-                            fs.into_iter()
+                            Vec::from(fs).into_iter()
                                 .map(|mut fd| {
                                     fd.ty = prefix_type(&fd.ty, prefix);
                                     fd
@@ -828,7 +828,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
 /// stay bare and can be cross-resolved by the type checker.
 fn prefix_block_calls(b: Block, prefix: &str) -> Block {
     Block {
-        stmts: b.stmts.into_iter().map(|s| prefix_stmt(s, prefix)).collect(),
+        stmts: Vec::from(b.stmts).into_iter().map(|s| prefix_stmt(s, prefix)).collect(),
         tail: b.tail.map(|e| Box::new(prefix_expr(*e, prefix))),
     }
 }
@@ -868,7 +868,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             };
             ExprKind::Call {
                 callee: new_callee,
-                args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+                args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
             }
         }
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
@@ -880,8 +880,8 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             } else {
                 format!("{prefix}.{}", class).into()
             },
-            type_args: type_args.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
-            args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+            type_args: Vec::from(type_args).into_iter().map(|t| prefix_type(&t, prefix)).collect(),
+            args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
             init_method,
         },
         ExprKind::EnumCtor {
@@ -898,7 +898,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
                 ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.into_iter().map(|e| prefix_expr(e, prefix)).collect(),
+                    Vec::from(es).into_iter().map(|e| prefix_expr(e, prefix)).collect(),
                 ),
                 ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
                     fs.into_iter()
@@ -946,7 +946,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
             obj: Box::new(prefix_expr(*obj, prefix)),
             method,
-            args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+            args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
         },
         ExprKind::Block(b) => ExprKind::Block(prefix_block_calls(b, prefix)),
         ExprKind::If {
@@ -991,7 +991,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
         }
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
-            args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+            args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
         },
         ExprKind::Return(opt) => ExprKind::Return(opt.map(|e| Box::new(prefix_expr(*e, prefix)))),
         ExprKind::Break(opt) => ExprKind::Break(opt.map(|e| Box::new(prefix_expr(*e, prefix)))),
@@ -1010,13 +1010,13 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             value: Box::new(prefix_expr(*value, prefix)),
         },
         ExprKind::Array(items) => {
-            ExprKind::Array(items.into_iter().map(|e| prefix_expr(e, prefix)).collect())
+            ExprKind::Array(Vec::from(items).into_iter().map(|e| prefix_expr(e, prefix)).collect())
         }
         ExprKind::Tuple(items) => {
-            ExprKind::Tuple(items.into_iter().map(|e| prefix_expr(e, prefix)).collect())
+            ExprKind::Tuple(Vec::from(items).into_iter().map(|e| prefix_expr(e, prefix)).collect())
         }
         ExprKind::MapLit(entries) => ExprKind::MapLit(
-            entries
+            Vec::from(entries)
                 .into_iter()
                 .map(|(k, v)| (prefix_expr(k, prefix), prefix_expr(v, prefix)))
                 .collect(),
@@ -1209,7 +1209,7 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     }
     if consts.is_empty() {
         return Ok(Program {
-            items: items_no_const,
+            items: items_no_const.into(),
             stmts: prog.stmts,
             tail: prog.tail,
         });
@@ -1572,7 +1572,7 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
         },
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee,
-            args: args.into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
         },
         ExprKind::Field { obj, name } => ExprKind::Field {
             obj: Box::new(subst_const_expr(*obj, ctx)),
@@ -1581,12 +1581,12 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
         ExprKind::MethodCall { obj, method, args } => ExprKind::MethodCall {
             obj: Box::new(subst_const_expr(*obj, ctx)),
             method,
-            args: args.into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
         },
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             class,
             type_args,
-            args: args.into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
             init_method,
         },
         ExprKind::Block(b) => ExprKind::Block(subst_const_block(b, ctx)),
@@ -1632,7 +1632,7 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
         }
         ExprKind::SuperCall { method, args } => ExprKind::SuperCall {
             method,
-            args: args.into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
+            args: Vec::from(args).into_iter().map(|a| subst_const_expr(a, ctx)).collect(),
         },
         ExprKind::Return(opt) => {
             ExprKind::Return(opt.map(|e| Box::new(subst_const_expr(*e, ctx))))
@@ -1655,10 +1655,10 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             value: Box::new(subst_const_expr(*value, ctx)),
         },
         ExprKind::Array(items) => ExprKind::Array(
-            items.into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
+            Vec::from(items).into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
         ),
         ExprKind::Tuple(items) => ExprKind::Tuple(
-            items.into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
+            Vec::from(items).into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
         ),
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
@@ -1681,7 +1681,7 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             args: match args {
                 ilang_ast::CtorArgs::Unit => ilang_ast::CtorArgs::Unit,
                 ilang_ast::CtorArgs::Tuple(es) => ilang_ast::CtorArgs::Tuple(
-                    es.into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
+                    Vec::from(es).into_iter().map(|e| subst_const_expr(e, ctx)).collect(),
                 ),
                 ilang_ast::CtorArgs::Struct(fs) => ilang_ast::CtorArgs::Struct(
                     fs.into_iter()
