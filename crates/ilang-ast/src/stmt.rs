@@ -22,6 +22,22 @@ pub enum StmtKind {
         ty: Option<Type>,
         value: Expr,
     },
+    /// `let (a, b, ...) = tuple_expr` — flat tuple destructuring.
+    /// Each slot is `Some(name)` or `None` for the `_` wildcard.
+    /// No nesting in v1.
+    LetTuple {
+        elems: Box<[Option<Symbol>]>,
+        value: Expr,
+    },
+    /// `let ClassName { f1, f2, ... } = struct_expr` —
+    /// Rust-style struct destructuring. Field names equal binding
+    /// names (no rename in v1). The class must match the value's
+    /// runtime class (or a parent for inheritance).
+    LetStruct {
+        class: Symbol,
+        fields: Box<[Symbol]>,
+        value: Expr,
+    },
     Expr(Expr),
 }
 

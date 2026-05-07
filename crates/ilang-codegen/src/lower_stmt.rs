@@ -97,6 +97,93 @@ pub(crate) fn lower_stmt(
             b.def_var(var, coerced);
             lc.env.bindings.insert(name.clone(), (var, bind_ty));
         }
+        StmtKind::LetTuple { elems, value } => {
+            let (val, vt) = match lower_expr(b, lc, value)? {
+                Some(tv) => tv,
+                None => {
+                    return Err(CodegenError::Unsupported {
+                        what: "tuple destructure on unit value".into(),
+                        span: s.span,
+                    });
+                }
+            };
+            let tuple_id = match vt {
+                JitTy::Tuple(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "tuple destructure on non-tuple value".into(),
+                        span: s.span,
+                    });
+                }
+            };
+            let kind = lc.tuple_kinds[tuple_id as usize].clone();
+            for (i, slot) in elems.iter().enumerate() {
+                let Some(name) = slot else { continue };
+                let elem_jty = kind.elems[i];
+                let off = kind.offsets[i] as i32;
+                let cl = elem_jty.cl().ok_or_else(|| CodegenError::Unsupported {
+                    what: "tuple slot of unit type".into(),
+                    span: s.span,
+                })?;
+                let v = b.ins().load(cl, MemFlags::trusted(), val, off);
+                if elem_jty.is_heap() {
+                    emit_retain_heap(b, lc, v, elem_jty);
+                }
+                let var = b.declare_var(cl);
+                b.def_var(var, v);
+                lc.env.bindings.insert(name.clone(), (var, elem_jty));
+            }
+            // Release the tuple if it was a fresh allocation.
+            if !is_aliased_heap_source(&value.kind) {
+                emit_release_heap(b, lc, val, vt);
+            }
+        }
+        StmtKind::LetStruct { class: _, fields, value } => {
+            let (val, vt) = match lower_expr(b, lc, value)? {
+                Some(tv) => tv,
+                None => {
+                    return Err(CodegenError::Unsupported {
+                        what: "struct destructure on unit value".into(),
+                        span: s.span,
+                    });
+                }
+            };
+            let class_id = match vt {
+                JitTy::Object(id) => id,
+                _ => {
+                    return Err(CodegenError::Unsupported {
+                        what: "struct destructure on non-object value".into(),
+                        span: s.span,
+                    });
+                }
+            };
+            let layout = lc.class_layouts[class_id as usize].fields.clone();
+            for fname in fields.iter() {
+                let (off, fty) = match layout.get(fname) {
+                    Some(&(off, fty)) => (off, fty),
+                    None => {
+                        return Err(CodegenError::Unsupported {
+                            what: format!("unknown field {fname:?} in destructure"),
+                            span: s.span,
+                        });
+                    }
+                };
+                let cl = fty.cl().ok_or_else(|| CodegenError::Unsupported {
+                    what: "field of unit type".into(),
+                    span: s.span,
+                })?;
+                let v = b.ins().load(cl, MemFlags::trusted(), val, off as i32);
+                if fty.is_heap() {
+                    emit_retain_heap(b, lc, v, fty);
+                }
+                let var = b.declare_var(cl);
+                b.def_var(var, v);
+                lc.env.bindings.insert(fname.clone(), (var, fty));
+            }
+            if !is_aliased_heap_source(&value.kind) {
+                emit_release_heap(b, lc, val, vt);
+            }
+        }
         StmtKind::Expr(e) => {
             // Discarded result. If it's a fresh heap value (call result,
             // `new`, `[..]`, "a"+"b"), nothing else owns it — release so

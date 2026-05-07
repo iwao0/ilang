@@ -141,6 +141,27 @@ map[k] = v                 // Map index assignment
 this.field = v             // inside a method
 ```
 
+### Destructuring `let`
+
+```rust
+// Tuple — flat, `_` ignores a slot.
+let pair: (i64, string) = (42, "hi")
+let (n, s) = pair                       // n: i64, s: string
+let (_, only_b, _) = (1, 2, 3)          // ignore the others
+
+// Object (struct) — Rust-style with the class name. Field names
+// must match; rename and rest are not supported in v1.
+class Point { x: f64; y: f64; init(a: f64, b: f64) { this.x = a; this.y = b } }
+let p = new Point(1.0, 2.0)
+let Point { x, y } = p                  // x: f64, y: f64
+```
+
+- Only `let` statements support destructuring (function params and
+  `for-in` patterns are not yet covered).
+- Tuple destructure needs at least two slots (use `let pair = ...`
+  for a single binding).
+- Nested destructuring (`let ((a, b), c) = ...`) is rejected for now.
+
 ---
 
 ## 4. Operators (low → high precedence)

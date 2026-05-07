@@ -2834,6 +2834,32 @@ impl<'a> Walker<'a> {
                     override_signature: override_sig,
                 });
             }
+            StmtKind::LetTuple { elems, value } => {
+                self.walk_expr(value, scope, this_class);
+                for slot in elems.iter() {
+                    if let Some(name) = slot {
+                        scope.push(Binding {
+                            name: name.as_str().to_string(),
+                            span: s.span,
+                            ty: None,
+                            kind: BindKind::Let,
+                            override_signature: None,
+                        });
+                    }
+                }
+            }
+            StmtKind::LetStruct { class: _, fields, value } => {
+                self.walk_expr(value, scope, this_class);
+                for f in fields.iter() {
+                    scope.push(Binding {
+                        name: f.as_str().to_string(),
+                        span: s.span,
+                        ty: None,
+                        kind: BindKind::Let,
+                        override_signature: None,
+                    });
+                }
+            }
             StmtKind::Expr(e) => self.walk_expr(e, scope, this_class),
         }
     }
