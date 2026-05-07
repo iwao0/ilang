@@ -1680,7 +1680,7 @@ impl TypeChecker {
         for sf in &c.static_fields {
             self.validate_type(&sf.ty, sf.span, &c.type_params)?;
             let vt = self.check_expr(&sf.value, &env, None, None, 0)?;
-            if !literal_assignable(&sf.value, &vt, &sf.ty) && !self.assignable_obj(&vt, &sf.ty) {
+            if !self.value_assignable(&sf.value, &vt, &sf.ty) {
                 return Err(TypeError::Mismatch {
                     expected: sf.ty.clone(),
                     got: vt,
@@ -1747,7 +1747,15 @@ impl TypeChecker {
         let body_res = self.check_block(&f.body, &env, Some(&expected), in_class, 0);
         *self.loop_stack.borrow_mut() = saved_loops;
         let body_ty = body_res?;
-        if !assignable(&body_ty, &expected) && !self.assignable_obj(&body_ty, &expected) {
+        let tail_assignable = f
+            .body
+            .tail
+            .as_deref()
+            .map_or(false, |t| self.value_assignable(t, &body_ty, &expected));
+        if !assignable(&body_ty, &expected)
+            && !self.assignable_obj(&body_ty, &expected)
+            && !tail_assignable
+        {
             return Err(TypeError::BadReturn {
                 name: f.name.clone(),
                 expected,
@@ -2352,7 +2360,7 @@ impl TypeChecker {
                     .insert(span, (callee.clone(), inferred_args.clone()));
                 for ((param_ty, arg), at) in sig.params.iter().zip(args.iter()).zip(arg_tys.iter()) {
                     let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
-                    if !literal_assignable(arg, at, &actual) && !self.assignable_obj(at, &actual) {
+                    if !self.value_assignable(arg, at, &actual) {
                         return Err(TypeError::Mismatch {
                             expected: actual,
                             got: at.clone(),
@@ -2679,7 +2687,7 @@ impl TypeChecker {
                             });
                         }
                         let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(&args[0], &at, elem) {
+                        if !self.value_assignable(&args[0], &at, elem) {
                             return Err(TypeError::Mismatch {
                                 expected: (**elem).clone(),
                                 got: at,
@@ -2719,7 +2727,7 @@ impl TypeChecker {
                             });
                         }
                         let at = self.check_expr(&args[0], env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(&args[0], &at, elem) {
+                        if !self.value_assignable(&args[0], &at, elem) {
                             return Err(TypeError::Mismatch {
                                 expected: (**elem).clone(),
                                 got: at,
@@ -2744,7 +2752,7 @@ impl TypeChecker {
                         }
                         for a in args {
                             let at = self.check_expr(a, env, ret_ty, in_class, loop_depth)?;
-                            if !literal_assignable(a, &at, &Type::I64) && !self.assignable_obj(&at, &Type::I64) {
+                            if !self.value_assignable(a, &at, &Type::I64) {
                                 return Err(TypeError::Mismatch {
                                     expected: Type::I64,
                                     got: at,
@@ -3244,7 +3252,7 @@ impl TypeChecker {
                 match value {
                     Some(v) => {
                         let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(v, &vt, &expected) && !self.assignable_obj(&vt, &expected) {
+                        if !self.value_assignable(v, &vt, &expected) {
                             return Err(TypeError::Mismatch {
                                 expected,
                                 got: vt,
@@ -3272,7 +3280,7 @@ impl TypeChecker {
             ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(value, &v_ty, &var_ty) && !self.assignable_obj(&v_ty, &var_ty) {
+                    if !self.value_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {
                             expected: var_ty,
                             got: v_ty,
@@ -3285,7 +3293,7 @@ impl TypeChecker {
                     if let Some(cls) = self.classes.get(&class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
                             let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                            if !literal_assignable(value, &v_ty, &field_ty) && !self.assignable_obj(&v_ty, &field_ty) {
+                            if !self.value_assignable(value, &v_ty, &field_ty) {
                                 return Err(TypeError::Mismatch {
                                     expected: field_ty,
                                     got: v_ty,
@@ -3316,7 +3324,7 @@ impl TypeChecker {
                 let first_ty = self.check_expr(&elements[0], env, ret_ty, in_class, loop_depth)?;
                 for e in &elements[1..] {
                     let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(e, &et, &first_ty) && !self.assignable_obj(&et, &first_ty) {
+                    if !self.value_assignable(e, &et, &first_ty) {
                         return Err(TypeError::Mismatch {
                             expected: first_ty.clone(),
                             got: et,
@@ -3352,7 +3360,7 @@ impl TypeChecker {
                 let v_ty = self.check_expr(v0, env, ret_ty, in_class, loop_depth)?;
                 for (k, v) in &entries[1..] {
                     let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(k, &kt, &k_ty) && !self.assignable_obj(&kt, &k_ty) {
+                    if !self.value_assignable(k, &kt, &k_ty) {
                         return Err(TypeError::Mismatch {
                             expected: k_ty.clone(),
                             got: kt,
@@ -3360,7 +3368,7 @@ impl TypeChecker {
                         });
                     }
                     let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(v, &vt, &v_ty) && !self.assignable_obj(&vt, &v_ty) {
+                    if !self.value_assignable(v, &vt, &v_ty) {
                         return Err(TypeError::Mismatch {
                             expected: v_ty.clone(),
                             got: vt,
@@ -3377,7 +3385,7 @@ impl TypeChecker {
                 // if missing — use `.get(k)` for `V?`).
                 if let Type::Generic(g) = &ot {
                     if g.base == "Map" && g.args.len() == 2 {
-                        if !literal_assignable(index, &it, &g.args[0]) && !self.assignable_obj(&it, &g.args[0]) {
+                        if !self.value_assignable(index, &it, &g.args[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: g.args[0].clone(),
                                 got: it,
@@ -3434,7 +3442,7 @@ impl TypeChecker {
                 // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
                 if let Type::Generic(g) = &ot {
                     if g.base == "Map" && g.args.len() == 2 {
-                        if !literal_assignable(index, &it, &g.args[0]) && !self.assignable_obj(&it, &g.args[0]) {
+                        if !self.value_assignable(index, &it, &g.args[0]) {
                             return Err(TypeError::Mismatch {
                                 expected: g.args[0].clone(),
                                 got: it,
@@ -3442,7 +3450,7 @@ impl TypeChecker {
                             });
                         }
                         let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                        if !literal_assignable(value, &vt, &g.args[1]) && !self.assignable_obj(&vt, &g.args[1]) {
+                        if !self.value_assignable(value, &vt, &g.args[1]) {
                             return Err(TypeError::Mismatch {
                                 expected: g.args[1].clone(),
                                 got: vt,
@@ -3473,7 +3481,7 @@ impl TypeChecker {
                     }
                 };
                 let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                if !literal_assignable(value, &vt, &elem_ty) && !self.assignable_obj(&vt, &elem_ty) {
+                if !self.value_assignable(value, &vt, &elem_ty) {
                     return Err(TypeError::Mismatch {
                         expected: elem_ty,
                         got: vt,
@@ -3654,7 +3662,7 @@ impl TypeChecker {
                                 }
                                 let vt =
                                     self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                                if !literal_assignable(value, &vt, &ft) && !self.assignable_obj(&vt, &ft) {
+                                if !self.value_assignable(value, &vt, &ft) {
                                     return Err(TypeError::Mismatch {
                                         expected: ft,
                                         got: vt,
@@ -3690,7 +3698,7 @@ impl TypeChecker {
                         subst_type(&p.ty, &cls.type_params, type_args_of(&ot));
                     let v_ty =
                         self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                    if !literal_assignable(value, &v_ty, &prop_ty) && !self.assignable_obj(&v_ty, &prop_ty) {
+                    if !self.value_assignable(value, &v_ty, &prop_ty) {
                         return Err(TypeError::Mismatch {
                             expected: prop_ty,
                             got: v_ty,
@@ -3711,7 +3719,7 @@ impl TypeChecker {
                 // Mirrors the substitution done by the Field read path.
                 let field_ty = subst_type(&raw_field_ty, &cls.type_params, type_args_of(&ot));
                 let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
-                if !literal_assignable(value, &v_ty, &field_ty) && !self.assignable_obj(&v_ty, &field_ty) {
+                if !self.value_assignable(value, &v_ty, &field_ty) {
                     return Err(TypeError::Mismatch {
                         expected: field_ty,
                         got: v_ty,
@@ -3898,7 +3906,7 @@ impl TypeChecker {
                     (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
                         for ((e, t), et) in elems.iter().zip(tys.iter()).zip(arg_tys_tuple.iter()) {
                             let actual = subst_type(t, &type_params, &inferred_args);
-                            if !literal_assignable(e, et, &actual) && !self.assignable_obj(et, &actual) {
+                            if !self.value_assignable(e, et, &actual) {
                                 return Err(TypeError::Mismatch {
                                     expected: actual,
                                     got: et.clone(),
@@ -3916,7 +3924,7 @@ impl TypeChecker {
                                 .map(|(_, t)| t.clone())
                                 .unwrap();
                             let actual = subst_type(fty, &type_params, &inferred_args);
-                            if !literal_assignable(&supplied.1, &st, &actual) && !self.assignable_obj(&st, &actual) {
+                            if !self.value_assignable(&supplied.1, &st, &actual) {
                                 return Err(TypeError::Mismatch {
                                     expected: actual,
                                     got: st,
@@ -4179,7 +4187,7 @@ impl TypeChecker {
                 if i < sig.params.len() {
                     let p = &sig.params[i];
                     if !matches!(p, Type::Any)
-                        && !literal_assignable(arg, &at, p)
+                        && !self.value_assignable(arg, &at, p)
                         && !self.assignable_obj(&at, p)
                     {
                         return Err(TypeError::Mismatch {
@@ -4231,7 +4239,7 @@ impl TypeChecker {
         }
         for (param_ty, arg) in sig.params.iter().zip(effective.iter()) {
             let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
-            if !literal_assignable(arg, &at, param_ty)
+            if !self.value_assignable(arg, &at, param_ty)
                 && !self.assignable_obj(&at, param_ty)
             {
                 return Err(TypeError::Mismatch {
