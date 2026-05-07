@@ -85,23 +85,13 @@ pub(crate) fn apply_unary(op: UnOp, v: Value) -> Result<Value, RuntimeError> {
         {
             Ok(v)
         }
-        // Negation (signed only — checker rejects unsigned).
-        (UnOp::Neg, Value::Int8(n)) => n
-            .checked_neg()
-            .map(Value::Int8)
-            .ok_or(RuntimeError::Overflow { span }),
-        (UnOp::Neg, Value::Int16(n)) => n
-            .checked_neg()
-            .map(Value::Int16)
-            .ok_or(RuntimeError::Overflow { span }),
-        (UnOp::Neg, Value::Int32(n)) => n
-            .checked_neg()
-            .map(Value::Int32)
-            .ok_or(RuntimeError::Overflow { span }),
-        (UnOp::Neg, Value::Int(n)) => n
-            .checked_neg()
-            .map(Value::Int)
-            .ok_or(RuntimeError::Overflow { span }),
+        // Negation (signed only — checker rejects unsigned). Wraps
+        // on `MIN` (e.g. `-i8::MIN` stays at `i8::MIN`) to match the
+        // JIT, which uses Cranelift's plain `ineg` / arithmetic.
+        (UnOp::Neg, Value::Int8(n)) => Ok(Value::Int8(n.wrapping_neg())),
+        (UnOp::Neg, Value::Int16(n)) => Ok(Value::Int16(n.wrapping_neg())),
+        (UnOp::Neg, Value::Int32(n)) => Ok(Value::Int32(n.wrapping_neg())),
+        (UnOp::Neg, Value::Int(n)) => Ok(Value::Int(n.wrapping_neg())),
         (UnOp::Neg, Value::Float32(f)) => Ok(Value::Float32(-f)),
         (UnOp::Neg, Value::Float(f)) => Ok(Value::Float(-f)),
         (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
@@ -152,26 +142,29 @@ pub(crate) fn apply_binary(op: BinOp, l: Value, r: Value) -> Result<Value, Runti
 fn arith(op: BinOp, l: Value, r: Value) -> Result<Value, RuntimeError> {
     macro_rules! int_arith {
         ($a:expr, $b:expr, $ctor:ident) => {{
+            // Add / Sub / Mul wrap on overflow to match the JIT,
+            // which uses Cranelift's plain `iadd` / `isub` / `imul`.
+            // Div / Rem still trap on a zero divisor (no IEEE-style
+            // result for integers).
             let r = match op {
-                BinOp::Add => $a.checked_add($b),
-                BinOp::Sub => $a.checked_sub($b),
-                BinOp::Mul => $a.checked_mul($b),
+                BinOp::Add => $a.wrapping_add($b),
+                BinOp::Sub => $a.wrapping_sub($b),
+                BinOp::Mul => $a.wrapping_mul($b),
                 BinOp::Div => {
                     if $b == 0 {
                         return Err(RuntimeError::DivisionByZero { span: dummy() });
                     }
-                    $a.checked_div($b)
+                    $a.wrapping_div($b)
                 }
                 BinOp::Rem => {
                     if $b == 0 {
                         return Err(RuntimeError::DivisionByZero { span: dummy() });
                     }
-                    $a.checked_rem($b)
+                    $a.wrapping_rem($b)
                 }
                 _ => unreachable!("non-arith op in arith()"),
             };
-            r.map(Value::$ctor)
-                .ok_or(RuntimeError::Overflow { span: dummy() })
+            Ok(Value::$ctor(r))
         }};
     }
     macro_rules! float_arith {
