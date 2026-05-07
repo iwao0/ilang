@@ -18,6 +18,17 @@ pub struct ObjectData {
 
 pub type ObjectRef = Rc<RefCell<ObjectData>>;
 
+/// Lexical method context captured by a closure built inside a class
+/// method body. `this` is the receiver in scope at the construction
+/// site; `this_class` is the lexical class (which may differ from the
+/// receiver's runtime class when the closure was built in an inherited
+/// method — `super.method(...)` looks up against this class).
+#[derive(Debug)]
+pub struct MethodCtx {
+    pub this: ObjectRef,
+    pub this_class: ilang_ast::Symbol,
+}
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Int8(i8),
@@ -69,8 +80,18 @@ pub enum Value {
     /// environment is a snapshot of every free variable in the body
     /// at the moment the closure was created (capture-by-value:
     /// later mutations to the outer binding aren't visible here).
+    /// `this_ctx` is the lexical `(this, this_class)` at construction
+    /// time when the closure was built inside a method body — the
+    /// type checker permits `this` / `super` references inside such a
+    /// closure, so the runtime needs to restore them when the
+    /// closure is later called from any context. `None` for closures
+    /// built outside a method or for top-level fns reified as values.
     /// Cheap to clone — both Rcs.
-    Fn(Rc<ilang_ast::FnDecl>, Rc<HashMap<Symbol, Value>>),
+    Fn(
+        Rc<ilang_ast::FnDecl>,
+        Rc<HashMap<Symbol, Value>>,
+        Option<Rc<MethodCtx>>,
+    ),
     /// Built-in `Map<K, V>`. Keys are restricted to hashable
     /// primitives (string / int / bool) at the type-checker level.
     /// Wrapped in `Rc<RefCell>` so passing/cloning is cheap and
@@ -277,7 +298,7 @@ impl std::fmt::Display for Value {
                     write!(f, "}}")
                 }
             },
-            Value::Fn(decl, _captures) => {
+            Value::Fn(decl, _captures, _this_ctx) => {
                 if decl.name.as_str().is_empty() {
                     write!(f, "<fn>")
                 } else {

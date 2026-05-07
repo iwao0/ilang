@@ -86,6 +86,7 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
     };
     // Use the loader so `use module` items get followed and merged
     // into one program before type-checking.
+    let _t0 = std::time::Instant::now();
     let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
         Ok(p) => p,
         Err(e) => {
@@ -93,15 +94,29 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if std::env::var("ILANG_TIMING").is_ok() {
+        eprintln!("[timing] parse+load: {:?}", _t0.elapsed());
+    }
     let display_path = path.display().to_string();
     if jit {
+        let _t1 = std::time::Instant::now();
         let mut tc = TypeChecker::new();
         if let Err(e) = tc.check(&prog) {
             eprintln!("{display_path} {e}");
             return ExitCode::FAILURE;
         }
+        if std::env::var("ILANG_TIMING").is_ok() {
+            eprintln!("[timing] typecheck: {:?}", _t1.elapsed());
+        }
+        let _t2 = std::time::Instant::now();
         // Mangle overloaded fn names (no-op when no name is overloaded).
         let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
+        if std::env::var("ILANG_TIMING").is_ok() {
+            eprintln!("[timing] mangle: {:?}", _t2.elapsed());
+        }
+        if std::env::var("ILANG_TIMING_QUIT_BEFORE_JIT").is_ok() {
+            return ExitCode::SUCCESS;
+        }
         return match ilang_codegen::jit_run_with(
             &prog,
             &tc.fn_call_type_args(),

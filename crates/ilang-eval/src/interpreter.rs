@@ -371,7 +371,11 @@ impl Interpreter {
                 // First-class function: bare reference to a top-level
                 // `fn` becomes a function value.
                 if let Some(decl) = self.fns.get(name) {
-                    return Ok(Value::Fn(Rc::new(decl.clone()), Rc::new(HashMap::new())));
+                    return Ok(Value::Fn(
+                        Rc::new(decl.clone()),
+                        Rc::new(HashMap::new()),
+                        None,
+                    ));
                 }
                 Err(RuntimeError::UndefinedVariable {
                     name: *name,
@@ -419,8 +423,8 @@ impl Interpreter {
                 // Indirect call through a function-typed local first
                 // (matches the type checker's lookup order — locals
                 // shadow methods and top-level fns).
-                if let Some(Value::Fn(f, env)) = self.vars.get(callee).cloned() {
-                    return self.invoke_fn_value(&f, &env, args, span);
+                if let Some(Value::Fn(f, env, this_ctx)) = self.vars.get(callee).cloned() {
+                    return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
                 }
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();
@@ -724,19 +728,20 @@ impl Interpreter {
                     }
                     if method == "map" || method == "filter" || method == "forEach" {
                         let f = self.eval_expr(&args[0])?;
-                        let (decl, captures) = match &f {
-                            Value::Fn(d, env) => (d.clone(), env.clone()),
+                        let (decl, captures, this_ctx) = match &f {
+                            Value::Fn(d, env, ctx) => (d.clone(), env.clone(), ctx.clone()),
                             other => return Err(RuntimeError::TypeError {
                                 msg: format!("{method} expects a function, got {other:?}"),
                                 span: args[0].span,
                             }),
                         };
                         let snapshot: Vec<Value> = arr.borrow().clone();
+                        let ctx = this_ctx.as_deref();
                         match method.as_str() {
                             "map" => {
                                 let mut out = Vec::with_capacity(snapshot.len());
                                 for x in snapshot {
-                                    let r = self.invoke_closure(&decl, &captures, vec![x], span)?;
+                                    let r = self.invoke_closure(&decl, &captures, ctx, vec![x], span)?;
                                     out.push(r);
                                 }
                                 return Ok(Value::Array(Rc::new(RefCell::new(out))));
@@ -744,7 +749,7 @@ impl Interpreter {
                             "filter" => {
                                 let mut out = Vec::new();
                                 for x in snapshot {
-                                    let r = self.invoke_closure(&decl, &captures, vec![x.clone()], span)?;
+                                    let r = self.invoke_closure(&decl, &captures, ctx, vec![x.clone()], span)?;
                                     match r {
                                         Value::Bool(true) => out.push(x),
                                         Value::Bool(false) => {}
@@ -758,7 +763,7 @@ impl Interpreter {
                             }
                             "forEach" => {
                                 for x in snapshot {
-                                    self.invoke_closure(&decl, &captures, vec![x], span)?;
+                                    self.invoke_closure(&decl, &captures, ctx, vec![x], span)?;
                                 }
                                 return Ok(Value::Unit);
                             }
@@ -1194,7 +1199,20 @@ impl Interpreter {
                         env.insert(name, v.clone());
                     }
                 }
-                Ok(Value::Fn(Rc::new(decl), Rc::new(env)))
+                // Snapshot the lexical method context (if any). The
+                // type checker permits `this` / `super` inside a
+                // closure built in a method body; without this
+                // capture, calling the returned closure later would
+                // see `self.this == None` and trip
+                // `ThisOutsideMethod`.
+                let this_ctx = match (&self.this, &self.this_class) {
+                    (Some(t), Some(cls)) => Some(Rc::new(crate::value::MethodCtx {
+                        this: t.clone(),
+                        this_class: cls.clone(),
+                    })),
+                    _ => None,
+                };
+                Ok(Value::Fn(Rc::new(decl), Rc::new(env), this_ctx))
             }
             ExprKind::Array(elements) => {
                 let mut vals = Vec::with_capacity(elements.len());
@@ -1878,21 +1896,27 @@ impl Interpreter {
         &mut self,
         decl: &ilang_ast::FnDecl,
         captures: &HashMap<Symbol, Value>,
+        this_ctx: Option<&crate::value::MethodCtx>,
         args: &[Expr],
         span: Span,
     ) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
-        self.invoke_closure(decl, captures, evaluated, span)
+        self.invoke_closure(decl, captures, this_ctx, evaluated, span)
     }
 
     /// Invoke a closure with already-evaluated arguments. The
     /// captured environment is dropped into the body's scope before
     /// the parameters, so a same-named parameter shadows a capture
-    /// (matches Rust / JS / Python semantics).
+    /// (matches Rust / JS / Python semantics). When the closure
+    /// carries a captured method context (`this_ctx`), restore
+    /// `this` / `this_class` from it for the duration of the call so
+    /// `this.x` and `super.foo()` work as written at the closure
+    /// construction site.
     fn invoke_closure(
         &mut self,
         decl: &ilang_ast::FnDecl,
         captures: &HashMap<Symbol, Value>,
+        this_ctx: Option<&crate::value::MethodCtx>,
         evaluated: Vec<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
@@ -1909,8 +1933,12 @@ impl Interpreter {
         }
         self.depth += 1;
         let saved_vars = std::mem::take(&mut self.vars);
-        let saved_this = std::mem::replace(&mut self.this, None);
-        let saved_this_class = std::mem::replace(&mut self.this_class, None);
+        let (new_this, new_this_class) = match this_ctx {
+            Some(ctx) => (Some(ctx.this.clone()), Some(ctx.this_class.clone())),
+            None => (None, None),
+        };
+        let saved_this = std::mem::replace(&mut self.this, new_this);
+        let saved_this_class = std::mem::replace(&mut self.this_class, new_this_class);
         // Captures land first, then params (so param shadowing
         // wins).
         for (k, v) in captures.iter() {
@@ -2409,7 +2437,7 @@ fn type_of_value(v: &Value) -> (Symbol, Symbol) {
             return (cls, Symbol::intern("class"));
         }
         Value::Enum { ty, .. } => return (*ty, Symbol::intern("enum")),
-        Value::Fn(_, _) => ("fn", "fn"),
+        Value::Fn(_, _, _) => ("fn", "fn"),
         Value::Map(_) => ("Map", "class"),
         Value::TypeVal { .. } => ("Type", "class"),
     };
