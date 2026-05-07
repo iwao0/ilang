@@ -23,7 +23,7 @@ use builtins::{
     array_method_names, array_method_sig, ffi_helper_signature, string_method_names,
     string_method_sig,
 };
-use project::{collect_dep_paths, find_umbrella};
+use project::{collect_dep_paths, find_project_file, find_umbrella};
 use text::{
     call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
     locate_property_name, locate_selective_name, locate_type_after_colon,
@@ -926,6 +926,14 @@ impl LanguageServer for Backend {
         // also include the decl-site edit; ref-only files only get
         // their cross-file references rewritten.
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+
+        // Track which paths we've already covered via open docs so
+        // the workspace walk doesn't double-count them.
+        let opened_paths: std::collections::HashSet<PathBuf> = docs
+            .keys()
+            .filter_map(|u| u.to_file_path().ok())
+            .filter_map(|p| p.canonicalize().ok())
+            .collect();
         for (doc_uri, d) in docs.iter() {
             let is_owner = doc_uri == &target_uri;
             let mut edits: Vec<TextEdit> = d
@@ -992,6 +1000,81 @@ impl LanguageServer for Backend {
                 });
                 edits.dedup_by(|a, b| a.range == b.range);
                 changes.insert(doc_uri.clone(), edits);
+            }
+        }
+        // Workspace walk: also pick up references in `.il` files
+        // that aren't currently open in the editor. Anchored on
+        // the decl's owning file so the walk starts in the same
+        // project (`ilang.toml` directory, or the file's parent).
+        if let Ok(anchor_path) = target_uri.to_file_path() {
+            for path in collect_workspace_il_files(&anchor_path) {
+                if opened_paths.contains(&path) {
+                    continue;
+                }
+                let Some(doc) = analyse_path_to_doc(&path) else {
+                    continue;
+                };
+                let path_uri = match Url::from_file_path(&path) {
+                    Ok(u) => u,
+                    Err(_) => continue,
+                };
+                let is_owner = path_uri == target_uri;
+                let mut edits: Vec<TextEdit> = doc
+                    .refs
+                    .iter()
+                    .filter(|r| {
+                        if r.signature.starts_with("this:") {
+                            return false;
+                        }
+                        if r.target_span != target.0 || r.target_name_len != target.1 {
+                            return false;
+                        }
+                        if is_owner {
+                            r.target_uri.is_none()
+                        } else {
+                            r.target_uri.as_ref() == Some(&target_uri)
+                        }
+                    })
+                    .map(|r| TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: r.line.saturating_sub(1),
+                                character: r.start_col.saturating_sub(1),
+                            },
+                            end: Position {
+                                line: r.line.saturating_sub(1),
+                                character: r.end_col.saturating_sub(1),
+                            },
+                        },
+                        new_text: new_name.clone(),
+                    })
+                    .collect();
+                if is_owner {
+                    edits.push(TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: decl_name_span.line.saturating_sub(1),
+                                character: decl_name_span.col.saturating_sub(1),
+                            },
+                            end: Position {
+                                line: decl_name_span.line.saturating_sub(1),
+                                character: decl_name_span
+                                    .col
+                                    .saturating_sub(1)
+                                    .saturating_add(target.1),
+                            },
+                        },
+                        new_text: new_name.clone(),
+                    });
+                }
+                if !edits.is_empty() {
+                    edits.sort_by(|a, b| {
+                        (a.range.start.line, a.range.start.character)
+                            .cmp(&(b.range.start.line, b.range.start.character))
+                    });
+                    edits.dedup_by(|a, b| a.range == b.range);
+                    changes.insert(path_uri, edits);
+                }
             }
         }
         if changes.is_empty() {
@@ -1211,6 +1294,94 @@ fn lookup_ref(doc: &Doc, pos: Position) -> Option<&RefEntry> {
     doc.refs
         .iter()
         .find(|r| r.line == line && col >= r.start_col && col <= r.end_col)
+}
+
+/// Build a `Doc` for a file we don't have open in the editor.
+/// Mirrors the disk-loading half of `refresh_impl` so workspace
+/// rename can pull `RefEntry` lists out of closed files. Returns
+/// `None` for unreadable / unparsable files (silently skipped at
+/// the call site).
+fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let parsed_buffer = parse_ok(&text).ok()?;
+    let is_submodule = find_umbrella(path).is_some();
+    let merged = if is_submodule {
+        None
+    } else {
+        let extra = collect_dep_paths(path).unwrap_or_default();
+        let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+        if let Ok(canon) = path.canonicalize() {
+            overlay.insert(canon, text.clone());
+        }
+        ilang_parser::loader::load_program_with_overlay(path, &extra, &overlay).ok()
+    };
+    let (mut external_sigs, external_rets) = merged
+        .as_ref()
+        .map(collect_external_signatures)
+        .unwrap_or_default();
+    let mut external_sources: ExternalSources = HashMap::new();
+    let mut external_docs: HashMap<AstSymbol, String> = HashMap::new();
+    harvest_imported_consts(
+        &path.to_path_buf(),
+        &text,
+        &mut external_sigs,
+        &mut external_sources,
+        &mut external_docs,
+    );
+    let external_classes = merged
+        .as_ref()
+        .map(|p| collect_external_classes(p, &external_sources))
+        .unwrap_or_default();
+    let mut doc = build_doc(
+        text,
+        &parsed_buffer,
+        &external_sigs,
+        &external_rets,
+        &external_classes,
+        &external_sources,
+        &external_docs,
+    );
+    doc.external_docs = external_docs;
+    Some(doc)
+}
+
+/// Walk a workspace looking for every `.il` file. The starting
+/// point is the directory containing the renamed file's `ilang.toml`
+/// (or the file's own directory if there's no project file). Used
+/// by workspace-wide rename to pick up references in files that
+/// aren't currently open.
+fn collect_workspace_il_files(anchor: &Path) -> Vec<PathBuf> {
+    let entry_dir = anchor
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let project_file = find_project_file(&entry_dir);
+    let workspace_root = project_file
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or(entry_dir);
+    let mut out: Vec<PathBuf> = Vec::new();
+    walk_il(&workspace_root, &mut out);
+    out
+}
+
+fn walk_il(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            // Skip the cargo / build / `.git` blackholes.
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(name, "target" | ".git" | "node_modules" | ".claude") {
+                continue;
+            }
+            walk_il(&p, out);
+        } else if p.extension().and_then(|e| e.to_str()) == Some("il") {
+            if let Ok(canon) = p.canonicalize() {
+                out.push(canon);
+            }
+        }
+    }
 }
 
 fn parse_ok(src: &str) -> Result<Program, ()> {
