@@ -917,6 +917,9 @@ pub(crate) fn lower_expr(
                         IntCC::Equal
                     };
                     let v = b.ins().icmp(cc, obj_v, zero);
+                    if !is_aliased_heap_source(&obj.kind) {
+                        emit_release_heap(b, lc, obj_v, obj_t);
+                    }
                     return Ok(Some((v, JitTy::Bool)));
                 }
             }
