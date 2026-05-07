@@ -1347,7 +1347,7 @@ fn walk_module(
                                     .map(|l| format!("\"{l}\""))
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                format!("@lib({names}) ")
+                                format!("@lib({names})\n")
                             };
                             (
                                 *name,
@@ -1932,7 +1932,7 @@ fn collect_external_signatures(
                                     .map(|l| format!("\"{l}\""))
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                format!("@lib({names}) ")
+                                format!("@lib({names})\n")
                             };
                             put_dotted(
                                 name.as_str(),
@@ -2312,7 +2312,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                                     .map(|l| format!("\"{l}\""))
                                     .collect::<Vec<_>>()
                                     .join(", ");
-                                format!("@lib({names}) ")
+                                format!("@lib({names})\n")
                             };
                             out.insert(
                                 name.clone(),
