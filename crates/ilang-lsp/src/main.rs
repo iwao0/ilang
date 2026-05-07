@@ -1322,7 +1322,7 @@ fn walk_module(
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
-                register_enum_variants_with_sources(e, &key, out, sources, &module_path);
+                register_enum_variants_with_sources(e, &key, out, sources, &module_path, &module_src);
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -1505,7 +1505,7 @@ fn walk_module_aliased(
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
-                register_enum_variants_with_sources(e, &key, out, sources, &module_path);
+                register_enum_variants_with_sources(e, &key, out, sources, &module_path, &module_src);
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -1754,6 +1754,7 @@ fn register_enum_variants(
     e: &ilang_ast::EnumDecl,
     enum_key: &str,
     out: &mut HashMap<AstSymbol, String>,
+    src: Option<&str>,
 ) {
     let mut auto: i64 = 0;
     for v in e.variants.iter() {
@@ -1769,9 +1770,17 @@ fn register_enum_variants(
             }
         };
         let key = format!("{enum_key}.{}", v.name);
+        // Prefer the literal text the user wrote (`0x40000000` rather
+        // than `1073741824`) when source is available and the variant
+        // has an explicit discriminant. Fall back to the decimal form.
+        let val_text: String = match (src, v.discriminant) {
+            (Some(s), Some(_)) => discriminant_literal_text(s, v.span)
+                .unwrap_or_else(|| val.to_string()),
+            _ => val.to_string(),
+        };
         let sig = match &v.payload {
             ilang_ast::VariantPayload::Unit => {
-                format!("(variant) {enum_key}.{} = {val}", v.name)
+                format!("(variant) {enum_key}.{} = {val_text}", v.name)
             }
             ilang_ast::VariantPayload::Tuple(_) => {
                 format!("(variant) {enum_key}.{}(...)", v.name)
@@ -1784,6 +1793,46 @@ fn register_enum_variants(
     }
 }
 
+/// Read the literal token for an enum variant's `= value` from
+/// source — preserves hex / binary / underscore-separated forms
+/// the parser collapses into an `i64`. Returns `None` when no
+/// `= literal` is found at the variant's span.
+fn discriminant_literal_text(src: &str, v_span: Span) -> Option<String> {
+    let off = text::line_col_to_offset(src, v_span.line, v_span.col)?;
+    let bytes = src.as_bytes();
+    let mut i = off;
+    // Skip the variant identifier itself.
+    while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+    {
+        i += 1;
+    }
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b'=' {
+        return None;
+    }
+    i += 1;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    let start = i;
+    if i < bytes.len() && bytes[i] == b'-' {
+        i += 1;
+    }
+    while i < bytes.len()
+        && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+    {
+        i += 1;
+    }
+    if i > start {
+        std::str::from_utf8(&bytes[start..i]).ok().map(|s| s.to_string())
+    } else {
+        None
+    }
+}
+
 /// Same as `register_enum_variants`, but also records each variant's
 /// source location in `sources` (so F12 jumps to the variant line).
 fn register_enum_variants_with_sources(
@@ -1792,8 +1841,9 @@ fn register_enum_variants_with_sources(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     module_path: &Path,
+    src: &str,
 ) {
-    register_enum_variants(e, enum_key, out);
+    register_enum_variants(e, enum_key, out, Some(src));
     for v in e.variants.iter() {
         let key = AstSymbol::intern(&format!("{enum_key}.{}", v.name));
         sources.insert(
@@ -1854,7 +1904,9 @@ fn collect_external_signatures(
                     &mut out,
                 );
                 if e.name.as_str().contains('.') {
-                    register_enum_variants(e, e.name.as_str(), &mut out);
+                    // No source available in the merged-Program scan;
+                    // variant values render as decimal here.
+                    register_enum_variants(e, e.name.as_str(), &mut out, None);
                 }
             }
             Item::ExternC(b) => {
@@ -1961,7 +2013,7 @@ fn build_doc(
     let mut external_signatures = external_signatures.clone();
     for item in &prog.items {
         if let Item::Enum(e) = item {
-            register_enum_variants(e, e.name.as_str(), &mut external_signatures);
+            register_enum_variants(e, e.name.as_str(), &mut external_signatures, Some(&text));
         }
     }
     let external_signatures = &external_signatures;
