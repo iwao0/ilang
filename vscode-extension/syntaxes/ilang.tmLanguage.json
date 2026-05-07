@@ -53,8 +53,17 @@
       }
     },
     "enum-variant-keyword": {
-      "comment": "Reserved words used as enum variant names (`return = 40`, `none = 0`, …). Match before #keywords so the keyword scope doesn't fire — no `name` is assigned so the token renders with the editor's default identifier colour.",
-      "match": "\\b(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)(?=\\s*=)"
+      "comment": "Reserved words used as enum variant names — both in declarations (`return = 40`, `none = 0`) and at use sites via dotted access (`Scancode.return`). Match before #keywords so the keyword scope doesn't fire; no `name` is assigned so the token renders with the editor's default identifier colour.",
+      "patterns": [
+        {
+          "comment": "Variant declaration: `name = value` form.",
+          "match": "\\b(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)(?=\\s*=)"
+        },
+        {
+          "comment": "Dotted access: `Enum.variant`. The reserved word follows a `.`.",
+          "match": "(?<=\\.)(as|class|enum|extends|false|fn|in|none|override|return|some|super|this|true)\\b"
+        }
+      ]
     },
     "keywords": {
       "patterns": [
