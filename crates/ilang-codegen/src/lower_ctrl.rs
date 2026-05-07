@@ -2,7 +2,7 @@
 //! are inlined into `lower_expr` since they're trivial jumps.
 
 use cranelift::prelude::*;
-use ilang_ast::Expr;
+use ilang_ast::{Expr, Symbol};
 
 use crate::env::LowerCtx;
 use crate::error::CodegenError;
@@ -163,7 +163,7 @@ pub(crate) fn lower_for_in(
 
     // Loop var x — bound for the body.
     let x_var = b.declare_var(elem_jty.cl().expect("non-unit elem"));
-    let prev_binding = lc.env.bindings.insert(var.to_string(), (x_var, elem_jty));
+    let prev_binding = lc.env.bindings.insert(Symbol::intern(var), (x_var, elem_jty));
 
     let header = b.create_block();
     let body_block = b.create_block();
@@ -214,10 +214,10 @@ pub(crate) fn lower_for_in(
     // Restore outer binding (if any), then release the array if fresh.
     match prev_binding {
         Some(prev) => {
-            lc.env.bindings.insert(var.to_string(), prev);
+            lc.env.bindings.insert(Symbol::intern(var), prev);
         }
         None => {
-            lc.env.bindings.remove(var);
+            lc.env.bindings.remove(&Symbol::intern(var));
         }
     }
     if release_iter {
@@ -260,7 +260,7 @@ fn lower_for_in_range(
     // through the loop.
     let end_var = b.declare_var(cl);
     b.def_var(end_var, e_v);
-    let prev_binding = lc.env.bindings.insert(var.to_string(), (i_var, s_t));
+    let prev_binding = lc.env.bindings.insert(Symbol::intern(var), (i_var, s_t));
 
     let header = b.create_block();
     let body_block = b.create_block();
@@ -304,10 +304,10 @@ fn lower_for_in_range(
 
     match prev_binding {
         Some(prev) => {
-            lc.env.bindings.insert(var.to_string(), prev);
+            lc.env.bindings.insert(Symbol::intern(var), prev);
         }
         None => {
-            lc.env.bindings.remove(var);
+            lc.env.bindings.remove(&Symbol::intern(var));
         }
     }
     Ok(())

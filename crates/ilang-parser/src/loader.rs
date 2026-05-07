@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use ilang_ast::{
     BinOp, Block, ClassDecl, Expr, ExprKind, Item, LogicalOp, MatchArm, Program, Span, Stmt, StmtKind,
-    Type, UnOp, UseDecl,
+    Symbol, Type, UnOp, UseDecl,
 };
 
 use crate::ParseError;
@@ -58,16 +58,16 @@ pub enum LoadError {
     LexError(String),
     ParseError(ParseError),
     CircularImport {
-        chain: Vec<String>,
+        chain: Vec<Symbol>,
     },
     UnknownImport {
-        module: String,
-        name: String,
+        module: Symbol,
+        name: Symbol,
     },
     /// `const X = expr` where `expr` couldn't be folded to a literal.
     /// Carries a human-readable reason and the offending span.
     BadConst {
-        name: String,
+        name: Symbol,
         reason: String,
         span: ilang_ast::Span,
     },
@@ -82,7 +82,7 @@ impl std::fmt::Display for LoadError {
             LoadError::LexError(s) => write!(f, "lex error: {s}"),
             LoadError::ParseError(e) => write!(f, "parse error: {e}"),
             LoadError::CircularImport { chain } => {
-                write!(f, "circular import: {}", chain.join(" → "))
+                write!(f, "circular import: {}", chain.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" → "))
             }
             LoadError::UnknownImport { module, name } => {
                 write!(f, "module `{module}` doesn't export `{name}`")
@@ -122,7 +122,7 @@ pub fn load_program_with_overlay(
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Program, LoadError> {
     let mut visiting: HashSet<PathBuf> = HashSet::new();
-    let mut chain: Vec<String> = Vec::new();
+    let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
@@ -140,7 +140,7 @@ pub fn load_program_with_overlay(
         stmts: entry_prog.stmts,
         tail: entry_prog.tail,
     };
-    let mut whole_imports: HashSet<String> = HashSet::new();
+    let mut whole_imports: HashSet<Symbol> = HashSet::new();
     // Tracks every (module-canonical-path, effective-prefix) pair
     // that's already been merged into `merged`. Stops `use math`
     // appearing in two import paths from registering math's items
@@ -217,7 +217,7 @@ fn load_recursive(
     base_dir: &Path,
     extra_paths: &[PathBuf],
     visiting: &mut HashSet<PathBuf>,
-    chain: &mut Vec<String>,
+    chain: &mut Vec<Symbol>,
     loaded: &mut HashMap<PathBuf, Program>,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<(), LoadError> {
@@ -225,15 +225,15 @@ fn load_recursive(
         return Ok(());
     }
     if !visiting.insert(file.to_path_buf()) {
-        chain.push(file.display().to_string());
+        chain.push(file.display().to_string().into());
         return Err(LoadError::CircularImport { chain: chain.clone() });
     }
-    chain.push(file.display().to_string());
+    chain.push(file.display().to_string().into());
     let prog = parse_file(file, overlay)?;
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
     for item in &prog.items {
         if let Item::Use(u) = item {
-            let canon = resolve_module(&u.module, &dir, extra_paths)?;
+            let canon = resolve_module(u.module.as_str(), &dir, extra_paths)?;
             load_recursive(&canon, &dir, extra_paths, visiting, chain, loaded, overlay)?;
         }
     }
@@ -272,14 +272,14 @@ fn apply_use(
     extra_paths: &[PathBuf],
     loaded: &mut HashMap<PathBuf, Program>,
     merged: &mut Program,
-    _whole_imports: &mut HashSet<String>,
+    _whole_imports: &mut HashSet<Symbol>,
     applied: &mut HashSet<(PathBuf, String)>,
 ) -> Result<(), LoadError> {
     let importer_dir = importer_canon
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
-    let canon = resolve_module(&u.module, &importer_dir, extra_paths)?;
+    let canon = resolve_module(u.module.as_str(), &importer_dir, extra_paths)?;
     // Clone instead of remove — the same module may legitimately be
     // applied multiple times (e.g. once via @export to publish under
     // an umbrella prefix, and once directly so a sibling module that
@@ -292,7 +292,7 @@ fn apply_use(
         .expect("loaded before via load_recursive");
     let effective_prefix: String = prefix_override
         .map(str::to_string)
-        .unwrap_or_else(|| u.module.clone());
+        .unwrap_or_else(|| u.module.as_str().to_string());
     // Whole-module + selective imports both prefix the items by
     // `effective_prefix` (selective keeps bare names, listed in the
     // key so distinct selective imports of the same module don't
@@ -358,7 +358,7 @@ fn apply_use(
             // the module (so a class's own static methods can write
             // `ClassName.staticField` and still resolve after the
             // class itself was renamed by the prefix pass).
-            let mut named_globals: HashSet<String> = module_prog
+            let mut named_globals: HashSet<Symbol> = module_prog
                 .items
                 .iter()
                 .filter_map(|i| match i {
@@ -387,7 +387,7 @@ fn apply_use(
             // Selective import: pull in just the listed items, keeping
             // their bare names.
             let selected: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
-            let mut found: HashSet<String> = HashSet::new();
+            let mut found: HashSet<Symbol> = HashSet::new();
             for item in module_prog.items {
                 let item_name = item_name_of(&item);
                 if let Some(name) = item_name {
@@ -419,7 +419,7 @@ fn apply_use(
 fn qualify_var_refs_in_item(
     item: &mut Item,
     prefix: &str,
-    consts: &HashSet<String>,
+    consts: &HashSet<Symbol>,
 ) {
     match item {
         Item::Fn(f) => qualify_var_refs_in_block(&mut f.body, prefix, consts),
@@ -441,7 +441,7 @@ fn qualify_var_refs_in_item(
     }
 }
 
-fn qualify_var_refs_in_class(c: &mut ClassDecl, prefix: &str, consts: &HashSet<String>) {
+fn qualify_var_refs_in_class(c: &mut ClassDecl, prefix: &str, consts: &HashSet<Symbol>) {
     for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
         qualify_var_refs_in_block(&mut m.body, prefix, consts);
     }
@@ -458,7 +458,7 @@ fn qualify_var_refs_in_class(c: &mut ClassDecl, prefix: &str, consts: &HashSet<S
     }
 }
 
-fn qualify_var_refs_in_block(b: &mut Block, prefix: &str, consts: &HashSet<String>) {
+fn qualify_var_refs_in_block(b: &mut Block, prefix: &str, consts: &HashSet<Symbol>) {
     for s in b.stmts.iter_mut() {
         qualify_var_refs_in_stmt(s, prefix, consts);
     }
@@ -467,7 +467,7 @@ fn qualify_var_refs_in_block(b: &mut Block, prefix: &str, consts: &HashSet<Strin
     }
 }
 
-fn qualify_var_refs_in_stmt(s: &mut Stmt, prefix: &str, consts: &HashSet<String>) {
+fn qualify_var_refs_in_stmt(s: &mut Stmt, prefix: &str, consts: &HashSet<Symbol>) {
     use ilang_ast::StmtKind;
     match &mut s.kind {
         StmtKind::Let { value, .. } => qualify_var_refs_in_expr(value, prefix, consts),
@@ -475,11 +475,11 @@ fn qualify_var_refs_in_stmt(s: &mut Stmt, prefix: &str, consts: &HashSet<String>
     }
 }
 
-fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<String>) {
+fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>) {
     match &mut e.kind {
         ExprKind::Var(name) => {
             if consts.contains(name) {
-                *name = format!("{prefix}.{name}");
+                *name = Symbol::intern(&format!("{prefix}.{name}")).into();
             }
         }
         ExprKind::Unary { expr, .. } => qualify_var_refs_in_expr(expr, prefix, consts),
@@ -614,7 +614,7 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<String>
     }
 }
 
-fn item_name_of(item: &Item) -> Option<String> {
+fn item_name_of(item: &Item) -> Option<Symbol> {
     match item {
         Item::Fn(f) => Some(f.name.clone()),
         Item::Class(c) => Some(c.name.clone()),
@@ -627,7 +627,7 @@ fn item_name_of(item: &Item) -> Option<String> {
 }
 
 fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
-    c.name = format!("{prefix}.{}", c.name);
+    c.name = format!("{prefix}.{}", c.name).into();
     for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
         let body = std::mem::replace(
             &mut m.body,
@@ -690,7 +690,7 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
 fn prefix_item(item: Item, prefix: &str) -> Item {
     match item {
         Item::Fn(mut f) => {
-            f.name = format!("{prefix}.{}", f.name);
+            f.name = format!("{prefix}.{}", f.name).into();
             f.params = f
                 .params
                 .iter()
@@ -710,7 +710,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             Item::Class(c)
         }
         Item::Enum(mut e) => {
-            e.name = format!("{prefix}.{}", e.name);
+            e.name = format!("{prefix}.{}", e.name).into();
             for v in &mut e.variants {
                 v.payload = match std::mem::replace(&mut v.payload, ilang_ast::VariantPayload::Unit) {
                     ilang_ast::VariantPayload::Unit => ilang_ast::VariantPayload::Unit,
@@ -733,7 +733,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
         }
         Item::Use(u) => Item::Use(u),
         Item::Const(mut c) => {
-            c.name = format!("{prefix}.{}", c.name);
+            c.name = format!("{prefix}.{}", c.name).into();
             c.ty = c.ty.as_ref().map(|t| prefix_type(t, prefix));
             // RHS is folded to a literal later by `inline_constants`,
             // but it can still contain `ModuleEnum.Variant` /
@@ -752,7 +752,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             // callers write `mymod.errno`). The C symbol resolved
             // via dlsym uses the original unprefixed name, so we
             // stash that for the dlsym pass to find.
-            s.name = format!("{prefix}.{}", s.name);
+            s.name = format!("{prefix}.{}", s.name).into();
             Item::ExternStatic(s)
         }
         Item::ExternC(mut b) => {
@@ -771,13 +771,13 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                 match inner {
                     ilang_ast::ExternCItem::Struct { name, fields, .. }
                     | ilang_ast::ExternCItem::Union { name, fields, .. } => {
-                        *name = format!("{prefix}.{name}");
+                        *name = Symbol::intern(&format!("{prefix}.{name}")).into();
                         for f in fields {
                             f.ty = prefix_type(&f.ty, prefix);
                         }
                     }
                     ilang_ast::ExternCItem::Static { name, ty, .. } => {
-                        *name = format!("{prefix}.{name}");
+                        *name = Symbol::intern(&format!("{prefix}.{name}")).into();
                         *ty = prefix_type(ty, prefix);
                     }
                     ilang_ast::ExternCItem::FnDecl {
@@ -786,7 +786,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         if !libs.is_empty() && c_symbol.is_none() {
                             *c_symbol = Some(name.clone());
                         }
-                        *name = format!("{prefix}.{name}");
+                        *name = Symbol::intern(&format!("{prefix}.{name}")).into();
                         for p in params.iter_mut() {
                             p.ty = prefix_type(&p.ty, prefix);
                         }
@@ -795,7 +795,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         }
                     }
                     ilang_ast::ExternCItem::FnDef(f) => {
-                        f.name = format!("{prefix}.{}", f.name);
+                        f.name = format!("{prefix}.{}", f.name).into();
                         for p in f.params.iter_mut() {
                             p.ty = prefix_type(&p.ty, prefix);
                         }
@@ -861,10 +861,10 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             //     turned `module.fn(args)` into a `Call`, and adding
             //     the current module's prefix again would produce
             //     `current.module.fn` and break resolution.
-            let new_callee = if is_builtin_callee(&callee) || callee.contains('.') {
+            let new_callee = if is_builtin_callee(callee.as_str()) || callee.as_str().contains('.') {
                 callee
             } else {
-                format!("{prefix}.{}", callee)
+                format!("{prefix}.{}", callee).into()
             };
             ExprKind::Call {
                 callee: new_callee,
@@ -875,10 +875,10 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             // `new module.Class(...)` already qualified — leave as
             // is; only re-prefix bare names so a second pass
             // doesn't produce `module.module.Class`.
-            class: if class.contains('.') {
+            class: if class.as_str().contains('.') {
                 class
             } else {
-                format!("{prefix}.{}", class)
+                format!("{prefix}.{}", class).into()
             },
             type_args: type_args.into_iter().map(|t| prefix_type(&t, prefix)).collect(),
             args: args.into_iter().map(|a| prefix_expr(a, prefix)).collect(),
@@ -889,10 +889,10 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             variant,
             args,
         } => ExprKind::EnumCtor {
-            enum_name: if enum_name.contains('.') {
+            enum_name: if enum_name.as_str().contains('.') {
                 enum_name
             } else {
-                format!("{prefix}.{}", enum_name)
+                format!("{prefix}.{}", enum_name).into()
             },
             variant,
             args: match args {
@@ -1062,8 +1062,8 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
 
 fn prefix_type(t: &Type, prefix: &str) -> Type {
     match t {
-        Type::Object(name) if !name.contains('.') && !is_builtin_type(name) => {
-            Type::Object(format!("{prefix}.{name}"))
+        Type::Object(name) if !name.as_str().contains('.') && !is_builtin_type(&name.as_str()) => {
+            Type::Object(Symbol::intern(&format!("{prefix}.{name}")).into())
         }
         Type::Array { elem, fixed } => Type::Array {
             elem: Box::new(prefix_type(elem, prefix)),
@@ -1072,10 +1072,10 @@ fn prefix_type(t: &Type, prefix: &str) -> Type {
         Type::Optional(inner) => Type::Optional(Box::new(prefix_type(inner, prefix))),
         Type::Weak(inner) => Type::Weak(Box::new(prefix_type(inner, prefix))),
         Type::Generic(g) => Type::generic(
-            if !g.base.contains('.') && !is_builtin_type(&g.base) {
-                format!("{prefix}.{}", g.base)
+            if !g.base.as_str().contains('.') && !is_builtin_type(g.base.as_str()) {
+                Symbol::intern(&format!("{prefix}.{}", g.base))
             } else {
-                g.base.clone()
+                g.base
             },
             g.args.iter().map(|a| prefix_type(a, prefix)).collect(),
         ),
@@ -1148,13 +1148,13 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     // literal, using already-folded consts as known bindings. The
     // result becomes the substitution value for every `Var(name)`
     // reference in the rest of the program.
-    let mut consts: HashMap<String, Expr> = HashMap::new();
+    let mut consts: HashMap<Symbol, Expr> = HashMap::new();
     // Annotated types — looked up at substitution time so each
     // substituted reference carries the const's declared type via
     // a wrapping `Cast`. Unannotated consts (`const N = 5`) leave
     // their entry absent and substitute as the bare literal (i64
     // for ints, the natural literal type otherwise).
-    let mut const_types: HashMap<String, ilang_ast::Type> = HashMap::new();
+    let mut const_types: HashMap<Symbol, ilang_ast::Type> = HashMap::new();
     let mut items_no_const: Vec<Item> = Vec::new();
     for item in prog.items {
         match item {
@@ -1198,7 +1198,7 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                 }
                 let folded = fold_const_expr(&sf.value, &consts).map_err(|reason| {
                     LoadError::BadConst {
-                        name: format!("{}.{}", c.name, sf.name),
+                        name: format!("{}.{}", c.name, sf.name).into(),
                         reason,
                         span: sf.value.span,
                     }
@@ -1230,8 +1230,8 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
 }
 
 struct SubstCtx<'a> {
-    consts: &'a HashMap<String, Expr>,
-    types: &'a HashMap<String, ilang_ast::Type>,
+    consts: &'a HashMap<Symbol, Expr>,
+    types: &'a HashMap<Symbol, ilang_ast::Type>,
 }
 
 /// Constant folder. Reduces `e` to a literal `Expr` (Int / Float /
@@ -1239,7 +1239,7 @@ struct SubstCtx<'a> {
 /// Supported: literals, references to other consts, unary `- ! ~`,
 /// binary arithmetic / comparison / bitwise / logical, `as` casts
 /// between numeric types, string `+` (concat) and `==` / `!=`.
-fn fold_const_expr(e: &Expr, consts: &HashMap<String, Expr>) -> Result<Expr, String> {
+fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, String> {
     let span = e.span;
     let lit = |k: ExprKind| Expr { kind: k, span };
     match &e.kind {

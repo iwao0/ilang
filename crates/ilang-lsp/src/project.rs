@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use ilang_ast::{Item, Program};
+use ilang_ast::{Item, Program, Symbol};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 

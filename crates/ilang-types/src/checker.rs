@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
     Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
-    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Type, UnOp, VariantPayload,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, Type, UnOp,
+    VariantPayload,
 };
 
 use crate::error::TypeError;
@@ -142,7 +143,7 @@ struct Signature {
     /// Empty for non-generic fns. `params` / `ret` may reference these
     /// as `Type::TypeVar(name)`; concrete types are inferred from the
     /// arg expression types at each call site.
-    type_params: Vec<String>,
+    type_params: Vec<Symbol>,
     /// Span of the original `FnDecl` this signature came from. Used by
     /// the post-typecheck mangler to find the right declaration when
     /// rewriting overloaded fn names. `Span::dummy()` for built-ins.
@@ -160,30 +161,30 @@ struct ClassSig {
     /// Names of generic type parameters on the class. Empty for
     /// non-generic classes. Field/method types may reference these as
     /// `Type::TypeVar(name)`; instantiation substitutes them.
-    type_params: Vec<String>,
-    fields: HashMap<String, Type>,
+    type_params: Vec<Symbol>,
+    fields: HashMap<Symbol, Type>,
     /// Methods grouped by source name, allowing overloads. Resolution
     /// at each MethodCall (and `new C(args)` for `init`) site picks
     /// the best match the same way top-level fn overloads do.
-    methods: HashMap<String, Vec<Signature>>,
+    methods: HashMap<Symbol, Vec<Signature>>,
     /// `get` / `set` accessors. `obj.x` reads dispatch through the
     /// getter, `obj.x = v` writes through the setter (when present).
-    properties: HashMap<String, PropertySig>,
+    properties: HashMap<Symbol, PropertySig>,
     /// `static` methods — single sig per name (no overloading yet).
     /// Resolved at `ClassName.method(args)` call sites.
-    static_methods: HashMap<String, Signature>,
+    static_methods: HashMap<Symbol, Signature>,
     /// `static` fields — class-level mutable storage. Read/write
     /// dispatched at `ClassName.field` field expressions.
-    static_fields: HashMap<String, Type>,
+    static_fields: HashMap<Symbol, Type>,
     /// `extends Parent` — single-inheritance parent. None for root
     /// classes (or built-ins). Used by `is_subclass`, super
     /// resolution, and vtable layout.
-    parent: Option<String>,
+    parent: Option<Symbol>,
     /// Per-method vtable slot index. Inherited methods keep the
     /// parent's slot; overrides reuse the same slot; new methods
     /// added in this class get fresh slots after the parent's last
     /// slot. The JIT reads this to lay out vtables.
-    method_slots: HashMap<String, usize>,
+    method_slots: HashMap<Symbol, usize>,
     /// Total number of vtable slots (= max slot index + 1, or 0).
     /// Equals parent's `vtable_len` plus this class's newly-added
     /// methods.
@@ -191,7 +192,7 @@ struct ClassSig {
     /// `Some(libname)` for `@extern("lib") class Foo {}` — the type
     /// is an opaque handle whose values come from native extern fns.
     /// `new`, fields, methods are all rejected on these.
-    extern_lib: Option<String>,
+    extern_lib: Option<Symbol>,
     /// `true` for `@extern(C) struct Foo { ... }`. Field-type validation
     /// (primitives + repr_c only) and embedded-struct layout depend
     /// on this flag.
@@ -216,7 +217,7 @@ struct EnumSig {
     /// Generic type parameters declared on the enum (mirrors
     /// `ClassSig.type_params`). Empty for non-generic enums.
     /// Variant payloads may reference these as `Type::TypeVar`.
-    type_params: Vec<String>,
+    type_params: Vec<Symbol>,
     variants: Vec<EnumVariantSig>,
     /// `@flags` enum — supports `|` `&` `^` `~` and a `has` method.
     flags: bool,
@@ -224,7 +225,7 @@ struct EnumSig {
 
 #[derive(Debug, Clone)]
 struct EnumVariantSig {
-    name: String,
+    name: Symbol,
     payload: VariantPayloadSig,
 }
 
@@ -232,10 +233,10 @@ struct EnumVariantSig {
 enum VariantPayloadSig {
     Unit,
     Tuple(Vec<Type>),
-    Struct(Vec<(String, Type)>),
+    Struct(Vec<(Symbol, Type)>),
 }
 
-type Vars = HashMap<String, Type>;
+type Vars = HashMap<Symbol, Type>;
 
 #[derive(Debug, Default)]
 pub struct TypeChecker {
@@ -244,31 +245,31 @@ pub struct TypeChecker {
     /// overloads (`fn print(n: i64)` + `fn print(s: string)`). At each
     /// call site we pick the best match by arg-type scoring; if a name
     /// has just one entry we still go through the same path.
-    fns: HashMap<String, Vec<Signature>>,
-    classes: HashMap<String, ClassSig>,
-    enums: HashMap<String, EnumSig>,
-    vars: HashMap<String, Type>,
+    fns: HashMap<Symbol, Vec<Signature>>,
+    classes: HashMap<Symbol, ClassSig>,
+    enums: HashMap<Symbol, EnumSig>,
+    vars: HashMap<Symbol, Type>,
     /// Inferred type-argument vector for each generic-fn call site,
     /// keyed by the call expression's span. Populated during checking;
     /// consumed by the JIT's monomorphization pass. Values may contain
     /// `Type::TypeVar` when the call sits inside another generic
     /// context — the monomorphizer substitutes those at expansion time.
     /// Wrapped in `RefCell` because `check_expr` takes `&self`.
-    fn_call_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
+    fn_call_type_args: std::cell::RefCell<HashMap<Span, (Symbol, Vec<Type>)>>,
     /// Inferred type-arg vector for each generic-enum-ctor call site.
     /// Same shape as `fn_call_type_args`; consumed by the JIT's
     /// enum-monomorphization pass.
-    enum_ctor_type_args: std::cell::RefCell<HashMap<Span, (String, Vec<Type>)>>,
+    enum_ctor_type_args: std::cell::RefCell<HashMap<Span, (Symbol, Vec<Type>)>>,
     /// Per-call-site choice when the callee is overloaded:
     /// `(name, index_into_self.fns[name])`. Used by the post-typecheck
     /// mangler to rewrite `Call.callee` to the per-overload mangled
     /// name when the name has more than one overload.
-    fn_overload_pick: std::cell::RefCell<HashMap<Span, (String, usize)>>,
+    fn_overload_pick: std::cell::RefCell<HashMap<Span, (Symbol, usize)>>,
     /// Per-call-site method overload pick. Same idea as
     /// `fn_overload_pick` but keyed for class methods. The triple is
     /// `(class_name, method_name, sig_idx)`. Includes both regular
     /// MethodCall sites and the `init` resolved at `new C(args)`.
-    method_overload_pick: std::cell::RefCell<HashMap<Span, (String, String, usize)>>,
+    method_overload_pick: std::cell::RefCell<HashMap<Span, (Symbol, Symbol, usize)>>,
     /// Stack of currently-open loops, with the kind that controls
     /// whether `break v` is allowed and the accumulated break-value
     /// type so a `loop { ... break v }` expression can take the type of
@@ -290,13 +291,13 @@ pub struct TypeChecker {
     /// pass reads this to lay out closure environments. Order is
     /// stable (insertion order); the JIT uses it as the offset
     /// order in the closure struct.
-    fn_expr_captures: std::cell::RefCell<HashMap<Span, Vec<(String, Type)>>>,
+    fn_expr_captures: std::cell::RefCell<HashMap<Span, Vec<(Symbol, Type)>>>,
     /// Used by the JIT's post-hoist re-typecheck: for each
     /// closure wrapper FnDecl, the body's "free vars" actually
     /// resolve to captured values. Pre-populating the body's
     /// scope with these makes the second-pass check pass without
     /// special-casing in the type checker proper.
-    pub closure_wrapper_captures: HashMap<String, Vec<(String, Type)>>,
+    pub closure_wrapper_captures: HashMap<Symbol, Vec<(Symbol, Type)>>,
     /// Per-call-site default-arg fills: the trailing default
     /// expressions (already type-checked) that the post-typecheck
     /// pass must append to the Call's `args`. Keyed by the call
@@ -322,21 +323,21 @@ impl TypeChecker {
 
     /// Map of generic-fn call site → (callee name, inferred type args).
     /// Filled in during `check`; consumed by the JIT monomorphizer.
-    pub fn fn_call_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
+    pub fn fn_call_type_args(&self) -> HashMap<Span, (Symbol, Vec<Type>)> {
         self.fn_call_type_args.borrow().clone()
     }
 
     /// Map of generic-enum-ctor call site → (enum name, inferred type
     /// args). Same purpose as `fn_call_type_args` but for `Box.full(42)`
     /// style constructors.
-    pub fn enum_ctor_type_args(&self) -> HashMap<Span, (String, Vec<Type>)> {
+    pub fn enum_ctor_type_args(&self) -> HashMap<Span, (Symbol, Vec<Type>)> {
         self.enum_ctor_type_args.borrow().clone()
     }
 
     /// Per-call-site overload pick: `(callee_name, sig_idx)`. Consumed
     /// by the post-typecheck `mangle_overloads` pass so it knows which
     /// of N same-name decls each call should resolve to.
-    pub fn fn_overload_picks(&self) -> HashMap<Span, (String, usize)> {
+    pub fn fn_overload_picks(&self) -> HashMap<Span, (Symbol, usize)> {
         self.fn_overload_pick.borrow().clone()
     }
 
@@ -352,7 +353,7 @@ impl TypeChecker {
     /// Per-call-site method overload pick:
     /// `(class_name, method_name, sig_idx)`. Used by the mangler to
     /// rewrite `MethodCall.method` and `New.init_method`.
-    pub fn method_overload_picks(&self) -> HashMap<Span, (String, String, usize)> {
+    pub fn method_overload_picks(&self) -> HashMap<Span, (Symbol, Symbol, usize)> {
         self.method_overload_pick.borrow().clone()
     }
 
@@ -365,14 +366,14 @@ impl TypeChecker {
 
     /// Per-`FnExpr` span → captured (name, type) list. Empty list
     /// when the closure is purely top-level / no locals captured.
-    pub fn fn_expr_captures(&self) -> HashMap<Span, Vec<(String, Type)>> {
+    pub fn fn_expr_captures(&self) -> HashMap<Span, Vec<(Symbol, Type)>> {
         self.fn_expr_captures.borrow().clone()
     }
 
     /// `(class, slot) -> method_name` for every class — used by the
     /// JIT to lay out per-class vtables. Empty for root classes
     /// without methods.
-    pub fn class_method_slots(&self) -> HashMap<String, HashMap<String, usize>> {
+    pub fn class_method_slots(&self) -> HashMap<Symbol, HashMap<Symbol, usize>> {
         self.classes
             .iter()
             .map(|(n, sig)| (n.clone(), sig.method_slots.clone()))
@@ -381,7 +382,7 @@ impl TypeChecker {
 
     /// `class -> vtable size` (max slot index + 1). Used by the JIT
     /// when allocating vtables.
-    pub fn class_vtable_lens(&self) -> HashMap<String, usize> {
+    pub fn class_vtable_lens(&self) -> HashMap<Symbol, usize> {
         self.classes
             .iter()
             .map(|(n, sig)| (n.clone(), sig.vtable_len))
@@ -391,32 +392,26 @@ impl TypeChecker {
     /// `class -> parent` (single-inheritance only). Empty for root
     /// classes. The JIT walks this for super-call resolution and
     /// vtable inheritance.
-    pub fn class_parents(&self) -> HashMap<String, String> {
+    pub fn class_parents(&self) -> HashMap<Symbol, Symbol> {
         self.classes
             .iter()
-            .filter_map(|(n, sig)| sig.parent.as_ref().map(|p| (n.clone(), p.clone())))
+            .filter_map(|(n, sig)| sig.parent.map(|p| (*n, p)))
             .collect()
     }
 
     /// True iff `child` is `parent` or transitively descends from
     /// `parent` via `extends` chains. False if either name is
     /// unknown.
-    fn is_subclass(&self, child: &str, parent: &str) -> bool {
+    fn is_subclass(&self, child: Symbol, parent: Symbol) -> bool {
         if child == parent {
             return true;
         }
-        let mut cur = self
-            .classes
-            .get(child)
-            .and_then(|c| c.parent.clone());
+        let mut cur = self.classes.get(&child).and_then(|c| c.parent);
         while let Some(name) = cur {
             if name == parent {
                 return true;
             }
-            cur = self
-                .classes
-                .get(&name)
-                .and_then(|c| c.parent.clone());
+            cur = self.classes.get(&name).and_then(|c| c.parent);
         }
         false
     }
@@ -429,7 +424,7 @@ impl TypeChecker {
             return true;
         }
         if let (Type::Object(c), Type::Object(p)) = (from, to) {
-            return self.is_subclass(c, p);
+            return self.is_subclass(*c, *p);
         }
         false
     }
@@ -504,7 +499,7 @@ impl TypeChecker {
     fn install_builtins(&mut self) {
         let mut methods = HashMap::new();
         methods.insert(
-            "log".to_string(),
+            "log".into(),
             vec![Signature {
                 // No fixed prefix — variadic with arity 0+. Any
                 // arg flows through unchecked.
@@ -514,7 +509,7 @@ impl TypeChecker {
             }],
         );
         self.classes.insert(
-            "Console".to_string(),
+            "Console".into(),
             ClassSig {
                 type_params: Vec::new(),
                 fields: HashMap::new(),
@@ -531,7 +526,7 @@ impl TypeChecker {
             },
         );
         self.vars
-            .insert("console".to_string(), Type::Object("Console".to_string()));
+            .insert("console".into(), Type::Object("Console".into()));
 
         // Built-in `Map<K, V>` — generic class with no fields. Methods
         // are intercepted in the interpreter; the signatures here are
@@ -620,7 +615,7 @@ impl TypeChecker {
             is_const: true,
             inner: Box::new(raw_const_char.clone()),
         };
-        let mk_sig = |params: Vec<Type>, ret: Type, type_params: Vec<String>| Signature {
+        let mk_sig = |params: Vec<Type>, ret: Type, type_params: Vec<Symbol>| Signature {
             params,
             ret,
             variadic: false,
@@ -669,7 +664,7 @@ impl TypeChecker {
             ("readF64", Type::F64),
         ] {
             self.fns.insert(
-                name.to_string(),
+                name.into(),
                 vec![mk_sig(
                     vec![raw_const_void.clone(), Type::I64],
                     ty,
@@ -692,7 +687,7 @@ impl TypeChecker {
             ("writeF64", Type::F64),
         ] {
             self.fns.insert(
-                name.to_string(),
+                name.into(),
                 vec![mk_sig(
                     vec![raw_void.clone(), Type::I64, ty],
                     Type::Unit,
@@ -790,13 +785,13 @@ impl TypeChecker {
         // signature and `console.log` would call the user code.
         for item in &prog.items {
             match item {
-                Item::Class(c) if is_reserved_class(&c.name) => {
+                Item::Class(c) if is_reserved_class(c.name.as_str()) => {
                     return Err(TypeError::ReservedName {
                         name: c.name.clone(),
                         span: c.span,
                     });
                 }
-                Item::Enum(e) if is_reserved_class(&e.name) => {
+                Item::Enum(e) if is_reserved_class(e.name.as_str()) => {
                     return Err(TypeError::ReservedName {
                         name: e.name.clone(),
                         span: e.span,
@@ -843,7 +838,7 @@ impl TypeChecker {
                 Item::Class(c) => {
                     // Resolve parent (must be already registered).
                     let parent_sig = if let Some(pname) = &c.parent {
-                        Some(self.classes.get(pname).cloned().ok_or_else(|| {
+                        Some(self.classes.get(&pname).cloned().ok_or_else(|| {
                             TypeError::UndefinedClass {
                                 name: pname.clone(),
                                 span: c.span,
@@ -928,7 +923,7 @@ impl TypeChecker {
             // wayward `let console = ...` cannot disable `console.log`.
             // Inner-scope shadowing is still allowed.
             if let StmtKind::Let { name, .. } = &s.kind {
-                if is_reserved_global(name) {
+                if is_reserved_global(name.as_str()) {
                     return Err(TypeError::ReservedName {
                         name: name.clone(),
                         span: s.span,
@@ -1006,7 +1001,7 @@ impl TypeChecker {
                         extern_args.push(ilang_ast::AttrArg::Path(vec!["variadic".into()]));
                     }
                     let attrs = vec![ilang_ast::Attribute {
-                        name: "extern".to_string(),
+                        name: "extern".into(),
                         args: extern_args,
                     }];
                     let synth = FnDecl {
@@ -1068,7 +1063,7 @@ impl TypeChecker {
         match_span: Span,
         env: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         let mut has_wildcard = false;
@@ -1206,7 +1201,7 @@ impl TypeChecker {
         ret: Option<&Type>,
         span: Span,
     ) -> Result<(), TypeError> {
-        let mut visiting: HashSet<String> = HashSet::new();
+        let mut visiting: HashSet<Symbol> = HashSet::new();
         for p in params {
             if let Some(reason) = self.find_raw_pointer(p, &mut visiting) {
                 return Err(TypeError::Unsupported {
@@ -1240,7 +1235,7 @@ impl TypeChecker {
     fn find_raw_pointer(
         &self,
         t: &Type,
-        visiting: &mut HashSet<String>,
+        visiting: &mut HashSet<Symbol>,
     ) -> Option<String> {
         match t {
             Type::RawPtr { .. } => Some(format!("`{t}`")),
@@ -1264,7 +1259,7 @@ impl TypeChecker {
                 if !visiting.insert(name.clone()) {
                     return None;
                 }
-                let res = self.classes.get(name).and_then(|cs| {
+                let res = self.classes.get(&name).and_then(|cs| {
                     if !cs.is_repr_c {
                         return None;
                     }
@@ -1481,15 +1476,15 @@ impl TypeChecker {
             {
                 return Err(TypeError::BadDeinitSignature { span: m.span });
             }
-            self.check_fn(m, Some(&c.name))?;
+            self.check_fn(m, Some(c.name))?;
         }
         for prop in &c.properties {
             self.validate_type(&prop.ty, prop.span, &c.type_params)?;
             if let Some(g) = &prop.getter {
-                self.check_fn(g, Some(&c.name))?;
+                self.check_fn(g, Some(c.name))?;
             }
             if let Some(s) = &prop.setter {
-                self.check_fn(s, Some(&c.name))?;
+                self.check_fn(s, Some(c.name))?;
             }
         }
         // Static methods don't have `this` — pass `in_class=None` so
@@ -1514,11 +1509,11 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_fn(&self, f: &FnDecl, in_class: Option<&str>) -> Result<(), TypeError> {
+    fn check_fn(&self, f: &FnDecl, in_class: Option<Symbol>) -> Result<(), TypeError> {
         // Type parameters in scope: the class's (if we're inside a
         // generic class) plus the fn's own `<T, U>`.
-        let mut params_in_scope: Vec<String> = in_class
-            .and_then(|n| self.classes.get(n))
+        let mut params_in_scope: Vec<Symbol> = in_class
+            .and_then(|n| self.classes.get(&n))
             .map(|c| c.type_params.clone())
             .unwrap_or_default();
         params_in_scope.extend(f.type_params.iter().cloned());
@@ -1584,7 +1579,7 @@ impl TypeChecker {
         &self,
         t: &Type,
         span: Span,
-        type_params_in_scope: &[String],
+        type_params_in_scope: &[Symbol],
     ) -> Result<(), TypeError> {
         match t {
             Type::Object(name) => {
@@ -1680,7 +1675,7 @@ impl TypeChecker {
         block: &Block,
         outer: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         let mut env = outer.clone();
@@ -1699,7 +1694,7 @@ impl TypeChecker {
         stmt: &Stmt,
         env: &mut Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         match &stmt.kind {
@@ -1766,7 +1761,7 @@ impl TypeChecker {
         expr: &Expr,
         env: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         let t = self.check_expr_inner(expr, env, ret_ty, in_class, loop_depth)?;
@@ -1796,7 +1791,7 @@ impl TypeChecker {
         expr: &Expr,
         env: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         let span = expr.span;
@@ -1830,7 +1825,7 @@ impl TypeChecker {
                 Ok(Type::func(user_params, sig.ret))
             }
             ExprKind::This => match in_class {
-                Some(name) => Ok(Type::Object(name.to_string())),
+                Some(name) => Ok(Type::Object(name.into())),
                 None => Err(TypeError::ThisOutsideMethod { span }),
             },
             ExprKind::SuperCall { method, args } => {
@@ -1840,8 +1835,8 @@ impl TypeChecker {
                 })?;
                 let parent_name = self
                     .classes
-                    .get(class_name)
-                    .and_then(|c| c.parent.clone())
+                    .get(&class_name)
+                    .and_then(|c| c.parent)
                     .ok_or_else(|| TypeError::Unsupported {
                         what: format!(
                             "`super` used in class {:?}, which has no parent",
@@ -1850,11 +1845,11 @@ impl TypeChecker {
                         span,
                     })?;
                 let parent_sig = self.classes.get(&parent_name).cloned().expect("parent registered");
-                let lookup = method.as_deref().unwrap_or("init");
-                let sigs = parent_sig.methods.get(lookup).cloned().ok_or_else(|| {
+                let lookup: Symbol = method.unwrap_or_else(|| "init".into());
+                let sigs = parent_sig.methods.get(&lookup).cloned().ok_or_else(|| {
                     TypeError::UnknownMethod {
-                        class: parent_name.clone(),
-                        method: lookup.to_string(),
+                        class: parent_name,
+                        method: lookup,
                         span,
                     }
                 })?;
@@ -1876,7 +1871,7 @@ impl TypeChecker {
                     return Ok(t.clone());
                 }
                 if let Some(class_name) = in_class {
-                    if let Some(cls) = self.classes.get(class_name) {
+                    if let Some(cls) = self.classes.get(&class_name) {
                         if let Some(t) = cls.fields.get(n) {
                             return Ok(t.clone());
                         }
@@ -1999,16 +1994,16 @@ impl TypeChecker {
                         variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
                         defaults: Vec::new(),
                     };
-                    self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                    self.check_args(*callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
                 }
                 if let Some(class_name) = in_class {
-                    if let Some(cls) = self.classes.get(class_name) {
+                    if let Some(cls) = self.classes.get(&class_name) {
                         if let Some(sigs) = cls.methods.get(callee).cloned() {
                             // Implicit-this method call. Resolve overload
                             // exactly like a top-level fn call.
                             let chosen = self.resolve_method_call(
-                                class_name, callee, &sigs, args, env, ret_ty, in_class, loop_depth, span,
+                                class_name, *callee, &sigs, args, env, ret_ty, in_class, loop_depth, span,
                             )?;
                             return Ok(chosen.ret);
                         }
@@ -2034,7 +2029,7 @@ impl TypeChecker {
                         self.fn_overload_pick
                             .borrow_mut()
                             .insert(span, (callee.clone(), 0));
-                        self.check_args(callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                        self.check_args(*callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                         return Ok(sig.ret);
                     }
                     // Multiple overloads — score each viable signature
@@ -2043,12 +2038,12 @@ impl TypeChecker {
                     for a in args {
                         arg_tys.push(self.check_expr(a, env, ret_ty, in_class, loop_depth)?);
                     }
-                    let chosen = resolve_overload(callee, &sigs, &arg_tys, args, span)?;
+                    let chosen = resolve_overload(*callee, &sigs, &arg_tys, args, span)?;
                     let chosen_sig = sigs[chosen].clone();
                     self.fn_overload_pick
                         .borrow_mut()
                         .insert(span, (callee.clone(), chosen));
-                    self.check_args(callee, &chosen_sig, args, env, ret_ty, in_class, loop_depth, span)?;
+                    self.check_args(*callee, &chosen_sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(chosen_sig.ret);
                 }
                 let sig = sigs.into_iter().next().unwrap();
@@ -2067,7 +2062,7 @@ impl TypeChecker {
                         span,
                     });
                 }
-                let mut bindings: HashMap<String, Type> = HashMap::new();
+                let mut bindings: HashMap<Symbol, Type> = HashMap::new();
                 let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
                 for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
                     let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
@@ -2104,7 +2099,7 @@ impl TypeChecker {
                 if let ExprKind::Var(rname) = &obj.kind {
                     let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
                     if !is_local_shadow {
-                        if let Some(cls) = self.classes.get(rname) {
+                        if let Some(cls) = self.classes.get(&rname) {
                             if let Some(t) = cls.static_fields.get(name) {
                                 return Ok(t.clone());
                             }
@@ -2122,9 +2117,9 @@ impl TypeChecker {
                     return Ok(Type::I64);
                 }
                 let class_name = expect_object(&ot, span)?;
-                let cls = self.classes.get(class_name).ok_or_else(|| {
+                let cls = self.classes.get(&class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
-                        name: class_name.to_string(),
+                        name: class_name.into(),
                         span,
                     }
                 })?;
@@ -2150,7 +2145,7 @@ impl TypeChecker {
                 }
                 let raw = cls.fields.get(name).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
-                        class: class_name.to_string(),
+                        class: class_name.into(),
                         field: name.clone(),
                         span,
                     }
@@ -2168,10 +2163,10 @@ impl TypeChecker {
                 if let ExprKind::Var(name) = &obj.kind {
                     let is_local_shadow = env.contains_key(name) || self.vars.contains_key(name);
                     if !is_local_shadow {
-                        if let Some(cls) = self.classes.get(name) {
+                        if let Some(cls) = self.classes.get(&name) {
                             if let Some(sig) = cls.static_methods.get(method).cloned() {
                                 self.check_args(
-                                    method, &sig, args, env, ret_ty, in_class, loop_depth, span,
+                                    *method, &sig, args, env, ret_ty, in_class, loop_depth, span,
                                 )?;
                                 return Ok(sig.ret);
                             }
@@ -2193,7 +2188,7 @@ impl TypeChecker {
                         return Ok(Type::Optional(inner.clone()));
                     }
                     return Err(TypeError::UnknownMethod {
-                        class: format!("{ot}"),
+                        class: Symbol::intern(&format!("{ot}")),
                         method: method.clone(),
                         span,
                     });
@@ -2225,7 +2220,7 @@ impl TypeChecker {
                         }
                         _ => {
                             return Err(TypeError::UnknownMethod {
-                                class: format!("{ot}"),
+                                class: Symbol::intern(&format!("{ot}")),
                                 method: method.clone(),
                                 span,
                             });
@@ -2463,7 +2458,7 @@ impl TypeChecker {
                         });
                     }
                     return Err(TypeError::UnknownMethod {
-                        class: format!("{ot}"),
+                        class: Symbol::intern(&format!("{ot}")),
                         method: method.clone(),
                         span,
                     });
@@ -2496,15 +2491,15 @@ impl TypeChecker {
                     }
                 }
                 let class_name = expect_object(&ot, span)?;
-                let cls = self.classes.get(class_name).ok_or_else(|| {
+                let cls = self.classes.get(&class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
-                        name: class_name.to_string(),
+                        name: class_name.into(),
                         span,
                     }
                 })?;
                 let raw_sigs = cls.methods.get(method).cloned().ok_or_else(|| {
                     TypeError::UnknownMethod {
-                        class: class_name.to_string(),
+                        class: class_name.into(),
                         method: method.clone(),
                         span,
                     }
@@ -2513,7 +2508,7 @@ impl TypeChecker {
                 let inst_args: Vec<Type> = type_args_of(&ot).to_vec();
                 // Substitute generic type args once per overload, then
                 // resolve which overload matches the call.
-                let class_name_owned = class_name.to_string();
+                let class_name_owned = class_name.into();
                 let substituted: Vec<Signature> = raw_sigs
                     .iter()
                     .map(|raw| Signature {
@@ -2530,12 +2525,12 @@ impl TypeChecker {
                     })
                     .collect();
                 let chosen = self.resolve_method_call(
-                    &class_name_owned, method, &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                    class_name_owned, *method, &substituted, args, env, ret_ty, in_class, loop_depth, span,
                 )?;
                 Ok(chosen.ret)
             }
             ExprKind::New { class, type_args, args, init_method } => {
-                let cls = self.classes.get(class).ok_or_else(|| TypeError::UndefinedClass {
+                let cls = self.classes.get(&class).ok_or_else(|| TypeError::UndefinedClass {
                     name: class.clone(),
                     span,
                 })?;
@@ -2553,12 +2548,12 @@ impl TypeChecker {
                 // to e.g. `init__i64`; New.init_method records which one
                 // was picked. Look that up first so a re-typecheck on the
                 // mangled program still resolves correctly.
-                let init_lookup: &str = init_method.as_deref().unwrap_or("init");
-                let init_raw = cls.methods.get(init_lookup).cloned();
+                let init_lookup: Symbol = init_method.unwrap_or_else(|| "init".into());
+                let init_raw = cls.methods.get(&init_lookup).cloned();
                 // Generic instantiation: arity check on type args.
                 if !class_params.is_empty() && type_args.len() != class_params.len() {
                     return Err(TypeError::ArityMismatch {
-                        name: format!("{class}::<type args>"),
+                        name: Symbol::intern(&format!("{class}::<type args>")),
                         expected: class_params.len(),
                         got: type_args.len(),
                         span,
@@ -2567,7 +2562,7 @@ impl TypeChecker {
                 // Non-generic class with explicit `<...>` args is an error.
                 if class_params.is_empty() && !type_args.is_empty() {
                     return Err(TypeError::ArityMismatch {
-                        name: format!("{class}::<type args>"),
+                        name: Symbol::intern(&format!("{class}::<type args>")),
                         expected: 0,
                         got: type_args.len(),
                         span,
@@ -2593,7 +2588,7 @@ impl TypeChecker {
                         })
                         .collect();
                     self.resolve_method_call(
-                        class, "init", &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                        *class, "init".into(), &substituted, args, env, ret_ty, in_class, loop_depth, span,
                     )?;
                 } else if !args.is_empty() {
                     // C99 flexible array member: `@extern(C) struct`
@@ -2616,7 +2611,7 @@ impl TypeChecker {
                         }
                     } else {
                         return Err(TypeError::ArityMismatch {
-                            name: format!("{class}::init"),
+                            name: Symbol::intern(&format!("{class}::init")),
                             expected: 0,
                             got: args.len(),
                             span,
@@ -2921,7 +2916,7 @@ impl TypeChecker {
                     return Ok(Type::Unit);
                 }
                 if let Some(class_name) = in_class {
-                    if let Some(cls) = self.classes.get(class_name) {
+                    if let Some(cls) = self.classes.get(&class_name) {
                         if let Some(field_ty) = cls.fields.get(target).cloned() {
                             let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                             if !literal_assignable(value, &v_ty, &field_ty) && !self.assignable_obj(&v_ty, &field_ty) {
@@ -3139,12 +3134,12 @@ impl TypeChecker {
                 // from the OUTER `env` (not the closure's own params,
                 // not top-level fns/classes/enums). Order is
                 // first-encountered for stable JIT layout.
-                let mut bound: std::collections::HashSet<String> =
+                let mut bound: std::collections::HashSet<Symbol> =
                     params.iter().map(|p| p.name.clone()).collect();
-                let mut frees: Vec<String> = Vec::new();
-                let mut seen: std::collections::HashSet<String> = Default::default();
+                let mut frees: Vec<Symbol> = Vec::new();
+                let mut seen: std::collections::HashSet<Symbol> = Default::default();
                 collect_fn_expr_free_vars(body, &mut bound, &mut frees, &mut seen);
-                let captures: Vec<(String, Type)> = frees
+                let captures: Vec<(Symbol, Type)> = frees
                     .into_iter()
                     .filter_map(|n| env.get(&n).map(|t| (n, t.clone())))
                     .collect();
@@ -3216,7 +3211,7 @@ impl TypeChecker {
                         .classes
                         .get(name)
                         .map(|cs| {
-                            cs.extern_lib.is_some() && !cs.methods.contains_key("deinit")
+                            cs.extern_lib.is_some() && !cs.methods.contains_key(&"deinit".into())
                         })
                         .unwrap_or(false),
                     _ => false,
@@ -3257,7 +3252,7 @@ impl TypeChecker {
                 if let ExprKind::Var(rname) = &obj.kind {
                     let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
                     if !is_local_shadow {
-                        if let Some(cls) = self.classes.get(rname) {
+                        if let Some(cls) = self.classes.get(&rname) {
                             if let Some(ft) = cls.static_fields.get(field).cloned() {
                                 let vt =
                                     self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
@@ -3275,9 +3270,9 @@ impl TypeChecker {
                 }
                 let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
                 let class_name = expect_object(&ot, obj.span)?;
-                let cls = self.classes.get(class_name).ok_or_else(|| {
+                let cls = self.classes.get(&class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
-                        name: class_name.to_string(),
+                        name: class_name.into(),
                         span: obj.span,
                     }
                 })?;
@@ -3308,7 +3303,7 @@ impl TypeChecker {
                 }
                 let raw_field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
                     TypeError::UnknownField {
-                        class: class_name.to_string(),
+                        class: class_name.into(),
                         field: field.clone(),
                         span,
                     }
@@ -3427,15 +3422,15 @@ impl TypeChecker {
                 // bindings from the (parametric payload type, arg type)
                 // pairs. Bindings absent here stay as `Any`, to be
                 // refined by an outer annotation.
-                let mut bindings: HashMap<String, Type> = HashMap::new();
+                let mut bindings: HashMap<Symbol, Type> = HashMap::new();
                 let mut arg_tys_tuple: Vec<Type> = Vec::new();
-                let mut arg_tys_struct: Vec<(String, Type)> = Vec::new();
+                let mut arg_tys_struct: Vec<(Symbol, Type)> = Vec::new();
                 match (&v.payload, args) {
                     (VariantPayloadSig::Unit, CtorArgs::Unit) => {}
                     (VariantPayloadSig::Tuple(tys), CtorArgs::Tuple(elems)) => {
                         if tys.len() != elems.len() {
                             return Err(TypeError::ArityMismatch {
-                                name: format!("{enum_name}::{variant}"),
+                                name: Symbol::intern(&format!("{enum_name}::{variant}")),
                                 expected: tys.len(),
                                 got: elems.len(),
                                 span,
@@ -3450,7 +3445,7 @@ impl TypeChecker {
                     (VariantPayloadSig::Struct(fields), CtorArgs::Struct(provided)) => {
                         if provided.len() != fields.len() {
                             return Err(TypeError::ArityMismatch {
-                                name: format!("{enum_name}::{variant}"),
+                                name: Symbol::intern(&format!("{enum_name}::{variant}")),
                                 expected: fields.len(),
                                 got: provided.len(),
                                 span,
@@ -3459,7 +3454,7 @@ impl TypeChecker {
                         for (fname, fty) in fields {
                             let supplied = provided.iter().find(|(n, _)| n == fname).ok_or_else(
                                 || TypeError::UnknownField {
-                                    class: format!("{enum_name}::{variant}"),
+                                    class: Symbol::intern(&format!("{enum_name}::{variant}")),
                                     field: fname.clone(),
                                     span,
                                 },
@@ -3567,7 +3562,7 @@ impl TypeChecker {
                 };
                 let sig = self.enums[&enum_name].clone();
                 let enum_params = sig.type_params.clone();
-                let mut covered: std::collections::HashSet<String> =
+                let mut covered: std::collections::HashSet<Symbol> =
                     std::collections::HashSet::new();
                 let mut has_wildcard = false;
                 let mut result_ty: Option<Type> = None;
@@ -3640,7 +3635,7 @@ impl TypeChecker {
                                 ) => {
                                     if tys.len() != names.len() {
                                         return Err(TypeError::ArityMismatch {
-                                            name: format!("{enum_name}::{variant}"),
+                                            name: Symbol::intern(&format!("{enum_name}::{variant}")),
                                             expected: tys.len(),
                                             got: names.len(),
                                             span: arm_kind_span,
@@ -3664,7 +3659,7 @@ impl TypeChecker {
                                             .find(|(n, _)| n == fname)
                                             .map(|(_, t)| t.clone())
                                             .ok_or_else(|| TypeError::UnknownField {
-                                                class: format!("{enum_name}::{variant}"),
+                                                class: Symbol::intern(&format!("{enum_name}::{variant}")),
                                                 field: fname.clone(),
                                                 span: arm_kind_span,
                                             })?;
@@ -3699,8 +3694,8 @@ impl TypeChecker {
                             .variants
                             .iter()
                             .filter(|v| !covered.contains(&v.name))
-                            .map(|v| v.name.clone())
-                            .collect();
+                            .map(|v| v.name.as_str())
+                            .collect::<Vec<_>>();
                         return Err(TypeError::Unsupported {
                             what: format!(
                                 "non-exhaustive match on {enum_name}: missing {}",
@@ -3722,13 +3717,13 @@ impl TypeChecker {
     #[allow(clippy::too_many_arguments)]
     fn resolve_method_call(
         &self,
-        class_name: &str,
-        method: &str,
+        class_name: Symbol,
+        method: Symbol,
         sigs: &[Signature],
         args: &[Expr],
         env: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
         span: Span,
     ) -> Result<Signature, TypeError> {
@@ -3737,7 +3732,7 @@ impl TypeChecker {
         if sigs.len() == 1 {
             self.method_overload_pick
                 .borrow_mut()
-                .insert(span, (class_name.to_string(), method.to_string(), 0));
+                .insert(span, (class_name.into(), method.into(), 0));
             self.check_args(method, &sigs[0], args, env, ret_ty, in_class, loop_depth, span)?;
             return Ok(sigs[0].clone());
         }
@@ -3750,19 +3745,19 @@ impl TypeChecker {
         let cs = sigs[chosen].clone();
         self.method_overload_pick
             .borrow_mut()
-            .insert(span, (class_name.to_string(), method.to_string(), chosen));
+            .insert(span, (class_name.into(), method.into(), chosen));
         self.check_args(method, &cs, args, env, ret_ty, in_class, loop_depth, span)?;
         Ok(cs)
     }
 
     fn check_args(
         &self,
-        name: &str,
+        name: Symbol,
         sig: &Signature,
         args: &[Expr],
         env: &Vars,
         ret_ty: Option<&Type>,
-        in_class: Option<&str>,
+        in_class: Option<Symbol>,
         loop_depth: u32,
         call_span: Span,
     ) -> Result<(), TypeError> {
@@ -3775,7 +3770,7 @@ impl TypeChecker {
             // their actual JIT-time types.
             if args.len() < sig.params.len() {
                 return Err(TypeError::ArityMismatch {
-                    name: name.to_string(),
+                    name: name.into(),
                     expected: sig.params.len(),
                     got: args.len(),
                     span: call_span,
@@ -3830,7 +3825,7 @@ impl TypeChecker {
         let effective: &[Expr] = if filled.is_empty() { args } else { &filled };
         if sig.params.len() != effective.len() {
             return Err(TypeError::ArityMismatch {
-                name: name.to_string(),
+                name: name.into(),
                 expected: sig.params.len(),
                 got: args.len(),
                 span: call_span,
@@ -3914,7 +3909,7 @@ fn first_c_only_type(t: &Type) -> Option<&Type> {
 fn collect_type_var_bindings(
     payload: &Type,
     arg: &Type,
-    bindings: &mut HashMap<String, Type>,
+    bindings: &mut HashMap<Symbol, Type>,
 ) {
     match (payload, arg) {
         (Type::TypeVar(name), other) => {
@@ -4151,7 +4146,7 @@ fn score_arg(arg: &Expr, arg_ty: &Type, param_ty: &Type) -> Option<u32> {
 /// the chosen signature, or a TypeError if none is viable / multiple
 /// tie for best score.
 fn resolve_overload(
-    name: &str,
+    name: Symbol,
     sigs: &[Signature],
     arg_tys: &[Type],
     args: &[Expr],
@@ -4284,7 +4279,7 @@ fn class_signature(
     // declarations. Fields and methods are inherited; same-named
     // child decl overrides (must be explicitly marked `override`
     // for methods).
-    let mut fields: HashMap<String, Type> = parent
+    let mut fields: HashMap<Symbol, Type> = parent
         .map(|p| p.fields.clone())
         .unwrap_or_default();
     for f in &c.fields {
@@ -4299,10 +4294,10 @@ fn class_signature(
         }
         fields.insert(f.name.clone(), rewrite_type_params(&f.ty, &c.type_params));
     }
-    let mut methods: HashMap<String, Vec<Signature>> = parent
+    let mut methods: HashMap<Symbol, Vec<Signature>> = parent
         .map(|p| p.methods.clone())
         .unwrap_or_default();
-    let mut method_slots: HashMap<String, usize> = parent
+    let mut method_slots: HashMap<Symbol, usize> = parent
         .map(|p| p.method_slots.clone())
         .unwrap_or_default();
     let mut vtable_len: usize = parent.map(|p| p.vtable_len).unwrap_or(0);
@@ -4311,7 +4306,7 @@ fn class_signature(
     // pass — needed because `methods` starts with parent entries
     // already populated, so a "first child decl overwrites parent"
     // is legitimate but a second one is a duplicate.
-    let mut child_special_seen: HashSet<String> = HashSet::new();
+    let mut child_special_seen: HashSet<Symbol> = HashSet::new();
     // Pass 1: handle inheritance interactions (override / hiding / no-overload).
     for m in &c.methods {
         // `init` and `deinit` are per-class — they're NOT inherited
@@ -4490,7 +4485,7 @@ fn class_signature(
             vtable_len += 1;
         }
     }
-    let mut properties: HashMap<String, PropertySig> = HashMap::new();
+    let mut properties: HashMap<Symbol, PropertySig> = HashMap::new();
     for prop in &c.properties {
         // Reject name collisions with fields and methods.
         if fields.contains_key(&prop.name) {
@@ -4546,7 +4541,7 @@ fn class_signature(
             },
         );
     }
-    let mut static_methods: HashMap<String, Signature> = HashMap::new();
+    let mut static_methods: HashMap<Symbol, Signature> = HashMap::new();
     if !c.type_params.is_empty()
         && (!c.static_methods.is_empty() || !c.static_fields.is_empty())
     {
@@ -4590,7 +4585,7 @@ fn class_signature(
         sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
         static_methods.insert(m.name.clone(), sig);
     }
-    let mut static_fields: HashMap<String, Type> = HashMap::new();
+    let mut static_fields: HashMap<Symbol, Type> = HashMap::new();
     for sf in &c.static_fields {
         if static_fields.contains_key(&sf.name)
             || fields.contains_key(&sf.name)
@@ -4664,7 +4659,7 @@ fn class_signature(
 /// reference. Inside a generic class body, references that match the
 /// class's type-parameter names are actually type variables — convert
 /// them to `Type::TypeVar` so the checker can substitute later.
-fn rewrite_type_params(t: &Type, params: &[String]) -> Type {
+fn rewrite_type_params(t: &Type, params: &[Symbol]) -> Type {
     match t {
         Type::Object(name) if params.iter().any(|p| p == name) => {
             Type::TypeVar(name.clone())
@@ -4699,7 +4694,7 @@ fn rewrite_type_params(t: &Type, params: &[String]) -> Type {
 /// Substitute concrete types for type variables. Used when a generic
 /// class is instantiated: each `TypeVar(P)` is replaced with the i-th
 /// concrete arg from the matching position in `params`.
-fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
+fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
     match t {
         Type::TypeVar(name) => params
             .iter()
@@ -4814,10 +4809,10 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
     }
 }
 
-fn expect_object(t: &Type, span: Span) -> Result<&str, TypeError> {
+fn expect_object(t: &Type, span: Span) -> Result<Symbol, TypeError> {
     match t {
-        Type::Object(name) => Ok(name),
-        Type::Generic(g) => Ok(&g.base),
+        Type::Object(name) => Ok(*name),
+        Type::Generic(g) => Ok(g.base),
         _ => Err(TypeError::Mismatch {
             expected: Type::Object("<object>".into()),
             got: t.clone(),
@@ -4854,9 +4849,9 @@ fn attach_span(e: TypeError, span: Span) -> TypeError {
 
 fn collect_fn_expr_free_vars(
     b: &ilang_ast::Block,
-    bound: &mut std::collections::HashSet<String>,
-    frees: &mut Vec<String>,
-    seen: &mut std::collections::HashSet<String>,
+    bound: &mut std::collections::HashSet<Symbol>,
+    frees: &mut Vec<Symbol>,
+    seen: &mut std::collections::HashSet<Symbol>,
 ) {
     let snapshot = bound.clone();
     for s in &b.stmts {
@@ -4876,9 +4871,9 @@ fn collect_fn_expr_free_vars(
 
 fn cfev_expr(
     e: &ilang_ast::Expr,
-    bound: &mut std::collections::HashSet<String>,
-    frees: &mut Vec<String>,
-    seen: &mut std::collections::HashSet<String>,
+    bound: &mut std::collections::HashSet<Symbol>,
+    frees: &mut Vec<Symbol>,
+    seen: &mut std::collections::HashSet<Symbol>,
 ) {
     use ilang_ast::ExprKind;
     match &e.kind {
@@ -4998,7 +4993,7 @@ fn cfev_expr(
     }
 }
 
-fn cfev_pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<String>) {
+fn cfev_pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<Symbol>) {
     use ilang_ast::{PatternBindings, PatternKind};
     if let PatternKind::Variant { bindings, .. } = &p.kind {
         match bindings {

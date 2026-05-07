@@ -1,3 +1,5 @@
+use crate::intern::Symbol;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     I8,
@@ -15,7 +17,7 @@ pub enum Type {
     Str,
     Unit,
     /// Instance of a user-defined class, identified by class name.
-    Object(String),
+    Object(Symbol),
     /// Instance of a user-defined generic class with concrete type
     /// arguments (e.g. `Box<i64>`). Non-generic classes use `Object`.
     /// Boxed because `GenericTy` is significantly larger than the
@@ -24,7 +26,7 @@ pub enum Type {
     /// Reference to a type parameter inside a generic class body
     /// (e.g. `T` in `class Box<T> { x: T }`). Replaced with concrete
     /// types via substitution when the class is instantiated.
-    TypeVar(String),
+    TypeVar(Symbol),
     /// Function value type — `fn(T1, T2): R`. Carries no captured
     /// state (no closures yet); at runtime it's a code pointer.
     /// Boxed for the same reason as `Generic` — keeps the enum size
@@ -33,7 +35,7 @@ pub enum Type {
     /// Value of a user-defined `enum`, identified by name. The set of
     /// variants and their payloads live in the type checker's enum
     /// signature table.
-    Enum(String),
+    Enum(Symbol),
     /// Array of `elem`. `fixed = Some(n)` is a fixed-length array of
     /// exactly n elements; `fixed = None` is a growable array (`push` is
     /// allowed only on the latter). Both share the same runtime layout.
@@ -83,7 +85,7 @@ pub enum Type {
 /// and stay small.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericTy {
-    pub base: String,
+    pub base: Symbol,
     pub args: Vec<Type>,
 }
 
@@ -96,7 +98,7 @@ pub struct FnTy {
 
 impl Type {
     /// Convenience constructor for `Type::Generic`.
-    pub fn generic(base: impl Into<String>, args: Vec<Type>) -> Self {
+    pub fn generic(base: impl Into<Symbol>, args: Vec<Type>) -> Self {
         Type::Generic(Box::new(GenericTy { base: base.into(), args }))
     }
     /// Convenience constructor for `Type::Fn`.

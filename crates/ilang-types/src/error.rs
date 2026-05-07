@@ -1,4 +1,4 @@
-use ilang_ast::{Span, Type};
+use ilang_ast::{Span, Symbol, Type};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -10,12 +10,12 @@ pub enum TypeError {
         span: Span,
     },
     #[error("{span}: undefined variable {name:?}")]
-    UndefinedVariable { name: String, span: Span },
+    UndefinedVariable { name: Symbol, span: Span },
     #[error("{span}: undefined function {name:?}")]
-    UndefinedFunction { name: String, span: Span },
+    UndefinedFunction { name: Symbol, span: Span },
     #[error("{span}: function {name:?} expects {expected} arguments but got {got}")]
     ArityMismatch {
-        name: String,
+        name: Symbol,
         expected: usize,
         got: usize,
         span: Span,
@@ -26,23 +26,23 @@ pub enum TypeError {
     BadBinary { lhs: Type, rhs: Type, span: Span },
     #[error("{span}: function {name:?} declared to return {expected} but body produces {got}")]
     BadReturn {
-        name: String,
+        name: Symbol,
         expected: Type,
         got: Type,
         span: Span,
     },
     #[error("{span}: undefined class {name:?}")]
-    UndefinedClass { name: String, span: Span },
+    UndefinedClass { name: Symbol, span: Span },
     #[error("{span}: class {class:?} has no field {field:?}")]
     UnknownField {
-        class: String,
-        field: String,
+        class: Symbol,
+        field: Symbol,
         span: Span,
     },
     #[error("{span}: class {class:?} has no method {method:?}")]
     UnknownMethod {
-        class: String,
-        method: String,
+        class: Symbol,
+        method: Symbol,
         span: Span,
     },
     #[error("{span}: `this` used outside of a method body")]
@@ -56,7 +56,7 @@ pub enum TypeError {
     #[error("{span}: `deinit` must take no parameters and return ()")]
     BadDeinitSignature { span: Span },
     #[error("{span}: {name:?} is a built-in name and cannot be redefined")]
-    ReservedName { name: String, span: Span },
+    ReservedName { name: Symbol, span: Span },
     #[error("{span}: cannot infer element type for empty array literal — add a type annotation (e.g. `let a: i32[] = []`)")]
     EmptyArrayNeedsAnnotation { span: Span },
     #[error("{span}: cannot mix {lhs} and {rhs} arithmetic — use an explicit `as` cast on one side")]

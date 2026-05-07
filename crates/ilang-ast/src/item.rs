@@ -1,10 +1,11 @@
+use crate::intern::Symbol;
 use crate::span::Span;
 use crate::stmt::Block;
 use crate::types::Type;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
-    pub name: String,
+    pub name: Symbol,
     pub ty: Type,
     pub span: Span,
     /// `Some(expr)` when the parameter has a default (e.g.
@@ -19,14 +20,14 @@ pub struct Param {
 /// Phase 2 parses these but does not enforce them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
-    pub name: String,
+    pub name: Symbol,
     pub args: Vec<AttrArg>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrArg {
     /// A capability path like `net` or `file::read`.
-    Path(Vec<String>),
+    Path(Vec<Symbol>),
     /// A quoted string literal — used by `@extern("libname")` to
     /// name the dynamic library to dlopen at JIT init.
     Str(String),
@@ -38,13 +39,13 @@ pub enum AttrArg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
     pub attrs: Vec<Attribute>,
-    pub name: String,
+    pub name: Symbol,
     /// Generic type parameters declared on the fn (e.g. `<T, U>`).
     /// Empty for non-generic fns. Inside the body, references to
     /// these names are rewritten to `Type::TypeVar` by the type
     /// checker, and concrete types are inferred from arg types at
     /// each call site.
-    pub type_params: Vec<String>,
+    pub type_params: Vec<Symbol>,
     pub params: Vec<Param>,
     pub ret: Option<Type>,
     pub body: Block,
@@ -58,7 +59,7 @@ pub struct FnDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
-    pub name: String,
+    pub name: Symbol,
     pub ty: Type,
     pub span: Span,
     /// Bitfield width in bits, set by `@bits(N)` on the field. Only
@@ -75,7 +76,7 @@ pub struct ClassDecl {
     /// `new`, fields, and methods are all rejected by the type
     /// checker for these classes; the type tag exists only to keep
     /// different libraries' handles from being mixed up.
-    pub extern_lib: Option<String>,
+    pub extern_lib: Option<Symbol>,
     /// `true` for `@extern(C) struct Foo { ... }` — the class is laid
     /// out with C-compatible field offsets (each field at its
     /// natural alignment, no ilang-specific padding) so native
@@ -92,15 +93,15 @@ pub struct ClassDecl {
     /// and the struct size is the maximum field size. C union
     /// semantics: writing one field overwrites the others.
     pub is_union: bool,
-    pub name: String,
+    pub name: Symbol,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be
     /// declared before the child (no forward references for now).
-    pub parent: Option<String>,
+    pub parent: Option<Symbol>,
     /// Generic type parameters declared on the class (e.g. `<T, U>`).
     /// Empty for non-generic classes. Inside the class body, references
     /// to these names parse as `Type::TypeVar`.
-    pub type_params: Vec<String>,
+    pub type_params: Vec<Symbol>,
     pub fields: Vec<FieldDecl>,
     /// All methods of the class. The constructor is the method named `init`
     /// (treated as a regular method by the parser; recognised specially by
@@ -127,7 +128,7 @@ pub struct ClassDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticFieldDecl {
-    pub name: String,
+    pub name: Symbol,
     pub ty: crate::types::Type,
     /// Compile-time-evaluable initializer. After the loader's
     /// `inline_constants` pass this is a literal Expr.
@@ -137,7 +138,7 @@ pub struct StaticFieldDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyDecl {
-    pub name: String,
+    pub name: Symbol,
     /// The property's value type. For getters it's the return type; for
     /// setters it's the (single) parameter type. The type checker
     /// enforces that getter ret == setter param == this `ty`.
@@ -155,7 +156,7 @@ pub struct PropertyDecl {
 /// adds `Tuple` and `Struct` payload kinds.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {
-    pub name: String,
+    pub name: Symbol,
     pub payload: VariantPayload,
     /// Explicit discriminant value (e.g. `Foo = 0x10`). Only allowed
     /// on `Unit` payload variants. `None` means "use the auto-assigned
@@ -176,12 +177,12 @@ pub enum VariantPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
-    pub name: String,
+    pub name: Symbol,
     /// Generic type parameters declared on the enum (e.g. `<T, E>`).
     /// Empty for non-generic enums. Variant payload types reference
     /// these names; the type checker rewrites them to `Type::TypeVar`
     /// when registering the enum's signature.
-    pub type_params: Vec<String>,
+    pub type_params: Vec<Symbol>,
     /// Optional explicit underlying integer type
     /// (`enum Flag: u32 { ... }`). When `None`, defaults to the
     /// codegen-internal `i32` tag. Numeric primitive types only
@@ -239,14 +240,14 @@ pub enum ExternCItem {
     /// Methods / properties are not allowed; only fields. `packed`
     /// and `@bits(N)` are still supported.
     Struct {
-        name: String,
+        name: Symbol,
         fields: Vec<FieldDecl>,
         is_packed: bool,
         span: Span,
     },
     /// C union — every field at offset 0, size = max field size.
     Union {
-        name: String,
+        name: Symbol,
         fields: Vec<FieldDecl>,
         span: Span,
     },
@@ -257,10 +258,10 @@ pub enum ExternCItem {
     /// `optional = true` (`@optional`) lets the JIT keep going when
     /// the library can't be loaded.
     FnDecl {
-        name: String,
+        name: Symbol,
         params: Vec<Param>,
         ret: Option<crate::types::Type>,
-        libs: Vec<String>,
+        libs: Vec<Symbol>,
         optional: bool,
         /// `fn snprintf(buf: *u8, n: size_t, fmt: *const char, ...)`
         /// — trailing `...` marks the C variadic. Extra arguments at
@@ -270,7 +271,7 @@ pub enum ExternCItem {
         /// time so the ilang-side fn name can differ from the C one
         /// (e.g. `fn my_sprintf` calling `sprintf`). `None` means use
         /// `name` as both the ilang name and the C symbol.
-        c_symbol: Option<String>,
+        c_symbol: Option<Symbol>,
         span: Span,
     },
     /// `fn name(...): T { body }` — ilang-side definition with C ABI.
@@ -279,9 +280,9 @@ pub enum ExternCItem {
     /// `static name: T` — C global variable. `libs`/`optional` mirror
     /// the FnDecl flags.
     Static {
-        name: String,
+        name: Symbol,
         ty: crate::types::Type,
-        libs: Vec<String>,
+        libs: Vec<Symbol>,
         optional: bool,
         span: Span,
     },
@@ -292,20 +293,22 @@ pub enum ExternCItem {
     Class(ClassDecl),
 }
 
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternStaticDecl {
-    pub name: String,
+    pub name: Symbol,
     pub ty: crate::types::Type,
     /// `Some("libfoo")` for `@extern("libfoo") static …`. `None` for
     /// host-side `@extern static …` (the host pre-registers the
     /// symbol with `JITBuilder::symbol`).
-    pub lib: Option<String>,
+    pub lib: Option<Symbol>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstDecl {
-    pub name: String,
+    pub name: Symbol,
     pub ty: Option<crate::types::Type>,
     pub value: crate::expr::Expr,
     pub span: Span,
@@ -315,10 +318,10 @@ pub struct ConstDecl {
 pub struct UseDecl {
     /// The module identifier (`utils` resolves to `utils.il` next to
     /// the importing file).
-    pub module: String,
+    pub module: Symbol,
     /// `None` for whole-module import (`use utils`); `Some(names)`
     /// for selective import (`use utils { foo, bar }`).
-    pub selective: Option<Vec<String>>,
+    pub selective: Option<Vec<Symbol>>,
     /// `@export use mod` — re-export `mod`'s items under the current
     /// module's namespace. Inside the entrypoint program this flag
     /// has no effect (no parent prefix to re-export under).

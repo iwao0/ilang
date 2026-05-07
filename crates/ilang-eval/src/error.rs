@@ -1,4 +1,4 @@
-use ilang_ast::Span;
+use ilang_ast::{Span, Symbol};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -8,12 +8,12 @@ pub enum RuntimeError {
     #[error("{span}: integer overflow")]
     Overflow { span: Span },
     #[error("{span}: undefined variable {name:?}")]
-    UndefinedVariable { name: String, span: Span },
+    UndefinedVariable { name: Symbol, span: Span },
     #[error("{span}: undefined function {name:?}")]
-    UndefinedFunction { name: String, span: Span },
+    UndefinedFunction { name: Symbol, span: Span },
     #[error("{span}: function {name:?} expects {expected} arguments but got {got}")]
     ArityMismatch {
-        name: String,
+        name: Symbol,
         expected: usize,
         got: usize,
         span: Span,
@@ -23,17 +23,17 @@ pub enum RuntimeError {
     #[error("{span}: type error at runtime: {msg}")]
     TypeError { msg: String, span: Span },
     #[error("{span}: undefined class {name:?}")]
-    UndefinedClass { name: String, span: Span },
+    UndefinedClass { name: Symbol, span: Span },
     #[error("{span}: class {class:?} has no method {method:?}")]
     UnknownMethod {
-        class: String,
-        method: String,
+        class: Symbol,
+        method: Symbol,
         span: Span,
     },
     #[error("{span}: class {class:?} has no field {field:?}")]
     UnknownField {
-        class: String,
-        field: String,
+        class: Symbol,
+        field: Symbol,
         span: Span,
     },
     #[error("{span}: `this` used outside of a method body")]

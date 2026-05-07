@@ -2,12 +2,14 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use ilang_ast::Symbol;
+
 /// Heap-allocated object data shared via `Rc` (ARC for our single-threaded
 /// interpreter). Field map is mutable through `RefCell`.
 #[derive(Debug, PartialEq)]
 pub struct ObjectData {
-    pub class: String,
-    pub fields: HashMap<String, Value>,
+    pub class: Symbol,
+    pub fields: HashMap<Symbol, Value>,
 }
 
 pub type ObjectRef = Rc<RefCell<ObjectData>>;
@@ -49,8 +51,8 @@ pub enum Value {
     /// User-defined enum value. The payload kind matches the variant's
     /// declaration: Unit / positional Tuple / named Struct.
     Enum {
-        ty: String,
-        variant: String,
+        ty: Symbol,
+        variant: Symbol,
         payload: EnumPayload,
     },
     /// First-class function value. Wraps a `FnDecl` (named or
@@ -59,7 +61,7 @@ pub enum Value {
     /// at the moment the closure was created (capture-by-value:
     /// later mutations to the outer binding aren't visible here).
     /// Cheap to clone — both Rcs.
-    Fn(Rc<ilang_ast::FnDecl>, Rc<HashMap<String, Value>>),
+    Fn(Rc<ilang_ast::FnDecl>, Rc<HashMap<Symbol, Value>>),
     /// Built-in `Map<K, V>`. Keys are restricted to hashable
     /// primitives (string / int / bool) at the type-checker level.
     /// Wrapped in `Rc<RefCell>` so passing/cloning is cheap and
@@ -124,7 +126,7 @@ impl MapKey {
 pub enum EnumPayload {
     Unit,
     Tuple(Vec<Value>),
-    Struct(HashMap<String, Value>),
+    Struct(HashMap<Symbol, Value>),
 }
 
 impl PartialEq for Value {
@@ -236,7 +238,7 @@ impl std::fmt::Display for Value {
                 }
                 EnumPayload::Struct(fields) => {
                     write!(f, "{ty}::{variant} {{")?;
-                    let mut keys: Vec<&String> = fields.keys().collect();
+                    let mut keys: Vec<&Symbol> = fields.keys().collect();
                     keys.sort();
                     let mut first = true;
                     for k in keys {
@@ -253,7 +255,7 @@ impl std::fmt::Display for Value {
                 }
             },
             Value::Fn(decl, _captures) => {
-                if decl.name.is_empty() {
+                if decl.name.as_str().is_empty() {
                     write!(f, "<fn>")
                 } else {
                     write!(f, "<fn {}>", decl.name)
@@ -283,7 +285,7 @@ impl std::fmt::Display for Value {
                 let mut first = true;
                 // HashMap iteration order is not stable; sort for predictable
                 // output in tests and the REPL.
-                let mut keys: Vec<&String> = o.fields.keys().collect();
+                let mut keys: Vec<&Symbol> = o.fields.keys().collect();
                 keys.sort();
                 for k in keys {
                     if !first {

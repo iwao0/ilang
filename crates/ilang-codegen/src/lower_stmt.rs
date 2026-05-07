@@ -2,7 +2,7 @@
 //! lowering, which is where scope-exit ARC release lives.
 
 use cranelift::prelude::*;
-use ilang_ast::{ExprKind, Stmt, StmtKind, Type};
+use ilang_ast::{ExprKind, Stmt, StmtKind, Type, Symbol};
 
 use cranelift_module::Module;
 
@@ -124,9 +124,9 @@ pub(crate) fn lower_block_value(
     // Without this, `let y = 5; { let y: string = "hi"; ... }` would
     // leave `y` mapped to the inner string Variable after the block,
     // diverging from the interpreter.
-    let before_bindings: std::collections::HashMap<String, (Variable, JitTy)> =
+    let before_bindings: std::collections::HashMap<Symbol, (Variable, JitTy)> =
         lc.env.bindings.clone();
-    let unit_before: std::collections::HashSet<String> =
+    let unit_before: std::collections::HashSet<Symbol> =
         lc.env.unit_bindings.iter().cloned().collect();
     for s in &block.stmts {
         lower_stmt(b, lc, s)?;
@@ -152,7 +152,7 @@ pub(crate) fn lower_block_value(
     // including names that shadowed an outer binding (which need their
     // OWN release before the outer is restored). Sort LIFO so
     // dependents drop first.
-    let mut introduced_heap: Vec<(String, Variable, JitTy)> = lc
+    let mut introduced_heap: Vec<(Symbol, Variable, JitTy)> = lc
         .env
         .bindings
         .iter()
@@ -180,11 +180,11 @@ pub(crate) fn lower_block_value(
     // Drop unit bindings introduced in this block. No release needed
     // (Unit holds no resources); just unregister so an outer-scope name
     // collision doesn't leak in.
-    let new_units: Vec<String> = lc
+    let new_units: Vec<Symbol> = lc
         .env
         .unit_bindings
         .iter()
-        .filter(|n| !unit_before.contains(n.as_str()))
+        .filter(|n| !unit_before.contains(n))
         .cloned()
         .collect();
     for n in new_units {

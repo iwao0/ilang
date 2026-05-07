@@ -9,7 +9,7 @@ use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_codegen::settings;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
-use ilang_ast::{ClassDecl, EnumDecl, FnDecl, Item, Program, VariantPayload};
+use ilang_ast::{ClassDecl, EnumDecl, FnDecl, Item, Program, VariantPayload, Symbol};
 
 use crate::arc::{emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{declare_import, ArrayFns, Env, LowerCtx, PrintFns, StrFns};
@@ -59,21 +59,21 @@ pub fn jit_run_with(
     prog: &Program,
     fn_call_type_args: &std::collections::HashMap<
         ilang_ast::Span,
-        (String, Vec<ilang_ast::Type>),
+        (Symbol, Vec<ilang_ast::Type>),
     >,
     enum_ctor_type_args: &std::collections::HashMap<
         ilang_ast::Span,
-        (String, Vec<ilang_ast::Type>),
+        (Symbol, Vec<ilang_ast::Type>),
     >,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
     class_method_slots: &std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, usize>,
+        Symbol,
+        std::collections::HashMap<Symbol, usize>,
     >,
-    class_vtable_lens: &std::collections::HashMap<String, usize>,
+    class_vtable_lens: &std::collections::HashMap<Symbol, usize>,
     fn_expr_captures: &std::collections::HashMap<
         ilang_ast::Span,
-        Vec<(String, ilang_ast::Type)>,
+        Vec<(Symbol, ilang_ast::Type)>,
     >,
 ) -> Result<JitValue, CodegenError> {
     // Pipeline:
@@ -100,16 +100,16 @@ fn jit_run_inner(
     prog: &Program,
     fn_call_type_args: &std::collections::HashMap<
         ilang_ast::Span,
-        (String, Vec<ilang_ast::Type>),
+        (Symbol, Vec<ilang_ast::Type>),
     >,
     loop_break_types: &std::collections::HashMap<ilang_ast::Span, ilang_ast::Type>,
     class_method_slots: &std::collections::HashMap<
-        String,
-        std::collections::HashMap<String, usize>,
+        Symbol,
+        std::collections::HashMap<Symbol, usize>,
     >,
-    class_vtable_lens: &std::collections::HashMap<String, usize>,
+    class_vtable_lens: &std::collections::HashMap<Symbol, usize>,
     closure_meta_in: &std::collections::HashMap<
-        String,
+        Symbol,
         crate::monomorphize::ClosureMetaIn,
     >,
 ) -> Result<JitValue, CodegenError> {
@@ -173,7 +173,7 @@ fn jit_run_inner(
         } else {
             crate::ty::JitTy::Unit
         };
-        let mut captures: Vec<(String, crate::ty::JitTy)> = Vec::new();
+        let mut captures: Vec<(Symbol, crate::ty::JitTy)> = Vec::new();
         for (cn, ct) in &meta.captures {
             let jty = crate::ty::JitTy::from_ast(
                 ct,
@@ -292,19 +292,19 @@ fn init_static_field_storage(
     prog: &Program,
 ) -> (
     Box<[i64]>,
-    std::collections::HashMap<(String, String), usize>,
-    std::collections::HashMap<(String, String), ilang_ast::Type>,
+    std::collections::HashMap<(Symbol, Symbol), usize>,
+    std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type>,
 ) {
     use ilang_ast::ExprKind;
-    let mut slots: std::collections::HashMap<(String, String), usize> =
+    let mut slots: std::collections::HashMap<(Symbol, Symbol), usize> =
         std::collections::HashMap::new();
-    let mut types: std::collections::HashMap<(String, String), ilang_ast::Type> =
+    let mut types: std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type> =
         std::collections::HashMap::new();
     let mut values: Vec<i64> = Vec::new();
     let record_class = |c: &ilang_ast::ClassDecl,
                              values: &mut Vec<i64>,
-                             slots: &mut std::collections::HashMap<(String, String), usize>,
-                             types: &mut std::collections::HashMap<(String, String), ilang_ast::Type>| {
+                             slots: &mut std::collections::HashMap<(Symbol, Symbol), usize>,
+                             types: &mut std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type>| {
         for sf in &c.static_fields {
             // Array-typed statics get a 0 (null) seed here;
             // `__main`'s prologue allocates a real empty array
@@ -345,11 +345,11 @@ pub(crate) struct JitCompiler {
     pub(crate) module: JITModule,
     pub(crate) ctx: cranelift_codegen::Context,
     pub(crate) builder_ctx: FunctionBuilderContext,
-    pub(crate) funcs: HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
-    pub(crate) class_ids: HashMap<String, u32>,
+    pub(crate) funcs: HashMap<Symbol, (FuncId, Vec<JitTy>, JitTy)>,
+    pub(crate) class_ids: HashMap<Symbol, u32>,
     pub(crate) class_layouts: Vec<ClassLayout>,
-    pub(crate) class_methods: Vec<HashMap<String, MethodInfo>>,
-    pub(crate) enum_ids: HashMap<String, u32>,
+    pub(crate) class_methods: Vec<HashMap<Symbol, MethodInfo>>,
+    pub(crate) enum_ids: HashMap<Symbol, u32>,
     pub(crate) enum_layouts: Vec<EnumLayout>,
     pub(crate) array_kinds: Vec<ArrayKind>,
     pub(crate) optional_inners: Vec<JitTy>,
@@ -460,35 +460,35 @@ pub(crate) struct JitCompiler {
     /// Names of fns declared with `@extern("libname")` — looked up at
     /// each Call site so the lowering can wrap string args / return
     /// in C-string conversions.
-    pub(crate) native_extern_fns: std::collections::HashSet<String>,
+    pub(crate) native_extern_fns: std::collections::HashSet<Symbol>,
     /// Names declared with trailing `...` — printf-style variadics.
     /// The Cranelift call site builds a fresh per-call signature for
     /// these so trailing args flow through with their actual types.
-    pub(crate) native_extern_variadic: std::collections::HashSet<String>,
+    pub(crate) native_extern_variadic: std::collections::HashSet<Symbol>,
     /// Subset of `native_extern_fns` whose struct args are passed by
     /// value (split into 1–2 i64 chunks at call lowering). Always set
     /// for `@extern(C) {}`-block fns.
-    pub(crate) native_extern_by_value: std::collections::HashSet<String>,
+    pub(crate) native_extern_by_value: std::collections::HashSet<Symbol>,
     /// Per call-site span → (callee name, inferred type args). The
     /// type checker fills this for generic calls; the JIT reads it
     /// to resolve T at built-in helper sites like `arrayFromCArray<T>`.
     pub(crate) fn_call_type_args: std::collections::HashMap<
         ilang_ast::Span,
-        (String, Vec<ilang_ast::Type>),
+        (Symbol, Vec<ilang_ast::Type>),
     >,
     /// Resolved address per `@extern static` name, embedded as
     /// `iconst` at every read/write site so the load/store goes
     /// straight to the C global's storage.
-    pub(crate) extern_static_addrs: std::collections::HashMap<String, i64>,
+    pub(crate) extern_static_addrs: std::collections::HashMap<Symbol, i64>,
     /// Declared type per `@extern static` name. The lower path uses
     /// it to pick the right Cranelift load/store width.
-    pub(crate) extern_static_types: std::collections::HashMap<String, ilang_ast::Type>,
+    pub(crate) extern_static_types: std::collections::HashMap<Symbol, ilang_ast::Type>,
     /// Every `@extern fn` (host or native lib). The fn-pointer arg
     /// marshalling at Call sites uses this to know whether to pass
     /// a raw `func_addr` (extern → C ABI fn pointer) or a closure
     /// box (regular ilang fn → trampoline). Includes the names in
     /// `native_extern_fns` plus all host-side `@extern fn` names.
-    pub(crate) extern_fn_names: std::collections::HashSet<String>,
+    pub(crate) extern_fn_names: std::collections::HashSet<Symbol>,
     /// Storage backing every `static` field: each slot is one i64
     /// (for f64 / bool we bit-reinterpret). Allocated as a `Box<[i64]>`
     /// for pointer stability — the JITed code embeds slot addresses as
@@ -496,19 +496,19 @@ pub(crate) struct JitCompiler {
     pub(crate) static_field_storage: Box<[i64]>,
     /// `(class, field) -> slot index` into `static_field_storage`.
     pub(crate) static_field_slots:
-        std::collections::HashMap<(String, String), usize>,
+        std::collections::HashMap<(Symbol, Symbol), usize>,
     /// `(class, field) -> declared type`, kept on the JIT side so
     /// the lowering knows whether to bitcast / truncate.
     pub(crate) static_field_types:
-        std::collections::HashMap<(String, String), ilang_ast::Type>,
+        std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type>,
     /// `(class_name, method_name) -> vtable slot` table forwarded
     /// from the typechecker. Used at virtual-call sites to compute
     /// the per-method index into a class's vtable.
     pub(crate) class_method_slots:
-        std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+        std::collections::HashMap<Symbol, std::collections::HashMap<Symbol, usize>>,
     /// `class_name -> vtable size` (= max slot index + 1, or 0).
     /// Used to allocate the per-class vtable storage upfront.
-    pub(crate) class_vtable_lens: std::collections::HashMap<String, usize>,
+    pub(crate) class_vtable_lens: std::collections::HashMap<Symbol, usize>,
     /// Per-class vtable storage. Each `Box<[i64]>` holds function
     /// pointers indexed by slot. Allocated zeroed before lowering;
     /// the actual addresses are written in by `populate_vtables`
@@ -520,27 +520,27 @@ pub(crate) struct JitCompiler {
     pub(crate) class_vtable_addrs: Vec<i64>,
     /// `class -> parent` (single inheritance). Forwarded from the
     /// typechecker so `super.method()` lowering can find the parent.
-    pub(crate) class_parents: std::collections::HashMap<String, String>,
+    pub(crate) class_parents: std::collections::HashMap<Symbol, Symbol>,
     /// Per-closure-wrapper metadata (user-facing sig + capture
     /// list). Filled in by the hoist pass via the typechecker's
     /// `fn_expr_captures` side table.
     pub(crate) closure_meta:
-        std::collections::HashMap<String, crate::env::ClosureMeta>,
+        std::collections::HashMap<Symbol, crate::env::ClosureMeta>,
     /// Lazy cache of trampoline FuncIds for top-level fns whose
     /// addresses are taken at runtime. Built on first encounter.
-    pub(crate) closure_trampolines: std::collections::HashMap<String, FuncId>,
+    pub(crate) closure_trampolines: std::collections::HashMap<Symbol, FuncId>,
     /// Per-closure-wrapper drop fn. `None` if the closure has no
     /// heap captures (no work to do, drop_fn_ptr is 0). Declared
     /// lazily by `closure_drop_fn_ptr`; bodies emitted by
     /// `define_closure_drops` after all closure-construct sites
     /// have been lowered.
-    pub(crate) closure_drops: std::collections::HashMap<String, Option<FuncId>>,
+    pub(crate) closure_drops: std::collections::HashMap<Symbol, Option<FuncId>>,
     /// Per-wrapper captured names + AST types. The JIT's
     /// post-hoist re-typecheck reads this so wrapper bodies type-
     /// check with captured names pre-bound to their original AST
     /// types.
     pub(crate) closure_ast_captures:
-        std::collections::HashMap<String, Vec<(String, ilang_ast::Type)>>,
+        std::collections::HashMap<Symbol, Vec<(Symbol, ilang_ast::Type)>>,
 }
 
 /// How a `@extern(C) struct` struct flows across a `by_value` call boundary.
@@ -708,7 +708,7 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                     // are written as `*MyStruct` and don't trigger
                     // the by_value chunk path).
                     let mut attr_args: Vec<AttrArg> =
-                        libs.iter().map(|s| AttrArg::Str(s.clone())).collect();
+                        libs.iter().map(|s| AttrArg::Str(s.as_str().to_string())).collect();
                     if *optional {
                         attr_args.push(AttrArg::Path(vec!["optional".into()]));
                     }
@@ -721,13 +721,13 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                     // dlsym lookup while keeping the ilang-side name
                     // for everything else.
                     let mut attrs = vec![ilang_ast::Attribute {
-                        name: "extern".to_string(),
+                        name: "extern".into(),
                         args: attr_args,
                     }];
                     if let Some(sym) = c_symbol {
                         attrs.push(ilang_ast::Attribute {
-                            name: "symbol".to_string(),
-                            args: vec![AttrArg::Str(sym.clone())],
+                            name: "symbol".into(),
+                            args: vec![AttrArg::Str(sym.as_str().to_string())],
                         });
                     }
                     out.push(ilang_ast::FnDecl {
@@ -1347,7 +1347,7 @@ impl JitCompiler {
                 }
                 VariantPayload::Struct(fields) => {
                     let mut offset = 0u32;
-                    let mut map: HashMap<String, (u32, JitTy)> = HashMap::new();
+                    let mut map: HashMap<Symbol, (u32, JitTy)> = HashMap::new();
                     for f in fields {
                         let jty = JitTy::from_ast(
                             &f.ty,
@@ -1419,7 +1419,7 @@ impl JitCompiler {
             } else {
                 (0u32, 1u32, HashMap::new())
             };
-        let mut bitfields: HashMap<String, crate::ty::BitfieldInfo> = HashMap::new();
+        let mut bitfields: HashMap<Symbol, crate::ty::BitfieldInfo> = HashMap::new();
         // Active bitfield run state (GCC-style packing): consecutive
         // `@bits` fields of the same underlying integer width share
         // one storage unit at `bf_unit_offset`. The run closes when
@@ -1593,7 +1593,7 @@ impl JitCompiler {
                 span: f.span,
             });
         }
-        let (id, params, ret) = self.declare_fn_signature(&f.name, f, None)?;
+        let (id, params, ret) = self.declare_fn_signature(f.name.as_str(), f, None)?;
         self.funcs.insert(f.name.clone(), (id, params, ret));
         Ok(())
     }
@@ -1623,7 +1623,7 @@ impl JitCompiler {
         for m in &c.methods {
             let symbol = format!("__method_{}_{}", c.name, m.name);
             let (id, params, ret) =
-                self.declare_fn_signature(&symbol, m, Some(JitTy::Object(class_id)))?;
+                self.declare_fn_signature(symbol.as_str(), m, Some(JitTy::Object(class_id)))?;
             self.class_methods[class_id as usize].insert(
                 m.name.clone(),
                 MethodInfo { id, params, ret },
@@ -1638,9 +1638,9 @@ impl JitCompiler {
                 let key = format!("__prop_get_{}", prop.name);
                 let symbol = format!("__method_{}_{}", c.name, key);
                 let (id, params, ret) =
-                    self.declare_fn_signature(&symbol, g, Some(JitTy::Object(class_id)))?;
+                    self.declare_fn_signature(symbol.as_str(), g, Some(JitTy::Object(class_id)))?;
                 self.class_methods[class_id as usize].insert(
-                    key,
+                    key.into(),
                     MethodInfo { id, params, ret },
                 );
             }
@@ -1648,9 +1648,9 @@ impl JitCompiler {
                 let key = format!("__prop_set_{}", prop.name);
                 let symbol = format!("__method_{}_{}", c.name, key);
                 let (id, params, ret) =
-                    self.declare_fn_signature(&symbol, s, Some(JitTy::Object(class_id)))?;
+                    self.declare_fn_signature(symbol.as_str(), s, Some(JitTy::Object(class_id)))?;
                 self.class_methods[class_id as usize].insert(
-                    key,
+                    key.into(),
                     MethodInfo { id, params, ret },
                 );
             }
@@ -1662,8 +1662,8 @@ impl JitCompiler {
         for m in &c.static_methods {
             let qualified = format!("{}.{}", c.name, m.name);
             let symbol = format!("__static_{}_{}", c.name, m.name);
-            let (id, params, ret) = self.declare_fn_signature(&symbol, m, None)?;
-            self.funcs.insert(qualified, (id, params, ret));
+            let (id, params, ret) = self.declare_fn_signature(symbol.as_str(), m, None)?;
+            self.funcs.insert(qualified.into(), (id, params, ret));
         }
         Ok(())
     }
@@ -1842,18 +1842,18 @@ impl JitCompiler {
         for prop in &c.properties {
             if let Some(g) = &prop.getter {
                 let key = format!("__prop_get_{}", prop.name);
-                let info = self.class_methods[class_id as usize][&key].clone();
+                let info = self.class_methods[class_id as usize][&key.as_str().into()].clone();
                 self.define_function_body(info.id, g, &info.params, info.ret, Some(class_id))?;
             }
             if let Some(s) = &prop.setter {
                 let key = format!("__prop_set_{}", prop.name);
-                let info = self.class_methods[class_id as usize][&key].clone();
+                let info = self.class_methods[class_id as usize][&key.as_str().into()].clone();
                 self.define_function_body(info.id, s, &info.params, info.ret, Some(class_id))?;
             }
         }
         for m in &c.static_methods {
             let qualified = format!("{}.{}", c.name, m.name);
-            let (id, params, ret) = self.funcs[&qualified].clone();
+            let (id, params, ret) = self.funcs[&qualified.as_str().into()].clone();
             // `this_class = None` — static methods don't get a `this`.
             self.define_function_body(id, m, &params, ret, None)?;
         }
@@ -2012,14 +2012,14 @@ impl JitCompiler {
             closure_drops: &mut self.closure_drops,
             closure_capture_env: None,
             current_class: this_class.map(|cid| {
-                self.class_layouts[cid as usize].name.clone()
+                self.class_layouts[cid as usize].name.as_str().to_string()
             }),
         };
         // If this body is a closure wrapper, set up the
         // capture-env so Var lookups for captured names emit env
         // loads. The wrapper's first param `__env` is already
         // bound by the loop above.
-        let captures_with_offsets: Vec<(String, u32, JitTy)> =
+        let captures_with_offsets: Vec<(Symbol, u32, JitTy)> =
             if let Some(meta) = self.closure_meta.get(&f.name) {
                 meta.captures
                     .iter()
@@ -2030,7 +2030,7 @@ impl JitCompiler {
                 Vec::new()
             };
         if !captures_with_offsets.is_empty() {
-            let env_var = lc.env.bindings.get("__env").map(|&(v, _)| v);
+            let env_var = lc.env.bindings.get(&"__env".into()).map(|&(v, _)| v);
             if let Some(v) = env_var {
                 lc.closure_capture_env = Some(crate::env::ClosureEnv {
                     env_var: v,
@@ -2253,7 +2253,7 @@ impl JitCompiler {
         }
         // Snapshot empty env so we know which top-level lets to release
         // at __main exit. Mirrors what lower_block_value does for blocks.
-        let before: std::collections::HashSet<String> =
+        let before: std::collections::HashSet<Symbol> =
             lc.env.bindings.keys().cloned().collect();
         for s in &prog.stmts {
             lower_stmt(&mut builder, &mut lc, s)?;
@@ -2279,7 +2279,7 @@ impl JitCompiler {
             .env
             .bindings
             .iter()
-            .filter(|(k, _)| !before.contains(k.as_str()))
+            .filter(|(k, _)| !before.contains(k))
             .filter_map(|(_, &(var, jty))| {
                 if jty.is_heap() {
                     Some((var, jty))
@@ -2363,7 +2363,7 @@ impl JitCompiler {
     }
 
     fn run_main(&mut self, ret: JitTy) -> JitValue {
-        let (id, _, _) = self.funcs["__main"];
+        let (id, _, _) = self.funcs[&"__main".into()];
         let ptr = self.module.get_finalized_function(id);
         unsafe {
             match ret {
@@ -2400,7 +2400,7 @@ impl JitCompiler {
                 JitTy::Object(id) => {
                     let p = (std::mem::transmute::<_, extern "C" fn() -> i64>(ptr))();
                     JitValue::Object {
-                        class: self.class_layouts[id as usize].name.clone(),
+                        class: self.class_layouts[id as usize].name.as_str().to_string(),
                         ptr: p,
                     }
                 }
@@ -2439,7 +2439,7 @@ impl JitCompiler {
                         *((p - 24) as *const i64) > 0
                     };
                     JitValue::Weak {
-                        class: self.class_layouts[class_id as usize].name.clone(),
+                        class: self.class_layouts[class_id as usize].name.as_str().to_string(),
                         alive,
                     }
                 }
@@ -2448,11 +2448,11 @@ impl JitCompiler {
                         as usize;
                     let layout = &self.enum_layouts[id as usize];
                     JitValue::Enum {
-                        ty: layout.name.clone(),
+                        ty: layout.name.as_str().to_string(),
                         variant: layout
                             .variants
                             .get(tag)
-                            .cloned()
+                            .map(|s| s.as_str().to_string())
                             .unwrap_or_else(|| format!("?{tag}")),
                         payload: crate::value::JitEnumPayload::Unit,
                     }

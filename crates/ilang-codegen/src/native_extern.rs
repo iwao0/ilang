@@ -9,7 +9,7 @@
 //! marshalling logic at the boundary.
 
 use cranelift_jit::JITBuilder;
-use ilang_ast::{AttrArg, Item, Program, Type};
+use ilang_ast::{AttrArg, Item, Program, Type, Symbol};
 use libloading::Library;
 use std::collections::HashSet;
 
@@ -20,23 +20,23 @@ pub(crate) struct NativeExternRegistry {
     /// Names of every fn that was registered as a native extern.
     /// The Call lowering reads this to decide whether to insert
     /// `string` ↔ C-string conversions around the call.
-    pub names: HashSet<String>,
+    pub names: HashSet<Symbol>,
     /// Names of fns declared with trailing `...` — printf-style
     /// variadics. The declared param list is the fixed prefix; the
     /// call site can supply any number of extra args, each
     /// type-checked permissively and marshalled by its actual type.
-    pub variadic: HashSet<String>,
+    pub variadic: HashSet<Symbol>,
     /// Names of fns whose struct parameters are passed by value
     /// (split into 1–2 i64 chunks per the AArch64 / SysV
     /// "integer-only ≤ 16 B" composite rule). Always set for fns
     /// synthesized from `@extern(C) {}` blocks.
-    pub by_value: HashSet<String>,
+    pub by_value: HashSet<Symbol>,
     /// Resolved address for each `static name: T` declaration inside
     /// `@extern(C) {}`: the C global's runtime location, ready to
     /// be embedded as `iconst` at every read/write site. Library-form
     /// statics resolve via dlsym; host-form use the addresses
     /// pre-registered by host modules.
-    pub static_addrs: std::collections::HashMap<String, i64>,
+    pub static_addrs: std::collections::HashMap<Symbol, i64>,
 }
 
 pub(crate) fn register_native_externs(
@@ -44,11 +44,11 @@ pub(crate) fn register_native_externs(
     prog: &Program,
 ) -> Result<NativeExternRegistry, CodegenError> {
     use std::collections::HashMap;
-    let mut libs: HashMap<String, Library> = HashMap::new();
-    let mut names: HashSet<String> = HashSet::new();
-    let mut variadic: HashSet<String> = HashSet::new();
-    let mut by_value: HashSet<String> = HashSet::new();
-    let mut static_addrs: HashMap<String, i64> = HashMap::new();
+    let mut libs: HashMap<Symbol, Library> = HashMap::new();
+    let mut names: HashSet<Symbol> = HashSet::new();
+    let mut variadic: HashSet<Symbol> = HashSet::new();
+    let mut by_value: HashSet<Symbol> = HashSet::new();
+    let mut static_addrs: HashMap<Symbol, i64> = HashMap::new();
     // Host modules pre-register addresses for `@extern static`
     // declarations they own. Library-form statics are dlsym'd
     // below.
@@ -56,7 +56,7 @@ pub(crate) fn register_native_externs(
     // Pre-collect names of opaque-handle classes — `@extern("lib")
     // class Foo {}`. These are valid as native-extern fn parameter
     // and return types (marshalled as raw i64 pointers).
-    let opaque_classes: HashSet<String> = prog
+    let opaque_classes: HashSet<Symbol> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -70,7 +70,7 @@ pub(crate) fn register_native_externs(
     let synth_classes = crate::compiler::synthesize_extern_c_classes(prog);
     let synth_fns = crate::compiler::synthesize_extern_c_fns(prog);
     let synth_statics = crate::compiler::synthesize_extern_c_statics(prog);
-    let repr_c_classes: HashSet<String> = prog
+    let repr_c_classes: HashSet<Symbol> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -108,11 +108,11 @@ pub(crate) fn register_native_externs(
         // user's preferred / documented name). Additional Str args
         // are tried in order if the primary fails — covers dist /
         // version differences (`libssl.so.3` vs `libssl.so.1.1`).
-        let mut lib_names: Vec<String> = Vec::new();
+        let mut lib_names: Vec<Symbol> = Vec::new();
         let mut flag_optional = false;
         for arg in &extern_attr.args {
             match arg {
-                AttrArg::Str(s) => lib_names.push(s.clone()),
+                AttrArg::Str(s) => lib_names.push(s.as_str().into()),
                 AttrArg::Path(parts) if parts.as_slice() == ["optional"] => {
                     flag_optional = true;
                 }
@@ -131,7 +131,7 @@ pub(crate) fn register_native_externs(
                     return Err(CodegenError::Unsupported {
                         what: format!(
                             "@extern: unknown flag `{}` (allowed: `optional`, `variadic`, `byValue`)",
-                            parts.join(".")
+                            parts.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(".")
                         ),
                         span: f.span,
                     });
@@ -145,7 +145,7 @@ pub(crate) fn register_native_externs(
             }
         }
         let lib_name = lib_names.first().cloned().expect("filter above guarantees a Str arg");
-        let fallback_names: &[String] = &lib_names[1..];
+        let fallback_names: &[Symbol] = &lib_names[1..];
         validate_native_signature(f, &opaque_classes, &repr_c_classes)?;
         // Open (or reuse) the library. Try the primary name first,
         // then any fallback names in order. Bare names (no `.`)
@@ -158,7 +158,7 @@ pub(crate) fn register_native_externs(
             let mut last_err: Option<String> = None;
             let mut opened: Option<Library> = None;
             for cand in std::iter::once(&lib_name).chain(fallback_names.iter()) {
-                match open_library(cand) {
+                match open_library(cand.as_str()) {
                     Ok(lib) => {
                         opened = Some(lib);
                         break;
@@ -171,13 +171,13 @@ pub(crate) fn register_native_externs(
             match opened {
                 Some(lib) => {
                     libs.insert(lib_name.clone(), lib);
-                    crate::runtime::record_lib_loaded(&lib_name, true, None);
+                    crate::runtime::record_lib_loaded(lib_name.as_str(), true, None);
                 }
                 None => {
                     let err_msg = last_err.unwrap_or_else(|| "no candidate".into());
                     if flag_optional {
                         crate::runtime::record_lib_loaded(
-                            &lib_name,
+                            lib_name.as_str(),
                             false,
                             Some(err_msg),
                         );
@@ -196,10 +196,10 @@ pub(crate) fn register_native_externs(
             // surfaces a runtime error instead of an unresolved
             // symbol crash.
             builder.symbol(
-                &f.name,
+                f.name.as_str(),
                 crate::runtime::ilang_optional_extern_stub_abort as *const u8,
             );
-            names.insert(f.name.clone());
+            names.insert(f.name);
             continue;
         }
         let lib = &libs[&lib_name];
@@ -215,9 +215,9 @@ pub(crate) fn register_native_externs(
                 AttrArg::Str(s) => Some(s.clone()),
                 _ => None,
             })
-            .unwrap_or_else(|| f.name.clone());
+            .unwrap_or_else(|| f.name.as_str().to_string());
         let sym_result: Result<libloading::Symbol<*const u8>, libloading::Error> =
-            unsafe { lib.get(c_symbol.as_bytes()) };
+            unsafe { lib.get(c_symbol.as_str().as_bytes()) };
         let ptr = match sym_result {
             Ok(sym) => unsafe { *sym.into_raw() },
             Err(e) => {
@@ -234,8 +234,8 @@ pub(crate) fn register_native_externs(
                 }
             }
         };
-        builder.symbol(&f.name, ptr);
-        names.insert(f.name.clone());
+        builder.symbol(f.name.as_str(), ptr);
+        names.insert(f.name);
     }
     // Host-form `@extern fn` (no library arg) doesn't enter the loop
     // above (Str-arg filter), so sweep them here for `byValue` so the
@@ -272,7 +272,7 @@ pub(crate) fn register_native_externs(
     for s in all_statics {
         if let Some(lib_name) = &s.lib {
             if !libs.contains_key(lib_name) {
-                let lib = open_library(lib_name).map_err(|e| {
+                let lib = open_library(lib_name.as_str()).map_err(|e| {
                     CodegenError::Module(format!(
                         "@extern(\"{lib_name}\") static {}: {e}",
                         s.name
@@ -282,7 +282,7 @@ pub(crate) fn register_native_externs(
             }
             let lib = &libs[lib_name];
             let sym_result: Result<libloading::Symbol<*const u8>, libloading::Error> =
-                unsafe { lib.get(s.name.as_bytes()) };
+                unsafe { lib.get(s.name.as_str().as_bytes()) };
             let ptr = match sym_result {
                 Ok(sym) => (unsafe { *sym.into_raw() }) as i64,
                 Err(e) => {
@@ -316,8 +316,8 @@ fn validate_by_value_fn(
     f: &ilang_ast::FnDecl,
     prog: &Program,
     synth_classes: &[ilang_ast::ClassDecl],
-    repr_c_classes: &HashSet<String>,
-    opaque_classes: &HashSet<String>,
+    repr_c_classes: &HashSet<Symbol>,
+    opaque_classes: &HashSet<Symbol>,
 ) -> Result<(), CodegenError> {
     let check = |ty: &Type, role: &str, span: ilang_ast::Span| -> Result<(), CodegenError> {
         let Type::Object(name) = ty else { return Ok(()); };
@@ -387,8 +387,8 @@ fn validate_by_value_fn(
 
 fn validate_native_signature(
     f: &ilang_ast::FnDecl,
-    opaque_classes: &HashSet<String>,
-    repr_c_classes: &HashSet<String>,
+    opaque_classes: &HashSet<Symbol>,
+    repr_c_classes: &HashSet<Symbol>,
 ) -> Result<(), CodegenError> {
     for p in &f.params {
         if !is_native_abi_type(&p.ty, opaque_classes, repr_c_classes) {
@@ -435,8 +435,8 @@ fn is_callback_arg_type(t: &Type) -> bool {
 
 fn is_native_abi_type(
     t: &Type,
-    opaque_classes: &HashSet<String>,
-    repr_c_classes: &HashSet<String>,
+    opaque_classes: &HashSet<Symbol>,
+    repr_c_classes: &HashSet<Symbol>,
 ) -> bool {
     match t {
         // Numeric primitives — every width that maps to a concrete

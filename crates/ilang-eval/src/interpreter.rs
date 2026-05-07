@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use ilang_ast::{
     BinOp, Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FnDecl, Item, LogicalOp,
-    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, VariantPayload,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, VariantPayload,
 };
 
 use crate::error::RuntimeError;
@@ -32,19 +32,19 @@ fn int_value_to_i64(v: &Value) -> Option<i64> {
 
 #[derive(Debug, Default)]
 pub struct Interpreter {
-    fns: HashMap<String, FnDecl>,
-    classes: HashMap<String, ClassDecl>,
+    fns: HashMap<Symbol, FnDecl>,
+    classes: HashMap<Symbol, ClassDecl>,
     /// Lexical class of the currently-executing method body. Set
     /// before each method invoke and saved/restored across nested
     /// calls. Read by `super.method(...)` to find the parent class.
     /// `None` when not inside a class method body.
-    this_class: Option<String>,
-    enums: HashMap<String, EnumDecl>,
+    this_class: Option<Symbol>,
+    enums: HashMap<Symbol, EnumDecl>,
     /// Per-class static field storage: `(ClassName, field) -> Value`.
     /// Initialised from each class's `static_fields` initializer at
     /// `run()` startup; read/written by `ClassName.field` access.
-    static_fields: HashMap<(String, String), Value>,
-    vars: HashMap<String, Value>,
+    static_fields: HashMap<(Symbol, Symbol), Value>,
+    vars: HashMap<Symbol, Value>,
     this: Option<ObjectRef>,
     depth: usize,
 }
@@ -61,11 +61,11 @@ impl Interpreter {
     /// so no `FnDecl` body is needed.
     fn install_builtins(&mut self) {
         let console: ObjectRef = Rc::new(RefCell::new(ObjectData {
-            class: "Console".to_string(),
+            class: "Console".into(),
             fields: HashMap::new(),
         }));
         self.vars
-            .insert("console".to_string(), Value::Object(console));
+            .insert("console".into(), Value::Object(console));
     }
 
     pub fn run(&mut self, prog: &Program) -> Result<Value, RuntimeError> {
@@ -92,7 +92,7 @@ impl Interpreter {
                                 name, fields, is_packed, span,
                             } => {
                                 let synth = ilang_ast::ClassDecl {
-                                    name: name.clone(),
+                                    name: *name,
                                     type_params: Vec::new(),
                                     parent: None,
                                     fields: fields.clone(),
@@ -112,7 +112,7 @@ impl Interpreter {
                                 name, fields, span,
                             } => {
                                 let synth = ilang_ast::ClassDecl {
-                                    name: name.clone(),
+                                    name: *name,
                                     type_params: Vec::new(),
                                     parent: None,
                                     fields: fields.clone(),
@@ -155,7 +155,7 @@ impl Interpreter {
                                 }
                                 let synth = ilang_ast::FnDecl {
                                     attrs,
-                                    name: name.clone(),
+                                    name: *name,
                                     type_params: Vec::new(),
                                     params: params.clone(),
                                     ret: ret.clone(),
@@ -286,12 +286,12 @@ impl Interpreter {
                         msg: format!("class {this_cls:?} has no parent for `super`"),
                         span,
                     })?;
-                let lookup = method.as_deref().unwrap_or("init");
+                let lookup = method.map(|s| s.as_str()).unwrap_or("init");
                 let (decl, decl_class) = self
-                    .lookup_method_with_class(&parent, lookup)
+                    .lookup_method_with_class(parent, lookup)
                     .ok_or_else(|| RuntimeError::UnknownMethod {
                         class: parent.clone(),
-                        method: lookup.to_string(),
+                        method: lookup.into(),
                         span,
                     })?;
                 let evaluated = self.eval_args(args)?;
@@ -321,7 +321,7 @@ impl Interpreter {
                     return Ok(Value::Fn(Rc::new(decl.clone()), Rc::new(HashMap::new())));
                 }
                 Err(RuntimeError::UndefinedVariable {
-                    name: name.clone(),
+                    name: *name,
                     span,
                 })
             }
@@ -367,11 +367,11 @@ impl Interpreter {
                     let class_name = this.borrow().class.clone();
                     if let Some(class) = self.classes.get(&class_name) {
                         if class.methods.iter().any(|m| m.name == *callee) {
-                            return self.call_method(this, callee, args, span);
+                            return self.call_method(this, callee.as_str(), args, span);
                         }
                     }
                 }
-                self.call_fn(callee, args, span)
+                self.call_fn(callee.as_str(), args, span)
             }
             ExprKind::Field { obj, name } => {
                 // Static field read: `ClassName.field` when there's
@@ -407,13 +407,13 @@ impl Interpreter {
                     .and_then(|c| c.properties.iter().find(|p| &p.name == name))
                     .and_then(|p| p.getter.clone())
                 {
-                    return self.invoke(name, &getter, vec![], Some(o.clone()), span);
+                    return self.invoke(name.as_str(), &getter, vec![], Some(o.clone()), span);
                 }
                 let o = o.borrow();
                 o.fields.get(name).cloned().ok_or_else(|| {
                     RuntimeError::UnknownField {
-                        class: o.class.clone(),
-                        field: name.clone(),
+                        class: o.class.into(),
+                        field: *name,
                         span,
                     }
                 })
@@ -433,7 +433,7 @@ impl Interpreter {
                                 .cloned()
                             {
                                 let evaluated = self.eval_args(args)?;
-                                return self.invoke(method, &decl, evaluated, None, span);
+                                return self.invoke(method.as_str(), &decl, evaluated, None, span);
                             }
                         }
                     }
@@ -470,7 +470,7 @@ impl Interpreter {
                     }
                     return Err(RuntimeError::UnknownMethod {
                         class: "weak".into(),
-                        method: method.clone(),
+                        method: *method,
                         span,
                     });
                 }
@@ -493,7 +493,7 @@ impl Interpreter {
                         _ => {
                             return Err(RuntimeError::UnknownMethod {
                                 class: "optional".into(),
-                                method: method.clone(),
+                                method: *method,
                                 span,
                             });
                         }
@@ -591,7 +591,7 @@ impl Interpreter {
                     }
                     return Err(RuntimeError::UnknownMethod {
                         class: "array".into(),
-                        method: method.clone(),
+                        method: *method,
                         span,
                     });
                 }
@@ -669,7 +669,7 @@ impl Interpreter {
                         _ => {
                             return Err(RuntimeError::UnknownMethod {
                                 class: "Map".into(),
-                                method: method.clone(),
+                                method: *method,
                                 span,
                             });
                         }
@@ -785,17 +785,17 @@ impl Interpreter {
                         _ => {
                             return Err(RuntimeError::UnknownMethod {
                                 class: "string".into(),
-                                method: method.clone(),
+                                method: *method,
                                 span,
                             });
                         }
                     }
                 }
                 let o = expect_object(v, obj.span)?;
-                self.call_method(o, method, args, span)
+                self.call_method(o, method.as_str(), args, span)
             }
             ExprKind::New { class, type_args: _, args, init_method } => {
-                self.new_object(class, args, init_method.as_deref(), span)
+                self.new_object(class.as_str(), args, init_method.as_ref().map(|s| s.as_str()), span)
             }
             ExprKind::Block(b) => self.eval_block(b),
             ExprKind::If {
@@ -937,7 +937,7 @@ impl Interpreter {
                     return Ok(Value::Unit);
                 }
                 Err(RuntimeError::UndefinedVariable {
-                    name: target.clone(),
+                    name: *target,
                     span,
                 })
             }
@@ -967,7 +967,7 @@ impl Interpreter {
                 // their current bindings.
                 let decl = ilang_ast::FnDecl {
                     attrs: Vec::new(),
-                    name: String::new(),
+                    name: "".into(),
                     type_params: Vec::new(),
                     params: params.clone(),
                     ret: ret.clone(),
@@ -975,11 +975,11 @@ impl Interpreter {
                     span,
                     is_override: false,
                 };
-                let mut bound: std::collections::HashSet<String> =
+                let mut bound: std::collections::HashSet<Symbol> =
                     params.iter().map(|p| p.name.clone()).collect();
-                let mut frees: std::collections::HashSet<String> = Default::default();
+                let mut frees: std::collections::HashSet<Symbol> = Default::default();
                 collect_free_vars_in_block(body, &mut bound, &mut frees);
-                let mut env: HashMap<String, Value> = HashMap::new();
+                let mut env: HashMap<Symbol, Value> = HashMap::new();
                 for name in frees {
                     if let Some(v) = self.vars.get(&name) {
                         env.insert(name, v.clone());
@@ -1125,7 +1125,7 @@ impl Interpreter {
                     // Optional auto-wrap / Weak auto-downgrade rules
                     // match field-write behavior.
                     let v = cast_value(v, &setter.params[0].ty);
-                    self.invoke(field, &setter, vec![v], Some(target.clone()), span)?;
+                    self.invoke(field.as_str(), &setter, vec![v], Some(target.clone()), span)?;
                     return Ok(Value::Unit);
                 }
                 // Apply the field's declared type as an implicit cast,
@@ -1287,8 +1287,8 @@ impl Interpreter {
                     }
                 };
                 Ok(Value::Enum {
-                    ty: enum_name.clone(),
-                    variant: variant.clone(),
+                    ty: *enum_name,
+                    variant: *variant,
                     payload,
                 })
             }
@@ -1384,7 +1384,7 @@ impl Interpreter {
                             bindings,
                         } if *variant == sv_var => {
                             // Bind payload, run body, restore env.
-                            let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
+                            let mut shadows: Vec<(Symbol, Option<Value>)> = Vec::new();
                             match (bindings, &sv_payload) {
                                 (PatternBindings::Unit, EnumPayload::Unit) => {}
                                 (
@@ -1395,7 +1395,7 @@ impl Interpreter {
                                         if n != "_" {
                                             let prev =
                                                 self.vars.insert(n.clone(), val.clone());
-                                            shadows.push((n.clone(), prev));
+                                            shadows.push((*n, prev));
                                         }
                                     }
                                 }
@@ -1409,7 +1409,7 @@ impl Interpreter {
                                                 let prev = self
                                                     .vars
                                                     .insert(bname.clone(), val.clone());
-                                                shadows.push((bname.clone(), prev));
+                                                shadows.push((*bname, prev));
                                             }
                                         }
                                     }
@@ -1440,7 +1440,7 @@ impl Interpreter {
     }
 
     fn eval_block(&mut self, block: &Block) -> Result<Value, RuntimeError> {
-        let mut shadows: Vec<(String, Option<Value>)> = Vec::new();
+        let mut shadows: Vec<(Symbol, Option<Value>)> = Vec::new();
         // Run the body, capturing any control-flow Err so we can run the
         // scope-end shadow cleanup before propagating it up. Otherwise an
         // early `return`/`break`/`continue` would skip releasing this
@@ -1455,7 +1455,7 @@ impl Interpreter {
                             v = cast_value(v, t);
                         }
                         let prev = self.vars.insert(name.clone(), v);
-                        shadows.push((name.clone(), prev));
+                        shadows.push((*name, prev));
                         last = Value::Unit;
                     }
                     StmtKind::Expr(e) => {
@@ -1563,12 +1563,13 @@ impl Interpreter {
 
     fn call_fn(&mut self, name: &str, args: &[Expr], span: Span) -> Result<Value, RuntimeError> {
         let evaluated = self.eval_args(args)?;
+        let sym = Symbol::intern(name);
         let decl = self
             .fns
-            .get(name)
+            .get(&sym)
             .cloned()
             .ok_or_else(|| RuntimeError::UndefinedFunction {
-                name: name.to_string(),
+                name: sym,
                 span,
             })?;
         self.invoke(name, &decl, evaluated, None, span)
@@ -1580,7 +1581,7 @@ impl Interpreter {
     fn invoke_fn_value(
         &mut self,
         decl: &ilang_ast::FnDecl,
-        captures: &HashMap<String, Value>,
+        captures: &HashMap<Symbol, Value>,
         args: &[Expr],
         span: Span,
     ) -> Result<Value, RuntimeError> {
@@ -1595,13 +1596,13 @@ impl Interpreter {
     fn invoke_closure(
         &mut self,
         decl: &ilang_ast::FnDecl,
-        captures: &HashMap<String, Value>,
+        captures: &HashMap<Symbol, Value>,
         evaluated: Vec<Value>,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if decl.params.len() != evaluated.len() {
             return Err(RuntimeError::ArityMismatch {
-                name: if decl.name.is_empty() { "<closure>" } else { decl.name.as_str() }.to_string(),
+                name: if decl.name.as_str().is_empty() { "<closure>".into() } else { decl.name },
                 expected: decl.params.len(),
                 got: evaluated.len(),
                 span,
@@ -1663,10 +1664,10 @@ impl Interpreter {
         // the one we record as `this_class` so super.method() can
         // find its parent.
         let (decl, decl_class) = self
-            .lookup_method_with_class(&class_name, method)
+            .lookup_method_with_class(class_name, method)
             .ok_or_else(|| RuntimeError::UnknownMethod {
                 class: class_name.clone(),
-                method: method.to_string(),
+                method: method.into(),
                 span,
             })?;
         self.invoke_with_class(
@@ -1684,16 +1685,16 @@ impl Interpreter {
     /// Returns the FnDecl plus the lexical class it came from.
     fn lookup_method_with_class(
         &self,
-        class_name: &str,
+        class_name: Symbol,
         name: &str,
-    ) -> Option<(FnDecl, String)> {
-        let mut cur = Some(class_name.to_string());
+    ) -> Option<(FnDecl, Symbol)> {
+        let mut cur = Some(class_name);
         while let Some(cn) = cur {
             if let Some(c) = self.classes.get(&cn) {
                 if let Some(m) = c.methods.iter().find(|m| m.name == name) {
                     return Some((m.clone(), cn));
                 }
-                cur = c.parent.clone();
+                cur = c.parent;
             } else {
                 return None;
             }
@@ -1727,17 +1728,17 @@ impl Interpreter {
         let evaluated = self.eval_args(args)?;
         let decl = self
             .classes
-            .get(class)
+            .get(&Symbol::intern(class))
             .cloned()
             .ok_or_else(|| RuntimeError::UndefinedClass {
-                name: class.to_string(),
+                name: class.into(),
                 span,
             })?;
         // Default-initialize every declared field, walking the
         // ancestor chain so inherited fields are present too.
         let mut fields = HashMap::new();
-        let mut chain: Vec<String> = Vec::new();
-        let mut cur = Some(class.to_string());
+        let mut chain: Vec<Symbol> = Vec::new();
+        let mut cur: Option<Symbol> = Some(class.into());
         while let Some(cn) = cur {
             chain.push(cn.clone());
             cur = self.classes.get(&cn).and_then(|c| c.parent.clone());
@@ -1746,7 +1747,7 @@ impl Interpreter {
         // shadowed — currently rejected by checker) win in the map.
         // Pre-collect (name, ty, recurse_class) tuples to avoid
         // borrowing `self.classes` while we recurse below.
-        let mut field_specs: Vec<(String, ilang_ast::Type, Option<String>)> = Vec::new();
+        let mut field_specs: Vec<(Symbol, ilang_ast::Type, Option<Symbol>)> = Vec::new();
         for cn in chain.iter().rev() {
             if let Some(c) = self.classes.get(cn) {
                 for f in &c.fields {
@@ -1755,10 +1756,10 @@ impl Interpreter {
                             .classes
                             .get(name)
                             .filter(|inner| inner.is_repr_c)
-                            .map(|_| name.clone()),
+                            .map(|_| *name),
                         _ => None,
                     };
-                    field_specs.push((f.name.clone(), f.ty.clone(), recurse));
+                    field_specs.push((f.name, f.ty.clone(), recurse));
                 }
             }
         }
@@ -1768,14 +1769,14 @@ impl Interpreter {
             // mutate. Skipping this leaves the field as `Unit`,
             // tripping the next field access.
             let v = if let Some(inner_class) = recurse {
-                self.new_object(&inner_class, &[], None, span)?
+                self.new_object(inner_class.as_str(), &[], None, span)?
             } else {
                 default_value(&ty)
             };
             fields.insert(name, v);
         }
         let obj: ObjectRef = Rc::new(RefCell::new(ObjectData {
-            class: class.to_string(),
+            class: class.into(),
             fields,
         }));
         // Pick the init to run. The mangler may have set
@@ -1785,7 +1786,7 @@ impl Interpreter {
         // init is fine if the child doesn't redeclare one.
         let init_lookup = init_method.unwrap_or("init");
         if let Some((init, decl_class)) =
-            self.lookup_method_with_class(class, init_lookup)
+            self.lookup_method_with_class(Symbol::intern(class), init_lookup)
         {
             self.invoke_with_class(
                 init_lookup,
@@ -1834,7 +1835,7 @@ impl Interpreter {
                     .insert(last.name.clone(), Value::Array(Rc::new(RefCell::new(elems))));
             } else {
                 return Err(RuntimeError::ArityMismatch {
-                    name: format!("{class}::init"),
+                    name: Symbol::intern(&format!("{class}::init")),
                     expected: 0,
                     got: evaluated.len(),
                     span,
@@ -1869,12 +1870,12 @@ impl Interpreter {
         decl: &FnDecl,
         evaluated: Vec<Value>,
         receiver: Option<ObjectRef>,
-        decl_class: Option<String>,
+        decl_class: Option<Symbol>,
         call_span: Span,
     ) -> Result<Value, RuntimeError> {
         if decl.params.len() != evaluated.len() {
             return Err(RuntimeError::ArityMismatch {
-                name: name.to_string(),
+                name: name.into(),
                 expected: decl.params.len(),
                 got: evaluated.len(),
                 span: call_span,
@@ -1897,7 +1898,7 @@ impl Interpreter {
                     span: call_span,
                 });
             }
-            return crate::externs::invoke_extern(&decl.name, &evaluated)
+            return crate::externs::invoke_extern(decl.name.as_str(), &evaluated)
                 .ok_or_else(|| RuntimeError::TypeError {
                     msg: format!("no extern handler registered for {:?}", decl.name),
                     span: call_span,
@@ -2031,8 +2032,8 @@ fn default_value(t: &ilang_ast::Type) -> Value {
 /// Inserts each free name into `frees`.
 fn collect_free_vars_in_block(
     b: &ilang_ast::Block,
-    bound: &mut std::collections::HashSet<String>,
-    frees: &mut std::collections::HashSet<String>,
+    bound: &mut std::collections::HashSet<Symbol>,
+    frees: &mut std::collections::HashSet<Symbol>,
 ) {
     let snapshot = bound.clone();
     for s in &b.stmts {
@@ -2054,8 +2055,8 @@ fn collect_free_vars_in_block(
 
 fn collect_free_vars_in_expr(
     e: &ilang_ast::Expr,
-    bound: &mut std::collections::HashSet<String>,
-    frees: &mut std::collections::HashSet<String>,
+    bound: &mut std::collections::HashSet<Symbol>,
+    frees: &mut std::collections::HashSet<Symbol>,
 ) {
     use ilang_ast::ExprKind;
     match &e.kind {
@@ -2219,8 +2220,8 @@ fn collect_free_vars_in_expr(
     }
 }
 
-fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<String>) {
-    use ilang_ast::{PatternBindings, PatternKind};
+fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<Symbol>) {
+    use ilang_ast::{PatternBindings, PatternKind, Symbol};
     match &p.kind {
         PatternKind::Wildcard
         | PatternKind::IntLit(_)

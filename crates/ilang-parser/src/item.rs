@@ -1,6 +1,6 @@
 use ilang_ast::{
     AttrArg, Attribute, ClassDecl, EnumDecl, FieldDecl, FnDecl, Item, Param,
-    PropertyDecl, StaticFieldDecl, Type, Variant, VariantPayload,
+    PropertyDecl, StaticFieldDecl, Symbol, Type, Variant, VariantPayload,
 };
 use ilang_lexer::TokenKind;
 
@@ -709,9 +709,9 @@ impl<'a> Parser<'a> {
         // Accepted: `@lib("name", "fallback", ...)` (one or more strings),
         // `@optional` and `@symbol("c_name")`. Anything else is rejected
         // so users notice the legacy flags are gone.
-        let mut libs: Vec<String> = Vec::new();
+        let mut libs: Vec<Symbol> = Vec::new();
         let mut optional = false;
-        let mut c_symbol: Option<String> = None;
+        let mut c_symbol: Option<Symbol> = None;
         for a in &attrs {
             match a.name.as_str() {
                 "lib" => {
@@ -725,7 +725,7 @@ impl<'a> Parser<'a> {
                     }
                     for arg in &a.args {
                         match arg {
-                            ilang_ast::AttrArg::Str(s) => libs.push(s.clone()),
+                            ilang_ast::AttrArg::Str(s) => libs.push(s.as_str().into()),
                             _ => {
                                 let t = self.peek();
                                 return Err(ParseError::Unexpected {
@@ -751,7 +751,7 @@ impl<'a> Parser<'a> {
                         return Err(bad);
                     }
                     match &a.args[0] {
-                        ilang_ast::AttrArg::Str(s) => c_symbol = Some(s.clone()),
+                        ilang_ast::AttrArg::Str(s) => c_symbol = Some(s.as_str().into()),
                         _ => return Err(bad),
                     }
                 }
@@ -830,7 +830,7 @@ impl<'a> Parser<'a> {
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
-        let mut libs: Vec<String> = Vec::new();
+        let mut libs: Vec<Symbol> = Vec::new();
         let mut optional = false;
         for a in &attrs {
             match a.name.as_str() {
@@ -845,7 +845,7 @@ impl<'a> Parser<'a> {
                     }
                     for arg in &a.args {
                         match arg {
-                            ilang_ast::AttrArg::Str(s) => libs.push(s.clone()),
+                            ilang_ast::AttrArg::Str(s) => libs.push(s.as_str().into()),
                             _ => {
                                 let t = self.peek();
                                 return Err(ParseError::Unexpected {
@@ -977,7 +977,7 @@ impl<'a> Parser<'a> {
     /// + ident first). Used for `get/set` accessor parsing.
     fn parse_method_after_name(
         &mut self,
-        name: String,
+        name: Symbol,
         span: ilang_ast::Span,
     ) -> Result<FnDecl, ParseError> {
         self.parse_method_after_name_with_attrs(name, span, Vec::new())
@@ -985,13 +985,13 @@ impl<'a> Parser<'a> {
 
     fn parse_method_after_name_with_attrs(
         &mut self,
-        name: String,
+        name: Symbol,
         span: ilang_ast::Span,
         attrs: Vec<Attribute>,
     ) -> Result<FnDecl, ParseError> {
         // Methods don't take their own type params — they inherit
         // the class's. Always empty here.
-        let type_params: Vec<String> = Vec::new();
+        let type_params: Vec<Symbol> = Vec::new();
         self.expect(&TokenKind::LParen, "'('")?;
         let params = self.parse_param_list()?;
         self.expect(&TokenKind::RParen, "')'")?;
@@ -1061,7 +1061,7 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
-    fn parse_attr_path(&mut self) -> Result<Vec<String>, ParseError> {
+    fn parse_attr_path(&mut self) -> Result<Vec<Symbol>, ParseError> {
         let mut parts = vec![self.expect_ident("capability name")?];
         while matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
@@ -1104,7 +1104,7 @@ impl<'a> Parser<'a> {
 
     /// Parse `<T, U, ...>` after a class name in declaration position.
     /// Returns the bare identifier names; uniqueness is checked downstream.
-    fn parse_type_param_list(&mut self) -> Result<Vec<String>, ParseError> {
+    fn parse_type_param_list(&mut self) -> Result<Vec<Symbol>, ParseError> {
         self.expect(&TokenKind::Lt, "'<'")?;
         let mut names = Vec::new();
         loop {
@@ -1339,7 +1339,7 @@ impl<'a> Parser<'a> {
                             let args = self.parse_type_args()?;
                             Type::generic(full_name, args)
                         } else {
-                            Type::Object(full_name)
+                            Type::Object(full_name.into())
                         }
                     }
                 }

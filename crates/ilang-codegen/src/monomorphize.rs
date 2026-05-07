@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
     Block, ClassDecl, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span,
-    Stmt, StmtKind, Type, Variant, VariantPayload,
+    Stmt, StmtKind, Symbol, Type, Variant, VariantPayload,
 };
 
 /// The unique key of a monomorphization request: class name + concrete
@@ -28,11 +28,11 @@ use ilang_ast::{
 /// separately for substitution.
 #[derive(Clone, Debug)]
 struct InstKey {
-    class: String,
+    class: Symbol,
     args: Vec<Type>,
 }
 
-fn mangle(class: &str, args: &[Type]) -> String {
+fn mangle(class: &str, args: &[Type]) -> Symbol {
     // Embed the concrete args in the class name. The result is not a
     // valid identifier (contains `<`, `,`, `>`), but class names live
     // as opaque strings throughout the JIT — we never re-parse them —
@@ -46,12 +46,12 @@ fn mangle(class: &str, args: &[Type]) -> String {
         s.push_str(&a.to_string());
     }
     s.push('>');
-    s
+    Symbol::intern(&s)
 }
 
 impl InstKey {
-    fn mangled(&self) -> String {
-        mangle(&self.class, &self.args)
+    fn mangled(&self) -> Symbol {
+        mangle(self.class.as_str(), &self.args)
     }
 }
 
@@ -67,7 +67,7 @@ impl InstKey {
 pub(crate) struct ClosureMetaIn {
     pub user_param_tys: Vec<ilang_ast::Type>,
     pub ret_ty: Option<ilang_ast::Type>,
-    pub captures: Vec<(String, ilang_ast::Type)>,
+    pub captures: Vec<(Symbol, ilang_ast::Type)>,
     pub span: ilang_ast::Span,
 }
 
@@ -78,23 +78,23 @@ pub(crate) struct HoistCtx<'a> {
     /// FnExpr span → captured (name, type) list (from typechecker).
     pub captures_map: &'a std::collections::HashMap<
         ilang_ast::Span,
-        Vec<(String, ilang_ast::Type)>,
+        Vec<(Symbol, ilang_ast::Type)>,
     >,
     /// wrapper_name → metadata. Filled in as we hoist FnExprs.
     pub closure_meta:
-        &'a mut std::collections::HashMap<String, ClosureMetaIn>,
+        &'a mut std::collections::HashMap<Symbol, ClosureMetaIn>,
 }
 
 pub(crate) fn hoist_anon_fns(
     prog: &Program,
     fn_expr_captures: &std::collections::HashMap<
         ilang_ast::Span,
-        Vec<(String, ilang_ast::Type)>,
+        Vec<(Symbol, ilang_ast::Type)>,
     >,
-) -> (Program, std::collections::HashMap<String, ClosureMetaIn>) {
+) -> (Program, std::collections::HashMap<Symbol, ClosureMetaIn>) {
     let mut counter: u32 = 0;
     let mut hoisted: Vec<Item> = Vec::new();
-    let mut closure_meta: std::collections::HashMap<String, ClosureMetaIn> =
+    let mut closure_meta: std::collections::HashMap<Symbol, ClosureMetaIn> =
         std::collections::HashMap::new();
     let mut ctx = HoistCtx {
         counter: &mut counter,
@@ -128,10 +128,10 @@ pub(crate) fn hoist_anon_fns(
     )
 }
 
-fn fresh_anon_name(counter: &mut u32) -> String {
+fn fresh_anon_name(counter: &mut u32) -> Symbol {
     let n = *counter;
     *counter += 1;
-    format!("__anon_fn_{n}")
+    Symbol::intern(&format!("__anon_fn_{n}"))
 }
 
 fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
@@ -272,7 +272,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             // (see lower_expr's Var handler).
             let mut wrapper_params = Vec::with_capacity(params.len() + 1);
             wrapper_params.push(ilang_ast::Param {
-                name: "__env".to_string(),
+                name: "__env".into(),
                 ty: ilang_ast::Type::I64,
                 span: e.span,
                 default: None,
@@ -488,7 +488,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
 pub(crate) fn monomorphize(prog: &Program) -> Program {
     // Index original (generic) class decls by name so we can clone +
     // substitute on demand.
-    let generic_classes: HashMap<String, &ClassDecl> = prog
+    let generic_classes: HashMap<Symbol, &ClassDecl> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -502,7 +502,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
     // JIT infrastructure). Instead the rewrite step leaves their
     // `Type::Generic` references alone so the JIT errors out with a
     // clear "generic enum + JIT" message via UnsupportedType.
-    let generic_enum_names: HashSet<String> = prog
+    let generic_enum_names: HashSet<Symbol> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -519,9 +519,9 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
 
     // Seed the worklist by scanning the entire (untransformed) program
     // for generic instantiations.
-    let mut needed: HashSet<String> = HashSet::new();
+    let mut needed: HashSet<Symbol> = HashSet::new();
     let mut worklist: Vec<InstKey> = Vec::new();
-    let seed = |t: &Type, needed: &mut HashSet<String>, work: &mut Vec<InstKey>| {
+    let seed = |t: &Type, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>| {
         collect_instantiations(t, needed, work);
     };
     for item in &prog.items {
@@ -554,7 +554,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
     // appear (e.g. `class Wrap<T> { f(): Box<T> { ... } }` instantiated
     // with T=i64 yields a `Box<i64>` ref) — those go back on the
     // worklist.
-    let mut synthesized: HashMap<String, ClassDecl> = HashMap::new();
+    let mut synthesized: HashMap<Symbol, ClassDecl> = HashMap::new();
     while let Some(key) = worklist.pop() {
         let mangled = key.mangled();
         if synthesized.contains_key(&mangled) {
@@ -567,7 +567,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
         if template.type_params.len() != key.args.len() {
             continue; // arity mismatch — type checker should have rejected
         }
-        let new_class = specialize_class(template, &key.args, &mangled);
+        let new_class = specialize_class(template, &key.args, mangled.as_str());
         // Walk the new class's substituted bodies for further generic refs.
         for f in &new_class.fields {
             scan_type(&f.ty, &mut needed, &mut worklist);
@@ -604,7 +604,7 @@ pub(crate) fn monomorphize(prog: &Program) -> Program {
 
 // ─── seed-collection helpers (no substitution, just observe) ─────────
 
-fn scan_fn(f: &FnDecl, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
+fn scan_fn(f: &FnDecl, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     for Param { ty, .. } in &f.params {
         scan_type(ty, needed, work);
     }
@@ -614,7 +614,7 @@ fn scan_fn(f: &FnDecl, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
     scan_block(&f.body, needed, work);
 }
 
-fn scan_block(b: &Block, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
+fn scan_block(b: &Block, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     for s in &b.stmts {
         scan_stmt(s, needed, work);
     }
@@ -623,7 +623,7 @@ fn scan_block(b: &Block, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) 
     }
 }
 
-fn scan_stmt(s: &Stmt, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
+fn scan_stmt(s: &Stmt, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     match &s.kind {
         StmtKind::Let { value, ty, .. } => {
             if let Some(t) = ty {
@@ -635,7 +635,7 @@ fn scan_stmt(s: &Stmt, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
     }
 }
 
-fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
+fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     match &e.kind {
         ExprKind::Int(_)
         | ExprKind::Float(_)
@@ -796,13 +796,13 @@ fn scan_expr(e: &Expr, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
     }
 }
 
-fn scan_type(t: &Type, needed: &mut HashSet<String>, work: &mut Vec<InstKey>) {
+fn scan_type(t: &Type, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>) {
     collect_instantiations(t, needed, work);
 }
 
 fn collect_instantiations(
     t: &Type,
-    needed: &mut HashSet<String>,
+    needed: &mut HashSet<Symbol>,
     work: &mut Vec<InstKey>,
 ) {
     match t {
@@ -834,9 +834,9 @@ fn collect_instantiations(
 }
 
 fn push_inst(
-    class: String,
+    class: Symbol,
     args: Vec<Type>,
-    needed: &mut HashSet<String>,
+    needed: &mut HashSet<Symbol>,
     work: &mut Vec<InstKey>,
 ) {
     let key = InstKey { class, args };
@@ -902,7 +902,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
             is_union: c.is_union,
-        name: mangled.to_string(),
+        name: mangled.into(),
         type_params: Vec::new(),
         parent: c.parent.clone(),
         fields,
@@ -917,7 +917,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
     }
 }
 
-fn specialize_fn(f: &FnDecl, params: &[String], args: &[Type]) -> FnDecl {
+fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnDecl {
     FnDecl {
         name: f.name.clone(),
         type_params: Vec::new(),
@@ -939,14 +939,14 @@ fn specialize_fn(f: &FnDecl, params: &[String], args: &[Type]) -> FnDecl {
     }
 }
 
-fn subst_block(b: &Block, params: &[String], args: &[Type]) -> Block {
+fn subst_block(b: &Block, params: &[Symbol], args: &[Type]) -> Block {
     Block {
         stmts: b.stmts.iter().map(|s| subst_stmt(s, params, args)).collect(),
         tail: b.tail.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
     }
 }
 
-fn subst_stmt(s: &Stmt, params: &[String], args: &[Type]) -> Stmt {
+fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
             name: name.clone(),
@@ -961,7 +961,7 @@ fn subst_stmt(s: &Stmt, params: &[String], args: &[Type]) -> Stmt {
     }
 }
 
-fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
+fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
     let kind = match &e.kind {
         ExprKind::Int(n) => ExprKind::Int(*n),
         ExprKind::Float(f) => ExprKind::Float(*f),
@@ -1155,7 +1155,7 @@ fn subst_expr(e: &Expr, params: &[String], args: &[Type]) -> Expr {
     }
 }
 
-fn subst_type(t: &Type, params: &[String], args: &[Type]) -> Type {
+fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
     match t {
         // The parser emits `Type::Object(name)` for any user-named type.
         // Inside a generic class body, references to the class's own
@@ -1314,7 +1314,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
             // by recognizing the class name + type_args directly.
             let new_args: Vec<Expr> = args.iter().map(rewrite_expr).collect();
             let new_type_args: Vec<Type> = type_args.iter().map(rewrite_type).collect();
-            if type_args.is_empty() || is_builtin_generic_class(class) {
+            if type_args.is_empty() || is_builtin_generic_class(class.as_str()) {
                 ExprKind::New {
                     class: class.clone(),
                     type_args: new_type_args,
@@ -1498,12 +1498,12 @@ fn rewrite_expr(e: &Expr) -> Expr {
 // `Object` (class case) or left as-is (enum case — JIT errors out
 // later with a clear "generic enum + JIT unsupported" message).
 thread_local! {
-    static GENERIC_ENUM_NAMES: std::cell::RefCell<HashSet<String>> =
+    static GENERIC_ENUM_NAMES: std::cell::RefCell<HashSet<Symbol>> =
         std::cell::RefCell::new(HashSet::new());
 }
 
 fn is_generic_enum(name: &str) -> bool {
-    GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(name))
+    GENERIC_ENUM_NAMES.with(|set| set.borrow().contains(&Symbol::intern(name)))
 }
 
 /// Built-in generic classes whose `Type::Generic { base, args }` should
@@ -1531,7 +1531,7 @@ fn rewrite_type(t: &Type) -> Type {
             // left intact here — the separate `monomorphize_enums` pass
             // converts them to `Type::Object(mangled)` after this pass.
             // User generic classes get the mangled Object name now.
-            if is_generic_enum(&g.base) || is_builtin_generic_class(&g.base) {
+            if is_generic_enum(g.base.as_str()) || is_builtin_generic_class(g.base.as_str()) {
                 Type::generic(g.base.clone(), new_args)
             } else {
                 Type::Object(
@@ -1578,7 +1578,7 @@ fn rewrite_type(t: &Type) -> Type {
 // In practice class monomorphization runs first so all class-method
 // bodies are concrete by the time we get here.
 
-fn mangle_fn_name(name: &str, args: &[Type]) -> String {
+fn mangle_fn_name(name: &str, args: &[Type]) -> Symbol {
     let mut s = name.to_string();
     s.push('<');
     for (i, a) in args.iter().enumerate() {
@@ -1588,17 +1588,17 @@ fn mangle_fn_name(name: &str, args: &[Type]) -> String {
         s.push_str(&a.to_string());
     }
     s.push('>');
-    s
+    Symbol::intern(&s)
 }
 
 pub(crate) fn monomorphize_fns(
     prog: &Program,
-    call_type_args: &HashMap<Span, (String, Vec<Type>)>,
+    call_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
     // Catalog generic fns. After class monomorphization every fn is a
     // top-level `Item::Fn` (methods live inside their class's items),
     // so we don't need to look at class methods here.
-    let generic_fns: HashMap<String, FnDecl> = prog
+    let generic_fns: HashMap<Symbol, FnDecl> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -1612,14 +1612,14 @@ pub(crate) fn monomorphize_fns(
 
     // Worklist of concrete instantiations to synthesize. Dedup by
     // mangled name; keep the (name, args) pair around for substitution.
-    let mut requested: HashSet<String> = HashSet::new();
-    let mut worklist: Vec<(String, Vec<Type>)> = Vec::new();
+    let mut requested: HashSet<Symbol> = HashSet::new();
+    let mut worklist: Vec<(Symbol, Vec<Type>)> = Vec::new();
 
     let enqueue = |name: &str,
                    args: &[Type],
-                   wl: &mut Vec<(String, Vec<Type>)>,
-                   req: &mut HashSet<String>| {
-        if !generic_fns.contains_key(name) {
+                   wl: &mut Vec<(Symbol, Vec<Type>)>,
+                   req: &mut HashSet<Symbol>| {
+        if !generic_fns.contains_key(&Symbol::intern(name)) {
             return;
         }
         if args.iter().any(contains_type_var) {
@@ -1627,13 +1627,13 @@ pub(crate) fn monomorphize_fns(
         }
         let key = mangle_fn_name(name, args);
         if req.insert(key) {
-            wl.push((name.to_string(), args.to_vec()));
+            wl.push((name.into(), args.to_vec()));
         }
     };
 
     // Seed: scan every call in the program. Outer substitution is
     // empty (we're at the top level / inside non-generic items).
-    let empty_params: Vec<String> = Vec::new();
+    let empty_params: Vec<Symbol> = Vec::new();
     let empty_args: Vec<Type> = Vec::new();
     for item in &prog.items {
         seed_calls_in_item(
@@ -1665,9 +1665,9 @@ pub(crate) fn monomorphize_fns(
 
     // Drain the worklist. Each specialization may discover further
     // generic-fn calls in its (substituted) body; those go back on.
-    let mut synthesized: HashMap<String, FnDecl> = HashMap::new();
+    let mut synthesized: HashMap<Symbol, FnDecl> = HashMap::new();
     while let Some((name, args)) = worklist.pop() {
-        let mangled = mangle_fn_name(&name, &args);
+        let mangled = mangle_fn_name(name.as_str(), &args);
         if synthesized.contains_key(&mangled) {
             continue;
         }
@@ -1745,8 +1745,8 @@ pub(crate) fn monomorphize_fns(
 
 fn seed_calls_in_item(
     item: &Item,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -1763,8 +1763,8 @@ fn seed_calls_in_item(
 
 fn seed_calls_in_block(
     b: &Block,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -1778,8 +1778,8 @@ fn seed_calls_in_block(
 
 fn seed_calls_in_stmt(
     s: &Stmt,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -1793,8 +1793,8 @@ fn seed_calls_in_stmt(
 
 fn seed_calls_in_expr(
     e: &Expr,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -1805,7 +1805,7 @@ fn seed_calls_in_expr(
                     .iter()
                     .map(|t| subst_type(t, outer_params, outer_args))
                     .collect();
-                visit(callee, &concrete);
+                visit(callee.as_str(), &concrete);
             }
         }
     }
@@ -1818,10 +1818,10 @@ fn seed_calls_in_expr(
 
 fn rewrite_calls_in_item(
     item: &Item,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
-    generic_fns: &HashMap<String, FnDecl>,
+    generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Item {
     match item {
         Item::Fn(f) => Item::Fn(FnDecl {
@@ -1937,10 +1937,10 @@ fn rewrite_calls_in_item(
 
 fn rewrite_calls_in_block(
     b: &Block,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
-    generic_fns: &HashMap<String, FnDecl>,
+    generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Block {
     Block {
         stmts: b
@@ -1962,10 +1962,10 @@ fn rewrite_calls_in_block(
 
 fn rewrite_calls_in_stmt(
     s: &Stmt,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
-    generic_fns: &HashMap<String, FnDecl>,
+    generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value } => StmtKind::Let {
@@ -1986,10 +1986,10 @@ fn rewrite_calls_in_stmt(
 
 fn rewrite_calls_in_expr(
     e: &Expr,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
-    generic_fns: &HashMap<String, FnDecl>,
+    generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Expr {
     let kind = match &e.kind {
         ExprKind::Call { callee, args } => {
@@ -2007,7 +2007,7 @@ fn rewrite_calls_in_expr(
                             .map(|t| subst_type(t, outer_params, outer_args))
                             .collect();
                         if !concrete.iter().any(contains_type_var) {
-                            mangle_fn_name(callee, &concrete)
+                            mangle_fn_name(callee.as_str(), &concrete)
                         } else {
                             callee.clone() // dangling — JIT will error
                         }
@@ -2416,10 +2416,10 @@ fn result_template() -> EnumDecl {
 
 pub(crate) fn monomorphize_enums(
     prog: &Program,
-    enum_ctor_type_args: &HashMap<Span, (String, Vec<Type>)>,
+    enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
     // Catalog generic enums. Result is always available (built-in).
-    let mut generic_enums: HashMap<String, EnumDecl> = prog
+    let mut generic_enums: HashMap<Symbol, EnumDecl> = prog
         .items
         .iter()
         .filter_map(|i| match i {
@@ -2433,14 +2433,14 @@ pub(crate) fn monomorphize_enums(
         return prog.clone();
     }
 
-    let mut requested: HashSet<String> = HashSet::new();
+    let mut requested: HashSet<Symbol> = HashSet::new();
     let mut worklist: Vec<InstKey> = Vec::new();
 
     // Closure that classifies an instantiation as either an enum
     // (worklist-bound) or anything else (skipped).
     let enqueue_enum =
-        |name: &str, args: &[Type], wl: &mut Vec<InstKey>, req: &mut HashSet<String>| {
-            if !generic_enums.contains_key(name) {
+        |name: &str, args: &[Type], wl: &mut Vec<InstKey>, req: &mut HashSet<Symbol>| {
+            if !generic_enums.contains_key(&Symbol::intern(name)) {
                 return;
             }
             if args.iter().any(contains_type_var) {
@@ -2464,7 +2464,7 @@ pub(crate) fn monomorphize_enums(
     }
 
     // Seed pass B: walk every EnumCtor with the side-table.
-    let empty_params: Vec<String> = Vec::new();
+    let empty_params: Vec<Symbol> = Vec::new();
     let empty_args: Vec<Type> = Vec::new();
     for item in &prog.items {
         seed_enum_ctors_in_item(
@@ -2497,7 +2497,7 @@ pub(crate) fn monomorphize_enums(
     // Drain worklist. Each specialization's payload types may
     // themselves contain `Type::Generic { Enum, ... }` refs (e.g.
     // `Result<Box<i64>, string>`); those go back on the worklist.
-    let mut synthesized: HashMap<String, EnumDecl> = HashMap::new();
+    let mut synthesized: HashMap<Symbol, EnumDecl> = HashMap::new();
     while let Some(key) = worklist.pop() {
         let mangled = key.mangled();
         if synthesized.contains_key(&mangled) {
@@ -2510,7 +2510,7 @@ pub(crate) fn monomorphize_enums(
         if template.type_params.len() != key.args.len() {
             continue;
         }
-        let new_enum = specialize_enum(&template, &key.args, &mangled);
+        let new_enum = specialize_enum(&template, &key.args, mangled.as_str());
         // Walk new variants for further generic enum refs.
         for v in &new_enum.variants {
             match &v.payload {
@@ -2587,7 +2587,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
     // mangled instead of leaking back as Type::Generic).
     let args: Vec<Type> = args.iter().map(rewrite_type).collect();
     EnumDecl {
-        name: mangled.to_string(),
+        name: mangled.into(),
         type_params: Vec::new(),
         repr_ty: e.repr_ty.clone(),
         flags: e.flags,
@@ -2695,7 +2695,7 @@ fn seed_enums_in_expr(e: &Expr, visit: &mut dyn FnMut(&str, &[Type])) {
 fn seed_enums_in_type(t: &Type, visit: &mut dyn FnMut(&str, &[Type])) {
     match t {
         Type::Generic(g) => {
-            visit(&g.base, &g.args);
+            visit(g.base.as_str(), &g.args);
             for a in &g.args {
                 seed_enums_in_type(a, visit);
             }
@@ -2716,8 +2716,8 @@ fn seed_enums_in_type(t: &Type, visit: &mut dyn FnMut(&str, &[Type])) {
 
 fn seed_enum_ctors_in_item(
     item: &Item,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -2734,8 +2734,8 @@ fn seed_enum_ctors_in_item(
 
 fn seed_enum_ctors_in_block(
     b: &Block,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -2749,8 +2749,8 @@ fn seed_enum_ctors_in_block(
 
 fn seed_enum_ctors_in_stmt(
     s: &Stmt,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -2764,8 +2764,8 @@ fn seed_enum_ctors_in_stmt(
 
 fn seed_enum_ctors_in_expr(
     e: &Expr,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
     visit: &mut dyn FnMut(&str, &[Type]),
 ) {
@@ -2776,7 +2776,7 @@ fn seed_enum_ctors_in_expr(
                     .iter()
                     .map(|t| subst_type(t, outer_params, outer_args))
                     .collect();
-                visit(enum_name, &concrete);
+                visit(enum_name.as_str(), &concrete);
             }
         }
     }
@@ -2789,9 +2789,9 @@ fn seed_enum_ctors_in_expr(
 
 fn rewrite_enum_refs_in_item(
     item: &Item,
-    generic_enums: &HashMap<String, EnumDecl>,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    generic_enums: &HashMap<Symbol, EnumDecl>,
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Item {
     match item {
@@ -2964,9 +2964,9 @@ fn rewrite_enum_refs_in_item(
 
 fn rewrite_enum_refs_in_block(
     b: &Block,
-    generic_enums: &HashMap<String, EnumDecl>,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    generic_enums: &HashMap<Symbol, EnumDecl>,
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Block {
     Block {
@@ -2991,9 +2991,9 @@ fn rewrite_enum_refs_in_block(
 
 fn rewrite_enum_refs_in_stmt(
     s: &Stmt,
-    generic_enums: &HashMap<String, EnumDecl>,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    generic_enums: &HashMap<Symbol, EnumDecl>,
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Stmt {
     let kind = match &s.kind {
@@ -3021,9 +3021,9 @@ fn rewrite_enum_refs_in_stmt(
 
 fn rewrite_enum_refs_in_expr(
     e: &Expr,
-    generic_enums: &HashMap<String, EnumDecl>,
-    table: &HashMap<Span, (String, Vec<Type>)>,
-    outer_params: &[String],
+    generic_enums: &HashMap<Symbol, EnumDecl>,
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
     outer_args: &[Type],
 ) -> Expr {
     let kind = match &e.kind {
@@ -3060,7 +3060,7 @@ fn rewrite_enum_refs_in_expr(
                             .map(|t| subst_type(t, outer_params, outer_args))
                             .collect();
                         if !concrete.iter().any(contains_type_var) {
-                            mangle_enum(enum_name, &concrete)
+                            mangle_enum(enum_name.as_str(), &concrete)
                         } else {
                             enum_name.clone()
                         }
@@ -3100,7 +3100,7 @@ fn rewrite_enum_refs_in_expr(
                         ilang_ast::PatternKind::Variant { enum_name, variant, bindings } => {
                             let stripped = enum_name
                                 .as_ref()
-                                .filter(|n| !generic_enums.contains_key(n.as_str()))
+                                .filter(|n| !generic_enums.contains_key(n))
                                 .cloned();
                             ilang_ast::Pattern {
                                 kind: ilang_ast::PatternKind::Variant {
@@ -3136,14 +3136,14 @@ fn rewrite_enum_refs_in_expr(
 
 fn rewrite_enum_refs_in_type(
     t: &Type,
-    generic_enums: &HashMap<String, EnumDecl>,
+    generic_enums: &HashMap<Symbol, EnumDecl>,
 ) -> Type {
     match t {
         Type::Generic(g) => {
             let new_args: Vec<Type> =
                 g.args.iter().map(|a| rewrite_enum_refs_in_type(a, generic_enums)).collect();
             if generic_enums.contains_key(&g.base) && !new_args.iter().any(contains_type_var) {
-                Type::Object(mangle_enum(&g.base, &new_args))
+                Type::Object(mangle_enum(g.base.as_str(), &new_args))
             } else {
                 Type::generic(g.base.clone(), new_args)
             }
@@ -3164,6 +3164,6 @@ fn rewrite_enum_refs_in_type(
     }
 }
 
-fn mangle_enum(name: &str, args: &[Type]) -> String {
+fn mangle_enum(name: &str, args: &[Type]) -> Symbol {
     InstKey { class: name.into(), args: args.to_vec() }.mangled()
 }

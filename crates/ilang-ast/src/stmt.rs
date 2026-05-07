@@ -1,4 +1,5 @@
 use crate::expr::Expr;
+use crate::intern::Symbol;
 use crate::span::Span;
 use crate::types::Type;
 
@@ -17,7 +18,7 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     Let {
-        name: String,
+        name: Symbol,
         ty: Option<Type>,
         value: Expr,
     },

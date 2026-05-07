@@ -68,11 +68,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(crate) fn expect_ident(&mut self, label: &str) -> Result<String, ParseError> {
+    pub(crate) fn expect_ident(&mut self, label: &str) -> Result<ilang_ast::Symbol, ParseError> {
         let t = self.peek().clone();
         if let TokenKind::Ident(n) = t.kind {
             self.bump();
-            Ok(n)
+            Ok(n.into())
         } else {
             Err(ParseError::Unexpected {
                 found: t.kind,
@@ -94,13 +94,13 @@ impl<'a> Parser<'a> {
     pub(crate) fn expect_member_name(
         &mut self,
         label: &str,
-    ) -> Result<String, ParseError> {
+    ) -> Result<ilang_ast::Symbol, ParseError> {
         let t = self.peek().clone();
         let name: Option<&'static str> = match &t.kind {
             TokenKind::Ident(n) => {
                 let s = n.clone();
                 self.bump();
-                return Ok(s);
+                return Ok(s.into());
             }
             TokenKind::Class => Some("class"),
             TokenKind::None_ => Some("none"),
@@ -118,7 +118,7 @@ impl<'a> Parser<'a> {
         };
         if let Some(s) = name {
             self.bump();
-            Ok(s.to_string())
+            Ok(s.into())
         } else {
             Err(ParseError::Unexpected {
                 found: t.kind,

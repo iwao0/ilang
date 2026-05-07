@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_module::FuncId;
-use ilang_ast::Type;
+use ilang_ast::{Symbol, Type};
 use std::collections::HashMap as StdHashMap;
 
 use crate::error::CodegenError;
@@ -87,8 +87,8 @@ impl JitTy {
     pub(crate) fn from_ast(
         t: &Type,
         span: ilang_ast::Span,
-        class_ids: &HashMap<String, u32>,
-        enum_ids: &HashMap<String, u32>,
+        class_ids: &HashMap<Symbol, u32>,
+        enum_ids: &HashMap<Symbol, u32>,
         enum_layouts: &[EnumLayout],
         array_kinds: &mut Vec<ArrayKind>,
         optional_inners: &mut Vec<JitTy>,
@@ -387,18 +387,18 @@ pub(crate) fn intern_fn_sig(table: &mut Vec<FnSignature>, sig: FnSignature) -> u
 
 #[derive(Debug, Clone)]
 pub(crate) struct ClassLayout {
-    pub name: String,
-    pub fields: HashMap<String, (u32, JitTy)>,
+    pub name: Symbol,
+    pub fields: HashMap<Symbol, (u32, JitTy)>,
     pub size: u32,
     /// `extends Parent` — name of the parent class. The parent's
     /// fields are laid out first (same offsets as in the parent),
     /// the child's added fields follow. `None` for root classes.
-    pub parent: Option<String>,
+    pub parent: Option<Symbol>,
     /// `Some(libname)` for `@extern("lib") class Foo {}` — the
     /// runtime value is a raw C pointer (not an ARC-managed
     /// allocation). retain/release are skipped, fields are empty,
     /// `new` is rejected by the type checker.
-    pub extern_lib: Option<String>,
+    pub extern_lib: Option<Symbol>,
     /// `true` for `@extern(C) struct Foo { ... }`. Field offsets use
     /// natural C alignment, no methods/init, and nested repr_c
     /// fields are embedded inline.
@@ -413,7 +413,7 @@ pub(crate) struct ClassLayout {
     /// storage unit** that all consecutive bitfields of the same
     /// underlying type pack into; this map adds the bit-level
     /// position within that unit.
-    pub bitfields: HashMap<String, BitfieldInfo>,
+    pub bitfields: HashMap<Symbol, BitfieldInfo>,
     /// If this `@extern(C) struct` ends in a C99-style flexible array
     /// member (`T[]` last field), `Some` records the array kind id
     /// for the trailing element. `new ClassName(n)` allocates
@@ -497,9 +497,9 @@ pub(crate) fn intern_map_kind(table: &mut Vec<MapKind>, k: MapKind) -> u32 {
 /// `max_payload_size` is the max across variants.
 #[derive(Debug, Clone)]
 pub(crate) struct EnumLayout {
-    pub name: String,
+    pub name: Symbol,
     /// Variant names in declaration order.
-    pub variants: Vec<String>,
+    pub variants: Vec<Symbol>,
     /// Discriminant tag values per variant (parallel to `variants`).
     /// Equals the declaration index by default; explicit
     /// `variant = N` syntax overrides. The value stored at the
@@ -540,7 +540,7 @@ pub(crate) enum EnumVariantLayout {
     /// order, relative to the start of the user payload area.
     Tuple(Vec<(u32, JitTy)>),
     /// Named payload — name → (offset, type).
-    Struct(StdHashMap<String, (u32, JitTy)>),
+    Struct(StdHashMap<Symbol, (u32, JitTy)>),
 }
 
 /// Intern an array type, returning a stable side-table id. Linear scan

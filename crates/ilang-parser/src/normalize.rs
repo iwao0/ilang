@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 
 use ilang_ast::{
-    Block, CtorArgs, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind,
+    Block, CtorArgs, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind, Symbol,
 };
 
 /// Built-in enum names that are always available.
@@ -29,12 +29,12 @@ const BUILTIN_ENUMS: &[&str] = &["Result"];
 struct Ctx {
     /// All names that resolve as enums after the program is fully
     /// loaded (built-ins + every `Item::Enum`'s name).
-    enums: HashSet<String>,
+    enums: HashSet<Symbol>,
     /// Names that come from `use module` (whole-module imports).
     /// References like `module.foo` get rewritten to qualified
     /// `Var("module.foo")` (or `Call("module.foo", ...)`); the loader
     /// will have produced top-level items with those exact names.
-    modules: HashSet<String>,
+    modules: HashSet<Symbol>,
 }
 
 pub fn normalize(prog: Program) -> Program {
@@ -256,14 +256,14 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             // qualified `Var("module.X")` so the loader-merged
             // top-level item with that exact name is found.
             if let ExprKind::Var(receiver) = &obj.kind {
-                if ctx.modules.contains(receiver.as_str()) {
+                if ctx.modules.contains(&Symbol::intern(receiver.as_str())) {
                     return Expr::new(
-                        ExprKind::Var(format!("{receiver}.{name}")),
+                        ExprKind::Var(Symbol::intern(&format!("{receiver}.{name}"))),
                         span,
                     );
                 }
                 // Existing rule: enum unit ctor.
-                if ctx.enums.contains(receiver.as_str()) {
+                if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
                     return Expr::new(
                         ExprKind::EnumCtor {
                             enum_name: receiver.clone(),
@@ -286,16 +286,16 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             if let ExprKind::Var(receiver) = &obj.kind {
                 // Whole-module function call: `module.foo(args)`
                 // becomes `Call("module.foo", args)`.
-                if ctx.modules.contains(receiver.as_str()) {
+                if ctx.modules.contains(&Symbol::intern(receiver.as_str())) {
                     return Expr::new(
                         ExprKind::Call {
-                            callee: format!("{receiver}.{method}"),
+                            callee: Symbol::intern(&format!("{receiver}.{method}")),
                             args: new_args,
                         },
                         span,
                     );
                 }
-                if ctx.enums.contains(receiver.as_str()) {
+                if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
                     return Expr::new(
                         ExprKind::EnumCtor {
                             enum_name: receiver.clone(),
@@ -422,15 +422,15 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         // The temp name embeds the source position so nested struct
         // literals don't collide.
         ExprKind::StructLit { class, fields } => {
-            let tmp = format!("__struct_lit_{}_{}", span.line, span.col);
+            let tmp: Symbol = format!("__struct_lit_{}_{}", span.line, span.col).into();
             let mut stmts: Vec<ilang_ast::Stmt> = Vec::with_capacity(fields.len() + 1);
             stmts.push(ilang_ast::Stmt {
                 kind: ilang_ast::StmtKind::Let {
-                    name: tmp.clone(),
+                    name: tmp,
                     ty: None,
                     value: Expr::new(
                         ExprKind::New {
-                            class: class.clone(),
+                            class,
                             type_args: Vec::new(),
                             args: Vec::new(),
                             init_method: None,
@@ -443,7 +443,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             for (fname, fval) in fields {
                 let assign = Expr::new(
                     ExprKind::AssignField {
-                        obj: Box::new(Expr::new(ExprKind::Var(tmp.clone()), span)),
+                        obj: Box::new(Expr::new(ExprKind::Var(tmp), span)),
                         field: fname,
                         value: Box::new(rewrite_expr(fval, ctx)),
                     },

@@ -19,7 +19,7 @@
 //! | `as` (cast)             | 25 / —      | postfix|
 //! | prefix `-` `+` `!` `~`  | — / 30      | prefix |
 
-use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
+use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp, Symbol};
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
@@ -51,7 +51,7 @@ fn apply_int_suffix(n: i64, suffix: Option<&ilang_ast::Type>) -> i64 {
 /// `StructLit`, leaving module-prefix resolution to the loader.
 fn flatten_var_dot_chain(e: &Expr) -> Option<String> {
     match &e.kind {
-        ExprKind::Var(n) => Some(n.clone()),
+        ExprKind::Var(n) => Some(n.as_str().to_string()),
         ExprKind::Field { obj, name } => {
             let base = flatten_var_dot_chain(obj)?;
             Some(format!("{base}.{name}"))
@@ -284,7 +284,7 @@ impl<'a> Parser<'a> {
                         ) =>
                 {
                     self.bump();
-                    let mut fs: Vec<(String, Expr)> = Vec::new();
+                    let mut fs: Vec<(Symbol, Expr)> = Vec::new();
                     while !matches!(self.peek().kind, TokenKind::RBrace) {
                         let fname = self.expect_ident("field name")?;
                         self.expect(&TokenKind::Colon, "':'")?;
@@ -309,7 +309,7 @@ impl<'a> Parser<'a> {
                     let span = expr.span;
                     expr = Expr::new(
                         ExprKind::StructLit {
-                            class: class_name,
+                            class: class_name.into(),
                             fields: fs,
                         },
                         span,
@@ -500,13 +500,14 @@ impl<'a> Parser<'a> {
                 self.bump();
                 // Class name is either bare `Counter` or
                 // `module.Counter` (whole-module imported class).
-                let mut class = self.expect_ident("class name")?;
+                let mut class_str = self.expect_ident("class name")?.as_str().to_string();
                 while matches!(self.peek().kind, TokenKind::Dot) {
                     self.bump();
                     let part = self.expect_ident("class name segment")?;
-                    class.push('.');
-                    class.push_str(&part);
+                    class_str.push('.');
+                    class_str.push_str(part.as_str());
                 }
+                let class: Symbol = class_str.into();
                 // Optional `<T, U>` type arguments before the constructor
                 // arg list. Unambiguous after `new ClassName` since `<`
                 // can never be the start of an expression here.
@@ -613,9 +614,9 @@ impl<'a> Parser<'a> {
                 if matches!(self.peek().kind, TokenKind::LParen) {
                     self.bump();
                     let args = self.parse_call_args()?;
-                    Ok(Expr::new(ExprKind::Call { callee: name, args }, span))
+                    Ok(Expr::new(ExprKind::Call { callee: name.into(), args }, span))
                 } else {
-                    Ok(Expr::new(ExprKind::Var(name), span))
+                    Ok(Expr::new(ExprKind::Var(name.into()), span))
                 }
             }
             TokenKind::Match => {
@@ -1317,7 +1318,7 @@ impl<'a> Parser<'a> {
         let body = parse_block(self)?;
         Ok(Expr::new(
             ExprKind::ForIn {
-                var,
+                var: var.into(),
                 iter: Box::new(iter),
                 body,
             },

@@ -3,6 +3,8 @@
 //! (`test.expect`, `test.expectStr`, ...). Each helper aborts with
 //! exit code 2 on mismatch so the harness sees a non-zero status.
 
+use ilang_ast::Symbol;
+
 use cranelift_jit::JITBuilder;
 
 use crate::runtime::StringRc;
@@ -328,7 +330,7 @@ extern "C" fn test_byte_at(ptr: i64, offset: i64) -> i32 {
     unsafe { *((ptr + offset) as *const u8) as i32 }
 }
 
-pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<String, i64>) {
+pub(crate) fn register_test_static_addrs(out: &mut std::collections::HashMap<Symbol, i64>) {
     out.insert(
         "test_static_i32".into(),
         std::ptr::addr_of_mut!(TEST_STATIC_I32) as i64,

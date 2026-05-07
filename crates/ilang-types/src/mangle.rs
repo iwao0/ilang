@@ -10,15 +10,16 @@ use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param, Program, Span, Stmt,
-    StmtKind, Type, Variant, VariantPayload,
+    StmtKind, Symbol, Type, Variant, VariantPayload,
 };
 
 /// Mangle an overloaded fn name to `<name>__<param1>_<param2>_...`.
 /// Each param-type Display rendering with `<`/`>`/`,`/spaces stripped
 /// so the result is a usable identifier.
-fn mangled_name(base: &str, params: &[Type]) -> String {
+fn mangled_name(base: Symbol, params: &[Type]) -> Symbol {
+    let base = base.as_str();
     if params.is_empty() {
-        return format!("{base}__");
+        return Symbol::intern(&format!("{base}__"));
     }
     let mut s = String::from(base);
     s.push_str("__");
@@ -30,7 +31,7 @@ fn mangled_name(base: &str, params: &[Type]) -> String {
         t = t.replace([' ', '<', '>', ',', '?', '[', ']', '.', '(', ')'], "_");
         s.push_str(&t);
     }
-    s
+    Symbol::intern(&s)
 }
 
 /// Apply the mangling pass. `picks[span] = (callee_name, sig_idx)`
@@ -39,20 +40,20 @@ fn mangled_name(base: &str, params: &[Type]) -> String {
 /// the same for class methods (including `init` selected at `new`).
 pub fn mangle_overloads(
     prog: Program,
-    picks: &HashMap<Span, (String, usize)>,
-    method_picks: &HashMap<Span, (String, String, usize)>,
+    picks: &HashMap<Span, (Symbol, usize)>,
+    method_picks: &HashMap<Span, (Symbol, Symbol, usize)>,
     default_fills: &HashMap<Span, Vec<Expr>>,
 ) -> Program {
     // 1. Group Item::Fn entries by source name to see which ones are
     //    actually overloaded.
-    let mut fn_indices: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut fn_indices: HashMap<Symbol, Vec<usize>> = HashMap::new();
     for (i, item) in prog.items.iter().enumerate() {
         if let Item::Fn(f) = item {
             fn_indices.entry(f.name.clone()).or_default().push(i);
         }
     }
     // Names with exactly one declaration: no mangling needed.
-    let overloaded: HashSet<String> = fn_indices
+    let overloaded: HashSet<Symbol> = fn_indices
         .iter()
         .filter(|(_, v)| v.len() > 1)
         .map(|(k, _)| k.clone())
@@ -61,8 +62,8 @@ pub fn mangle_overloads(
     // Same idea for class methods. `(class_name, method_name) → Vec<method-position-in-class.methods>`.
     // Also reach into `@extern(C) {}` blocks: classes declared
     // there can be overloaded the same way as top-level ones.
-    let mut method_indices: HashMap<(String, String), Vec<usize>> = HashMap::new();
-    let walk_class_methods = |c: &ClassDecl, method_indices: &mut HashMap<(String, String), Vec<usize>>| {
+    let mut method_indices: HashMap<(Symbol, Symbol), Vec<usize>> = HashMap::new();
+    let walk_class_methods = |c: &ClassDecl, method_indices: &mut HashMap<(Symbol, Symbol), Vec<usize>>| {
         for (i, m) in c.methods.iter().enumerate() {
             method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
         }
@@ -80,7 +81,7 @@ pub fn mangle_overloads(
             _ => {}
         }
     }
-    let overloaded_methods: HashSet<(String, String)> = method_indices
+    let overloaded_methods: HashSet<(Symbol, Symbol)> = method_indices
         .iter()
         .filter(|(_, v)| v.len() > 1)
         .map(|(k, _)| k.clone())
@@ -94,19 +95,19 @@ pub fn mangle_overloads(
     //    fns and class methods. Sig_idx is the index in the
     //    typechecker's overload list, which matches declaration
     //    order.
-    let mut new_names: HashMap<(String, usize), String> = HashMap::new();
-    let mut item_new_name: HashMap<usize, String> = HashMap::new();
+    let mut new_names: HashMap<(Symbol, usize), Symbol> = HashMap::new();
+    let mut item_new_name: HashMap<usize, Symbol> = HashMap::new();
     for name in &overloaded {
         for (idx, item_pos) in fn_indices[name].iter().enumerate() {
             if let Item::Fn(f) = &prog.items[*item_pos] {
-                let mangled = mangled_name(name, &param_types(f));
+                let mangled = mangled_name(*name, &param_types(f));
                 new_names.insert((name.clone(), idx), mangled.clone());
                 item_new_name.insert(*item_pos, mangled);
             }
         }
     }
 
-    let mut new_method_names: HashMap<(String, String, usize), String> = HashMap::new();
+    let mut new_method_names: HashMap<(Symbol, Symbol, usize), Symbol> = HashMap::new();
     for (class_name, method_name) in &overloaded_methods {
         // Find the class — either at top level or inside an
         // `@extern(C) {}` block — and walk its methods in
@@ -124,7 +125,7 @@ pub fn mangle_overloads(
             let mut sig_idx = 0;
             for m in &c.methods {
                 if m.name == *method_name {
-                    let mangled = mangled_name(method_name, &param_types(m));
+                    let mangled = mangled_name(*method_name, &param_types(m));
                     new_method_names.insert(
                         (class_name.clone(), method_name.clone(), sig_idx),
                         mangled,
@@ -165,13 +166,13 @@ pub fn mangle_overloads(
 }
 
 struct Ctx<'a> {
-    overloaded: &'a HashSet<String>,
-    new_names: &'a HashMap<(String, usize), String>,
-    item_new_name: &'a HashMap<usize, String>,
-    overloaded_methods: &'a HashSet<(String, String)>,
-    new_method_names: &'a HashMap<(String, String, usize), String>,
-    picks: &'a HashMap<Span, (String, usize)>,
-    method_picks: &'a HashMap<Span, (String, String, usize)>,
+    overloaded: &'a HashSet<Symbol>,
+    new_names: &'a HashMap<(Symbol, usize), Symbol>,
+    item_new_name: &'a HashMap<usize, Symbol>,
+    overloaded_methods: &'a HashSet<(Symbol, Symbol)>,
+    new_method_names: &'a HashMap<(Symbol, Symbol, usize), Symbol>,
+    picks: &'a HashMap<Span, (Symbol, usize)>,
+    method_picks: &'a HashMap<Span, (Symbol, Symbol, usize)>,
     /// Per-call-site default-arg fills produced by the type checker.
     /// Each entry is the list of (already type-checked) trailing
     /// default expressions appended to the call's args during this
@@ -229,7 +230,7 @@ fn rewrite_class_in_place(c: &mut ClassDecl, ctx: &Ctx) {
     // Rename overloaded methods. Walk in declaration order so
     // sig_idx matches what the typechecker recorded.
     let class_name = c.name.clone();
-    let mut sig_counter: HashMap<String, usize> = HashMap::new();
+    let mut sig_counter: HashMap<Symbol, usize> = HashMap::new();
     for m in &mut c.methods {
         let body = std::mem::replace(
             &mut m.body,
@@ -402,9 +403,9 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             // to the mangled name the typechecker selected. Otherwise
             // preserve any existing value (None for fresh AST).
             let new_init = if let Some((cls, m, idx)) = ctx.method_picks.get(&span) {
-                if m == "init" && ctx.overloaded_methods.contains(&(cls.clone(), "init".to_string())) {
+                if m == "init" && ctx.overloaded_methods.contains(&(cls.clone(), "init".into())) {
                     ctx.new_method_names
-                        .get(&(cls.clone(), "init".to_string(), *idx))
+                        .get(&(cls.clone(), "init".into(), *idx))
                         .cloned()
                         .or(existing)
                 } else {

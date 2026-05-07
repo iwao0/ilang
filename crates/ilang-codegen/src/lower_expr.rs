@@ -5,7 +5,7 @@
 use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I16, I32, I64, I8};
 use cranelift_module::Module;
-use ilang_ast::{Expr, ExprKind};
+use ilang_ast::{Expr, ExprKind, Symbol};
 
 use crate::arc::{
     emit_bind_retain, emit_release_heap, emit_release_object, emit_release_string,
@@ -123,7 +123,7 @@ pub(crate) fn lower_expr(
             // cached per fn name (see `ensure_trampoline`).
             if let Some(entry) = lc.funcs.get(name).cloned() {
                 let (id, params, ret) = entry;
-                let trampoline_id = ensure_trampoline(b, lc, name, id, &params, ret)?;
+                let trampoline_id = ensure_trampoline(b, lc, name.as_str(), id, &params, ret)?;
                 // Allocate a 0-capture closure pointing at the trampoline.
                 // No captures → no drop fn needed (drop_fn_ptr=0).
                 let alloc_ref = lc
@@ -154,7 +154,7 @@ pub(crate) fn lower_expr(
             })
         }
         ExprKind::Closure { fn_name, captures } => {
-            lower_closure_construct(b, lc, fn_name, captures, e.span)
+            lower_closure_construct(b, lc, fn_name.as_str(), captures, e.span)
         }
         ExprKind::MapLit(entries) => lower_map_lit(b, lc, entries, e.span),
         ExprKind::Cast { expr, ty } => {
@@ -181,7 +181,7 @@ pub(crate) fn lower_expr(
             let opaque_no_deinit = |t: JitTy| match t {
                 JitTy::Object(class_id) => {
                     lc.class_layouts[class_id as usize].extern_lib.is_some()
-                        && !lc.class_methods[class_id as usize].contains_key("deinit")
+                        && !lc.class_methods[class_id as usize].contains_key(&"deinit".into())
                 }
                 _ => false,
             };
@@ -211,7 +211,7 @@ pub(crate) fn lower_expr(
         }
         ExprKind::Loop { body } => Ok(lower_loop(b, lc, body, e.span)?),
         ExprKind::ForIn { var, iter, body } => {
-            lower_for_in(b, lc, var, iter, body)?;
+            lower_for_in(b, lc, var.as_str(), iter, body)?;
             Ok(None)
         }
         ExprKind::Range { .. } => Err(CodegenError::Unsupported {
@@ -258,7 +258,7 @@ pub(crate) fn lower_expr(
             })?;
             let parent_name = lc
                 .class_parents
-                .get(&cur)
+                .get(&Symbol::intern(&cur))
                 .cloned()
                 .ok_or_else(|| CodegenError::Unsupported {
                     what: format!("class {cur:?} has no parent for `super`"),
@@ -270,9 +270,9 @@ pub(crate) fn lower_expr(
                     what: format!("unknown parent class {parent_name:?}"),
                     span: e.span,
                 })?;
-            let lookup: &str = method.as_deref().unwrap_or("init");
+            let lookup: Symbol = method.unwrap_or_else(|| "init".into());
             let info = lc.class_methods[parent_id as usize]
-                .get(lookup)
+                .get(&lookup)
                 .cloned()
                 .ok_or_else(|| CodegenError::Unsupported {
                     what: format!(
@@ -329,7 +329,7 @@ pub(crate) fn lower_expr(
             enum_name,
             variant,
             args,
-        } => lower_enum_ctor(b, lc, enum_name, variant, args, e.span),
+        } => lower_enum_ctor(b, lc, enum_name.as_str(), variant.as_str(), args, e.span),
         ExprKind::Match { scrutinee, arms } => lower_match(b, lc, scrutinee, arms, e.span),
         ExprKind::Assign { target, value } => {
             // Ordinary local first; then implicit-`this` field write.
@@ -499,7 +499,7 @@ pub(crate) fn lower_expr(
             // param type, retains as if passing into a normal method.
             let prop_key = format!("__prop_set_{field}");
             if let Some(info) =
-                lc.class_methods[class_id as usize].get(&prop_key).cloned()
+                lc.class_methods[class_id as usize].get(&Symbol::intern(&prop_key)).cloned()
             {
                 emit_retain_object(b, lc, obj_v);
                 let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
@@ -716,7 +716,7 @@ pub(crate) fn lower_expr(
             // field load when the class has no such property.
             let prop_key = format!("__prop_get_{name}");
             if let Some(info) =
-                lc.class_methods[class_id as usize].get(&prop_key).cloned()
+                lc.class_methods[class_id as usize].get(&Symbol::intern(&prop_key)).cloned()
             {
                 emit_retain_object(b, lc, obj_v);
                 let func_ref = lc.module.declare_func_in_func(info.id, b.func);
@@ -804,7 +804,7 @@ pub(crate) fn lower_expr(
                 // class names — the env lookup wins if both exist.
                 if !lc.env.bindings.contains_key(name) {
                     let qualified = format!("{name}.{method}");
-                    if let Some(entry) = lc.funcs.get(&qualified).cloned() {
+                    if let Some(entry) = lc.funcs.get(&Symbol::intern(&qualified)).cloned() {
                         let (id, param_tys, ret_ty) = entry;
                         let mut arg_vals = Vec::with_capacity(args.len());
                         for (i, a) in args.iter().enumerate() {
@@ -1039,7 +1039,7 @@ pub(crate) fn lower_expr(
                     }
                     let elem_jty = lc.array_kinds[id as usize].elem;
                     return lower_array_higher_order(
-                        b, lc, obj_v, obj, &args[0], id, elem_jty, method,
+                        b, lc, obj_v, obj, &args[0], id, elem_jty, method.as_str(),
                     );
                 }
             }
@@ -1207,7 +1207,7 @@ pub(crate) fn lower_expr(
             }
             // Built-in Map methods.
             if let JitTy::Map(map_id) = obj_t {
-                return lower_map_method(b, lc, map_id, method, obj_v, args, e.span);
+                return lower_map_method(b, lc, map_id, method.as_str(), obj_v, args, e.span);
             }
             let class_id = match obj_t {
                 JitTy::Object(id) => id,
@@ -1218,7 +1218,7 @@ pub(crate) fn lower_expr(
                     });
                 }
             };
-            call_method(b, lc, class_id, method, obj_v, args, e.span)
+            call_method(b, lc, class_id, method.as_str(), obj_v, args, e.span)
         }
         ExprKind::Call { callee, args } => {
             // Indirect call through a function-typed local. Matches the
@@ -1268,7 +1268,7 @@ pub(crate) fn lower_expr(
             // Built-in helpers callable inside `@extern(C) { ... }`
             // blocks. Recognised before the normal `lc.funcs` lookup
             // so they bypass the regular extern-fn machinery.
-            if let Some(result) = try_lower_extern_c_helper(b, lc, callee, args, e.span)? {
+            if let Some(result) = try_lower_extern_c_helper(b, lc, callee.as_str(), args, e.span)? {
                 return Ok(result);
             }
             // Free function first.
@@ -1371,7 +1371,7 @@ pub(crate) fn lower_expr(
                                     .extern_lib
                                     .is_some()
                                     && lc.class_methods[class_id as usize]
-                                        .contains_key("deinit") =>
+                                        .contains_key(&"deinit".into()) =>
                             {
                                 b.ins().load(I64, MemFlags::trusted(), av, 0)
                             }
@@ -1708,7 +1708,7 @@ pub(crate) fn lower_expr(
             if let Some((this_var, class_id)) = lc.this {
                 if lc.class_methods[class_id as usize].contains_key(callee) {
                     let this_v = b.use_var(this_var);
-                    return call_method(b, lc, class_id, callee, this_v, args, e.span);
+                    return call_method(b, lc, class_id, callee.as_str(), this_v, args, e.span);
                 }
             }
             Err(CodegenError::Unsupported {
@@ -2124,9 +2124,9 @@ pub(crate) fn lower_expr(
                 // If init exists, call it. The mangler may have set
                 // `init_method` to a specific overload (e.g.
                 // "init__i64"); fall back to plain "init" otherwise.
-                let init_lookup: &str = init_method.as_deref().unwrap_or("init");
-                if lc.class_methods[class_id as usize].contains_key(init_lookup) {
-                    let _ = call_method(b, lc, class_id, init_lookup, ptr, args, e.span)?;
+                let init_lookup: Symbol = init_method.unwrap_or_else(|| "init".into());
+                if lc.class_methods[class_id as usize].contains_key(&init_lookup) {
+                    let _ = call_method(b, lc, class_id, init_lookup.as_str(), ptr, args, e.span)?;
                 } else if !args.is_empty() {
                     return Err(CodegenError::Unsupported {
                         what: format!("no `init` for class {class}, but args were given"),
@@ -2186,7 +2186,7 @@ pub(crate) fn lower_expr(
             expr,
             then_branch,
             else_branch,
-        } => lower_if_let(b, lc, name, expr, then_branch, else_branch.as_deref()),
+        } => lower_if_let(b, lc, name.as_str(), expr, then_branch, else_branch.as_deref()),
     }
 }
 
@@ -2277,7 +2277,7 @@ fn lower_enum_ctor(
     args: &ilang_ast::CtorArgs,
     span: ilang_ast::Span,
 ) -> Result<Option<TV>, CodegenError> {
-    let id = match enum_ids_from(lc).get(enum_name).copied() {
+    let id = match enum_ids_from(lc).get(&Symbol::intern(enum_name)).copied() {
         Some(id) => id,
         None => {
             return Err(CodegenError::Unsupported {
@@ -2361,7 +2361,7 @@ fn lower_enum_ctor(
                         span: expr.span,
                     }
                 })?;
-                let (av, at) = lower_expr(b, lc, expr)?.ok_or_else(|| {
+                let (av, at) = lower_expr(b, lc, &expr)?.ok_or_else(|| {
                     CodegenError::Unsupported {
                         what: "enum ctor field is unit".into(),
                         span: expr.span,
@@ -2644,7 +2644,7 @@ fn lower_match(
         b.seal_block(arm_blocks[i]);
         // Payload bindings (only when the scrutinee is a heap enum
         // and the pattern is a Variant with bindings).
-        let mut shadows: Vec<(String, Option<(Variable, JitTy)>)> = Vec::new();
+        let mut shadows: Vec<(Symbol, Option<(Variable, JitTy)>)> = Vec::new();
         if is_heap {
             if let ilang_ast::PatternKind::Variant {
                 variant: pvar,
@@ -2804,15 +2804,15 @@ fn lower_if_let(
         );
         b.def_var(var, payload);
     }
-    let prev = lc.env.bindings.insert(name.to_string(), (var, inner_jty));
+    let prev = lc.env.bindings.insert(Symbol::intern(name), (var, inner_jty));
     let then_val = lower_block_value(b, lc, then_branch)?;
     // Restore the prior binding.
     match prev {
         Some(p) => {
-            lc.env.bindings.insert(name.to_string(), p);
+            lc.env.bindings.insert(Symbol::intern(name), p);
         }
         None => {
-            lc.env.bindings.remove(name);
+            lc.env.bindings.remove(&Symbol::intern(name));
         }
     }
     // Release the +1 we took on entry. lower_block_value already
@@ -3014,7 +3014,7 @@ fn emit_print_value(
         JitTy::Weak(class_id) => {
             // `<weak ClassName alive>` / `<weak ClassName dead>`. The
             // strong_rc lives at offset -24 from the user pointer.
-            let class_name = lc.class_layouts[class_id as usize].name.clone();
+            let class_name = lc.class_layouts[class_id as usize].name.as_str().to_string();
             // Branch on (ptr != 0 && strong_rc > 0).
             let zero = b.ins().iconst(I64, 0);
             let alive_block = b.create_block();
@@ -3103,7 +3103,7 @@ fn emit_print_value(
                     }
                     EnumVariantLayout::Struct(map) => {
                         emit_print_literal(b, lc, &format!("{prefix} {{ "));
-                        let mut sorted: Vec<(&String, &(u32, JitTy))> = map.iter().collect();
+                        let mut sorted: Vec<(&Symbol, &(u32, JitTy))> = map.iter().collect();
                         sorted.sort_by(|a, b| a.0.cmp(b.0));
                         for (k, (name, (off, fty))) in sorted.into_iter().enumerate() {
                             if k > 0 {
@@ -3248,7 +3248,7 @@ fn is_managed_opaque(lc: &LowerCtx, ty: JitTy) -> bool {
     match ty {
         JitTy::Object(class_id) => {
             lc.class_layouts[class_id as usize].extern_lib.is_some()
-                && lc.class_methods[class_id as usize].contains_key("deinit")
+                && lc.class_methods[class_id as usize].contains_key(&"deinit".into())
         }
         _ => false,
     }
@@ -3325,15 +3325,15 @@ fn emit_print_object(
     class_id: u32,
     span: ilang_ast::Span,
 ) -> Result<(), CodegenError> {
-    let class_name = lc.class_layouts[class_id as usize].name.clone();
+    let class_name = lc.class_layouts[class_id as usize].name.as_str().to_string();
     // Snapshot the field list so we don't borrow `lc.class_layouts`
     // through the recursive emit_print_value call below.
-    let mut fields: Vec<(String, u32, JitTy)> = lc.class_layouts[class_id as usize]
+    let mut fields: Vec<(Symbol, u32, JitTy)> = lc.class_layouts[class_id as usize]
         .fields
         .iter()
-        .map(|(name, &(offset, fty))| (name.clone(), offset, fty))
+        .map(|(name, &(offset, fty))| (*name, offset, fty))
         .collect();
-    fields.sort_by(|a, b| a.0.cmp(&b.0));
+    fields.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
 
     if fields.is_empty() {
         emit_print_literal(b, lc, &format!("{class_name} {{}}"));
@@ -3489,7 +3489,7 @@ fn call_method(
     span: ilang_ast::Span,
 ) -> Result<Option<TV>, CodegenError> {
     let info = lc.class_methods[class_id as usize]
-        .get(method)
+        .get(&Symbol::intern(method))
         .cloned()
         .ok_or_else(|| CodegenError::Unsupported {
             what: format!(
@@ -3518,11 +3518,11 @@ fn call_method(
     // object's vtable and call_indirect through it. Inherited
     // overrides are reflected in the object's vtable, so a
     // `Parent` reference holding a `Child` calls the override.
-    let class_name = lc.class_layouts[class_id as usize].name.clone();
+    let class_name = lc.class_layouts[class_id as usize].name.as_str().to_string();
     let slot = lc
         .class_method_slots
-        .get(&class_name)
-        .and_then(|m| m.get(method))
+        .get(&Symbol::intern(&class_name))
+        .and_then(|m| m.get(&Symbol::intern(method)))
         .copied();
     if let Some(slot) = slot {
         // Build the Cranelift signature for call_indirect from
@@ -4478,7 +4478,7 @@ fn ensure_trampoline(
     use cranelift::prelude::*;
     use cranelift_codegen::ir::types::I64;
     use cranelift_module::Module as _;
-    if let Some(&id) = lc.closure_trampolines.get(name) {
+    if let Some(&id) = lc.closure_trampolines.get(&Symbol::intern(name)) {
         return Ok(id);
     }
     // Build the wrapper Cranelift signature: env_ptr (i64) + target
@@ -4528,7 +4528,7 @@ fn ensure_trampoline(
         .define_function(id, &mut ctx)
         .map_err(|e| CodegenError::Module(e.to_string()))?;
     lc.module.clear_context(&mut ctx);
-    lc.closure_trampolines.insert(name.to_string(), id);
+    lc.closure_trampolines.insert(name.into(), id);
     Ok(id)
 }
 
@@ -4540,13 +4540,13 @@ fn lower_closure_construct(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     fn_name: &str,
-    captures: &[(String, ilang_ast::Type)],
+    captures: &[(Symbol, ilang_ast::Type)],
     span: ilang_ast::Span,
 ) -> Result<Option<TV>, CodegenError> {
     use cranelift_codegen::ir::types::I64;
     let meta = lc
         .closure_meta
-        .get(fn_name)
+        .get(&Symbol::intern(fn_name))
         .cloned()
         .ok_or_else(|| CodegenError::Unsupported {
             what: format!("closure metadata missing for {fn_name:?}"),
@@ -4561,7 +4561,7 @@ fn lower_closure_construct(
     // Write the wrapper's function pointer at offset 0.
     let (wrapper_id, _, _) = lc
         .funcs
-        .get(fn_name)
+        .get(&Symbol::intern(fn_name))
         .cloned()
         .ok_or_else(|| CodegenError::Unsupported {
             what: format!("closure wrapper {fn_name:?} not declared"),
@@ -4798,7 +4798,7 @@ fn try_lower_extern_c_helper(
             // form a prefix pass might have produced.
             let resolved = lc.funcs.get(&name).map(|t| t.0).or_else(|| {
                 lc.funcs.iter().find_map(|(k, t)| {
-                    if k == &name || k.ends_with(&format!(".{name}")) {
+                    if k == &name || k.as_str().ends_with(&format!(".{name}")) {
                         Some(t.0)
                     } else {
                         None

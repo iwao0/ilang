@@ -5,7 +5,7 @@
 use cranelift::prelude::*;
 use cranelift_codegen::ir::types::{F32, F64, I8};
 use cranelift_module::Module;
-use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp};
+use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp, Symbol};
 
 use crate::arc::{emit_release_string, is_aliased_heap_source};
 use crate::env::LowerCtx;

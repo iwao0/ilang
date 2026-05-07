@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use ilang_ast::{
     Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Pattern, PatternBindings, PatternKind,
-    Program, Span, Stmt, StmtKind, Type, UnOp, VariantPayload,
+    Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type, UnOp, VariantPayload,
 };
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
@@ -42,15 +42,15 @@ struct Symbol {
 #[derive(Clone, Debug)]
 struct ClassInfo {
     decl_span: Span,
-    fields: HashMap<String, MemberInfo>,
-    methods: HashMap<String, MemberInfo>,
+    fields: HashMap<AstSymbol, MemberInfo>,
+    methods: HashMap<AstSymbol, MemberInfo>,
     /// Per-property getter signature, used at read sites (`p.name`).
     /// Falls back to `fields` when the property is set-only.
-    getters: HashMap<String, MemberInfo>,
+    getters: HashMap<AstSymbol, MemberInfo>,
     /// Per-property setter signature, used at write sites
     /// (`p.name = v`). Falls back to `fields` when the property is
     /// get-only.
-    setters: HashMap<String, MemberInfo>,
+    setters: HashMap<AstSymbol, MemberInfo>,
     /// `true` for classes pulled in via `use module`. Their member
     /// `MemberInfo.span` values are line/col into another file we
     /// don't carry, so F12 must stay at the use site.
@@ -101,21 +101,21 @@ struct RefEntry {
 struct Doc {
     text: String,
     /// Top-level decls keyed by name.
-    symbols: HashMap<String, Symbol>,
+    symbols: HashMap<AstSymbol, Symbol>,
     /// Per-class field/method index (used when resolving `this.x`).
     #[allow(dead_code)]
-    classes: HashMap<String, ClassInfo>,
+    classes: HashMap<AstSymbol, ClassInfo>,
     /// Resolved references with precise spans. Sorted by (line, start_col).
     refs: Vec<RefEntry>,
     /// Variable name → class name, for completion on `obj.`. Populated
     /// from let / param bindings whose static type resolves to a known
     /// class. Last-write-wins across scopes — good enough for most
     /// completion contexts.
-    var_classes: HashMap<String, String>,
+    var_classes: HashMap<AstSymbol, String>,
     /// Variable name → full ilang type. Drives `obj.` completion for
     /// non-class types (string / array) so their built-in methods show
     /// up.
-    var_types: HashMap<String, Type>,
+    var_types: HashMap<AstSymbol, Type>,
     /// Hover-only signatures for names imported via `use module` (e.g.
     /// `math.sqrt`, `math.pi`). The loader prefixes imported items
     /// with the module name, so this map keyed on `module.fn_name`
@@ -123,15 +123,15 @@ struct Doc {
     /// F12 to these is not supported because we don't carry per-decl
     /// file paths.
     #[allow(dead_code)]
-    external_signatures: HashMap<String, String>,
+    external_signatures: HashMap<AstSymbol, String>,
     /// Doc comments (`///`) attached to imported `module.X` decls.
     /// Same key shape as `external_signatures`.
-    external_docs: HashMap<String, String>,
+    external_docs: HashMap<AstSymbol, String>,
     /// Return types for `module.fn` declarations brought in via
     /// `use module`. Populated alongside `external_signatures` so
     /// `let x = math.sqrt(...)` infers as f64.
     #[allow(dead_code)]
-    external_returns: HashMap<String, Type>,
+    external_returns: HashMap<AstSymbol, Type>,
 }
 
 struct Backend {
@@ -202,7 +202,7 @@ async fn refresh_impl(
     // constants away, so they're not in the merged program. Parse
     // each `use module` source separately to recover them.
     let mut external_sources: ExternalSources = HashMap::new();
-    let mut external_docs: HashMap<String, String> = HashMap::new();
+    let mut external_docs: HashMap<AstSymbol, String> = HashMap::new();
     // Harvest imports from the buffer's `use module` items even
     // without a saved file — built-in modules (math/test/os) still
     // resolve, and on-disk modules resolve relative to the entry
@@ -380,7 +380,7 @@ impl LanguageServer for Backend {
             )));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&word) {
+            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
                 return Ok(Some(make_hover_with_doc(
                     &sym.signature,
                     sym.doc.as_deref(),
@@ -418,8 +418,8 @@ impl LanguageServer for Backend {
             })));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&word) {
-                let range = span_to_range(sym.span, sym.name.len());
+            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+                let range = span_to_range(sym.span, sym.name.as_str().len());
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
                     range,
@@ -469,19 +469,19 @@ impl LanguageServer for Backend {
         // - a class name (`Counter.`)        -> static members
         // - a variable typed as some class (`c.`) -> instance members
         // Anything else falls through and we return nothing.
-        let want_static = doc.classes.contains_key(&receiver);
+        let want_static = doc.classes.contains_key(&AstSymbol::intern(&receiver));
         let class_name = if want_static {
             receiver.clone()
         } else if receiver == "console" {
             // Built-in singleton: instance of `Console`.
             "Console".to_string()
         } else {
-            doc.var_classes.get(&receiver).cloned().unwrap_or_default()
+            doc.var_classes.get(&AstSymbol::intern(&receiver)).cloned().unwrap_or_default()
         };
-        if doc.classes.get(&class_name).is_none() {
+        if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
             // Built-in receiver: string / array. Their member sets are
             // hardcoded — list them from the same helpers used by hover.
-            if let Some(ty) = doc.var_types.get(&receiver) {
+            if let Some(ty) = doc.var_types.get(&AstSymbol::intern(&receiver)) {
                 let entries: Vec<(String, String)> = match ty {
                     Type::Str => string_method_names()
                         .into_iter()
@@ -504,13 +504,13 @@ impl LanguageServer for Backend {
                         .into_iter()
                         .map(|(name, sig)| {
                             let (insert_text, fmt) =
-                                call_snippet(&name, CompletionItemKind::METHOD);
+                                call_snippet(name.as_str(), CompletionItemKind::METHOD);
                             let command =
                                 trigger_sig_help_command(CompletionItemKind::METHOD);
                             CompletionItem {
-                                label: name,
+                                label: name.as_str().to_string(),
                                 kind: Some(CompletionItemKind::METHOD),
-                                detail: Some(sig),
+                                detail: Some(sig.as_str().to_string()),
                                 insert_text,
                                 insert_text_format: fmt,
                                 command,
@@ -542,7 +542,7 @@ impl LanguageServer for Backend {
                 .external_signatures
                 .iter()
                 .filter_map(|(k, sig)| {
-                    let suffix = k.strip_prefix(&prefix)?;
+                    let suffix = k.as_str().strip_prefix(&prefix)?;
                     // Skip nested-module names (`sdl.SDL_Rect.field`
                     // would re-introduce a dot).
                     if suffix.contains('.') {
@@ -586,7 +586,7 @@ impl LanguageServer for Backend {
             }
             return Ok(None);
         }
-        let info = doc.classes.get(&class_name).unwrap();
+        let info = doc.classes.get(&AstSymbol::intern(&class_name)).unwrap();
         let mut items: Vec<CompletionItem> = Vec::new();
         for (name, m) in info.fields.iter() {
             if m.is_static != want_static {
@@ -597,7 +597,7 @@ impl LanguageServer for Backend {
             // we have one so `c.a` shows `(getter)` not `(property)`.
             let display = info.getters.get(name).unwrap_or(m);
             items.push(CompletionItem {
-                label: name.clone(),
+                label: name.as_str().to_string(),
                 kind: Some(CompletionItemKind::FIELD),
                 detail: Some(display.signature.clone()),
                 documentation: display.doc.clone().map(|d| {
@@ -618,10 +618,10 @@ impl LanguageServer for Backend {
             if m.is_static != want_static {
                 continue;
             }
-            let (insert_text, fmt) = call_snippet(name, CompletionItemKind::METHOD);
+            let (insert_text, fmt) = call_snippet(name.as_str(), CompletionItemKind::METHOD);
             let command = trigger_sig_help_command(CompletionItemKind::METHOD);
             items.push(CompletionItem {
-                label: name.clone(),
+                label: name.as_str().to_string(),
                 kind: Some(CompletionItemKind::METHOD),
                 detail: Some(m.signature.clone()),
                 documentation: m.doc.clone().map(|d| {
@@ -656,14 +656,14 @@ impl LanguageServer for Backend {
         // `new ClassName(...)` -> the class's init overloads.
         let sigs: Vec<MemberInfo> = if call.is_new {
             doc.classes
-                .get(&call.callee)
+                .get(&AstSymbol::intern(&call.callee))
                 .map(|i| i.inits.clone())
                 .unwrap_or_default()
         } else {
             // Plain function call. Top-level fn or imported (dotted)
             // fn — we already have signatures stashed by name.
             let mut out: Vec<MemberInfo> = Vec::new();
-            if let Some(sym) = doc.symbols.get(&call.callee) {
+            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&call.callee)) {
                 out.push(MemberInfo {
                     span: sym.span,
                     signature: sym.signature.clone(),
@@ -679,7 +679,7 @@ impl LanguageServer for Backend {
                     is_static: false,
                     doc: None,
                 });
-            } else if let Some(s) = doc.external_signatures.get(&call.callee) {
+            } else if let Some(s) = doc.external_signatures.get(&AstSymbol::intern(&call.callee)) {
                 out.push(MemberInfo {
                     span: Span::dummy(),
                     signature: s.clone(),
@@ -693,22 +693,22 @@ impl LanguageServer for Backend {
                 // then look up the method on that class. Fall back to
                 // built-in string / array signatures when the receiver
                 // is one of those primitives.
-                let class = if doc.classes.contains_key(recv) {
+                let class = if doc.classes.contains_key(&AstSymbol::intern(recv)) {
                     Some(recv.to_string())
                 } else if recv == "console" {
                     Some("Console".to_string())
                 } else {
-                    doc.var_classes.get(recv).cloned()
+                    doc.var_classes.get(&AstSymbol::intern(recv)).cloned()
                 };
                 if let Some(c) = class {
-                    if let Some(info) = doc.classes.get(&c) {
-                        if let Some(m) = info.methods.get(method) {
+                    if let Some(info) = doc.classes.get(&AstSymbol::intern(&c)) {
+                        if let Some(m) = info.methods.get(&AstSymbol::intern(method)) {
                             out.push(m.clone());
                         }
                     }
                 }
                 if out.is_empty() {
-                    let builtin = match doc.var_types.get(recv) {
+                    let builtin = match doc.var_types.get(&AstSymbol::intern(recv)) {
                         Some(Type::Str) => string_method_sig(method),
                         Some(Type::Array { elem, .. }) => {
                             array_method_sig(method, elem)
@@ -843,7 +843,7 @@ impl LanguageServer for Backend {
                 entry.target_span,
             )
         } else if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&word) {
+            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
                 let name_span = ["fn", "class", "enum", "const"]
                     .iter()
                     .find_map(|kw| {
@@ -852,7 +852,7 @@ impl LanguageServer for Backend {
                         )
                     })
                     .unwrap_or(sym.span);
-                ((sym.span, sym.name.len() as u32), name_span)
+                ((sym.span, sym.name.as_str().len() as u32), name_span)
             } else {
                 return Ok(None);
             }
@@ -1016,7 +1016,7 @@ struct ExternalLoc {
     span: Span,
     name_len: u32,
 }
-type ExternalSources = HashMap<String, ExternalLoc>;
+type ExternalSources = HashMap<AstSymbol, ExternalLoc>;
 
 /// Walk the buffer's `use module` items and parse each module's source
 /// (built-in or on-disk) to extract `Item::Const` declarations. Insert
@@ -1027,9 +1027,9 @@ type ExternalSources = HashMap<String, ExternalLoc>;
 fn harvest_imported_consts(
     entry_path: &Path,
     entry_src: &str,
-    out: &mut HashMap<String, String>,
+    out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
-    docs: &mut HashMap<String, String>,
+    docs: &mut HashMap<AstSymbol, String>,
 ) {
     let Ok(tokens) = tokenize(entry_src) else { return };
     if let Ok(prog) = parse(&tokens) {
@@ -1061,9 +1061,9 @@ fn harvest_imported_consts(
 fn harvest_from_program(
     prog: &Program,
     entry_path: &Path,
-    out: &mut HashMap<String, String>,
+    out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
-    docs: &mut HashMap<String, String>,
+    docs: &mut HashMap<AstSymbol, String>,
 ) {
     let extra = collect_dep_paths(entry_path).unwrap_or_default();
     let entry_dir = entry_path
@@ -1076,7 +1076,7 @@ fn harvest_from_program(
         if u.selective.is_some() {
             continue;
         }
-        walk_module(&u.module, &entry_dir, &extra, &mut visited, out, sources, docs);
+        walk_module(u.module.as_str(), &entry_dir, &extra, &mut visited, out, sources, docs);
     }
 }
 
@@ -1085,9 +1085,9 @@ fn walk_module(
     entry_dir: &Path,
     extra: &[PathBuf],
     visited: &mut HashSet<PathBuf>,
-    out: &mut HashMap<String, String>,
+    out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
-    docs: &mut HashMap<String, String>,
+    docs: &mut HashMap<AstSymbol, String>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(prefix) {
@@ -1111,7 +1111,7 @@ fn walk_module(
     }
     // F12 on the module name itself (e.g. `sdl` in `use sdl` or
     // `new sdl.Window()`) navigates to the start of the module file.
-    sources.entry(prefix.to_string()).or_insert(ExternalLoc {
+    sources.entry(prefix.into()).or_insert(ExternalLoc {
         path: module_path.clone(),
         span: Span::new(1, 1),
         name_len: 0,
@@ -1128,7 +1128,7 @@ fn walk_module(
                  sources: &mut ExternalSources,
                  p: &PathBuf| {
         sources.insert(
-            key.to_string(),
+            key.into(),
             ExternalLoc {
                 path: p.clone(),
                 span,
@@ -1147,40 +1147,40 @@ fn walk_module(
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 let key = format!("{prefix}.{}", c.name);
-                out.insert(key.clone(), format!("const {key}{ty}{value}"));
-                track(&key, c.span, c.name.len() as u32, sources, &module_path);
+                out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Fn(f) => {
                 let key = format!("{prefix}.{}", f.name);
                 let sig = format!("fn {}", fn_body(f));
-                out.insert(key.clone(), format!("fn {}", sig.trim_start_matches("fn ")));
-                track(&key, f.span, f.name.len() as u32, sources, &module_path);
+                out.insert(AstSymbol::intern(&key), format!("fn {}", sig.trim_start_matches("fn ")));
+                track(&key, f.span, f.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Class(c) => {
                 let key = format!("{prefix}.{}", c.name);
-                out.insert(key.clone(), format!("class {key}"));
-                track(&key, c.span, c.name.len() as u32, sources, &module_path);
+                out.insert(AstSymbol::intern(&key), format!("class {key}"));
+                track(&key, c.span, c.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Enum(e) => {
                 let key = format!("{prefix}.{}", e.name);
-                out.insert(key.clone(), format!("enum {key}"));
-                track(&key, e.span, e.name.len() as u32, sources, &module_path);
+                out.insert(AstSymbol::intern(&key), format!("enum {key}"));
+                track(&key, e.span, e.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    let (n, span, sig): (String, Span, String) = match inner {
+                    let (n, span, sig): (AstSymbol, Span, String) = match inner {
                         ilang_ast::ExternCItem::FnDecl {
                             name, span, params, ret, libs, ..
                         } => {
@@ -1204,42 +1204,42 @@ fn walk_module(
                                 format!("@lib({names}) ")
                             };
                             (
-                                name.clone(),
+                                *name,
                                 *span,
                                 format!("{libs_prefix}fn {prefix}.{name}({ps}){r}"),
                             )
                         }
                         ilang_ast::ExternCItem::FnDef(f) => (
-                            f.name.clone(),
+                            f.name.into(),
                             f.span,
                             format!("fn {prefix}.{} {}", f.name, fn_body(f)).trim_start_matches("fn ").to_string(),
                         ),
                         ilang_ast::ExternCItem::Static { name, span, ty, .. } => (
-                            name.clone(),
+                            *name,
                             *span,
                             format!("static {prefix}.{name}: {ty}"),
                         ),
                         ilang_ast::ExternCItem::Struct { name, span, .. } => (
-                            name.clone(),
+                            *name,
                             *span,
                             format!("struct {prefix}.{name}"),
                         ),
                         ilang_ast::ExternCItem::Union { name, span, .. } => (
-                            name.clone(),
+                            *name,
                             *span,
                             format!("union {prefix}.{name}"),
                         ),
                         ilang_ast::ExternCItem::Class(c) => (
-                            c.name.clone(),
+                            c.name.into(),
                             c.span,
                             format!("class {prefix}.{}", c.name),
                         ),
                     };
                     let key = format!("{prefix}.{n}");
-                    out.insert(key.clone(), sig);
-                    track(&key, span, n.len() as u32, sources, &module_path);
+                    out.insert(AstSymbol::intern(&key), sig);
+                    track(&key, span, n.as_str().len() as u32, sources, &module_path);
                     if let Some(d) = text::extract_doc_above(&module_src, span.line) {
-                        docs.insert(key, d);
+                        docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
             }
@@ -1262,7 +1262,7 @@ fn walk_module(
                 // that: also record the umbrella's own prefix.
                 walk_module_aliased(
                     prefix,
-                    &u.module,
+                    u.module.as_str(),
                     &mod_dir,
                     extra,
                     visited,
@@ -1282,9 +1282,9 @@ fn walk_module_aliased(
     entry_dir: &Path,
     extra: &[PathBuf],
     visited: &mut HashSet<PathBuf>,
-    out: &mut HashMap<String, String>,
+    out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
-    docs: &mut HashMap<String, String>,
+    docs: &mut HashMap<AstSymbol, String>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(actual) {
@@ -1307,7 +1307,7 @@ fn walk_module_aliased(
     let Ok(mod_prog) = parse(&tokens) else { return };
     let put = |key: &str, span: Span, name_len: u32, sources: &mut ExternalSources| {
         sources.insert(
-            key.to_string(),
+            key.into(),
             ExternalLoc {
                 path: module_path.clone(),
                 span,
@@ -1326,31 +1326,31 @@ fn walk_module_aliased(
                 let value = render_const_value(&c.value)
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
-                out.insert(key.clone(), format!("const {key}{ty}{value}"));
-                put(&key, c.span, c.name.len() as u32, sources);
+                out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                put(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Fn(f) => {
                 let key = format!("{alias_prefix}.{}", f.name);
-                put(&key, f.span, f.name.len() as u32, sources);
+                put(&key, f.span, f.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Class(c) => {
                 let key = format!("{alias_prefix}.{}", c.name);
-                put(&key, c.span, c.name.len() as u32, sources);
+                put(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::Enum(e) => {
                 let key = format!("{alias_prefix}.{}", e.name);
-                put(&key, e.span, e.name.len() as u32, sources);
+                put(&key, e.span, e.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
-                    docs.insert(key, d);
+                    docs.insert(AstSymbol::intern(&key), d);
                 }
             }
             Item::ExternC(b) => {
@@ -1372,11 +1372,11 @@ fn walk_module_aliased(
                         ilang_ast::ExternCItem::Class(c) => Some((c.name.clone(), c.span)),
                     };
                     if let Some((n, span)) = entry {
-                        let len = n.len() as u32;
+                        let len = n.as_str().len() as u32;
                         let key = format!("{alias_prefix}.{n}");
                         put(&key, span, len, sources);
                         if let Some(d) = text::extract_doc_above(&module_src, span.line) {
-                            docs.insert(key, d);
+                            docs.insert(AstSymbol::intern(&key), d);
                         }
                     }
                 }
@@ -1388,7 +1388,7 @@ fn walk_module_aliased(
                     .unwrap_or_else(|| PathBuf::from("."));
                 walk_module_aliased(
                     alias_prefix,
-                    &u.module,
+                    u.module.as_str(),
                     &mod_dir,
                     extra,
                     visited,
@@ -1405,25 +1405,25 @@ fn walk_module_aliased(
 /// Walk a loader-merged program for dotted-name classes (e.g.
 /// `sdl.Window`) so the hover walker can resolve method / field
 /// accesses on imported types.
-fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
+fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
     use ilang_ast::ExternCItem;
     let mut classes: Vec<&ClassDecl> = Vec::new();
-    let mut out: HashMap<String, ClassInfo> = HashMap::new();
+    let mut out: HashMap<AstSymbol, ClassInfo> = HashMap::new();
     for item in &prog.items {
         match item {
-            Item::Class(c) if c.name.contains('.') => classes.push(c),
+            Item::Class(c) if c.name.as_str().contains('.') => classes.push(c),
             Item::ExternC(b) => {
                 for inner in &b.items {
                     match inner {
-                        ExternCItem::Class(c) if c.name.contains('.') => classes.push(c),
+                        ExternCItem::Class(c) if c.name.as_str().contains('.') => classes.push(c),
                         ExternCItem::Struct { name, fields: fs, span, .. }
                         | ExternCItem::Union { name, fields: fs, span, .. }
-                            if name.contains('.') =>
+                            if name.as_str().contains('.') =>
                         {
                             let mut fields = HashMap::new();
                             for f in fs {
                                 fields.insert(
-                                    f.name.clone(),
+                                    f.name.into(),
                                     MemberInfo {
                                         span: f.span,
                                         signature: format!(
@@ -1461,7 +1461,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
         let mut fields = HashMap::new();
         for f in &c.fields {
             fields.insert(
-                f.name.clone(),
+                f.name.into(),
                 MemberInfo {
                     span: f.span,
                     signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
@@ -1473,7 +1473,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
         }
         for f in &c.static_fields {
             fields.insert(
-                f.name.clone(),
+                f.name.into(),
                 MemberInfo {
                     span: f.span,
                     signature: format!(
@@ -1486,11 +1486,11 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
                 },
             );
         }
-        let mut getters: HashMap<String, MemberInfo> = HashMap::new();
-        let mut setters: HashMap<String, MemberInfo> = HashMap::new();
+        let mut getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+        let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         for prop in &c.properties {
             fields.insert(
-                prop.name.clone(),
+                prop.name.into(),
                 MemberInfo {
                     span: prop.span,
                     signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
@@ -1501,7 +1501,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
             );
             if let Some(g) = &prop.getter {
                 getters.insert(
-                    prop.name.clone(),
+                    prop.name.into(),
                     MemberInfo {
                         span: g.span,
                         signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
@@ -1513,7 +1513,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
             }
             if let Some(s) = &prop.setter {
                 setters.insert(
-                    prop.name.clone(),
+                    prop.name.into(),
                     MemberInfo {
                         span: s.span,
                         signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
@@ -1551,7 +1551,7 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
             });
         }
         out.insert(
-            c.name.clone(),
+            c.name.into(),
             ClassInfo {
                 decl_span: c.span,
                 fields,
@@ -1569,21 +1569,21 @@ fn collect_external_classes(prog: &Program) -> HashMap<String, ClassInfo> {
 
 fn collect_external_signatures(
     prog: &Program,
-) -> (HashMap<String, String>, HashMap<String, Type>) {
+) -> (HashMap<AstSymbol, String>, HashMap<AstSymbol, Type>) {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
-    let mut rets: HashMap<String, Type> = HashMap::new();
-    let put_dotted = |name: &str, sig: String, m: &mut HashMap<String, String>| {
+    let mut rets: HashMap<AstSymbol, Type> = HashMap::new();
+    let put_dotted = |name: &str, sig: String, m: &mut HashMap<AstSymbol, String>| {
         if name.contains('.') {
-            m.insert(name.to_string(), sig);
+            m.insert(name.into(), sig);
         }
     };
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
-                put_dotted(&f.name, fn_signature(f), &mut out);
+                put_dotted(f.name.as_str(), fn_signature(f), &mut out);
                 if let Some(t) = &f.ret {
-                    if f.name.contains('.') {
+                    if f.name.as_str().contains('.') {
                         rets.insert(f.name.clone(), t.clone());
                     }
                 }
@@ -1596,13 +1596,13 @@ fn collect_external_signatures(
                 let value = render_const_value(&c.value)
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
-                put_dotted(&c.name, format!("const {}{ty}{value}", c.name), &mut out);
+                put_dotted(c.name.as_str(), format!("const {}{ty}{value}", c.name), &mut out);
             }
             Item::Class(c) => {
-                put_dotted(&c.name, format!("class {}", c.name), &mut out);
+                put_dotted(c.name.as_str(), format!("class {}", c.name), &mut out);
             }
             Item::Enum(e) => {
-                put_dotted(&e.name, format!("enum {}", e.name), &mut out);
+                put_dotted(e.name.as_str(), format!("enum {}", e.name), &mut out);
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -1630,35 +1630,35 @@ fn collect_external_signatures(
                                 format!("@lib({names}) ")
                             };
                             put_dotted(
-                                name,
+                                name.as_str(),
                                 format!("{libs_prefix}fn {}({}){}", name, ps, r),
                                 &mut out,
                             );
                             if let Some(t) = ret {
-                                if name.contains('.') {
+                                if name.as_str().contains('.') {
                                     rets.insert(name.clone(), t.clone());
                                 }
                             }
                         }
                         ExternCItem::FnDef(f) => {
-                            put_dotted(&f.name, fn_signature(f), &mut out);
+                            put_dotted(f.name.as_str(), fn_signature(f), &mut out);
                             if let Some(t) = &f.ret {
-                                if f.name.contains('.') {
+                                if f.name.as_str().contains('.') {
                                     rets.insert(f.name.clone(), t.clone());
                                 }
                             }
                         }
                         ExternCItem::Static { name, ty, .. } => {
-                            put_dotted(name, format!("static {}: {}", name, ty), &mut out);
+                            put_dotted(name.as_str(), format!("static {}: {}", name, ty), &mut out);
                         }
                         ExternCItem::Struct { name, .. } => {
-                            put_dotted(name, format!("struct {}", name), &mut out);
+                            put_dotted(name.as_str(), format!("struct {}", name), &mut out);
                         }
                         ExternCItem::Union { name, .. } => {
-                            put_dotted(name, format!("union {}", name), &mut out);
+                            put_dotted(name.as_str(), format!("union {}", name), &mut out);
                         }
                         ExternCItem::Class(c) => {
-                            put_dotted(&c.name, format!("class {}", c.name), &mut out);
+                            put_dotted(c.name.as_str(), format!("class {}", c.name), &mut out);
                         }
                     }
                 }
@@ -1685,11 +1685,11 @@ fn diag(span: Span, msg: String) -> Diagnostic {
 fn build_doc(
     text: String,
     prog: &Program,
-    external_signatures: &HashMap<String, String>,
-    external_returns: &HashMap<String, Type>,
-    external_classes: &HashMap<String, ClassInfo>,
+    external_signatures: &HashMap<AstSymbol, String>,
+    external_returns: &HashMap<AstSymbol, Type>,
+    external_classes: &HashMap<AstSymbol, ClassInfo>,
     external_sources: &ExternalSources,
-    external_docs: &HashMap<String, String>,
+    external_docs: &HashMap<AstSymbol, String>,
 ) -> Doc {
     let symbols = collect_symbols(prog, &text);
     let mut classes = collect_classes(prog, &text);
@@ -1699,7 +1699,7 @@ fn build_doc(
     for (k, v) in external_classes {
         classes.entry(k.clone()).or_insert_with(|| v.clone());
     }
-    let mut fn_returns: HashMap<String, Type> = HashMap::new();
+    let mut fn_returns: HashMap<AstSymbol, Type> = HashMap::new();
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
@@ -1726,8 +1726,8 @@ fn build_doc(
         }
     }
     let mut refs = Vec::new();
-    let mut var_classes: HashMap<String, String> = HashMap::new();
-    let mut var_types: HashMap<String, Type> = HashMap::new();
+    let mut var_classes: HashMap<AstSymbol, String> = HashMap::new();
+    let mut var_types: HashMap<AstSymbol, Type> = HashMap::new();
     {
         let mut walker = Walker {
             text: &text,
@@ -1754,19 +1754,19 @@ fn build_doc(
                         &text,
                         u.span,
                         "use",
-                        &u.module,
+                        u.module.as_str(),
                     ) {
                         let loc = walker.external_sources.get(&u.module);
                         let target_uri = loc
                             .and_then(|l| Url::from_file_path(&l.path).ok());
                         let (target_span, target_name_len, no_def) = match &loc {
                             Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
-                            _ => (name_span, u.module.len() as u32, target_uri.is_none()),
+                            _ => (name_span, u.module.as_str().len() as u32, target_uri.is_none()),
                         };
                         walker.refs.push(RefEntry {
                             line: name_span.line,
                             start_col: name_span.col,
-                            end_col: name_span.col + u.module.len() as u32,
+                            end_col: name_span.col + u.module.as_str().len() as u32,
                             target_span,
                             target_name_len,
                             signature: format!("(module) {}", u.module),
@@ -1789,7 +1789,7 @@ fn build_doc(
                             } => {
                                 for f in fields {
                                     walker.push_decl(
-                                        &f.name,
+                                        f.name.as_str(),
                                         f.span,
                                         format!("(property) {}.{}: {}", name, f.name, f.ty),
                                     );
@@ -1825,14 +1825,14 @@ fn build_doc(
     }
 }
 
-fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
+fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
-    let put_fn = |f: &FnDecl, m: &mut HashMap<String, Symbol>| {
+    let put_fn = |f: &FnDecl, m: &mut HashMap<AstSymbol, Symbol>| {
         m.insert(
-            f.name.clone(),
+            f.name.into(),
             Symbol {
-                name: f.name.clone(),
+                name: f.name.as_str().to_string(),
                 span: f.span,
                 signature: fn_signature(f),
                 doc: text::extract_doc_above(src, f.span.line),
@@ -1845,9 +1845,9 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
             Item::Class(c) => {
                 let signature = format!("class {}", c.name);
                 out.insert(
-                    c.name.clone(),
+                    c.name.into(),
                     Symbol {
-                        name: c.name.clone(),
+                        name: c.name.as_str().to_string(),
                         span: c.span,
                         signature,
                         doc: text::extract_doc_above(src, c.span.line),
@@ -1859,16 +1859,16 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                     .variants
                     .iter()
                     .map(|v| match &v.payload {
-                        VariantPayload::Unit => v.name.clone(),
+                        VariantPayload::Unit => v.name.as_str().to_string(),
                         _ => format!("{}(...)", v.name),
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let signature = format!("enum {} {{ {} }}", e.name, variants);
                 out.insert(
-                    e.name.clone(),
+                    e.name.into(),
                     Symbol {
-                        name: e.name.clone(),
+                        name: e.name.as_str().to_string(),
                         span: e.span,
                         signature,
                         doc: text::extract_doc_above(src, e.span.line),
@@ -1885,9 +1885,9 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                     .unwrap_or_default();
                 let signature = format!("const {}{}{}", c.name, ty, value);
                 out.insert(
-                    c.name.clone(),
+                    c.name.into(),
                     Symbol {
-                        name: c.name.clone(),
+                        name: c.name.as_str().to_string(),
                         span: c.span,
                         signature,
                         doc: text::extract_doc_above(src, c.span.line),
@@ -1922,7 +1922,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                             out.insert(
                                 name.clone(),
                                 Symbol {
-                                    name: name.clone(),
+                                    name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("{libs_prefix}fn {}({}){}", name, ps, r),
                 doc: None,
@@ -1934,7 +1934,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                             out.insert(
                                 name.clone(),
                                 Symbol {
-                                    name: name.clone(),
+                                    name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("static {}: {}", name, ty),
                 doc: None,
@@ -1945,7 +1945,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                             out.insert(
                                 name.clone(),
                                 Symbol {
-                                    name: name.clone(),
+                                    name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("struct {}", name),
                 doc: None,
@@ -1956,7 +1956,7 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                             out.insert(
                                 name.clone(),
                                 Symbol {
-                                    name: name.clone(),
+                                    name: name.as_str().to_string(),
                                     span: *span,
                                     signature: format!("union {}", name),
                 doc: None,
@@ -1965,9 +1965,9 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
                         }
                         ExternCItem::Class(c) => {
                             out.insert(
-                                c.name.clone(),
+                                c.name.into(),
                                 Symbol {
-                                    name: c.name.clone(),
+                                    name: c.name.as_str().to_string(),
                                     span: c.span,
                                     signature: format!("class {}", c.name),
                 doc: None,
@@ -1986,10 +1986,10 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<String, Symbol> {
 /// Inject hover info for built-in singletons / classes that the type
 /// checker pre-registers (e.g. `console.log`). The buffer doesn't
 /// declare these, so users would otherwise see no hover.
-fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
-    let mut methods = HashMap::new();
+fn install_builtin_classes(out: &mut HashMap<AstSymbol, ClassInfo>) {
+    let mut methods: HashMap<AstSymbol, MemberInfo> = HashMap::new();
     methods.insert(
-        "log".to_string(),
+        "log".into(),
         MemberInfo {
             span: Span::dummy(),
             signature: "(method) Console.log(...args): ()".to_string(),
@@ -1998,7 +1998,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
                 doc: None,
         },
     );
-    out.entry("Console".to_string()).or_insert(ClassInfo {
+    out.entry("Console".into()).or_insert(ClassInfo {
         decl_span: Span::dummy(),
         fields: HashMap::new(),
         methods,
@@ -2010,7 +2010,7 @@ fn install_builtin_classes(out: &mut HashMap<String, ClassInfo>) {
     });
 }
 
-fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
+fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, ClassInfo> {
     use ilang_ast::ExternCItem;
     let mut classes: Vec<&ClassDecl> = Vec::new();
     let mut out = HashMap::new();
@@ -2029,7 +2029,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
                             let mut fields = HashMap::new();
                             for f in fs {
                                 fields.insert(
-                                    f.name.clone(),
+                                    f.name.into(),
                                     MemberInfo {
                                         span: f.span,
                                         signature: format!(
@@ -2070,7 +2070,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
             let mut fields = HashMap::new();
             for f in &c.fields {
                 fields.insert(
-                    f.name.clone(),
+                    f.name.into(),
                     MemberInfo {
                         span: f.span,
                         signature: format!("(property) {}.{}: {}", c.name, f.name, f.ty),
@@ -2082,7 +2082,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
             }
             for f in &c.static_fields {
                 fields.insert(
-                    f.name.clone(),
+                    f.name.into(),
                     MemberInfo {
                         span: f.span,
                         signature: format!(
@@ -2095,11 +2095,11 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
                     },
                 );
             }
-            let mut getters: HashMap<String, MemberInfo> = HashMap::new();
-            let mut setters: HashMap<String, MemberInfo> = HashMap::new();
+            let mut getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+            let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
             for prop in &c.properties {
                 fields.insert(
-                    prop.name.clone(),
+                    prop.name.into(),
                     MemberInfo {
                         span: prop.span,
                         signature: format!(
@@ -2113,7 +2113,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
                 );
                 if let Some(g) = &prop.getter {
                     getters.insert(
-                        prop.name.clone(),
+                        prop.name.into(),
                         MemberInfo {
                             span: g.span,
                             signature: format!(
@@ -2128,7 +2128,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
                 }
                 if let Some(s) = &prop.setter {
                     setters.insert(
-                        prop.name.clone(),
+                        prop.name.into(),
                         MemberInfo {
                             span: s.span,
                             signature: format!(
@@ -2169,7 +2169,7 @@ fn collect_classes(prog: &Program, src: &str) -> HashMap<String, ClassInfo> {
                 });
             }
             out.insert(
-                c.name.clone(),
+                c.name.into(),
                 ClassInfo {
                     decl_span: c.span,
                     fields,
@@ -2250,20 +2250,20 @@ impl BindKind {
 
 struct Walker<'a> {
     text: &'a str,
-    symbols: &'a HashMap<String, Symbol>,
-    classes: &'a HashMap<String, ClassInfo>,
+    symbols: &'a HashMap<AstSymbol, Symbol>,
+    classes: &'a HashMap<AstSymbol, ClassInfo>,
     /// Top-level fn return types, keyed by name. Used to infer
     /// `let x = call()` bindings.
-    fn_returns: &'a HashMap<String, Type>,
+    fn_returns: &'a HashMap<AstSymbol, Type>,
     /// Hover signatures for `module.name` references that the loader
     /// brought in from a `use module` statement.
-    external_signatures: &'a HashMap<String, String>,
+    external_signatures: &'a HashMap<AstSymbol, String>,
     /// Doc comments for external (imported) decls, keyed the same as
     /// `external_signatures`.
-    external_docs: &'a HashMap<String, String>,
+    external_docs: &'a HashMap<AstSymbol, String>,
     /// Return types for the same set of external fns. Used when
     /// inferring `let x = math.sqrt(...)` etc.
-    external_returns: &'a HashMap<String, Type>,
+    external_returns: &'a HashMap<AstSymbol, Type>,
     /// Source-file path for each `module.<decl>` so cross-file F12
     /// can navigate into the originating module.
     external_sources: &'a ExternalSources,
@@ -2271,24 +2271,24 @@ struct Walker<'a> {
     /// Variable-name → class-name index, populated whenever a binding's
     /// statically-known type resolves to a class. Drives completion on
     /// `obj.` for ordinary instance variables.
-    var_classes: &'a mut HashMap<String, String>,
+    var_classes: &'a mut HashMap<AstSymbol, String>,
     /// Variable-name → full type, used for completion on built-in
     /// receivers (`string`, `T[]`) where there's no class entry.
-    var_types: &'a mut HashMap<String, Type>,
+    var_types: &'a mut HashMap<AstSymbol, Type>,
 }
 
 impl<'a> Walker<'a> {
     fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
         let mut scope: Vec<Binding> = Vec::new();
         for p in &f.params {
-            let sig = BindKind::Param.render(&p.name, Some(&p.ty));
-            self.push_decl(&p.name, p.span, sig);
+            let sig = BindKind::Param.render(p.name.as_str(), Some(&p.ty));
+            self.push_decl(p.name.as_str(), p.span, sig);
             if let Some(c) = type_to_class(&p.ty) {
                 self.var_classes.insert(p.name.clone(), c);
             }
             self.var_types.insert(p.name.clone(), p.ty.clone());
             scope.push(Binding {
-                name: p.name.clone(),
+                name: p.name.as_str().to_string(),
                 span: p.span,
                 ty: Some(p.ty.clone()),
                 kind: BindKind::Param,
@@ -2302,14 +2302,14 @@ impl<'a> Walker<'a> {
         // Field declaration name: hover shows the field decl line.
         for f in &c.fields {
             self.push_decl(
-                &f.name,
+                f.name.as_str(),
                 f.span,
                 format!("(property) {}.{}: {}", c.name, f.name, f.ty),
             );
         }
         for f in &c.static_fields {
             self.push_decl(
-                &f.name,
+                f.name.as_str(),
                 f.span,
                 format!("(static property) {}.{}: {}", c.name, f.name, f.ty),
             );
@@ -2326,23 +2326,23 @@ impl<'a> Walker<'a> {
                 let Some(span) = accessor_span else { continue };
                 let sig = format!("({kind}) {}.{}: {}", c.name, p.name, p.ty);
                 if let Some(name_span) =
-                    locate_property_name(self.text, span, &p.name)
+                    locate_property_name(self.text, span, p.name.as_str())
                 {
-                    self.push_decl(&p.name, name_span, sig);
+                    self.push_decl(p.name.as_str(), name_span, sig);
                 }
             }
         }
         for m in &c.methods {
             self.push_decl(
-                &m.name,
+                m.name.as_str(),
                 m.span,
                 format!("(method) {}.{}", c.name, fn_body(m)),
             );
-            self.walk_fn(m, Some(&c.name));
+            self.walk_fn(m, Some(c.name.as_str()));
         }
         for m in &c.static_methods {
             self.push_decl(
-                &m.name,
+                m.name.as_str(),
                 m.span,
                 format!("(static method) {}.{}", c.name, fn_body(m)),
             );
@@ -2352,10 +2352,10 @@ impl<'a> Walker<'a> {
             // Treat the getter/setter body like a method body so locals
             // and `this.X` resolve normally.
             if let Some(g) = &prop.getter {
-                self.walk_fn(g, Some(&c.name));
+                self.walk_fn(g, Some(c.name.as_str()));
             }
             if let Some(s) = &prop.setter {
-                self.walk_fn(s, Some(&c.name));
+                self.walk_fn(s, Some(c.name.as_str()));
             }
         }
     }
@@ -2398,11 +2398,11 @@ impl<'a> Walker<'a> {
                 };
                 let sig = override_sig
                     .clone()
-                    .unwrap_or_else(|| BindKind::Let.render(name, inferred.as_ref()));
+                    .unwrap_or_else(|| BindKind::Let.render(name.as_str(), inferred.as_ref()));
                 // s.span points at the `let` keyword. Locate the actual
                 // name position by skipping `let` + whitespace.
-                let name_span = locate_let_name(self.text, s.span, name).unwrap_or(s.span);
-                self.push_decl(name, name_span, sig);
+                let name_span = locate_let_name(self.text, s.span, name.as_str()).unwrap_or(s.span);
+                self.push_decl(name.as_str(), name_span, sig);
                 if let Some(c) = inferred.as_ref().and_then(type_to_class) {
                     self.var_classes.insert(name.clone(), c);
                 }
@@ -2410,7 +2410,7 @@ impl<'a> Walker<'a> {
                     self.var_types.insert(name.clone(), t.clone());
                 }
                 scope.push(Binding {
-                    name: name.clone(),
+                    name: name.as_str().to_string(),
                     span: name_span,
                     ty: inferred,
                     kind: BindKind::Let,
@@ -2424,15 +2424,15 @@ impl<'a> Walker<'a> {
     fn walk_expr(&mut self, e: &Expr, scope: &mut Vec<Binding>, this_class: Option<&str>) {
         match &e.kind {
             ExprKind::Var(name) => {
-                if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
+                if let Some(b) = scope.iter().rev().find(|b| b.name == name.as_str()) {
                     let sig = b
                         .override_signature
                         .clone()
-                        .unwrap_or_else(|| b.kind.render(name, b.ty.as_ref()));
-                    self.push_ref(name, e.span, b.span, name.len() as u32, sig);
-                } else if name.contains('.') {
-                    self.push_external_dotted_ref(name, e.span);
-                } else if let Some(m) = this_class.and_then(|c| self.classes.get(c)).and_then(
+                        .unwrap_or_else(|| b.kind.render(name.as_str(), b.ty.as_ref()));
+                    self.push_ref(name.as_str(), e.span, b.span, name.as_str().len() as u32, sig);
+                } else if name.as_str().contains('.') {
+                    self.push_external_dotted_ref(name.as_str(), e.span);
+                } else if let Some(m) = this_class.and_then(|c| self.classes.get(&AstSymbol::intern(c))).and_then(
                     |info| {
                         info.getters
                             .get(name)
@@ -2441,20 +2441,20 @@ impl<'a> Walker<'a> {
                     },
                 ) {
                     // Implicit-`this` member access inside a class method.
-                    self.push_ref(name, e.span, m.span, name.len() as u32, m.signature.clone());
+                    self.push_ref(name.as_str(), e.span, m.span, name.as_str().len() as u32, m.signature.clone());
                 } else if let Some(sym) = self.symbols.get(name) {
                     self.push_ref(
-                        name,
+                        name.as_str(),
                         e.span,
                         sym.span,
-                        sym.name.len() as u32,
+                        sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
                 }
             }
             ExprKind::This => {
                 if let Some(c) = this_class {
-                    if let Some(info) = self.classes.get(c) {
+                    if let Some(info) = self.classes.get(&AstSymbol::intern(c)) {
                         // `this` is 4 chars; e.span points at it.
                         self.push_ref("this", e.span, info.decl_span, c.len() as u32, format!("this: {c}"));
                     }
@@ -2470,13 +2470,13 @@ impl<'a> Walker<'a> {
                         _ => None,
                     };
                     if let Some(prefix) = prefix {
-                        if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
+                        if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
                             self.refs.push(RefEntry {
                                 line,
                                 start_col: col,
-                                end_col: col + name.len() as u32,
+                                end_col: col + name.as_str().len() as u32,
                                 target_span: obj.span,
-                                target_name_len: name.len() as u32,
+                                target_name_len: name.as_str().len() as u32,
                                 signature: format!("(property) {prefix}.length: i64"),
                                 no_definition: true,
                                 target_uri: None,
@@ -2487,14 +2487,14 @@ impl<'a> Walker<'a> {
                     }
                 }
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
-                    if let Some(info) = self.classes.get(&class) {
+                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
                         if let Some(m) = info
                             .getters
                             .get(name)
                             .or_else(|| info.fields.get(name))
                             .or_else(|| info.methods.get(name))
                         {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, name) {
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, name.as_str()) {
                                 let (target, no_def, uri) = member_target(
                                     m,
                                     info,
@@ -2506,9 +2506,9 @@ impl<'a> Walker<'a> {
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
-                                    end_col: col + name.len() as u32,
+                                    end_col: col + name.as_str().len() as u32,
                                     target_span: target,
-                                    target_name_len: name.len() as u32,
+                                    target_name_len: name.as_str().len() as u32,
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
@@ -2526,18 +2526,18 @@ impl<'a> Walker<'a> {
                 }
                 // Built-in string / array methods.
                 let builtin_sig = match self.infer_expr(obj, scope) {
-                    Some(Type::Str) => string_method_sig(method),
-                    Some(Type::Array { elem, .. }) => array_method_sig(method, &elem),
+                    Some(Type::Str) => string_method_sig(method.as_str()),
+                    Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem),
                     _ => None,
                 };
                 if let Some(sig) = builtin_sig {
-                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method) {
+                    if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
                         self.refs.push(RefEntry {
                             line,
                             start_col: col,
-                            end_col: col + method.len() as u32,
+                            end_col: col + method.as_str().len() as u32,
                             target_span: obj.span,
-                            target_name_len: method.len() as u32,
+                            target_name_len: method.as_str().len() as u32,
                             signature: sig,
                             no_definition: true,
                             target_uri: None,
@@ -2547,9 +2547,9 @@ impl<'a> Walker<'a> {
                     }
                 }
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
-                    if let Some(info) = self.classes.get(&class) {
-                        if let Some(m) = info.methods.get(method) {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method)
+                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
+                        if let Some(m) = info.methods.get(&AstSymbol::intern(method.as_str())) {
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str())
                             {
                                 let (target, no_def, uri) = member_target(
                                     m,
@@ -2562,9 +2562,9 @@ impl<'a> Walker<'a> {
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
-                                    end_col: col + method.len() as u32,
+                                    end_col: col + method.as_str().len() as u32,
                                     target_span: target,
-                                    target_name_len: method.len() as u32,
+                                    target_name_len: method.as_str().len() as u32,
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
@@ -2576,41 +2576,41 @@ impl<'a> Walker<'a> {
                 }
             }
             ExprKind::Call { callee, args } => {
-                if let Some(b) = scope.iter().rev().find(|b| &b.name == callee) {
+                if let Some(b) = scope.iter().rev().find(|b| b.name.as_str() == callee.as_str()) {
                     let sig = b
                         .override_signature
                         .clone()
-                        .unwrap_or_else(|| b.kind.render(callee, b.ty.as_ref()));
-                    self.push_ref(callee, e.span, b.span, callee.len() as u32, sig);
+                        .unwrap_or_else(|| b.kind.render(callee.as_str(), b.ty.as_ref()));
+                    self.push_ref(callee.as_str(), e.span, b.span, callee.as_str().len() as u32, sig);
                 } else if let Some(m) = this_class
-                    .and_then(|c| self.classes.get(c))
-                    .and_then(|info| info.methods.get(callee))
+                    .and_then(|c| self.classes.get(&AstSymbol::intern(c)))
+                    .and_then(|info| info.methods.get(&AstSymbol::intern(callee.as_str())))
                 {
                     // Implicit-`this` method call inside a class method.
                     self.push_ref(
-                        callee,
+                        callee.as_str(),
                         e.span,
                         m.span,
-                        callee.len() as u32,
+                        callee.as_str().len() as u32,
                         m.signature.clone(),
                     );
                 } else if let Some(sym) = self.symbols.get(callee) {
                     self.push_ref(
-                        callee,
+                        callee.as_str(),
                         e.span,
                         sym.span,
-                        sym.name.len() as u32,
+                        sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
-                } else if callee.contains('.') {
-                    self.push_external_dotted_ref(callee, e.span);
-                } else if let Some(sig) = ffi_helper_signature(callee) {
+                } else if callee.as_str().contains('.') {
+                    self.push_external_dotted_ref(callee.as_str(), e.span);
+                } else if let Some(sig) = ffi_helper_signature(callee.as_str()) {
                     self.refs.push(RefEntry {
                         line: e.span.line,
                         start_col: e.span.col,
-                        end_col: e.span.col + callee.len() as u32,
+                        end_col: e.span.col + callee.as_str().len() as u32,
                         target_span: e.span,
-                        target_name_len: callee.len() as u32,
+                        target_name_len: callee.as_str().len() as u32,
                         signature: sig.to_string(),
                         no_definition: true,
                         target_uri: None,
@@ -2624,27 +2624,28 @@ impl<'a> Walker<'a> {
             ExprKind::New { class, args, .. } => {
                 let info = self.classes.get(class);
                 let class_sig = info
-                    .map(|i| class_hover(class, i))
+                    .map(|i| class_hover(class.as_str(), i))
                     .unwrap_or_else(|| format!("class {class}"));
                 // The `new` keyword span is at e.span; the class name
                 // sits after `new ` so locate it explicitly. Without
                 // this, our ref entries would land on the keyword
                 // (and the dotted-name suffix wouldn't be found).
+                let class_str = class.as_str();
                 let class_start = locate_let_name_with_kw(
                     self.text,
                     e.span,
                     "new",
-                    class.split('.').next().unwrap_or(class),
+                    class_str.split('.').next().unwrap_or(class_str),
                 )
                 .unwrap_or(e.span);
                 // F12 jumps to init when there is one; otherwise to the
                 // class declaration itself. `init_member` is `None` for
                 // classes without a defined init.
-                let init_member = info.and_then(|i| i.methods.get("init"));
-                if let Some(dot) = class.find('.') {
-                    let prefix = &class[..dot];
-                    let suffix = &class[dot + 1..];
-                    let prefix_loc = self.external_sources.get(prefix);
+                let init_member = info.and_then(|i| i.methods.get(&"init".into()));
+                if let Some(dot) = class_str.find('.') {
+                    let prefix = &class_str[..dot];
+                    let suffix = &class_str[dot + 1..];
+                    let prefix_loc = self.external_sources.get(&AstSymbol::intern(prefix));
                     let prefix_uri = prefix_loc
                         .and_then(|l| Url::from_file_path(&l.path).ok());
                     let (prefix_target_span, prefix_target_name_len, prefix_no_def) =
@@ -2704,9 +2705,9 @@ impl<'a> Walker<'a> {
                     self.refs.push(RefEntry {
                         line: class_start.line,
                         start_col: class_start.col,
-                        end_col: class_start.col + class.len() as u32,
+                        end_col: class_start.col + class.as_str().len() as u32,
                         target_span,
-                        target_name_len: class.len() as u32,
+                        target_name_len: class.as_str().len() as u32,
                         signature: class_sig,
                         no_definition: false,
                         target_uri: None,
@@ -2720,10 +2721,10 @@ impl<'a> Walker<'a> {
             ExprKind::EnumCtor { enum_name, args, .. } => {
                 if let Some(sym) = self.symbols.get(enum_name) {
                     self.push_ref(
-                        enum_name,
+                        enum_name.as_str(),
                         e.span,
                         sym.span,
-                        sym.name.len() as u32,
+                        sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
                 }
@@ -2764,10 +2765,10 @@ impl<'a> Walker<'a> {
                     Some(Type::Array { elem, .. }) => Some(*elem),
                     _ => None,
                 };
-                let sig = BindKind::ForIn.render(var, elem_ty.as_ref());
-                self.push_decl(var, iter.span, sig);
+                let sig = BindKind::ForIn.render(var.as_str(), elem_ty.as_ref());
+                self.push_decl(var.as_str(), iter.span, sig);
                 scope.push(Binding {
-                    name: var.clone(),
+                    name: var.as_str().to_string(),
                     span: iter.span,
                     ty: elem_ty,
                     kind: BindKind::ForIn,
@@ -2784,13 +2785,13 @@ impl<'a> Walker<'a> {
                 }
             }
             ExprKind::Assign { target, value } => {
-                if let Some(b) = scope.iter().rev().find(|b| &b.name == target) {
+                if let Some(b) = scope.iter().rev().find(|b| b.name == target.as_str()) {
                     let sig = b
                         .override_signature
                         .clone()
-                        .unwrap_or_else(|| b.kind.render(target, b.ty.as_ref()));
-                    self.push_ref(target, e.span, b.span, target.len() as u32, sig);
-                } else if let Some(m) = this_class.and_then(|c| self.classes.get(c)).and_then(
+                        .unwrap_or_else(|| b.kind.render(target.as_str(), b.ty.as_ref()));
+                    self.push_ref(target.as_str(), e.span, b.span, target.as_str().len() as u32, sig);
+                } else if let Some(m) = this_class.and_then(|c| self.classes.get(&AstSymbol::intern(c))).and_then(
                     |info| {
                         info.setters
                             .get(target)
@@ -2798,18 +2799,18 @@ impl<'a> Walker<'a> {
                     },
                 ) {
                     self.push_ref(
-                        target,
+                        target.as_str(),
                         e.span,
                         m.span,
-                        target.len() as u32,
+                        target.as_str().len() as u32,
                         m.signature.clone(),
                     );
                 } else if let Some(sym) = self.symbols.get(target) {
                     self.push_ref(
-                        target,
+                        target.as_str(),
                         e.span,
                         sym.span,
-                        sym.name.len() as u32,
+                        sym.name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
                 }
@@ -2818,13 +2819,13 @@ impl<'a> Walker<'a> {
             ExprKind::AssignField { obj, field, value } => {
                 self.walk_expr(obj, scope, this_class);
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
-                    if let Some(info) = self.classes.get(&class) {
+                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
                         if let Some(m) = info
                             .setters
                             .get(field)
                             .or_else(|| info.fields.get(field))
                         {
-                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, field)
+                            if let Some((line, col)) = locate_dot_name(self.text, obj.span, field.as_str())
                             {
                                 let (target, no_def, uri) = member_target(
                                     m,
@@ -2837,9 +2838,9 @@ impl<'a> Walker<'a> {
                                 self.refs.push(RefEntry {
                                     line,
                                     start_col: col,
-                                    end_col: col + field.len() as u32,
+                                    end_col: col + field.as_str().len() as u32,
                                     target_span: target,
-                                    target_name_len: field.len() as u32,
+                                    target_name_len: field.as_str().len() as u32,
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
@@ -2864,10 +2865,10 @@ impl<'a> Walker<'a> {
                 // closure's own params on top.
                 let mut inner: Vec<Binding> = scope.clone();
                 for p in params {
-                    let sig = BindKind::Param.render(&p.name, Some(&p.ty));
-                    self.push_decl(&p.name, p.span, sig);
+                    let sig = BindKind::Param.render(p.name.as_str(), Some(&p.ty));
+                    self.push_decl(p.name.as_str(), p.span, sig);
                     inner.push(Binding {
-                        name: p.name.clone(),
+                        name: p.name.as_str().to_string(),
                         span: p.span,
                         ty: Some(p.ty.clone()),
                         kind: BindKind::Param,
@@ -2930,12 +2931,12 @@ impl<'a> Walker<'a> {
                 .cloned(),
             ExprKind::MethodCall { obj, method, .. } => {
                 let class = self.resolve_obj_class(obj, scope, None)?;
-                let info = self.classes.get(&class)?;
-                info.methods.get(method)?.ret_ty.clone()
+                let info = self.classes.get(&AstSymbol::intern(&class))?;
+                info.methods.get(&AstSymbol::intern(method.as_str()))?.ret_ty.clone()
             }
             ExprKind::Field { obj, name } => {
                 let class = self.resolve_obj_class(obj, scope, None)?;
-                let info = self.classes.get(&class)?;
+                let info = self.classes.get(&AstSymbol::intern(&class))?;
                 info.fields.get(name)?.ret_ty.clone()
             }
             ExprKind::Index { obj, .. } => match self.infer_expr(obj, scope)? {
@@ -2994,7 +2995,7 @@ impl<'a> Walker<'a> {
     /// `use module` — the loader resolves these to a full signature
     /// but we don't have file-level spans for F12.
     fn push_external_dotted_ref(&mut self, dotted: &str, receiver_span: Span) {
-        let Some(sig) = self.external_signatures.get(dotted) else {
+        let Some(sig) = self.external_signatures.get(&AstSymbol::intern(dotted)) else {
             return;
         };
         let Some(dot) = dotted.find('.') else {
@@ -3005,7 +3006,7 @@ impl<'a> Walker<'a> {
         // Hover at the receiver name itself (e.g. `math` in `math.sqrt`).
         // The Call/Var AST span points at the start of the dotted form.
         // F12 on the prefix navigates to the start of the module file.
-        let prefix_loc = self.external_sources.get(prefix);
+        let prefix_loc = self.external_sources.get(&AstSymbol::intern(prefix));
         let prefix_uri = prefix_loc
             .and_then(|l| Url::from_file_path(&l.path).ok());
         let (prefix_target_span, prefix_target_name_len, prefix_no_def) = match prefix_loc {
@@ -3027,7 +3028,7 @@ impl<'a> Walker<'a> {
             // F12 on the suffix (e.g. `.sqrt` in `math.sqrt`) navigates
             // to the actual decl line in the source file when we know
             // it; otherwise hover-only.
-            let loc = self.external_sources.get(dotted);
+            let loc = self.external_sources.get(&AstSymbol::intern(dotted));
             let target_uri = loc
                 .and_then(|l| Url::from_file_path(&l.path).ok());
             let (target_span, target_name_len) = match loc {
@@ -3043,7 +3044,7 @@ impl<'a> Walker<'a> {
                 signature: sig.clone(),
                 no_definition: target_uri.is_none(),
                 target_uri,
-                doc: self.external_docs.get(dotted).cloned(),
+                doc: self.external_docs.get(&AstSymbol::intern(dotted)).cloned(),
             });
         }
     }
@@ -3095,12 +3096,12 @@ impl<'a> Walker<'a> {
         match &obj.kind {
             ExprKind::This => this_class.map(|s| s.to_string()),
             ExprKind::Var(name) => {
-                if let Some(b) = scope.iter().rev().find(|b| &b.name == name) {
+                if let Some(b) = scope.iter().rev().find(|b| b.name.as_str() == name.as_str()) {
                     type_to_class(b.ty.as_ref()?)
                 } else if self.classes.contains_key(name) {
                     // Bare `ClassName.field/method` — static access on
                     // the class itself.
-                    Some(name.clone())
+                    Some(name.as_str().to_string())
                 } else if name == "console" {
                     // Built-in singleton: maps to the `Console` class.
                     Some("Console".to_string())
@@ -3108,7 +3109,7 @@ impl<'a> Walker<'a> {
                     None
                 }
             }
-            ExprKind::New { class, .. } => Some(class.clone()),
+            ExprKind::New { class, .. } => Some(class.as_str().to_string()),
             _ => None,
         }
     }
@@ -3119,7 +3120,7 @@ impl<'a> Walker<'a> {
 /// with a `(+N overload[s])` tail when the class has multiple init
 /// signatures. Falls back to `class Foo` for classes without init.
 fn class_hover(class: &str, info: &ClassInfo) -> String {
-    if let Some(init) = info.methods.get("init") {
+    if let Some(init) = info.methods.get(&"init".into()) {
         let extras = info.init_overloads.saturating_sub(1);
         let mut out = init.signature.clone();
         if extras == 1 {
@@ -3148,7 +3149,7 @@ fn member_target(
     use_col: u32,
 ) -> (Span, bool, Option<Url>) {
     if info.external {
-        if let Some(loc) = sources.get(class_name) {
+        if let Some(loc) = sources.get(&AstSymbol::intern(class_name)) {
             if let Ok(uri) = Url::from_file_path(&loc.path) {
                 return (m.span, false, Some(uri));
             }
@@ -3161,8 +3162,8 @@ fn member_target(
 
 fn type_to_class(t: &Type) -> Option<String> {
     match t {
-        Type::Object(n) => Some(n.clone()),
-        Type::Generic(g) => Some(g.base.clone()),
+        Type::Object(n) => Some(n.as_str().to_string()),
+        Type::Generic(g) => Some(g.base.as_str().to_string()),
         _ => None,
     }
 }
@@ -3184,7 +3185,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
                 for n in names {
                     if n != "_" {
                         scope.push(Binding {
-                            name: n.clone(),
+                            name: n.as_str().to_string(),
                             span: p.span,
                             ty: None,
                             kind: BindKind::Pattern,
@@ -3196,7 +3197,7 @@ fn bind_pattern(p: &Pattern, scope: &mut Vec<Binding>) {
             PatternBindings::Struct(pairs) => {
                 for (_, alias) in pairs {
                     scope.push(Binding {
-                        name: alias.clone(),
+                        name: alias.as_str().to_string(),
                         span: p.span,
                         ty: None,
                         kind: BindKind::Pattern,
@@ -3229,7 +3230,7 @@ fn infer_expr_type_with_scope(e: &Expr, scope: &[Binding]) -> Option<Type> {
         ExprKind::Var(name) => scope
             .iter()
             .rev()
-            .find(|b| &b.name == name)
+            .find(|b| b.name == name.as_str())
             .and_then(|b| b.ty.clone()),
         ExprKind::New { class, type_args, .. } => {
             if type_args.is_empty() {
@@ -3643,7 +3644,7 @@ fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             continue;
         }
         out.push(CompletionItem {
-            label: name.clone(),
+            label: name.as_str().to_string(),
             kind: Some(CompletionItemKind::CLASS),
             detail: Some(sym.signature.clone()),
             ..CompletionItem::default()
@@ -3660,7 +3661,7 @@ fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             continue;
         }
         out.push(CompletionItem {
-            label: name.clone(),
+            label: name.as_str().to_string(),
             kind: Some(CompletionItemKind::CLASS),
             detail: Some(sig.clone()),
             ..CompletionItem::default()
@@ -3812,10 +3813,10 @@ fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
         } else {
             CompletionItemKind::FUNCTION
         };
-        let (insert_text, fmt) = call_snippet(name, kind);
+        let (insert_text, fmt) = call_snippet(name.as_str(), kind);
         let command = trigger_sig_help_command(kind);
         out.push(CompletionItem {
-            label: name.clone(),
+            label: name.as_str().to_string(),
             kind: Some(kind),
             detail: Some(sym.signature.clone()),
             documentation: sym.doc.clone().map(|d| {
@@ -3838,7 +3839,7 @@ fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
             continue;
         }
         out.push(CompletionItem {
-            label: name.clone(),
+            label: name.as_str().to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
             detail: Some(format!("{name}: {ty}")),
             ..CompletionItem::default()
@@ -3846,7 +3847,7 @@ fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
     }
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for key in doc.external_signatures.keys() {
-        if let Some((m, _)) = key.split_once('.') {
+        if let Some((m, _)) = key.as_str().split_once('.') {
             modules.insert(m.to_string());
         }
     }

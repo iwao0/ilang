@@ -14,6 +14,7 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::types::I64;
 use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
+use ilang_ast::Symbol;
 
 use crate::compiler::JitCompiler;
 use crate::env::LowerCtx;
@@ -50,7 +51,7 @@ fn class_needs_drop(compiler: &JitCompiler, class_id: u32) -> bool {
     let has_heap_field = layout.fields.values().any(|(_, fty)| {
         fty.is_heap() && !is_embedded_repr_c_field(compiler, class_id, *fty)
     });
-    let has_deinit = compiler.class_methods[class_id as usize].contains_key("deinit");
+    let has_deinit = compiler.class_methods[class_id as usize].contains_key(&"deinit".into());
     has_heap_field || has_deinit
 }
 
@@ -94,7 +95,7 @@ fn define_one_class_drop(
     // Snapshot before constructing FunctionBuilder so we don't fight
     // borrow-check while mutating compiler.ctx.
     let deinit_fid = compiler.class_methods[class_id as usize]
-        .get("deinit")
+        .get(&"deinit".into())
         .map(|m| m.id);
     let heap_fields: Vec<(u32, JitTy)> = compiler.class_layouts[class_id as usize]
         .fields
@@ -952,19 +953,19 @@ pub(crate) fn closure_drop_fn_ptr(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     wrapper_name: &str,
-    captures: &[(String, crate::ty::JitTy)],
+    captures: &[(Symbol, crate::ty::JitTy)],
 ) -> Result<Value, CodegenError> {
     let needs_drop = captures.iter().any(|(_, jty)| jty.is_heap());
     if !needs_drop {
-        lc.closure_drops.entry(wrapper_name.to_string()).or_insert(None);
+        lc.closure_drops.entry(wrapper_name.into()).or_insert(None);
         return Ok(b.ins().iconst(I64, 0));
     }
-    let id = if let Some(Some(id)) = lc.closure_drops.get(wrapper_name) {
+    let id = if let Some(Some(id)) = lc.closure_drops.get(&wrapper_name.into()) {
         *id
     } else {
         let symbol = format!("__drop_closure_{wrapper_name}");
         let id = declare_drop_fn(lc.module, &symbol)?;
-        lc.closure_drops.insert(wrapper_name.to_string(), Some(id));
+        lc.closure_drops.insert(wrapper_name.into(), Some(id));
         id
     };
     let func_ref = lc.module.declare_func_in_func(id, b.func);
@@ -977,13 +978,13 @@ pub(crate) fn closure_drop_fn_ptr(
 pub(crate) fn define_closure_drops(
     compiler: &mut JitCompiler,
 ) -> Result<(), CodegenError> {
-    let to_define: Vec<(String, FuncId)> = compiler
+    let to_define: Vec<(Symbol, FuncId)> = compiler
         .closure_drops
         .iter()
-        .filter_map(|(k, v)| v.map(|id| (k.clone(), id)))
+        .filter_map(|(k, v)| v.map(|id| (*k, id)))
         .collect();
     for (wrapper, drop_id) in to_define {
-        define_one_closure_drop(compiler, &wrapper, drop_id)?;
+        define_one_closure_drop(compiler, wrapper.as_str(), drop_id)?;
     }
     Ok(())
 }
@@ -999,7 +1000,7 @@ fn define_one_closure_drop(
         compiler.module.declarations().get_function_decl(drop_id).signature.clone();
     let captures = compiler
         .closure_meta
-        .get(wrapper)
+        .get(&wrapper.into())
         .map(|m| m.captures.clone())
         .unwrap_or_default();
     let JitCompiler {

@@ -1,6 +1,8 @@
 //! Host-side representation of JIT results (`JitValue`) and the
 //! reverse-walker that rebuilds it from a JIT heap layout.
 
+use ilang_ast::Symbol;
+
 use crate::runtime::{ArrayHeader, StringRc};
 use crate::ty::{
     ArrayKind, ClassLayout, EnumLayout, EnumVariantLayout, JitTy, ENUM_PAYLOAD_OFFSET,
@@ -23,8 +25,8 @@ pub(crate) unsafe fn read_enum_heap(
     let idx = layout.tags.iter().position(|&t| t == tag);
     let variant_name = idx
         .and_then(|i| layout.variants.get(i))
-        .cloned()
-        .unwrap_or_else(|| format!("?{tag}"));
+        
+        .map(|s| s.as_str().to_string()).unwrap_or_else(|| format!("?{tag}"));
     let payload_addr = ptr + ENUM_PAYLOAD_OFFSET as i64;
     let payload = match idx.and_then(|i| layout.payloads.get(i)) {
         Some(EnumVariantLayout::Unit) | None => JitEnumPayload::Unit,
@@ -49,7 +51,7 @@ pub(crate) unsafe fn read_enum_heap(
                 .iter()
                 .map(|(name, (off, fty))| {
                     (
-                        name.clone(),
+                        name.as_str().to_string(),
                         read_field(
                             payload_addr + (*off as i64),
                             *fty,
@@ -66,7 +68,7 @@ pub(crate) unsafe fn read_enum_heap(
         }
     };
     JitValue::Enum {
-        ty: layout.name.clone(),
+        ty: layout.name.as_str().to_string(),
         variant: variant_name,
         payload,
     }
@@ -96,7 +98,7 @@ unsafe fn read_field(
         JitTy::Bool => JitValue::Bool(*(addr as *const i8) != 0),
         JitTy::Str => JitValue::Str((*(*(addr as *const i64) as *const StringRc)).s.clone()),
         JitTy::Object(id) => JitValue::Object {
-            class: class_layouts[id as usize].name.clone(),
+            class: class_layouts[id as usize].name.as_str().to_string(),
             ptr: *(addr as *const i64),
         },
         JitTy::Array(id) => JitValue::Array(read_array(
@@ -123,7 +125,7 @@ unsafe fn read_field(
                 *((raw - 24) as *const i64) > 0
             };
             JitValue::Weak {
-                class: class_layouts[class_id as usize].name.clone(),
+                class: class_layouts[class_id as usize].name.as_str().to_string(),
                 alive,
             }
         }
@@ -132,11 +134,11 @@ unsafe fn read_field(
             let layout = &enum_layouts[id as usize];
             let idx = layout.tags.iter().position(|&t| t == tag);
             JitValue::Enum {
-                ty: layout.name.clone(),
+                ty: layout.name.as_str().to_string(),
                 variant: idx
                     .and_then(|i| layout.variants.get(i))
-                    .cloned()
-                    .unwrap_or_else(|| format!("?{tag}")),
+                    
+                    .map(|s| s.as_str().to_string()).unwrap_or_else(|| format!("?{tag}")),
                 payload: JitEnumPayload::Unit,
             }
         }
@@ -180,7 +182,7 @@ pub(crate) unsafe fn read_optional_pointer(
     let v = match inner {
         JitTy::Str => JitValue::Str((*(p as *const StringRc)).s.clone()),
         JitTy::Object(id) => JitValue::Object {
-            class: class_layouts[id as usize].name.clone(),
+            class: class_layouts[id as usize].name.as_str().to_string(),
             ptr: p,
         },
         JitTy::Array(id) => JitValue::Array(read_array(
@@ -194,7 +196,7 @@ pub(crate) unsafe fn read_optional_pointer(
         JitTy::Weak(class_id) => {
             let alive = *((p - 24) as *const i64) > 0;
             JitValue::Weak {
-                class: class_layouts[class_id as usize].name.clone(),
+                class: class_layouts[class_id as usize].name.as_str().to_string(),
                 alive,
             }
         }
@@ -223,11 +225,11 @@ pub(crate) unsafe fn read_optional_pointer(
             let layout = &enum_layouts[id as usize];
             let idx = layout.tags.iter().position(|&t| t == tag);
             JitValue::Enum {
-                ty: layout.name.clone(),
+                ty: layout.name.as_str().to_string(),
                 variant: idx
                     .and_then(|i| layout.variants.get(i))
-                    .cloned()
-                    .unwrap_or_else(|| format!("?{tag}")),
+                    
+                    .map(|s| s.as_str().to_string()).unwrap_or_else(|| format!("?{tag}")),
                 payload: JitEnumPayload::Unit,
             }
         }
@@ -397,7 +399,7 @@ pub(crate) unsafe fn read_array(
             JitTy::Bool => JitValue::Bool(*(p as *const i8) != 0),
             JitTy::Str => JitValue::Str((*(*(p as *const i64) as *const StringRc)).s.clone()),
             JitTy::Object(id) => JitValue::Object {
-                class: class_layouts[id as usize].name.clone(),
+                class: class_layouts[id as usize].name.as_str().to_string(),
                 ptr: *(p as *const i64),
             },
             JitTy::Weak(class_id) => {
@@ -408,7 +410,7 @@ pub(crate) unsafe fn read_array(
                     *((raw - 24) as *const i64) > 0
                 };
                 JitValue::Weak {
-                    class: class_layouts[class_id as usize].name.clone(),
+                    class: class_layouts[class_id as usize].name.as_str().to_string(),
                     alive,
                 }
             }
@@ -433,11 +435,11 @@ pub(crate) unsafe fn read_array(
                 let layout = &enum_layouts[id as usize];
                 let idx = layout.tags.iter().position(|&t| t == tag);
                 JitValue::Enum {
-                    ty: layout.name.clone(),
+                    ty: layout.name.as_str().to_string(),
                     variant: idx
                         .and_then(|i| layout.variants.get(i))
-                        .cloned()
-                        .unwrap_or_else(|| format!("?{tag}")),
+                        
+                        .map(|s| s.as_str().to_string()).unwrap_or_else(|| format!("?{tag}")),
                     payload: JitEnumPayload::Unit,
                 }
             }

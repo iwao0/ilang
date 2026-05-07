@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use cranelift::prelude::*;
 use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
+use ilang_ast::Symbol;
 
 use crate::error::CodegenError;
 use ilang_ast::Span;
@@ -34,14 +35,14 @@ pub(crate) fn declare_import(
 
 #[derive(Default)]
 pub(crate) struct Env {
-    pub bindings: HashMap<String, (Variable, JitTy)>,
+    pub bindings: HashMap<Symbol, (Variable, JitTy)>,
     /// Names introduced by `let x = <unit-typed-expr>` (e.g.
     /// `let x = loop { ... }`, `let x = console.log(...)`). Unit has
     /// no Cranelift representation so we don't allocate a `Variable`
     /// — but we still track the name so subsequent references resolve
     /// to a no-value (`Ok(None)`) result, matching the interpreter
     /// where Unit values can flow through bindings.
-    pub unit_bindings: HashSet<String>,
+    pub unit_bindings: HashSet<Symbol>,
     #[allow(dead_code)]
     next_id: u32,
 }
@@ -113,9 +114,9 @@ pub(crate) struct ArrayFns {
 
 
 pub(crate) struct LowerCtx<'a> {
-    pub funcs: &'a HashMap<String, (FuncId, Vec<JitTy>, JitTy)>,
+    pub funcs: &'a HashMap<Symbol, (FuncId, Vec<JitTy>, JitTy)>,
     pub class_layouts: &'a [ClassLayout],
-    pub class_methods: &'a [HashMap<String, MethodInfo>],
+    pub class_methods: &'a [HashMap<Symbol, MethodInfo>],
     pub enum_layouts: &'a [EnumLayout],
     pub alloc_object_id: FuncId,
     pub retain_object_id: FuncId,
@@ -159,28 +160,28 @@ pub(crate) struct LowerCtx<'a> {
     pub loop_break_types: &'a HashMap<Span, ilang_ast::Type>,
     /// Names of `@extern("libname")` fns. Read by Call lowering to
     /// decide whether to insert string ↔ C-string conversions.
-    pub native_extern_fns: &'a std::collections::HashSet<String>,
-    pub extern_fn_names: &'a std::collections::HashSet<String>,
-    pub native_extern_variadic: &'a std::collections::HashSet<String>,
-    pub native_extern_by_value: &'a std::collections::HashSet<String>,
+    pub native_extern_fns: &'a std::collections::HashSet<Symbol>,
+    pub extern_fn_names: &'a std::collections::HashSet<Symbol>,
+    pub native_extern_variadic: &'a std::collections::HashSet<Symbol>,
+    pub native_extern_by_value: &'a std::collections::HashSet<Symbol>,
     /// Per call-site span → (callee name, inferred type args).
     /// Populated by the type checker for generic fn calls; the JIT
     /// reads it to resolve T at built-in helper sites like
     /// `arrayFromCArray<T>(...)`.
     pub fn_call_type_args: &'a std::collections::HashMap<
         ilang_ast::Span,
-        (String, Vec<ilang_ast::Type>),
+        (Symbol, Vec<ilang_ast::Type>),
     >,
-    pub extern_static_addrs: &'a std::collections::HashMap<String, i64>,
-    pub extern_static_types: &'a std::collections::HashMap<String, ilang_ast::Type>,
+    pub extern_static_addrs: &'a std::collections::HashMap<Symbol, i64>,
+    pub extern_static_types: &'a std::collections::HashMap<Symbol, ilang_ast::Type>,
     /// `(class, field) -> slot index` into `static_field_base_addr`.
     /// Read by Field / AssignField lowering on `ClassName.field`.
     pub static_field_slots:
-        &'a std::collections::HashMap<(String, String), usize>,
+        &'a std::collections::HashMap<(Symbol, Symbol), usize>,
     /// `(class, field) -> declared type` (i64/f64/bool). Lowering
     /// uses it to bitcast / truncate after loading the i64 slot.
     pub static_field_types:
-        &'a std::collections::HashMap<(String, String), ilang_ast::Type>,
+        &'a std::collections::HashMap<(Symbol, Symbol), ilang_ast::Type>,
     /// Base address of the `Box<[i64]>` static-field storage,
     /// embedded as an iconst in lowered field accesses.
     pub static_field_base_addr: i64,
@@ -192,10 +193,10 @@ pub(crate) struct LowerCtx<'a> {
     /// from the typechecker. The lowering uses `(class.name, method)`
     /// as key (class name resolved from receiver's JitTy::Object id).
     pub class_method_slots:
-        &'a std::collections::HashMap<String, std::collections::HashMap<String, usize>>,
+        &'a std::collections::HashMap<Symbol, std::collections::HashMap<Symbol, usize>>,
     /// `class -> parent` map. Used by `super.method(...)` lowering
     /// (resolved at compile time to the parent's specific function).
-    pub class_parents: &'a std::collections::HashMap<String, String>,
+    pub class_parents: &'a std::collections::HashMap<Symbol, Symbol>,
     /// Lexical class for the body currently being lowered. `Some`
     /// while lowering a method body (so `super` knows whose parent
     /// to look up); `None` for top-level fns and `__main`.
@@ -211,14 +212,14 @@ pub(crate) struct LowerCtx<'a> {
     /// when a top-level fn ref is auto-trampolined. Used to look
     /// up signatures and capture offsets.
     pub closure_meta:
-        &'a std::collections::HashMap<String, ClosureMeta>,
+        &'a std::collections::HashMap<Symbol, ClosureMeta>,
     /// Cache of trampoline FuncIds for top-level fns whose
     /// addresses were taken (`let f = some_top_level`). Built
     /// lazily during lowering and reused on subsequent refs.
-    pub closure_trampolines: &'a mut std::collections::HashMap<String, FuncId>,
+    pub closure_trampolines: &'a mut std::collections::HashMap<Symbol, FuncId>,
     /// Per-wrapper drop FuncId cache (closure_drops in JitCompiler).
     /// `None` value = no heap captures, drop_fn_ptr is 0.
-    pub closure_drops: &'a mut std::collections::HashMap<String, Option<FuncId>>,
+    pub closure_drops: &'a mut std::collections::HashMap<Symbol, Option<FuncId>>,
     /// While lowering a closure-wrapper body, this holds the
     /// `(env_var, capture_offsets)` so a Var(name) lookup can
     /// emit `load(env + offset)` instead of failing.
@@ -268,7 +269,7 @@ pub(crate) struct LowerCtx<'a> {
 pub(crate) struct ClosureMeta {
     pub user_params: Vec<crate::ty::JitTy>,
     pub ret: crate::ty::JitTy,
-    pub captures: Vec<(String, crate::ty::JitTy)>,
+    pub captures: Vec<(Symbol, crate::ty::JitTy)>,
 }
 
 /// Capture environment in scope while lowering a closure body.
@@ -277,7 +278,7 @@ pub(crate) struct ClosureMeta {
 /// (offset_from_env, jit_type).
 pub(crate) struct ClosureEnv<'a> {
     pub env_var: Variable,
-    pub captures: &'a [(String, u32, crate::ty::JitTy)],
+    pub captures: &'a [(Symbol, u32, crate::ty::JitTy)],
 }
 
 impl<'a> LowerCtx<'a> {
@@ -295,7 +296,7 @@ impl<'a> LowerCtx<'a> {
 /// Reverse-lookup from class name to id so the lowering paths can
 /// resolve annotations like `let x: Foo = ...` without a full
 /// TypeChecker.
-pub(crate) fn class_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
+pub(crate) fn class_ids_from(lc: &LowerCtx) -> HashMap<Symbol, u32> {
     lc.class_layouts
         .iter()
         .enumerate()
@@ -303,7 +304,7 @@ pub(crate) fn class_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
         .collect()
 }
 
-pub(crate) fn enum_ids_from(lc: &LowerCtx) -> HashMap<String, u32> {
+pub(crate) fn enum_ids_from(lc: &LowerCtx) -> HashMap<Symbol, u32> {
     lc.enum_layouts
         .iter()
         .enumerate()

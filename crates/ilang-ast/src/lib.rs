@@ -1,4 +1,5 @@
 pub mod expr;
+pub mod intern;
 pub mod item;
 pub mod program;
 pub mod span;
@@ -16,4 +17,5 @@ pub use item::{
 pub use program::Program;
 pub use span::Span;
 pub use stmt::{Block, Stmt, StmtKind};
+pub use intern::Symbol;
 pub use types::{FnTy, GenericTy, Type};

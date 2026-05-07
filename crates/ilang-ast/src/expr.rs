@@ -1,3 +1,4 @@
+use crate::intern::Symbol;
 use crate::span::Span;
 use crate::stmt::Block;
 
@@ -28,7 +29,7 @@ pub enum ExprKind {
     Float(f64),
     Bool(bool),
     Str(String),
-    Var(String),
+    Var(Symbol),
     /// The implicit receiver `this` inside a method body.
     This,
     /// `super.method(args)` — call the parent class's version of
@@ -36,7 +37,7 @@ pub enum ExprKind {
     /// means `super(args)`, the parent's `init`, valid only inside
     /// a child class's own `init` body.
     SuperCall {
-        method: Option<String>,
+        method: Option<Symbol>,
         args: Vec<Expr>,
     },
     Unary {
@@ -57,18 +58,18 @@ pub enum ExprKind {
     },
     /// Free function call: `foo(args)`. Method calls go through MethodCall.
     Call {
-        callee: String,
+        callee: Symbol,
         args: Vec<Expr>,
     },
     /// `obj.field` — field read.
     Field {
         obj: Box<Expr>,
-        name: String,
+        name: Symbol,
     },
     /// `obj.method(args)`.
     MethodCall {
         obj: Box<Expr>,
-        method: String,
+        method: Symbol,
         args: Vec<Expr>,
     },
     /// `new ClassName(args)` or `new ClassName<T, U>(args)` for
@@ -78,10 +79,10 @@ pub enum ExprKind {
     /// init that runtime should dispatch to. `None` means "look up
     /// `init` by name as before" (the common, non-overloaded case).
     New {
-        class: String,
+        class: Symbol,
         type_args: Vec<crate::Type>,
         args: Vec<Expr>,
-        init_method: Option<String>,
+        init_method: Option<Symbol>,
     },
     Block(Block),
     If {
@@ -99,7 +100,7 @@ pub enum ExprKind {
     /// iter slot also accepts `Range` (`a..b` / `a..=b`) — see
     /// `ExprKind::Range`.
     ForIn {
-        var: String,
+        var: Symbol,
         iter: Box<Expr>,
         body: Block,
     },
@@ -118,8 +119,8 @@ pub enum ExprKind {
     /// then writes each capture's value at successive 8-byte slots.
     /// The interpreter never produces or consumes this node.
     Closure {
-        fn_name: String,
-        captures: Vec<(String, crate::Type)>,
+        fn_name: Symbol,
+        captures: Vec<(Symbol, crate::Type)>,
     },
     /// Infinite loop. Exits only via `break` (or returning from the
     /// enclosing function once `return` exists). The expression's type
@@ -140,13 +141,13 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
     /// Assignment to an existing variable. Always evaluates to `Unit`.
     Assign {
-        target: String,
+        target: Symbol,
         value: Box<Expr>,
     },
     /// Assignment to a field: `obj.field = value`. Evaluates to `Unit`.
     AssignField {
         obj: Box<Expr>,
-        field: String,
+        field: Symbol,
         value: Box<Expr>,
     },
     /// Numeric (or `bool`-to-int) cast: `expr as Type`.
@@ -174,8 +175,8 @@ pub enum ExprKind {
     /// so downstream stages (interpreter / JIT) never see this
     /// node directly.
     StructLit {
-        class: String,
-        fields: Vec<(String, Expr)>,
+        class: Symbol,
+        fields: Vec<(Symbol, Expr)>,
     },
     /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
     /// expressions (string / int / bool literals at parse time;
@@ -200,7 +201,7 @@ pub enum ExprKind {
     /// `name` is bound to the unwrapped value of type `T` (where the
     /// scrutinee has type `T?`).
     IfLet {
-        name: String,
+        name: Symbol,
         expr: Box<Expr>,
         then_branch: Block,
         else_branch: Option<Box<Expr>>,
@@ -208,8 +209,8 @@ pub enum ExprKind {
     /// `EnumName::Variant` (Phase 1: unit) or `EnumName::Variant(args)` /
     /// `EnumName::Variant { f: v }` (Phase 2: payload).
     EnumCtor {
-        enum_name: String,
-        variant: String,
+        enum_name: Symbol,
+        variant: Symbol,
         args: CtorArgs,
     },
     /// `match scrutinee { Pattern => body, ... }`.
@@ -223,7 +224,7 @@ pub enum ExprKind {
 pub enum CtorArgs {
     Unit,
     Tuple(Vec<Expr>),
-    Struct(Vec<(String, Expr)>),
+    Struct(Vec<(Symbol, Expr)>),
 }
 
 #[derive(Debug, Clone)]
@@ -260,8 +261,8 @@ pub enum PatternKind {
     /// (just `Variant(...)`); the type checker resolves it from the
     /// match scrutinee's static type.
     Variant {
-        enum_name: Option<String>,
-        variant: String,
+        enum_name: Option<Symbol>,
+        variant: Symbol,
         bindings: PatternBindings,
     },
     /// `42`, `-7` — integer literal pattern. The natural type is
@@ -284,9 +285,9 @@ pub enum PatternBindings {
     Unit,
     /// `EnumName::Variant(name1, name2)` — positional bindings (`_`
     /// for "ignore"); the strings are the binding names.
-    Tuple(Vec<String>),
+    Tuple(Vec<Symbol>),
     /// `EnumName::Variant { f1: name1, f2 }` (shorthand allowed).
-    Struct(Vec<(String, String)>),
+    Struct(Vec<(Symbol, Symbol)>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

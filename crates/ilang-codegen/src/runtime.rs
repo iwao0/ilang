@@ -5,6 +5,8 @@
 //! heap values (`StringRc`, `ArrayHeader`) live here too — the host
 //! side (`read_array`, `run_main`) needs to walk them.
 
+use ilang_ast::Symbol;
+
 // ─── ARC for objects (Phase A/D/E) ────────────────────────────────────
 // Each `new` allocation lays out memory as:
 //   [ strong_rc | weak_rc | drop_fn_ptr | vtable_ptr | field0 | ... ]
@@ -286,7 +288,7 @@ pub(crate) extern "C" fn ilang_jit_str_to_c_str(ptr: i64) -> i64 {
     // CString rejects interior NULs — fall back to truncating at the
     // first NUL so we never panic on user strings. C land treats them
     // as terminators anyway.
-    let bytes = sr.s.as_bytes();
+    let bytes = sr.s.as_str().as_bytes();
     let len_to_nul = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     let mut buf = Vec::with_capacity(len_to_nul + 1);
     buf.extend_from_slice(&bytes[..len_to_nul]);
@@ -505,7 +507,7 @@ pub(crate) extern "C" fn ilang_jit_str_starts_with(s: i64, prefix: i64) -> i8 {
 pub(crate) extern "C" fn ilang_jit_str_ends_with(s: i64, suffix: i64) -> i8 {
     let s = unsafe { &*(s as *const StringRc) };
     let f = unsafe { &*(suffix as *const StringRc) };
-    if s.s.ends_with(&f.s) {
+    if s.s.as_str().ends_with(&f.s) {
         1
     } else {
         0
@@ -1128,16 +1130,16 @@ pub(crate) struct LibState {
 /// / `os.libLoadError`. `OnceLock<Mutex<...>>` so the table survives
 /// JitCompiler drops and is shared across multiple JIT runs in the
 /// same process.
-fn lib_registry() -> &'static std::sync::Mutex<std::collections::HashMap<String, LibState>> {
+fn lib_registry() -> &'static std::sync::Mutex<std::collections::HashMap<Symbol, LibState>> {
     static REGISTRY: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, LibState>>,
+        std::sync::Mutex<std::collections::HashMap<Symbol, LibState>>,
     > = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 pub(crate) fn record_lib_loaded(name: &str, loaded: bool, error: Option<String>) {
     if let Ok(mut map) = lib_registry().lock() {
-        let entry = map.entry(name.to_string()).or_insert(LibState {
+        let entry = map.entry(name.into()).or_insert(LibState {
             loaded,
             error: error.clone(),
         });
@@ -1155,7 +1157,7 @@ pub(crate) fn record_lib_loaded(name: &str, loaded: bool, error: Option<String>)
 pub(crate) fn is_lib_loaded(name: &str) -> bool {
     lib_registry()
         .lock()
-        .map(|map| map.get(name).map(|s| s.loaded).unwrap_or(false))
+        .map(|map| map.get(&Symbol::intern(name)).map(|s| s.loaded).unwrap_or(false))
         .unwrap_or(false)
 }
 
@@ -1163,5 +1165,5 @@ pub(crate) fn lib_load_error(name: &str) -> Option<String> {
     lib_registry()
         .lock()
         .ok()
-        .and_then(|map| map.get(name).and_then(|s| s.error.clone()))
+        .and_then(|map| map.get(&Symbol::intern(name)).and_then(|s| s.error.clone()))
 }
