@@ -1291,7 +1291,12 @@ fn walk_module(
             }
             Item::Enum(e) => {
                 let key = format!("{prefix}.{}", e.name);
-                out.insert(AstSymbol::intern(&key), format!("enum {key}"));
+                let repr = e
+                    .repr_ty
+                    .as_ref()
+                    .map(|t| format!(": {t}"))
+                    .unwrap_or_default();
+                out.insert(AstSymbol::intern(&key), format!("enum {key}{repr}"));
                 track(&key, e.span, e.name.as_str().len() as u32, sources, &module_path);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -1468,7 +1473,12 @@ fn walk_module_aliased(
             }
             Item::Enum(e) => {
                 let key = format!("{alias_prefix}.{}", e.name);
-                out.insert(AstSymbol::intern(&key), format!("enum {key}"));
+                let repr = e
+                    .repr_ty
+                    .as_ref()
+                    .map(|t| format!(": {t}"))
+                    .unwrap_or_default();
+                out.insert(AstSymbol::intern(&key), format!("enum {key}{repr}"));
                 put(&key, e.span, e.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -1810,7 +1820,16 @@ fn collect_external_signatures(
                 put_dotted(c.name.as_str(), format!("class {}", c.name), &mut out);
             }
             Item::Enum(e) => {
-                put_dotted(e.name.as_str(), format!("enum {}", e.name), &mut out);
+                let repr = e
+                    .repr_ty
+                    .as_ref()
+                    .map(|t| format!(": {t}"))
+                    .unwrap_or_default();
+                put_dotted(
+                    e.name.as_str(),
+                    format!("enum {}{}", e.name, repr),
+                    &mut out,
+                );
                 if e.name.as_str().contains('.') {
                     register_enum_variants(e, e.name.as_str(), &mut out);
                 }
@@ -2116,7 +2135,12 @@ fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                let signature = format!("enum {} {{ {} }}", e.name, variants);
+                let repr = e
+                    .repr_ty
+                    .as_ref()
+                    .map(|t| format!(": {t}"))
+                    .unwrap_or_default();
+                let signature = format!("enum {}{} {{ {} }}", e.name, repr, variants);
                 out.insert(
                     e.name.into(),
                     Symbol {
