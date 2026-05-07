@@ -320,6 +320,13 @@ pub struct TypeChecker {
     /// `char` / `size_t` / `ssize_t` types to appear; outside the
     /// block these types are rejected.
     in_extern_c: std::cell::RefCell<bool>,
+    /// Type parameters in scope for the currently-checking fn (the
+    /// fn's own `<T, U, ...>` plus any class type params when the
+    /// fn is a method). Used by `validate_type` so a body-local
+    /// annotation like `let y: T[] = [x]` recognises the enclosing
+    /// fn's type params instead of treating them as unknown
+    /// classes. Saved / restored across nested `check_fn` calls.
+    current_type_params: std::cell::RefCell<Vec<Symbol>>,
     /// Per-`loop` expression: the unified break-value type that the
     /// loop evaluates to. Unit means no `break v` was seen. Consumed
     /// by the JIT lowering so it can allocate the right Cranelift
@@ -1760,6 +1767,28 @@ impl TypeChecker {
             .unwrap_or_default();
         params_in_scope.extend(f.type_params.iter().cloned());
         let class_params = params_in_scope;
+        // Make these visible to body-level type annotations
+        // (`let y: T[] = ...` references the fn's own `<T>`).
+        // The guard restores on every exit path — important
+        // because validate_type (called below) returns errors via
+        // `?`, and the next fn check shouldn't see stale params.
+        struct TpsGuard<'a> {
+            slot: &'a std::cell::RefCell<Vec<Symbol>>,
+            saved: Vec<Symbol>,
+        }
+        impl<'a> Drop for TpsGuard<'a> {
+            fn drop(&mut self) {
+                *self.slot.borrow_mut() = std::mem::take(&mut self.saved);
+            }
+        }
+        let saved_tps = std::mem::replace(
+            &mut *self.current_type_params.borrow_mut(),
+            class_params.clone(),
+        );
+        let _tps_guard = TpsGuard {
+            slot: &self.current_type_params,
+            saved: saved_tps,
+        };
         for Param { ty, span, .. } in &f.params {
             self.validate_type(ty, *span, &class_params)?;
         }
@@ -1842,6 +1871,19 @@ impl TypeChecker {
                 if self.classes.contains_key(name)
                     || self.enums.contains_key(name)
                     || type_params_in_scope.iter().any(|p| p == name)
+                    // Fallback: when the caller passed an empty
+                    // `type_params_in_scope` (e.g. body-local
+                    // `let y: T[] = ...`), the active fn's own
+                    // type params are still in scope through
+                    // `current_type_params`. The caller does
+                    // override when it has a more specific list
+                    // (class param scoping for fields / methods).
+                    || (type_params_in_scope.is_empty()
+                        && self
+                            .current_type_params
+                            .borrow()
+                            .iter()
+                            .any(|p| p == name))
                 {
                     // ok
                 } else {
@@ -1964,9 +2006,21 @@ impl TypeChecker {
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span, &[])?;
-                        if !self.value_assignable(value, &vt, ann) {
+                        // Rewrite Object(T) → TypeVar(T) using the
+                        // active fn's type params so a body-local
+                        // `let y: T = x` matches the param-side
+                        // representation (which goes through the
+                        // same rewrite at fn entry).
+                        let tps = self.current_type_params.borrow();
+                        let ann_rewritten = if tps.is_empty() {
+                            ann.clone()
+                        } else {
+                            rewrite_type_params(ann, &tps)
+                        };
+                        drop(tps);
+                        if !self.value_assignable(value, &vt, &ann_rewritten) {
                             return Err(TypeError::Mismatch {
-                                expected: ann.clone(),
+                                expected: ann_rewritten.clone(),
                                 got: vt,
                                 span: value.span,
                             });
@@ -1978,7 +2032,7 @@ impl TypeChecker {
                         // single concrete enum instantiation when an
                         // EnumCtor only provides args for some of T/E.
                         self.refine_enum_ctor_args(value, ann);
-                        ann.clone()
+                        ann_rewritten
                     }
                     None => vt,
                 };
