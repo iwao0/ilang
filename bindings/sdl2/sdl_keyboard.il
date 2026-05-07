@@ -331,7 +331,7 @@ enum KeyMod: u16 {
     ///     if kb.isPressed(Scancode.f) { ... }      // rising edge
     ///     if kb.isReleased(Scancode.escape) { ... } // falling edge
     ///
-    /// `state_ptr` is the buffer SDL hands back from
+    /// `statePtr` is the buffer SDL hands back from
     /// `SDL_GetKeyboardState` — the same memory each call, mutated
     /// by SDL itself when the OS event queue advances. `prev` is
     /// our 512-byte snapshot of that buffer taken at the start of
@@ -339,8 +339,8 @@ enum KeyMod: u16 {
     /// frame".
     class Keyboard {
         /// Cached pointer to SDL's keyboard state buffer.
-        state_ptr: i64
-        /// Snapshot of `state_ptr`'s contents from the previous
+        statePtr: i64
+        /// Snapshot of `statePtr`'s contents from the previous
         /// `pump()`, compared against the live state to detect
         /// rising / falling edges.
         prev: u8[]
@@ -349,7 +349,7 @@ enum KeyMod: u16 {
         /// frame snapshot. SDL's video subsystem must already be
         /// initialised (`sdl.init(...)`).
         init() {
-            this.state_ptr = SDL_GetKeyboardState(0 as *i32) as i64
+            this.statePtr = SDL_GetKeyboardState(0 as *i32) as i64
             // SDL_NUM_SCANCODES = 512.
             let p: u8[] = []
             let i: i32 = 0
@@ -365,16 +365,16 @@ enum KeyMod: u16 {
         /// `sdl.pumpEvents()` (which actually drains the OS event
         /// queue) and before reading any polling methods.
         pump() {
-            if this.state_ptr != 0 {
+            if this.statePtr != 0 {
                 let i: i32 = 0
                 while i < 512 {
                     this.prev[i as i64] = readU8(
-                        this.state_ptr as *const void, i as i64
+                        this.statePtr as *const void, i as i64
                     )
                     i += 1
                 }
             }
-            this.state_ptr = SDL_GetKeyboardState(0 as *i32) as i64
+            this.statePtr = SDL_GetKeyboardState(0 as *i32) as i64
         }
 
         // ─── live state ──────────────────────────────────────────
@@ -388,10 +388,10 @@ enum KeyMod: u16 {
         ///   out of range.
         isHeld(scancode: Scancode): bool {
             let s: i32 = scancode as i32
-            if this.state_ptr == 0 || s < 0 || s >= 512 {
+            if this.statePtr == 0 || s < 0 || s >= 512 {
                 return false
             }
-            readU8(this.state_ptr as *const void, s as i64) != 0 as u8
+            readU8(this.statePtr as *const void, s as i64) != 0 as u8
         }
 
         /// Returns:
