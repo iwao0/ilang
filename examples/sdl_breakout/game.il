@@ -17,6 +17,8 @@ use neon
 use paddle
 use rng
 use consts
+use audio_session
+use input
 
 // Width of `s` rendered through `sdl.Font.drawText`. The font is
 // 5×7 with 1 px between glyphs, so `n` chars = `n * 6 - 1` px at
@@ -53,14 +55,10 @@ class Game {
     ren: sdl.Renderer
     neonR: neon.NeonRenderer
     font: sdl.Font
-    sfxDevice: sdl.AudioDevice
-    audioMusic: sdl.AudioDevice
-    bgm: i16[]
-    bgmBytes: u32
-    gamepad: sdl.Gamepad
-    beepWall: i16[]
-    beepPaddle: i16[]
-    beepBrick: i16[]
+    /// SFX + BGM device pair plus the pre-rendered beep buffers.
+    sfx: audio_session.AudioSession
+    /// Keyboard / gamepad bundle.
+    inp: input.Input
     starTex: sdl.Texture
     glowTex: sdl.Texture
     crtTex: sdl.Texture
@@ -125,34 +123,12 @@ class Game {
 
         this.font = new sdl.Font(this.ren)
 
-        this.sfxDevice = new sdl.AudioDevice(consts.sampleRate, 1)
-        if this.sfxDevice.id == 0 {
+        this.sfx = new audio_session.AudioSession()
+        if !this.sfx.sfxOk() {
             console.log("SDL_OpenAudioDevice failed: " + sdl.getError())
             return
         }
-        this.sfxDevice.play()
-
-        // Second audio device dedicated to BGM. SDL allows multiple
-        // simultaneous open devices, so the music keeps playing even
-        // while SFX queue/dequeue rapidly on the first device.
-        this.audioMusic = new sdl.AudioDevice(consts.sampleRate, 1)
-        this.bgm = audio.makeBgmLoop()
-        this.bgmBytes = (this.bgm.length * 2) as u32   // one loop in queued-bytes
-        if this.audioMusic.id != 0 {
-            // Pre-buffer two loops so the first refill check has slack.
-            this.audioMusic.queue(this.bgm)
-            this.audioMusic.queue(this.bgm)
-            this.audioMusic.play()
-        }
-
-        // Open the first attached this.gamepad if any. `this.pad.handle == 0`
-        // when nothing is plugged in — every poll degrades to
-        // returning 0/false, so the keyboard path keeps working.
-        this.gamepad = new sdl.Gamepad()
-
-        this.beepWall = audio.makeBeep(440.0, 40)
-        this.beepPaddle = audio.makeBeep(660.0, 50)
-        this.beepBrick = audio.makeBeep(880.0, 70)
+        this.inp = new input.Input()
 
         // White star sprite for particle bursts. Tinted at draw time
         // via `setColorMod`, rotated via `drawTextureRot`.
@@ -161,7 +137,7 @@ class Game {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
         }
-        this.starTex.update(sprites.makeStarSprite())
+        let _ = this.starTex.update(sprites.makeStarSprite())
 
         // Soft radial-gradient sprite, tinted per-brick at draw time so
         // the wave highlight blooms as a blurry circle rather than a
@@ -171,7 +147,7 @@ class Game {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
         }
-        this.glowTex.update(sprites.makeGlowSprite())
+        let _ = this.glowTex.update(sprites.makeGlowSprite())
 
         // Full-window CRT-effect overlay — built once. The alpha
         // channel encodes scanlines + vignette, the colour is black,
@@ -182,7 +158,7 @@ class Game {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
         }
-        this.crtTex.update(sprites.makeCrtOverlay(consts.winW, consts.winH))
+        let _ = this.crtTex.update(sprites.makeCrtOverlay(consts.winW, consts.winH))
 
         // Off-screen accumulator for the world. Drawn into each frame
         // (with a small per-frame fade applied first) and then composited
@@ -196,7 +172,7 @@ class Game {
         // Linear filtering on the scene texture so that the bloom
         // pass's downscale + upscale produces a smooth blur instead of
         // a chunky pixel this.grid.
-        this.sceneTex.setScaleMode(1)
+        let _ = this.sceneTex.setScaleMode(1)
 
         // Tiny target used to "blur" the scene. We draw this.sceneTex
         // shrunk into this.bloomTex (each downsample averages a 4×4 block
@@ -209,7 +185,7 @@ class Game {
             console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
             return
         }
-        this.bloomTex.setScaleMode(1)
+        let _ = this.bloomTex.setScaleMode(1)
 
         // Background star field — scrolls top→down with a twinkle.
         this.sky = new star.BgStars(80, consts.winW, consts.winH)
@@ -309,9 +285,7 @@ class Game {
 
             // Top up the BGM queue so the loop never drains. Polling
             // each frame is plenty cheap.
-            if this.audioMusic.id != 0 && this.audioMusic.queuedBytes() < this.bgmBytes {
-                this.audioMusic.queue(this.bgm)
-            }
+            this.sfx.refillBgm()
 
             // Clear-time celebration: one big multi-burst the instant
             // the level is this.won, then a steady stream while CLEAR! is
@@ -339,31 +313,24 @@ class Game {
                 }
             }
 
-            // Gamepad: left stick → paddle (analogue), DPAD ←/→ →
-            // paddle (digital), A → launch, START → restart, BACK →
-            // quit. The keyboard mappings below stack with these so
-            // either device works.
-            let padLx = this.gamepad.getAxis(sdl.Axis.leftX) as i32  // [-32768, 32767]
-            let padDpadL = this.gamepad.isPressed(sdl.Button.dpadLeft)
-            let padDpadR = this.gamepad.isPressed(sdl.Button.dpadRight)
-            let padA = this.gamepad.isPressed(sdl.Button.a)
-            let padStart = this.gamepad.isPressed(sdl.Button.start)
-            let padBack = this.gamepad.isPressed(sdl.Button.back)
+            // Gamepad + keyboard: one snapshot per frame. The
+            // keyboard / gamepad mappings stack — either device
+            // works.
+            let in_ = this.inp.poll()
 
-            if sdl.Keyboard.isPressed(sdl.Scancode.escape) || padBack {
+            if in_.keyEsc || in_.padBack {
                 running = false
             }
 
             // F: toggle this.fullscreen on key-down (rising edge).
-            let fNow = sdl.Keyboard.isPressed(sdl.Scancode.f)
-            if fNow && !this.fWasDown {
+            if in_.keyF && !this.fWasDown {
                 this.fullscreen = !this.fullscreen
                 this.win.fullscreen = this.fullscreen
             }
-            this.fWasDown = fNow
+            this.fWasDown = in_.keyF
 
             // Restart after game over.
-            if this.gameOver && (sdl.Keyboard.isPressed(sdl.Scancode.r) || padStart) {
+            if this.gameOver && (in_.keyR || in_.padStart) {
                 this.grid.reset()
                 let freshBalls: ball.Ball[] = []
                 freshBalls.push(new ball.Ball((consts.winW / 2) as f64, (consts.winH / 2) as f64, 5.0, -5.0))
@@ -394,13 +361,13 @@ class Game {
             this.pad.tick()
             let paddleW: i32 = this.pad.width()
 
-            if sdl.Keyboard.isPressed(sdl.Scancode.left) || sdl.Keyboard.isPressed(sdl.Scancode.a) || padDpadL {
+            if in_.keyLeft || in_.keyA || in_.padDpadL {
                 this.pad.moveLeft()
             }
-            if sdl.Keyboard.isPressed(sdl.Scancode.right) || sdl.Keyboard.isPressed(sdl.Scancode.d) || padDpadR {
+            if in_.keyRight || in_.keyD || in_.padDpadR {
                 this.pad.moveRight()
             }
-            this.pad.moveAnalog(padLx)
+            this.pad.moveAnalog(in_.padLx)
             this.pad.clamp(consts.winW)
 
             // Space to launch the ball (idle on paddle until pressed).
@@ -409,7 +376,7 @@ class Game {
             // shoot through unfilled rows.
             let introTotal = (consts.cols - 1) * consts.introStagger + consts.introDuration
             if !this.started && !this.gameOver && this.introPhase >= introTotal &&
-                    (sdl.Keyboard.isPressed(sdl.Scancode.space) || padA) {
+                    (in_.keySpace || in_.padA) {
                 this.started = true
             }
 
@@ -440,17 +407,17 @@ class Game {
                     if b.x < 0.0 {
                         b.x = 0.0
                         b.vx = -b.vx
-                        this.sfxDevice.queue(this.beepWall)
+                        this.sfx.playWall()
                     }
                     if b.x + (consts.ballSize as f64) > consts.winW as f64 {
                         b.x = (consts.winW - consts.ballSize) as f64
                         b.vx = -b.vx
-                        this.sfxDevice.queue(this.beepWall)
+                        this.sfx.playWall()
                     }
                     if b.y < 0.0 {
                         b.y = 0.0
                         b.vy = -b.vy
-                        this.sfxDevice.queue(this.beepWall)
+                        this.sfx.playWall()
                     }
 
                     // Paddle (only on the way down).
@@ -475,7 +442,7 @@ class Game {
                         b.vx = speed * math.sin(angle)
                         b.vy = -speed * math.cos(angle)
                         this.combo = 0
-                        this.sfxDevice.queue(this.beepPaddle)
+                        this.sfx.playPaddle()
                     }
 
                     // Bricks. First-hit-wins-this-frame for this ball.
@@ -513,7 +480,7 @@ class Game {
                                 let bump = 4.0 + (this.combo as f64) * 1.5
                                 this.shake = this.shake + bump
                                 if this.shake > 14.0 { this.shake = 14.0 }
-                                this.sfxDevice.queue(this.beepBrick)
+                                this.sfx.playBrick()
                                 // 14% drop chance per brick break.
                                 if rng.randf() < 0.14 {
                                     let kind = (rng.randf() * 3.0) as i32
@@ -638,7 +605,7 @@ class Game {
                             this.slowTimer = 480            // 8s
                         }
                     }
-                    this.sfxDevice.queue(this.beepPaddle)
+                    this.sfx.playPaddle()
                 }
                 if !removed && pu.y < (consts.winH + 40) as f64 {
                     alivePu.push(pu)
