@@ -621,7 +621,11 @@ pub(crate) fn lower_expr(
             if let Some(info) =
                 lc.class_methods[class_id as usize].get(&Symbol::intern(&prop_key)).cloned()
             {
-                emit_retain_object(b, lc, obj_v);
+                // Same retain-on-aliased-only convention as
+                // `call_method`.
+                if is_aliased_heap_source(&obj.kind) {
+                    emit_retain_object(b, lc, obj_v);
+                }
                 let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
                     CodegenError::Unsupported {
                         what: "field value is unit".into(),
@@ -964,7 +968,14 @@ pub(crate) fn lower_expr(
             if let Some(info) =
                 lc.class_methods[class_id as usize].get(&Symbol::intern(&prop_key)).cloned()
             {
-                emit_retain_object(b, lc, obj_v);
+                // Same retain-on-aliased-only convention as
+                // `call_method`: an aliased receiver still owns its
+                // own +1, so the getter's exit-release would
+                // otherwise eat that. Fresh receivers hand their
+                // rc=1 directly to the call.
+                if is_aliased_heap_source(&obj.kind) {
+                    emit_retain_object(b, lc, obj_v);
+                }
                 let func_ref = lc.module.declare_func_in_func(info.id, b.func);
                 let call = b.ins().call(func_ref, &[obj_v]);
                 if matches!(info.ret, JitTy::Unit) {
