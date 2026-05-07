@@ -3167,7 +3167,7 @@ impl<'a> Walker<'a> {
                                     signature: m.signature.clone(),
                                     no_definition: no_def,
                                     target_uri: uri,
-                                doc: None,
+                                    doc: m.doc.clone(),
                                 });
                             }
                         }
