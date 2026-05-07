@@ -2221,7 +2221,7 @@ fn collect_free_vars_in_expr(
 }
 
 fn pattern_binds(p: &ilang_ast::Pattern, bound: &mut std::collections::HashSet<Symbol>) {
-    use ilang_ast::{PatternBindings, PatternKind, Symbol};
+    use ilang_ast::{PatternBindings, PatternKind};
     match &p.kind {
         PatternKind::Wildcard
         | PatternKind::IntLit(_)

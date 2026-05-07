@@ -1,7 +1,12 @@
+// Edition 2024 promotes unsafe-op-in-unsafe-fn from allow to warn; the
+// `unsafe fn` walkers in this module read JIT heap layouts via raw
+// pointers throughout, so opting back to the implicit-unsafe form
+// keeps them readable.
+#![allow(unsafe_op_in_unsafe_fn)]
+
 //! Host-side representation of JIT results (`JitValue`) and the
 //! reverse-walker that rebuilds it from a JIT heap layout.
 
-use ilang_ast::Symbol;
 
 use crate::runtime::{ArrayHeader, StringRc};
 use crate::ty::{

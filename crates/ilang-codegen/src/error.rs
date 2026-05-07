@@ -1,4 +1,4 @@
-use ilang_ast::{Span, Type, Symbol};
+use ilang_ast::{Span, Type};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

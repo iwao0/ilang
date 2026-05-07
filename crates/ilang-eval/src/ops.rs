@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use ilang_ast::{BinOp, Span, Type, UnOp, Symbol};
+use ilang_ast::{BinOp, Span, Type, UnOp};
 
 use crate::error::RuntimeError;
 use crate::value::Value;

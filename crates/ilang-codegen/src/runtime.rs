@@ -1,3 +1,9 @@
+// Edition 2024 promotes unsafe-op-in-unsafe-fn from allow to warn; this
+// module's `unsafe fn` helpers are all-unsafe-by-design (raw-pointer +
+// allocator plumbing), so wrapping every body in `unsafe { ... }` would
+// just be noise.
+#![allow(unsafe_op_in_unsafe_fn)]
+
 //! Runtime FFI helpers linked into the JIT module.
 //!
 //! Every `extern "C"` here is registered with `JITBuilder::symbol` and

@@ -1,7 +1,7 @@
 //! Hover signatures for built-in members the type checker
 //! pre-registers (FFI helpers, string / array methods).
 
-use ilang_ast::{Symbol, Type};
+use ilang_ast::Type;
 
 /// Hover signatures for the FFI marshalling helpers callable inside
 /// `@extern(C) {}` blocks. The type checker pre-registers these but

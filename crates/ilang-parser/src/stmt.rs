@@ -1,4 +1,4 @@
-use ilang_ast::{Block, Stmt, StmtKind, Symbol};
+use ilang_ast::{Block, Stmt, StmtKind};
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
