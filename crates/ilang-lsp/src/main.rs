@@ -26,8 +26,9 @@ use builtins::{
 use project::{collect_dep_paths, find_umbrella};
 use text::{
     call_context_at, locate_dot_name, locate_let_name, locate_let_name_with_kw,
-    locate_property_name, locate_selective_name, parameter_offsets, receiver_before_dot,
-    span_full_to_range, span_to_range, word_at,
+    locate_property_name, locate_selective_name, locate_type_after_colon,
+    parameter_offsets, receiver_before_dot, span_full_to_range, span_to_range,
+    word_at,
 };
 
 #[derive(Clone, Debug)]
@@ -2747,11 +2748,40 @@ struct Walker<'a> {
 }
 
 impl<'a> Walker<'a> {
+    /// Walk a `Type` at `start_span` (the first character of the
+    /// type token in source) and push hover / F12 entries for each
+    /// dotted `Type::Object` name. Suffixes like `[]`, `?`, `.weak`
+    /// don't shift the type-name's start, so nested types inherit
+    /// `start_span`.
+    fn walk_type_at(&mut self, ty: &Type, start_span: Span) {
+        match ty {
+            Type::Object(name) => {
+                if name.as_str().contains('.') {
+                    self.push_external_dotted_ref(name.as_str(), start_span);
+                }
+            }
+            Type::Array { elem, .. } => self.walk_type_at(elem, start_span),
+            Type::Optional(inner) => self.walk_type_at(inner, start_span),
+            Type::Weak(inner) => self.walk_type_at(inner, start_span),
+            Type::Generic(g) => {
+                if g.base.as_str().contains('.') {
+                    self.push_external_dotted_ref(g.base.as_str(), start_span);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
         let mut scope: Vec<Binding> = Vec::new();
         for p in &f.params {
             let sig = BindKind::Param.render(p.name.as_str(), Some(&p.ty));
             self.push_decl(p.name.as_str(), p.span, sig);
+            if let Some(start) =
+                locate_type_after_colon(self.text, p.span, p.name.as_str())
+            {
+                self.walk_type_at(&p.ty, start);
+            }
             if let Some(c) = type_to_class(&p.ty) {
                 self.var_classes.insert(p.name.clone(), c);
             }
@@ -2776,6 +2806,11 @@ impl<'a> Walker<'a> {
                 format!("(property) {}.{}: {}", c.name, f.name, f.ty),
                 text::extract_doc_above(self.text, f.span.line),
             );
+            if let Some(start) =
+                locate_type_after_colon(self.text, f.span, f.name.as_str())
+            {
+                self.walk_type_at(&f.ty, start);
+            }
         }
         for f in &c.static_fields {
             let kind = if f.is_const { "static const" } else { "static property" };
@@ -2788,6 +2823,11 @@ impl<'a> Walker<'a> {
                 format!("({}) {}.{}: {}{}", kind, c.name, f.name, f.ty, value),
                 text::extract_doc_above(self.text, f.span.line),
             );
+            if let Some(start) =
+                locate_type_after_colon(self.text, f.span, f.name.as_str())
+            {
+                self.walk_type_at(&f.ty, start);
+            }
         }
         for p in &c.properties {
             // PropertyDecl.span points at the `get` / `set` keyword, so

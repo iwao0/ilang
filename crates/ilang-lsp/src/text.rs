@@ -45,6 +45,40 @@ pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)
     Some((line, col))
 }
 
+/// Locate the start of the type token in a `name: T` form (field
+/// declarations, params, etc.). Skips the `name` identifier, the
+/// trailing whitespace, the `:`, more whitespace, and lands on the
+/// first character of the type. Returns `None` if the layout
+/// doesn't match (e.g., no `:` follows the name).
+pub(crate) fn locate_type_after_colon(
+    text: &str,
+    name_span: Span,
+    name: &str,
+) -> Option<Span> {
+    let off = line_col_to_offset(text, name_span.line, name_span.col)?;
+    let bytes = text.as_bytes();
+    let mut i = off + name.len();
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    let b = bytes[i];
+    if !b.is_ascii_alphabetic() && b != b'_' {
+        return None;
+    }
+    let (line, col) = offset_to_line_col(text, i)?;
+    Some(Span::new(line, col))
+}
+
 /// Locate the property name after a `get` or `set` keyword.
 pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
     let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;
