@@ -392,6 +392,10 @@ pub(crate) struct JitCompiler {
     pub(crate) print_type_ref: FuncId,
     pub(crate) type_is_subtype: FuncId,
     pub(crate) type_lookup: FuncId,
+    pub(crate) i64_to_string: FuncId,
+    pub(crate) u64_to_string: FuncId,
+    pub(crate) f64_to_string: FuncId,
+    pub(crate) bool_to_string: FuncId,
     pub(crate) str_concat: FuncId,
     pub(crate) str_eq: FuncId,
     pub(crate) retain_string_id: FuncId,
@@ -930,6 +934,22 @@ impl JitCompiler {
             "ilang_jit_type_lookup",
             crate::runtime::ilang_jit_type_lookup as *const u8,
         );
+        builder.symbol(
+            "ilang_jit_i64_to_string",
+            crate::runtime::ilang_jit_i64_to_string as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_u64_to_string",
+            crate::runtime::ilang_jit_u64_to_string as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_f64_to_string",
+            crate::runtime::ilang_jit_f64_to_string as *const u8,
+        );
+        builder.symbol(
+            "ilang_jit_bool_to_string",
+            crate::runtime::ilang_jit_bool_to_string as *const u8,
+        );
         builder.symbol("ilang_jit_str_concat", ilang_jit_str_concat as *const u8);
         builder.symbol("ilang_jit_str_eq", ilang_jit_str_eq as *const u8);
         builder.symbol(
@@ -1073,6 +1093,14 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_type_is_subtype", &[I64, I64], Some(I8))?;
         let type_lookup =
             declare_import(&mut module, "ilang_jit_type_lookup", &[I64, I64, I64], Some(I64))?;
+        let i64_to_string =
+            declare_import(&mut module, "ilang_jit_i64_to_string", &[I64], Some(I64))?;
+        let u64_to_string =
+            declare_import(&mut module, "ilang_jit_u64_to_string", &[I64], Some(I64))?;
+        let f64_to_string =
+            declare_import(&mut module, "ilang_jit_f64_to_string", &[F64], Some(I64))?;
+        let bool_to_string =
+            declare_import(&mut module, "ilang_jit_bool_to_string", &[I8], Some(I64))?;
         let str_concat = declare_import(
             &mut module,
             "ilang_jit_str_concat",
@@ -1239,6 +1267,10 @@ impl JitCompiler {
             print_type_ref,
             type_is_subtype,
             type_lookup,
+            i64_to_string,
+            u64_to_string,
+            f64_to_string,
+            bool_to_string,
             str_concat,
             str_eq,
             retain_string_id,
@@ -2108,6 +2140,10 @@ impl JitCompiler {
             typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             type_is_subtype: self.type_is_subtype,
             type_lookup: self.type_lookup,
+            i64_to_string: self.i64_to_string,
+            u64_to_string: self.u64_to_string,
+            f64_to_string: self.f64_to_string,
+            bool_to_string: self.bool_to_string,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,
@@ -2319,6 +2355,10 @@ impl JitCompiler {
             typekind_enum_id: *self.enum_ids.get(&Symbol::intern("TypeKind")).expect("TypeKind enum registered"),
             type_is_subtype: self.type_is_subtype,
             type_lookup: self.type_lookup,
+            i64_to_string: self.i64_to_string,
+            u64_to_string: self.u64_to_string,
+            f64_to_string: self.f64_to_string,
+            bool_to_string: self.bool_to_string,
             tuple_drops: &mut self.tuple_drops,
             map_drops: &mut self.map_drops,
             class_drops: &self.class_drops,

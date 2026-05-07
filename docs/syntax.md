@@ -185,6 +185,22 @@ the same class. `%` is unsupported on floats.
 String interpolation isn't implemented yet. Every method above
 works in both interpreter and JIT.
 
+### Built-in `.toString()` on numerics and `bool`
+
+```rust
+(42).toString()             // "42"
+(-7).toString()             // "-7"
+(true).toString()           // "true"
+(3.14).toString()           // "3.14"
+(1.0).toString()            // "1.0"  — JS-style trailing `.0` for integral floats
+let n: u8 = 255
+n.toString()                // "255"
+```
+
+Available on every numeric primitive (`i8`..`u64`, `f32`, `f64`)
+plus `bool`. Float formatting matches `console.log` (integral
+values print as `N.0`).
+
 ---
 
 ## 5. Control flow
