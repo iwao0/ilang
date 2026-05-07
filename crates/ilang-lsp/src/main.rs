@@ -1138,6 +1138,44 @@ fn harvest_selective_names(
         if let Some(d) = docs.get(&prefixed).cloned() {
             docs.insert(name.clone(), d);
         }
+        // Selectively-imported enums also expose `<bare>.<variant>`
+        // composite keys so `Field { obj: Var(bare), name: variant }`
+        // resolves through the same lookup path as `module.Enum.X`.
+        let prefix_dot = format!("{module}.{name}.");
+        let bare_dot = format!("{name}.");
+        let extra_sigs: Vec<(AstSymbol, String)> = out
+            .iter()
+            .filter_map(|(k, v)| {
+                k.as_str()
+                    .strip_prefix(&prefix_dot)
+                    .map(|tail| (AstSymbol::intern(&format!("{bare_dot}{tail}")), v.clone()))
+            })
+            .collect();
+        for (k, v) in extra_sigs {
+            out.insert(k, v);
+        }
+        let extra_sources: Vec<(AstSymbol, ExternalLoc)> = sources
+            .iter()
+            .filter_map(|(k, v)| {
+                k.as_str()
+                    .strip_prefix(&prefix_dot)
+                    .map(|tail| (AstSymbol::intern(&format!("{bare_dot}{tail}")), v.clone()))
+            })
+            .collect();
+        for (k, v) in extra_sources {
+            sources.insert(k, v);
+        }
+        let extra_docs: Vec<(AstSymbol, String)> = docs
+            .iter()
+            .filter_map(|(k, v)| {
+                k.as_str()
+                    .strip_prefix(&prefix_dot)
+                    .map(|tail| (AstSymbol::intern(&format!("{bare_dot}{tail}")), v.clone()))
+            })
+            .collect();
+        for (k, v) in extra_docs {
+            docs.insert(k, v);
+        }
     }
 }
 
@@ -1238,6 +1276,7 @@ fn walk_module(
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
+                register_enum_variants_with_sources(e, &key, out, sources, &module_path);
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -1409,10 +1448,12 @@ fn walk_module_aliased(
             }
             Item::Enum(e) => {
                 let key = format!("{alias_prefix}.{}", e.name);
+                out.insert(AstSymbol::intern(&key), format!("enum {key}"));
                 put(&key, e.span, e.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, e.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
                 }
+                register_enum_variants_with_sources(e, &key, out, sources, &module_path);
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -1628,6 +1669,68 @@ fn collect_external_classes(prog: &Program) -> HashMap<AstSymbol, ClassInfo> {
     out
 }
 
+/// Register `Enum.Variant` hover entries for every variant of `e`.
+/// `enum_key` is the dotted name the enum lives under (e.g.
+/// `sdl.InitFlag`). Each variant is keyed `enum_key.variant_name` so
+/// `Field { obj: Var(enum_key), name: variant }` can be resolved by
+/// the walker.
+fn register_enum_variants(
+    e: &ilang_ast::EnumDecl,
+    enum_key: &str,
+    out: &mut HashMap<AstSymbol, String>,
+) {
+    let mut auto: i64 = 0;
+    for v in e.variants.iter() {
+        let val = match v.discriminant {
+            Some(d) => {
+                auto = d + 1;
+                d
+            }
+            None => {
+                let cur = auto;
+                auto += 1;
+                cur
+            }
+        };
+        let key = format!("{enum_key}.{}", v.name);
+        let sig = match &v.payload {
+            ilang_ast::VariantPayload::Unit => {
+                format!("(variant) {enum_key}.{} = {val}", v.name)
+            }
+            ilang_ast::VariantPayload::Tuple(_) => {
+                format!("(variant) {enum_key}.{}(...)", v.name)
+            }
+            ilang_ast::VariantPayload::Struct(_) => {
+                format!("(variant) {enum_key}.{} {{ ... }}", v.name)
+            }
+        };
+        out.insert(AstSymbol::intern(&key), sig);
+    }
+}
+
+/// Same as `register_enum_variants`, but also records each variant's
+/// source location in `sources` (so F12 jumps to the variant line).
+fn register_enum_variants_with_sources(
+    e: &ilang_ast::EnumDecl,
+    enum_key: &str,
+    out: &mut HashMap<AstSymbol, String>,
+    sources: &mut ExternalSources,
+    module_path: &Path,
+) {
+    register_enum_variants(e, enum_key, out);
+    for v in e.variants.iter() {
+        let key = AstSymbol::intern(&format!("{enum_key}.{}", v.name));
+        sources.insert(
+            key,
+            ExternalLoc {
+                path: module_path.to_path_buf(),
+                span: v.span,
+                name_len: v.name.as_str().len() as u32,
+            },
+        );
+    }
+}
+
 fn collect_external_signatures(
     prog: &Program,
 ) -> (HashMap<AstSymbol, String>, HashMap<AstSymbol, Type>) {
@@ -1664,6 +1767,9 @@ fn collect_external_signatures(
             }
             Item::Enum(e) => {
                 put_dotted(e.name.as_str(), format!("enum {}", e.name), &mut out);
+                if e.name.as_str().contains('.') {
+                    register_enum_variants(e, e.name.as_str(), &mut out);
+                }
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
@@ -2641,6 +2747,47 @@ impl<'a> Walker<'a> {
                         }
                     }
                 }
+                // Enum variant access: `EnumName.Variant` parses as a
+                // Field, with `obj` resolving to a known external enum.
+                // Look up the composite `EnumName.Variant` key in the
+                // external maps (populated by `register_enum_variants*`)
+                // and push a ref so hover / F12 land on the variant
+                // declaration.
+                if let Some(obj_name) = enum_obj_name(obj) {
+                    let key = AstSymbol::intern(&format!("{obj_name}.{}", name));
+                    if let Some(sig) = self.external_signatures.get(&key).cloned() {
+                        if sig.starts_with("(variant)") {
+                            if let Some((line, col)) =
+                                locate_dot_name(self.text, obj.span, name.as_str())
+                            {
+                                let loc = self.external_sources.get(&key);
+                                let target_uri = loc
+                                    .and_then(|l| Url::from_file_path(&l.path).ok());
+                                let (target_span, target_name_len, no_def) = match loc {
+                                    Some(l) if target_uri.is_some() => {
+                                        (l.span, l.name_len, false)
+                                    }
+                                    _ => (
+                                        Span::new(line, col),
+                                        name.as_str().len() as u32,
+                                        target_uri.is_none(),
+                                    ),
+                                };
+                                self.refs.push(RefEntry {
+                                    line,
+                                    start_col: col,
+                                    end_col: col + name.as_str().len() as u32,
+                                    target_span,
+                                    target_name_len,
+                                    signature: sig,
+                                    no_definition: no_def,
+                                    target_uri,
+                                    doc: self.external_docs.get(&key).cloned(),
+                                });
+                            }
+                        }
+                    }
+                }
             }
             ExprKind::MethodCall { obj, method, args } => {
                 self.walk_expr(obj, scope, this_class);
@@ -3235,6 +3382,17 @@ impl<'a> Walker<'a> {
             ExprKind::New { class, .. } => Some(class.as_str().to_string()),
             _ => None,
         }
+    }
+}
+
+/// Extract the dotted (or bare) name an `Var` carries when it stands
+/// in for an enum receiver — e.g. `Var("InitFlag")` →
+/// `Some("InitFlag")`, `Var("sdl.InitFlag")` → `Some("sdl.InitFlag")`.
+/// Returns `None` for anything that isn't a plain `Var`.
+fn enum_obj_name(obj: &Expr) -> Option<String> {
+    match &obj.kind {
+        ExprKind::Var(name) => Some(name.as_str().to_string()),
+        _ => None,
     }
 }
 
