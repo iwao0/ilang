@@ -201,9 +201,19 @@ fn jit_run_inner(
         compiler
             .closure_ast_captures
             .insert(name.clone(), meta.captures.clone());
+        if let Some(cls) = meta.this_class {
+            compiler
+                .closure_wrapper_class
+                .insert(name.clone(), cls);
+        }
         compiler.closure_meta.insert(
             name.clone(),
-            crate::env::ClosureMeta { user_params, ret, captures },
+            crate::env::ClosureMeta {
+                user_params,
+                ret,
+                captures,
+                this_class: meta.this_class,
+            },
         );
     }
     // 1b. Compute field offsets now that every class id is in
@@ -630,6 +640,11 @@ pub(crate) struct JitCompiler {
     /// types.
     pub(crate) closure_ast_captures:
         std::collections::HashMap<Symbol, Vec<(Symbol, ilang_ast::Type)>>,
+    /// Per-closure-wrapper lexical class (when the wrapper was lifted
+    /// from a class method body). Threaded into the post-hoist
+    /// type-check so `this` / `super.method(...)` references inside
+    /// the wrapper body resolve against the original enclosing class.
+    pub(crate) closure_wrapper_class: std::collections::HashMap<Symbol, Symbol>,
     /// Per-element-type saturated empty `T[]` ArrayHeader used to
     /// default-initialise `T[]` class fields at `new`. Saturated
     /// rc so later overwrites in init don't free our shared empty.
@@ -1455,6 +1470,7 @@ impl JitCompiler {
             closure_trampolines: std::collections::HashMap::new(),
             closure_drops: std::collections::HashMap::new(),
             closure_ast_captures: std::collections::HashMap::new(),
+            closure_wrapper_class: std::collections::HashMap::new(),
             default_empty_arrays: std::collections::HashMap::new(),
             type_metas: Vec::new(),
             class_type_meta_addrs: Vec::new(),
@@ -2263,9 +2279,17 @@ impl JitCompiler {
             closure_trampolines: &mut self.closure_trampolines,
             closure_drops: &mut self.closure_drops,
             closure_capture_env: None,
-            current_class: this_class.map(|cid| {
-                self.class_layouts[cid as usize].name.as_str().to_string()
-            }),
+            current_class: this_class
+                .map(|cid| self.class_layouts[cid as usize].name.as_str().to_string())
+                // Closure wrapper lifted from inside a class method:
+                // restore the lexical class so `super.method(...)` in
+                // the body resolves against the original parent.
+                .or_else(|| {
+                    self.closure_meta
+                        .get(&f.name)
+                        .and_then(|m| m.this_class.as_ref())
+                        .map(|s| s.as_str().to_string())
+                }),
         };
         // If this body is a closure wrapper, set up the
         // capture-env so Var lookups for captured names emit env
@@ -2288,6 +2312,28 @@ impl JitCompiler {
                     env_var: v,
                     captures: &captures_with_offsets,
                 });
+                // If this wrapper carries a synthetic `this`
+                // capture, load it from the env and bind it as the
+                // wrapper's `lc.this` so `ExprKind::This` and
+                // `super.method(...)` in the body work the same as
+                // they would inside the original method.
+                if let Some(&(_, off, this_jty)) = captures_with_offsets
+                    .iter()
+                    .find(|(n, _, _)| n.as_str() == "this")
+                {
+                    if let JitTy::Object(class_id) = this_jty {
+                        let env_ptr = builder.use_var(v);
+                        let raw = builder.ins().load(
+                            cranelift_codegen::ir::types::I64,
+                            cranelift::prelude::MemFlags::trusted(),
+                            env_ptr,
+                            off as i32,
+                        );
+                        let this_var = builder.declare_var(I64);
+                        builder.def_var(this_var, raw);
+                        lc.this = Some((this_var, class_id));
+                    }
+                }
             }
         }
         let body = lower_block_value(&mut builder, &mut lc, &f.body)?;
@@ -2335,6 +2381,13 @@ impl JitCompiler {
         for (name, ast_caps) in &self.closure_ast_captures {
             tc.closure_wrapper_captures
                 .insert(name.clone(), ast_caps.clone());
+        }
+        // Closure wrappers lifted from inside a class method body
+        // need their lexical class threaded into the body check so
+        // `super.method(...)` (and a future `this`-typed identity
+        // op) resolves against the original enclosing class.
+        for (name, cls) in &self.closure_wrapper_class {
+            tc.closure_wrapper_class.insert(name.clone(), *cls);
         }
         let prog_ty = tc.check(prog).map_err(|e| CodegenError::Cranelift(e.to_string()))?;
         let ret_ty = JitTy::from_ast(&prog_ty, ilang_ast::Span::dummy(), &self.class_ids, &self.enum_ids, &self.enum_layouts, &mut self.array_kinds, &mut self.optional_inners, &mut self.fn_signatures, &mut self.map_kinds, &mut self.tuple_kinds)?;

@@ -309,6 +309,12 @@ pub struct TypeChecker {
     /// scope with these makes the second-pass check pass without
     /// special-casing in the type checker proper.
     pub closure_wrapper_captures: HashMap<Symbol, Vec<(Symbol, Type)>>,
+    /// Closure wrappers whose body was lifted from inside a class
+    /// method. Records the lexical class so the wrapper body's
+    /// `super.method(...)` calls find the parent class. Populated by
+    /// the JIT pipeline alongside `closure_wrapper_captures`; empty
+    /// for non-JIT callers.
+    pub closure_wrapper_class: HashMap<Symbol, Symbol>,
     /// Per-call-site default-arg fills: the trailing default
     /// expressions (already type-checked) that the post-typecheck
     /// pass must append to the Call's `args`. Keyed by the call
@@ -1696,6 +1702,11 @@ impl TypeChecker {
     }
 
     fn check_fn(&self, f: &FnDecl, in_class: Option<Symbol>) -> Result<(), TypeError> {
+        // Closure wrappers lifted out of a class method body get
+        // their lexical class restored here so that `super.method(...)`
+        // inside the wrapper still resolves against the original
+        // enclosing class.
+        let in_class = in_class.or_else(|| self.closure_wrapper_class.get(&f.name).copied());
         // Type parameters in scope: the class's (if we're inside a
         // generic class) plus the fn's own `<T, U>`.
         let mut params_in_scope: Vec<Symbol> = in_class
@@ -4357,13 +4368,14 @@ fn refine_returns(tc: &TypeChecker, e: &Expr, target: &Type) {
     walk_children(e, &mut |c| refine_returns(tc, c, target));
 }
 
-/// True if `b` contains any `ExprKind::This` reference, including ones
-/// inside nested `FnExpr` bodies. We need to mark every FnExpr along
-/// the chain from the method down to the innermost `this` user,
-/// because the JIT routes `this` through captures: each level loads
-/// it from the surrounding closure's env, so the marker has to fire
-/// at every intermediate FnExpr too — not just the one that wrote
-/// `this` literally.
+/// True if `b` contains an `ExprKind::This` or `ExprKind::SuperCall`
+/// reference, including ones inside nested `FnExpr` bodies. Both
+/// `this` and `super` require the JIT wrapper to know its lexical
+/// class — `this` because the receiver flows through a synthetic
+/// capture, `super` because the parent-class lookup keys off the
+/// lexical class. Recursing into nested FnExpr is necessary so
+/// every intermediate wrapper along the chain captures the same
+/// receiver.
 fn block_uses_this_directly(b: &ilang_ast::Block) -> bool {
     for s in &b.stmts {
         match &s.kind {
@@ -4392,6 +4404,11 @@ fn block_uses_this_directly(b: &ilang_ast::Block) -> bool {
 fn expr_uses_this_directly(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::This => true,
+        // `super.method(...)` needs the wrapper to remember its
+        // lexical class for parent-method resolution, and it
+        // implicitly threads `this` as the receiver — same wrapper
+        // plumbing as a bare `this` reference.
+        ExprKind::SuperCall { .. } => true,
         // Recurse INTO nested FnExpr too — see the comment on
         // `block_uses_this_directly`. The TC visits each FnExpr in
         // turn, so an inner `this` will independently mark its own

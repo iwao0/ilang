@@ -69,6 +69,12 @@ pub(crate) struct ClosureMetaIn {
     pub ret_ty: Option<ilang_ast::Type>,
     pub captures: Vec<(Symbol, ilang_ast::Type)>,
     pub span: ilang_ast::Span,
+    /// Lexical class when the wrapper was hoisted from inside a
+    /// class method body. Used by the JIT to restore
+    /// `lc.current_class` at wrapper lower time and by the second
+    /// type-check pass to allow `this` / `super` references in the
+    /// wrapper body.
+    pub this_class: Option<Symbol>,
 }
 
 /// Bundle of state threaded through the hoist walkers.
@@ -271,7 +277,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
     let kind = match &e.kind {
         ExprKind::FnExpr { params, ret, body } => {
             // First hoist any nested anon fns inside this body.
-            let mut body = hoist_in_block(body, ctx);
+            let body = hoist_in_block(body, ctx);
             let name = fresh_anon_name(ctx.counter);
             // Look up captures recorded by the typechecker for this
             // FnExpr (keyed by the FnExpr's source span).
@@ -281,13 +287,17 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 .cloned()
                 .unwrap_or_default();
             // If this closure was built inside a class method body
-                // and refers to `this`, prepend a synthetic `this`
-                // capture and rewrite `ExprKind::This` references in
-                // the body to `Var("this")`. The construction site
-                // pulls the value from `lc.this`; the wrapper body's
-                // Var lookup resolves through the standard
-                // closure-env load.
-            if let Some(class_name) = ctx.this_class_map.get(&e.span).cloned() {
+            // and refers to `this`, prepend a synthetic `this`
+            // capture so codegen has somewhere to read the
+            // pointer from. The wrapper itself is lowered with
+            // `lc.this` populated from this capture (compiler.rs),
+            // which makes both `ExprKind::This` and
+            // `super.method(...)` work transparently in the body —
+            // no AST rewrite needed. The class symbol is also
+            // stashed on the closure meta so the second TC and the
+            // SuperCall lowerer can restore the lexical class.
+            let this_class = ctx.this_class_map.get(&e.span).cloned();
+            if let Some(class_name) = this_class.clone() {
                 let this_sym: Symbol = "this".into();
                 if !captures.iter().any(|(n, _)| *n == this_sym) {
                     captures.insert(
@@ -295,7 +305,6 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                         (this_sym, ilang_ast::Type::Object(class_name)),
                     );
                 }
-                rewrite_this_to_var_in_block(&mut body);
             }
             // Wrapper takes a hidden env_ptr first param so the same
             // calling convention applies to capture-free anon fns and
@@ -327,6 +336,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                     ret_ty: ret.clone(),
                     captures: captures.clone(),
                     span: e.span,
+                    this_class,
                 },
             );
             ExprKind::Closure { fn_name: name, captures: captures.into() }
@@ -3311,149 +3321,3 @@ fn mangle_enum(name: &str, args: &[Type]) -> Symbol {
     InstKey { class: name.into(), args: args.to_vec() }.mangled()
 }
 
-/// Rewrite every `ExprKind::This` in `b` to `ExprKind::Var("this")`.
-/// Does NOT enter `Closure` or `FnExpr` nodes — those are owned by
-/// their own scopes and (for Closure) their bodies have already been
-/// hoisted out to a separate Item. Used by the closure hoist pass to
-/// route `this` references through the standard closure-env load.
-fn rewrite_this_to_var_in_block(b: &mut ilang_ast::Block) {
-    for s in b.stmts.iter_mut() {
-        match &mut s.kind {
-            ilang_ast::StmtKind::Let { value, .. }
-            | ilang_ast::StmtKind::LetTuple { value, .. }
-            | ilang_ast::StmtKind::LetStruct { value, .. } => {
-                rewrite_this_to_var_in_expr(value);
-            }
-            ilang_ast::StmtKind::Expr(e) => rewrite_this_to_var_in_expr(e),
-        }
-    }
-    if let Some(t) = b.tail.as_mut() {
-        rewrite_this_to_var_in_expr(t);
-    }
-}
-
-fn rewrite_this_to_var_in_expr(e: &mut Expr) {
-    use ilang_ast::ExprKind as K;
-    match &mut e.kind {
-        K::This => {
-            e.kind = K::Var("this".into());
-        }
-        // `Closure` carries no expression sub-nodes (its body lives
-        // in a top-level Item); leave its captures list alone.
-        K::Closure { .. } => {}
-        // `FnExpr` is its own scope. By construction, all FnExprs
-        // inside the body we're rewriting have already been hoisted
-        // into Closure refs by the time we arrive here, so this arm
-        // is just a defensive no-op.
-        K::FnExpr { .. } => {}
-        K::Some(inner) | K::Unary { expr: inner, .. } => {
-            rewrite_this_to_var_in_expr(inner);
-        }
-        K::Binary { lhs, rhs, .. } | K::Logical { lhs, rhs, .. } => {
-            rewrite_this_to_var_in_expr(lhs);
-            rewrite_this_to_var_in_expr(rhs);
-        }
-        K::Cast { expr, .. } | K::TypeTest { expr, .. } | K::TypeDowncast { expr, .. } => {
-            rewrite_this_to_var_in_expr(expr);
-        }
-        K::Call { args, .. } | K::SuperCall { args, .. } | K::New { args, .. } => {
-            for a in args.iter_mut() {
-                rewrite_this_to_var_in_expr(a);
-            }
-        }
-        K::Field { obj, .. } => rewrite_this_to_var_in_expr(obj),
-        K::MethodCall { obj, args, .. } => {
-            rewrite_this_to_var_in_expr(obj);
-            for a in args.iter_mut() {
-                rewrite_this_to_var_in_expr(a);
-            }
-        }
-        K::Block(b) => rewrite_this_to_var_in_block(b),
-        K::If { cond, then_branch, else_branch } => {
-            rewrite_this_to_var_in_expr(cond);
-            rewrite_this_to_var_in_block(then_branch);
-            if let Some(eb) = else_branch.as_mut() {
-                rewrite_this_to_var_in_expr(eb);
-            }
-        }
-        K::IfLet { expr, then_branch, else_branch, .. } => {
-            rewrite_this_to_var_in_expr(expr);
-            rewrite_this_to_var_in_block(then_branch);
-            if let Some(eb) = else_branch.as_mut() {
-                rewrite_this_to_var_in_expr(eb);
-            }
-        }
-        K::While { cond, body } => {
-            rewrite_this_to_var_in_expr(cond);
-            rewrite_this_to_var_in_block(body);
-        }
-        K::Loop { body } => rewrite_this_to_var_in_block(body),
-        K::ForIn { iter, body, .. } => {
-            rewrite_this_to_var_in_expr(iter);
-            rewrite_this_to_var_in_block(body);
-        }
-        K::Range { start, end, .. } => {
-            if let Some(s) = start.as_mut() {
-                rewrite_this_to_var_in_expr(s);
-            }
-            if let Some(en) = end.as_mut() {
-                rewrite_this_to_var_in_expr(en);
-            }
-        }
-        K::Return(opt) | K::Break(opt) => {
-            if let Some(x) = opt.as_mut() {
-                rewrite_this_to_var_in_expr(x);
-            }
-        }
-        K::Assign { value, .. } => rewrite_this_to_var_in_expr(value),
-        K::AssignField { obj, value, .. } => {
-            rewrite_this_to_var_in_expr(obj);
-            rewrite_this_to_var_in_expr(value);
-        }
-        K::AssignIndex { obj, index, value } => {
-            rewrite_this_to_var_in_expr(obj);
-            rewrite_this_to_var_in_expr(index);
-            rewrite_this_to_var_in_expr(value);
-        }
-        K::Array(items) | K::Tuple(items) => {
-            for i in items.iter_mut() {
-                rewrite_this_to_var_in_expr(i);
-            }
-        }
-        K::StructLit { fields, .. } => {
-            for (_, v) in fields.iter_mut() {
-                rewrite_this_to_var_in_expr(v);
-            }
-        }
-        K::MapLit(entries) => {
-            for (k, v) in entries.iter_mut() {
-                rewrite_this_to_var_in_expr(k);
-                rewrite_this_to_var_in_expr(v);
-            }
-        }
-        K::Index { obj, index } => {
-            rewrite_this_to_var_in_expr(obj);
-            rewrite_this_to_var_in_expr(index);
-        }
-        K::EnumCtor { args, .. } => match args {
-            ilang_ast::CtorArgs::Unit => {}
-            ilang_ast::CtorArgs::Tuple(es) => {
-                for x in es.iter_mut() {
-                    rewrite_this_to_var_in_expr(x);
-                }
-            }
-            ilang_ast::CtorArgs::Struct(fs) => {
-                for (_, v) in fs.iter_mut() {
-                    rewrite_this_to_var_in_expr(v);
-                }
-            }
-        },
-        K::Match { scrutinee, arms } => {
-            rewrite_this_to_var_in_expr(scrutinee);
-            for arm in arms.iter_mut() {
-                rewrite_this_to_var_in_expr(&mut arm.body);
-            }
-        }
-        _ => {}
-    }
-}

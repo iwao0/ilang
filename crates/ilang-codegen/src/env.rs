@@ -321,6 +321,12 @@ pub(crate) struct ClosureMeta {
     pub user_params: Vec<crate::ty::JitTy>,
     pub ret: crate::ty::JitTy,
     pub captures: Vec<(Symbol, crate::ty::JitTy)>,
+    /// Lexical class symbol when this closure was lifted out of a
+    /// class method body. Restored at wrapper lower time as
+    /// `lc.current_class` so `super.method(...)` in the body
+    /// resolves against the original enclosing class. `None` for
+    /// closures defined at top level.
+    pub this_class: Option<Symbol>,
 }
 
 /// Capture environment in scope while lowering a closure body.
