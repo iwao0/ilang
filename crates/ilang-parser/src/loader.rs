@@ -146,6 +146,7 @@ pub fn load_program_with_overlay(
     // appearing in two import paths from registering math's items
     // twice (which would surface as "duplicate overload" later).
     let mut applied: HashSet<(PathBuf, String)> = HashSet::new();
+    let mut rename_rules: HashMap<Symbol, Symbol> = HashMap::new();
     for item in entry_prog.items {
         match item {
             Item::Use(u) => apply_use(
@@ -157,9 +158,21 @@ pub fn load_program_with_overlay(
                 &mut merged,
                 &mut whole_imports,
                 &mut applied,
+                &mut rename_rules,
             )?,
             other => merged.items.push(other),
         }
+    }
+    // Apply rename rules accumulated from selective imports that
+    // resolved through `@export use` chains. Each rule maps a bare
+    // imported name (e.g. `InitFlag` from `use sdl { InitFlag }`)
+    // to its umbrella-qualified form (`sdl.InitFlag`), which the
+    // umbrella's nested `@export use` already merged into the
+    // program. Without the rewrite, bare refs in the entry would
+    // resolve to a separate enum / class declaration that the type
+    // checker treats as distinct.
+    if !rename_rules.is_empty() {
+        rename_in_program(&mut merged, &rename_rules);
     }
     // Re-normalize the merged program. Each file was normalized in
     // isolation, so an entry-file reference like `lib.Color.green`
@@ -274,6 +287,13 @@ fn apply_use(
     merged: &mut Program,
     _whole_imports: &mut HashSet<Symbol>,
     applied: &mut HashSet<(PathBuf, String)>,
+    // Per-name rewrite rules accumulated by selective imports that
+    // resolve through `@export use` chains. Bare-name `X` refs in
+    // the entry's items / stmts / tail get rewritten to the prefixed
+    // form `umbrella.X` after all imports are merged, so the bare
+    // and prefixed views of the same enum / class / fn line up at
+    // the type checker.
+    rename_rules: &mut HashMap<Symbol, Symbol>,
 ) -> Result<(), LoadError> {
     let importer_dir = importer_canon
         .parent()
@@ -327,13 +347,17 @@ fn apply_use(
         }
     }
     module_prog.items = local_items.into();
+    // Keep a copy for the selective branch's `@export use` chain
+    // search — `selective` import follows `@export use` chains to
+    // resolve names that the umbrella re-exports without redeclaring.
+    let nested_uses_for_search: Vec<UseDecl> = nested_uses.clone();
     for nu in nested_uses {
         let nested_override: Option<&str> = if nu.re_export {
             Some(effective_prefix.as_str())
         } else {
             None
         };
-        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports, applied)?;
+        apply_use(nu, nested_override, &canon, extra_paths, loaded, merged, _whole_imports, applied, rename_rules)?;
     }
 
     match u.selective {
@@ -385,7 +409,24 @@ fn apply_use(
         }
         Some(names) => {
             // Selective import: pull in just the listed items, keeping
-            // their bare names.
+            // their bare names. If a name isn't declared directly in
+            // this module, follow `@export use` chains so umbrella
+            // modules (`@export use sdl_core` etc.) can re-expose
+            // their members for selective import.
+            //
+            // For names found via `@export use` chains, we DON'T push
+            // a bare-named copy of the item — the umbrella's nested
+            // `@export use` (already processed above) merged the
+            // chained module's items under `effective_prefix.X`, so
+            // `sdl.InitFlag` already exists in `merged`. Pushing a
+            // bare `InitFlag` would create a second enum that the
+            // type checker treats as distinct from `sdl.InitFlag`.
+            // Instead we record a rename rule so later passes rewrite
+            // bare references like `InitFlag.video` to the prefixed
+            // `sdl.InitFlag.video`. Direct hits (the name exists in
+            // the imported module's own items) keep the original
+            // bare-push behaviour — there's no prefixed counterpart
+            // to alias to.
             let selected: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
             let mut found: HashSet<Symbol> = HashSet::new();
             for item in module_prog.items {
@@ -394,6 +435,40 @@ fn apply_use(
                     if selected.contains(name.as_str()) {
                         found.insert(name);
                         merged.items.push(item);
+                    }
+                }
+            }
+            // Anything still missing? Walk `@export use` chains.
+            let module_dir = canon
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+            for name in &names {
+                if found.contains(name) {
+                    continue;
+                }
+                let mut visited: HashSet<PathBuf> = HashSet::new();
+                visited.insert(canon.clone());
+                for nu in &nested_uses_for_search {
+                    if !nu.re_export {
+                        continue;
+                    }
+                    if find_in_export_chain(
+                        nu.module.as_str(),
+                        name.as_str(),
+                        &module_dir,
+                        extra_paths,
+                        loaded,
+                        &mut visited,
+                    )?
+                    .is_some()
+                    {
+                        rename_rules.insert(
+                            name.clone(),
+                            Symbol::intern(&format!("{effective_prefix}.{name}")).into(),
+                        );
+                        found.insert(name.clone());
+                        break;
                     }
                 }
             }
@@ -612,6 +687,63 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
         | ExprKind::Break(None)
         | ExprKind::Return(None) => {}
     }
+}
+
+/// Walk `@export use` chains starting at `module` (resolved relative
+/// to `importer_dir`) and return the first item whose bare name
+/// matches `name`. Used by selective import (`use M { X }`) so X can
+/// be a name declared in a module that M re-exports via `@export use`
+/// instead of being declared in M directly.
+///
+/// `visited` is shared across the walk to avoid revisiting modules in
+/// diamond `@export use` graphs. The returned `Item` is cloned and
+/// keeps its bare name (the caller pushes it under that name).
+fn find_in_export_chain(
+    module: &str,
+    name: &str,
+    importer_dir: &Path,
+    extra_paths: &[PathBuf],
+    loaded: &HashMap<PathBuf, Program>,
+    visited: &mut HashSet<PathBuf>,
+) -> Result<Option<Item>, LoadError> {
+    let canon = resolve_module(module, importer_dir, extra_paths)?;
+    if !visited.insert(canon.clone()) {
+        return Ok(None);
+    }
+    let prog = loaded
+        .get(&canon)
+        .expect("module pre-loaded by load_recursive");
+    // Local items first.
+    for item in &prog.items {
+        if let Some(item_name) = item_name_of(item) {
+            if item_name.as_str() == name {
+                return Ok(Some(item.clone()));
+            }
+        }
+    }
+    // Then follow `@export use` re-exports.
+    let module_dir = canon
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    for item in &prog.items {
+        if let Item::Use(nu) = item {
+            if !nu.re_export {
+                continue;
+            }
+            if let Some(found) = find_in_export_chain(
+                nu.module.as_str(),
+                name,
+                &module_dir,
+                extra_paths,
+                loaded,
+                visited,
+            )? {
+                return Ok(Some(found));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn item_name_of(item: &Item) -> Option<Symbol> {
@@ -1718,4 +1850,333 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
         },
     };
     Expr { kind, span }
+}
+
+// ─── selective-import rename pass ──────────────────────────────────
+//
+// Selective imports that resolve through `@export use` chains record
+// a `bare → umbrella.bare` rename rule (see `apply_use`). After the
+// loader has merged every imported module, this pass walks the
+// Program and rewrites bare references in the entry's items / stmts
+// / tail to the umbrella-qualified form that the umbrella's nested
+// `@export use` already merged. The rewrite is name-keyed (not
+// prefix-keyed like `prefix_expr`), so it only fires on the specific
+// names the user imported.
+//
+// Only bare names (no `.`) can collide; sub-module items merged via
+// `prefix_item` already have dotted names and pass through these
+// walkers untouched.
+
+fn rename_sym(name: &Symbol, rules: &HashMap<Symbol, Symbol>) -> Option<Symbol> {
+    rules.get(name).cloned()
+}
+
+fn rename_in_program(prog: &mut Program, rules: &HashMap<Symbol, Symbol>) {
+    for item in prog.items.iter_mut() {
+        rename_in_item(item, rules);
+    }
+    for s in prog.stmts.iter_mut() {
+        rename_in_stmt(s, rules);
+    }
+    if let Some(t) = prog.tail.as_mut() {
+        rename_in_expr(t, rules);
+    }
+}
+
+fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
+    match item {
+        Item::Fn(f) => {
+            for p in f.params.iter_mut() {
+                rename_in_type(&mut p.ty, rules);
+                if let Some(d) = p.default.as_mut() {
+                    rename_in_expr(d, rules);
+                }
+            }
+            if let Some(t) = f.ret.as_mut() {
+                rename_in_type(t, rules);
+            }
+            rename_in_block(&mut f.body, rules);
+        }
+        Item::Class(c) => rename_in_class(c, rules),
+        Item::Enum(_) => {}
+        Item::Use(_) => {}
+        Item::Const(c) => {
+            if let Some(t) = c.ty.as_mut() {
+                rename_in_type(t, rules);
+            }
+            rename_in_expr(&mut c.value, rules);
+        }
+        Item::ExternStatic(s) => rename_in_type(&mut s.ty, rules),
+        Item::ExternC(b) => {
+            for inner in b.items.iter_mut() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        for p in f.params.iter_mut() {
+                            rename_in_type(&mut p.ty, rules);
+                            if let Some(d) = p.default.as_mut() {
+                                rename_in_expr(d, rules);
+                            }
+                        }
+                        if let Some(t) = f.ret.as_mut() {
+                            rename_in_type(t, rules);
+                        }
+                        rename_in_block(&mut f.body, rules);
+                    }
+                    ilang_ast::ExternCItem::Class(c) => rename_in_class(c, rules),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn rename_in_class(c: &mut ClassDecl, rules: &HashMap<Symbol, Symbol>) {
+    for f in c.fields.iter_mut() {
+        rename_in_type(&mut f.ty, rules);
+    }
+    for sf in c.static_fields.iter_mut() {
+        rename_in_type(&mut sf.ty, rules);
+        rename_in_expr(&mut sf.value, rules);
+    }
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        for p in m.params.iter_mut() {
+            rename_in_type(&mut p.ty, rules);
+            if let Some(d) = p.default.as_mut() {
+                rename_in_expr(d, rules);
+            }
+        }
+        if let Some(t) = m.ret.as_mut() {
+            rename_in_type(t, rules);
+        }
+        rename_in_block(&mut m.body, rules);
+    }
+    for prop in c.properties.iter_mut() {
+        rename_in_type(&mut prop.ty, rules);
+        if let Some(g) = prop.getter.as_mut() {
+            rename_in_block(&mut g.body, rules);
+        }
+        if let Some(s) = prop.setter.as_mut() {
+            rename_in_block(&mut s.body, rules);
+        }
+    }
+}
+
+fn rename_in_block(b: &mut Block, rules: &HashMap<Symbol, Symbol>) {
+    for s in b.stmts.iter_mut() {
+        rename_in_stmt(s, rules);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        rename_in_expr(t, rules);
+    }
+}
+
+fn rename_in_stmt(s: &mut Stmt, rules: &HashMap<Symbol, Symbol>) {
+    match &mut s.kind {
+        StmtKind::Let { value, ty, .. } => {
+            if let Some(t) = ty.as_mut() {
+                rename_in_type(t, rules);
+            }
+            rename_in_expr(value, rules);
+        }
+        StmtKind::Expr(e) => rename_in_expr(e, rules),
+    }
+}
+
+fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
+    match &mut e.kind {
+        ExprKind::Var(name) => {
+            if let Some(new_name) = rename_sym(name, rules) {
+                *name = new_name;
+            }
+        }
+        ExprKind::Call { callee, args } => {
+            if let Some(new_name) = rename_sym(callee, rules) {
+                *callee = new_name;
+            }
+            for a in args.iter_mut() {
+                rename_in_expr(a, rules);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
+            for a in args.iter_mut() {
+                rename_in_expr(a, rules);
+            }
+        }
+        ExprKind::New { class, type_args, args, .. } => {
+            if let Some(new_name) = rename_sym(class, rules) {
+                *class = new_name;
+            }
+            for ta in type_args.iter_mut() {
+                rename_in_type(ta, rules);
+            }
+            for a in args.iter_mut() {
+                rename_in_expr(a, rules);
+            }
+        }
+        ExprKind::EnumCtor { enum_name, args, .. } => {
+            if let Some(new_name) = rename_sym(enum_name, rules) {
+                *enum_name = new_name;
+            }
+            match args {
+                ilang_ast::CtorArgs::Unit => {}
+                ilang_ast::CtorArgs::Tuple(es) => {
+                    for e in es.iter_mut() {
+                        rename_in_expr(e, rules);
+                    }
+                }
+                ilang_ast::CtorArgs::Struct(fs) => {
+                    for (_, e) in fs.iter_mut() {
+                        rename_in_expr(e, rules);
+                    }
+                }
+            }
+        }
+        ExprKind::Field { obj, .. } => rename_in_expr(obj, rules),
+        ExprKind::MethodCall { obj, args, .. } => {
+            rename_in_expr(obj, rules);
+            for a in args.iter_mut() {
+                rename_in_expr(a, rules);
+            }
+        }
+        ExprKind::Unary { expr, .. } => rename_in_expr(expr, rules),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            rename_in_expr(lhs, rules);
+            rename_in_expr(rhs, rules);
+        }
+        ExprKind::Logical { lhs, rhs, .. } => {
+            rename_in_expr(lhs, rules);
+            rename_in_expr(rhs, rules);
+        }
+        ExprKind::Cast { expr, ty } => {
+            rename_in_expr(expr, rules);
+            rename_in_type(ty, rules);
+        }
+        ExprKind::Block(b) => rename_in_block(b, rules),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            rename_in_expr(cond, rules);
+            rename_in_block(then_branch, rules);
+            if let Some(e) = else_branch.as_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            rename_in_expr(expr, rules);
+            rename_in_block(then_branch, rules);
+            if let Some(e) = else_branch.as_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            rename_in_expr(cond, rules);
+            rename_in_block(body, rules);
+        }
+        ExprKind::ForIn { iter, body, .. } => {
+            rename_in_expr(iter, rules);
+            rename_in_block(body, rules);
+        }
+        ExprKind::Range { start, end, .. } => {
+            rename_in_expr(start, rules);
+            rename_in_expr(end, rules);
+        }
+        ExprKind::Loop { body } => rename_in_block(body, rules),
+        ExprKind::Break(opt) => {
+            if let Some(e) = opt.as_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::Return(opt) => {
+            if let Some(e) = opt.as_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::Assign { value, .. } => rename_in_expr(value, rules),
+        ExprKind::AssignField { obj, value, .. } => {
+            rename_in_expr(obj, rules);
+            rename_in_expr(value, rules);
+        }
+        ExprKind::FnExpr { params, ret, body } => {
+            for p in params.iter_mut() {
+                rename_in_type(&mut p.ty, rules);
+                if let Some(d) = p.default.as_mut() {
+                    rename_in_expr(d, rules);
+                }
+            }
+            if let Some(t) = ret.as_mut() {
+                rename_in_type(t, rules);
+            }
+            rename_in_block(body, rules);
+        }
+        ExprKind::Array(es) | ExprKind::Tuple(es) => {
+            for e in es.iter_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::StructLit { class, fields } => {
+            if let Some(new_name) = rename_sym(class, rules) {
+                *class = new_name;
+            }
+            for (_, e) in fields.iter_mut() {
+                rename_in_expr(e, rules);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries.iter_mut() {
+                rename_in_expr(k, rules);
+                rename_in_expr(v, rules);
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            rename_in_expr(obj, rules);
+            rename_in_expr(index, rules);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            rename_in_expr(obj, rules);
+            rename_in_expr(index, rules);
+            rename_in_expr(value, rules);
+        }
+        ExprKind::Some(inner) => rename_in_expr(inner, rules),
+        ExprKind::Match { scrutinee, arms } => {
+            rename_in_expr(scrutinee, rules);
+            for arm in arms.iter_mut() {
+                rename_in_expr(&mut arm.body, rules);
+            }
+        }
+        ExprKind::Closure { .. }
+        | ExprKind::This
+        | ExprKind::None
+        | ExprKind::Continue
+        | ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_) => {}
+    }
+}
+
+fn rename_in_type(t: &mut Type, rules: &HashMap<Symbol, Symbol>) {
+    match t {
+        Type::Object(name) => {
+            if let Some(new_name) = rename_sym(name, rules) {
+                *name = new_name;
+            }
+        }
+        Type::Array { elem, .. } => rename_in_type(elem, rules),
+        Type::Optional(inner) => rename_in_type(inner, rules),
+        Type::Weak(inner) => rename_in_type(inner, rules),
+        Type::Generic(g) => {
+            if let Some(new_name) = rename_sym(&g.base, rules) {
+                g.base = new_name;
+            }
+            for a in g.args.iter_mut() {
+                rename_in_type(a, rules);
+            }
+        }
+        Type::Fn(ft) => {
+            for p in ft.params.iter_mut() {
+                rename_in_type(p, rules);
+            }
+            rename_in_type(&mut ft.ret, rules);
+        }
+        Type::RawPtr { inner, .. } => rename_in_type(inner, rules),
+        _ => {}
+    }
 }

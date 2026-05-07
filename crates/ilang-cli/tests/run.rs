@@ -77,6 +77,38 @@ fn use_selective_import() {
 }
 
 #[test]
+fn use_selective_through_export_chain() {
+    // Selective import (`use M { X }`) walks `@export use` chains so
+    // an umbrella module that re-exports an inner module's names can
+    // still be selectively imported. The bare `Color` and the
+    // umbrella-prefixed `umbrella.Color` reference the same enum, so
+    // `paint` (typed `umbrella.Color`) accepts a bare `Color.red`.
+    let dir = std::env::temp_dir().join(format!("ilang_sel_chain_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    write_module(
+        &dir,
+        "lib_inner",
+        "enum Color: i32 { red = 1, green = 2, blue = 3 }",
+    );
+    write_module(
+        &dir,
+        "umbrella",
+        "@export use lib_inner\n\
+         fn paint(c: Color): i32 { c as i32 }",
+    );
+    let main = write_module(
+        &dir,
+        "main",
+        "use umbrella\n\
+         use umbrella { Color }\n\
+         umbrella.paint(Color.green)",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+}
+
+#[test]
 fn use_circular_is_error() {
     let dir = std::env::temp_dir().join(format!("ilang_cyc_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

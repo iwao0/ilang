@@ -14,9 +14,10 @@
 // this directory points at them so `use sdl` resolves automatically.
 
 use sdl
+use sdl { InitFlag }
 use game
 
-let rc = sdl.init(sdl.InitFlag.video | sdl.InitFlag.audio | sdl.InitFlag.gameController)
+let rc = sdl.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
 if rc < 0 {
     console.log("SDL_Init failed: " + sdl.getError())
     return

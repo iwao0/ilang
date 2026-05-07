@@ -1114,7 +1114,10 @@ utils.double(c.get())            // → 22
   - `use module` — namespaced reference (`module.foo()`,
     `new module.Class()`, `module.Enum.variant`).
   - `use module { name1, name2 }` — selective import (used by
-    bare name).
+    bare name). Selective import follows `@export use` chains, so
+    `use sdl { InitFlag }` resolves `InitFlag` even when it's
+    declared in `sdl_core` and re-exported by the umbrella `sdl`
+    module.
 - All top-level items are **public** (no visibility keywords).
 - Circular imports (`A → B → A`) are rejected as a DAG cycle.
 - Loading the same module multiple times is a no-op (deduped by

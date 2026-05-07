@@ -880,7 +880,7 @@ utils.double(c.get())            // → 22
 
 - **2 形式**:
   - `use module` — 名前空間越し参照 (`module.foo()`, `new module.Class()`, `module.Enum.variant`)
-  - `use module { name1, name2 }` — 個別取り込み (バレネームで使う)
+  - `use module { name1, name2 }` — 個別取り込み (バレネームで使う)。`@export use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
 - すべての top-level item は **public** (可視性キーワードなし)
 - 循環インポート (`A → B → A`) は **DAG 検出してエラー**
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
