@@ -12,14 +12,25 @@ pub enum ParseError {
     },
     #[error("{span}: invalid assignment target")]
     InvalidAssignTarget { span: Span },
+    /// `new module.Class(...)` or `let x: module.Class` referencing
+    /// a module that this file didn't `use`. Allowing the reference
+    /// would let an umbrella's `@export use` chain leak items into
+    /// every module merged under the same prefix, even ones that
+    /// never opted in.
+    #[error("{span}: cannot reference {module:?}.{item:?} — this file does not `use {module:?}`")]
+    UnauthorizedModuleRef {
+        module: ilang_ast::Symbol,
+        item: ilang_ast::Symbol,
+        span: Span,
+    },
 }
 
 impl ParseError {
     pub fn span(&self) -> Span {
         match self {
-            ParseError::Unexpected { span, .. } | ParseError::InvalidAssignTarget { span } => {
-                *span
-            }
+            ParseError::Unexpected { span, .. }
+            | ParseError::InvalidAssignTarget { span }
+            | ParseError::UnauthorizedModuleRef { span, .. } => *span,
         }
     }
 }

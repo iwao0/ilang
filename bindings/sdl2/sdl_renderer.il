@@ -11,6 +11,7 @@
 // textures with optional rotation through `drawTextureRot`.
 
 use sdl_core { Rect, Point, FPoint, Size }
+use sdl_window { Window }
 
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
 
@@ -417,7 +418,7 @@ enum RendererFlip: i32 {
 
         /// Build with the SDL defaults: first available driver,
         /// accelerated path chosen by SDL, BLEND mode pre-enabled.
-        init(window: sdl.Window) {
+        init(window: Window) {
             this.handle = SDL_CreateRenderer(
                 window.handle as *void, -1, 0
             ) as i64
@@ -429,7 +430,7 @@ enum RendererFlip: i32 {
 
         /// As above but lets the caller pick a driver index and
         /// pass `RendererFlags`.
-        init(window: sdl.Window, index: i32, flags: u32) {
+        init(window: Window, index: i32, flags: u32) {
             this.handle = SDL_CreateRenderer(
                 window.handle as *void, index, flags
             ) as i64

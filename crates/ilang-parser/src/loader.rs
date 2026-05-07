@@ -191,7 +191,10 @@ pub fn load_program_with_overlay(
     // that the loader has merged the prefixed `lib.Color` enum decl
     // into `merged.items`, a second normalize pass picks it up and
     // converts the field-access into an `EnumCtor`.
-    let merged = crate::normalize::normalize(merged);
+    // Module-prefix authorization was checked per file at parse
+    // time; the merged Program has no `Item::Use`s, so use the
+    // validation-skipping entry point here.
+    let merged = crate::normalize::renormalize_merged(merged);
     // Inline `const` declarations: collect every Item::Const in the
     // merged Program, then walk all expressions replacing
     // `Var(const_name)` with the literal value. Item::Const entries
