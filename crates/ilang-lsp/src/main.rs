@@ -380,10 +380,20 @@ impl LanguageServer for Backend {
             )));
         }
         if let Some((word, _)) = word_at(&doc.text, pos) {
-            if let Some(sym) = doc.symbols.get(&AstSymbol::intern(&word)) {
+            let key = AstSymbol::intern(&word);
+            if let Some(sym) = doc.symbols.get(&key) {
                 return Ok(Some(make_hover_with_doc(
                     &sym.signature,
                     sym.doc.as_deref(),
+                )));
+            }
+            // Selectively-imported bare name (`use M { X }`) — the
+            // signature lives in `external_signatures` keyed by the
+            // bare name, mirroring the buffer-local index.
+            if let Some(sig) = doc.external_signatures.get(&key) {
+                return Ok(Some(make_hover_with_doc(
+                    sig,
+                    doc.external_docs.get(&key).map(|s| s.as_str()),
                 )));
             }
         }
