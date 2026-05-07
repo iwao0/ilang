@@ -44,6 +44,10 @@ pub struct Interpreter {
     /// Initialised from each class's `static_fields` initializer at
     /// `run()` startup; read/written by `ClassName.field` access.
     static_fields: HashMap<(Symbol, Symbol), Value>,
+    /// Module-level `let X: T = expr` cells. Populated when the
+    /// top-level script-stmts run; read / written by fn bodies as a
+    /// fallback after `vars` (the per-call local scope) misses.
+    globals: HashMap<Symbol, Value>,
     vars: HashMap<Symbol, Value>,
     this: Option<ObjectRef>,
     depth: usize,
@@ -224,6 +228,23 @@ impl Interpreter {
         }
         let mut last = Value::Unit;
         for s in &prog.stmts {
+            // Top-level `let X: T = expr` populates the module-
+            // globals map (visible to fn bodies), not the per-call
+            // `vars` scope. Other stmts (`console.log(...)`, `if`,
+            // …) execute normally as the entry script body.
+            if let StmtKind::Let { name, ty, value } = &s.kind {
+                let mut v = match self.eval_expr(value) {
+                    Ok(v) => v,
+                    Err(RuntimeError::Return(_)) => return Ok(last),
+                    Err(e) => return Err(e),
+                };
+                if let Some(t) = ty {
+                    v = cast_value(v, t);
+                }
+                self.globals.insert(name.clone(), v);
+                last = Value::Unit;
+                continue;
+            }
             match self.exec_stmt(s) {
                 Ok(v) => last = v,
                 // Top-level `return` exits the program with the
@@ -362,6 +383,9 @@ impl Interpreter {
                 if let Some(v) = self.vars.get(name) {
                     return Ok(v.clone());
                 }
+                if let Some(v) = self.globals.get(name) {
+                    return Ok(v.clone());
+                }
                 if let Some(this) = &self.this {
                     let this = this.borrow();
                     if let Some(v) = this.fields.get(name) {
@@ -425,6 +449,9 @@ impl Interpreter {
                 // shadow methods and top-level fns).
                 if let Some(Value::Fn(f, env, this_ctx)) = self.vars.get(callee).cloned() {
                     return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
+                }
+                if let Some(Value::Fn(f, env)) = self.globals.get(callee).cloned() {
+                    return self.invoke_fn_value(&f, &env, args, span);
                 }
                 if let Some(this) = self.this.clone() {
                     let class_name = this.borrow().class.clone();
@@ -1131,6 +1158,13 @@ impl Interpreter {
                     }
                     return Ok(Value::Unit);
                 }
+                if self.globals.contains_key(target) {
+                    let old = self.globals.insert(target.clone(), v);
+                    if let Some(o) = old {
+                        self.release(o);
+                    }
+                    return Ok(Value::Unit);
+                }
                 if let Some(this) = self.this.clone() {
                     let old = this.borrow_mut().fields.insert(target.clone(), v);
                     if let Some(o) = old {
@@ -1196,6 +1230,8 @@ impl Interpreter {
                 let mut env: HashMap<Symbol, Value> = HashMap::new();
                 for name in frees {
                     if let Some(v) = self.vars.get(&name) {
+                        env.insert(name, v.clone());
+                    } else if let Some(v) = self.globals.get(&name) {
                         env.insert(name, v.clone());
                     }
                 }
