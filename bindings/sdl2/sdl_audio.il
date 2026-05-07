@@ -7,19 +7,27 @@
 // stream interleaves L, R, L, R, ...
 
 @extern(C) {
-    // Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
-    // a callback (queue-based playback), so `callback` and
-    // `userdata` stay zero.
+    /// Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
+    /// a callback (queue-based playback), so `callback` and
+    /// `userdata` stay zero.
     struct SDL_AudioSpec {
+        /// Sample rate in Hz (e.g. 44100).
         freq: i32
+        /// `AUDIO_*` format constant (we use `AUDIO_S16LSB = 0x8010`).
         format: u16
+        /// Channel count: 1 = mono, 2 = stereo.
         channels: u8
+        /// Silence value for the chosen format. SDL fills this in.
         silence: u8
+        /// Device buffer size in samples (power of 2).
         samples: u16
         padding: u16
+        /// Buffer size in bytes. SDL fills this in for the obtained spec.
         size: u32
-        callback: i64    // fn pointer — NULL means "use the queue API"
-        userdata: i64    // void * — NULL
+        /// Optional fn pointer. NULL means "use the queue API".
+        callback: i64
+        /// Opaque user data passed to `callback`. NULL when unused.
+        userdata: i64
     }
 
     @lib("SDL2") fn SDL_OpenAudioDevice(
@@ -33,12 +41,20 @@
     @lib("SDL2") fn SDL_GetQueuedAudioSize(dev: u32): u32
     @lib("SDL2") fn SDL_ClearQueuedAudio(dev: u32)
 
+    /// ARC-managed audio device. Open with `new AudioDevice(freq,
+    /// channels)`, queue PCM samples via `queue`, start with
+    /// `play`. `deinit` closes the underlying SDL device.
     class AudioDevice {
-        id: u32     // SDL device id (1+ on success, 0 on failure)
+        /// SDL device id. `1+` on success, `0` when opening failed.
+        id: u32
 
-        // Open the default device with the requested sample rate
-        // (e.g. 44100) and channel count (1 = mono, 2 = stereo).
-        // After construction check `id == 0` to detect failure.
+        /// Open the default playback device.
+        ///
+        /// Args:
+        ///   freq     — sample rate in Hz (e.g. 44100).
+        ///   channels — 1 = mono, 2 = stereo.
+        ///
+        /// After construction check `id == 0` to detect failure.
         init(freq: i32, channels: u8) {
             let desired = new SDL_AudioSpec()
             desired.freq = freq
@@ -60,9 +76,14 @@
             }
         }
 
-        // Queue 16-bit signed PCM samples for playback. The length
-        // of `data` is the number of *samples* (so for stereo, two
-        // entries per frame). Returns 0 on success, < 0 on failure.
+        /// Queue 16-bit signed PCM samples for playback.
+        ///
+        /// Args:
+        ///   data — sample buffer. For stereo, two entries per frame
+        ///          (interleaved L, R, L, R, ...).
+        ///
+        /// Returns:
+        ///   0 on success, < 0 on failure (call `sdl.getError()`).
         queue(data: i16[]): i32 {
             // i16[] auto-coerces to *i16; reinterpret as *const void
             // for the C API. byte count = sample count × sizeof(i16).
@@ -70,22 +91,30 @@
             SDL_QueueAudio(this.id, p as *const void, (data.length * 2) as u32)
         }
 
-        // Start (or resume) playback. Devices come up paused.
+        /// Start (or resume) playback. Devices come up paused, so a
+        /// freshly-opened device needs an explicit `play()` to begin
+        /// draining the queue.
         play() {
             SDL_PauseAudioDevice(this.id, 0)
         }
 
+        /// Pause playback without dropping queued samples.
         pause() {
             SDL_PauseAudioDevice(this.id, 1)
         }
 
-        // Bytes still waiting in the queue (decreases as the device
-        // plays). Useful for "wait until the buffer drains".
+        /// Bytes still waiting in the queue (decreases as the device
+        /// plays). Useful for "wait until the buffer drains" loops
+        /// or for deciding when to refill.
+        ///
+        /// Returns:
+        ///   queued byte count.
         queuedBytes(): u32 {
             SDL_GetQueuedAudioSize(this.id)
         }
 
-        // Drop everything still in the queue.
+        /// Drop everything still in the queue. Playback restarts
+        /// from silence the next time `play` runs.
         clear() {
             SDL_ClearQueuedAudio(this.id)
         }

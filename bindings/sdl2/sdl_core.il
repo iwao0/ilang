@@ -6,172 +6,7 @@
 // wrapped with single-string entry points — pass a pre-built
 // message; printf-style formatting happens in ilang code.
 
-@extern(C) {
-    // SDL_version.h: filled in by SDL_GetVersion. Layout matches
-    // C `SDL_version` exactly (3 u8 bytes, 1 byte tail padding).
-    struct SDL_Version {
-        major: u8
-        minor: u8
-        patch: u8
-    }
-
-    // SDL_rect.h: 16 B rectangle, passed by pointer to most C
-    // routines. Lives here so every module (renderer / window /
-    // keyboard / mouse / …) can refer to the same `sdl.SDL_Rect`
-    // and avoid per-module duplicate definitions.
-    struct SDL_Rect {
-        x: i32
-        y: i32
-        w: i32
-        h: i32
-    }
-
-    // ─── SDL_init.h ──────────────────────────────────────────────
-    @lib("SDL2") fn SDL_Init(flags: u32): i32
-    @lib("SDL2") fn SDL_InitSubSystem(flags: u32): i32
-    @lib("SDL2") fn SDL_QuitSubSystem(flags: u32)
-    @lib("SDL2") fn SDL_WasInit(flags: u32): u32
-    @lib("SDL2") fn SDL_Quit()
-
-    // ─── SDL_error.h ─────────────────────────────────────────────
-    @lib("SDL2") fn SDL_GetError(): *const char
-    @lib("SDL2") fn SDL_ClearError()
-    // SDL_SetError is C-variadic; accepting a single pre-formatted
-    // string covers the common case (no format specifiers in the
-    // payload).
-    @lib("SDL2") fn SDL_SetError(fmt: *const char): i32
-
-    // ─── SDL_hints.h ─────────────────────────────────────────────
-    @lib("SDL2") fn SDL_SetHint(name: *const char, value: *const char): i32
-    @lib("SDL2") fn SDL_SetHintWithPriority(
-        name: *const char, value: *const char, priority: i32
-    ): i32
-    @lib("SDL2") fn SDL_GetHint(name: *const char): *const char
-    @lib("SDL2") fn SDL_GetHintBoolean(
-        name: *const char, default_value: i32
-    ): i32
-    @lib("SDL2") fn SDL_ResetHint(name: *const char): i32
-    @lib("SDL2") fn SDL_ResetHints()
-    @lib("SDL2") fn SDL_ClearHints()
-
-    // ─── SDL_log.h (non-variadic subset) ─────────────────────────
-    @lib("SDL2") fn SDL_LogSetAllPriority(priority: i32)
-    @lib("SDL2") fn SDL_LogSetPriority(category: i32, priority: i32)
-    @lib("SDL2") fn SDL_LogGetPriority(category: i32): i32
-    @lib("SDL2") fn SDL_LogResetPriorities()
-    @lib("SDL2") fn SDL_LogMessage(
-        category: i32, priority: i32, fmt: *const char
-    )
-
-    // ─── SDL_version.h ───────────────────────────────────────────
-    @lib("SDL2") fn SDL_GetVersion(ver: *SDL_Version)
-    @lib("SDL2") fn SDL_GetRevision(): *const char
-
-    // ─── SDL_platform.h ──────────────────────────────────────────
-    @lib("SDL2") fn SDL_GetPlatform(): *const char
-
-    // ─── friendlier ilang wrappers ───────────────────────────────
-
-    // Returns 0 on success, < 0 on failure (matches SDL_Init).
-    fn init(flags: InitFlag): i32 {
-        SDL_Init(flags as u32)
-    }
-    fn initSubSystem(flags: InitFlag): i32 {
-        SDL_InitSubSystem(flags as u32)
-    }
-    fn quitSubSystem(flags: InitFlag) {
-        SDL_QuitSubSystem(flags as u32)
-    }
-    // Returns the bitmask of subsystems currently initialised. Pass
-    // `InitFlag.everything` (or any combo) to filter.
-    fn wasInit(flags: InitFlag): u32 {
-        SDL_WasInit(flags as u32)
-    }
-    fn quit() {
-        SDL_Quit()
-    }
-
-    // Latest SDL error message (or empty string when none).
-    fn getError(): string {
-        stringFromCstr(SDL_GetError())
-    }
-    fn clearError() {
-        SDL_ClearError()
-    }
-    fn setError(msg: string): i32 {
-        SDL_SetError(cstrFromString(msg))
-    }
-
-    // SDL_bool returns are 0/1 in C; expose them as ilang bool.
-    fn setHint(name: string, value: string): bool {
-        SDL_SetHint(cstrFromString(name), cstrFromString(value)) != 0
-    }
-    fn setHintWithPriority(name: string, value: string, priority: HintPriority): bool {
-        SDL_SetHintWithPriority(
-            cstrFromString(name), cstrFromString(value), priority as i32
-        ) != 0
-    }
-    fn getHint(name: string): string {
-        stringFromCstr(SDL_GetHint(cstrFromString(name)))
-    }
-    fn getHintBoolean(name: string, default_value: bool): bool {
-        let dv: i32 = if default_value { 1 } else { 0 }
-        SDL_GetHintBoolean(cstrFromString(name), dv) != 0
-    }
-    fn resetHint(name: string): bool {
-        SDL_ResetHint(cstrFromString(name)) != 0
-    }
-    fn resetHints() {
-        SDL_ResetHints()
-    }
-    fn clearHints() {
-        SDL_ClearHints()
-    }
-
-    fn logSetAllPriority(priority: LogPriority) {
-        SDL_LogSetAllPriority(priority as i32)
-    }
-    fn logSetPriority(category: LogCategory, priority: LogPriority) {
-        SDL_LogSetPriority(category as i32, priority as i32)
-    }
-    fn logGetPriority(category: LogCategory): i32 {
-        SDL_LogGetPriority(category as i32)
-    }
-    fn logResetPriorities() {
-        SDL_LogResetPriorities()
-    }
-    fn logMessage(category: LogCategory, priority: LogPriority, msg: string) {
-        SDL_LogMessage(category as i32, priority as i32, cstrFromString(msg))
-    }
-
-    fn getRevision(): string {
-        stringFromCstr(SDL_GetRevision())
-    }
-
-    fn getPlatform(): string {
-        stringFromCstr(SDL_GetPlatform())
-    }
-
-    // Public version triple — plain data, no constructor. Filled
-    // in by `getVersion()`.
-    class Version {
-        major: i32
-        minor: i32
-        patch: i32
-    }
-
-    fn getVersion(): Version {
-        let raw = new SDL_Version()
-        SDL_GetVersion(raw)
-        let v = new Version()
-        v.major = raw.major as i32
-        v.minor = raw.minor as i32
-        v.patch = raw.patch as i32
-        v
-    }
-}
-
-// ─── SDL_INIT_* flags (SDL_INIT_*) ────────────────────────────────
+// ─── SDL_INIT_* flags ─────────────────────────────────────────────
 
 /// Subsystem bitflags passed to `SDL_Init` / `init` /
 /// `initSubSystem` / `wasInit`.
@@ -186,7 +21,7 @@ enum InitFlag: u32 {
     events         = 0x00004000
     sensor         = 0x00008000
     noParachute    = 0x00100000   // legacy / no-op
-    // Bitwise-OR of all the practical subsystems above.
+    /// Bitwise-OR of all the practical subsystems above.
     everything     = 0x0000F231
 }
 
@@ -234,7 +69,7 @@ enum HintPriority: i32 {
 // management, and miscellaneous behaviour controls — i.e. the
 // hints most apps reach for. Anything not here can still be set
 // with `setHint("SDL_THE_NAME", value)`.
-//
+
 // Audio
 const HINT_AUDIO_RESAMPLING_MODE: string         = "SDL_AUDIO_RESAMPLING_MODE"
 const HINT_AUDIO_CATEGORY: string                = "SDL_AUDIO_CATEGORY"
@@ -317,3 +152,257 @@ const HINT_THREAD_STACK_SIZE: string             = "SDL_THREAD_STACK_SIZE"
 const HINT_THREAD_PRIORITY_POLICY: string        = "SDL_THREAD_PRIORITY_POLICY"
 const HINT_TIMER_RESOLUTION: string              = "SDL_TIMER_RESOLUTION"
 const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
+
+@extern(C) {
+    /// Mirror of C `SDL_version` (3 u8 bytes, 1 byte tail padding).
+    /// Filled in by `SDL_GetVersion`.
+    struct SDL_Version {
+        major: u8
+        minor: u8
+        patch: u8
+    }
+
+    /// `SDL_Rect` — 16 B rectangle, passed by pointer to most C
+    /// routines. Lives here so every module (renderer / window /
+    /// keyboard / mouse / …) can share `sdl.SDL_Rect` instead of
+    /// declaring per-module duplicates.
+    struct SDL_Rect {
+        /// Top-left x in pixels.
+        x: i32
+        /// Top-left y in pixels.
+        y: i32
+        /// Width in pixels.
+        w: i32
+        /// Height in pixels.
+        h: i32
+    }
+
+    // ─── SDL_init.h ──────────────────────────────────────────────
+    @lib("SDL2") fn SDL_Init(flags: u32): i32
+    @lib("SDL2") fn SDL_InitSubSystem(flags: u32): i32
+    @lib("SDL2") fn SDL_QuitSubSystem(flags: u32)
+    @lib("SDL2") fn SDL_WasInit(flags: u32): u32
+    @lib("SDL2") fn SDL_Quit()
+
+    // ─── SDL_error.h ─────────────────────────────────────────────
+    @lib("SDL2") fn SDL_GetError(): *const char
+    @lib("SDL2") fn SDL_ClearError()
+    // SDL_SetError is C-variadic; accepting a single pre-formatted
+    // string covers the common case (no format specifiers in the
+    // payload).
+    @lib("SDL2") fn SDL_SetError(fmt: *const char): i32
+
+    // ─── SDL_hints.h ─────────────────────────────────────────────
+    @lib("SDL2") fn SDL_SetHint(name: *const char, value: *const char): i32
+    @lib("SDL2") fn SDL_SetHintWithPriority(
+        name: *const char, value: *const char, priority: i32
+    ): i32
+    @lib("SDL2") fn SDL_GetHint(name: *const char): *const char
+    @lib("SDL2") fn SDL_GetHintBoolean(
+        name: *const char, default_value: i32
+    ): i32
+    @lib("SDL2") fn SDL_ResetHint(name: *const char): i32
+    @lib("SDL2") fn SDL_ResetHints()
+    @lib("SDL2") fn SDL_ClearHints()
+
+    // ─── SDL_log.h (non-variadic subset) ─────────────────────────
+    @lib("SDL2") fn SDL_LogSetAllPriority(priority: i32)
+    @lib("SDL2") fn SDL_LogSetPriority(category: i32, priority: i32)
+    @lib("SDL2") fn SDL_LogGetPriority(category: i32): i32
+    @lib("SDL2") fn SDL_LogResetPriorities()
+    @lib("SDL2") fn SDL_LogMessage(
+        category: i32, priority: i32, fmt: *const char
+    )
+
+    // ─── SDL_version.h ───────────────────────────────────────────
+    @lib("SDL2") fn SDL_GetVersion(ver: *SDL_Version)
+    @lib("SDL2") fn SDL_GetRevision(): *const char
+
+    // ─── SDL_platform.h ──────────────────────────────────────────
+    @lib("SDL2") fn SDL_GetPlatform(): *const char
+
+    // ─── friendlier ilang wrappers ───────────────────────────────
+
+    /// Initialise the named subsystems. Must be called once before
+    /// any other SDL routine in those subsystems.
+    ///
+    /// Args:
+    ///   flags — bitwise-OR of `InitFlag.*` (e.g.
+    ///           `InitFlag.video | InitFlag.audio`).
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure (call `getError()`).
+    fn init(flags: InitFlag): i32 {
+        SDL_Init(flags as u32)
+    }
+
+    /// Initialise additional subsystems after the first `init` call.
+    ///
+    /// Args:
+    ///   flags — subsystems to add.
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure.
+    fn initSubSystem(flags: InitFlag): i32 {
+        SDL_InitSubSystem(flags as u32)
+    }
+
+    /// Tear down a subset of subsystems while leaving the rest
+    /// running.
+    fn quitSubSystem(flags: InitFlag) {
+        SDL_QuitSubSystem(flags as u32)
+    }
+
+    /// Args:
+    ///   flags — mask to filter (`InitFlag.everything` for "all").
+    ///
+    /// Returns:
+    ///   bitmask of subsystems currently initialised among `flags`.
+    fn wasInit(flags: InitFlag): u32 {
+        SDL_WasInit(flags as u32)
+    }
+
+    /// Tear down every initialised subsystem and free SDL's global
+    /// state. Call exactly once on program exit.
+    fn quit() {
+        SDL_Quit()
+    }
+
+    /// Returns:
+    ///   the latest SDL error message (or empty string when no
+    ///   error is recorded for this thread).
+    fn getError(): string {
+        stringFromCstr(SDL_GetError())
+    }
+
+    /// Reset the per-thread error string to empty.
+    fn clearError() {
+        SDL_ClearError()
+    }
+
+    /// Set the per-thread error string.
+    ///
+    /// Args:
+    ///   msg — message to record.
+    ///
+    /// Returns:
+    ///   always `-1` (matches SDL's convention of "error path"
+    ///   return values).
+    fn setError(msg: string): i32 {
+        SDL_SetError(cstrFromString(msg))
+    }
+
+    /// Set a hint at `Normal` priority — overrides defaults but
+    /// not user-set values.
+    ///
+    /// Args:
+    ///   name  — `"SDL_…"` hint name (use the `HINT_*` constants).
+    ///   value — hint value as a string.
+    ///
+    /// Returns:
+    ///   true when the hint was applied.
+    fn setHint(name: string, value: string): bool {
+        SDL_SetHint(cstrFromString(name), cstrFromString(value)) != 0
+    }
+
+    /// Variant of `setHint` with explicit priority.
+    fn setHintWithPriority(name: string, value: string, priority: HintPriority): bool {
+        SDL_SetHintWithPriority(
+            cstrFromString(name), cstrFromString(value), priority as i32
+        ) != 0
+    }
+
+    /// Args:
+    ///   name — hint name.
+    ///
+    /// Returns:
+    ///   the current value, or empty when the hint isn't set.
+    fn getHint(name: string): string {
+        stringFromCstr(SDL_GetHint(cstrFromString(name)))
+    }
+
+    /// Boolean view of a hint.
+    ///
+    /// Args:
+    ///   name          — hint name.
+    ///   default_value — fallback when the hint is unset / unparsed.
+    fn getHintBoolean(name: string, default_value: bool): bool {
+        let dv: i32 = if default_value { 1 } else { 0 }
+        SDL_GetHintBoolean(cstrFromString(name), dv) != 0
+    }
+
+    /// Drop a single hint — restores the SDL default.
+    fn resetHint(name: string): bool {
+        SDL_ResetHint(cstrFromString(name)) != 0
+    }
+
+    /// Reset every hint to its SDL default.
+    fn resetHints() {
+        SDL_ResetHints()
+    }
+
+    /// Discard every hint set so far. Stronger than `resetHints` —
+    /// also forgets that the hint was ever touched.
+    fn clearHints() {
+        SDL_ClearHints()
+    }
+
+    /// Set the global log priority filter.
+    fn logSetAllPriority(priority: LogPriority) {
+        SDL_LogSetAllPriority(priority as i32)
+    }
+
+    /// Set the priority filter for a single category.
+    fn logSetPriority(category: LogCategory, priority: LogPriority) {
+        SDL_LogSetPriority(category as i32, priority as i32)
+    }
+
+    /// Returns:
+    ///   the priority threshold currently set for `category`.
+    fn logGetPriority(category: LogCategory): i32 {
+        SDL_LogGetPriority(category as i32)
+    }
+
+    /// Restore the per-category priority defaults.
+    fn logResetPriorities() {
+        SDL_LogResetPriorities()
+    }
+
+    /// Emit a single log message through SDL's logger.
+    fn logMessage(category: LogCategory, priority: LogPriority, msg: string) {
+        SDL_LogMessage(category as i32, priority as i32, cstrFromString(msg))
+    }
+
+    /// Returns:
+    ///   the SDL revision string (e.g. `"SDL2-2.30.1"`).
+    fn getRevision(): string {
+        stringFromCstr(SDL_GetRevision())
+    }
+
+    /// Returns:
+    ///   the platform name (`"Mac OS X"`, `"Linux"`, `"Windows"`,
+    ///   `"iOS"`, …).
+    fn getPlatform(): string {
+        stringFromCstr(SDL_GetPlatform())
+    }
+
+    /// Public version triple — plain data, no constructor. Filled
+    /// in by `getVersion()`.
+    class Version {
+        major: i32
+        minor: i32
+        patch: i32
+    }
+
+    /// Returns:
+    ///   the linked SDL2 library's version (major.minor.patch).
+    fn getVersion(): Version {
+        let raw = new SDL_Version()
+        SDL_GetVersion(raw)
+        let v = new Version()
+        v.major = raw.major as i32
+        v.minor = raw.minor as i32
+        v.patch = raw.patch as i32
+        v
+    }
+}

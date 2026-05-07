@@ -87,12 +87,13 @@ enum EventState: i32 {
     @lib("SDL2") fn SDL_RemoveTimer(id: i32): i32
 
     // ─── event queue ─────────────────────────────────────────────
-    // SDL_Event is a union spanning every event type. The actual
-    // size varies by SDL version (56 B in 2.0.x, up to ~88 B in
-    // newer releases). We pad to 88 bytes so SDL never writes past
-    // the end. Every sub-event lays its `Uint32 type` at offset 0,
-    // so reading `event_type` is enough for "what kind of event".
+    /// `SDL_Event` is a union spanning every event type. The actual
+    /// size varies by SDL version (56 B in 2.0.x, up to ~88 B in
+    /// newer releases). We pad to 88 bytes so SDL never writes past
+    /// the end. Every sub-event lays its `Uint32 type` at offset 0,
+    /// so reading `event_type` is enough for "what kind of event".
     struct SDL_Event {
+        /// Discriminant — matches an `EventType` variant.
         event_type: u32
         _pad: u8[84]
     }
@@ -111,39 +112,67 @@ enum EventState: i32 {
 
     // ─── friendly wrappers ───────────────────────────────────────
 
+    /// Block the current thread for `ms` milliseconds. Granularity
+    /// depends on the OS scheduler (typically 1 ms).
+    ///
+    /// Args:
+    ///   ms — wait duration in milliseconds.
     fn delay(ms: u32) {
         SDL_Delay(ms)
     }
 
-    // Milliseconds since SDL_Init. Wraps after ~49 days; use
-    // `getTicks64()` for monotonic playtime tracking longer than
-    // that.
+    /// Milliseconds elapsed since `SDL_Init`.
+    ///
+    /// Returns:
+    ///   ticks since init. Wraps after ~49 days — use `getTicks64()`
+    ///   for monotonic playtime longer than that.
     fn getTicks(): u32 {
         SDL_GetTicks()
     }
+
+    /// 64-bit version of `getTicks` — never wraps in any sane
+    /// timescale.
+    ///
+    /// Returns:
+    ///   ms since init.
     fn getTicks64(): u64 {
         SDL_GetTicks64()
     }
 
-    // High-resolution counter + its frequency (ticks per second).
-    // For elapsed measurements: `(b - a) / getPerformanceFrequency()
-    // * 1e6` µs.
+    /// High-resolution counter — usually backed by RDTSC / mach
+    /// time / clock_gettime.
+    ///
+    /// Returns:
+    ///   monotonic counter value. Combine with
+    ///   `getPerformanceFrequency()` to convert deltas into seconds:
+    ///   `(b - a) as f64 / getPerformanceFrequency() as f64`.
     fn getPerformanceCounter(): u64 {
         SDL_GetPerformanceCounter()
     }
+
+    /// Returns:
+    ///   ticks per second of the high-resolution counter.
     fn getPerformanceFrequency(): u64 {
         SDL_GetPerformanceFrequency()
     }
 
-    // Timer callback registration.
-    //
-    // The callback signature on the C side is
-    //   `Uint32 (*)(Uint32 interval, void *param)`
-    // — return the next interval in ms, or 0 to cancel. Caller
-    // obtains the fn pointer via `fnAddr(myFn)` (must be invoked
-    // inside the caller's own `@extern(C){}` block). `param` is a
-    // raw `void*` shipped through to the callback; pass 0 when
-    // unused.
+    /// Schedule a callback to fire on SDL's timer thread.
+    ///
+    /// The callback signature on the C side is
+    ///   `Uint32 (*)(Uint32 interval, void *param)`
+    /// — return the next interval in ms, or `0` to cancel. Caller
+    /// obtains the fn pointer via `fnAddr(myFn)` (must be invoked
+    /// inside the caller's own `@extern(C){}` block).
+    ///
+    /// Args:
+    ///   interval — first-shot delay in ms.
+    ///   callback — fn pointer (use `fnAddr(myFn) as i64`).
+    ///   param    — raw `void*` shipped through to the callback;
+    ///              pass `0` when unused.
+    ///
+    /// Returns:
+    ///   timer id (`> 0` on success, `0` on failure). Pass to
+    ///   `removeTimer` to cancel.
     fn addTimer(interval: u32, callback: i64, param: i64): i32 {
         SDL_AddTimer(
             interval,
@@ -151,66 +180,120 @@ enum EventState: i32 {
             param as *const void
         )
     }
+
+    /// Cancel a scheduled timer.
+    ///
+    /// Args:
+    ///   id — value returned by `addTimer`.
+    ///
+    /// Returns:
+    ///   `1` if the timer was found and removed, `0` otherwise.
     fn removeTimer(id: i32): i32 {
         SDL_RemoveTimer(id)
     }
 
-    // SDL_TICKS_PASSED(A, B) macro: true if `a` is at or past `b`,
-    // accounting for u32 wrap-around. Use with `getTicks()`
-    // ("has the deadline passed?").
+    /// `SDL_TICKS_PASSED(a, b)` — true when `a` is at or past `b`,
+    /// accounting for u32 wrap-around. Use with `getTicks()` for
+    /// "has the deadline passed?" checks.
+    ///
+    /// Args:
+    ///   a — current tick count (typically `getTicks()`).
+    ///   b — deadline tick count.
+    ///
+    /// Returns:
+    ///   true if `a >= b` modulo wrap.
     fn ticksPassed(a: u32, b: u32): bool {
         // Signed comparison after subtraction handles wrap.
         ((b as i32) - (a as i32)) <= 0
     }
 
-    // Drain the OS event queue into SDL's internal queue. Required
-    // on macOS Cocoa for window composition; harmless elsewhere.
+    /// Drain the OS event queue into SDL's internal queue. Required
+    /// on macOS Cocoa for window composition; harmless elsewhere.
+    /// Call once per frame before reading events.
     fn pumpEvents() {
         SDL_PumpEvents()
     }
 
-    // True iff at least one event of `event_type` is pending.
-    // Doesn't remove it from the queue.
+    /// Args:
+    ///   event_type — variant to look for.
+    ///
+    /// Returns:
+    ///   true iff at least one event of that type is pending.
+    ///   Doesn't remove it from the queue.
     fn hasEvent(event_type: EventType): bool {
         SDL_HasEvent(event_type as u32) != 0
     }
+
+    /// Range version of `hasEvent`.
+    ///
+    /// Args:
+    ///   min_type — lower bound (inclusive).
+    ///   max_type — upper bound (inclusive).
     fn hasEvents(min_type: EventType, max_type: EventType): bool {
         SDL_HasEvents(min_type as u32, max_type as u32) != 0
     }
 
+    /// Discard every queued event of the given type.
     fn flushEvent(event_type: EventType) {
         SDL_FlushEvent(event_type as u32)
     }
+
+    /// Range version of `flushEvent`.
     fn flushEvents(min_type: EventType, max_type: EventType) {
         SDL_FlushEvents(min_type as u32, max_type as u32)
     }
 
-    // Pull one event off the queue. Returns true if `event` was
-    // populated, false if the queue was empty. Caller looks at
-    // `event.event_type` to decide what to do.
+    /// Pull one event off the queue.
+    ///
+    /// Args:
+    ///   event — buffer that SDL fills in.
+    ///
+    /// Returns:
+    ///   true if `event` was populated, false if the queue was
+    ///   empty. Caller looks at `event.event_type` to dispatch.
     fn pollEvent(event: SDL_Event): bool {
         SDL_PollEvent(event) != 0
     }
 
-    // Push a synthetic event onto the queue. Returns 1 on
-    // success, 0 if the event was filtered, < 0 on error.
+    /// Push a synthetic event onto the queue.
+    ///
+    /// Args:
+    ///   event — fully-populated event (set `event.event_type`).
+    ///
+    /// Returns:
+    ///   `1` on success, `0` if the event was filtered, `< 0` on
+    ///   error.
     fn pushEvent(event: SDL_Event): i32 {
         SDL_PushEvent(event)
     }
 
-    // Toggle delivery / query of an event class. Returns the
-    // previous state.
+    /// Toggle delivery / query of an event class.
+    ///
+    /// Args:
+    ///   event_type — class to control.
+    ///   state      — `enable`, `ignore`, or `query`.
+    ///
+    /// Returns:
+    ///   previous state for that class.
     fn eventState(event_type: EventType, state: EventState): u8 {
         SDL_EventState(event_type as u32, state as i32)
     }
+
+    /// Read the current delivery state for an event class.
+    ///
+    /// Args:
+    ///   event_type — class to query.
+    ///
+    /// Returns:
+    ///   current state (`0` = ignored, `1` = enabled).
     fn getEventState(event_type: EventType): u8 {
         SDL_EventState(event_type as u32, EventState.query as i32)
     }
 
-    // True if the user clicked the window close button (or asked
-    // the OS to terminate the process). Internally pumps events
-    // and peeks for `SDL_QUIT`. Caller normally responds by
-    // exiting their main loop.
+    /// True if the user clicked the window close button (or asked
+    /// the OS to terminate the process). Internally pumps events
+    /// and peeks for `SDL_QUIT`. Caller normally responds by
+    /// exiting their main loop.
     fn quitRequested(): bool {
         SDL_PumpEvents()
         if SDL_HasEvent(EventType.quit as u32) != 0 {

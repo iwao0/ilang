@@ -12,7 +12,8 @@
 
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
 
-/// SDL_RendererFlags — passed to `SDL_CreateRenderer` / new Renderer.
+/// `SDL_RendererFlags` — passed to `SDL_CreateRenderer` / new
+/// `Renderer`.
 @flags
 enum RendererFlags: u32 {
     software      = 0x00000001
@@ -21,21 +22,22 @@ enum RendererFlags: u32 {
     targetTexture = 0x00000008
 }
 
-/// SDL_ScaleMode — texture sampling filter.
+/// `SDL_ScaleMode` — texture sampling filter.
 enum ScaleMode: i32 {
     nearest = 0
     linear  = 1
     best    = 2
 }
 
-/// SDL_TextureAccess.
+/// `SDL_TextureAccess`.
 enum TextureAccess: i32 {
     static    = 0
     streaming = 1
     target    = 2
 }
 
-/// SDL_TextureModulate — multiplied against texture color/alpha on draw.
+/// `SDL_TextureModulate` — multiplied against texture colour /
+/// alpha on draw.
 @flags
 enum TextureModulate: i32 {
     none  = 0x00000000
@@ -43,7 +45,7 @@ enum TextureModulate: i32 {
     alpha = 0x00000002
 }
 
-/// SDL_RendererFlip — bit flags for `RenderCopyEx`.
+/// `SDL_RendererFlip` — bit flags for `RenderCopyEx`.
 @flags
 enum RendererFlip: i32 {
     none       = 0x00000000
@@ -52,36 +54,42 @@ enum RendererFlip: i32 {
 }
 
 @extern(C) {
-    // Opaque handles (forward-declared in SDL_render.h).
+    /// Opaque renderer handle.
     struct SDL_Renderer {}
+    /// Opaque texture handle.
     struct SDL_Texture {}
 
-    // SDL_render.h shared geometry types.
+    /// `SDL_Point` — integer 2D point.
     struct SDL_Point {
         x: i32
         y: i32
     }
+    /// `SDL_FPoint` — float 2D point.
     struct SDL_FPoint {
         x: f32
         y: f32
     }
+    /// `SDL_FRect` — float-coordinate rectangle.
     struct SDL_FRect {
         x: f32
         y: f32
         w: f32
         h: f32
     }
+    /// `SDL_Color` — RGBA8 colour.
     struct SDL_Color {
         r: u8
         g: u8
         b: u8
         a: u8
     }
+    /// `SDL_Vertex` — position + colour + UV, for `RenderGeometry`.
     struct SDL_Vertex {
         position: SDL_FPoint
         color: SDL_Color
         tex_coord: SDL_FPoint
     }
+    /// `SDL_RendererInfo` — driver / capability data.
     struct SDL_RendererInfo {
         name: *const char
         flags: u32
@@ -398,25 +406,28 @@ enum RendererFlip: i32 {
         info
     }
 
-    // Bundle for `outputSize` / `getLogicalSize` / `logicalToWindow`.
-    // Renamed from `Size` to avoid clashing with the umbrella's
-    // `sdl.Size` (defined in sdl_window).
+    /// Bundle for `outputSize` / `getLogicalSize` /
+    /// `logicalToWindow`. Renamed from `Size` to avoid clashing
+    /// with the umbrella's `sdl.Size` (defined in `sdl_window`).
     class RenderSize {
         w: i32
         h: i32
     }
-    // Bundle for `getScale`.
+
+    /// Bundle for `getScale`.
     class RenderScale {
         x: f32
         y: f32
     }
-    // Bundle for `windowToLogical`.
+
+    /// Bundle for `windowToLogical`.
     class FCoord {
         x: f32
         y: f32
     }
-    // Bundle for `Texture.query` (mirrors SDL_QueryTexture's four
-    // out parameters).
+
+    /// Bundle for `Texture.query` (mirrors `SDL_QueryTexture`'s
+    /// four out parameters).
     class TextureInfo {
         format: u32
         access: i32
@@ -424,7 +435,11 @@ enum RendererFlip: i32 {
         h: i32
     }
 
+    /// ARC-managed wrapper around `SDL_Renderer`. `deinit` calls
+    /// `SDL_DestroyRenderer` automatically.
     class Renderer {
+        /// Pointer to the underlying `SDL_Renderer` cast to `i64`.
+        /// `0` when creation failed.
         handle: i64
 
         /// Build with the SDL defaults: first available driver,
@@ -492,10 +507,19 @@ enum RendererFlip: i32 {
 
         // ─── colour / blend mode ──────────────────────────────────
 
+        /// Set the draw colour used by `clear` / line / rect calls.
+        ///
+        /// Args:
+        ///   r, g, b, a — 0..255 channels (a = 255 is opaque).
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         setColor(r: u8, g: u8, b: u8, a: u8): i32 {
             SDL_SetRenderDrawColor(this.handle as *SDL_Renderer, r, g, b, a)
         }
 
+        /// Returns:
+        ///   the current draw colour as an `SDL_Color`.
         getColor(): SDL_Color {
             let c = new SDL_Color()
             let r: u8[] = [0]
@@ -510,10 +534,15 @@ enum RendererFlip: i32 {
             c
         }
 
+        /// Args:
+        ///   mode — `SDL_BlendMode`: `0` = NONE, `1` = BLEND,
+        ///          `2` = ADD, `4` = MOD, `8` = MUL.
         setBlendMode(mode: i32): i32 {
             SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode)
         }
 
+        /// Returns:
+        ///   the current `SDL_BlendMode`.
         getBlendMode(): i32 {
             let m: i32[] = [0]
             SDL_GetRenderDrawBlendMode(this.handle as *SDL_Renderer, m)
@@ -522,13 +551,21 @@ enum RendererFlip: i32 {
 
         // ─── logical / viewport / clip / scale ────────────────────
 
-        // Pin the renderer's coordinate system to a virtual w×h grid.
-        // SDL stretches the result to fit the actual window (with
-        // letterboxing when the aspect differs).
+        /// Pin the renderer's coordinate system to a virtual `w × h`
+        /// grid. SDL stretches the result to fit the actual window
+        /// (with letterboxing when the aspect differs).
+        ///
+        /// Args:
+        ///   w, h — virtual width / height.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         setLogicalSize(w: i32, h: i32): i32 {
             SDL_RenderSetLogicalSize(this.handle as *SDL_Renderer, w, h)
         }
 
+        /// Returns:
+        ///   the current logical size, or `(0, 0)` if not set.
         getLogicalSize(): RenderSize {
             let w: i32[] = [0]
             let h: i32[] = [0]
@@ -626,10 +663,16 @@ enum RendererFlip: i32 {
 
         // ─── primitive draw (integer) ─────────────────────────────
 
+        /// Fill the entire render target with the current draw
+        /// colour. Typically called once per frame before drawing.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         clear(): i32 {
             SDL_RenderClear(this.handle as *SDL_Renderer)
         }
 
+        /// Draw a single pixel at `(x, y)`.
         drawPoint(x: i32, y: i32): i32 {
             SDL_RenderDrawPoint(this.handle as *SDL_Renderer, x, y)
         }
@@ -668,8 +711,16 @@ enum RendererFlip: i32 {
             )
         }
 
-        // Fill an axis-aligned rectangle. Coordinates are in window
-        // pixels; `(x, y)` is the top-left corner.
+        /// Fill an axis-aligned rectangle. Coordinates are in
+        /// window pixels (or logical pixels when `setLogicalSize`
+        /// is in effect); `(x, y)` is the top-left corner.
+        ///
+        /// Args:
+        ///   x, y — top-left corner.
+        ///   w, h — rectangle size.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         fillRect(x: i32, y: i32, w: i32, h: i32): i32 {
             let rect = new sdl.SDL_Rect()
             rect.x = x
@@ -744,7 +795,15 @@ enum RendererFlip: i32 {
 
         // ─── texture blit ────────────────────────────────────────
 
-        // Stretch the entire texture into the destination rect.
+        /// Stretch the entire texture into the destination rect.
+        ///
+        /// Args:
+        ///   tex   — source texture.
+        ///   x, y  — destination top-left.
+        ///   w, h  — destination size (texture is scaled to fit).
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         drawTexture(tex: Texture, x: i32, y: i32, w: i32, h: i32): i32 {
             let dst = new sdl.SDL_Rect()
             dst.x = x
@@ -758,8 +817,17 @@ enum RendererFlip: i32 {
             )
         }
 
-        // Same as drawTexture but rotates around the dst rect's
-        // centre by `angle` degrees (clockwise).
+        /// Same as `drawTexture` but rotates around the dst rect's
+        /// centre.
+        ///
+        /// Args:
+        ///   tex   — source texture.
+        ///   x, y  — destination top-left.
+        ///   w, h  — destination size.
+        ///   angle — rotation in degrees, clockwise.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         drawTextureRot(
             tex: Texture, x: i32, y: i32, w: i32, h: i32, angle: f64
         ): i32 {
@@ -776,8 +844,17 @@ enum RendererFlip: i32 {
             )
         }
 
-        // Verbose blit. `srcrect == 0` (`null`) draws the whole
-        // source; same for `dstrect`.
+        /// Verbose blit. `srcrect == 0` (`null`) draws the whole
+        /// source; same for `dstrect`.
+        ///
+        /// Args:
+        ///   tex     — source texture.
+        ///   srcrect — sub-rect within `tex` (or `0` for whole).
+        ///   dstrect — destination rect on the render target (or
+        ///             `0` to fill the target).
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         copy(
             tex: Texture,
             srcrect: sdl.SDL_Rect, dstrect: sdl.SDL_Rect
@@ -857,51 +934,73 @@ enum RendererFlip: i32 {
             )
         }
 
-        // Swap the back-buffer to the screen (vsync if the driver does it).
+        /// Swap the back-buffer to the screen (vsync if the driver
+        /// has it enabled).
         present() {
             SDL_RenderPresent(this.handle as *SDL_Renderer)
         }
 
+        /// Force any pending draw calls to be sent to the GPU /
+        /// platform layer immediately.
         flush(): i32 {
             SDL_RenderFlush(this.handle as *SDL_Renderer)
         }
 
+        /// Returns:
+        ///   true when the driver supports rendering into TARGET
+        ///   textures.
         targetSupported(): bool {
             SDL_RenderTargetSupported(this.handle as *SDL_Renderer) != 0
         }
 
-        // Redirect subsequent draw calls into a texture. Pass a
-        // TARGET-access texture, then `resetTarget()` to swap back.
+        /// Redirect subsequent draw calls into a texture. Pass a
+        /// TARGET-access `Texture`, then `resetTarget()` to swap
+        /// back to the window.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         setTarget(tex: Texture): i32 {
             SDL_SetRenderTarget(this.handle as *SDL_Renderer,
                                 tex.handle as *SDL_Texture)
         }
 
+        /// Restore drawing to the window (after `setTarget`).
         resetTarget(): i32 {
             SDL_SetRenderTarget(
                 this.handle as *SDL_Renderer, 0 as *SDL_Texture
             )
         }
 
+        /// Args:
+        ///   vsync — `1` to enable vsync, `0` to disable.
         setVSync(vsync: i32): i32 {
             SDL_RenderSetVSync(this.handle as *SDL_Renderer, vsync)
         }
     }
 
-    // ARC-managed sprite. Holds an SDL_Texture sized at construction
-    // and lets you upload raw RGBA8 pixels (`r, g, b, a` byte order
-    // on little-endian — SDL_PIXELFORMAT_ABGR8888 = 0x16762004).
-    // Use Renderer.drawTexture / drawTextureRot to draw it.
+    /// ARC-managed sprite. Holds an `SDL_Texture` sized at
+    /// construction and lets you upload raw RGBA8 pixels
+    /// (`r, g, b, a` byte order on little-endian —
+    /// `SDL_PIXELFORMAT_ABGR8888 = 0x16762004`). Use
+    /// `Renderer.drawTexture` / `drawTextureRot` to draw it.
     class Texture {
+        /// Pointer to `SDL_Texture` cast to `i64`. `0` when
+        /// creation failed.
         handle: i64
         width: i32
         height: i32
 
-        // `access` selects the SDL_TextureAccess:
-        //   1 = STREAMING — CPU-uploaded pixels via `update`
-        //   2 = TARGET    — renderer draws into it (`Renderer.setTarget`)
-        // SDL_PIXELFORMAT_ABGR8888 = 0x16762004 (R, G, B, A on
-        // little-endian).
+        /// RGBA8888 texture with the requested access mode.
+        ///
+        /// Args:
+        ///   renderer — the parent `Renderer`.
+        ///   w, h     — texture dimensions in pixels.
+        ///   access   — `1` = STREAMING (CPU-uploaded pixels via
+        ///              `update`); `2` = TARGET (`Renderer.setTarget`
+        ///              draws into it).
+        ///
+        /// Pixel format is `SDL_PIXELFORMAT_ABGR8888` (= `0x16762004`,
+        /// `R, G, B, A` on little-endian).
         init(renderer: Renderer, w: i32, h: i32, access: i32) {
             this.width = w
             this.height = h
@@ -916,8 +1015,14 @@ enum RendererFlip: i32 {
             }
         }
 
-        // Like the basic init but lets the caller pick the
-        // SDL_PixelFormatEnum.
+        /// Like the basic `init` but lets the caller pick the
+        /// `SDL_PixelFormatEnum`.
+        ///
+        /// Args:
+        ///   renderer — the parent `Renderer`.
+        ///   format   — `SDL_PIXELFORMAT_*` value.
+        ///   access   — `1` = STREAMING, `2` = TARGET.
+        ///   w, h     — texture dimensions.
         init(
             renderer: Renderer, format: u32, access: i32, w: i32, h: i32
         ) {
@@ -954,8 +1059,14 @@ enum RendererFlip: i32 {
             i
         }
 
-        // Upload pixel data. The buffer must be exactly
-        // `width * height * 4` bytes (RGBA8 per pixel).
+        /// Upload pixel data into a STREAMING texture.
+        ///
+        /// Args:
+        ///   rgba — RGBA8 buffer, exactly `width * height * 4`
+        ///          bytes (4 bytes per pixel, row-major).
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         update(rgba: u8[]): i32 {
             // pitch = bytes per row. For full-texture updates the
             // rect arg is NULL.
@@ -975,11 +1086,16 @@ enum RendererFlip: i32 {
             )
         }
 
-        // Optional per-draw tinting / fading.
+        /// Per-draw RGB tint multiplied against the texture pixels.
+        ///
+        /// Args:
+        ///   r, g, b — `255` is "no tint" on each channel.
         setColorMod(r: u8, g: u8, b: u8): i32 {
             SDL_SetTextureColorMod(this.handle as *SDL_Texture, r, g, b)
         }
 
+        /// Returns:
+        ///   the current colour-mod (alpha is reported as `255`).
         getColorMod(): SDL_Color {
             let c = new SDL_Color()
             let r: u8[] = [0]
@@ -993,32 +1109,43 @@ enum RendererFlip: i32 {
             c
         }
 
+        /// Per-draw alpha multiplier (fade-out).
         setAlphaMod(a: u8): i32 {
             SDL_SetTextureAlphaMod(this.handle as *SDL_Texture, a)
         }
 
+        /// Returns:
+        ///   the current alpha-mod (`255` = opaque).
         getAlphaMod(): u8 {
             let a: u8[] = [0]
             SDL_GetTextureAlphaMod(this.handle as *SDL_Texture, a)
             a[0]
         }
 
-        // SDL_BlendMode: 0=NONE, 1=BLEND, 2=ADD, 4=MOD, 8=MUL.
+        /// Args:
+        ///   mode — `SDL_BlendMode`: `0` = NONE, `1` = BLEND,
+        ///          `2` = ADD, `4` = MOD, `8` = MUL.
         setBlendMode(mode: i32): i32 {
             SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
         }
 
+        /// Returns:
+        ///   the current `SDL_BlendMode`.
         getBlendMode(): i32 {
             let m: i32[] = [0]
             SDL_GetTextureBlendMode(this.handle as *SDL_Texture, m)
             m[0]
         }
 
-        // SDL_ScaleMode: 0=Nearest, 1=Linear, 2=Best.
+        /// Args:
+        ///   mode — `ScaleMode` value: `0` = Nearest, `1` = Linear,
+        ///          `2` = Best.
         setScaleMode(mode: i32): i32 {
             SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode)
         }
 
+        /// Returns:
+        ///   the current `ScaleMode`.
         getScaleMode(): i32 {
             let m: i32[] = [0]
             SDL_GetTextureScaleMode(this.handle as *SDL_Texture, m)
@@ -1026,21 +1153,27 @@ enum RendererFlip: i32 {
         }
     }
 
-    // Bitmap text. Builds a small 5×7 pixel font on construction
-    // (one atlas SDL_Texture sized 5*N × 7) and exposes a single
-    // `drawText(renderer, text, x, y, scale, r, g, b, a)` method.
-    // The atlas is white-on-transparent so `setColorMod` / alpha
-    // tinting on draw lets each call pick its own colour.
-    //
-    // Supported characters: A–Z (uppercase only), 0–9, space, and
-    // `.`, `:`, `,`, `-`, `!`, `?`. Lowercase / Unicode characters
-    // are skipped silently.
+    /// Bitmap text. Builds a small 5×7 pixel font on construction
+    /// (one atlas `SDL_Texture` sized `5*N × 7`) and exposes a
+    /// single `drawText(renderer, text, x, y, scale, r, g, b, a)`
+    /// method. The atlas is white-on-transparent so `setColorMod`
+    /// / alpha tinting on draw lets each call pick its own colour.
+    ///
+    /// Supported characters: A–Z (uppercase only), 0–9, space, and
+    /// `.`, `:`, `,`, `-`, `!`, `?`. Lowercase / Unicode characters
+    /// are skipped silently.
     class Font {
+        /// Pointer to the glyph atlas texture cast to `i64`.
         atlas: i64
+        /// Glyph cell width in source pixels (`5`).
         cell_w: i32
+        /// Glyph cell height in source pixels (`7`).
         cell_h: i32
+        /// Number of glyphs packed into the atlas.
         cell_count: i32
 
+        /// Build the atlas texture against `renderer`. The atlas is
+        /// freed when the `Font` is dropped.
         init(renderer: Renderer) {
             let glyphs = font_glyphs()
             this.cell_w = 5
@@ -1098,9 +1231,14 @@ enum RendererFlip: i32 {
             }
         }
 
-        // Draw `text` at `(x, y)`, scaled by `scale` (1 = native
-        // 5×7), tinted to RGBA `(r, g, b, a)`. Top-left of the first
-        // glyph lands at `(x, y)`.
+        /// Draw a string at `(x, y)`, top-left aligned.
+        ///
+        /// Args:
+        ///   ren        — renderer to draw into.
+        ///   text       — string to render.
+        ///   x, y       — top-left of the first glyph.
+        ///   scale      — integer scale factor (`1` = native 5×7).
+        ///   r, g, b, a — RGBA tint applied to the white atlas.
         drawText(
             ren: Renderer, text: string, x: i32, y: i32, scale: i32,
             r: u8, g: u8, b: u8, a: u8

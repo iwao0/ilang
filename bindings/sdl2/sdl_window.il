@@ -13,16 +13,141 @@
 //   SDL_GetWindowGammaRamp / SDL_SetWindowGammaRamp,
 //   SDL_GL_GetProcAddress.
 
+/// `SDL_WindowFlags` — bitflags passed to `SDL_CreateWindow` / read
+/// back via `Window.flags`.
+@flags
+enum WindowFlag: u32 {
+    fullscreen        = 0x00000001
+    opengl            = 0x00000002
+    shown             = 0x00000004
+    hidden            = 0x00000008
+    borderless        = 0x00000010
+    resizable         = 0x00000020
+    minimized         = 0x00000040
+    maximized         = 0x00000080
+    mouseGrabbed      = 0x00000100
+    inputFocus        = 0x00000200
+    mouseFocus        = 0x00000400
+    fullscreenDesktop = 0x00001001
+    foreign           = 0x00000800
+    allowHighDpi      = 0x00002000
+    mouseCapture      = 0x00004000
+    alwaysOnTop       = 0x00008000
+    skipTaskbar       = 0x00010000
+    utility           = 0x00020000
+    tooltip           = 0x00040000
+    popupMenu         = 0x00080000
+    keyboardGrabbed   = 0x00100000
+    vulkan            = 0x10000000
+    metal             = 0x20000000
+}
+
+/// `SDL_WindowEventID` — sub-events of `EventType.windowEvent`.
+enum WindowEvent: i32 {
+    none            = 0
+    shown           = 1
+    hidden          = 2
+    exposed         = 3
+    moved           = 4
+    resized         = 5
+    sizeChanged     = 6
+    minimized       = 7
+    maximized       = 8
+    restored        = 9
+    enter           = 10
+    leave           = 11
+    focusGained     = 12
+    focusLost       = 13
+    close           = 14
+    takeFocus       = 15
+    hitTest         = 16
+    iccprofChanged  = 17
+    displayChanged  = 18
+}
+
+/// `SDL_WINDOWPOS_*` helpers for `SDL_CreateWindow` x/y.
+enum WindowPos: i32 {
+    undefined = 0x1FFF0000
+    centered  = 0x2FFF0000
+}
+
+/// `SDL_DisplayOrientation`.
+enum Orientation: i32 {
+    unknown          = 0
+    landscape        = 1
+    landscapeFlipped = 2
+    portrait         = 3
+    portraitFlipped  = 4
+}
+
+/// `SDL_FlashOperation` passed to `Window.flash`.
+enum FlashOp: i32 {
+    cancel       = 0
+    briefly      = 1
+    untilFocused = 2
+}
+
+/// `SDL_GLattr` — keys for `glSetAttribute` / `glGetAttribute`.
+enum GLAttr: i32 {
+    redSize                  = 0
+    greenSize                = 1
+    blueSize                 = 2
+    alphaSize                = 3
+    bufferSize               = 4
+    doubleBuffer             = 5
+    depthSize                = 6
+    stencilSize              = 7
+    accumRedSize             = 8
+    accumGreenSize           = 9
+    accumBlueSize            = 10
+    accumAlphaSize           = 11
+    stereo                   = 12
+    multisampleBuffers       = 13
+    multisampleSamples       = 14
+    acceleratedVisual        = 15
+    retainedBacking          = 16
+    contextMajorVersion      = 17
+    contextMinorVersion      = 18
+    contextEgl               = 19
+    contextFlags             = 20
+    contextProfileMask       = 21
+    shareWithCurrentContext  = 22
+    framebufferSrgbCapable   = 23
+    contextReleaseBehavior   = 24
+    contextResetNotification = 25
+    contextNoError           = 26
+    floatbuffers             = 27
+}
+
+/// `SDL_GLcontextFlag` — bitflag values for `GLAttr.contextFlags`.
+@flags
+enum GLContextFlag: i32 {
+    debug             = 0x0001
+    forwardCompatible = 0x0002
+    robustAccess      = 0x0004
+    resetIsolation    = 0x0008
+}
+
+/// `SDL_GLprofile` — values for `GLAttr.contextProfileMask`.
+@flags
+enum GLProfile: i32 {
+    core          = 0x0001
+    compatibility = 0x0002
+    es            = 0x0004
+}
+
 @extern(C) {
-    // Opaque handle types. Only their pointer types escape the
-    // block.
+    /// Opaque SDL handle.
     struct SDL_Window {}
+    /// Opaque OpenGL context handle.
     struct SDL_GLContext {}
+    /// Opaque software-surface handle (rarely used through this
+    /// binding; mostly here to type `SDL_GetWindowSurface`).
     struct SDL_Surface {}
 
-    // Filled by SDL_GetDisplayMode / GetCurrentDisplayMode etc.
-    // `driverdata` is a void* — opaque, kept as i64 so we don't
-    // touch it.
+    /// Filled by `SDL_GetDisplayMode` / `GetCurrentDisplayMode`
+    /// etc. `driverdata` is opaque — kept as i64 so we don't touch
+    /// it.
     struct SDL_DisplayMode {
         format: u32
         w: i32
@@ -31,11 +156,12 @@
         driverdata: i64
     }
 
-    // Single-i32 cell used as an out-param target. SDL's int*
-    // out-params can't be reached from ilang directly (no field-
-    // address-of), so we declare each `int *` slot as `*IntOut`
-    // and the C side just writes 4 bytes at the struct address.
+    /// Single-i32 cell used as an out-param target. SDL's `int *`
+    /// out-params can't be reached from ilang directly (no field-
+    /// address-of), so we declare each `int *` slot as `*IntOut`
+    /// and the C side just writes 4 bytes at the struct address.
     struct IntOut { v: i32 }
+    /// Float counterpart of `IntOut`.
     struct FloatOut { v: f32 }
 
     // ─── window CRUD ─────────────────────────────────────────────
@@ -172,16 +298,20 @@
     @lib("SDL2") fn SDL_GL_DeleteContext(context: *SDL_GLContext)
 
     // ─── public ilang return types (no `init`) ───────────────────
+
+    /// `(x, y)` integer point, used as an out-value type.
     class Point {
         x: i32
         y: i32
     }
 
+    /// `(w, h)` integer size, used as an out-value type.
     class Size {
         w: i32
         h: i32
     }
 
+    /// Display mode info — pixel format, resolution, refresh rate.
     class DisplayMode {
         format: u32
         w: i32
@@ -189,12 +319,14 @@
         refresh_rate: i32
     }
 
+    /// DPI triple — diagonal / horizontal / vertical dots-per-inch.
     class DisplayDPI {
         diagonal: f32
         horizontal: f32
         vertical: f32
     }
 
+    /// Window decoration thicknesses in pixels.
     class WindowBorders {
         top: i32
         left: i32
@@ -203,11 +335,20 @@
     }
 
     // ─── friendly Window class (ARC-managed) ────────────────────
+
+    /// ARC-managed wrapper around `SDL_Window`. `deinit` calls
+    /// `SDL_DestroyWindow` automatically.
     class Window {
+        /// Pointer to the underlying `SDL_Window`, cast to `i64`.
+        /// `0` when creation failed (check `getError()` for why).
         handle: i64
 
-        // Convenience: centred (well, undefined) on the default
-        // display, no flags.
+        /// Convenience: undefined position on the default display,
+        /// no flags.
+        ///
+        /// Args:
+        ///   title — window caption (UTF-8).
+        ///   w, h  — initial size in pixels.
         init(title: string, w: i32, h: i32) {
             let flags: u32 = 0
             // SDL_WINDOWPOS_UNDEFINED = 0x1FFF0000. The module-level
@@ -221,8 +362,16 @@
             this.handle = win as i64
         }
 
-        // Full SDL_CreateWindow surface — caller controls the
-        // initial position and the `WindowFlag` bitmask.
+        /// Full `SDL_CreateWindow` surface.
+        ///
+        /// Args:
+        ///   title — window caption.
+        ///   x, y  — initial position; use `WindowPos.undefined` /
+        ///           `WindowPos.centered` (cast to `i32`) for the
+        ///           "let SDL pick" sentinels.
+        ///   w, h  — initial size in pixels.
+        ///   flags — `WindowFlag` bitmask (resizable, hidden,
+        ///           fullscreen, …).
         init(title: string, x: i32, y: i32, w: i32, h: i32, flags: WindowFlag) {
             let win = SDL_CreateWindow(
                 cstrFromString(title), x, y, w, h, flags as u32
@@ -237,20 +386,32 @@
         }
 
         // ─── identity / state ────────────────────────────────────
+
+        /// Per-instance window id (used by `SDL_Event.windowID`).
         get id(): u32 {
             SDL_GetWindowID(this.handle as *SDL_Window)
         }
+
+        /// Current `WindowFlag` bitmask.
         get flags(): u32 {
             SDL_GetWindowFlags(this.handle as *SDL_Window)
         }
+
+        /// Pixel format of the window's backing surface
+        /// (`SDL_PIXELFORMAT_*`).
         get pixelFormat(): u32 {
             SDL_GetWindowPixelFormat(this.handle as *SDL_Window)
         }
+
+        /// Index of the display the window is currently on
+        /// (passes through to display-info module fns).
         get displayIndex(): i32 {
             SDL_GetWindowDisplayIndex(this.handle as *SDL_Window)
         }
 
         // ─── title ───────────────────────────────────────────────
+
+        /// Current window caption.
         get title(): string {
             stringFromCstr(SDL_GetWindowTitle(this.handle as *SDL_Window))
         }
@@ -259,6 +420,8 @@
         }
 
         // ─── geometry ────────────────────────────────────────────
+
+        /// Top-left corner in screen coordinates.
         get position(): Point {
             let xx = new IntOut()
             let yy = new IntOut()
@@ -268,9 +431,14 @@
             p.y = yy.v
             p
         }
+
+        /// Move the window. `x` / `y` may be `WindowPos.undefined`
+        /// or `WindowPos.centered` (cast to `i32`) sentinels.
         setPosition(x: i32, y: i32) {
             SDL_SetWindowPosition(this.handle as *SDL_Window, x, y)
         }
+
+        /// Logical size (matches `init`'s `w` / `h` arguments).
         get size(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
@@ -283,6 +451,9 @@
         setSize(w: i32, h: i32) {
             SDL_SetWindowSize(this.handle as *SDL_Window, w, h)
         }
+
+        /// Drawable size in physical pixels (differs from `size` on
+        /// HiDPI displays).
         get sizeInPixels(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
@@ -292,6 +463,8 @@
             s.h = hh.v
             s
         }
+
+        /// Minimum size the user can resize to.
         get minimumSize(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
@@ -304,6 +477,8 @@
         setMinimumSize(w: i32, h: i32) {
             SDL_SetWindowMinimumSize(this.handle as *SDL_Window, w, h)
         }
+
+        /// Maximum size the user can resize to.
         get maximumSize(): Size {
             let ww = new IntOut()
             let hh = new IntOut()
@@ -316,6 +491,8 @@
         setMaximumSize(w: i32, h: i32) {
             SDL_SetWindowMaximumSize(this.handle as *SDL_Window, w, h)
         }
+
+        /// Decoration thicknesses (title-bar / borders) in pixels.
         get borders(): WindowBorders {
             let t = new IntOut()
             let l = new IntOut()
@@ -331,16 +508,22 @@
         }
 
         // ─── decorations (write-only properties) ─────────────────
+
+        /// Show or hide the window border / title bar.
         set bordered(on: bool) {
             SDL_SetWindowBordered(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
+
+        /// Allow / forbid the user resizing the window.
         set resizable(on: bool) {
             SDL_SetWindowResizable(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
+
+        /// Pin the window above all others (or release).
         set alwaysOnTop(on: bool) {
             SDL_SetWindowAlwaysOnTop(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
@@ -348,21 +531,28 @@
         }
 
         // ─── fullscreen / opacity ────────────────────────────────
-        // Setters drop SDL's i32 status. If you need to inspect it,
-        // call SDL_SetWindowFullscreen / SDL_SetWindowOpacity
-        // directly through their @lib decls.
+
+        /// Toggle borderless-fullscreen mode (`fullscreenDesktop`).
+        ///
+        /// Setters drop SDL's `i32` status. Call
+        /// `SDL_SetWindowFullscreen` directly through its `@lib`
+        /// decl if you need to inspect it.
         set fullscreen(on: bool) {
             let flag: u32 = if on { 0x1001 as u32 } else { 0 as u32 }
             SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag)
             return
         }
-        // Raw fullscreen flag (e.g. `WindowFlag.fullscreen` exclusive
-        // mode vs `WindowFlag.fullscreenDesktop`). The boolean
-        // `set fullscreen` above uses `fullscreenDesktop`.
+
+        /// Raw fullscreen flag — pick `WindowFlag.fullscreen` for
+        /// exclusive mode or `WindowFlag.fullscreenDesktop` for
+        /// borderless. The boolean `set fullscreen` above uses the
+        /// latter.
         set fullscreenFlag(flag: WindowFlag) {
             SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag as u32)
             return
         }
+
+        /// Window opacity in `[0.0, 1.0]`.
         get opacity(): f32 {
             let o = new FloatOut()
             SDL_GetWindowOpacity(this.handle as *SDL_Window, o)
@@ -374,20 +564,43 @@
         }
 
         // ─── visibility / focus ──────────────────────────────────
+
+        /// Make the window visible.
         show() { SDL_ShowWindow(this.handle as *SDL_Window) }
+        /// Hide the window without destroying it.
         hide() { SDL_HideWindow(this.handle as *SDL_Window) }
+        /// Bring the window to the front and request focus.
         raise() { SDL_RaiseWindow(this.handle as *SDL_Window) }
+        /// Maximise the window.
         maximize() { SDL_MaximizeWindow(this.handle as *SDL_Window) }
+        /// Minimise the window to the taskbar / dock.
         minimize() { SDL_MinimizeWindow(this.handle as *SDL_Window) }
+        /// Restore from minimised / maximised back to its saved size.
         restore() { SDL_RestoreWindow(this.handle as *SDL_Window) }
+
+        /// Forcibly move keyboard focus to this window.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
         setInputFocus(): i32 {
             SDL_SetWindowInputFocus(this.handle as *SDL_Window)
         }
+
+        /// Flash the window / taskbar entry to attract attention.
+        ///
+        /// Args:
+        ///   operation — `cancel`, `briefly`, or `untilFocused`.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` if unsupported on this platform.
         flash(operation: FlashOp): i32 {
             SDL_FlashWindow(this.handle as *SDL_Window, operation as i32)
         }
 
         // ─── grab ────────────────────────────────────────────────
+
+        /// Whether either keyboard or mouse is grabbed by this
+        /// window.
         get grab(): bool {
             SDL_GetWindowGrab(this.handle as *SDL_Window) != 0
         }
@@ -396,6 +609,8 @@
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
+
+        /// Keyboard-only grab.
         get keyboardGrab(): bool {
             SDL_GetWindowKeyboardGrab(this.handle as *SDL_Window) != 0
         }
@@ -404,6 +619,8 @@
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
+
+        /// Mouse-only grab.
         get mouseGrab(): bool {
             SDL_GetWindowMouseGrab(this.handle as *SDL_Window) != 0
         }
@@ -414,15 +631,21 @@
         }
 
         // ─── on-screen keyboard ──────────────────────────────────
-        // True when the OS's on-screen keyboard is currently
-        // visible for this window (mainly relevant on touch
-        // devices / iOS / Android — desktop platforms always
-        // return false).
+
+        /// Returns:
+        ///   true when the OS's on-screen keyboard is currently
+        ///   visible for this window (mainly relevant on touch
+        ///   devices / iOS / Android — desktop platforms always
+        ///   return false).
         get isScreenKeyboardShown(): bool {
             SDL_IsScreenKeyboardShown(this.handle as *SDL_Window) != 0
         }
 
         // ─── display mode ────────────────────────────────────────
+
+        /// Display mode the window currently uses (most useful for
+        /// fullscreen windows; in windowed mode it's effectively
+        /// the desktop mode).
         get currentDisplayMode(): DisplayMode {
             let raw = new SDL_DisplayMode()
             SDL_GetWindowDisplayMode(this.handle as *SDL_Window, raw)
@@ -437,22 +660,36 @@
 
     // ─── module-level video / display fns ────────────────────────
 
+    /// Returns:
+    ///   number of displays connected to the system.
     fn numVideoDisplays(): i32 {
         SDL_GetNumVideoDisplays()
     }
+
+    /// Args:
+    ///   displayIndex — `0`-based, `< numVideoDisplays()`.
+    ///
+    /// Returns:
+    ///   human-readable display name.
     fn displayName(displayIndex: i32): string {
         stringFromCstr(SDL_GetDisplayName(displayIndex))
     }
+
+    /// Display bounds in screen coordinates.
     fn displayBounds(displayIndex: i32): sdl.SDL_Rect {
         let r = new sdl.SDL_Rect()
         SDL_GetDisplayBounds(displayIndex, r)
         r
     }
+
+    /// Display bounds excluding system UI (taskbar / dock).
     fn displayUsableBounds(displayIndex: i32): sdl.SDL_Rect {
         let r = new sdl.SDL_Rect()
         SDL_GetDisplayUsableBounds(displayIndex, r)
         r
     }
+
+    /// Diagonal / horizontal / vertical DPI for a display.
     fn displayDPI(displayIndex: i32): DisplayDPI {
         let dd = new FloatOut()
         let hd = new FloatOut()
@@ -464,12 +701,25 @@
         d.vertical = vd.v
         d
     }
+
+    /// Returns:
+    ///   `Orientation.*` value as a raw `i32`.
     fn displayOrientation(displayIndex: i32): i32 {
         SDL_GetDisplayOrientation(displayIndex)
     }
+
+    /// Returns:
+    ///   number of distinct display modes the display supports.
     fn numDisplayModes(displayIndex: i32): i32 {
         SDL_GetNumDisplayModes(displayIndex)
     }
+
+    /// Args:
+    ///   displayIndex — display.
+    ///   modeIndex    — `0` is the largest / highest refresh.
+    ///
+    /// Returns:
+    ///   the corresponding `DisplayMode`.
     fn displayMode(displayIndex: i32, modeIndex: i32): DisplayMode {
         let raw = new SDL_DisplayMode()
         SDL_GetDisplayMode(displayIndex, modeIndex, raw)
@@ -480,6 +730,8 @@
         m.refresh_rate = raw.refresh_rate
         m
     }
+
+    /// Mode the OS desktop is configured for.
     fn desktopDisplayMode(displayIndex: i32): DisplayMode {
         let raw = new SDL_DisplayMode()
         SDL_GetDesktopDisplayMode(displayIndex, raw)
@@ -490,6 +742,9 @@
         m.refresh_rate = raw.refresh_rate
         m
     }
+
+    /// Mode currently active (matches desktop unless a fullscreen
+    /// app changed it).
     fn currentDisplayMode(displayIndex: i32): DisplayMode {
         let raw = new SDL_DisplayMode()
         SDL_GetCurrentDisplayMode(displayIndex, raw)
@@ -501,180 +756,109 @@
         m
     }
 
+    /// Re-initialise the video subsystem with a different driver.
+    ///
+    /// Args:
+    ///   driver — name as returned by `videoDriver` (e.g.
+    ///            `"cocoa"`, `"x11"`, `"wayland"`).
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure.
     fn videoInit(driver: string): i32 {
         SDL_VideoInit(cstrFromString(driver))
     }
+
+    /// Tear down the video subsystem.
     fn videoQuit() {
         SDL_VideoQuit()
     }
+
+    /// Returns:
+    ///   name of the active video driver.
     fn currentVideoDriver(): string {
         stringFromCstr(SDL_GetCurrentVideoDriver())
     }
+
+    /// Args:
+    ///   index — `0`-based, `< numVideoDrivers()`.
     fn videoDriver(index: i32): string {
         stringFromCstr(SDL_GetVideoDriver(index))
     }
+
+    /// Returns:
+    ///   number of compiled-in video drivers.
     fn numVideoDrivers(): i32 {
         SDL_GetNumVideoDrivers()
     }
 
+    /// Allow the screen saver to kick in.
     fn enableScreenSaver() {
         SDL_EnableScreenSaver()
     }
+
+    /// Suppress the screen saver (matches "video is playing" behaviour).
     fn disableScreenSaver() {
         SDL_DisableScreenSaver()
     }
+
+    /// Returns:
+    ///   true when the screen saver is currently allowed.
     fn isScreenSaverEnabled(): bool {
         SDL_IsScreenSaverEnabled() != 0
     }
 
     // ─── OpenGL helpers ──────────────────────────────────────────
+
+    /// Load an OpenGL library by file name (or system default if
+    /// `path` is empty).
     fn glLoadLibrary(path: string): i32 {
         SDL_GL_LoadLibrary(cstrFromString(path))
     }
     fn glUnloadLibrary() {
         SDL_GL_UnloadLibrary()
     }
+
+    /// Args:
+    ///   name — extension name (e.g. `"GL_ARB_compute_shader"`).
+    ///
+    /// Returns:
+    ///   true when the extension is reported by the GL driver.
     fn glExtensionSupported(name: string): bool {
         SDL_GL_ExtensionSupported(cstrFromString(name)) != 0
     }
+
+    /// Reset every GL attribute to its SDL default before context
+    /// creation.
     fn glResetAttributes() {
         SDL_GL_ResetAttributes()
     }
+
+    /// Set a GL attribute used at context creation.
+    ///
+    /// Args:
+    ///   attr  — attribute key.
+    ///   value — attribute value (interpretation depends on `attr`).
     fn glSetAttribute(attr: GLAttr, value: i32): i32 {
         SDL_GL_SetAttribute(attr as i32, value)
     }
+
+    /// Read back a GL attribute.
     fn glGetAttribute(attr: GLAttr): i32 {
         let buf = new IntOut()
         SDL_GL_GetAttribute(attr as i32, buf)
         buf.v
     }
+
+    /// Args:
+    ///   interval — `0` = immediate, `1` = vsync,
+    ///              `-1` = adaptive vsync.
     fn glSetSwapInterval(interval: i32): i32 {
         SDL_GL_SetSwapInterval(interval)
     }
+
+    /// Returns:
+    ///   the current swap-interval setting.
     fn glGetSwapInterval(): i32 {
         SDL_GL_GetSwapInterval()
     }
-}
-
-/// SDL_WindowFlags — bitflags passed to `SDL_CreateWindow` / read
-/// back via `Window.flags`.
-@flags
-enum WindowFlag: u32 {
-    fullscreen        = 0x00000001
-    opengl            = 0x00000002
-    shown             = 0x00000004
-    hidden            = 0x00000008
-    borderless        = 0x00000010
-    resizable         = 0x00000020
-    minimized         = 0x00000040
-    maximized         = 0x00000080
-    mouseGrabbed      = 0x00000100
-    inputFocus        = 0x00000200
-    mouseFocus        = 0x00000400
-    fullscreenDesktop = 0x00001001
-    foreign           = 0x00000800
-    allowHighDpi      = 0x00002000
-    mouseCapture      = 0x00004000
-    alwaysOnTop       = 0x00008000
-    skipTaskbar       = 0x00010000
-    utility           = 0x00020000
-    tooltip           = 0x00040000
-    popupMenu         = 0x00080000
-    keyboardGrabbed   = 0x00100000
-    vulkan            = 0x10000000
-    metal             = 0x20000000
-}
-
-/// SDL_WindowEventID — sub-events of `EventType.windowEvent`.
-enum WindowEvent: i32 {
-    none            = 0
-    shown           = 1
-    hidden          = 2
-    exposed         = 3
-    moved           = 4
-    resized         = 5
-    sizeChanged     = 6
-    minimized       = 7
-    maximized       = 8
-    restored        = 9
-    enter           = 10
-    leave           = 11
-    focusGained     = 12
-    focusLost       = 13
-    close           = 14
-    takeFocus       = 15
-    hitTest         = 16
-    iccprofChanged  = 17
-    displayChanged  = 18
-}
-
-/// `SDL_WINDOWPOS_*` helpers for `SDL_CreateWindow` x/y.
-enum WindowPos: i32 {
-    undefined = 0x1FFF0000
-    centered  = 0x2FFF0000
-}
-
-/// SDL_DisplayOrientation.
-enum Orientation: i32 {
-    unknown          = 0
-    landscape        = 1
-    landscapeFlipped = 2
-    portrait         = 3
-    portraitFlipped  = 4
-}
-
-/// SDL_FlashOperation passed to `Window.flash`.
-enum FlashOp: i32 {
-    cancel       = 0
-    briefly      = 1
-    untilFocused = 2
-}
-
-/// SDL_GLattr — keys for `glSetAttribute` / `glGetAttribute`.
-enum GLAttr: i32 {
-    redSize                  = 0
-    greenSize                = 1
-    blueSize                 = 2
-    alphaSize                = 3
-    bufferSize               = 4
-    doubleBuffer             = 5
-    depthSize                = 6
-    stencilSize              = 7
-    accumRedSize             = 8
-    accumGreenSize           = 9
-    accumBlueSize            = 10
-    accumAlphaSize           = 11
-    stereo                   = 12
-    multisampleBuffers       = 13
-    multisampleSamples       = 14
-    acceleratedVisual        = 15
-    retainedBacking          = 16
-    contextMajorVersion      = 17
-    contextMinorVersion      = 18
-    contextEgl               = 19
-    contextFlags             = 20
-    contextProfileMask       = 21
-    shareWithCurrentContext  = 22
-    framebufferSrgbCapable   = 23
-    contextReleaseBehavior   = 24
-    contextResetNotification = 25
-    contextNoError           = 26
-    floatbuffers             = 27
-}
-
-/// SDL_GLcontextFlag — bitflag values for `GLAttr.contextFlags`.
-@flags
-enum GLContextFlag: i32 {
-    debug             = 0x0001
-    forwardCompatible = 0x0002
-    robustAccess      = 0x0004
-    resetIsolation    = 0x0008
-}
-
-/// SDL_GLprofile — values for `GLAttr.contextProfileMask`.
-@flags
-enum GLProfile: i32 {
-    core          = 0x0001
-    compatibility = 0x0002
-    es            = 0x0004
 }
