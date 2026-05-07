@@ -593,6 +593,12 @@ impl Interpreter {
                     let masked = apply_binary(BinOp::BitAnd, v, other.clone())?;
                     return apply_binary(BinOp::Eq, masked, other);
                 }
+                // Built-in `.toString()` for numeric primitives + bool.
+                if method.as_str() == "toString" {
+                    if let Some(s) = primitive_to_string(&v) {
+                        return Ok(Value::Str(Rc::new(s)));
+                    }
+                }
                 // Weak.get(): try to upgrade to a strong Object ref;
                 // returns Optional<T>.
                 if let Value::Weak(w) = &v {
@@ -2310,6 +2316,38 @@ fn type_of_value(v: &Value) -> (Symbol, Symbol) {
         Value::TypeVal { .. } => ("Type", "class"),
     };
     (Symbol::intern(name), Symbol::intern(kind))
+}
+
+/// Format a numeric / bool primitive the same way `Display` does
+/// for `Value`, so `(42).toString()` and `console.log(42)` yield
+/// the same text. Returns `None` for non-primitive values.
+fn primitive_to_string(v: &Value) -> Option<String> {
+    Some(match v {
+        Value::Int8(n) => n.to_string(),
+        Value::Int16(n) => n.to_string(),
+        Value::Int32(n) => n.to_string(),
+        Value::Int(n) => n.to_string(),
+        Value::UInt8(n) => n.to_string(),
+        Value::UInt16(n) => n.to_string(),
+        Value::UInt32(n) => n.to_string(),
+        Value::UInt64(n) => n.to_string(),
+        Value::Float32(x) => {
+            if x.is_finite() && x.fract() == 0.0 {
+                format!("{x:.1}")
+            } else {
+                format!("{x}")
+            }
+        }
+        Value::Float(x) => {
+            if x.is_finite() && x.fract() == 0.0 {
+                format!("{x:.1}")
+            } else {
+                format!("{x}")
+            }
+        }
+        Value::Bool(b) => b.to_string(),
+        _ => return None,
+    })
 }
 
 fn expect_object(v: Value, span: Span) -> Result<ObjectRef, RuntimeError> {

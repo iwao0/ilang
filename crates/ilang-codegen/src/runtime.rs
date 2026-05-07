@@ -274,6 +274,34 @@ fn alloc_str(s: String) -> i64 {
     Box::into_raw(Box::new(StringRc { rc: 1, s })) as i64
 }
 
+// ─── `.toString()` runtime helpers ────────────────────────────────────
+// One per receiver category; the JIT widens / bitcasts the integer
+// or float to the helper's input ABI before calling. Strings are
+// owned by the caller (rc=1) — released by the usual ARC release
+// when the value goes out of scope.
+
+pub(crate) extern "C" fn ilang_jit_i64_to_string(n: i64) -> i64 {
+    alloc_str(n.to_string())
+}
+
+pub(crate) extern "C" fn ilang_jit_u64_to_string(n: u64) -> i64 {
+    alloc_str(n.to_string())
+}
+
+pub(crate) extern "C" fn ilang_jit_f64_to_string(x: f64) -> i64 {
+    let s = if x.is_finite() && x.fract() == 0.0 {
+        format!("{x:.1}")
+    } else {
+        format!("{x}")
+    };
+    alloc_str(s)
+}
+
+pub(crate) extern "C" fn ilang_jit_bool_to_string(b: i8) -> i64 {
+    let s = if b != 0 { "true" } else { "false" };
+    alloc_str(s.to_string())
+}
+
 /// Allocate a saturated-rc StringRc — the JIT's "immortal string"
 /// form, used for static metadata (e.g. `TypeMeta::name`) so reads
 /// can retain freely without ever freeing the storage.

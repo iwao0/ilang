@@ -2355,6 +2355,21 @@ impl TypeChecker {
                         }
                     }
                 }
+                // Built-in `.toString()` for numeric primitives and
+                // `bool`. Decimal for ints, JS-style for floats
+                // (matching `console.log`'s formatting), `"true"` /
+                // `"false"` for bool.
+                if (ot.is_numeric() || ot == Type::Bool) && method.as_str() == "toString" {
+                    if !args.is_empty() {
+                        return Err(TypeError::ArityMismatch {
+                            name: method.clone(),
+                            expected: 0,
+                            got: args.len(),
+                            span,
+                        });
+                    }
+                    return Ok(Type::Str);
+                }
                 // Built-in string methods (JS-style camelCase).
                 if matches!(ot, Type::Str) {
                     let arity_check = |expected: usize| -> Result<(), TypeError> {

@@ -271,6 +271,12 @@ pub(crate) struct LowerCtx<'a> {
     /// / `methodParams(name)`. Linear scan over a parallel
     /// names/values pair, returns the matching value or 0.
     pub type_lookup: FuncId,
+    /// FFI helpers for `<numeric>.toString()` / `<bool>.toString()`.
+    /// The JIT widens / sign-extends to the helper's input type.
+    pub i64_to_string: FuncId,
+    pub u64_to_string: FuncId,
+    pub f64_to_string: FuncId,
+    pub bool_to_string: FuncId,
     /// Per-tuple-kind drop wrapper, lazily declared during lowering.
     /// `None` means no element is heap so no drop is needed.
     pub tuple_drops: &'a mut HashMap<u32, Option<FuncId>>,

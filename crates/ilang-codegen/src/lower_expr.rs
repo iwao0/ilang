@@ -995,6 +995,30 @@ pub(crate) fn lower_expr(
                     b, lc, obj_v, method.as_str(), &args[0], e.span,
                 )?));
             }
+            // Built-in `.toString()` for numeric primitives + bool.
+            // Widens narrower receivers to the helper's input ABI.
+            if method.as_str() == "toString" {
+                let helper_and_arg: Option<(_, _)> = match obj_t {
+                    JitTy::I8 | JitTy::I16 | JitTy::I32 => {
+                        Some((lc.i64_to_string, b.ins().sextend(I64, obj_v)))
+                    }
+                    JitTy::I64 => Some((lc.i64_to_string, obj_v)),
+                    JitTy::U8 | JitTy::U16 | JitTy::U32 => {
+                        Some((lc.u64_to_string, b.ins().uextend(I64, obj_v)))
+                    }
+                    JitTy::U64 => Some((lc.u64_to_string, obj_v)),
+                    JitTy::F32 => Some((lc.f64_to_string, b.ins().fpromote(F64, obj_v))),
+                    JitTy::F64 => Some((lc.f64_to_string, obj_v)),
+                    JitTy::Bool => Some((lc.bool_to_string, obj_v)),
+                    _ => None,
+                };
+                if let Some((helper, arg_v)) = helper_and_arg {
+                    let r = lc.module.declare_func_in_func(helper, b.func);
+                    let call = b.ins().call(r, &[arg_v]);
+                    let s = b.inst_results(call)[0];
+                    return Ok(Some((s, JitTy::Str)));
+                }
+            }
             // Built-in Optional methods: `unwrap`. (`isSome` / `isNone`
             // are properties — see ExprKind::Field above.)
             if let JitTy::Optional(id) = obj_t {

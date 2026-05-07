@@ -161,6 +161,20 @@ this.field = v             // メソッド内
 
 文字列補間は未実装。上記のメソッドは interpreter / JIT とも対応。
 
+### 数値・bool の組み込み `.toString()`
+
+```rust
+(42).toString()             // "42"
+(-7).toString()             // "-7"
+(true).toString()           // "true"
+(3.14).toString()           // "3.14"
+(1.0).toString()            // "1.0"  — 整数値の浮動小数は `.0` 付き (JS 風)
+let n: u8 = 255
+n.toString()                // "255"
+```
+
+すべての数値プリミティブ (`i8`〜`u64` / `f32` / `f64`) と `bool` で利用可。浮動小数のフォーマットは `console.log` と同じ。
+
 ---
 
 ## 5. 制御フロー
