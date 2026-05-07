@@ -349,9 +349,9 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
     ///
     /// Args:
     ///   name          — hint name.
-    ///   default_value — fallback when the hint is unset / unparsed.
-    fn getHintBoolean(name: string, default_value: bool): bool {
-        let dv: i32 = if default_value { 1 } else { 0 }
+    ///   defaultValue — fallback when the hint is unset / unparsed.
+    fn getHintBoolean(name: string, defaultValue: bool): bool {
+        let dv: i32 = if defaultValue { 1 } else { 0 }
         SDL_GetHintBoolean(cstrFromString(name), dv) != 0
     }
 

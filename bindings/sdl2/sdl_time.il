@@ -227,10 +227,10 @@ enum EventState: i32 {
     /// Range version of `hasEvent`.
     ///
     /// Args:
-    ///   min_type — lower bound (inclusive).
-    ///   max_type — upper bound (inclusive).
-    fn hasEvents(min_type: EventType, max_type: EventType): bool {
-        SDL_HasEvents(min_type as u32, max_type as u32) != 0
+    ///   minType — lower bound (inclusive).
+    ///   maxType — upper bound (inclusive).
+    fn hasEvents(minType: EventType, maxType: EventType): bool {
+        SDL_HasEvents(minType as u32, maxType as u32) != 0
     }
 
     /// Discard every queued event of the given type.
@@ -239,8 +239,8 @@ enum EventState: i32 {
     }
 
     /// Range version of `flushEvent`.
-    fn flushEvents(min_type: EventType, max_type: EventType) {
-        SDL_FlushEvents(min_type as u32, max_type as u32)
+    fn flushEvents(minType: EventType, maxType: EventType) {
+        SDL_FlushEvents(minType as u32, maxType as u32)
     }
 
     /// Pull one event off the queue.
