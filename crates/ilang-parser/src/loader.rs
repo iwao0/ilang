@@ -432,23 +432,36 @@ fn apply_use(
         // local items or any of its `@export use` chains. We need an
         // existence check to surface a load error for typos —
         // skipping the check would silently accept any bare name.
-        let local_names: HashSet<&str> = nested_uses_for_search
-            .iter()
-            .filter(|nu| nu.re_export)
-            .flat_map(|_| std::iter::empty::<&str>())
-            .chain(
-                loaded
-                    .get(&canon)
-                    .map(|p| {
-                        p.items
-                            .iter()
-                            .filter_map(item_name_of_ref)
-                            .collect::<Vec<&str>>()
-                    })
-                    .unwrap_or_default()
-                    .into_iter(),
-            )
-            .collect();
+        let mut local_names: HashSet<&str> = HashSet::new();
+        if let Some(p) = loaded.get(&canon) {
+            for item in p.items.iter() {
+                if let Some(n) = item_name_of_ref(item) {
+                    local_names.insert(n);
+                }
+                // `@extern(C) { struct S {} fn f() {} ... }` items
+                // count as exports too — selective import should be
+                // able to pull `S` or `f` out of `a.il`'s extern
+                // block.
+                if let Item::ExternC(b) = item {
+                    for inner in b.items.iter() {
+                        match inner {
+                            ilang_ast::ExternCItem::Struct { name, .. }
+                            | ilang_ast::ExternCItem::Union { name, .. }
+                            | ilang_ast::ExternCItem::Static { name, .. }
+                            | ilang_ast::ExternCItem::FnDecl { name, .. } => {
+                                local_names.insert(name.as_str());
+                            }
+                            ilang_ast::ExternCItem::FnDef(f) => {
+                                local_names.insert(f.name.as_str());
+                            }
+                            ilang_ast::ExternCItem::Class(c) => {
+                                local_names.insert(c.name.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let module_dir = canon
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -469,9 +482,7 @@ fn apply_use(
                         extra_paths,
                         loaded,
                         &mut visited,
-                    )?
-                    .is_some()
-                    {
+                    )? {
                         hit = true;
                         break;
                     }
@@ -728,19 +739,36 @@ fn find_in_export_chain(
     extra_paths: &[PathBuf],
     loaded: &HashMap<PathBuf, Program>,
     visited: &mut HashSet<PathBuf>,
-) -> Result<Option<Item>, LoadError> {
+) -> Result<bool, LoadError> {
     let canon = resolve_module(module, importer_dir, extra_paths)?;
     if !visited.insert(canon.clone()) {
-        return Ok(None);
+        return Ok(false);
     }
     let prog = loaded
         .get(&canon)
         .expect("module pre-loaded by load_recursive");
-    // Local items first.
+    // Local items first — including struct / fn / class / static
+    // / fn-decl entries declared inside this module's own
+    // `@extern(C) { ... }` block.
     for item in &prog.items {
         if let Some(item_name) = item_name_of(item) {
             if item_name.as_str() == name {
-                return Ok(Some(item.clone()));
+                return Ok(true);
+            }
+        }
+        if let Item::ExternC(b) = item {
+            for inner in &b.items {
+                let n = match inner {
+                    ilang_ast::ExternCItem::Struct { name, .. }
+                    | ilang_ast::ExternCItem::Union { name, .. }
+                    | ilang_ast::ExternCItem::Static { name, .. }
+                    | ilang_ast::ExternCItem::FnDecl { name, .. } => name.as_str(),
+                    ilang_ast::ExternCItem::FnDef(f) => f.name.as_str(),
+                    ilang_ast::ExternCItem::Class(c) => c.name.as_str(),
+                };
+                if n == name {
+                    return Ok(true);
+                }
             }
         }
     }
@@ -754,7 +782,7 @@ fn find_in_export_chain(
             if !nu.re_export {
                 continue;
             }
-            if let Some(found) = find_in_export_chain(
+            if find_in_export_chain(
                 nu.module.as_str(),
                 name,
                 &module_dir,
@@ -762,11 +790,11 @@ fn find_in_export_chain(
                 loaded,
                 visited,
             )? {
-                return Ok(Some(found));
+                return Ok(true);
             }
         }
     }
-    Ok(None)
+    Ok(false)
 }
 
 fn item_name_of(item: &Item) -> Option<Symbol> {
@@ -1961,8 +1989,27 @@ fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                         }
                         rename_in_block(&mut f.body, rules);
                     }
+                    ilang_ast::ExternCItem::FnDecl { params, ret, .. } => {
+                        for p in params.iter_mut() {
+                            rename_in_type(&mut p.ty, rules);
+                            if let Some(d) = p.default.as_mut() {
+                                rename_in_expr(d, rules);
+                            }
+                        }
+                        if let Some(t) = ret.as_mut() {
+                            rename_in_type(t, rules);
+                        }
+                    }
+                    ilang_ast::ExternCItem::Struct { fields, .. }
+                    | ilang_ast::ExternCItem::Union { fields, .. } => {
+                        for f in fields.iter_mut() {
+                            rename_in_type(&mut f.ty, rules);
+                        }
+                    }
+                    ilang_ast::ExternCItem::Static { ty, .. } => {
+                        rename_in_type(ty, rules);
+                    }
                     ilang_ast::ExternCItem::Class(c) => rename_in_class(c, rules),
-                    _ => {}
                 }
             }
         }

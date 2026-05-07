@@ -109,6 +109,54 @@ fn use_selective_through_export_chain() {
 }
 
 #[test]
+fn use_selective_struct_inside_extern_c() {
+    // `@extern(C) { struct S {} }` items count as exports too —
+    // selective import should accept the struct, and references to
+    // the bare name inside the importer's own `@extern(C)` block
+    // should be rewritten to the prefixed `a.S` form so the type
+    // checker resolves them.
+    let dir = std::env::temp_dir().join(format!(
+        "ilang_sel_extern_test_{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    write_module(
+        &dir,
+        "a",
+        "@extern(C) {\n\
+             struct Pt {\n\
+                 x: i32\n\
+                 y: i32\n\
+             }\n\
+         }",
+    );
+    write_module(
+        &dir,
+        "b",
+        "use a { Pt }\n\
+         @extern(C) {\n\
+             struct Pair {\n\
+                 a: Pt\n\
+                 b: Pt\n\
+             }\n\
+             fn make(): Pair {\n\
+                 let p = new Pair()\n\
+                 p\n\
+             }\n\
+         }\n\
+         fn report(): i32 { make().a.x + make().b.y }",
+    );
+    let main = write_module(
+        &dir,
+        "main",
+        "use b\nb.report()",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+}
+
+#[test]
 fn use_circular_is_error() {
     let dir = std::env::temp_dir().join(format!("ilang_cyc_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
