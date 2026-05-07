@@ -1952,6 +1952,19 @@ fn build_doc(
     for (k, v) in external_classes {
         classes.entry(k.clone()).or_insert_with(|| v.clone());
     }
+    // Register `<Enum>.<Variant>` entries for buffer-local enums so
+    // `Enum.` completion (the `external_signatures`-prefix path)
+    // surfaces variants alongside cross-module enums. Sub-modules
+    // (`is_submodule = true`) get an empty `external_signatures`
+    // from the caller — without this, completion on a locally-
+    // declared enum would have nothing to enumerate.
+    let mut external_signatures = external_signatures.clone();
+    for item in &prog.items {
+        if let Item::Enum(e) = item {
+            register_enum_variants(e, e.name.as_str(), &mut external_signatures);
+        }
+    }
+    let external_signatures = &external_signatures;
     let mut fn_returns: HashMap<AstSymbol, Type> = HashMap::new();
     for item in &prog.items {
         match item {
