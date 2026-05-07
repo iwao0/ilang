@@ -1443,6 +1443,22 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                         ExprKind::Int(_) | ExprKind::Float(_)
                     );
                     if wrappable {
+                        // Reject literal int annotations whose value
+                        // overflows the declared width — same rule
+                        // as `let x: i8 = 200`. Without this the
+                        // const substitutes to `200 as i8` and
+                        // silently wraps to -56 at runtime.
+                        if let ExprKind::Int(n) = &folded.kind {
+                            if !int_literal_fits(*n, ty) {
+                                return Err(LoadError::BadConst {
+                                    name: c.name.clone(),
+                                    reason: format!(
+                                        "literal value {n} doesn't fit declared type {ty}"
+                                    ),
+                                    span: c.value.span,
+                                });
+                            }
+                        }
                         const_types.insert(c.name.clone(), ty.clone());
                     }
                 }
@@ -1505,6 +1521,26 @@ struct SubstCtx<'a> {
 /// Supported: literals, references to other consts, unary `- ! ~`,
 /// binary arithmetic / comparison / bitwise / logical, `as` casts
 /// between numeric types, string `+` (concat) and `==` / `!=`.
+/// True iff a folded integer literal `n` fits the declared numeric
+/// type `t`. Mirrors the type checker's `int_literal_fits` rule —
+/// kept local to the loader because that crate doesn't depend on
+/// `ilang-types`. `Type::Float`s and non-numeric types accept any
+/// `n` (no narrowing concern).
+fn int_literal_fits(n: i64, t: &ilang_ast::Type) -> bool {
+    use ilang_ast::Type;
+    match t {
+        Type::I8 => i8::try_from(n).is_ok(),
+        Type::I16 => i16::try_from(n).is_ok(),
+        Type::I32 => i32::try_from(n).is_ok(),
+        Type::I64 => true,
+        Type::U8 => u8::try_from(n).is_ok(),
+        Type::U16 => u16::try_from(n).is_ok(),
+        Type::U32 => u32::try_from(n).is_ok(),
+        Type::U64 => n >= 0,
+        _ => true,
+    }
+}
+
 fn fold_const_expr(e: &Expr, consts: &HashMap<Symbol, Expr>) -> Result<Expr, String> {
     let span = e.span;
     let lit = |k: ExprKind| Expr { kind: k, span };

@@ -3666,7 +3666,19 @@ impl TypeChecker {
                 let expected = ret.clone().unwrap_or(Type::Unit);
                 let body_ty =
                     self.check_block(body, &inner, Some(&expected), in_class, 0)?;
-                if !assignable(&body_ty, &expected) && !self.assignable_obj(&body_ty, &expected) {
+                let tail_check = body
+                    .tail
+                    .as_deref()
+                    .map(|t| self.value_assignable(t, &body_ty, &expected));
+                let ok = match tail_check {
+                    Some(true) => true,
+                    Some(false) => false,
+                    None => {
+                        assignable(&body_ty, &expected)
+                            || self.assignable_obj(&body_ty, &expected)
+                    }
+                };
+                if !ok {
                     return Err(TypeError::BadReturn {
                         name: "<closure>".into(),
                         expected,
@@ -4339,10 +4351,7 @@ impl TypeChecker {
                 let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
                 if i < sig.params.len() {
                     let p = &sig.params[i];
-                    if !matches!(p, Type::Any)
-                        && !self.value_assignable(arg, &at, p)
-                        && !self.assignable_obj(&at, p)
-                    {
+                    if !matches!(p, Type::Any) && !self.value_assignable(arg, &at, p) {
                         return Err(TypeError::Mismatch {
                             expected: p.clone(),
                             got: at,
@@ -4392,9 +4401,7 @@ impl TypeChecker {
         }
         for (param_ty, arg) in sig.params.iter().zip(effective.iter()) {
             let at = self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
-            if !self.value_assignable(arg, &at, param_ty)
-                && !self.assignable_obj(&at, param_ty)
-            {
+            if !self.value_assignable(arg, &at, param_ty) {
                 return Err(TypeError::Mismatch {
                     expected: param_ty.clone(),
                     got: at,
