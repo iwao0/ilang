@@ -171,6 +171,30 @@ pub(crate) fn lower_expr(
                         ilang_ast::Type::Bool => {
                             (b.ins().ireduce(I8, raw), JitTy::Bool)
                         }
+                        ilang_ast::Type::Fn(_) => {
+                            // Top-level `let f: fn(...): T = ...` —
+                            // the slot holds a closure pointer.
+                            // Resolving a Var to this slot lets a
+                            // self-recursive closure body see its own
+                            // binding (the closure was stored into
+                            // the global before any call site fires).
+                            let sig_id = match JitTy::from_ast(
+                                &ty,
+                                e.span,
+                                &class_ids_from(lc),
+                                &enum_ids_from(lc),
+                                lc.enum_layouts,
+                                lc.array_kinds,
+                                lc.optional_inners,
+                                lc.fn_signatures,
+                                lc.map_kinds,
+                                lc.tuple_kinds,
+                            )? {
+                                JitTy::Fn(id) => id,
+                                _ => unreachable!(),
+                            };
+                            (raw, JitTy::Fn(sig_id))
+                        }
                         _ => {
                             return Err(CodegenError::Unsupported {
                                 what: format!(
@@ -1704,30 +1728,67 @@ pub(crate) fn lower_expr(
             ) = lc.env.bindings.get(callee) {
                 let p = b.use_var(var);
                 Some((JitTy::Fn(sig_id), p, sig_id))
-            } else if let Some(env) = lc.closure_capture_env.as_ref() {
-                env.captures
-                    .iter()
-                    .find(|(n, _, jty, _)| {
+            } else if let Some(entry) = lc.closure_capture_env
+                .as_ref()
+                .and_then(|env| {
+                    env.captures.iter().find(|(n, _, jty, _)| {
                         n == callee && matches!(jty, JitTy::Fn(_))
-                    })
-                    .map(|(_, off, jty, is_mut)| {
-                        let env_ptr = b.use_var(env.env_var);
-                        let raw = if *is_mut {
-                            let cell_ptr = b.ins().load(
-                                I64, MemFlags::trusted(), env_ptr, *off as i32,
-                            );
-                            b.ins().load(I64, MemFlags::trusted(), cell_ptr, 0)
-                        } else {
-                            b.ins().load(
-                                I64, MemFlags::trusted(), env_ptr, *off as i32,
-                            )
-                        };
-                        let sig_id = match jty {
-                            JitTy::Fn(id) => *id,
+                    }).map(|e| (env.env_var, *e))
+                })
+            {
+                let (env_var, (_, off, jty, is_mut)) = entry;
+                let env_ptr = b.use_var(env_var);
+                let raw = if is_mut {
+                    let cell_ptr = b.ins().load(
+                        I64, MemFlags::trusted(), env_ptr, off as i32,
+                    );
+                    b.ins().load(I64, MemFlags::trusted(), cell_ptr, 0)
+                } else {
+                    b.ins().load(
+                        I64, MemFlags::trusted(), env_ptr, off as i32,
+                    )
+                };
+                let sig_id = match jty {
+                    JitTy::Fn(id) => id,
+                    _ => unreachable!(),
+                };
+                Some((jty, raw, sig_id))
+            } else if let Some(&slot) = lc.global_let_slots.get(callee) {
+                // Top-level `let f: fn(...): T = ...` callable by name.
+                // Required for self-recursive closures: the body's
+                // call site refers to the binding being defined, and
+                // the only slot that holds it (after the let stores
+                // the closure) is the global let slot.
+                if let Some(ty) = lc.global_let_types.get(callee).cloned() {
+                    if matches!(ty, ilang_ast::Type::Fn(_)) {
+                        let sig_id = match JitTy::from_ast(
+                            &ty,
+                            e.span,
+                            &class_ids_from(lc),
+                            &enum_ids_from(lc),
+                            lc.enum_layouts,
+                            lc.array_kinds,
+                            lc.optional_inners,
+                            lc.fn_signatures,
+                            lc.map_kinds,
+                            lc.tuple_kinds,
+                        )? {
+                            JitTy::Fn(id) => id,
                             _ => unreachable!(),
                         };
-                        (*jty, raw, sig_id)
-                    })
+                        let addr =
+                            lc.global_let_base_addr + (slot as i64) * 8;
+                        let addr_v = b.ins().iconst(I64, addr);
+                        let closure_ptr = b
+                            .ins()
+                            .load(I64, MemFlags::trusted(), addr_v, 0);
+                        Some((JitTy::Fn(sig_id), closure_ptr, sig_id))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 None
             };
@@ -5681,6 +5742,30 @@ fn lower_closure_construct(
                             (b.ins().bitcast(F32, MemFlags::new(), lo), JitTy::F32)
                         }
                         ilang_ast::Type::Bool => (b.ins().ireduce(I8, raw), JitTy::Bool),
+                        ilang_ast::Type::Fn(_) => {
+                            // Fn-typed global: the slot already holds
+                            // a closure pointer (an i64). The captured
+                            // env slot stores it as a heap-typed
+                            // pointer, just like a non-global closure
+                            // capture, so the wrapper body's lookup
+                            // path resolves it the same way.
+                            let sig_id = match JitTy::from_ast(
+                                &ty,
+                                span,
+                                &class_ids_from(lc),
+                                &enum_ids_from(lc),
+                                lc.enum_layouts,
+                                lc.array_kinds,
+                                lc.optional_inners,
+                                lc.fn_signatures,
+                                lc.map_kinds,
+                                lc.tuple_kinds,
+                            )? {
+                                JitTy::Fn(id) => id,
+                                _ => unreachable!(),
+                            };
+                            (raw, JitTy::Fn(sig_id))
+                        }
                         _ => {
                             return Err(CodegenError::Unsupported {
                                 what: format!(

@@ -12,7 +12,9 @@ use cranelift_module::{FuncId, Linkage, Module};
 use ilang_ast::{ClassDecl, EnumDecl, FnDecl, Item, Program, VariantPayload, Symbol};
 
 use crate::arc::{emit_release_heap, emit_retain_heap, is_aliased_heap_source};
-use crate::env::{declare_import, ArrayFns, Env, LowerCtx, PrintFns, StrFns};
+use crate::env::{
+    class_ids_from, declare_import, enum_ids_from, ArrayFns, Env, LowerCtx, PrintFns, StrFns,
+};
 use crate::error::CodegenError;
 use crate::lower_expr::lower_expr;
 use crate::lower_op::emit_return;
@@ -2695,6 +2697,58 @@ impl JitCompiler {
                             ilang_ast::Type::F32 => JitTy::F32,
                             ilang_ast::Type::F64 => JitTy::F64,
                             ilang_ast::Type::Bool => JitTy::Bool,
+                            ilang_ast::Type::Fn(_) => {
+                                // `let f: fn(...): T = ...` — the slot
+                                // holds the closure pointer (i64). The
+                                // RHS may itself be a closure expr, a
+                                // top-level fn ref reified as a
+                                // 0-capture closure, or another
+                                // already-built closure. The slot
+                                // takes ownership of the closure's +1
+                                // for the lifetime of the program;
+                                // closure_drop fires only after the
+                                // process exits (we don't currently
+                                // release globals at __main exit).
+                                let class_ids = class_ids_from(&lc);
+                                let enum_ids = enum_ids_from(&lc);
+                                let target_jty = JitTy::from_ast(
+                                    &ty,
+                                    s.span,
+                                    &class_ids,
+                                    &enum_ids,
+                                    lc.enum_layouts,
+                                    lc.array_kinds,
+                                    lc.optional_inners,
+                                    lc.fn_signatures,
+                                    lc.map_kinds,
+                                    lc.tuple_kinds,
+                                )?;
+                                let tv =
+                                    lower_expr(&mut builder, &mut lc, value)?
+                                        .ok_or_else(|| {
+                                            CodegenError::Unsupported {
+                                                what: "top-level fn let \
+                                                       initializer is unit"
+                                                    .into(),
+                                                span: s.span,
+                                            }
+                                        })?;
+                                let coerced = crate::lower_op::coerce(
+                                    &mut builder, tv, target_jty, s.span,
+                                )?;
+                                let addr =
+                                    self.global_let_storage.as_ptr() as i64
+                                        + (slot as i64) * 8;
+                                let addr_v =
+                                    builder.ins().iconst(I64, addr);
+                                builder.ins().store(
+                                    MemFlags::trusted(),
+                                    coerced,
+                                    addr_v,
+                                    0,
+                                );
+                                continue;
+                            }
                             _ => {
                                 // Heap / object / array global lets:
                                 // not yet supported. Fall through.

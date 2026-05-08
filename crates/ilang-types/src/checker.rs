@@ -2061,6 +2061,19 @@ impl TypeChecker {
                     }
                 }
                 let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                // `let f = fn(...) { ... f(...) ... }` — drop a self-
+                // reference from the FnExpr's capture list. The closure
+                // can't capture its own value (it's still being built);
+                // the body's `f` is left as a free name so codegen
+                // resolves it through the global-let slot at call time
+                // (the slot is initialised by the time any call site
+                // fires).
+                if let ExprKind::FnExpr { .. } = &value.kind {
+                    let mut tbl = self.fn_expr_captures.borrow_mut();
+                    if let Some(caps) = tbl.get_mut(&value.span) {
+                        caps.retain(|(n, _)| n != name);
+                    }
+                }
                 let bind = match ty {
                     Some(ann) => {
                         self.validate_type(ann, stmt.span, &[])?;
