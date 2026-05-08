@@ -9,6 +9,32 @@
     /// destroyed by `deinit`.
     struct SDL_Joystick {}
 
+    /// Mirrors C `SDL_JoystickGUID` — 16 raw bytes that identify a
+    /// joystick across reboots / OS reinstalls (USB VID/PID +
+    /// driver-specific salt). The bytes are flattened into 16
+    /// individual u8 fields rather than a `u8[16]` array because
+    /// the JIT's by-value-struct ABI handles integer-only
+    /// composites (packed into 2 i64 chunks here) but not
+    /// array-typed fields.
+    struct SDL_JoystickGUID {
+        b0:  u8
+        b1:  u8
+        b2:  u8
+        b3:  u8
+        b4:  u8
+        b5:  u8
+        b6:  u8
+        b7:  u8
+        b8:  u8
+        b9:  u8
+        b10: u8
+        b11: u8
+        b12: u8
+        b13: u8
+        b14: u8
+        b15: u8
+    }
+
     // (`SDL_NumJoysticks` is declared in `sdl_gamepad.il` so it
     // re-exports under the umbrella exactly once.)
     @lib("SDL2") fn SDL_JoystickOpen(device_index: i32): *SDL_Joystick
@@ -38,6 +64,20 @@
         low_frequency_rumble: u16, high_frequency_rumble: u16,
         duration_ms: u32
     ): i32
+
+    // ─── GUID helpers ────────────────────────────────────────────
+    @lib("SDL2") fn SDL_JoystickGetGUID(
+        joystick: *SDL_Joystick
+    ): SDL_JoystickGUID
+    @lib("SDL2") fn SDL_JoystickGetDeviceGUID(
+        device_index: i32
+    ): SDL_JoystickGUID
+    @lib("SDL2") fn SDL_JoystickGetGUIDString(
+        guid: SDL_JoystickGUID, pszGUID: *char, cbGUID: i32
+    )
+    @lib("SDL2") fn SDL_JoystickGetGUIDFromString(
+        pchGUID: *const char
+    ): SDL_JoystickGUID
 
     /// ARC-managed wrapper around `SDL_Joystick`. `deinit` closes
     /// the underlying device handle.
@@ -137,6 +177,16 @@
                 lowFreq, highFreq, durationMs
             )
         }
+
+        /// Returns:
+        ///   the device's stable 16-byte GUID, or all-zero when no
+        ///   device is open. Use `guidToString` to serialise.
+        guid(): SDL_JoystickGUID {
+            if this.handle == 0 {
+                return new SDL_JoystickGUID()
+            }
+            SDL_JoystickGetGUID(this.handle as *SDL_Joystick)
+        }
     }
 
     /// Args:
@@ -159,5 +209,40 @@
     /// view of every device. Normally `pumpEvents()` does this.
     fn updateJoysticks() {
         SDL_JoystickUpdate()
+    }
+
+    /// Returns:
+    ///   the 33-byte (32 hex chars + NUL) string SDL canonicalises
+    ///   `guid` to. Stable across runs / platforms — safe to
+    ///   write to disk for "remember last controller" features.
+    fn guidToString(guid: SDL_JoystickGUID): string {
+        // SDL writes a NUL-terminated 33-byte string. Allocate a
+        // 33-byte buffer, hand its pointer to SDL, then copy out.
+        let buf: u8[] = []
+        let i: i32 = 0
+        while i < 33 {
+            buf.push(0 as u8)
+            i = i + 1
+        }
+        let p: *u8 = buf
+        SDL_JoystickGetGUIDString(guid, p as *char, 33)
+        stringFromCstr(p as *const char)
+    }
+
+    /// Inverse of `guidToString`. Returns an all-zero GUID when
+    /// `s` doesn't parse as 32 hex chars.
+    fn guidFromString(s: string): SDL_JoystickGUID {
+        SDL_JoystickGetGUIDFromString(cstrFromString(s))
+    }
+
+    /// Args:
+    ///   deviceIndex — `[0, sdl.numJoysticks())`.
+    ///
+    /// Returns:
+    ///   the device's GUID *without* opening it. Pair with
+    ///   `guidToString` to identify the pad before deciding
+    ///   whether to call `new Joystick(deviceIndex)`.
+    fn deviceGUID(deviceIndex: i32): SDL_JoystickGUID {
+        SDL_JoystickGetDeviceGUID(deviceIndex)
     }
 }

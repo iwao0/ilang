@@ -49,6 +49,31 @@ enum TextureModulate: i32 {
 }
 
 /// `SDL_RendererFlip` — bit flags for `RenderCopyEx`.
+/// `SDL_BlendOperation` — how source / destination factors get
+/// combined in `composeCustomBlendMode`.
+enum BlendOperation: i32 {
+    add         = 0x1   // dst + src
+    subtract    = 0x2   // dst - src
+    revSubtract = 0x3   // src - dst
+    minimum     = 0x4   // min(dst, src)
+    maximum     = 0x5   // max(dst, src)
+}
+
+/// `SDL_BlendFactor` — the per-channel factor each side of the
+/// blend equation gets multiplied by.
+enum BlendFactor: i32 {
+    zero             = 0x1
+    one              = 0x2
+    srcColor         = 0x3
+    oneMinusSrcColor = 0x4
+    srcAlpha         = 0x5
+    oneMinusSrcAlpha = 0x6
+    dstColor         = 0x7
+    oneMinusDstColor = 0x8
+    dstAlpha         = 0x9
+    oneMinusDstAlpha = 0xA
+}
+
 @flags
 enum RendererFlip: i32 {
     none       = 0x00000000
@@ -250,6 +275,16 @@ enum RendererFlip: i32 {
     @lib("SDL2") fn SDL_SetRenderDrawBlendMode(
         renderer: *SDL_Renderer, blendMode: i32
     ): i32
+    /// `SDL_ComposeCustomBlendMode` — assemble a custom blend mode
+    /// out of factor / operation knobs. The returned i32 fits in
+    /// the same `SDL_BlendMode` slot used by `setBlendMode` /
+    /// `setSurfaceBlendMode`. Use this when the four canned modes
+    /// (none / blend / add / mod / mul) don't match what you want.
+    @lib("SDL2") fn SDL_ComposeCustomBlendMode(
+        srcColorFactor: i32, dstColorFactor: i32, colorOperation: i32,
+        srcAlphaFactor: i32, dstAlphaFactor: i32, alphaOperation: i32
+    ): i32
+
     @lib("SDL2") fn SDL_GetRenderDrawBlendMode(
         renderer: *SDL_Renderer, blendMode: *i32
     ): i32
@@ -1246,6 +1281,37 @@ enum RendererFlip: i32 {
                 i += 1
             }
         }
+    }
+
+    /// Build a custom `SDL_BlendMode` from explicit blend factors
+    /// and operations. The returned value plugs into
+    /// `Renderer.setBlendMode` / `Texture.setBlendMode` /
+    /// `sdl_surface.setSurfaceBlendMode` exactly the same way as
+    /// the canned modes (`0` = none, `1` = blend, `2` = add,
+    /// `4` = mod, `8` = mul).
+    ///
+    /// Args:
+    ///   srcColor   — factor for the incoming RGB.
+    ///   dstColor   — factor for the existing-in-target RGB.
+    ///   colorOp    — combine operation for RGB.
+    ///   srcAlpha   — factor for the incoming alpha.
+    ///   dstAlpha   — factor for the existing-in-target alpha.
+    ///   alphaOp    — combine operation for alpha.
+    ///
+    /// Returns:
+    ///   the resulting `SDL_BlendMode` (a 32-bit opaque token), or
+    ///   the SDL "invalid" sentinel `0x7FFFFFFF` if the platform
+    ///   can't synthesise the requested combination.
+    fn composeCustomBlendMode(
+        srcColor: BlendFactor, dstColor: BlendFactor,
+        colorOp: BlendOperation,
+        srcAlpha: BlendFactor, dstAlpha: BlendFactor,
+        alphaOp: BlendOperation
+    ): i32 {
+        SDL_ComposeCustomBlendMode(
+            srcColor as i32, dstColor as i32, colorOp as i32,
+            srcAlpha as i32, dstAlpha as i32, alphaOp as i32
+        )
     }
 }
 
