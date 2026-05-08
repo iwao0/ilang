@@ -68,6 +68,12 @@ pub(crate) struct ClosureMetaIn {
     pub user_param_tys: Vec<ilang_ast::Type>,
     pub ret_ty: Option<ilang_ast::Type>,
     pub captures: Vec<(Symbol, ilang_ast::Type)>,
+    /// `mutable[i]` is true when the wrapper body assigns to
+    /// `captures[i].0`. Mutable captures are stored cell-backed
+    /// (heap allocation owned by the closure value) so writes
+    /// persist across calls; immutable captures stay inline in
+    /// the closure struct's env slot. Same length as `captures`.
+    pub mutable: Vec<bool>,
     pub span: ilang_ast::Span,
     /// Lexical class when the wrapper was hoisted from inside a
     /// class method body. Used by the JIT to restore
@@ -75,6 +81,109 @@ pub(crate) struct ClosureMetaIn {
     /// type-check pass to allow `this` / `super` references in the
     /// wrapper body.
     pub this_class: Option<Symbol>,
+}
+
+/// Walk an expression tree looking for `Assign { target = name, .. }`
+/// (or compound-assignment shapes that desugar to it). Returns true
+/// if any branch writes to `name`. Used by the hoist pass to mark
+/// each closure capture as mutable when its name appears as an
+/// l-value somewhere in the wrapper body.
+fn body_writes_to(body: &Block, name: &Symbol) -> bool {
+    fn in_block(b: &Block, name: &Symbol) -> bool {
+        for s in b.stmts.iter() {
+            if in_stmt(s, name) {
+                return true;
+            }
+        }
+        if let Some(t) = &b.tail { in_expr(t, name) } else { false }
+    }
+    fn in_stmt(s: &ilang_ast::Stmt, name: &Symbol) -> bool {
+        use ilang_ast::StmtKind::*;
+        match &s.kind {
+            Let { value, .. } => in_expr(value, name),
+            LetTuple { value, .. } => in_expr(value, name),
+            LetStruct { value, .. } => in_expr(value, name),
+            Expr(e) => in_expr(e, name),
+        }
+    }
+    fn in_expr(e: &Expr, name: &Symbol) -> bool {
+        use ilang_ast::CtorArgs;
+        use ExprKind::*;
+        match &e.kind {
+            Assign { target, value } => target == name || in_expr(value, name),
+            AssignField { obj, value, .. } => in_expr(obj, name) || in_expr(value, name),
+            AssignIndex { obj, index, value } => {
+                in_expr(obj, name) || in_expr(index, name) || in_expr(value, name)
+            }
+            Block(b) => in_block(b, name),
+            If { cond, then_branch, else_branch } => {
+                in_expr(cond, name)
+                    || in_block(then_branch, name)
+                    || else_branch.as_deref().is_some_and(|e| in_expr(e, name))
+            }
+            IfLet { expr, then_branch, else_branch, .. } => {
+                in_expr(expr, name)
+                    || in_block(then_branch, name)
+                    || else_branch.as_deref().is_some_and(|e| in_expr(e, name))
+            }
+            While { cond, body } => in_expr(cond, name) || in_block(body, name),
+            Loop { body } => in_block(body, name),
+            ForIn { iter, body, .. } => in_expr(iter, name) || in_block(body, name),
+            Range { start, end, .. } => {
+                start.as_deref().is_some_and(|e| in_expr(e, name))
+                    || end.as_deref().is_some_and(|e| in_expr(e, name))
+            }
+            Match { scrutinee, arms } => {
+                in_expr(scrutinee, name)
+                    || arms.iter().any(|a| in_expr(&a.body, name))
+            }
+            Call { args, .. } => args.iter().any(|a| in_expr(a, name)),
+            MethodCall { obj, args, .. } => {
+                in_expr(obj, name) || args.iter().any(|a| in_expr(a, name))
+            }
+            Field { obj, .. } => in_expr(obj, name),
+            Index { obj, index } => in_expr(obj, name) || in_expr(index, name),
+            Binary { lhs, rhs, .. } => in_expr(lhs, name) || in_expr(rhs, name),
+            Logical { lhs, rhs, .. } => in_expr(lhs, name) || in_expr(rhs, name),
+            Unary { expr, .. } => in_expr(expr, name),
+            Cast { expr, .. } => in_expr(expr, name),
+            TypeTest { expr, .. } => in_expr(expr, name),
+            TypeDowncast { expr, .. } => in_expr(expr, name),
+            Some(inner) => in_expr(inner, name),
+            New { args, .. } => args.iter().any(|a| in_expr(a, name)),
+            Return(v) => v.as_deref().is_some_and(|e| in_expr(e, name)),
+            Break(v) => v.as_deref().is_some_and(|e| in_expr(e, name)),
+            Array(elements) => elements.iter().any(|e| in_expr(e, name)),
+            Tuple(elements) => elements.iter().any(|e| in_expr(e, name)),
+            MapLit(entries) => {
+                entries.iter().any(|(k, v)| in_expr(k, name) || in_expr(v, name))
+            }
+            StructLit { fields, .. } => fields.iter().any(|(_, v)| in_expr(v, name)),
+            EnumCtor { args, .. } => match args {
+                CtorArgs::Unit => false,
+                CtorArgs::Tuple(es) => es.iter().any(|e| in_expr(e, name)),
+                CtorArgs::Struct(fs) => fs.iter().any(|(_, e)| in_expr(e, name)),
+            },
+            FnExpr { body, params, .. } => {
+                // Inner anon-fn shadows `name` if its own param list
+                // contains it; otherwise an Assign inside the inner
+                // body counts as a write to the outer scope's binding
+                // (it'll capture from the same outer slot, which we
+                // therefore have to cell-back).
+                if params.iter().any(|p| p.name == *name) {
+                    false
+                } else {
+                    in_block(body, name)
+                }
+            }
+            Closure { .. } => false,        // emitted only after this pass
+            SuperCall { args, .. } => args.iter().any(|a| in_expr(a, name)),
+            // Leaves: no sub-expressions to recurse into.
+            Int(_) | Float(_) | Bool(_) | Str(_) | Var(_) | This
+            | Continue | None => false,
+        }
+    }
+    in_block(body, name)
 }
 
 /// Bundle of state threaded through the hoist walkers.
@@ -319,6 +428,22 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 default: None,
             });
             wrapper_params.extend(params.iter().cloned());
+            // For each capture, mark it `mutable` if the body assigns
+            // to that name. Mutable captures are cell-backed at JIT
+            // time so writes inside the closure body persist across
+            // calls. The synthetic `this` capture is never mutable
+            // (writing to `this` itself is rejected by the type
+            // checker; field writes go through `AssignField`).
+            let mutable: Vec<bool> = captures
+                .iter()
+                .map(|(n, _)| {
+                    if n.as_str() == "this" {
+                        false
+                    } else {
+                        body_writes_to(&body, n)
+                    }
+                })
+                .collect();
             ctx.hoisted.push(Item::Fn(FnDecl {
                 attrs: Box::new([]),
                 name: name.clone(),
@@ -335,6 +460,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                     user_param_tys: params.iter().map(|p| p.ty.clone()).collect(),
                     ret_ty: ret.clone(),
                     captures: captures.clone(),
+                    mutable,
                     span: e.span,
                     this_class,
                 },

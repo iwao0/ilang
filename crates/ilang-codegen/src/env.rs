@@ -232,6 +232,15 @@ pub(crate) struct LowerCtx<'a> {
     pub alloc_closure_id: FuncId,
     pub retain_closure_id: FuncId,
     pub release_closure_id: FuncId,
+    pub alloc_cell_id: FuncId,
+    pub retain_cell_id: FuncId,
+    /// Forwarded only because LowerCtx is the convenient carrier
+    /// from compile-time setup into the lowering paths; the cell-
+    /// drop sequence is emitted from `drops.rs` against the
+    /// `JitCompiler` (which has its own copy of the FuncId), so
+    /// this field isn't read by the lowering itself.
+    #[allow(dead_code)]
+    pub dec_and_free_cell_id: FuncId,
     /// `(closure_wrapper_name) -> (param tys + ret ty + capture
     /// names+tys)`. Set when a closure expression is lowered or
     /// when a top-level fn ref is auto-trampolined. Used to look
@@ -330,6 +339,11 @@ pub(crate) struct ClosureMeta {
     pub user_params: Vec<crate::ty::JitTy>,
     pub ret: crate::ty::JitTy,
     pub captures: Vec<(Symbol, crate::ty::JitTy)>,
+    /// Parallel to `captures`: `true` when the wrapper body assigns
+    /// to that capture name. Mutable captures are cell-backed —
+    /// the env slot holds a heap cell pointer instead of the value
+    /// inline — so writes inside the body persist across calls.
+    pub mutable: Vec<bool>,
     /// Lexical class symbol when this closure was lifted out of a
     /// class method body. Restored at wrapper lower time as
     /// `lc.current_class` so `super.method(...)` in the body
@@ -341,10 +355,11 @@ pub(crate) struct ClosureMeta {
 /// Capture environment in scope while lowering a closure body.
 /// `env_var` is the Cranelift Variable holding the env_ptr (the
 /// closure struct itself); `captures` lists each captured name +
-/// (offset_from_env, jit_type).
+/// (offset_from_env, jit_type, is_mutable). `is_mutable` selects
+/// between an inline-load and a cell-deref at the read/write site.
 pub(crate) struct ClosureEnv<'a> {
     pub env_var: Variable,
-    pub captures: &'a [(Symbol, u32, crate::ty::JitTy)],
+    pub captures: &'a [(Symbol, u32, crate::ty::JitTy, bool)],
 }
 
 impl<'a> LowerCtx<'a> {

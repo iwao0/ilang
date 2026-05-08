@@ -53,17 +53,32 @@ pub(crate) fn lower_expr(
             // for a captured name resolves to a load from the env
             // pointer at the recorded offset.
             if let Some(env) = lc.closure_capture_env.as_ref() {
-                if let Some(entry) = env.captures.iter().find(|(n, _, _)| n == name)
+                if let Some(entry) = env.captures.iter().find(|(n, _, _, _)| n == name)
                 {
                     let offset = entry.1;
                     let jty = entry.2;
+                    let is_mut = entry.3;
                     let env_ptr = b.use_var(env.env_var);
-                    let raw = b.ins().load(
-                        I64,
-                        MemFlags::trusted(),
-                        env_ptr,
-                        offset as i32,
-                    );
+                    // Mutable captures: env slot holds a heap cell ptr
+                    // (`[rc | value]`, user-ptr at value); deref to
+                    // get the current value. Immutable: value lives
+                    // inline at the env slot.
+                    let raw = if is_mut {
+                        let cell_ptr = b.ins().load(
+                            I64,
+                            MemFlags::trusted(),
+                            env_ptr,
+                            offset as i32,
+                        );
+                        b.ins().load(I64, MemFlags::trusted(), cell_ptr, 0)
+                    } else {
+                        b.ins().load(
+                            I64,
+                            MemFlags::trusted(),
+                            env_ptr,
+                            offset as i32,
+                        )
+                    };
                     let v = match jty {
                         JitTy::I64 | JitTy::U64 => raw,
                         JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
@@ -386,7 +401,79 @@ pub(crate) fn lower_expr(
         } => lower_enum_ctor(b, lc, enum_name.as_str(), variant.as_str(), args, e.span),
         ExprKind::Match { scrutinee, arms } => lower_match(b, lc, scrutinee, arms, e.span),
         ExprKind::Assign { target, value } => {
-            // Ordinary local first; then implicit-`this` field write.
+            // Ordinary local first; then captured-cell; then
+            // implicit-`this` field; finally top-level-let global.
+            // Closure captures: when the target name is one of the
+            // wrapper's mutable captures, the env slot holds a cell
+            // pointer. Load it, release the old value (if heap),
+            // retain the new value (if heap), and store into the
+            // cell.
+            if let Some(env) = lc.closure_capture_env.as_ref() {
+                if let Some(entry) =
+                    env.captures.iter().find(|(n, _, _, _)| n == target)
+                {
+                    let cap_offset = entry.1;
+                    let cap_jty = entry.2;
+                    let cap_is_mut = entry.3;
+                    if cap_is_mut {
+                        let env_var = env.env_var;
+                        let env_ptr = b.use_var(env_var);
+                        let cell_ptr = b.ins().load(
+                            I64,
+                            MemFlags::trusted(),
+                            env_ptr,
+                            cap_offset as i32,
+                        );
+                        let is_heap = cap_jty.is_heap();
+                        let old_val = if is_heap {
+                            Some(b.ins().load(I64, MemFlags::trusted(), cell_ptr, 0))
+                        } else {
+                            None
+                        };
+                        let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
+                            CodegenError::Unsupported {
+                                what: "assigning unit".into(),
+                                span: e.span,
+                            }
+                        })?;
+                        let coerced = coerce(b, (val, vt), cap_jty, e.span)?;
+                        emit_bind_retain(b, lc, &value.kind, vt, cap_jty, coerced);
+                        let bits = match cap_jty {
+                            JitTy::I64 | JitTy::U64 => coerced,
+                            JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), coerced),
+                            JitTy::Bool => b.ins().uextend(I64, coerced),
+                            JitTy::I8 | JitTy::U8 => b.ins().uextend(I64, coerced),
+                            JitTy::I16 | JitTy::U16 => b.ins().uextend(I64, coerced),
+                            JitTy::I32 | JitTy::U32 => b.ins().uextend(I64, coerced),
+                            JitTy::F32 => {
+                                let i = b.ins().bitcast(I32, MemFlags::new(), coerced);
+                                b.ins().uextend(I64, i)
+                            }
+                            t if t.is_heap() => coerced,
+                            _ => {
+                                return Err(CodegenError::Unsupported {
+                                    what: format!(
+                                        "captured-var assign of type {cap_jty:?} \
+                                         not yet supported"
+                                    ),
+                                    span: e.span,
+                                });
+                            }
+                        };
+                        b.ins().store(MemFlags::trusted(), bits, cell_ptr, 0);
+                        if let Some(old) = old_val {
+                            emit_release_heap(b, lc, old, cap_jty);
+                        }
+                        return Ok(None);
+                    }
+                    return Err(CodegenError::Unsupported {
+                        what: format!(
+                            "assignment to read-only closure capture {target:?}"
+                        ),
+                        span: e.span,
+                    });
+                }
+            }
             if let Some(&(var, var_ty)) = lc.env.bindings.get(target) {
                 let is_heap =
                     var_ty.is_heap();
@@ -5364,9 +5451,13 @@ fn lower_closure_construct(
     let func_ref = lc.module.declare_func_in_func(wrapper_id, b.func);
     let fn_addr = b.ins().func_addr(I64, func_ref);
     b.ins().store(MemFlags::trusted(), fn_addr, closure_ptr, 0);
+    // Capture mutability table — drives the inline-vs-cell choice
+    // for each slot. Indexed in lockstep with `captures`.
+    let mutable_flags: Vec<bool> = meta.mutable.clone();
     // Write each capture at offset 8, 16, 24, ...
     for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
         let offset = 8 + (i as i32) * 8;
+        let is_mut = mutable_flags.get(i).copied().unwrap_or(false);
         // Special-case the synthetic `this` capture: comes straight
         // from `lc.this` (the enclosing method's receiver) or, when
         // the construction site is itself inside another wrapper,
@@ -5375,6 +5466,43 @@ fn lower_closure_construct(
         // actually references `this`, so one of those two sources
         // must apply.
         let is_this_capture = cap_name.as_str() == "this";
+        // If the construction site is INSIDE another wrapper that
+        // already cell-backs this name, share the cell pointer
+        // (retain it) instead of snapshotting the value into a
+        // fresh cell. This is what makes nested closures see each
+        // other's writes when both capture the same outer-scope
+        // mutable variable.
+        if is_mut && !is_this_capture {
+            if let Some(env) = lc.closure_capture_env.as_ref() {
+                if let Some(entry) = env
+                    .captures
+                    .iter()
+                    .find(|(n, _, _, _)| n == cap_name)
+                {
+                    if entry.3 {
+                        let outer_offset = entry.1 as i32;
+                        let env_ptr = b.use_var(env.env_var);
+                        let cell_ptr = b.ins().load(
+                            I64,
+                            MemFlags::trusted(),
+                            env_ptr,
+                            outer_offset,
+                        );
+                        let retain = lc
+                            .module
+                            .declare_func_in_func(lc.retain_cell_id, b.func);
+                        b.ins().call(retain, &[cell_ptr]);
+                        b.ins().store(
+                            MemFlags::trusted(),
+                            cell_ptr,
+                            closure_ptr,
+                            offset,
+                        );
+                        continue;
+                    }
+                }
+            }
+        }
         let resolved: Option<(cranelift::prelude::Value, JitTy)> =
             if is_this_capture {
                 if let Some((var, class_id)) = lc.this {
@@ -5382,7 +5510,7 @@ fn lower_closure_construct(
                 } else if let Some(env) = lc.closure_capture_env.as_ref() {
                     env.captures
                         .iter()
-                        .find(|(n, _, _)| n.as_str() == "this")
+                        .find(|(n, _, _, _)| n.as_str() == "this")
                         .map(|entry| {
                             let outer_offset = entry.1 as i32;
                             let outer_jty = entry.2;
@@ -5403,14 +5531,24 @@ fn lower_closure_construct(
             } else if let Some(env) = lc.closure_capture_env.as_ref() {
                 env.captures
                     .iter()
-                    .find(|(n, _, _)| n == cap_name)
+                    .find(|(n, _, _, _)| n == cap_name)
                     .map(|entry| {
                         let outer_offset = entry.1 as i32;
                         let outer_jty = entry.2;
+                        let outer_is_mut = entry.3;
                         let env_ptr = b.use_var(env.env_var);
-                        let raw = b
+                        let raw_or_cell = b
                             .ins()
                             .load(I64, MemFlags::trusted(), env_ptr, outer_offset);
+                        // Outer-mutable but the inner doesn't write
+                        // (otherwise we'd have taken the share-cell
+                        // branch above): deref the cell once to read
+                        // the value at construction time.
+                        let raw = if outer_is_mut {
+                            b.ins().load(I64, MemFlags::trusted(), raw_or_cell, 0)
+                        } else {
+                            raw_or_cell
+                        };
                         let v = match outer_jty {
                             JitTy::I64 | JitTy::U64 => raw,
                             JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), raw),
@@ -5488,6 +5626,13 @@ fn lower_closure_construct(
             JitTy::I64 | JitTy::U64 => v,
             JitTy::F64 => b.ins().bitcast(I64, MemFlags::new(), v),
             JitTy::Bool => b.ins().uextend(I64, v),
+            JitTy::I8 | JitTy::U8 => b.ins().uextend(I64, v),
+            JitTy::I16 | JitTy::U16 => b.ins().uextend(I64, v),
+            JitTy::I32 | JitTy::U32 => b.ins().uextend(I64, v),
+            JitTy::F32 => {
+                let i = b.ins().bitcast(I32, MemFlags::new(), v);
+                b.ins().uextend(I64, i)
+            }
             t if t.is_heap() => {
                 // Heap capture: retain so the closure owns a
                 // reference. The drop fn will release on close.
@@ -5503,7 +5648,20 @@ fn lower_closure_construct(
                 });
             }
         };
-        b.ins().store(MemFlags::trusted(), bits, closure_ptr, offset);
+        // Mutable capture: alloc a cell with the snapshotted value
+        // and store the cell pointer at the env slot. Nested
+        // sharing was handled via `continue` higher up. Immutable
+        // capture: store the value bits inline at the slot.
+        let to_store = if is_mut {
+            let alloc_ref = lc
+                .module
+                .declare_func_in_func(lc.alloc_cell_id, b.func);
+            let call = b.ins().call(alloc_ref, &[bits]);
+            b.inst_results(call)[0]
+        } else {
+            bits
+        };
+        b.ins().store(MemFlags::trusted(), to_store, closure_ptr, offset);
     }
     let sig_id = crate::ty::intern_fn_sig(
         lc.fn_signatures,

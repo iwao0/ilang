@@ -647,6 +647,62 @@ pub(crate) extern "C" fn ilang_jit_alloc_closure(
     }
 }
 
+// ─── Closure capture cells (mutable captures) ────────────────────────
+// A "cell" is a tiny heap allocation that backs a mutable closure
+// capture. Layout: `[ rc: i64 | value: i64 ]`. The user pointer
+// addresses the value slot (alloc_base + 8) so the value field is
+// `*ptr` and rc lives at `*(ptr - 8)`. Sharing across nested
+// closures works through `retain_cell`; the closure-drop wrapper
+// emits an inline release sequence (rc--; on 0 release the value if
+// heap-typed and free the allocation), so there's no `release_cell`
+// runtime helper needed.
+
+const CELL_RC_OFFSET: i64 = -8;
+const CELL_HEADER_SIZE: usize = 8;
+
+pub(crate) extern "C" fn ilang_jit_alloc_cell(initial: i64) -> i64 {
+    let total = CELL_HEADER_SIZE + 8;
+    let layout = std::alloc::Layout::from_size_align(total, 8).unwrap();
+    unsafe {
+        let raw = std::alloc::alloc_zeroed(layout);
+        *(raw as *mut i64) = 1;            // rc
+        *(raw.add(CELL_HEADER_SIZE) as *mut i64) = initial;
+        raw.add(CELL_HEADER_SIZE) as i64
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_retain_cell(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    unsafe {
+        let rc = (ptr + CELL_RC_OFFSET) as *mut i64;
+        *rc += 1;
+    }
+}
+
+/// Free a refcounted cell whose value has already been released by
+/// the caller (the closure-drop wrapper deals with the type-specific
+/// release inline). NOT exposed as `release_cell` because the
+/// release-then-free sequence is interleaved with type-aware drop
+/// emission in the wrapper drop fn — exposing this as a single
+/// helper would force a runtime trampoline through the drop fn ptr.
+pub(crate) extern "C" fn ilang_jit_dec_and_free_cell(ptr: i64) -> i64 {
+    if ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let rc_ptr = (ptr + CELL_RC_OFFSET) as *mut i64;
+        *rc_ptr -= 1;
+        if *rc_ptr != 0 {
+            return 0;
+        }
+        let layout = std::alloc::Layout::from_size_align(CELL_HEADER_SIZE + 8, 8).unwrap();
+        std::alloc::dealloc((ptr - CELL_HEADER_SIZE as i64) as *mut u8, layout);
+        1
+    }
+}
+
 pub(crate) extern "C" fn ilang_jit_retain_closure(ptr: i64) {
     if ptr == 0 {
         return;
