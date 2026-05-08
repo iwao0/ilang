@@ -1434,12 +1434,19 @@ impl Interpreter {
                             span: index.span,
                         }
                     })?;
-                    return m.borrow().get(&key).cloned().ok_or_else(|| {
+                    let extracted = m.borrow().get(&key).cloned().ok_or_else(|| {
                         RuntimeError::TypeError {
                             msg: "map key not found".into(),
                             span,
                         }
-                    });
+                    })?;
+                    // `make_map()[k]` — release the fresh map after
+                    // extraction so the unselected entries' values
+                    // see their `deinit` fire (matches the JIT).
+                    if !is_aliased_heap_source(&obj.kind) {
+                        self.release(Value::Map(m));
+                    }
+                    return Ok(extracted);
                 }
                 if let Value::Tuple(elems) = target {
                     let i = index_to_usize(idx, index.span)?;
