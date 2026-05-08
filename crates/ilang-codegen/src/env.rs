@@ -67,6 +67,10 @@ pub(crate) struct PrintFns {
     pub str: FuncId,
     /// `Type(<name>)` formatter for `console.log(typeof(x))`.
     pub type_ref: FuncId,
+    /// `<fn NAME>` / `<fn>` formatter for `console.log(<fn>)`. The
+    /// helper reads the wrapper pointer at offset 0 of the closure
+    /// and looks it up in the runtime's fn-name registry.
+    pub r#fn: FuncId,
 }
 
 /// FFI helpers for the heap String runtime.

@@ -460,6 +460,7 @@ pub(crate) struct JitCompiler {
     pub(crate) print_newline: FuncId,
     pub(crate) print_str: FuncId,
     pub(crate) print_type_ref: FuncId,
+    pub(crate) print_fn: FuncId,
     pub(crate) type_is_subtype: FuncId,
     pub(crate) type_lookup: FuncId,
     pub(crate) i64_to_string: FuncId,
@@ -989,6 +990,10 @@ impl JitCompiler {
             crate::runtime::ilang_jit_print_type_ref as *const u8,
         );
         builder.symbol(
+            "ilang_jit_print_fn",
+            crate::runtime::ilang_jit_print_fn as *const u8,
+        );
+        builder.symbol(
             "ilang_jit_type_is_subtype",
             crate::runtime::ilang_jit_type_is_subtype as *const u8,
         );
@@ -1154,6 +1159,7 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_print_newline", &[], None)?;
         let print_str = declare_import(&mut module, "ilang_jit_print_str", &[I64], None)?;
         let print_type_ref = declare_import(&mut module, "ilang_jit_print_type_ref", &[I64], None)?;
+        let print_fn = declare_import(&mut module, "ilang_jit_print_fn", &[I64], None)?;
         let type_is_subtype =
             declare_import(&mut module, "ilang_jit_type_is_subtype", &[I64, I64], Some(I8))?;
         let type_lookup =
@@ -1332,6 +1338,7 @@ impl JitCompiler {
             print_newline,
             print_str,
             print_type_ref,
+            print_fn,
             type_is_subtype,
             type_lookup,
             i64_to_string,
@@ -2133,6 +2140,7 @@ impl JitCompiler {
                 newline: self.print_newline,
                 str: self.print_str,
                 type_ref: self.print_type_ref,
+                r#fn: self.print_fn,
             },
             strfns: StrFns {
                 concat: self.str_concat,
@@ -2399,6 +2407,7 @@ impl JitCompiler {
                 newline: self.print_newline,
                 str: self.print_str,
                 type_ref: self.print_type_ref,
+                r#fn: self.print_fn,
             },
             strfns: StrFns {
                 concat: self.str_concat,
@@ -2667,6 +2676,21 @@ impl JitCompiler {
         // addresses are resolved, write each method's host pointer
         // into the appropriate slot.
         self.populate_vtables();
+        // Register every closure trampoline's resolved address with the
+        // runtime fn-name registry so `console.log(<fn ref>)` can print
+        // `<fn NAME>` matching the interpreter. Trampolines are the
+        // wrappers stored at closure[0] for top-level fn references —
+        // anonymous user closures don't go through this map and fall
+        // back to `<fn>` automatically.
+        let trampoline_entries: Vec<(Symbol, FuncId)> = self
+            .closure_trampolines
+            .iter()
+            .map(|(s, id)| (*s, *id))
+            .collect();
+        for (name, fid) in trampoline_entries {
+            let addr = self.module.get_finalized_function(fid) as i64;
+            crate::runtime::register_fn_name(addr, name.as_str().to_string());
+        }
         Ok(())
     }
 

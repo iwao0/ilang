@@ -3662,10 +3662,12 @@ fn emit_print_value(
             b.seal_block(merge);
         }
         JitTy::Fn(_) => {
-            // Print as `<fn @ 0x...>`. Reuse the i64 printer for the
-            // hex-ish address — good enough for debugging, no need
-            // for a dedicated formatter.
-            let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
+            // Match interpreter: `<fn NAME>` for top-level fn refs,
+            // `<fn>` for anonymous closures. The runtime helper reads
+            // the wrapper pointer at closure[0] and looks it up in a
+            // process-global fn-name registry populated post-finalize
+            // by the codegen (see `register_fn_name` calls).
+            let r = lc.module.declare_func_in_func(lc.print.r#fn, b.func);
             b.ins().call(r, &[v]);
         }
         JitTy::Map(_) => {

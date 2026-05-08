@@ -198,6 +198,44 @@ pub(crate) extern "C" fn ilang_jit_print_newline() {
     println!();
 }
 
+// ─── fn-name registry for `console.log(<fn>)` parity ───────────────────
+// Top-level `fn add(...)` references are surfaced through a 0-capture
+// closure whose wrapper is a JIT-emitted trampoline (see
+// `ensure_trampoline`). The trampoline pointer uniquely identifies the
+// source fn, so we keep a process-global `trampoline_addr -> name` map
+// populated by the codegen after `finalize_definitions`. The print
+// helper looks up the wrapper pointer at closure[0] and prints
+// `<fn NAME>` if registered, falling back to `<fn>` for anonymous
+// closures.
+
+fn fn_name_registry() -> &'static std::sync::Mutex<std::collections::HashMap<i64, String>> {
+    static REG: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<i64, String>>,
+    > = std::sync::OnceLock::new();
+    REG.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn register_fn_name(fn_ptr: i64, name: String) {
+    if let Ok(mut m) = fn_name_registry().lock() {
+        m.insert(fn_ptr, name);
+    }
+}
+
+pub(crate) extern "C" fn ilang_jit_print_fn(closure_ptr: i64) {
+    if closure_ptr == 0 {
+        print!("<fn>");
+        return;
+    }
+    let wrapper = unsafe { *(closure_ptr as *const i64) };
+    if let Ok(m) = fn_name_registry().lock() {
+        if let Some(name) = m.get(&wrapper) {
+            print!("<fn {name}>");
+            return;
+        }
+    }
+    print!("<fn>");
+}
+
 
 // ─── String runtime (ARC Phase B) ──────────────────────────────────────
 // Strings are heap-allocated `Box<StringRc>`; the JIT carries the raw
