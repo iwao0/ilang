@@ -74,6 +74,13 @@ enum EventState: i32 {
     enable  = 1
 }
 
+/// `SDL_eventaction` — what `peepEvents` does with the matched events.
+enum PeepAction: i32 {
+    add  = 0   // append to the queue
+    peek = 1   // copy without removing
+    get  = 2   // copy and remove
+}
+
 @extern(C) {
     // ─── timer ───────────────────────────────────────────────────
     @lib("SDL2") fn SDL_Delay(ms: u32)
@@ -100,6 +107,13 @@ enum EventState: i32 {
 
     @lib("SDL2") fn SDL_PumpEvents()
     @lib("SDL2") fn SDL_PollEvent(event: *Event): i32
+    @lib("SDL2") fn SDL_WaitEvent(event: *Event): i32
+    @lib("SDL2") fn SDL_WaitEventTimeout(event: *Event, timeout: i32): i32
+    @lib("SDL2") fn SDL_PeepEvents(
+        events: *Event, numevents: i32, action: i32,
+        minType: u32, maxType: u32
+    ): i32
+    @lib("SDL2") fn SDL_RegisterEvents(numevents: i32): u32
     @lib("SDL2") fn SDL_PushEvent(event: *Event): i32
     @lib("SDL2") fn SDL_HasEvent(eventType: u32): i32
     @lib("SDL2") fn SDL_HasEvents(min_type: u32, max_type: u32): i32
@@ -301,5 +315,67 @@ enum EventState: i32 {
             return true
         }
         false
+    }
+
+    /// Block until an event is available, then return it.
+    ///
+    /// Args:
+    ///   event — buffer that SDL fills in.
+    ///
+    /// Returns:
+    ///   true on success, false on internal SDL error.
+    fn waitEvent(event: Event): bool {
+        SDL_WaitEvent(event) != 0
+    }
+
+    /// Block up to `timeoutMs` for an event.
+    ///
+    /// Args:
+    ///   event     — buffer to fill.
+    ///   timeoutMs — max wait in milliseconds. `0` returns
+    ///               immediately; negative is treated as block.
+    ///
+    /// Returns:
+    ///   true if `event` was populated, false on timeout / error.
+    fn waitEventTimeout(event: Event, timeoutMs: i32): bool {
+        SDL_WaitEventTimeout(event, timeoutMs) != 0
+    }
+
+    /// Peek / get / add events in bulk.
+    ///
+    /// Args:
+    ///   events    — caller-allocated array; SDL fills the first
+    ///               `numEvents` entries on `peek` / `get`, and
+    ///               reads them on `add`.
+    ///   numEvents — how many slots in `events` are available.
+    ///   action    — `peek`, `get`, or `add`.
+    ///   minType   — lower event-type bound (inclusive).
+    ///   maxType   — upper event-type bound (inclusive).
+    ///
+    /// Returns:
+    ///   number of events actually copied / added, `< 0` on error.
+    fn peepEvents(
+        events: Event[], numEvents: i32, action: PeepAction,
+        minType: EventType, maxType: EventType
+    ): i32 {
+        let p: *Event = events
+        SDL_PeepEvents(
+            p, numEvents, action as i32,
+            minType as u32, maxType as u32
+        )
+    }
+
+    /// Allocate a contiguous range of user event types. Apps that
+    /// post their own events via `pushEvent` should hold one such
+    /// id rather than picking arbitrary numbers in `userEvent..`.
+    ///
+    /// Args:
+    ///   numEvents — how many distinct ids to reserve.
+    ///
+    /// Returns:
+    ///   the first id of the range, or `0xFFFFFFFF` if SDL has run
+    ///   out of user event slots.
+    fn registerEvents(numEvents: i32): u32 {
+        SDL_RegisterEvents(numEvents)
     }
 }
