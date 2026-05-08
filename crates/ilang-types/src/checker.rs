@@ -2348,6 +2348,23 @@ impl TypeChecker {
                         }
                     }
                 }
+                // Object identity comparison across an upcast: `p == q`
+                // where one is a subclass of the other. The interpreter
+                // does Rc-pointer equality regardless of static type;
+                // the JIT compares the user pointer; both work fine.
+                // bin_result only allows same-class identity, so we
+                // special-case the subtype direction here before the
+                // numeric paths below.
+                if matches!(op, ilang_ast::BinOp::Eq | ilang_ast::BinOp::Ne) {
+                    if let (Type::Object(a), Type::Object(b)) = (&l, &r) {
+                        if a == b
+                            || self.is_subclass(*a, *b)
+                            || self.is_subclass(*b, *a)
+                        {
+                            return Ok(Type::Bool);
+                        }
+                    }
+                }
                 // Literal-side adoption: when one operand is a
                 // numeric literal whose value fits the other's
                 // integer type, treat the literal as that type.

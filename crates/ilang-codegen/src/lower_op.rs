@@ -232,6 +232,23 @@ pub(crate) fn lower_binary(
     } else {
         (lv, lt, rv, rt)
     };
+    // Object identity: `obj_a == obj_b` for any two object types
+    // (same class or related by inheritance) compares user pointers.
+    // The type checker has already verified the classes share a
+    // hierarchy direction; here we just emit an i64 icmp on the raw
+    // user pointers regardless of static class id.
+    if matches!(op, BinOp::Eq | BinOp::Ne)
+        && matches!(lt, JitTy::Object(_))
+        && matches!(rt, JitTy::Object(_))
+    {
+        let cc = if matches!(op, BinOp::Eq) {
+            IntCC::Equal
+        } else {
+            IntCC::NotEqual
+        };
+        let v = b.ins().icmp(cc, lv, rv);
+        return Ok(Some((v, JitTy::Bool)));
+    }
     let common = common_numeric_ty(lt, rt).ok_or_else(|| CodegenError::Unsupported {
         what: format!("incompatible binary operand types {lt:?} and {rt:?}"),
         span: lhs.span,
