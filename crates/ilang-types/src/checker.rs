@@ -3528,7 +3528,7 @@ impl TypeChecker {
                         span: k0.span,
                     });
                 }
-                let v_ty = self.check_expr(v0, env, ret_ty, in_class, loop_depth)?;
+                let mut v_ty = self.check_expr(v0, env, ret_ty, in_class, loop_depth)?;
                 for (k, v) in &entries[1..] {
                     let kt = self.check_expr(k, env, ret_ty, in_class, loop_depth)?;
                     if !self.value_assignable(k, &kt, &k_ty) {
@@ -3539,13 +3539,25 @@ impl TypeChecker {
                         });
                     }
                     let vt = self.check_expr(v, env, ret_ty, in_class, loop_depth)?;
-                    if !self.value_assignable(v, &vt, &v_ty) {
-                        return Err(TypeError::Mismatch {
-                            expected: v_ty.clone(),
-                            got: vt,
-                            span: v.span,
-                        });
+                    if self.value_assignable(v, &vt, &v_ty) {
+                        continue;
                     }
+                    // Heterogeneous class values: lift `v_ty` to the
+                    // common ancestor so `{"a": new Circle(), "b": new
+                    // Square()}` infers `Map<string, Shape>` —
+                    // matches the array-literal / branch unification
+                    // behaviour.
+                    if let (Type::Object(a), Type::Object(b)) = (&v_ty, &vt) {
+                        if let Some(anc) = self.common_ancestor(*a, *b) {
+                            v_ty = Type::Object(anc);
+                            continue;
+                        }
+                    }
+                    return Err(TypeError::Mismatch {
+                        expected: v_ty.clone(),
+                        got: vt,
+                        span: v.span,
+                    });
                 }
                 Ok(Type::generic("Map", vec![k_ty, v_ty]))
             }
