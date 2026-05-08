@@ -3874,7 +3874,10 @@ fn emit_print_object(
         .iter()
         .map(|(name, &(offset, fty))| (*name, offset, fty))
         .collect();
-    fields.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+    // Sort by Symbol (intern id), matching the interpreter's
+    // `Value::Object` formatter which sorts the field HashMap's
+    // keys directly. Sorting by string would diverge.
+    fields.sort_by_key(|f| f.0);
 
     if fields.is_empty() {
         emit_print_literal(b, lc, &format!("{class_name} {{}}"));
