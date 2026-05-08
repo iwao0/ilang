@@ -212,6 +212,7 @@ fn jit_run_inner(
                 user_params,
                 ret,
                 captures,
+                mutable: meta.mutable.clone(),
                 this_class: meta.this_class,
             },
         );
@@ -517,6 +518,9 @@ pub(crate) struct JitCompiler {
     pub(crate) alloc_closure_id: FuncId,
     pub(crate) retain_closure_id: FuncId,
     pub(crate) release_closure_id: FuncId,
+    pub(crate) alloc_cell_id: FuncId,
+    pub(crate) retain_cell_id: FuncId,
+    pub(crate) dec_and_free_cell_id: FuncId,
     pub(crate) array_new: FuncId,
     pub(crate) retain_array_id: FuncId,
     pub(crate) release_array_id: FuncId,
@@ -1088,6 +1092,9 @@ impl JitCompiler {
         builder.symbol("ilang_jit_alloc_closure", crate::runtime::ilang_jit_alloc_closure as *const u8);
         builder.symbol("ilang_jit_retain_closure", crate::runtime::ilang_jit_retain_closure as *const u8);
         builder.symbol("ilang_jit_release_closure", crate::runtime::ilang_jit_release_closure as *const u8);
+        builder.symbol("ilang_jit_alloc_cell", crate::runtime::ilang_jit_alloc_cell as *const u8);
+        builder.symbol("ilang_jit_retain_cell", crate::runtime::ilang_jit_retain_cell as *const u8);
+        builder.symbol("ilang_jit_dec_and_free_cell", crate::runtime::ilang_jit_dec_and_free_cell as *const u8);
         builder.symbol("ilang_jit_array_new", ilang_jit_array_new as *const u8);
         builder.symbol(
             "ilang_jit_retain_array",
@@ -1283,6 +1290,12 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_retain_closure", &[I64], None)?;
         let release_closure_id =
             declare_import(&mut module, "ilang_jit_release_closure", &[I64], None)?;
+        let alloc_cell_id =
+            declare_import(&mut module, "ilang_jit_alloc_cell", &[I64], Some(I64))?;
+        let retain_cell_id =
+            declare_import(&mut module, "ilang_jit_retain_cell", &[I64], None)?;
+        let dec_and_free_cell_id =
+            declare_import(&mut module, "ilang_jit_dec_and_free_cell", &[I64], Some(I64))?;
         let array_new =
             declare_import(&mut module, "ilang_jit_array_new", &[I64, I64, I64], Some(I64))?;
         let retain_array_id =
@@ -1412,6 +1425,9 @@ impl JitCompiler {
             alloc_closure_id,
             retain_closure_id,
             release_closure_id,
+            alloc_cell_id,
+            retain_cell_id,
+            dec_and_free_cell_id,
             array_new,
             retain_array_id,
             release_array_id,
@@ -2289,6 +2305,9 @@ impl JitCompiler {
             alloc_closure_id: self.alloc_closure_id,
             retain_closure_id: self.retain_closure_id,
             release_closure_id: self.release_closure_id,
+            alloc_cell_id: self.alloc_cell_id,
+            retain_cell_id: self.retain_cell_id,
+            dec_and_free_cell_id: self.dec_and_free_cell_id,
             closure_meta: &self.closure_meta,
             closure_trampolines: &mut self.closure_trampolines,
             closure_drops: &mut self.closure_drops,
@@ -2309,12 +2328,15 @@ impl JitCompiler {
         // capture-env so Var lookups for captured names emit env
         // loads. The wrapper's first param `__env` is already
         // bound by the loop above.
-        let captures_with_offsets: Vec<(Symbol, u32, JitTy)> =
+        let captures_with_offsets: Vec<(Symbol, u32, JitTy, bool)> =
             if let Some(meta) = self.closure_meta.get(&f.name) {
                 meta.captures
                     .iter()
                     .enumerate()
-                    .map(|(i, (n, jty))| (n.clone(), 8 + (i as u32) * 8, *jty))
+                    .map(|(i, (n, jty))| {
+                        let is_mut = meta.mutable.get(i).copied().unwrap_or(false);
+                        (n.clone(), 8 + (i as u32) * 8, *jty, is_mut)
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -2331,9 +2353,9 @@ impl JitCompiler {
                 // wrapper's `lc.this` so `ExprKind::This` and
                 // `super.method(...)` in the body work the same as
                 // they would inside the original method.
-                if let Some(&(_, off, this_jty)) = captures_with_offsets
+                if let Some(&(_, off, this_jty, _)) = captures_with_offsets
                     .iter()
-                    .find(|(n, _, _)| n.as_str() == "this")
+                    .find(|(n, _, _, _)| n.as_str() == "this")
                 {
                     if let JitTy::Object(class_id) = this_jty {
                         let env_ptr = builder.use_var(v);
@@ -2559,6 +2581,9 @@ impl JitCompiler {
             alloc_closure_id: self.alloc_closure_id,
             retain_closure_id: self.retain_closure_id,
             release_closure_id: self.release_closure_id,
+            alloc_cell_id: self.alloc_cell_id,
+            retain_cell_id: self.retain_cell_id,
+            dec_and_free_cell_id: self.dec_and_free_cell_id,
             closure_meta: &self.closure_meta,
             closure_trampolines: &mut self.closure_trampolines,
             closure_drops: &mut self.closure_drops,

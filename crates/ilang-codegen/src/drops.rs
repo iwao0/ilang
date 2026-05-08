@@ -955,7 +955,16 @@ pub(crate) fn closure_drop_fn_ptr(
     wrapper_name: &str,
     captures: &[(Symbol, crate::ty::JitTy)],
 ) -> Result<Value, CodegenError> {
-    let needs_drop = captures.iter().any(|(_, jty)| jty.is_heap());
+    let mutable_flags = lc
+        .closure_meta
+        .get(&Symbol::intern(wrapper_name))
+        .map(|m| m.mutable.clone())
+        .unwrap_or_default();
+    // Drop wrapper is needed when any capture is heap-typed (release
+    // the value) OR cell-backed (decrement the cell rc and free).
+    let needs_drop = captures.iter().enumerate().any(|(i, (_, jty))| {
+        jty.is_heap() || mutable_flags.get(i).copied().unwrap_or(false)
+    });
     if !needs_drop {
         lc.closure_drops.entry(wrapper_name.into()).or_insert(None);
         return Ok(b.ins().iconst(I64, 0));
@@ -998,10 +1007,10 @@ fn define_one_closure_drop(
     compiler.module.clear_context(&mut compiler.ctx);
     compiler.ctx.func.signature =
         compiler.module.declarations().get_function_decl(drop_id).signature.clone();
-    let captures = compiler
+    let (captures, mutable_flags) = compiler
         .closure_meta
         .get(&wrapper.into())
-        .map(|m| m.captures.clone())
+        .map(|m| (m.captures.clone(), m.mutable.clone()))
         .unwrap_or_default();
     let JitCompiler {
         module,
@@ -1019,8 +1028,10 @@ fn define_one_closure_drop(
         release_map_id,
         release_closure_id,
         optional_box_release_id,
+        dec_and_free_cell_id,
         ..
     } = compiler;
+    let dec_and_free_cell_id = *dec_and_free_cell_id;
     let mut builder = FunctionBuilder::new(&mut ctx.func, builder_ctx);
     let entry = builder.create_block();
     builder.append_block_params_for_function_params(entry);
@@ -1028,29 +1039,79 @@ fn define_one_closure_drop(
     builder.seal_block(entry);
     let closure_ptr = builder.block_params(entry)[0];
     for (i, (_name, jty)) in captures.iter().enumerate() {
-        if !jty.is_heap() {
+        let is_mut = mutable_flags.get(i).copied().unwrap_or(false);
+        let is_heap = jty.is_heap();
+        if !is_mut && !is_heap {
             continue;
         }
         let offset = (8 + i * 8) as i32;
-        let v = builder.ins().load(I64, MemFlags::trusted(), closure_ptr, offset);
-        emit_release_for(
-            module,
-            class_layouts,
-            array_kinds,
-            optional_inners,
-            tuple_kinds,
-            enum_layouts,
-            *release_object_id,
-            *release_string_id,
-            *release_array_id,
-            *release_weak_id,
-            *release_map_id,
-            *release_closure_id,
-            *optional_box_release_id,
-            &mut builder,
-            v,
-            *jty,
-        );
+        let slot = builder.ins().load(I64, MemFlags::trusted(), closure_ptr, offset);
+        if is_mut {
+            // Cell-backed slot. The wrapper drops its +1 on the
+            // cell — if no nested closure shared (and so retained)
+            // it, this brings the rc to zero and we must release
+            // the contained value (heap-typed) before freeing the
+            // allocation. The runtime helper returns 1 in the
+            // "we freed it" case so we know to skip the value
+            // release for shared cells (rc still > 0 after our
+            // decrement).
+            let value_for_release = if is_heap {
+                Some(builder.ins().load(I64, MemFlags::trusted(), slot, 0))
+            } else {
+                None
+            };
+            let dec_ref = module.declare_func_in_func(dec_and_free_cell_id, builder.func);
+            let call = builder.ins().call(dec_ref, &[slot]);
+            let did_free = builder.inst_results(call)[0];
+            if let Some(value) = value_for_release {
+                let then_block = builder.create_block();
+                let cont_block = builder.create_block();
+                builder.ins().brif(did_free, then_block, &[], cont_block, &[]);
+                builder.switch_to_block(then_block);
+                builder.seal_block(then_block);
+                emit_release_for(
+                    module,
+                    class_layouts,
+                    array_kinds,
+                    optional_inners,
+                    tuple_kinds,
+                    enum_layouts,
+                    *release_object_id,
+                    *release_string_id,
+                    *release_array_id,
+                    *release_weak_id,
+                    *release_map_id,
+                    *release_closure_id,
+                    *optional_box_release_id,
+                    &mut builder,
+                    value,
+                    *jty,
+                );
+                builder.ins().jump(cont_block, &[]);
+                builder.switch_to_block(cont_block);
+                builder.seal_block(cont_block);
+            }
+        } else {
+            // Immutable + heap: inline value, just release.
+            emit_release_for(
+                module,
+                class_layouts,
+                array_kinds,
+                optional_inners,
+                tuple_kinds,
+                enum_layouts,
+                *release_object_id,
+                *release_string_id,
+                *release_array_id,
+                *release_weak_id,
+                *release_map_id,
+                *release_closure_id,
+                *optional_box_release_id,
+                &mut builder,
+                slot,
+                *jty,
+            );
+        }
     }
     builder.ins().return_(&[]);
     builder.finalize();

@@ -3,10 +3,6 @@
 // the closure's own state — mutations inside the body persist across
 // repeated invocations of the same closure, and different closures
 // (even built in the same scope) get independent cells.
-//
-// JIT path doesn't yet support cell-backed captures (assignments to
-// a captured name still error at lowering); skip until that lands.
-// jit: skip
 use test
 
 fn makeCounter(): fn(): i64 {
