@@ -149,7 +149,13 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
     let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
     let mut interp = Interpreter::new();
     interp.set_enum_ctor_type_args(enum_ctor_args);
-    match interp.run(&prog) {
+    let outcome = interp.run(&prog);
+    // Drop top-level globals so any class with a `deinit` runs it
+    // before the process exits — matches the JIT's `__main` exit
+    // path. The REPL doesn't call this (globals must persist across
+    // chunks), so it stays out of `Interpreter::run`.
+    interp.release_globals_at_exit();
+    match outcome {
         Ok(Value::Unit) => ExitCode::SUCCESS,
         Ok(v) => {
             println!("{v}");

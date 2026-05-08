@@ -48,6 +48,14 @@ pub struct Interpreter {
     /// top-level script-stmts run; read / written by fn bodies as a
     /// fallback after `vars` (the per-call local scope) misses.
     globals: HashMap<Symbol, Value>,
+    /// Insertion order of user `let` names registered into `globals`,
+    /// used at program exit to drive `release_globals_at_exit` in
+    /// reverse-of-declaration order — matches the JIT's exit-drop
+    /// pass and gives deterministic `deinit` interleaving for fixture
+    /// tests (HashMap iteration would otherwise vary run-to-run).
+    /// Excludes the builtin `console` singleton, which is set up in
+    /// `install_builtins` and stays alive for the helper's use.
+    globals_order: Vec<Symbol>,
     vars: HashMap<Symbol, Value>,
     /// Captured-variable cells that the closure currently being
     /// invoked is reading and writing through. Searched after
@@ -245,6 +253,9 @@ impl Interpreter {
                 if let Some(t) = ty {
                     v = cast_value(v, t);
                 }
+                if !self.globals.contains_key(name) {
+                    self.globals_order.push(name.clone());
+                }
                 self.globals.insert(name.clone(), v);
                 last = Value::Unit;
                 continue;
@@ -267,6 +278,26 @@ impl Interpreter {
             }
         }
         Ok(last)
+    }
+
+    /// Run deinit for any top-level `let` that's still holding a
+    /// class instance. The script-mode binary calls this once after
+    /// `run()` returns, matching the JIT's `__main`-exit drops.
+    /// Kept separate from `run()` itself so the REPL — which calls
+    /// `run()` per input chunk and expects globals to persist across
+    /// chunks — doesn't clear bindings between commands.
+    pub fn release_globals_at_exit(&mut self) {
+        // Drop in reverse declaration order so `deinit` ordering
+        // matches the JIT's exit-drop sweep and is deterministic
+        // run-to-run (HashMap iteration is not). Pull names out one
+        // at a time so the `console` builtin and other globals stay
+        // visible to any `console.log(...)` inside `deinit`.
+        let order = std::mem::take(&mut self.globals_order);
+        for name in order.into_iter().rev() {
+            if let Some(v) = self.globals.remove(&name) {
+                self.release(v);
+            }
+        }
     }
 
     fn exec_stmt(&mut self, stmt: &Stmt) -> Result<Value, RuntimeError> {
