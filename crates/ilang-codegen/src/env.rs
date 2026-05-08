@@ -168,7 +168,18 @@ pub(crate) struct LowerCtx<'a> {
     /// `Some((var, jit_ty))` when this is a `loop` whose result type is
     /// non-Unit (so `break v` stores `v` into `var` before jumping to
     /// `after`); `None` for `while` / `for` / Unit-result `loop`.
-    pub loops: Vec<(Block, Block, Option<(cranelift::prelude::Variable, crate::ty::JitTy)>)>,
+    /// Each loop frame is `(continue_block, after_block, break_value_slot,
+    /// bindings_at_entry)`. The trailing snapshot lets `break` walk
+    /// the bindings introduced inside the loop body and release each
+    /// heap-typed one before the jump — `lower_block_value` only
+    /// emits its release pass on the normal block-tail path, which
+    /// `break`'s direct jump skips.
+    pub loops: Vec<(
+        Block,
+        Block,
+        Option<(cranelift::prelude::Variable, crate::ty::JitTy)>,
+        HashMap<Symbol, (Variable, JitTy)>,
+    )>,
     /// Per-`loop` expression span → result type, populated by the
     /// typechecker. Read by `lower_loop` to allocate the result slot.
     pub loop_break_types: &'a HashMap<Span, ilang_ast::Type>,

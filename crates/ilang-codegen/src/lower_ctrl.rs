@@ -98,7 +98,8 @@ pub(crate) fn lower_while(
 
     b.switch_to_block(body_block);
     b.seal_block(body_block);
-    lc.loops.push((header, after, None));
+    let snapshot = lc.env.bindings.clone();
+    lc.loops.push((header, after, None, snapshot));
     let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(header, &[]);
@@ -195,7 +196,8 @@ pub(crate) fn lower_for_in(
 
     // `continue` must jump to `cont` (which increments) — NOT directly
     // back to `header`, otherwise i never advances and the loop spins.
-    lc.loops.push((cont, after, None));
+    let snapshot = lc.env.bindings.clone();
+    lc.loops.push((cont, after, None, snapshot));
     let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(cont, &[]);
@@ -292,7 +294,8 @@ fn lower_for_in_range(
 
     b.switch_to_block(body_block);
     b.seal_block(body_block);
-    lc.loops.push((cont, after, None));
+    let snapshot = lc.env.bindings.clone();
+    lc.loops.push((cont, after, None, snapshot));
     let _ = lower_block_value(b, lc, body)?;
     lc.loops.pop();
     b.ins().jump(cont, &[]);
@@ -355,7 +358,8 @@ pub(crate) fn lower_loop(
     let after = b.create_block();
     b.ins().jump(header, &[]);
     b.switch_to_block(header);
-    lc.loops.push((header, after, result_slot));
+    let snapshot = lc.env.bindings.clone();
+    lc.loops.push((header, after, result_slot, snapshot));
     let _ = lower_block_value(b, lc, body)?;
     let frame = lc.loops.pop().expect("we just pushed a frame");
     b.ins().jump(header, &[]);

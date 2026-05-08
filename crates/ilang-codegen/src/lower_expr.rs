@@ -311,6 +311,41 @@ pub(crate) fn lower_expr(
                     b.def_var(slot, v);
                 }
             }
+            // Release every heap-typed binding introduced INSIDE the
+            // loop body — `lower_block_value`'s normal-flow release
+            // pass would have done this, but `break`'s direct jump
+            // skips it. Without this, `let v = loop { let t = new T();
+            // break t.n }` leaks `t`'s deinit. Compare each current
+            // binding against the snapshot taken when the frame was
+            // pushed; a different `(Variable, JitTy)` means the name
+            // is new or shadows an outer one introduced inside the
+            // body.
+            let entry_snapshot = &frame.3;
+            let mut introduced_heap: Vec<(Variable, JitTy)> = lc
+                .env
+                .bindings
+                .iter()
+                .filter(|(k, current)| {
+                    entry_snapshot
+                        .get(*k)
+                        .map(|prev| prev != *current)
+                        .unwrap_or(true)
+                })
+                .filter_map(|(_, &(var, jty))| {
+                    if jty.is_heap() {
+                        Some((var, jty))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            introduced_heap.sort_by_key(|(var, _)| {
+                std::cmp::Reverse(var.as_u32())
+            });
+            for (var, jty) in introduced_heap {
+                let p = b.use_var(var);
+                emit_release_heap(b, lc, p, jty);
+            }
             b.ins().jump(target, &[]);
             let dead = b.create_block();
             b.switch_to_block(dead);
