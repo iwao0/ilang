@@ -3580,6 +3580,9 @@ fn emit_print_value(
             // Branch on the i32 tag and print `EnumName::Variant`.
             // Phase 1 enums have no payload to recurse into.
             let layout = lc.enum_layouts[id as usize].clone();
+            // Strip monomorphisation suffix (`Result<i64, string>` →
+            // `Result`) to match the interpreter's `Display for Enum`.
+            let enum_name = strip_type_args(layout.name.as_str());
             let merge = b.create_block();
             for (i, variant) in layout.variants.iter().enumerate() {
                 let tag = b.ins().iconst(I32, i as i64);
@@ -3589,14 +3592,14 @@ fn emit_print_value(
                 b.ins().brif(cond, body_block, &[], next_block, &[]);
                 b.switch_to_block(body_block);
                 b.seal_block(body_block);
-                emit_print_literal(b, lc, &format!("{}::{variant}", layout.name));
+                emit_print_literal(b, lc, &format!("{enum_name}::{variant}"));
                 b.ins().jump(merge, &[]);
                 b.switch_to_block(next_block);
                 b.seal_block(next_block);
             }
             // Fallthrough (well-typed code never reaches here): print
             // a marker and join to merge.
-            emit_print_literal(b, lc, &format!("{}::?", layout.name));
+            emit_print_literal(b, lc, &format!("{enum_name}::?"));
             b.ins().jump(merge, &[]);
             b.switch_to_block(merge);
             b.seal_block(merge);
@@ -3606,6 +3609,8 @@ fn emit_print_value(
             // variant print `EnumName::Variant` and (if applicable)
             // recurse into payload fields.
             let layout = lc.enum_layouts[id as usize].clone();
+            // Strip monomorphisation suffix to match the interpreter.
+            let enum_name = strip_type_args(layout.name.as_str());
             let tag_v = b.ins().load(I32, MemFlags::trusted(), v, ENUM_TAG_OFFSET);
             let merge = b.create_block();
             for (i, vname) in layout.variants.iter().enumerate() {
@@ -3616,7 +3621,7 @@ fn emit_print_value(
                 b.ins().brif(cond, body_block, &[], next_block, &[]);
                 b.switch_to_block(body_block);
                 b.seal_block(body_block);
-                let prefix = format!("{}::{vname}", layout.name);
+                let prefix = format!("{enum_name}::{vname}");
                 let vlayout = layout.payloads[i].clone();
                 match &vlayout {
                     EnumVariantLayout::Unit => {
@@ -3656,7 +3661,7 @@ fn emit_print_value(
                 b.switch_to_block(next_block);
                 b.seal_block(next_block);
             }
-            emit_print_literal(b, lc, &format!("{}::?", layout.name));
+            emit_print_literal(b, lc, &format!("{enum_name}::?"));
             b.ins().jump(merge, &[]);
             b.switch_to_block(merge);
             b.seal_block(merge);
@@ -3891,7 +3896,10 @@ pub(crate) fn emit_print_object_static(
     class_id: u32,
     span: ilang_ast::Span,
 ) -> Result<(), CodegenError> {
-    let class_name = lc.class_layouts[class_id as usize].name.as_str().to_string();
+    // Match the interpreter's class-name format: bare base name, no
+    // `<T, U>` suffix. The JIT's monomorphised layouts carry names
+    // like `Box<A>`; the interp's `ObjectData.class` is just `Box`.
+    let class_name = strip_type_args(lc.class_layouts[class_id as usize].name.as_str());
     // Snapshot the field list so we don't borrow `lc.class_layouts`
     // through the recursive emit_print_value call below.
     let mut fields: Vec<(Symbol, u32, JitTy)> = lc.class_layouts[class_id as usize]
@@ -3928,6 +3936,19 @@ pub(crate) fn emit_print_object_static(
     }
     emit_print_literal(b, lc, " }");
     Ok(())
+}
+
+/// Strip the `<T, U, ...>` monomorphisation suffix from a type
+/// name. The JIT carries fully-monomorphised names like
+/// `Box<A>` / `Result<i64, string>`; the interpreter prints just
+/// the bare base name (`Box` / `Result`). Both `console.log` paths
+/// route through the type-name string so a single helper keeps
+/// them in sync.
+pub(crate) fn strip_type_args(name: &str) -> String {
+    match name.find('<') {
+        Some(i) => name[..i].to_string(),
+        None => name.to_string(),
+    }
 }
 
 /// Emit `[e0, e1, e2]` for an array. The element-printing branch can
