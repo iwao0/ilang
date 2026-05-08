@@ -706,12 +706,36 @@ pub(crate) fn lower_expr(
             } else {
                 None
             };
-            let (val, vt) = lower_expr(b, lc, value)?.ok_or_else(|| {
-                CodegenError::Unsupported {
-                    what: "field value is unit".into(),
-                    span: e.span,
+            // Empty array literal flowing into an Array field:
+            // the field's element type is the type hint, so route
+            // through `lower_array_literal` (which the let path
+            // already uses for the same reason). Without this,
+            // `this.children = []` errored under the JIT with
+            // "JIT array literal must have at least one element".
+            let (val, vt) = if let (
+                ExprKind::Array(elements),
+                JitTy::Array(arr_id),
+            ) = (&value.kind, fty)
+            {
+                if elements.is_empty() {
+                    let elem_jty = lc.array_kinds[arr_id as usize].elem;
+                    lower_array_literal(b, lc, elements, elem_jty, value.span)?
+                } else {
+                    lower_expr(b, lc, value)?.ok_or_else(|| {
+                        CodegenError::Unsupported {
+                            what: "field value is unit".into(),
+                            span: e.span,
+                        }
+                    })?
                 }
-            })?;
+            } else {
+                lower_expr(b, lc, value)?.ok_or_else(|| {
+                    CodegenError::Unsupported {
+                        what: "field value is unit".into(),
+                        span: e.span,
+                    }
+                })?
+            };
             let coerced = coerce(b, (val, vt), fty, e.span)?;
             emit_bind_retain(b, lc, &value.kind, vt, fty, coerced);
             b.ins()
