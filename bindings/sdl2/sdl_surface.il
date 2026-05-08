@@ -5,6 +5,7 @@
 // Mirrors SDL_surface.h + SDL_pixels.h.
 
 use sdl_core { Rect }
+use sdl_renderer { Color }
 
 /// `SDL_PIXELFORMAT_*` — common pixel formats. The numeric values
 /// are SDL's macro encodings (type / order / layout / bits / bytes
@@ -177,6 +178,24 @@ enum SurfaceBlendMode: i32 {
         pixel: u32, format: *SDL_PixelFormat,
         r: *u8, g: *u8, b: *u8, a: *u8
     )
+
+    // ─── palette (8-bit indexed images) ──────────────────────────
+    /// Opaque `SDL_Palette *`. Construct via `allocPalette`,
+    /// release with `freePalette`.
+    struct SDL_Palette {}
+
+    @lib("SDL2") fn SDL_AllocPalette(ncolors: i32): *SDL_Palette
+    @lib("SDL2") fn SDL_FreePalette(palette: *SDL_Palette)
+    @lib("SDL2") fn SDL_SetPaletteColors(
+        palette: *SDL_Palette, colors: *const Color,
+        firstcolor: i32, ncolors: i32
+    ): i32
+    @lib("SDL2") fn SDL_SetSurfacePalette(
+        surface: *SDL_Surface, palette: *SDL_Palette
+    ): i32
+    @lib("SDL2") fn SDL_SetPixelFormatPalette(
+        format: *SDL_PixelFormat, palette: *SDL_Palette
+    ): i32
 
     // ─── format conversion ───────────────────────────────────────
     @lib("SDL2") fn SDL_ConvertSurface(
@@ -381,5 +400,54 @@ enum SurfaceBlendMode: i32 {
     fn mustLock(handle: i64): bool {
         if handle == 0 { return false }
         (readU32(handle as *const void, 0) & (2 as u32)) != 0 as u32
+    }
+
+    /// Allocate a fresh palette with `ncolors` slots, all
+    /// initialised to white. Use `setPaletteColors` to fill it in.
+    ///
+    /// Returns:
+    ///   raw `*SDL_Palette` cast to i64. `0` on allocation failure.
+    fn allocPalette(ncolors: i32): i64 {
+        SDL_AllocPalette(ncolors) as i64
+    }
+
+    /// Decrement the palette's refcount and free it once it hits
+    /// zero. Surfaces / pixel formats holding a reference keep it
+    /// alive until they themselves are freed.
+    fn freePalette(handle: i64) {
+        if handle != 0 {
+            SDL_FreePalette(handle as *SDL_Palette)
+        }
+    }
+
+    /// Write `colors` into the palette starting at slot
+    /// `firstColor`.
+    ///
+    /// Args:
+    ///   handle      — `*SDL_Palette` cast to i64.
+    ///   colors      — array of `Color` entries to write.
+    ///   firstColor  — slot offset; combined with `colors.length`
+    ///                 must stay within the palette's allocated
+    ///                 size.
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure.
+    fn setPaletteColors(handle: i64, colors: Color[], firstColor: i32): i32 {
+        if handle == 0 { return -1 }
+        let p: *Color = colors
+        SDL_SetPaletteColors(
+            handle as *SDL_Palette, p as *const Color,
+            firstColor, colors.length as i32
+        )
+    }
+
+    /// Bind `paletteHandle` (or `0` to clear) to `surfaceHandle`.
+    /// Mostly relevant for 8-bit indexed surfaces (`PixelFormat.index8`).
+    fn setSurfacePalette(surfaceHandle: i64, paletteHandle: i64): i32 {
+        if surfaceHandle == 0 { return -1 }
+        SDL_SetSurfacePalette(
+            surfaceHandle as *SDL_Surface,
+            paletteHandle as *SDL_Palette
+        )
     }
 }

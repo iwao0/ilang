@@ -277,6 +277,7 @@ enum GLProfile: i32 {
     // ─── OpenGL ──────────────────────────────────────────────────
     @lib("SDL2") fn SDL_GL_LoadLibrary(path: *const char): i32
     @lib("SDL2") fn SDL_GL_UnloadLibrary()
+    @lib("SDL2") fn SDL_GL_GetProcAddress(proc: *const char): *void
     @lib("SDL2") fn SDL_GL_ExtensionSupported(extension: *const char): i32
     @lib("SDL2") fn SDL_GL_ResetAttributes()
     @lib("SDL2") fn SDL_GL_SetAttribute(attr: i32, value: i32): i32
@@ -842,5 +843,76 @@ enum GLProfile: i32 {
     ///   the current swap-interval setting.
     fn glGetSwapInterval(): i32 {
         SDL_GL_GetSwapInterval()
+    }
+
+    /// Look up a GL function pointer by name. Caller invokes the
+    /// pointer through `fnAddr`-style FFI plumbing.
+    ///
+    /// Returns:
+    ///   raw `void *` cast to i64. `0` if the GL driver doesn't
+    ///   expose `proc`.
+    fn glGetProcAddress(proc: string): i64 {
+        SDL_GL_GetProcAddress(cstrFromString(proc)) as i64
+    }
+
+    /// Create a GL context bound to `windowHandle`. The window
+    /// must have been created with `WindowFlag.openGL`.
+    ///
+    /// Args:
+    ///   windowHandle — `*SDL_Window` cast to i64 (e.g. `w.handle`).
+    ///
+    /// Returns:
+    ///   raw `SDL_GLContext` cast to i64. `0` on failure.
+    fn glCreateContext(windowHandle: i64): i64 {
+        SDL_GL_CreateContext(windowHandle as *SDL_Window) as i64
+    }
+
+    /// Bind `context` as the current GL context for
+    /// `windowHandle`. Call once per window after creation, and
+    /// again whenever switching between contexts.
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure.
+    fn glMakeCurrent(windowHandle: i64, context: i64): i32 {
+        SDL_GL_MakeCurrent(
+            windowHandle as *SDL_Window, context as *SDL_GLContext
+        )
+    }
+
+    /// Returns:
+    ///   `*SDL_Window` of the currently-bound GL context cast to
+    ///   i64. `0` when no context is current on this thread.
+    fn glGetCurrentWindow(): i64 {
+        SDL_GL_GetCurrentWindow() as i64
+    }
+
+    fn glGetCurrentContext(): i64 {
+        SDL_GL_GetCurrentContext() as i64
+    }
+
+    /// Read the drawable size in *pixels* — distinct from the
+    /// window's logical size on HiDPI displays.
+    ///
+    /// Args:
+    ///   windowHandle — `*SDL_Window` cast to i64.
+    ///   wOut, hOut    — 1-element i32 arrays to receive the
+    ///                  width / height.
+    fn glGetDrawableSize(windowHandle: i64, wOut: i32[], hOut: i32[]) {
+        let pw: *i32 = wOut
+        let ph: *i32 = hOut
+        SDL_GL_GetDrawableSize(windowHandle as *SDL_Window, pw, ph)
+    }
+
+    /// Present the back buffer to the screen. Call once per
+    /// rendered frame.
+    fn glSwapWindow(windowHandle: i64) {
+        SDL_GL_SwapWindow(windowHandle as *SDL_Window)
+    }
+
+    /// Destroy a GL context.
+    fn glDeleteContext(context: i64) {
+        if context != 0 {
+            SDL_GL_DeleteContext(context as *SDL_GLContext)
+        }
     }
 }
