@@ -4006,7 +4006,22 @@ fn emit_print_optional(
     b.switch_to_block(some_block);
     b.seal_block(some_block);
     emit_print_literal(b, lc, "some(");
-    emit_print_value(b, lc, v, inner, span)?;
+    // Heap inner: `v` IS the inner pointer (no box layer).
+    // Primitive inner: `v` is a `Box<[rc | payload]>` — load the
+    // payload from the box's data slot (mirrors the reverse of
+    // `some(<prim>)` lowering, which stores at this same offset).
+    let inner_v = if inner.is_heap() {
+        v
+    } else {
+        let cl = inner.cl().expect("primitive inner has cranelift type");
+        b.ins().load(
+            cl,
+            MemFlags::trusted(),
+            v,
+            crate::runtime::OPT_PRIM_PAYLOAD_OFFSET,
+        )
+    };
+    emit_print_value(b, lc, inner_v, inner, span)?;
     emit_print_literal(b, lc, ")");
     b.ins().jump(merge, &[]);
 
