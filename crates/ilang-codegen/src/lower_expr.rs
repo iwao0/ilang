@@ -1584,12 +1584,11 @@ pub(crate) fn lower_expr(
                 let mut arg_vals = Vec::with_capacity(args.len() + 1);
                 arg_vals.push(closure_ptr);
                 for (i, a) in args.iter().enumerate() {
-                    let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
-                        CodegenError::Unsupported {
+                    let (av, at) = lower_value_with_target(b, lc, a, sig.params[i])?
+                        .ok_or_else(|| CodegenError::Unsupported {
                             what: "argument is unit".into(),
                             span: a.span,
-                        }
-                    })?;
+                        })?;
                     let coerced = coerce(b, (av, at), sig.params[i], a.span)?;
                     emit_bind_retain(b, lc, &a.kind, at, sig.params[i], coerced);
                     arg_vals.push(coerced);
@@ -1756,12 +1755,11 @@ pub(crate) fn lower_expr(
                         arg_vals.push(addr);
                         continue;
                     }
-                    let (av, at) = lower_expr(b, lc, a)?.ok_or_else(|| {
-                        CodegenError::Unsupported {
+                    let (av, at) = lower_value_with_target(b, lc, a, param_tys[i])?
+                        .ok_or_else(|| CodegenError::Unsupported {
                             what: "argument is unit".into(),
                             span: a.span,
-                        }
-                    })?;
+                        })?;
                     let coerced = coerce(b, (av, at), param_tys[i], a.span)?;
                     emit_bind_retain(b, lc, &a.kind, at, param_tys[i], coerced);
                     if is_native && matches!(param_tys[i], JitTy::Str) {
@@ -3326,6 +3324,87 @@ fn lower_if_let(
 /// Used by `let a: T[] = [...]` so the runtime layout matches the
 /// declared element width even when the literal would naturally pick
 /// a different (wider) type.
+/// Lower a value expression that flows into a slot with a known
+/// JIT type (`target`). Identical to `lower_expr` except for the
+/// empty-array-literal case: when `value` is `[]` and `target` is
+/// `JitTy::Array(_)`, route through `lower_array_literal` so the
+/// element type comes from the target slot. Without this hint
+/// every `[]` flowing into a typed position (fn arg, tuple element,
+/// `some([])`, etc.) errors with "JIT array literal must have at
+/// least one element".
+pub(crate) fn lower_value_with_target(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    value: &Expr,
+    target: JitTy,
+) -> Result<Option<TV>, CodegenError> {
+    // Empty array literal flowing into a typed `T[]` slot: feed
+    // the element type from the target so the layout matches.
+    if let (ExprKind::Array(elements), JitTy::Array(arr_id)) = (&value.kind, target) {
+        if elements.is_empty() {
+            let elem_jty = lc.array_kinds[arr_id as usize].elem;
+            return Ok(Some(lower_array_literal(
+                b, lc, elements, elem_jty, value.span,
+            )?));
+        }
+    }
+    // `some(<empty array literal>)` flowing into `T[]?`: peel the
+    // Optional and recurse so the inner literal sees the target's
+    // element type. Heap inner: the pointer is the value;
+    // primitive inner is irrelevant here (only triggers for Array).
+    if let (ExprKind::Some(inner), JitTy::Optional(opt_id)) = (&value.kind, target) {
+        let inner_jty = lc.optional_inners[opt_id as usize];
+        if matches!(inner_jty, JitTy::Array(_))
+            && matches!(&inner.kind, ExprKind::Array(es) if es.is_empty())
+        {
+            let lowered = lower_value_with_target(b, lc, inner, inner_jty)?
+                .ok_or_else(|| CodegenError::Unsupported {
+                    what: "some(...) on unit".into(),
+                    span: value.span,
+                })?;
+            return Ok(Some((lowered.0, JitTy::Optional(opt_id))));
+        }
+    }
+    // Tuple literal flowing into a typed `(T1, T2, ...)` slot:
+    // lower each element with its target so an empty array
+    // element sees the right elem type. Build the tuple inline
+    // here (mirrors the regular Tuple-arm in lower_expr but with
+    // a per-element target).
+    if let (ExprKind::Tuple(elements), JitTy::Tuple(tuple_id)) =
+        (&value.kind, target)
+    {
+        let kind = lc.tuple_kinds[tuple_id as usize].clone();
+        if elements.len() == kind.elems.len() {
+            // Lower each element targeted at the matching slot's
+            // JitTy so empty array literals get the elem hint.
+            let mut vals: Vec<(TV, bool)> = Vec::with_capacity(elements.len());
+            for (el, &slot_jty) in elements.iter().zip(kind.elems.iter()) {
+                let v = lower_value_with_target(b, lc, el, slot_jty)?
+                    .ok_or_else(|| CodegenError::Unsupported {
+                        what: "tuple element is unit".into(),
+                        span: el.span,
+                    })?;
+                vals.push((v, is_aliased_heap_source(&el.kind)));
+            }
+            let size_v = b.ins().iconst(I64, kind.size as i64);
+            let drop_fn_ptr = crate::drops::tuple_drop_fn_ptr(b, lc, tuple_id);
+            let zero_vt = b.ins().iconst(I64, 0);
+            let alloc_ref = lc.module.declare_func_in_func(lc.alloc_object_id, b.func);
+            let call = b.ins().call(alloc_ref, &[size_v, drop_fn_ptr, zero_vt]);
+            let ptr = b.inst_results(call)[0];
+            for (((val, vt), aliased), &offset) in vals.iter().zip(kind.offsets.iter()) {
+                let _ = vt.cl().expect("non-unit tuple element");
+                if vt.is_heap() && *aliased {
+                    crate::arc::emit_retain_heap(b, lc, *val, *vt);
+                }
+                b.ins().store(MemFlags::trusted(), *val, ptr, offset as i32);
+            }
+            return Ok(Some((ptr, JitTy::Tuple(tuple_id))));
+        }
+    }
+    lower_expr(b, lc, value)
+}
+
 pub(crate) fn lower_array_literal(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,

@@ -9,7 +9,7 @@ use cranelift_module::Module;
 use crate::arc::{emit_bind_retain, emit_release_heap, emit_retain_heap, is_aliased_heap_source};
 use crate::env::{class_ids_from, enum_ids_from, LowerCtx};
 use crate::error::CodegenError;
-use crate::lower_expr::{lower_array_literal, lower_expr};
+use crate::lower_expr::{lower_array_literal, lower_expr, lower_value_with_target};
 use crate::lower_op::coerce;
 use crate::ty::{JitTy, TV};
 
@@ -46,9 +46,31 @@ pub(crate) fn lower_stmt(
             } else {
                 None
             };
+            // Convert the annotation (if any) to a JitTy and use
+            // `lower_value_with_target` so empty array literals
+            // wrapped inside `some(...)` see their element type
+            // from the let's annotation.
+            let target_jty: Option<JitTy> = match ty.as_ref() {
+                Some(t) => Some(JitTy::from_ast(
+                    t,
+                    s.span,
+                    &class_ids_from(lc),
+                    &enum_ids_from(lc),
+                    lc.enum_layouts,
+                    lc.array_kinds,
+                    lc.optional_inners,
+                    lc.fn_signatures,
+                    lc.map_kinds,
+                    lc.tuple_kinds,
+                )?),
+                None => None,
+            };
             let lowered_or_raw = match lowered {
                 Some(tv) => Some(tv),
-                None => lower_expr(b, lc, value)?,
+                None => match target_jty {
+                    Some(t) => lower_value_with_target(b, lc, value, t)?,
+                    None => lower_expr(b, lc, value)?,
+                },
             };
             // Unit RHS (`let x = loop {...}`, `let x = console.log(...)`,
             // `let x = if true {} else {}`, etc.): the RHS produces no
