@@ -49,6 +49,14 @@ pub struct Interpreter {
     /// fallback after `vars` (the per-call local scope) misses.
     globals: HashMap<Symbol, Value>,
     vars: HashMap<Symbol, Value>,
+    /// Captured-variable cells that the closure currently being
+    /// invoked is reading and writing through. Searched after
+    /// `vars` (so a same-named param shadows a capture) and before
+    /// `globals`. Set by `invoke_closure` / restored on return.
+    /// A write-back through one of these cells is what makes
+    /// `let n = 0; fn() { n = n + 1 }` actually persist across
+    /// repeated invocations of the same closure.
+    captured_cells: HashMap<Symbol, Rc<RefCell<Value>>>,
     this: Option<ObjectRef>,
     depth: usize,
     /// Per-`EnumCtor` call site → inferred type args. Forwarded
@@ -372,6 +380,9 @@ impl Interpreter {
             ExprKind::Var(name) => {
                 if let Some(v) = self.vars.get(name) {
                     return Ok(v.clone());
+                }
+                if let Some(cell) = self.captured_cells.get(name) {
+                    return Ok(cell.borrow().clone());
                 }
                 if let Some(v) = self.globals.get(name) {
                     return Ok(v.clone());
@@ -1148,6 +1159,11 @@ impl Interpreter {
                     }
                     return Ok(Value::Unit);
                 }
+                if let Some(cell) = self.captured_cells.get(target).cloned() {
+                    let old = std::mem::replace(&mut *cell.borrow_mut(), v);
+                    self.release(old);
+                    return Ok(Value::Unit);
+                }
                 if self.globals.contains_key(target) {
                     let old = self.globals.insert(target.clone(), v);
                     if let Some(o) = old {
@@ -1238,9 +1254,17 @@ impl Interpreter {
             ExprKind::FnExpr { params, ret, body } => {
                 // Build a synthetic FnDecl on the fly. Free variables
                 // in `body` (referenced but not declared inside, and
-                // not the closure's own params) are snapshot-captured
-                // by value: the closure value bundles a `HashMap` of
-                // their current bindings.
+                // not the closure's own params) are captured into
+                // fresh `Rc<RefCell<Value>>` cells initialised from
+                // the variable's current value. Each closure built
+                // here gets its OWN cell, so its mutations are private
+                // to that closure (outer `let n = 0; fn() {...}` →
+                // calling the closure repeatedly persists the cell's
+                // value across calls). When the body itself is
+                // currently running INSIDE another closure that
+                // already holds a cell for the same name (i.e. a
+                // nested closure), we share the cell so the inner's
+                // writes are visible to the outer body too.
                 let decl = ilang_ast::FnDecl {
                     attrs: Box::new([]),
                     name: "".into(),
@@ -1255,12 +1279,14 @@ impl Interpreter {
                     params.iter().map(|p| p.name.clone()).collect();
                 let mut frees: std::collections::HashSet<Symbol> = Default::default();
                 collect_free_vars_in_block(body, &mut bound, &mut frees);
-                let mut env: HashMap<Symbol, Value> = HashMap::new();
+                let mut env: HashMap<Symbol, Rc<RefCell<Value>>> = HashMap::new();
                 for name in frees {
-                    if let Some(v) = self.vars.get(&name) {
-                        env.insert(name, v.clone());
+                    if let Some(existing) = self.captured_cells.get(&name) {
+                        env.insert(name, existing.clone());
+                    } else if let Some(v) = self.vars.get(&name) {
+                        env.insert(name, Rc::new(RefCell::new(v.clone())));
                     } else if let Some(v) = self.globals.get(&name) {
-                        env.insert(name, v.clone());
+                        env.insert(name, Rc::new(RefCell::new(v.clone())));
                     }
                 }
                 // Snapshot the lexical method context (if any). The
@@ -1959,7 +1985,7 @@ impl Interpreter {
     fn invoke_fn_value(
         &mut self,
         decl: &ilang_ast::FnDecl,
-        captures: &HashMap<Symbol, Value>,
+        captures: &HashMap<Symbol, Rc<RefCell<Value>>>,
         this_ctx: Option<&crate::value::MethodCtx>,
         args: &[Expr],
         span: Span,
@@ -1979,7 +2005,7 @@ impl Interpreter {
     fn invoke_closure(
         &mut self,
         decl: &ilang_ast::FnDecl,
-        captures: &HashMap<Symbol, Value>,
+        captures: &HashMap<Symbol, Rc<RefCell<Value>>>,
         this_ctx: Option<&crate::value::MethodCtx>,
         evaluated: Vec<Value>,
         span: Span,
@@ -1997,22 +2023,30 @@ impl Interpreter {
         }
         self.depth += 1;
         let saved_vars = std::mem::take(&mut self.vars);
+        // Swap in this closure's cells. Reads/writes of captured
+        // names during the body go through `captured_cells`; on
+        // return the prior table (which belongs to the outer
+        // call frame) is restored.
+        let mut new_cells: HashMap<Symbol, Rc<RefCell<Value>>> = captures.clone();
+        // A param with the same name as a capture shadows the cell
+        // — its value comes from the call site, not from the
+        // closure's own state.
+        for p in decl.params.iter() {
+            new_cells.remove(&p.name);
+        }
+        let saved_cells = std::mem::replace(&mut self.captured_cells, new_cells);
         let (new_this, new_this_class) = match this_ctx {
             Some(ctx) => (Some(ctx.this.clone()), Some(ctx.this_class.clone())),
             None => (None, None),
         };
         let saved_this = std::mem::replace(&mut self.this, new_this);
         let saved_this_class = std::mem::replace(&mut self.this_class, new_this_class);
-        // Captures land first, then params (so param shadowing
-        // wins).
-        for (k, v) in captures.iter() {
-            self.vars.insert(k.clone(), v.clone());
-        }
         for (p, v) in decl.params.iter().zip(evaluated.into_iter()) {
             self.vars.insert(p.name.clone(), cast_value(v, &p.ty));
         }
         let result = self.eval_block(&decl.body);
         self.vars = saved_vars;
+        self.captured_cells = saved_cells;
         self.this = saved_this;
         self.this_class = saved_this_class;
         self.depth -= 1;

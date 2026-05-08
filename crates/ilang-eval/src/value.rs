@@ -76,10 +76,17 @@ pub enum Value {
         type_args: Vec<ilang_ast::Type>,
     },
     /// First-class function value. Wraps a `FnDecl` (named or
-    /// anonymous) plus an optional captured environment. The
-    /// environment is a snapshot of every free variable in the body
-    /// at the moment the closure was created (capture-by-value:
-    /// later mutations to the outer binding aren't visible here).
+    /// anonymous) plus an optional captured environment. Every free
+    /// variable in the body is captured into a `Rc<RefCell<Value>>`
+    /// at creation time — the cell starts as a snapshot of the outer
+    /// binding's current value, but it is the closure's own private
+    /// storage thereafter: outer rebinds / assigns don't reach in,
+    /// and the closure body can mutate the cell so that mutation
+    /// persists across subsequent invocations of the same closure.
+    /// Multiple closures built in the same scope each get fresh
+    /// cells; nested closures (built inside a closure body that
+    /// already capture `n`) share the cell so the inner sees the
+    /// outer's writes.
     /// `this_ctx` is the lexical `(this, this_class)` at construction
     /// time when the closure was built inside a method body — the
     /// type checker permits `this` / `super` references inside such a
@@ -89,7 +96,7 @@ pub enum Value {
     /// Cheap to clone — both Rcs.
     Fn(
         Rc<ilang_ast::FnDecl>,
-        Rc<HashMap<Symbol, Value>>,
+        Rc<HashMap<Symbol, Rc<RefCell<Value>>>>,
         Option<Rc<MethodCtx>>,
     ),
     /// Built-in `Map<K, V>`. Keys are restricted to hashable
