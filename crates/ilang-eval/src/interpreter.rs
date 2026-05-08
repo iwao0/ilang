@@ -2013,6 +2013,26 @@ impl Interpreter {
                     }
                 }
             }
+            Value::Fn(_, captures, _) => {
+                // Closure captures hold `Rc<RefCell<Value>>` cells.
+                // When the closure is the last owner, walk each
+                // captured cell and recurse on the value so any
+                // captured class instances see their `deinit` fire.
+                // Mirrors the JIT's per-wrapper closure_drop_fn.
+                if Rc::strong_count(&captures) != 1 {
+                    return;
+                }
+                if let Some(map) = Rc::into_inner(captures) {
+                    for (_, cell) in map {
+                        if Rc::strong_count(&cell) != 1 {
+                            continue;
+                        }
+                        if let Some(refcell) = Rc::into_inner(cell) {
+                            self.release(refcell.into_inner());
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
