@@ -144,6 +144,12 @@ pub(crate) struct LowerCtx<'a> {
     pub map_get_or_null_id: FuncId,
     pub map_keys_to_array_id: FuncId,
     pub map_sorted_keys_id: FuncId,
+    pub print_object_dyn_id: FuncId,
+    /// Per-class print fn FuncIds, parallel to `class_layouts`. Used
+    /// by `emit_print_object` to compute the static-class fallback fn
+    /// addr (passed to `print_object_dyn`) and by the per-class print
+    /// fn body emitter.
+    pub class_print_fns: &'a [FuncId],
     pub map_values_to_array_id: FuncId,
     pub optional_box_new_id: FuncId,
     pub optional_box_retain_id: FuncId,

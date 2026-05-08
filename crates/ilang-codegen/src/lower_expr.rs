@@ -3858,7 +3858,33 @@ fn emit_print_literal(b: &mut FunctionBuilder, lc: &mut LowerCtx, s: &str) {
 /// interpreter's `JitValue` / `Value::Object` Display. Fields are
 /// printed in alphabetical order so the output is stable. An object
 /// with no fields prints as `ClassName {}`.
-fn emit_print_object(
+/// Emit the dispatch-style print: load the obj's vtable and route
+/// through the runtime helper, which looks up the dynamic class's
+/// per-class print fn (or falls back to the static class's). This
+/// preserves interp parity for upcasts (`let a: A = new B()` prints
+/// `B { ... }` with B's fields, not `A { ... }`).
+pub(crate) fn emit_print_object(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    obj: Value,
+    class_id: u32,
+    _span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    let static_fid = lc.class_print_fns[class_id as usize];
+    let static_func_ref = lc.module.declare_func_in_func(static_fid, b.func);
+    let static_addr = b.ins().func_addr(I64, static_func_ref);
+    let dispatch_ref = lc
+        .module
+        .declare_func_in_func(lc.print_object_dyn_id, b.func);
+    b.ins().call(dispatch_ref, &[obj, static_addr]);
+    Ok(())
+}
+
+/// Emit the per-class static layout print (`ClassName { f0: v0, ... }`).
+/// Used as the body of each per-class print fn — recursing into
+/// `emit_print_value` for fields means nested object fields go back
+/// through `emit_print_object`'s dynamic dispatch.
+pub(crate) fn emit_print_object_static(
     b: &mut FunctionBuilder,
     lc: &mut LowerCtx,
     obj: Value,
@@ -3872,6 +3898,14 @@ fn emit_print_object(
         .fields
         .iter()
         .map(|(name, &(offset, fty))| (*name, offset, fty))
+        // Embedded `T[N]` / FlexArray fields live inline in the
+        // allocation and don't have a printable value type
+        // (see `emit_print_value`'s EmbeddedArray/FlexArray arm,
+        // which errors). They only appear in `@extern(C) struct`
+        // classes — skip them so the generated per-class print fn
+        // body is well-formed even if the user never prints such
+        // an object.
+        .filter(|(_, _, fty)| !matches!(fty, JitTy::EmbeddedArray(_) | JitTy::FlexArray(_)))
         .collect();
     // Sort by Symbol (intern id), matching the interpreter's
     // `Value::Object` formatter which sorts the field HashMap's

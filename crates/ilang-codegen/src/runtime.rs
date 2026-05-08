@@ -221,6 +221,59 @@ pub(crate) fn register_fn_name(fn_ptr: i64, name: String) {
     }
 }
 
+// ─── per-class print-fn dispatch for `console.log(obj)` parity ──────
+// `console.log` on an upcast receiver (`let a: A = new B()`) must
+// print the dynamic class's name and fields, matching the
+// interpreter. Each class gets a JIT-emitted print fn whose
+// resolved address is registered here (keyed by the class's vtable
+// pointer); the codegen emits a dispatch call that loads the obj's
+// vtable and looks the print fn up. A null vtable falls back to the
+// static class's fn ptr passed by the codegen.
+
+fn class_print_fn_registry() -> &'static std::sync::Mutex<std::collections::HashMap<i64, i64>> {
+    static REG: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<i64, i64>>,
+    > = std::sync::OnceLock::new();
+    REG.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub(crate) fn register_class_print_fn(vtable_ptr: i64, fn_ptr: i64) {
+    if let Ok(mut m) = class_print_fn_registry().lock() {
+        m.insert(vtable_ptr, fn_ptr);
+    }
+}
+
+/// Dispatch `console.log(obj)` to the dynamic class's print fn.
+/// `fallback_fn_ptr` is the static class's print fn — used when
+/// the obj's vtable is null (trivial classes that opted out of a
+/// vtable; not currently the case in this JIT, every class has one)
+/// or the vtable isn't registered (defence in depth).
+pub(crate) extern "C" fn ilang_jit_print_object_dyn(obj: i64, fallback_fn_ptr: i64) {
+    if obj == 0 {
+        // Defensive — ilang doesn't expose null object pointers, but
+        // print should never crash.
+        print!("<null>");
+        return;
+    }
+    let vtable = unsafe { *((obj - 8) as *const i64) };
+    let resolved = if vtable != 0 {
+        class_print_fn_registry()
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&vtable).copied())
+            .unwrap_or(fallback_fn_ptr)
+    } else {
+        fallback_fn_ptr
+    };
+    if resolved == 0 {
+        // No fn registered — should never happen post-finalize.
+        print!("<obj@{obj:x}>");
+        return;
+    }
+    let f: extern "C" fn(i64) = unsafe { std::mem::transmute(resolved) };
+    f(obj);
+}
+
 pub(crate) extern "C" fn ilang_jit_print_fn(closure_ptr: i64) {
     if closure_ptr == 0 {
         print!("<fn>");

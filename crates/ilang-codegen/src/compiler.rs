@@ -260,6 +260,27 @@ fn jit_run_inner(
     //     their function pointers in the allocation header. Bodies are
     //     defined later (need user methods to be defined first).
     crate::drops::declare_class_drops(&mut compiler)?;
+    // 2b'. Declare per-class print fns (one per class). Bodies are
+    //      defined inside `define_main` where a LowerCtx exists; the
+    //      FuncIds are needed up-front so user fn bodies that call
+    //      `console.log(obj)` can embed the static fallback fn-addr.
+    {
+        use cranelift::prelude::AbiParam;
+        use cranelift_codegen::ir::types::I64;
+        use cranelift_module::Linkage;
+        let n = compiler.class_layouts.len();
+        compiler.class_print_fns = Vec::with_capacity(n);
+        for i in 0..n {
+            let symbol = format!("__print_class_{}", compiler.class_layouts[i].name);
+            let mut sig = compiler.module.make_signature();
+            sig.params.push(AbiParam::new(I64));
+            let id = compiler
+                .module
+                .declare_function(&symbol, Linkage::Local, &sig)
+                .map_err(|e| CodegenError::Module(e.to_string()))?;
+            compiler.class_print_fns.push(id);
+        }
+    }
     // 2c. Build RTTI `TypeMeta` table. Must run before
     //     `allocate_vtables` so the latter can refer to per-class
     //     TypeMeta addresses by index. Stable storage in
@@ -461,6 +482,12 @@ pub(crate) struct JitCompiler {
     pub(crate) print_str: FuncId,
     pub(crate) print_type_ref: FuncId,
     pub(crate) print_fn: FuncId,
+    /// Runtime helper that dispatches `console.log(obj)` to the
+    /// dynamic class's per-class print fn (looked up by the obj's
+    /// vtable pointer in a process-global side table populated post-
+    /// finalize). Falls back to the static class's print fn when
+    /// the vtable isn't registered.
+    pub(crate) print_object_dyn_id: FuncId,
     pub(crate) type_is_subtype: FuncId,
     pub(crate) type_lookup: FuncId,
     pub(crate) i64_to_string: FuncId,
@@ -528,6 +555,13 @@ pub(crate) struct JitCompiler {
     /// until the compiler is dropped.
     pub(crate) interned_strings: Vec<Box<StringRc>>,
     /// Per-class drop wrappers (parallel to `class_layouts`). Declared
+    /// One JIT-emitted print fn per class, used by `emit_print_object`'s
+    /// dynamic dispatch. Declared up-front (after class layouts are
+    /// finalized) so `console.log(obj)` lowering can embed a fallback
+    /// fn-addr; bodies are defined inside `define_main` where a
+    /// LowerCtx is in scope, and resolved fn addresses get registered
+    /// with the runtime side table during `finalize`.
+    pub(crate) class_print_fns: Vec<FuncId>,
     /// during `declare_class_drops` and defined later, after methods.
     /// `None` indicates no wrapper is needed (no deinit, no heap fields).
     pub(crate) class_drops: Vec<Option<FuncId>>,
@@ -995,6 +1029,10 @@ impl JitCompiler {
             crate::runtime::ilang_jit_print_fn as *const u8,
         );
         builder.symbol(
+            "ilang_jit_print_object_dyn",
+            crate::runtime::ilang_jit_print_object_dyn as *const u8,
+        );
+        builder.symbol(
             "ilang_jit_type_is_subtype",
             crate::runtime::ilang_jit_type_is_subtype as *const u8,
         );
@@ -1162,6 +1200,7 @@ impl JitCompiler {
         let print_str = declare_import(&mut module, "ilang_jit_print_str", &[I64], None)?;
         let print_type_ref = declare_import(&mut module, "ilang_jit_print_type_ref", &[I64], None)?;
         let print_fn = declare_import(&mut module, "ilang_jit_print_fn", &[I64], None)?;
+        let print_object_dyn = declare_import(&mut module, "ilang_jit_print_object_dyn", &[I64, I64], None)?;
         let type_is_subtype =
             declare_import(&mut module, "ilang_jit_type_is_subtype", &[I64, I64], Some(I8))?;
         let type_lookup =
@@ -1343,6 +1382,7 @@ impl JitCompiler {
             print_str,
             print_type_ref,
             print_fn,
+            print_object_dyn_id: print_object_dyn,
             type_is_subtype,
             type_lookup,
             i64_to_string,
@@ -1405,6 +1445,7 @@ impl JitCompiler {
             panic_enum_oor_id,
             interned_strings: Vec::new(),
             class_drops: Vec::new(),
+            class_print_fns: Vec::new(),
             array_drops: HashMap::new(),
             enum_drops: HashMap::new(),
             loop_break_types: HashMap::new(),
@@ -2191,6 +2232,8 @@ impl JitCompiler {
             map_get_or_null_id: self.map_get_or_null_id,
             map_keys_to_array_id: self.map_keys_to_array_id,
             map_sorted_keys_id: self.map_sorted_keys_id,
+            print_object_dyn_id: self.print_object_dyn_id,
+            class_print_fns: &self.class_print_fns,
             map_values_to_array_id: self.map_values_to_array_id,
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,
@@ -2459,6 +2502,8 @@ impl JitCompiler {
             map_get_or_null_id: self.map_get_or_null_id,
             map_keys_to_array_id: self.map_keys_to_array_id,
             map_sorted_keys_id: self.map_sorted_keys_id,
+            print_object_dyn_id: self.print_object_dyn_id,
+            class_print_fns: &self.class_print_fns,
             map_values_to_array_id: self.map_values_to_array_id,
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,
@@ -2520,6 +2565,50 @@ impl JitCompiler {
             closure_capture_env: None,
             current_class: None,
         };
+        // Define each per-class print fn body now that a LowerCtx is
+        // in scope. Each body simply calls
+        // `emit_print_object_static`, which prints
+        // `ClassName { fields... }` and recurses through
+        // `emit_print_value` for each field — so nested object fields
+        // route through the dynamic dispatch (and arrive back at the
+        // appropriate per-class print fn for their actual class).
+        // Uses a fresh `Context` + `FunctionBuilder` (mirroring the
+        // `ensure_trampoline` pattern) so the OUTER `__main` ctx is
+        // untouched.
+        {
+            let n = lc.class_print_fns.len();
+            for class_id in 0..n {
+                let print_fid = lc.class_print_fns[class_id];
+                let mut ctx = lc.module.make_context();
+                let mut sig = lc.module.make_signature();
+                sig.params.push(cranelift::prelude::AbiParam::new(I64));
+                ctx.func.signature = sig;
+                let mut bctx = cranelift::prelude::FunctionBuilderContext::new();
+                {
+                    let mut tb = cranelift::prelude::FunctionBuilder::new(
+                        &mut ctx.func, &mut bctx,
+                    );
+                    let entry = tb.create_block();
+                    tb.append_block_params_for_function_params(entry);
+                    tb.switch_to_block(entry);
+                    tb.seal_block(entry);
+                    let obj = tb.block_params(entry)[0];
+                    crate::lower_expr::emit_print_object_static(
+                        &mut tb,
+                        &mut lc,
+                        obj,
+                        class_id as u32,
+                        ilang_ast::Span::dummy(),
+                    )?;
+                    tb.ins().return_(&[]);
+                    tb.finalize();
+                }
+                lc.module
+                    .define_function(print_fid, &mut ctx)
+                    .map_err(|e| CodegenError::Module(e.to_string()))?;
+                lc.module.clear_context(&mut ctx);
+            }
+        }
         // __main prologue: allocate an empty array for every
         // array-typed static field so a read before the user's
         // first explicit assignment still hands back a real (rc=1,
@@ -2697,6 +2786,21 @@ impl JitCompiler {
         for (name, fid) in trampoline_entries {
             let addr = self.module.get_finalized_function(fid) as i64;
             crate::runtime::register_fn_name(addr, name.as_str().to_string());
+        }
+        // Register `(vtable_ptr -> per-class print fn addr)` so the
+        // runtime `print_object_dyn` helper can dispatch
+        // `console.log(obj)` to the dynamic class's print fn. Every
+        // class has a non-zero vtable in this JIT (vtables always have
+        // at least one slot for TypeMeta), so coverage is total.
+        let print_entries: Vec<(i64, FuncId)> = self
+            .class_print_fns
+            .iter()
+            .enumerate()
+            .map(|(i, fid)| (self.class_vtable_addrs[i], *fid))
+            .collect();
+        for (vtable_addr, fid) in print_entries {
+            let fn_addr = self.module.get_finalized_function(fid) as i64;
+            crate::runtime::register_class_print_fn(vtable_addr, fn_addr);
         }
         Ok(())
     }
