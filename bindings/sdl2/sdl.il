@@ -15,6 +15,7 @@
 @export use sdl_surface
 @export use sdl_filesystem
 @export use sdl_rwops
+@export use sdl_messagebox
 // `sdl_ttf` is intentionally NOT re-exported here — SDL2_ttf is a
 // separate library (`libSDL2_ttf`) that may not be installed on
 // every system. Including it in the umbrella would force the JIT

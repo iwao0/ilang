@@ -62,6 +62,17 @@ enum HintPriority: i32 {
     override = 2
 }
 
+// ─── SDL_PowerState (SDL_power.h) ─────────────────────────────────
+
+/// Battery / power-source state returned by `getPowerInfo`.
+enum PowerState: i32 {
+    unknown    = 0   // can't determine
+    onBattery  = 1   // plugged out, running on battery
+    noBattery  = 2   // plugged in, no battery present
+    charging   = 3   // plugged in, battery charging
+    charged    = 4   // plugged in, battery full
+}
+
 // ─── SDL_HINT_* names ────────────────────────────────────────────
 // String constants matching the C `SDL_HINT_*` macros. Pass these
 // to `setHint` / `getHint`. The full list is large; the entries
@@ -261,6 +272,40 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
     @lib("SDL2") fn SDL_GetCPUCount(): i32
     @lib("SDL2") fn SDL_GetSystemRAM(): i32
     @lib("SDL2") fn SDL_GetCPUCacheLineSize(): i32
+
+    // ─── SDL_rect.h utilities ────────────────────────────────────
+    @lib("SDL2") fn SDL_HasIntersection(
+        a: *const Rect, b: *const Rect
+    ): i32
+    @lib("SDL2") fn SDL_IntersectRect(
+        a: *const Rect, b: *const Rect, result: *Rect
+    ): i32
+    @lib("SDL2") fn SDL_UnionRect(
+        a: *const Rect, b: *const Rect, result: *Rect
+    )
+    // SDL_RectEquals and SDL_PointInRect are `static SDL_FORCE_INLINE`
+    // in SDL_rect.h with no real exported symbol — we reimplement
+    // them in ilang below as `rectsEqual` / `pointInRect`.
+    @lib("SDL2") fn SDL_EnclosePoints(
+        points: *const Point, count: i32,
+        clip: *const Rect, result: *Rect
+    ): i32
+
+    // ─── SDL_power.h ─────────────────────────────────────────────
+    @lib("SDL2") fn SDL_GetPowerInfo(secs: *i32, pct: *i32): i32
+
+    // ─── SDL_misc.h ──────────────────────────────────────────────
+    @lib("SDL2") fn SDL_OpenURL(url: *const char): i32
+
+    // ─── SDL_locale.h ────────────────────────────────────────────
+    /// SDL_Locale entry. SDL hands back a malloc'd null-terminated
+    /// array of these (caller frees with `SDL_free`). `language`
+    /// is always non-null; `country` may be null.
+    struct SDL_Locale {
+        language: i64   // *const char
+        country:  i64   // *const char (may be 0)
+    }
+    @lib("SDL2") fn SDL_GetPreferredLocales(): *SDL_Locale
 
     // ─── friendlier ilang wrappers ───────────────────────────────
 
@@ -482,5 +527,125 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
     ///   structs to avoid false sharing.
     fn getCPUCacheLineSize(): i32 {
         SDL_GetCPUCacheLineSize()
+    }
+
+    /// Test whether two rectangles overlap.
+    fn rectsIntersect(a: Rect, b: Rect): bool {
+        SDL_HasIntersection(a, b) != 0
+    }
+
+    /// Compute `a ∩ b`. The intersection is written into a fresh
+    /// `Rect` returned by the helper.
+    ///
+    /// Returns:
+    ///   `(rect, hadIntersection)` packed as a one-element array
+    ///   plus a bool isn't ergonomic in ilang yet — instead the
+    ///   helper returns the rect with `(w, h) == (0, 0)` when there
+    ///   was no overlap.
+    fn intersectRects(a: Rect, b: Rect): Rect {
+        let r = new Rect()
+        SDL_IntersectRect(a, b, r)
+        r
+    }
+
+    /// Compute the smallest rectangle that contains both `a` and
+    /// `b`.
+    fn unionRects(a: Rect, b: Rect): Rect {
+        let r = new Rect()
+        SDL_UnionRect(a, b, r)
+        r
+    }
+
+    fn rectsEqual(a: Rect, b: Rect): bool {
+        a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h
+    }
+
+    /// True when `(p.x, p.y)` lies inside `r` (left/top inclusive,
+    /// right/bottom exclusive — same convention as SDL).
+    fn pointInRect(p: Point, r: Rect): bool {
+        p.x >= r.x && p.x < (r.x + r.w)
+            && p.y >= r.y && p.y < (r.y + r.h)
+    }
+
+    /// Compute the smallest rect enclosing `points`. When `clip`
+    /// is non-null, only points falling inside `clip` are
+    /// considered.
+    ///
+    /// Returns:
+    ///   the enclosing rect, or `(0, 0, 0, 0)` when no points
+    ///   matched.
+    fn enclosePoints(points: Point[], clip: Rect): Rect {
+        let r = new Rect()
+        let p: *Point = points
+        SDL_EnclosePoints(p, points.length as i32, clip, r)
+        r
+    }
+
+    /// Battery / power-source snapshot.
+    ///
+    /// Returns:
+    ///   `state` — one of `PowerState.*`.
+    ///   Pass `seconds` and `percent` as 1-element arrays to
+    ///   receive the remaining battery time (seconds, `-1` on
+    ///   unknown / no battery) and charge percent (0..100, `-1`
+    ///   when unknown).
+    fn getPowerInfo(seconds: i32[], percent: i32[]): PowerState {
+        let ps: *i32 = seconds
+        let pc: *i32 = percent
+        SDL_GetPowerInfo(ps, pc) as PowerState
+    }
+
+    /// Convenience: `getPowerInfo` that just returns the state.
+    fn getPowerState(): PowerState {
+        let s: i32[] = [0]
+        let p: i32[] = [0]
+        let ps: *i32 = s
+        let pp: *i32 = p
+        SDL_GetPowerInfo(ps, pp) as PowerState
+    }
+
+    /// Hand a URL to the OS — opens the user's default browser
+    /// (or mailto / file handler, depending on the scheme).
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure (call `getError()`).
+    fn openURL(url: string): i32 {
+        SDL_OpenURL(cstrFromString(url))
+    }
+
+    /// Read the user's preferred UI locales, in priority order.
+    ///
+    /// Returns:
+    ///   array of `"lang"` or `"lang_country"` strings (e.g.
+    ///   `"en_US"`, `"ja"`). Empty when SDL can't determine the
+    ///   locale.
+    fn getPreferredLocales(): string[] {
+        let head = SDL_GetPreferredLocales()
+        let out: string[] = []
+        if head as i64 == 0 { return out }
+        // Walk the SDL_Locale array; the terminator has both
+        // `language` and `country` set to NULL (i64 0).
+        let i: i64 = 0
+        let base: i64 = head as i64
+        loop {
+            let lang_ptr = readU64(base as *const void, i * 16) as i64
+            let country_ptr = readU64(base as *const void, i * 16 + 8) as i64
+            if lang_ptr == 0 && country_ptr == 0 { break }
+            let lang = if lang_ptr != 0 {
+                stringFromCstr(lang_ptr as *const char)
+            } else { "" }
+            let country = if country_ptr != 0 {
+                stringFromCstr(country_ptr as *const char)
+            } else { "" }
+            let entry = if country != "" {
+                lang + "_" + country
+            } else {
+                lang
+            }
+            out.push(entry)
+            i = i + 1
+        }
+        SDL_free(head as *const void)
+        out
     }
 }
