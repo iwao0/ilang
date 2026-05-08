@@ -3529,6 +3529,35 @@ impl TypeChecker {
                             continue;
                         }
                     }
+                    // Mixed-length nested arrays: `[[a, b], [c]]`
+                    // gives elements of type `T[2]` and `T[1]`. The
+                    // outer array doesn't care about the inner
+                    // length — drop the `fixed` marker and recurse
+                    // through the element type's common-ancestor
+                    // lift.
+                    if let (
+                        Type::Array { elem: ea, .. },
+                        Type::Array { elem: eb, .. },
+                    ) = (&elem_ty, &et) {
+                        let inner = if ea == eb {
+                            Some((**ea).clone())
+                        } else if let (
+                            Type::Object(ca),
+                            Type::Object(cb),
+                        ) = (ea.as_ref(), eb.as_ref())
+                        {
+                            self.common_ancestor(*ca, *cb).map(Type::Object)
+                        } else {
+                            None
+                        };
+                        if let Some(inner) = inner {
+                            elem_ty = Type::Array {
+                                elem: Box::new(inner),
+                                fixed: None,
+                            };
+                            continue;
+                        }
+                    }
                     return Err(TypeError::Mismatch {
                         expected: elem_ty.clone(),
                         got: et,

@@ -1986,6 +1986,33 @@ impl Interpreter {
                 }
             },
             Value::Some(boxed) => self.release(*boxed),
+            Value::Map(m) => {
+                // Map keys are MapKey (string / int / bool — no heap
+                // bookkeeping), but values can hold class instances
+                // whose `deinit` must run when the map drops. Mirror
+                // the JIT's per-Map drop wrapper, which releases each
+                // value before deallocating the map's storage.
+                if Rc::strong_count(&m) != 1 {
+                    return;
+                }
+                let entries = std::mem::take(&mut *m.borrow_mut());
+                for (_, v) in entries {
+                    self.release(v);
+                }
+            }
+            Value::Tuple(elems) => {
+                // Tuple is `Rc<Vec<Value>>`. When this binding holds
+                // the only reference, walk the elements and release
+                // any contained class instances.
+                if Rc::strong_count(&elems) != 1 {
+                    return;
+                }
+                if let Some(vec) = Rc::into_inner(elems) {
+                    for v in vec {
+                        self.release(v);
+                    }
+                }
+            }
             _ => {}
         }
     }
