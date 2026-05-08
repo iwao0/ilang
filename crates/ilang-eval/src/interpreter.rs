@@ -877,7 +877,7 @@ impl Interpreter {
                 }
                 if let Value::Map(m) = &v {
                     let m = m.clone();
-                    match method.as_str() {
+                    let result: Result<Value, RuntimeError> = match method.as_str() {
                         "get" => {
                             let kv = self.eval_expr(&args[0])?;
                             let key = crate::value::MapKey::from_value(&kv).ok_or_else(|| {
@@ -886,10 +886,10 @@ impl Interpreter {
                                     span: args[0].span,
                                 }
                             })?;
-                            return Ok(match m.borrow().get(&key) {
+                            Ok(match m.borrow().get(&key) {
                                 Some(v) => Value::Some(Box::new(v.clone())),
                                 None => Value::None,
-                            });
+                            })
                         }
                         "set" => {
                             let kv = self.eval_expr(&args[0])?;
@@ -903,7 +903,7 @@ impl Interpreter {
                             if let Some(old) = m.borrow_mut().insert(key, vv) {
                                 self.release(old);
                             }
-                            return Ok(Value::Unit);
+                            Ok(Value::Unit)
                         }
                         "has" => {
                             let kv = self.eval_expr(&args[0])?;
@@ -913,7 +913,7 @@ impl Interpreter {
                                     span: args[0].span,
                                 }
                             })?;
-                            return Ok(Value::Bool(m.borrow().contains_key(&key)));
+                            Ok(Value::Bool(m.borrow().contains_key(&key)))
                         }
                         "delete" => {
                             let kv = self.eval_expr(&args[0])?;
@@ -928,11 +928,9 @@ impl Interpreter {
                             if let Some(old) = removed {
                                 self.release(old);
                             }
-                            return Ok(Value::Bool(was_present));
+                            Ok(Value::Bool(was_present))
                         }
-                        "size" => {
-                            return Ok(Value::Int(m.borrow().len() as i64));
-                        }
+                        "size" => Ok(Value::Int(m.borrow().len() as i64)),
                         "keys" => {
                             let ks: Vec<Value> = m
                                 .borrow()
@@ -940,20 +938,26 @@ impl Interpreter {
                                 .cloned()
                                 .map(|k| k.into_value())
                                 .collect();
-                            return Ok(Value::Array(Rc::new(RefCell::new(ks))));
+                            Ok(Value::Array(Rc::new(RefCell::new(ks))))
                         }
                         "values" => {
                             let vs: Vec<Value> = m.borrow().values().cloned().collect();
-                            return Ok(Value::Array(Rc::new(RefCell::new(vs))));
+                            Ok(Value::Array(Rc::new(RefCell::new(vs))))
                         }
-                        _ => {
-                            return Err(RuntimeError::UnknownMethod {
-                                class: "Map".into(),
-                                method: *method,
-                                span,
-                            });
-                        }
+                        _ => Err(RuntimeError::UnknownMethod {
+                            class: "Map".into(),
+                            method: *method,
+                            span,
+                        }),
+                    };
+                    drop(m);
+                    // Fresh map (`make_map().keys()`) — release the
+                    // receiver after the method call so its values'
+                    // `deinit`s fire, matching the JIT.
+                    if !is_aliased_heap_source(&obj.kind) {
+                        self.release(v);
                     }
+                    return result;
                 }
                 if let Value::Str(s) = &v {
                     let s = s.clone();
@@ -1207,6 +1211,13 @@ impl Interpreter {
                 self.vars.remove(var);
                 if let Some(p) = prev {
                     self.vars.insert(var.clone(), p);
+                }
+                // Fresh iterator (`for t in make_arr() { ... }`) has
+                // no surviving binding once the loop exits — release
+                // it so element `deinit`s fire, matching the JIT's
+                // release-after-loop on a non-aliased iter source.
+                if !is_aliased_heap_source(&iter.kind) {
+                    self.release(Value::Array(arr));
                 }
                 result
             }
