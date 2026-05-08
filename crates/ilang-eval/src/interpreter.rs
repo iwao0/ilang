@@ -76,13 +76,19 @@ impl Interpreter {
     /// Set up the singleton `console` object. Methods on it (currently just
     /// `log`) are dispatched in `call_method` before any user-class lookup,
     /// so no `FnDecl` body is needed.
+    ///
+    /// Stored in `self.globals` rather than `self.vars` so it stays
+    /// visible from inside fn bodies (which `mem::take` `self.vars`
+    /// for the duration of the call). The JIT side has always made
+    /// `console` available everywhere, so the interp parity check
+    /// caught this once `console.log` started showing up in fn bodies.
     fn install_builtins(&mut self) {
         let console: ObjectRef = Rc::new(RefCell::new(ObjectData {
             class: "Console".into(),
             fields: HashMap::new(),
             type_args: Vec::new(),
         }));
-        self.vars
+        self.globals
             .insert("console".into(), Value::Object(console));
     }
 
