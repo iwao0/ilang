@@ -1060,11 +1060,24 @@ impl TypeChecker {
                         None
                     };
                     let classes_ref = &self.classes;
-                    let is_sub = |child: Symbol, ancestor: Symbol| -> bool {
+                    // The closure is called from `class_signature`
+                    // while the current class `c` is still being
+                    // built — its sig isn't in `classes_ref` yet —
+                    // so cover-overriding-method covariant-return
+                    // checks like `class A extends S { override
+                    // clone(): A { ... } }` need to start the parent
+                    // walk from the in-progress decl directly.
+                    let cur_name = c.name.clone();
+                    let cur_parent = c.parent.clone();
+                    let is_sub = move |child: Symbol, ancestor: Symbol| -> bool {
                         if child == ancestor {
                             return true;
                         }
-                        let mut cur = classes_ref.get(&child).and_then(|c| c.parent);
+                        let mut cur = if child == cur_name {
+                            cur_parent.clone()
+                        } else {
+                            classes_ref.get(&child).and_then(|c| c.parent)
+                        };
                         while let Some(name) = cur {
                             if name == ancestor {
                                 return true;
