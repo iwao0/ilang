@@ -5869,8 +5869,19 @@ fn cfev_expr(
         ExprKind::Cast { expr, .. }
         | ExprKind::TypeTest { expr, .. }
         | ExprKind::TypeDowncast { expr, .. } => cfev_expr(expr, bound, frees, seen),
-        ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. } => {
+        ExprKind::Call { callee, args } => {
+            // The callee may resolve to a fn-typed local / capture
+            // rather than a top-level fn (`compose(f, g) { fn(x) {
+            // f(g(x)) } }` calls captures `f`/`g`). Add the callee
+            // name to the free set; the FnExpr capture-build step
+            // filters out names not in the outer env, so top-level
+            // fn references drop out automatically.
+            if !bound.contains(callee) && seen.insert(callee.clone()) {
+                frees.push(callee.clone());
+            }
+            for a in args { cfev_expr(a, bound, frees, seen); }
+        }
+        ExprKind::SuperCall { args, .. } => {
             for a in args { cfev_expr(a, bound, frees, seen); }
         }
         ExprKind::Field { obj, .. } => cfev_expr(obj, bound, frees, seen),

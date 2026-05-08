@@ -1657,16 +1657,51 @@ pub(crate) fn lower_expr(
             if callee.as_str() == "typeof" && args.len() == 1 {
                 return Ok(Some(lower_typeof(b, lc, &args[0])?));
             }
-            // Indirect call through a function-typed local. Matches the
-            // type checker's lookup order — a `let` shadows top-level
-            // fns of the same name.
-            if let Some(&(var, JitTy::Fn(sig_id))) = lc.env.bindings.get(callee) {
+            // Indirect call through a function-typed local OR through
+            // a fn-typed closure capture. Matches the type checker's
+            // lookup order — a `let` (or capture) shadows top-level
+            // fns of the same name. The capture path covers
+            // higher-order code like
+            // `compose(f, g) { fn(x) { f(g(x)) } }` where the closure
+            // body calls captured fn values by bare name.
+            let local_fn: Option<(JitTy, Value, u32)> = if let Some(
+                &(var, JitTy::Fn(sig_id))
+            ) = lc.env.bindings.get(callee) {
+                let p = b.use_var(var);
+                Some((JitTy::Fn(sig_id), p, sig_id))
+            } else if let Some(env) = lc.closure_capture_env.as_ref() {
+                env.captures
+                    .iter()
+                    .find(|(n, _, jty, _)| {
+                        n == callee && matches!(jty, JitTy::Fn(_))
+                    })
+                    .map(|(_, off, jty, is_mut)| {
+                        let env_ptr = b.use_var(env.env_var);
+                        let raw = if *is_mut {
+                            let cell_ptr = b.ins().load(
+                                I64, MemFlags::trusted(), env_ptr, *off as i32,
+                            );
+                            b.ins().load(I64, MemFlags::trusted(), cell_ptr, 0)
+                        } else {
+                            b.ins().load(
+                                I64, MemFlags::trusted(), env_ptr, *off as i32,
+                            )
+                        };
+                        let sig_id = match jty {
+                            JitTy::Fn(id) => *id,
+                            _ => unreachable!(),
+                        };
+                        (*jty, raw, sig_id)
+                    })
+            } else {
+                None
+            };
+            if let Some((_, closure_ptr, sig_id)) = local_fn {
                 let sig = lc.fn_signatures[sig_id as usize].clone();
                 // Closure protocol: the binding holds a closure
                 // struct pointer. Load fn_ptr from offset 0; call
                 // with (closure_ptr, args). The wrapper signature
                 // has env_ptr (i64) prepended to the user params.
-                let closure_ptr = b.use_var(var);
                 let fn_ptr = b.ins().load(I64, MemFlags::trusted(), closure_ptr, 0);
                 let mut arg_vals = Vec::with_capacity(args.len() + 1);
                 arg_vals.push(closure_ptr);

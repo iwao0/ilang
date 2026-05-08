@@ -457,6 +457,25 @@ impl Interpreter {
                 if let Some(Value::Fn(f, env, this_ctx)) = self.vars.get(callee).cloned() {
                     return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
                 }
+                // Also check the active closure's captured cells: a
+                // closure that captures a fn-typed param (`compose`'s
+                // `f` / `g`) calls them by bare name from inside its
+                // body. Without this lookup the call falls through to
+                // `self.fns` and errors `undefined function`.
+                let captured_fn = self
+                    .captured_cells
+                    .get(callee)
+                    .map(|c| c.borrow().clone())
+                    .and_then(|v| {
+                        if let Value::Fn(f, env, this_ctx) = v {
+                            Some((f, env, this_ctx))
+                        } else {
+                            None
+                        }
+                    });
+                if let Some((f, env, this_ctx)) = captured_fn {
+                    return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
+                }
                 if let Some(Value::Fn(f, env, this_ctx)) = self.globals.get(callee).cloned() {
                     return self.invoke_fn_value(&f, &env, this_ctx.as_deref(), args, span);
                 }
@@ -2746,7 +2765,17 @@ fn collect_free_vars_in_expr(
         | ExprKind::TypeDowncast { expr, .. } => {
             collect_free_vars_in_expr(expr, bound, frees)
         }
-        ExprKind::Call { args, .. } => {
+        ExprKind::Call { callee, args } => {
+            // The callee may resolve to a fn-typed local / capture
+            // (e.g. `compose(f, g) { fn(x) { f(g(x)) } }` calls `f`
+            // and `g` from the closure body). Add it to the free
+            // set; the FnExpr capture step only materialises a cell
+            // when the name is in `vars`/`captured_cells`/`globals`,
+            // so top-level fn names (in `self.fns`) drop out
+            // automatically.
+            if !bound.contains(callee) {
+                frees.insert(callee.clone());
+            }
             for a in args {
                 collect_free_vars_in_expr(a, bound, frees);
             }
