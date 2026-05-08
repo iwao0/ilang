@@ -636,16 +636,31 @@ impl Interpreter {
                     .and_then(|c| c.properties.iter().find(|p| &p.name == name))
                     .and_then(|p| p.getter.clone())
                 {
-                    return self.invoke(name.as_str(), &getter, vec![], Some(o.clone()), span);
-                }
-                let o = o.borrow();
-                o.fields.get(name).cloned().ok_or_else(|| {
-                    RuntimeError::UnknownField {
-                        class: o.class.into(),
-                        field: *name,
-                        span,
+                    let result = self.invoke(name.as_str(), &getter, vec![], Some(o.clone()), span);
+                    if !is_aliased_heap_source(&obj.kind) {
+                        self.release(Value::Object(o));
                     }
-                })
+                    return result;
+                }
+                let extracted = {
+                    let borrowed = o.borrow();
+                    borrowed.fields.get(name).cloned().ok_or_else(|| {
+                        RuntimeError::UnknownField {
+                            class: borrowed.class.into(),
+                            field: *name,
+                            span,
+                        }
+                    })?
+                };
+                // Field access on a fresh receiver (`make().n`) should
+                // release the temporary so its `deinit` runs. Aliased
+                // receivers (Var / Field / This / Index) keep their
+                // owners' refs and `release`'s rc==1 guard skips them
+                // anyway; checking the AST shape avoids the probe.
+                if !is_aliased_heap_source(&obj.kind) {
+                    self.release(Value::Object(o));
+                }
+                Ok(extracted)
             }
             ExprKind::MethodCall { obj, method, args } => {
                 // Static method dispatch: `ClassName.method(args)`.
@@ -2148,11 +2163,18 @@ impl Interpreter {
             self.vars.insert(p.name.clone(), cast_value(v, &p.ty));
         }
         let result = self.eval_block(&decl.body);
-        self.vars = saved_vars;
+        // Same param-release pass as `invoke_with_class`: capture
+        // the outgoing locals so any class-typed param the caller
+        // handed off without binding (e.g. `f(make())`) sees
+        // `deinit` fire on closure exit.
+        let outgoing_vars = std::mem::replace(&mut self.vars, saved_vars);
         self.captured_cells = saved_cells;
         self.this = saved_this;
         self.this_class = saved_this_class;
         self.depth -= 1;
+        for (_, v) in outgoing_vars {
+            self.release(v);
+        }
         match result {
             Err(RuntimeError::Break(_)) => Err(RuntimeError::TypeError {
                 msg: "`break` escaped closure body".into(),
@@ -2591,10 +2613,18 @@ impl Interpreter {
             self.vars.insert(p.name.clone(), cast_value(v, &p.ty));
         }
         let result = self.eval_block(&decl.body);
-        self.vars = saved_vars;
+        // Restore the caller's `vars` table, but capture the
+        // outgoing one so any param that uniquely owned a class
+        // value (the caller passed `make()` directly without
+        // binding the result) sees its `deinit` fire here. Mirrors
+        // the JIT's per-fn-exit param release pass.
+        let outgoing_vars = std::mem::replace(&mut self.vars, saved_vars);
         self.this = saved_this;
         self.this_class = saved_this_class;
         self.depth -= 1;
+        for (_, v) in outgoing_vars {
+            self.release(v);
+        }
         match result {
             Err(RuntimeError::Break(_)) => Err(RuntimeError::TypeError {
                 msg: "`break` escaped function body".into(),
@@ -2675,6 +2705,23 @@ fn primitive_to_string(v: &Value) -> Option<String> {
         Value::Bool(b) => b.to_string(),
         _ => return None,
     })
+}
+
+/// Mirrors codegen's `arc::is_aliased_heap_source`: a class /
+/// array / map value sourced from a `Var` / `This` / chained field
+/// or index access is borrowing from another binding's ref. Anything
+/// else (a `new` / `make()` / arithmetic-style result) is fresh and
+/// the caller is the only holder, so a `release` here is what fires
+/// `deinit` on temporaries that don't get bound.
+fn is_aliased_heap_source(kind: &ilang_ast::ExprKind) -> bool {
+    use ilang_ast::ExprKind;
+    match kind {
+        ExprKind::Var(_) | ExprKind::This => true,
+        ExprKind::Field { obj, .. } | ExprKind::Index { obj, .. } => {
+            is_aliased_heap_source(&obj.kind)
+        }
+        _ => false,
+    }
 }
 
 fn expect_object(v: Value, span: Span) -> Result<ObjectRef, RuntimeError> {
