@@ -379,13 +379,19 @@ pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
                 .map(|n| n as f64)
                 .unwrap_or_else(|| from_float.unwrap_or(0.0)),
         ),
-        // For an array target, deep-cast each element. This keeps the
-        // runtime representation aligned with the declared element type
-        // (e.g. `let a: i32[] = [1, 2]` actually stores `Int32` values).
-        // A fresh `Rc` is allocated, so an annotated re-binding does not
-        // alias with the source.
+        // For an array target, deep-cast each element so the runtime
+        // representation matches the declared element type (e.g. `let
+        // a: i32[] = [1, 2]` actually stores `Int32` values). When every
+        // element is *already* of the target type the cast is a no-op;
+        // in that case we MUST return the original `Rc` unchanged so
+        // that passing an array through a typed fn parameter preserves
+        // aliasing — `fn f(xs: i64[]) { xs[0] = 99 }` has to be visible
+        // to the caller's binding.
         Type::Array { elem, .. } => {
             if let Value::Array(arr) = v {
+                if arr.borrow().iter().all(|el| is_cast_noop(el, elem)) {
+                    return Value::Array(arr);
+                }
                 let casted: Vec<Value> = arr
                     .borrow()
                     .iter()
@@ -413,5 +419,44 @@ pub(crate) fn cast_value(v: Value, target: &Type) -> Value {
             other => other, // type checker should have caught mismatches
         },
         _ => v,
+    }
+}
+
+/// Conservative "is `cast_value(v, t)` a no-op?" check. Returns true
+/// only when the cast is guaranteed to return the same `Rc` payload
+/// for heap types and the same primitive variant for numeric types —
+/// i.e. nothing in the value would change.
+///
+/// Used by the Array cast branch to skip the deep-clone (and so
+/// preserve `Rc` identity) when no element actually needs re-casting.
+fn is_cast_noop(v: &Value, t: &Type) -> bool {
+    match (t, v) {
+        (Type::I8, Value::Int8(_)) => true,
+        (Type::I16, Value::Int16(_)) => true,
+        (Type::I32, Value::Int32(_)) => true,
+        (Type::I64, Value::Int(_)) => true,
+        (Type::U8, Value::UInt8(_)) => true,
+        (Type::U16, Value::UInt16(_)) => true,
+        (Type::U32, Value::UInt32(_)) => true,
+        (Type::U64, Value::UInt64(_)) => true,
+        (Type::F32, Value::Float32(_)) => true,
+        (Type::F64, Value::Float(_)) => true,
+        (Type::Bool, Value::Bool(_)) => true,
+        (Type::Str, Value::Str(_)) => true,
+        (Type::Array { elem, .. }, Value::Array(arr)) => {
+            arr.borrow().iter().all(|el| is_cast_noop(el, elem))
+        }
+        (Type::Optional(inner), Value::Some(b)) => is_cast_noop(b, inner),
+        (Type::Optional(_), Value::None) => true,
+        // Class compatibility (parent/child) is checked by the type
+        // system. At runtime we only need to know that no value-level
+        // re-shaping happens for Object → Object — which is always
+        // true: `cast_value` falls through `_ => v` for objects.
+        (Type::Object(_), Value::Object(_)) => true,
+        (Type::Tuple(_), Value::Tuple(_)) => true,
+        (Type::Weak(_), Value::Weak(_)) => true,
+        // Anything else: be conservative and say "not a no-op" so the
+        // caller falls through to the actual cast path.
+        _ => false,
     }
 }
