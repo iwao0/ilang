@@ -3478,19 +3478,33 @@ impl TypeChecker {
                         fixed: Some(0),
                     });
                 }
-                let first_ty = self.check_expr(&elements[0], env, ret_ty, in_class, loop_depth)?;
+                let mut elem_ty =
+                    self.check_expr(&elements[0], env, ret_ty, in_class, loop_depth)?;
                 for e in &elements[1..] {
                     let et = self.check_expr(e, env, ret_ty, in_class, loop_depth)?;
-                    if !self.value_assignable(e, &et, &first_ty) {
-                        return Err(TypeError::Mismatch {
-                            expected: first_ty.clone(),
-                            got: et,
-                            span: e.span,
-                        });
+                    if self.value_assignable(e, &et, &elem_ty) {
+                        continue;
                     }
+                    // Heterogeneous classes: lift `elem_ty` to the
+                    // common ancestor so `[new Circle(...), new Square(...)]`
+                    // unifies to `Shape[]` (matches the if/else arm
+                    // unification path). The elements are then re-
+                    // checked against the lifted type so any further
+                    // siblings still join cleanly.
+                    if let (Type::Object(a), Type::Object(b)) = (&elem_ty, &et) {
+                        if let Some(anc) = self.common_ancestor(*a, *b) {
+                            elem_ty = Type::Object(anc);
+                            continue;
+                        }
+                    }
+                    return Err(TypeError::Mismatch {
+                        expected: elem_ty.clone(),
+                        got: et,
+                        span: e.span,
+                    });
                 }
                 Ok(Type::Array {
-                    elem: Box::new(first_ty),
+                    elem: Box::new(elem_ty),
                     fixed: Some(elements.len()),
                 })
             }
