@@ -1087,7 +1087,9 @@ impl TypeChecker {
                         false
                     };
                     let sig = class_signature(c, parent_sig.as_ref(), &is_sub)?;
-                    drop(is_sub);
+                    // `is_sub`'s shared borrow of `self.classes` ends
+                    // here via NLL — no explicit `drop` needed before
+                    // the mutable `insert` below.
                     self.classes.insert(c.name.clone(), sig);
                 }
                 Item::Enum(e) => {
