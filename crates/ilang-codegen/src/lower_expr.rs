@@ -3670,11 +3670,8 @@ fn emit_print_value(
             let r = lc.module.declare_func_in_func(lc.print.r#fn, b.func);
             b.ins().call(r, &[v]);
         }
-        JitTy::Map(_) => {
-            // Same approach as Fn: print the pointer for now. A proper
-            // {key: value, ...} formatter is out of scope for Phase A.
-            let r = lc.module.declare_func_in_func(lc.print.i64, b.func);
-            b.ins().call(r, &[v]);
+        JitTy::Map(map_id) => {
+            emit_print_map(b, lc, v, map_id, span)?;
         }
         JitTy::Tuple(tuple_id) => {
             emit_print_tuple(b, lc, v, tuple_id, span)?;
@@ -3966,6 +3963,133 @@ fn emit_print_array(
     b.switch_to_block(after_block);
     b.seal_block(after_block);
     emit_print_literal(b, lc, "]");
+    Ok(())
+}
+
+/// Emit `{k1: v1, k2: v2}` for a Map. Matches the interpreter's
+/// `Display for Map` exactly: keys sorted by their stringified form
+/// (so output is stable across HashMap iteration order). The runtime
+/// `ilang_jit_map_sorted_keys` materialises the sorted key list as a
+/// fresh ArrayHeader; we then loop the array, printing each key,
+/// looking up its value via `map_index_get`, and printing the value.
+fn emit_print_map(
+    b: &mut FunctionBuilder,
+    lc: &mut LowerCtx,
+    map_ptr: Value,
+    map_id: u32,
+    span: ilang_ast::Span,
+) -> Result<(), CodegenError> {
+    let kind = lc.map_kinds[map_id as usize];
+    let key_jty = kind.key;
+    let val_jty = kind.val;
+    let key_size = key_jty.size_bytes() as i64;
+
+    emit_print_literal(b, lc, "{");
+
+    // Drop fn for the materialised keys array. String keys are fresh
+    // Box<StringRc> (rc=1) — pass release_string so array release
+    // reclaims them. Other key kinds need no per-element drop.
+    let key_drop = match key_jty {
+        JitTy::Str => {
+            let func_ref = lc.module.declare_func_in_func(lc.strfns.release, b.func);
+            b.ins().func_addr(I64, func_ref)
+        }
+        _ => b.ins().iconst(I64, 0),
+    };
+    let key_size_v = b.ins().iconst(I64, key_size);
+    let sorted_ref = lc
+        .module
+        .declare_func_in_func(lc.map_sorted_keys_id, b.func);
+    let sorted_call = b.ins().call(sorted_ref, &[map_ptr, key_size_v, key_drop]);
+    let keys_arr = b.inst_results(sorted_call)[0];
+
+    let len = b.ins().load(I64, MemFlags::trusted(), keys_arr, ARRAY_LEN_OFFSET);
+    let data = b.ins().load(I64, MemFlags::trusted(), keys_arr, ARRAY_DATA_OFFSET);
+
+    let i_var = b.declare_var(I64);
+    let zero = b.ins().iconst(I64, 0);
+    b.def_var(i_var, zero);
+
+    let header_block = b.create_block();
+    let body_block = b.create_block();
+    let after_block = b.create_block();
+
+    b.ins().jump(header_block, &[]);
+    b.switch_to_block(header_block);
+    let i = b.use_var(i_var);
+    let cond = b.ins().icmp(IntCC::SignedLessThan, i, len);
+    b.ins().brif(cond, body_block, &[], after_block, &[]);
+
+    b.switch_to_block(body_block);
+    b.seal_block(body_block);
+    let i = b.use_var(i_var);
+    let zero = b.ins().iconst(I64, 0);
+    let need_comma = b.ins().icmp(IntCC::SignedGreaterThan, i, zero);
+    let comma_block = b.create_block();
+    let no_comma_block = b.create_block();
+    b.ins().brif(need_comma, comma_block, &[], no_comma_block, &[]);
+    b.switch_to_block(comma_block);
+    b.seal_block(comma_block);
+    emit_print_literal(b, lc, ", ");
+    b.ins().jump(no_comma_block, &[]);
+    b.switch_to_block(no_comma_block);
+    b.seal_block(no_comma_block);
+
+    // Load the key at slot i, in the right cranelift type.
+    let size_v = b.ins().iconst(I64, key_size);
+    let off = b.ins().imul(i, size_v);
+    let addr = b.ins().iadd(data, off);
+    let key_cl = key_jty.cl().expect("non-unit key");
+    let key_v = b.ins().load(key_cl, MemFlags::trusted(), addr, 0);
+
+    // Print key.
+    emit_print_value(b, lc, key_v, key_jty, span)?;
+    emit_print_literal(b, lc, ": ");
+
+    // Look up value via map_index_get, decode to V's representation.
+    // map_index_get takes key bits as i64 — for strings the slot is
+    // already a pointer (i64); for narrower ints we widen.
+    let key_bits = match key_jty {
+        JitTy::I8 | JitTy::I16 | JitTy::I32 => b.ins().sextend(I64, key_v),
+        JitTy::U8 | JitTy::U16 | JitTy::U32 | JitTy::Bool => {
+            b.ins().uextend(I64, key_v)
+        }
+        _ => key_v, // I64/U64/Str pointer
+    };
+    let mig_ref = lc
+        .module
+        .declare_func_in_func(lc.map_index_get_id, b.func);
+    let val_call = b.ins().call(mig_ref, &[map_ptr, key_bits]);
+    let val_raw = b.inst_results(val_call)[0];
+    let val_v = match val_jty {
+        JitTy::I8 | JitTy::U8 | JitTy::Bool => b.ins().ireduce(I8, val_raw),
+        JitTy::I16 | JitTy::U16 => b.ins().ireduce(I16, val_raw),
+        JitTy::I32 | JitTy::U32 | JitTy::Enum(_) => b.ins().ireduce(I32, val_raw),
+        JitTy::F32 => {
+            let lo = b.ins().ireduce(I32, val_raw);
+            b.ins().bitcast(F32, MemFlags::new(), lo)
+        }
+        JitTy::F64 => b.ins().bitcast(F64, MemFlags::new(), val_raw),
+        _ => val_raw,
+    };
+    emit_print_value(b, lc, val_v, val_jty, span)?;
+
+    let one = b.ins().iconst(I64, 1);
+    let new_i = b.ins().iadd(i, one);
+    b.def_var(i_var, new_i);
+    b.ins().jump(header_block, &[]);
+    b.seal_block(header_block);
+
+    b.switch_to_block(after_block);
+    b.seal_block(after_block);
+
+    // Release the materialised keys array so any boxed StringRcs are
+    // freed (the array's drop fn runs per-element on rc=0). Second
+    // arg is elem_size, matching the rest of the runtime.
+    let release_arr_ref = lc.module.declare_func_in_func(lc.arrfns.release, b.func);
+    b.ins().call(release_arr_ref, &[keys_arr, key_size_v]);
+
+    emit_print_literal(b, lc, "}");
     Ok(())
 }
 

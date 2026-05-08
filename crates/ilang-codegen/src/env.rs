@@ -143,6 +143,7 @@ pub(crate) struct LowerCtx<'a> {
     pub map_index_get_id: FuncId,
     pub map_get_or_null_id: FuncId,
     pub map_keys_to_array_id: FuncId,
+    pub map_sorted_keys_id: FuncId,
     pub map_values_to_array_id: FuncId,
     pub optional_box_new_id: FuncId,
     pub optional_box_retain_id: FuncId,

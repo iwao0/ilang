@@ -513,6 +513,7 @@ pub(crate) struct JitCompiler {
     pub(crate) map_index_get_id: FuncId,
     pub(crate) map_get_or_null_id: FuncId,
     pub(crate) map_keys_to_array_id: FuncId,
+    pub(crate) map_sorted_keys_id: FuncId,
     pub(crate) map_values_to_array_id: FuncId,
     pub(crate) optional_box_new_id: FuncId,
     pub(crate) optional_box_retain_id: FuncId,
@@ -1096,6 +1097,7 @@ impl JitCompiler {
         builder.symbol("ilang_jit_map_index_get", crate::runtime::ilang_jit_map_index_get as *const u8);
         builder.symbol("ilang_jit_map_get_or_null", crate::runtime::ilang_jit_map_get_or_null as *const u8);
         builder.symbol("ilang_jit_map_keys_to_array", crate::runtime::ilang_jit_map_keys_to_array as *const u8);
+        builder.symbol("ilang_jit_map_sorted_keys", crate::runtime::ilang_jit_map_sorted_keys as *const u8);
         builder.symbol("ilang_jit_map_values_to_array", crate::runtime::ilang_jit_map_values_to_array as *const u8);
         builder.symbol("ilang_jit_optional_box_new", crate::runtime::ilang_jit_optional_box_new as *const u8);
         builder.symbol("ilang_jit_optional_box_retain", crate::runtime::ilang_jit_optional_box_retain as *const u8);
@@ -1291,6 +1293,8 @@ impl JitCompiler {
             declare_import(&mut module, "ilang_jit_map_get_or_null", &[I64, I64], Some(I64))?;
         let map_keys_to_array_id =
             declare_import(&mut module, "ilang_jit_map_keys_to_array", &[I64, I64, I64], Some(I64))?;
+        let map_sorted_keys_id =
+            declare_import(&mut module, "ilang_jit_map_sorted_keys", &[I64, I64, I64], Some(I64))?;
         let map_values_to_array_id =
             declare_import(&mut module, "ilang_jit_map_values_to_array", &[I64, I64, I64, I64], Some(I64))?;
         let optional_box_new_id =
@@ -1390,6 +1394,7 @@ impl JitCompiler {
             map_index_get_id,
             map_get_or_null_id,
             map_keys_to_array_id,
+            map_sorted_keys_id,
             map_values_to_array_id,
             optional_box_new_id,
             optional_box_retain_id,
@@ -2185,6 +2190,7 @@ impl JitCompiler {
             map_index_get_id: self.map_index_get_id,
             map_get_or_null_id: self.map_get_or_null_id,
             map_keys_to_array_id: self.map_keys_to_array_id,
+            map_sorted_keys_id: self.map_sorted_keys_id,
             map_values_to_array_id: self.map_values_to_array_id,
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,
@@ -2452,6 +2458,7 @@ impl JitCompiler {
             map_index_get_id: self.map_index_get_id,
             map_get_or_null_id: self.map_get_or_null_id,
             map_keys_to_array_id: self.map_keys_to_array_id,
+            map_sorted_keys_id: self.map_sorted_keys_id,
             map_values_to_array_id: self.map_values_to_array_id,
             optional_box_new_id: self.optional_box_new_id,
             optional_box_retain_id: self.optional_box_retain_id,

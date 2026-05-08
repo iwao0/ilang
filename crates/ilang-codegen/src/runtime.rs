@@ -1173,6 +1173,54 @@ pub(crate) extern "C" fn ilang_jit_map_keys_to_array(
     }
 }
 
+/// Build a JIT array of all keys, sorted by their stringified form
+/// (matching the interpreter's `Display for Map`). Used by
+/// `console.log(map)` parity printing — without this, hashmap
+/// iteration order is unstable and JIT/interp diverge run-to-run.
+/// String keys are materialized as fresh `Box<StringRc>` (rc=1),
+/// so the caller passes a string release helper as `drop_fn` to
+/// reclaim them when the array is released.
+pub(crate) extern "C" fn ilang_jit_map_sorted_keys(
+    ptr: i64,
+    elem_size: i64,
+    drop_fn: i64,
+) -> i64 {
+    if ptr == 0 {
+        return ilang_jit_array_new(elem_size, 0, drop_fn);
+    }
+    unsafe {
+        let len = ilang_jit_map_size(ptr);
+        let arr = ilang_jit_array_new(elem_size, len, drop_fn);
+        let arr_header = arr as *mut ArrayHeader;
+        let data = (*arr_header).data_ptr;
+        // Snapshot keys (cloned) so we can sort without borrowing
+        // the live HashMap iterator. Clone of MapKey is cheap for
+        // primitives; for Str it copies the inner String which we
+        // then re-Box into a fresh StringRc per slot anyway.
+        let mut keys: Vec<MapKey> = inner_mut(ptr).keys().cloned().collect();
+        keys.sort_by_key(|k| match k {
+            MapKey::Str(s) => s.clone(),
+            MapKey::Int(n) => n.to_string(),
+            MapKey::UInt(u) => u.to_string(),
+            MapKey::Bool(b) => b.to_string(),
+        });
+        for (i, k) in keys.into_iter().enumerate() {
+            let bits: i64 = match k {
+                MapKey::Str(s) => {
+                    let boxed = Box::new(StringRc { rc: 1, s });
+                    Box::into_raw(boxed) as i64
+                }
+                MapKey::Int(n) => n,
+                MapKey::UInt(u) => u as i64,
+                MapKey::Bool(b) => if b { 1 } else { 0 },
+            };
+            let dst = data + (i as i64) * elem_size;
+            write_array_slot(dst, elem_size, bits);
+        }
+        arr
+    }
+}
+
 /// Build a JIT array of all values. `retain_fn` (per-V heap retain
 /// helper, JIT-generated) is invoked on each value being copied so the
 /// new array owns its own +1; pass 0 for non-heap V.
