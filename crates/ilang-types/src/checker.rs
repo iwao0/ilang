@@ -3672,6 +3672,15 @@ impl TypeChecker {
                 collect_fn_expr_free_vars(body, &mut bound, &mut frees, &mut seen);
                 let captures: Vec<(Symbol, Type)> = frees
                     .into_iter()
+                    // Built-in singletons (`console`) live in the
+                    // top-level env but the JIT has no class layout
+                    // for `Console` — they're not user-capturable.
+                    // Recognising them here keeps `console.log(...)`
+                    // inside a closure body off the capture list, so
+                    // both the interp ("globals") and JIT ("intercept
+                    // at method-call site") paths see the same
+                    // free-variable set.
+                    .filter(|n| n.as_str() != "console")
                     .filter_map(|n| env.get(&n).map(|t| (n, t.clone())))
                     .collect();
                 self.fn_expr_captures

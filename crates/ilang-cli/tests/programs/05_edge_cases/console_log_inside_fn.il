@@ -9,6 +9,7 @@
 //
 // expect: hi
 // expect: from method
+// expect: from closure
 
 fn say(s: string) {
     console.log(s)
@@ -22,3 +23,13 @@ class C {
     }
 }
 new C().greet()
+
+// `console` was getting added to closure capture lists by the type
+// checker (since it lives in the top-level env), and the JIT would
+// then error `unknown class "Console"` trying to bind it as a
+// capture. Filter it out — both sides treat `console.log(...)` as
+// a globally available primitive, not a user value.
+let f = fn() {
+    console.log("from closure")
+}
+f()
