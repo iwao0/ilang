@@ -3545,11 +3545,11 @@ fn emit_print_value(
             let inner = lc.optional_inners[inner_id as usize];
             emit_print_optional(b, lc, v, inner, span)?;
         }
-        JitTy::Weak(class_id) => {
-            // `<weak ClassName alive>` / `<weak ClassName dead>`. The
-            // strong_rc lives at offset -24 from the user pointer.
-            let class_name = lc.class_layouts[class_id as usize].name.as_str().to_string();
-            // Branch on (ptr != 0 && strong_rc > 0).
+        JitTy::Weak(_class_id) => {
+            // Match the interpreter's `weak(<alive>)` / `weak(<dead>)`
+            // form. The strong_rc lives at offset -32 from the user
+            // pointer (see runtime::STRONG_OFFSET); treat null
+            // pointer as dead too.
             let zero = b.ins().iconst(I64, 0);
             let alive_block = b.create_block();
             let dead_block = b.create_block();
@@ -3559,18 +3559,18 @@ fn emit_print_value(
             b.ins().brif(nonnull, check_block, &[], dead_block, &[]);
             b.switch_to_block(check_block);
             b.seal_block(check_block);
-            let strong = b.ins().load(I64, MemFlags::trusted(), v, -24);
+            let strong = b.ins().load(I64, MemFlags::trusted(), v, -32);
             let alive_cond = b.ins().icmp(IntCC::SignedGreaterThan, strong, zero);
             b.ins().brif(alive_cond, alive_block, &[], dead_block, &[]);
 
             b.switch_to_block(alive_block);
             b.seal_block(alive_block);
-            emit_print_literal(b, lc, &format!("<weak {class_name} alive>"));
+            emit_print_literal(b, lc, "weak(<alive>)");
             b.ins().jump(merge, &[]);
 
             b.switch_to_block(dead_block);
             b.seal_block(dead_block);
-            emit_print_literal(b, lc, &format!("<weak {class_name} dead>"));
+            emit_print_literal(b, lc, "weak(<dead>)");
             b.ins().jump(merge, &[]);
 
             b.switch_to_block(merge);
