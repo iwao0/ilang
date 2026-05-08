@@ -385,16 +385,30 @@ fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
 fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
     let kind = match &e.kind {
         ExprKind::FnExpr { params, ret, body } => {
-            // First hoist any nested anon fns inside this body.
-            let body = hoist_in_block(body, ctx);
-            let name = fresh_anon_name(ctx.counter);
-            // Look up captures recorded by the typechecker for this
-            // FnExpr (keyed by the FnExpr's source span).
-            let mut captures = ctx
+            // Capture-mutability scan must run on the ORIGINAL body
+            // (before recursive hoisting). Nested FnExpr nodes inside
+            // `body` get rewritten to opaque `Closure` references by
+            // `hoist_in_block`, after which `body_writes_to` can no
+            // longer see the inner assigns — so an outer capture that's
+            // only mutated through a nested closure would look
+            // read-only and end up inline-stored, breaking the
+            // share-cell path between nested closures.
+            let captures_pre: Vec<(Symbol, ilang_ast::Type)> = ctx
                 .captures_map
                 .get(&e.span)
                 .cloned()
                 .unwrap_or_default();
+            let mut mutable_pre: Vec<bool> = captures_pre
+                .iter()
+                .map(|(n, _)| body_writes_to(body, n))
+                .collect();
+            // Now hoist any nested anon fns inside this body.
+            let body = hoist_in_block(body, ctx);
+            let name = fresh_anon_name(ctx.counter);
+            // Reuse the captures list collected above; the (rare)
+            // synthetic `this` entry is prepended below and never
+            // mutable.
+            let mut captures = captures_pre;
             // If this closure was built inside a class method body
             // and refers to `this`, prepend a synthetic `this`
             // capture so codegen has somewhere to read the
@@ -413,6 +427,8 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                         0,
                         (this_sym, ilang_ast::Type::Object(class_name)),
                     );
+                    // Keep `mutable_pre` in lockstep with `captures`.
+                    mutable_pre.insert(0, false);
                 }
             }
             // Wrapper takes a hidden env_ptr first param so the same
@@ -428,22 +444,10 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 default: None,
             });
             wrapper_params.extend(params.iter().cloned());
-            // For each capture, mark it `mutable` if the body assigns
-            // to that name. Mutable captures are cell-backed at JIT
-            // time so writes inside the closure body persist across
-            // calls. The synthetic `this` capture is never mutable
-            // (writing to `this` itself is rejected by the type
-            // checker; field writes go through `AssignField`).
-            let mutable: Vec<bool> = captures
-                .iter()
-                .map(|(n, _)| {
-                    if n.as_str() == "this" {
-                        false
-                    } else {
-                        body_writes_to(&body, n)
-                    }
-                })
-                .collect();
+            // `mutable_pre` was computed against the original body so
+            // it sees writes that nested closures would otherwise
+            // hide.
+            let mutable = mutable_pre;
             ctx.hoisted.push(Item::Fn(FnDecl {
                 attrs: Box::new([]),
                 name: name.clone(),
