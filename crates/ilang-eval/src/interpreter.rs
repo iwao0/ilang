@@ -1072,7 +1072,15 @@ impl Interpreter {
                     }
                 }
                 let o = expect_object(v, obj.span)?;
-                self.call_method(o, method.as_str(), args, span)
+                let result = self.call_method(o.clone(), method.as_str(), args, span);
+                // Fresh receiver (`make().method()`) — the call has
+                // returned, so release the temporary so its `deinit`
+                // fires. Aliased receivers' `release` is a no-op via
+                // the rc!=1 guard, but the AST check skips even that.
+                if !is_aliased_heap_source(&obj.kind) {
+                    self.release(Value::Object(o));
+                }
+                result
             }
             ExprKind::New { class, type_args, args, init_method } => {
                 self.new_object(
@@ -1434,14 +1442,26 @@ impl Interpreter {
                 }
                 let i = index_to_usize(idx, index.span)?;
                 let arr = expect_array(target, obj.span)?;
-                let arr = arr.borrow();
-                arr.get(i)
-                    .cloned()
-                    .ok_or_else(|| RuntimeError::IndexOutOfBounds {
-                        index: i as i64,
-                        len: arr.len() as i64,
-                        span,
-                    })
+                let extracted = {
+                    let borrowed = arr.borrow();
+                    borrowed
+                        .get(i)
+                        .cloned()
+                        .ok_or_else(|| RuntimeError::IndexOutOfBounds {
+                            index: i as i64,
+                            len: borrowed.len() as i64,
+                            span,
+                        })?
+                };
+                // Indexing into a fresh array (`make_arr()[0]`) leaves
+                // the unselected elements with no other owner — release
+                // the array so each non-selected element's `deinit`
+                // runs, mirroring the JIT's emit_release_heap on the
+                // fresh receiver after the index.
+                if !is_aliased_heap_source(&obj.kind) {
+                    self.release(Value::Array(arr));
+                }
+                Ok(extracted)
             }
             ExprKind::AssignIndex { obj, index, value } => {
                 let target = self.eval_expr(obj)?;
