@@ -12,7 +12,7 @@
 //   ... event loop ...
 
 use sdl_window { SDL_Window }
-use sdl_renderer { Color }
+use sdl_core { Color }
 use sdl_surface { SDL_Surface }
 
 /// `WindowShapeMode` — how the shape surface's pixels translate
