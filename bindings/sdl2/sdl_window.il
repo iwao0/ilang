@@ -14,6 +14,7 @@
 //   SDL_GL_GetProcAddress.
 
 use sdl_core { Rect, Point, Size }
+use sdl_surface { SDL_Surface }
 
 /// `SDL_WindowFlags` — bitflags passed to `SDL_CreateWindow` / read
 /// back via `Window.flags`.
@@ -143,9 +144,10 @@ enum GLProfile: i32 {
     struct SDL_Window {}
     /// Opaque OpenGL context handle.
     struct SDL_GLContext {}
-    /// Opaque software-surface handle (rarely used through this
-    /// binding; mostly here to type `SDL_GetWindowSurface`).
-    struct SDL_Surface {}
+    // (`SDL_Surface` is imported from `sdl_surface.il` so the
+    // `*SDL_Surface`-taking fns below resolve to the canonical
+    // type — avoids a duplicate `struct SDL_Surface {}` decl that
+    // would clash through the `sdl.il` umbrella.)
 
     /// Filled by `SDL_GetDisplayMode` / `GetCurrentDisplayMode`
     /// etc. `driverdata` is opaque — kept as i64 so we don't touch

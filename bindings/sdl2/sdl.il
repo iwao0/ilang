@@ -3,16 +3,23 @@
 // `sdl.init`, `new sdl.Window(...)`, `ren.fillRect(...)` etc.
 // without naming the individual feature modules.
 
+// Order matters: each module that does `use otherModule { … }`
+// must come after the module it imports from, so the umbrella
+// pulls them in dependency order. Current chain:
+//   sdl_core   ← (root)
+//   sdl_renderer ← sdl_core
+//   sdl_surface  ← sdl_core, sdl_renderer (Color)
+//   sdl_window   ← sdl_core, sdl_surface  (SDL_Surface)
 @export use sdl_core
-@export use sdl_window
 @export use sdl_renderer
+@export use sdl_surface
+@export use sdl_window
 @export use sdl_time
 @export use sdl_keyboard
 @export use sdl_audio
 @export use sdl_gamepad
 @export use sdl_mouse
 @export use sdl_joystick
-@export use sdl_surface
 @export use sdl_filesystem
 @export use sdl_rwops
 @export use sdl_messagebox
