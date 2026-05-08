@@ -10,8 +10,7 @@
 // `Texture.fromSurface(renderer, surfaceHandle)` and free the
 // surface with `sdl_surface.freeSurface(handle)` afterwards.
 
-use sdl_renderer { Color }
-use sdl_core { Size }
+use sdl_core { Color, Size }
 
 /// `TTF_STYLE_*` — text-decoration bitflags. AND-combine with `|`
 /// when passing to `Font.setStyle`.

@@ -10,7 +10,7 @@
 // little-endian — SDL_PIXELFORMAT_ABGR8888). Renderer draws
 // textures with optional rotation through `drawTextureRot`.
 
-use sdl_core { Rect, Point, FPoint, Size }
+use sdl_core { Rect, Point, FPoint, Size, Color }
 use sdl_window { Window }
 
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
@@ -94,13 +94,8 @@ enum RendererFlip: i32 {
         w: f32
         h: f32
     }
-    /// RGBA8 colour. Mirrors C `SDL_Color`.
-    struct Color {
-        r: u8
-        g: u8
-        b: u8
-        a: u8
-    }
+    // (`Color` lives in `sdl_core.il` — imported above so it
+    // resolves where `Vertex` / `setRenderDrawColor` etc. need it.)
     /// Position + colour + UV, for `RenderGeometry`. Mirrors C
     /// `SDL_Vertex`.
     struct Vertex {

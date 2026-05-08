@@ -4,8 +4,7 @@
 // targets, prefer `Renderer` / `Texture` from `sdl_renderer.il`.
 // Mirrors SDL_surface.h + SDL_pixels.h.
 
-use sdl_core { Rect }
-use sdl_renderer { Color }
+use sdl_core { Rect, Color }
 
 /// `SDL_PIXELFORMAT_*` — common pixel formats. The numeric values
 /// are SDL's macro encodings (type / order / layout / bits / bytes

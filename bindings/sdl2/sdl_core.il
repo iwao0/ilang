@@ -212,6 +212,16 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
         h: i32
     }
 
+    /// RGBA8 colour. Mirrors C `SDL_Color`. Lives here (rather
+    /// than per-feature) so renderer / surface / shape / ttf /
+    /// etc. can all share `sdl.Color` without circular imports.
+    struct Color {
+        r: u8
+        g: u8
+        b: u8
+        a: u8
+    }
+
     // ─── SDL_init.h ──────────────────────────────────────────────
     @lib("SDL2") fn SDL_Init(flags: u32): i32
     @lib("SDL2") fn SDL_InitSubSystem(flags: u32): i32
