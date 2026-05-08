@@ -245,6 +245,23 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
     // ─── SDL_platform.h ──────────────────────────────────────────
     @lib("SDL2") fn SDL_GetPlatform(): *const char
 
+    // ─── SDL_stdinc.h (allocator the C side hands ownership of) ─
+    /// Some SDL APIs return a `char *` / `void *` SDL malloc'd and
+    /// expects the caller to free. We mostly hide this in wrappers
+    /// (copy via `stringFromCstr`, then `SDL_free`), but expose the
+    /// raw fn for callers that need it directly.
+    @lib("SDL2") fn SDL_free(mem: *const void)
+
+    // ─── SDL_clipboard.h ─────────────────────────────────────────
+    @lib("SDL2") fn SDL_HasClipboardText(): u8
+    @lib("SDL2") fn SDL_GetClipboardText(): *const char
+    @lib("SDL2") fn SDL_SetClipboardText(text: *const char): i32
+
+    // ─── SDL_cpuinfo.h (subset) ──────────────────────────────────
+    @lib("SDL2") fn SDL_GetCPUCount(): i32
+    @lib("SDL2") fn SDL_GetSystemRAM(): i32
+    @lib("SDL2") fn SDL_GetCPUCacheLineSize(): i32
+
     // ─── friendlier ilang wrappers ───────────────────────────────
 
     /// Initialise the named subsystems. Must be called once before
@@ -416,5 +433,54 @@ const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
         let v = new Version()
         SDL_GetVersion(v)
         v
+    }
+
+    /// Returns:
+    ///   true when the OS clipboard contains text. Doesn't allocate
+    ///   so it's cheap to poll.
+    fn hasClipboardText(): bool {
+        SDL_HasClipboardText() != 0 as u8
+    }
+
+    /// Read the OS clipboard as text.
+    ///
+    /// Returns:
+    ///   clipboard contents, or empty string when the clipboard is
+    ///   empty or holds non-text data.
+    fn getClipboardText(): string {
+        // SDL_GetClipboardText returns a pointer SDL owns; we copy
+        // through stringFromCstr so the caller never frees it.
+        stringFromCstr(SDL_GetClipboardText())
+    }
+
+    /// Write `text` to the OS clipboard.
+    ///
+    /// Args:
+    ///   text — UTF-8 string to copy.
+    ///
+    /// Returns:
+    ///   `0` on success, `< 0` on failure (call `getError()`).
+    fn setClipboardText(text: string): i32 {
+        SDL_SetClipboardText(cstrFromString(text))
+    }
+
+    /// Returns:
+    ///   number of CPU cores SDL sees. Includes hyperthreaded
+    ///   logical cores.
+    fn getCPUCount(): i32 {
+        SDL_GetCPUCount()
+    }
+
+    /// Returns:
+    ///   physical RAM in MiB.
+    fn getSystemRAM(): i32 {
+        SDL_GetSystemRAM()
+    }
+
+    /// Returns:
+    ///   L1 cache line size in bytes — useful for laying out hot
+    ///   structs to avoid false sharing.
+    fn getCPUCacheLineSize(): i32 {
+        SDL_GetCPUCacheLineSize()
     }
 }
