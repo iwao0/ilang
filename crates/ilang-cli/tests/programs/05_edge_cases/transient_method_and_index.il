@@ -17,6 +17,7 @@
 // expect: deinit 20
 // expect: after index
 // expect: 10
+// expect: deinit 10
 
 class Calc {
     init() {}

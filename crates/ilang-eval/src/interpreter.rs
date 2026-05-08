@@ -1432,13 +1432,21 @@ impl Interpreter {
                 }
                 if let Value::Tuple(elems) = target {
                     let i = index_to_usize(idx, index.span)?;
-                    return elems.get(i).cloned().ok_or_else(|| {
+                    let extracted = elems.get(i).cloned().ok_or_else(|| {
                         RuntimeError::IndexOutOfBounds {
                             index: i as i64,
                             len: elems.len() as i64,
                             span,
                         }
-                    });
+                    })?;
+                    // Same fresh-source release as the array path:
+                    // a tuple produced by `make_tup()[i]` has no
+                    // surviving binding for the unselected elements,
+                    // so release the tuple to fire `deinit` on them.
+                    if !is_aliased_heap_source(&obj.kind) {
+                        self.release(Value::Tuple(elems));
+                    }
+                    return Ok(extracted);
                 }
                 let i = index_to_usize(idx, index.span)?;
                 let arr = expect_array(target, obj.span)?;
