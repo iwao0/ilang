@@ -9,6 +9,7 @@ name = "ilang"
 path = "src/main.rs"
 
 [dependencies]
+ilang-ast = { workspace = true }
 ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
 ilang-eval = { workspace = true }

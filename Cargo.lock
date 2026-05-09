@@ -690,6 +690,7 @@ name = "ilang-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ilang-ast",
  "ilang-codegen",
  "ilang-eval",
  "ilang-lexer",

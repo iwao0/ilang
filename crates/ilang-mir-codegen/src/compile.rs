@@ -272,6 +272,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", host_enum_box as *const u8);
     jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
+    jit_builder.symbol("__repl_load_slot", host_repl_load_slot as *const u8);
+    jit_builder.symbol("__repl_store_slot", host_repl_store_slot as *const u8);
     jit_builder.symbol("__array_map", host_array_map as *const u8);
     jit_builder.symbol("__array_filter", host_array_filter as *const u8);
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
@@ -474,6 +476,21 @@ pub fn compile_with_builtins(
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__c_array_to_array", Linkage::Import, &sig)?;
+    }
+    // REPL slot accessors. Loaded as imports so chunk-level
+    // compilations don't need a fresh declaration; the host symbol
+    // table provides the bodies via `JITBuilder::symbol`.
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__repl_load_slot", Linkage::Import, &sig)?;
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__repl_store_slot", Linkage::Import, &sig)?;
     }
     let str_ids = StrIds {
         length: declare_unary_i64(&mut module, "__str_length")?,
@@ -2244,6 +2261,39 @@ extern "C" fn host_c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64
 /// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
 /// the tag at offset 0, no payload. Used by the integer→enum
 /// coerce path.
+/// REPL host-slot storage for cross-chunk top-level `let` values.
+/// The REPL session assigns each top-level binding a stable slot
+/// index; the JIT-compiled chunk reads / writes through these
+/// helpers so values survive across module rebuilds. Lives outside
+/// any JITModule so freeing & recompiling per chunk is safe.
+fn repl_slots() -> &'static std::sync::Mutex<Vec<i64>> {
+    use std::sync::OnceLock;
+    static SLOTS: OnceLock<std::sync::Mutex<Vec<i64>>> = OnceLock::new();
+    SLOTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+extern "C" fn host_repl_load_slot(idx: i64) -> i64 {
+    let g = repl_slots().lock().expect("repl slots poisoned");
+    g.get(idx as usize).copied().unwrap_or(0)
+}
+
+extern "C" fn host_repl_store_slot(idx: i64, value: i64) {
+    let mut g = repl_slots().lock().expect("repl slots poisoned");
+    let need = (idx as usize) + 1;
+    if g.len() < need {
+        g.resize(need, 0);
+    }
+    g[idx as usize] = value;
+}
+
+/// Public reset hook so REPL sessions starting fresh don't carry
+/// over slots from a previous in-process run (mostly useful for
+/// tests).
+pub fn reset_repl_slots() {
+    let mut g = repl_slots().lock().expect("repl slots poisoned");
+    g.clear();
+}
+
 extern "C" fn host_enum_box(disc: i64) -> i64 {
     let p = host_mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
@@ -3354,6 +3404,8 @@ fn lower_inst(
                             | "__array_data_ptr"
                             | "__enum_box"
                             | "__c_array_to_array"
+                            | "__repl_load_slot"
+                            | "__repl_store_slot"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use ilang_ast::{Program as AstProgram, Stmt, StmtKind};
 use ilang_eval::{Interpreter, Value};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
@@ -43,6 +44,79 @@ fn main() -> ExitCode {
     }
 }
 
+/// Persistent state that lets the REPL remember definitions and
+/// top-level statements across `> ` prompts. Each new chunk's source
+/// is appended to `accumulated`; the whole accumulated AST is then
+/// re-typechecked, MIR-lowered, JIT-compiled, and run from scratch.
+///
+/// This re-execution model is lossy: side-effecting top-level code
+/// (e.g. `console.log("hi")`) re-runs each turn. The trade-off keeps
+/// the REPL implementation simple while still supporting cross-turn
+/// `let` / `fn` / `class` / `enum` definitions. Future work: split
+/// each chunk into its own JIT fragment fn and persist top-level
+/// `let` values via host slots.
+struct ReplSession {
+    /// The accumulated AST. New chunks append to `items` / `stmts`,
+    /// and the trailing expression (if any) is the LATEST chunk's
+    /// tail — it produces the value the REPL prints.
+    accumulated: AstProgram,
+}
+
+impl ReplSession {
+    fn new() -> Self {
+        Self {
+            accumulated: AstProgram::default(),
+        }
+    }
+
+    /// Append a chunk and run the resulting accumulated program.
+    /// Returns the latest tail's printed form, or empty if the chunk
+    /// produced a Unit value.
+    fn run_chunk(&mut self, src: &str) -> Result<String, String> {
+        let toks = tokenize(src).map_err(|e| format!("<repl> {e}"))?;
+        let new_prog = parse(&toks).map_err(|e| format!("<repl> {e}"))?;
+        // Move any prior tail into a stmt so the new chunk's tail
+        // becomes the program's value-producing expression.
+        if let Some(prev_tail) = self.accumulated.tail.take() {
+            let span = prev_tail.span;
+            self.accumulated.stmts.push(Stmt {
+                kind: StmtKind::Expr(prev_tail),
+                span,
+            });
+        }
+        self.accumulated.items.extend(new_prog.items);
+        self.accumulated.stmts.extend(new_prog.stmts);
+        self.accumulated.tail = new_prog.tail;
+
+        // Fresh TypeChecker each turn — accumulated AST is the
+        // authoritative state.
+        let mut tc = TypeChecker::new();
+        tc.check(&self.accumulated)
+            .map_err(|e| format!("<repl> {e}"))?;
+        let prog = ilang_types::mangle::mangle_overloads(
+            self.accumulated.clone(),
+            &tc.fn_overload_picks(),
+            &tc.method_overload_picks(),
+            &tc.call_default_fills(),
+        );
+        let prog = ilang_mir::monomorphize::monomorphize(&prog);
+        let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
+        let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
+        let mir = ilang_mir::lower_program(&prog).map_err(|e| format!("<repl> mir: {e}"))?;
+        let compiled = ilang_mir_codegen::compile_program(&mir)
+            .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
+        let r = ilang_mir_codegen::run_main(&compiled);
+        // M1 REPL prints __main's i64 return when non-zero (matches
+        // the file-mode behaviour). Future work: thread the tail's
+        // declared MirTy through so we can format heap values.
+        if r != 0 {
+            Ok(r.to_string())
+        } else {
+            Ok(String::new())
+        }
+    }
+}
+
 fn run_repl() -> ExitCode {
     println!("ilang 0.2.0 — Ctrl-D to exit");
     let mut rl = match DefaultEditor::new() {
@@ -52,8 +126,8 @@ fn run_repl() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let mut interp = Interpreter::new();
-    let mut tc = TypeChecker::new();
+    ilang_mir_codegen::reset_repl_slots();
+    let mut session = ReplSession::new();
     loop {
         match rl.readline("> ") {
             Ok(line) => {
@@ -62,9 +136,9 @@ fn run_repl() -> ExitCode {
                     continue;
                 }
                 let _ = rl.add_history_entry(trimmed);
-                match eval_in(&mut interp, &mut tc, trimmed, "<repl>") {
-                    Ok(Value::Unit) => {}
-                    Ok(v) => println!("{v}"),
+                match session.run_chunk(trimmed) {
+                    Ok(out) if out.is_empty() => {}
+                    Ok(out) => println!("{out}"),
                     Err(e) => eprintln!("{e}"),
                 }
             }
@@ -221,22 +295,6 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
     }
 }
 
-
-/// Run one chunk of source. `source_label` (filename or `<repl>`) is
-/// prepended to each error's leading `[row:col]` so users see exactly where
-/// the message came from. Errors already start with `[row:col]: ...`.
-fn eval_in(
-    interp: &mut Interpreter,
-    tc: &mut TypeChecker,
-    src: &str,
-    source_label: &str,
-) -> Result<Value, String> {
-    let toks = tokenize(src).map_err(|e| format!("{source_label} {e}"))?;
-    let prog = parse(&toks).map_err(|e| format!("{source_label} {e}"))?;
-    tc.check(&prog).map_err(|e| format!("{source_label} {e}"))?;
-    interp.set_enum_ctor_type_args(tc.enum_ctor_type_args());
-    interp.run(&prog).map_err(|e| format!("{source_label} {e}"))
-}
 
 /// `ilang.toml` schema:
 ///

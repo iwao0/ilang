@@ -11,4 +11,6 @@
 pub mod compile;
 pub mod ty;
 
-pub use compile::{compile_program, compile_with_builtins, run_main, BuiltinDecl, CompileError};
+pub use compile::{
+    compile_program, compile_with_builtins, reset_repl_slots, run_main, BuiltinDecl, CompileError,
+};
