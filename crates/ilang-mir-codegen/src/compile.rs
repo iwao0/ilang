@@ -4252,7 +4252,51 @@ fn lower_inst(
                 vmap.insert(*dst, v);
                 return Ok(());
             }
+            // FAM (C99 flexible array member) — last field of a CRepr
+            // struct typed `T[]` (no len). The field has no slot of
+            // its own; its data starts at obj_v + c_off and runs to
+            // the end of the over-allocated buffer. We don't know the
+            // element count statically (caller maintains it in a
+            // sibling field), so wrap the inline area in a synthetic
+            // dyn-array header with len=i64::MAX so subsequent
+            // ArrayLoad / ArrayStore bounds checks become no-ops, but
+            // the data pointer aliases the inline buffer so reads
+            // and writes hit the real storage.
             if let Some(c_off) = crepr {
+                let is_fam = matches!(&dst_ty_mir, MirTy::Array { len: None, .. })
+                    && matches!(
+                        &obj_ty_mir,
+                        MirTy::Object(_cid)
+                    );
+                if is_fam {
+                    if let MirTy::Object(cid) = &obj_ty_mir {
+                        let layout = &prog.classes[cid.0 as usize];
+                        let last_ix = layout.fields.len().saturating_sub(1);
+                        if field.0 as usize == last_ix && layout.flex_elem_size > 0 {
+                            let elem = if let MirTy::Array { elem, .. } = &dst_ty_mir {
+                                (**elem).clone()
+                            } else {
+                                MirTy::I64
+                            };
+                            let stride = layout.flex_elem_size;
+                            let kind_tag = if matches!(elem, MirTy::Object(_)) {
+                                1
+                            } else {
+                                0
+                            };
+                            let off_v = fb.ins().iconst(types::I64, c_off);
+                            let inline_ptr = fb.ins().iadd(obj_v, off_v);
+                            let len_v = fb.ins().iconst(types::I64, i64::MAX);
+                            let stride_v = fb.ins().iconst(types::I64, stride);
+                            let kind_v = fb.ins().iconst(types::I64, kind_tag);
+                            let f = module.declare_func_in_func(str_ids.fixed_to_dyn, fb.func);
+                            let call = fb.ins().call(f, &[inline_ptr, len_v, stride_v, kind_v]);
+                            let v = fb.inst_results(call)[0];
+                            vmap.insert(*dst, v);
+                            return Ok(());
+                        }
+                    }
+                }
                 // CRepr: load with the field's natural type at the
                 // computed byte offset. Nested CRepr struct fields
                 // return the inline address.
