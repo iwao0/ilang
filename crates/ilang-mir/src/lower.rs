@@ -1875,6 +1875,28 @@ impl Lower {
                 _ => {}
             }
         }
+        // Slot-backed top-level heap lets: balance the retain at
+        // store-time with a release at process exit so any class
+        // `deinit` fires before main returns. Emitted in
+        // descending-slot order to mirror reverse-bind LIFO release.
+        let mut slot_releases: Vec<(u32, MirTy)> = bcx
+            .repl_slots
+            .iter()
+            .filter(|(_, (_, ty))| needs_release(ty))
+            .map(|(_, (idx, ty))| (*idx, ty.clone()))
+            .collect();
+        slot_releases.sort_by(|a, b| b.0.cmp(&a.0));
+        for (idx, ty) in slot_releases {
+            let idx_v = bcx.const_int(MirTy::I64, idx as i64);
+            let raw = bcx.fb.new_value(MirTy::I64);
+            bcx.fb.push_inst(Inst::Call {
+                dst: Some(raw),
+                callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                args: Box::new([idx_v]),
+            });
+            let v = bcx.i64_to_slot_value(raw, &ty)?;
+            bcx.fb.push_inst(Inst::Release { value: v });
+        }
 
         // __main returns `i64` (process exit code). If the program
         // tail is an i64 expression, return that; otherwise return 0.
@@ -2964,6 +2986,14 @@ impl<'a> BodyCx<'a> {
 
     fn lower_block(&mut self, blk: &AstBlock) -> Result<Option<(ValueId, MirTy)>, LowerError> {
         self.env.enter_scope();
+        // Stop treating let bindings as top-level once we descend
+        // into a nested block — block-scoped `let x = ...` should
+        // bind a fresh Local instead of overwriting any same-named
+        // outer slot. lower_main calls `lower_stmt` directly on
+        // its top-level stmts, so this flag flip only affects
+        // recursion through `lower_expr(Block)`.
+        let saved_main_body = self.is_main_body;
+        self.is_main_body = false;
         for stmt in &blk.stmts {
             self.lower_stmt(stmt)?;
         }
@@ -2971,6 +3001,7 @@ impl<'a> BodyCx<'a> {
             Some(e) => Some(self.lower_expr(e)?),
             None => None,
         };
+        self.is_main_body = saved_main_body;
         // If the tail aliases a block-local heap binding, retain it
         // so the scope-exit releases below don't drop its rc to 0.
         // Fresh tails (`new T()` / call) are already +1 owners and
@@ -3206,14 +3237,25 @@ impl<'a> BodyCx<'a> {
                 if matches!(bind_ty, MirTy::Object(_)) && !value_is_fresh_object {
                     self.fb.push_inst(Inst::Retain { value: bound });
                 }
-                // Allocate every `let` as a Cranelift `Variable`-backed
-                // Local so re-assignment across blocks (loops, etc.)
-                // works without a hand-rolled SSA construction step.
+                // Slot-backed top-level binding: skip the local
+                // entirely so all reads / writes (in `__main` *and*
+                // any fn body) funnel through `__repl_load_slot` /
+                // `__repl_store_slot`. Without this skip, `__main`
+                // would read its own private Local copy and miss
+                // mutations that other fns wrote through the slot.
+                // `is_main_body` is cleared by `lower_block` on
+                // descent so block-scoped `let x = 100` shadows
+                // bind a fresh Local instead of overwriting the
+                // outer slot.
+                let is_slot_global = self.is_main_body
+                    && self.repl_slots.contains_key(name);
                 if matches!(bind_ty, MirTy::Unit) {
                     // Unit-typed bindings have no clif representation;
                     // keep the SSA path so reads return a synthetic
                     // unit value.
                     self.env.bind(*name, bound, bind_ty.clone());
+                } else if is_slot_global {
+                    // No local binding — slot lookup handles reads.
                 } else {
                     let _ = &self.cellify_set; // legacy field, retained for ABI
                     let lid = self.fb.new_local(bind_ty.clone());
@@ -3355,11 +3397,39 @@ impl<'a> BodyCx<'a> {
                 if let Some(found) = self.lookup_var(*name) {
                     return Ok(found);
                 }
-                // REPL persistent slot — read whenever a free name
-                // matches a registered top-level binding from a prior
-                // chunk. Heap types reuse the i64 pointer; primitives
-                // narrow back to their declared MirTy.
-                if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
+                // Closure capture takes precedence over a same-named
+                // module slot — a closure that captured `factor`
+                // when it was 10 must keep seeing 10 even if the
+                // outer code reassigned the slot to 999.
+                if let Some(caps) = self.captures_in_scope {
+                    if caps.contains_key(name) {
+                        // Fall through to the existing capture
+                        // handler below.
+                    } else if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
+                        let idx_v = self.const_int(MirTy::I64, idx as i64);
+                        let raw = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(raw),
+                            callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                            args: Box::new([idx_v]),
+                        });
+                        let v = self.i64_to_slot_value(raw, &slot_ty)?;
+                        if matches!(
+                            slot_ty,
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                        ) {
+                            self.fb.push_inst(Inst::Retain { value: v });
+                        }
+                        return Ok((v, slot_ty));
+                    }
+                } else if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
+                    // Non-closure context (regular fn body or
+                    // `__main` itself): always go through the slot.
                     let idx_v = self.const_int(MirTy::I64, idx as i64);
                     let raw = self.fb.new_value(MirTy::I64);
                     self.fb.push_inst(Inst::Call {
@@ -3368,9 +3438,6 @@ impl<'a> BodyCx<'a> {
                         args: Box::new([idx_v]),
                     });
                     let v = self.i64_to_slot_value(raw, &slot_ty)?;
-                    // Heap reads from a slot retain so the caller
-                    // owns its reference (mirrors aliased-let
-                    // semantics in the same chunk).
                     if matches!(
                         slot_ty,
                         MirTy::Object(_)
@@ -3628,6 +3695,56 @@ impl<'a> BodyCx<'a> {
                             return Ok((self.const_unit(), MirTy::Unit));
                         }
                     }
+                }
+                // REPL / module-global slot assign: when a fn body
+                // mutates a top-level let from a `use`d module
+                // (e.g. `state = state ^ ...` inside `rng.randNext`,
+                // where the loader rewrote `state` to `rng.state`
+                // and that name isn't in any local scope), route the
+                // write through `__repl_store_slot`.
+                if let Some((idx, slot_ty)) = self.repl_slots.get(target).cloned() {
+                    let coerced = if vty == slot_ty {
+                        v
+                    } else {
+                        self.coerce(v, &vty, &slot_ty, expr.span)?
+                    };
+                    let is_heap = matches!(
+                        slot_ty,
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                    );
+                    // Snapshot the prior slot value so the old heap
+                    // owner gets released after the new value lands.
+                    let old_v = if is_heap {
+                        let idx_v = self.const_int(MirTy::I64, idx as i64);
+                        let raw = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(raw),
+                            callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                            args: Box::new([idx_v]),
+                        });
+                        Some(self.i64_to_slot_value(raw, &slot_ty)?)
+                    } else {
+                        None
+                    };
+                    if is_heap && !value_is_fresh {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
+                    let v_i64 = self.value_to_i64(coerced, &slot_ty)?;
+                    let idx_v = self.const_int(MirTy::I64, idx as i64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: None,
+                        callee: FuncRef::Builtin(Symbol::intern("__repl_store_slot")),
+                        args: Box::new([idx_v, v_i64]),
+                    });
+                    if let Some(old) = old_v {
+                        self.fb.push_inst(Inst::Release { value: old });
+                    }
+                    return Ok((self.const_unit(), MirTy::Unit));
                 }
                 // Try implicit `this.<target>` field assignment.
                 if let Some(cid) = self.this_class {
@@ -4292,6 +4409,29 @@ impl<'a> BodyCx<'a> {
                         is_cell: false,
                     });
                 }
+            }
+            // 4) Source is a top-level slot-backed binding. Snapshot
+            //    its current value at construction time so the
+            //    closure body sees the captured value, not whatever
+            //    the slot happens to hold at call time. (Mirrors
+            //    standard "capture by value" semantics for fn-expr
+            //    free vars.)
+            if let Some((idx, slot_ty)) = self.repl_slots.get(&name).cloned() {
+                let idx_v = self.const_int(MirTy::I64, idx as i64);
+                let raw = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(raw),
+                    callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                    args: Box::new([idx_v]),
+                });
+                let v = self.i64_to_slot_value(raw, &slot_ty)?;
+                capture_vals.push(v);
+                captures.push(crate::program::EnvCapture {
+                    name,
+                    ty: slot_ty,
+                    is_cell: false,
+                });
+                continue;
             }
             // Names that aren't local and aren't captures from an
             // outer closure are assumed global (top-level fn / class /
@@ -6783,6 +6923,26 @@ impl<'a> BodyCx<'a> {
                 let rv = self.coerce(rv, &rty, &target, Span::dummy())?;
                 return Ok((lv, rv, target));
             }
+            // Cross-sign integer arithmetic — common in FFI bindings
+            // where C `size_t` (unsigned) flows into ilang `i64`
+            // arithmetic, or vice-versa. Pick the wider type; on a
+            // tie prefer the signed side (closer to the conventional
+            // "promote-both-to-i64" C behaviour). Coerce both
+            // operands; the bit pattern survives because IntResize
+            // chooses uextend/sextend based on the source's
+            // signedness (per `lower_cast`).
+            let target = if lty.int_width() > rty.int_width() {
+                lty.clone()
+            } else if rty.int_width() > lty.int_width() {
+                rty.clone()
+            } else if lty.is_signed_int() {
+                lty.clone()
+            } else {
+                rty.clone()
+            };
+            let lv = self.coerce(lv, &lty, &target, Span::dummy())?;
+            let rv = self.coerce(rv, &rty, &target, Span::dummy())?;
+            return Ok((lv, rv, target));
         }
         Err(LowerError::Other(format!(
             "cannot unify {lty} and {rty} in arithmetic context"

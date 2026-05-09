@@ -5325,9 +5325,30 @@ fn lower_cast(
             }
         }
         CastKind::StrongToWeak | CastKind::PtrCast | CastKind::PtrIntCast => {
-            // Same-width / same-rep reinterprets — pass the i64 value
-            // through unchanged.
-            src
+            // Pointer reinterprets / weak conversion are identity at
+            // the clif level. The REPL slot store / load path also
+            // funnels float ↔ i64 round-trips through PtrIntCast; for
+            // those we need a real bitcast (or a width-bridging
+            // sequence so f32 can flow through an i64 slot). Other
+            // mixed-width int↔int cases stay as identity to preserve
+            // the legacy "same-rep reinterpret" contract every other
+            // call site already depends on.
+            let src_ct = fb.func.dfg.value_type(src);
+            if src_ct == dst_ct {
+                src
+            } else if src_ct == types::I64 && dst_ct == types::F64 {
+                fb.ins().bitcast(types::F64, MemFlags::new(), src)
+            } else if src_ct == types::F64 && dst_ct == types::I64 {
+                fb.ins().bitcast(types::I64, MemFlags::new(), src)
+            } else if src_ct == types::I64 && dst_ct == types::F32 {
+                let narrow = fb.ins().ireduce(types::I32, src);
+                fb.ins().bitcast(types::F32, MemFlags::new(), narrow)
+            } else if src_ct == types::F32 && dst_ct == types::I64 {
+                let bits = fb.ins().bitcast(types::I32, MemFlags::new(), src);
+                fb.ins().uextend(types::I64, bits)
+            } else {
+                src
+            }
         }
         CastKind::OptionalWrap => {
             // `T → T?`. For heap-pointer T (object / array / etc.)
