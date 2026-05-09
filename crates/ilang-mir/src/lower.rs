@@ -4911,12 +4911,17 @@ impl<'a> BodyCx<'a> {
                     if let Some(&fid) = meta.static_method_ids.get(&method) {
                         let sig = meta.static_method_sigs.get(&method).cloned().unwrap();
                         let mut arg_vals = Vec::with_capacity(args.len());
+                        let mut fresh_args: Vec<ValueId> = Vec::new();
                         for (i, a) in args.iter().enumerate() {
+                            let arg_is_fresh = self.is_fresh_object_expr(a);
                             let (v, vty) = self.lower_expr(a)?;
                             let coerced = match sig.params.get(i) {
                                 Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
                                 _ => v,
                             };
+                            if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
+                                fresh_args.push(coerced);
+                            }
                             arg_vals.push(coerced);
                         }
                         let dst = if matches!(sig.ret, MirTy::Unit) {
@@ -4929,6 +4934,9 @@ impl<'a> BodyCx<'a> {
                             callee: FuncRef::Local(fid),
                             args: arg_vals.into_boxed_slice(),
                         });
+                        for fv in fresh_args {
+                            self.fb.push_inst(Inst::Release { value: fv });
+                        }
                         return Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret));
                     }
                 }
@@ -5221,7 +5229,7 @@ impl<'a> BodyCx<'a> {
                         Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
                         _ => v,
                     };
-                    if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
+                    if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
                         fresh_obj_args.push(coerced);
                     }
                     arg_vals_all.push(coerced);

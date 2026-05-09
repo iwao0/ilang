@@ -153,6 +153,7 @@ struct PanicAux {
     mir_free: cranelift_module::FuncId,
     release_string: cranelift_module::FuncId,
     retain_string: cranelift_module::FuncId,
+    enum_unit_get: cranelift_module::FuncId,
     msg_div: DataId,
     msg_mod: DataId,
     msg_oob: DataId,
@@ -346,6 +347,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__retain_map", host_retain_map as *const u8);
     jit_builder.symbol("__release_string", host_release_string as *const u8);
     jit_builder.symbol("__retain_string", host_retain_string as *const u8);
+    jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
     jit_builder.symbol("__map_set_object_value", host_map_set_object_value as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
@@ -700,6 +702,13 @@ pub fn compile_with_builtins(
     let retain_map_id = declare_unit_i64(&mut module, "__retain_map")?;
     let release_string_id = declare_unit_i64(&mut module, "__release_string")?;
     let retain_string_id = declare_unit_i64(&mut module, "__retain_string")?;
+    let enum_unit_get_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__enum_unit_get", Linkage::Import, &sig)?
+    };
     let map_set_obj_val_id = declare_unit_i64(&mut module, "__map_set_object_value")?;
     let map_set_print_kinds_id = {
         let mut sig = module.make_signature();
@@ -919,6 +928,7 @@ pub fn compile_with_builtins(
                 mir_free: free_id,
                 release_string: release_string_id,
                 retain_string: retain_string_id,
+                enum_unit_get: enum_unit_get_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,
@@ -989,6 +999,9 @@ pub fn compile_with_builtins(
         let mut t = object_field_table_lock()
             .lock()
             .expect("field table poisoned");
+        let mut sizes = class_size_table_lock()
+            .lock()
+            .expect("class size table poisoned");
         // Don't clear — entries are keyed by GLOBAL class id and
         // accumulate across compiles so parallel modules coexist.
         for class in &prog.classes {
@@ -1008,6 +1021,18 @@ pub fn compile_with_builtins(
                 }
             }
             t.insert(global_cid(class.id.0), entries);
+            // Mirror NewObject codegen: regular classes alloc
+            // header + n_fields*8 bytes. CRepr/packed/union classes
+            // never go through release_object so we omit them.
+            if !matches!(
+                class.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            ) {
+                let size = OBJECT_HEADER_BYTES as i64 + (class.fields.len() as i64) * 8;
+                sizes.insert(global_cid(class.id.0), size);
+            }
         }
     }
     // Populate the class-print-info registry — host_print_object
@@ -1288,6 +1313,16 @@ static OBJECT_FIELD_TABLE: OnceLock<Mutex<HashMap<u32, Vec<(i64, PrintKind)>>>> 
 
 fn object_field_table_lock() -> &'static Mutex<HashMap<u32, Vec<(i64, PrintKind)>>> {
     OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// global_class_id → total byte size of the heap allocation. Used by
+/// `release_object` to free obj_ptr once rc reaches 0. CRepr classes
+/// stay out of this table — their lifetime is tracked through the
+/// codegen-side `__mir_free(ptr, c_size)` emit.
+static CLASS_SIZE_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+
+fn class_size_table_lock() -> &'static Mutex<HashMap<u32, i64>> {
+    CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 extern "C" fn host_release_object(obj_ptr: i64) {
@@ -1596,10 +1631,11 @@ fn release_object(obj_ptr: i64) {
     // builder chain `c.inc().inc()`) treat callsite returns as
     // carrying a +1 even though the callee never bumped it. Actually
     // freeing on rc==0 would expose those latent ARC mismatches as
-    // use-after-free (see method_chain_returns_self.il). The
-    // dominant per-frame leak is the array header / data buffer,
-    // which we DO free in host_release_array since arrays don't
-    // have the same return-borrow ambiguity.
+    // use-after-free across many fixtures. The dominant per-frame
+    // leak is the array header / data buffer, which we DO free in
+    // host_release_array since arrays don't have the same
+    // return-borrow ambiguity.
+    let _ = class_size_table_lock; // silence unused-warning
 }
 
 #[derive(Clone)]
@@ -2624,6 +2660,33 @@ extern "C" fn host_enum_box(disc: i64) -> i64 {
     let p = host_mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
     p
+}
+
+/// Cached unit-variant enum cell. Same `(global_enum_id, disc)`
+/// always returns the same pointer, so per-frame `sdl.Axis.leftX`
+/// style enum-ctors don't keep allocating fresh 8-byte cells. The
+/// cells are leaked on purpose — they're program-lifetime constants.
+static ENUM_UNIT_CACHE: OnceLock<Mutex<HashMap<(u32, i64), i64>>> = OnceLock::new();
+
+fn enum_unit_cache_lock() -> &'static Mutex<HashMap<(u32, i64), i64>> {
+    ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+extern "C" fn host_enum_unit_get(global_eid: i64, disc: i64) -> i64 {
+    let key = (global_eid as u32, disc);
+    {
+        let m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
+        if let Some(&p) = m.get(&key) {
+            return p;
+        }
+    }
+    // Race-permissive: if two threads insert concurrently the second
+    // overwrites with a fresh leaked cell of the same value — harmless
+    // since the cells are immutable singletons and both leak.
+    let p = host_mir_alloc(8);
+    unsafe { *(p as *mut i64) = disc; }
+    let mut m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
+    *m.entry(key).or_insert(p)
 }
 
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
@@ -4710,6 +4773,23 @@ fn lower_inst(
                 ilang_mir::VariantPayload::Tuple(ts) => ts.len() as i64,
                 ilang_mir::VariantPayload::Struct(fs) => fs.len() as i64,
             };
+            // Unit-variant fast path: every `EnumName.unitVariant`
+            // expression is value-equivalent (just a tag), so dispatch
+            // through a process-wide cache keyed by
+            // (global_enum_id, discriminant). Avoids the 8-byte
+            // alloc-per-call leak for things like
+            // `gamepad.isPressed(sdl.Button.a)` in a 60fps loop —
+            // those fired ~840×/sec before this change.
+            if n_payload == 0 {
+                let global = enum_global[enum_id.0 as usize] as i64;
+                let global_v = fb.ins().iconst(types::I64, global);
+                let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+                let f = module.declare_func_in_func(panic_aux.enum_unit_get, fb.func);
+                let call = fb.ins().call(f, &[global_v, disc_v]);
+                let ptr = fb.inst_results(call)[0];
+                vmap.insert(*dst, ptr);
+                return Ok(());
+            }
             // [tag: i64 | payload...]
             let bytes = fb.ins().iconst(types::I64, (1 + n_payload) * 8);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
