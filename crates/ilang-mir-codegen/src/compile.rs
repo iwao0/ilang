@@ -1783,6 +1783,23 @@ fn release_by_kind(ptr: i64, kind: i64) {
     }
 }
 
+/// Translate a `PrintKind` (used by enum_info / object_field_table)
+/// to the runtime KIND_* tag, then dispatch through
+/// `release_by_kind`. Lets enum-payload cascade reuse the new
+/// rc-aware release path instead of the older in-line walker
+/// that didn't decrement intermediate cells' rc.
+fn release_print_kind(raw: i64, kind: &PrintKind) {
+    let tag = match kind {
+        PrintKind::Object => KIND_OBJECT,
+        PrintKind::Array(_) => KIND_ARRAY,
+        PrintKind::Optional(_) => KIND_OPTIONAL,
+        PrintKind::Tuple(_) => KIND_TUPLE,
+        PrintKind::Str => KIND_STR,
+        _ => KIND_NONE,
+    };
+    release_by_kind(raw, tag);
+}
+
 /// Mirror of `release_by_kind` for retain. Used when one container
 /// hands an element pointer to another (e.g. `arr.filter(...)`
 /// keeps a subset of the source array's elements; both arrays then
@@ -2946,6 +2963,10 @@ extern "C" fn host_enum_box(disc: i64) -> i64 {
 struct EnumEntry {
     rc: i64,
     total_bytes: i64,
+    /// Global enum id — used by `host_release_enum`'s cascade
+    /// path to look up the variant's payload kinds via
+    /// `enum_info_lock` and recursively release each heap field.
+    global_eid: u32,
 }
 static ENUM_REGISTRY: OnceLock<Mutex<HashMap<i64, EnumEntry>>> = OnceLock::new();
 
@@ -2958,14 +2979,14 @@ fn enum_registry_lock() -> &'static Mutex<HashMap<i64, EnumEntry>> {
 /// at offset 0. Returns the ptr the lower side then writes payload
 /// fields into (offsets 8 + i*8). NewEnum codegen invokes this
 /// instead of the bare alloc + tag-write for `n_payload > 0`.
-extern "C" fn host_enum_alloc(_global_eid: i64, n_payload: i64, disc: i64) -> i64 {
+extern "C" fn host_enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
     let total = (1 + n_payload) * 8;
     let ptr = host_mir_alloc(total);
     unsafe { *(ptr as *mut i64) = disc; }
     let mut reg = enum_registry_lock()
         .lock()
         .expect("enum registry poisoned");
-    reg.insert(ptr, EnumEntry { rc: 1, total_bytes: total });
+    reg.insert(ptr, EnumEntry { rc: 1, total_bytes: total, global_eid: global_eid as u32 });
     ptr
 }
 
@@ -2993,16 +3014,37 @@ extern "C" fn host_release_enum(p: i64) {
     let to_free = if let Some(e) = reg.get_mut(&p) {
         e.rc -= 1;
         if e.rc <= 0 {
-            Some(e.total_bytes)
+            Some((e.total_bytes, e.global_eid))
         } else {
             None
         }
     } else {
         None
     };
-    if let Some(total) = to_free {
+    if let Some((total, global_eid)) = to_free {
         reg.remove(&p);
         drop(reg);
+        // Cascade-release any heap-typed payload before freeing the
+        // cell. Look up the variant's payload kinds via the global
+        // enum-info table, walk each payload slot, dispatch
+        // release_value_by_kind. Pairs with the EnumPayload
+        // codegen's extraction-side retain so the rc bookkeeping
+        // stays balanced when the user pattern-matched the variant.
+        let tag = unsafe { *(p as *const i64) };
+        let kinds = {
+            let info = enum_info_lock()
+                .lock()
+                .expect("enum info poisoned");
+            info.get(&global_eid)
+                .and_then(|ei| ei.variants.get(&tag))
+                .map(|(_name, k)| k.clone())
+        };
+        if let Some(kinds) = kinds {
+            for (i, kind) in kinds.iter().enumerate() {
+                let raw = unsafe { *((p + 8 + (i as i64) * 8) as *const i64) };
+                release_print_kind(raw, kind);
+            }
+        }
         host_mir_free(p, total);
     }
 }
@@ -5242,6 +5284,29 @@ fn lower_inst(
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), p, off);
             let dst_ty = func.ty_of(*dst).clone();
             let v = reduce_from_i64(fb, &dst_ty, raw);
+            // Heap-typed payload extraction transfers ownership: the
+            // extract sees the cell's stored +1 and gives the caller
+            // its own +1. Pairs with `host_release_enum`'s cascade
+            // on the cell's drop — without the retain, the
+            // arm-scope release of the extracted binding would
+            // double-decrement and either dangle (cell still holds
+            // the ptr) or crash on subsequent access.
+            let kind = kind_tag_of(&dst_ty);
+            if kind != KIND_NONE {
+                let r = match kind {
+                    KIND_OBJECT => panic_aux.retain_obj,
+                    KIND_ARRAY => panic_aux.retain_array,
+                    KIND_OPTIONAL => panic_aux.retain_optional,
+                    KIND_TUPLE => panic_aux.retain_tuple,
+                    KIND_MAP => panic_aux.retain_map,
+                    KIND_CLOSURE => panic_aux.retain_closure,
+                    KIND_STR => panic_aux.retain_string,
+                    KIND_ENUM => panic_aux.retain_enum,
+                    _ => unreachable!(),
+                };
+                let f = module.declare_func_in_func(r, fb.func);
+                fb.ins().call(f, &[v]);
+            }
             vmap.insert(*dst, v);
         }
         Inst::NewTuple { dst, items } => {
