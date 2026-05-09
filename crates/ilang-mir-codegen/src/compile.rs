@@ -5403,11 +5403,25 @@ fn lower_cast(
             }
         }
         CastKind::IntToFloat => {
-            // Default to signed conversion; real code paths thread the
-            // source's signedness later.
-            fb.ins().fcvt_from_sint(dst_ct, src)
+            if src_mir_ty.is_unsigned_int() {
+                fb.ins().fcvt_from_uint(dst_ct, src)
+            } else {
+                fb.ins().fcvt_from_sint(dst_ct, src)
+            }
         }
-        CastKind::FloatToInt => fb.ins().fcvt_to_sint(dst_ct, src),
+        CastKind::FloatToInt => {
+            // Use the saturating variants — `fcvt_to_sint` /
+            // `fcvt_to_uint` trap on out-of-range / NaN inputs,
+            // which surfaces as a process SIGILL the user can't
+            // catch. The `_sat` forms clamp to the destination
+            // type's min/max instead, matching the semantics most
+            // ilang code expects (alpha * 255 → 0..255).
+            if dst_ty.is_unsigned_int() {
+                fb.ins().fcvt_to_uint_sat(dst_ct, src)
+            } else {
+                fb.ins().fcvt_to_sint_sat(dst_ct, src)
+            }
+        }
         CastKind::FloatResize => {
             let src_ty = fb.func.dfg.value_type(src);
             if src_ty.bits() < dst_ct.bits() {
