@@ -629,7 +629,7 @@ pub fn compile_with_builtins(
         std::collections::HashSet::new();
     for (idx, func) in prog.functions.iter().enumerate() {
         let mid = FuncId(idx as u32);
-        let sig = clif_signature_for(&module, func)?;
+        let sig = clif_signature_for(&module, func, prog)?;
         let linkage = if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
             extern_fn_ids.insert(mid);
             Linkage::Import
@@ -2571,28 +2571,97 @@ extern "C" fn host_map_values(map: i64) -> i64 {
 fn clif_signature_for(
     module: &JITModule,
     f: &MirFunction,
+    prog: &Program,
 ) -> Result<Signature, CompileError> {
     let mut sig = module.make_signature();
+    let is_extern = matches!(f.kind, ilang_mir::FunctionKind::Extern { .. });
+    // sret return: hidden first param (StructReturn), no clif return.
+    let sret_size = if is_extern {
+        struct_indirect(&f.ret, prog)
+    } else {
+        None
+    };
+    if sret_size.is_some() {
+        sig.params.push(AbiParam::special(
+            types::I64,
+            cranelift_codegen::ir::ArgumentPurpose::StructReturn,
+        ));
+    }
     for p in f.params.iter() {
+        if is_extern {
+            if let Some(chunks) = struct_chunks(&p.ty, prog) {
+                for _ in 0..chunks {
+                    sig.params.push(AbiParam::new(types::I64));
+                }
+                continue;
+            }
+        }
         if let Some(ct) = mir_to_clif(&p.ty) {
             sig.params.push(AbiParam::new(ct));
         } else {
             return Err(CompileError::Unsupported("unit / void params"));
         }
     }
-    // Hidden trailing env-pointer param — only for ilang-defined
-    // functions, since extern host fns follow the C ABI directly
-    // and would receive a stray garbage arg otherwise.
-    let is_extern = matches!(f.kind, ilang_mir::FunctionKind::Extern { .. });
     if !is_extern {
         sig.params.push(AbiParam::new(types::I64));
     }
+    if sret_size.is_some() {
+        // sret: no clif-level return value; the caller's hidden
+        // pointer receives the bytes.
+        return Ok(sig);
+    }
     if !matches!(f.ret, MirTy::Unit) {
+        if is_extern {
+            if let Some(chunks) = struct_chunks(&f.ret, prog) {
+                for _ in 0..chunks {
+                    sig.returns.push(AbiParam::new(types::I64));
+                }
+                return Ok(sig);
+            }
+        }
         let ret = mir_to_clif(&f.ret)
             .ok_or(CompileError::Unsupported("unit return through ABI"))?;
         sig.returns.push(AbiParam::new(ret));
     }
     Ok(sig)
+}
+
+/// For an `@extern(C)` CRepr struct ≤ 16 B: returns `Some(chunks)`
+/// where `chunks` is 1 or 2 i64 GPR slots. > 16 B / non-CRepr / non-
+/// Object types return `None` (caller treats as pointer-sized i64).
+fn struct_chunks(ty: &MirTy, prog: &Program) -> Option<usize> {
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        if matches!(
+            layout.repr,
+            ilang_mir::ClassRepr::CRepr | ilang_mir::ClassRepr::CPacked
+        ) {
+            if layout.c_size <= 8 {
+                return Some(1);
+            }
+            if layout.c_size <= 16 {
+                return Some(2);
+            }
+        }
+    }
+    None
+}
+
+/// Larger CRepr structs (> 16 B) are returned through a hidden
+/// pointer (`ArgumentPurpose::StructReturn`). Returns `Some(c_size)`
+/// for those, `None` for chunkable / non-CRepr / non-Object types.
+fn struct_indirect(ty: &MirTy, prog: &Program) -> Option<i64> {
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        if matches!(
+            layout.repr,
+            ilang_mir::ClassRepr::CRepr | ilang_mir::ClassRepr::CPacked
+        ) && layout.c_size > 16
+        {
+            return Some(layout.c_size);
+        }
+    }
+    None
 }
 
 fn lower_function(
@@ -2838,18 +2907,10 @@ fn lower_inst(
                     return Ok(());
                 }
             }
-            let mut arg_vs: Vec<Value> = args
-                .iter()
-                .map(|a| {
-                    *vmap.get(a).unwrap_or_else(|| {
-                        panic!(
-                            "missing vmap entry for arg {:?} in call to {:?}",
-                            a, callee
-                        )
-                    })
-                })
-                .collect();
-            let (cid, is_builtin) = match callee {
+            let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len());
+            // Resolve callee FuncId early so we can know whether it's
+            // extern (and split CRepr struct args into chunks).
+            let (callee_cid, is_callee_extern, is_callee_builtin) = match callee {
                 FuncRef::Local(id) => {
                     let target_func = &prog.functions[id.0 as usize];
                     let is_extern_callee =
@@ -2857,10 +2918,59 @@ fn lower_inst(
                     let cid = *fn_ids.get(id).ok_or_else(|| {
                         CompileError::Other(format!("missing fn id #{}", id.0))
                     })?;
-                    // Treat extern fns like builtins for the trailing
-                    // env arg: skip it so the C ABI sig matches.
-                    (cid, is_extern_callee)
+                    (Some(cid), is_extern_callee, false)
                 }
+                _ => (None, false, false),
+            };
+            // sret: pre-alloc the destination struct and pass its
+            // pointer as the hidden first arg.
+            let sret_dst = if is_callee_extern {
+                if let Some(d) = dst {
+                    let dst_ty = func.ty_of(*d).clone();
+                    if let Some(c_size) = struct_indirect(&dst_ty, prog) {
+                        let size_v = fb.ins().iconst(types::I64, c_size);
+                        let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                        let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                        let ptr = fb.inst_results(alloc_call)[0];
+                        arg_vs.push(ptr);
+                        Some((*d, ptr))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            for a in args.iter() {
+                let av = *vmap.get(a).unwrap_or_else(|| {
+                    panic!(
+                        "missing vmap entry for arg {:?} in call to {:?}",
+                        a, callee
+                    )
+                });
+                if is_callee_extern {
+                    let aty = func.ty_of(*a);
+                    if let Some(chunks) = struct_chunks(aty, prog) {
+                        // Read `chunks` i64 cells from the struct body.
+                        for c in 0..chunks {
+                            let cell = fb.ins().load(
+                                types::I64,
+                                MemFlags::trusted(),
+                                av,
+                                (c as i32) * 8,
+                            );
+                            arg_vs.push(cell);
+                        }
+                        continue;
+                    }
+                }
+                arg_vs.push(av);
+            }
+            let _ = is_callee_builtin;
+            let (cid, is_builtin) = match callee {
+                FuncRef::Local(_) => (callee_cid.unwrap(), is_callee_extern),
                 FuncRef::Builtin(sym) => {
                     // FFI marshalling helpers are declared by name —
                     // route them via `module.declarations` lookup so we
@@ -2987,13 +3097,40 @@ fn lower_inst(
             }
             let local_ref = module.declare_func_in_func(cid, fb.func);
             let inst_ref = fb.ins().call(local_ref, &arg_vs);
+            // sret: the call has no clif return; the pre-alloc'd
+            // pointer is what the user sees.
+            if let Some((d, ptr)) = sret_dst {
+                vmap.insert(d, ptr);
+                return Ok(());
+            }
             if let Some(d) = dst {
+                let dst_ty = func.ty_of(*d).clone();
+                if is_callee_extern {
+                    if let Some(chunks) = struct_chunks(&dst_ty, prog) {
+                        let layout = if let MirTy::Object(cid) = &dst_ty {
+                            &prog.classes[cid.0 as usize]
+                        } else {
+                            unreachable!()
+                        };
+                        let size_v = fb.ins().iconst(types::I64, layout.c_size.max(1));
+                        let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                        let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                        let ptr = fb.inst_results(alloc_call)[0];
+                        let results: Vec<Value> = fb.inst_results(inst_ref).to_vec();
+                        for (i, &chunk) in results.iter().take(chunks).enumerate() {
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                chunk,
+                                ptr,
+                                (i as i32) * 8,
+                            );
+                        }
+                        vmap.insert(*d, ptr);
+                        return Ok(());
+                    }
+                }
                 let results = fb.inst_results(inst_ref);
                 if let Some(&v) = results.first() {
-                    // Coerce the result to match dst's MIR type. Some
-                    // host builtins (e.g. `__str_includes`) return i64
-                    // even when the MIR sees the result as `Bool` (i8).
-                    let dst_ty = func.ty_of(*d).clone();
                     let v_clif = fb.func.dfg.value_type(v);
                     let want = mir_to_clif(&dst_ty);
                     let v_adj = match (want, v_clif) {

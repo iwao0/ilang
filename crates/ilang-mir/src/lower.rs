@@ -5791,6 +5791,15 @@ impl<'a> BodyCx<'a> {
                 elem: Box::new(MirTy::Str),
                 len: None,
             }),
+            // arrayFromCArray<T>(ptr, len) — copy a C array of T's
+            // into a fresh ilang T[]. We don't know T's monomorph
+            // type at this layer; the codegen reads the type-args
+            // dictionary instead. Default to `i64[]` here, the codegen
+            // path widens to the right elem stride at runtime.
+            "arrayFromCArray" => Some(MirTy::Array {
+                elem: Box::new(MirTy::I64),
+                len: None,
+            }),
             "freeCstr" => Some(MirTy::Unit),
             "errnoCheck" => Some(MirTy::Optional(Box::new(MirTy::I32))),
             "errnoCheckI64" => Some(MirTy::Optional(Box::new(MirTy::I64))),
