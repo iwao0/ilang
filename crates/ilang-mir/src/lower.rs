@@ -59,6 +59,7 @@ pub fn lower_program(prog: &AstProgram) -> Result<Program, LowerError> {
                     repr: crate::program::ClassRepr::ArcObject,
                     c_field_offsets: Vec::new(),
                     c_size: 0,
+                    flex_elem_size: 0,
                 });
                 lower.class_meta.insert(id, ClassMeta::default());
             }
@@ -422,6 +423,7 @@ impl Lower {
                             repr: crate::program::ClassRepr::CRepr,
                     c_field_offsets: Vec::new(),
                     c_size: 0,
+                    flex_elem_size: 0,
                         });
                         self.class_meta.insert(id, ClassMeta::default());
                     }
@@ -574,6 +576,26 @@ impl Lower {
                         cur += sz;
                     }
                 }
+                // Flexible array member: last field of a (non-union)
+                // CRepr struct typed `T[]` (dynamic). The size of the
+                // FAM area is decided at `new StructName(n)` time;
+                // the field contributes 0 bytes here. Roll back the
+                // pointer-sized contribution we added above and
+                // re-anchor the field's c_field_offset to the byte
+                // start of the trailing area.
+                let mut flex_elem_size: i64 = 0;
+                if !is_union {
+                    if let Some(last) = layout_clone.fields.last() {
+                        if let MirTy::Array { elem, len: None } = &last.ty {
+                            let (es, _) = self.c_size_align_of(elem);
+                            flex_elem_size = es;
+                            cur -= 8;
+                            if let Some(last_off) = offsets.last_mut() {
+                                *last_off = cur;
+                            }
+                        }
+                    }
+                }
                 let total = if is_union {
                     let aligned = (max_size + max_align - 1) / max_align * max_align;
                     aligned
@@ -593,10 +615,12 @@ impl Lower {
                 }
                 if self.classes[cid_idx].c_field_offsets != offsets
                     || self.classes[cid_idx].c_size != total
+                    || self.classes[cid_idx].flex_elem_size != flex_elem_size
                     || bit_changed
                 {
                     self.classes[cid_idx].c_field_offsets = offsets;
                     self.classes[cid_idx].c_size = total;
+                    self.classes[cid_idx].flex_elem_size = flex_elem_size;
                     updated = true;
                 }
             }
@@ -1036,6 +1060,7 @@ impl Lower {
                     repr: crate::program::ClassRepr::ArcObject,
                     c_field_offsets: Vec::new(),
                     c_size: 0,
+                    flex_elem_size: 0,
                 });
                 id
             }

@@ -3710,9 +3710,22 @@ fn lower_inst(
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
             ) {
-                let size = fb.ins().iconst(types::I64, layout.c_size.max(1));
+                // CRepr struct alloc. With a flexible array tail
+                // (`new packet(n)`) the user passes the FAM length
+                // as the first arg; total size = c_size +
+                // n*flex_elem_size.
+                let size_v = if layout.flex_elem_size > 0 && !init_args.is_empty() {
+                    let n_v = vmap[&init_args[0]];
+                    let n_i64 = extend_to_i64(fb, n_v);
+                    let elem_v = fb.ins().iconst(types::I64, layout.flex_elem_size);
+                    let extra = fb.ins().imul(n_i64, elem_v);
+                    let base = fb.ins().iconst(types::I64, layout.c_size.max(0));
+                    fb.ins().iadd(base, extra)
+                } else {
+                    fb.ins().iconst(types::I64, layout.c_size.max(1))
+                };
                 let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size]);
+                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
                 let ptr = fb.inst_results(alloc_call)[0];
                 vmap.insert(*dst, ptr);
                 return Ok(());

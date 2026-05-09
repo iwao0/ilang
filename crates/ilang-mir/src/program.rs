@@ -124,6 +124,10 @@ pub struct ClassLayout {
     /// For `CRepr` / `CPacked` / `CUnion` classes: total byte size of
     /// the struct. Zero for ARC-managed classes.
     pub c_size: i64,
+    /// For C99 flexible array members: when the last field is a
+    /// dynamic array `T[]`, holds the byte size of `T`. `0` means
+    /// no FAM. `new StructName(n)` then allocates `c_size + n*elem`.
+    pub flex_elem_size: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
