@@ -499,6 +499,40 @@ impl Lower {
         Ok(())
     }
 
+    /// By-value `@extern(C) struct` ABI checker: refuse to register an
+    /// extern fn whose param is a CRepr struct mixing integer/bool
+    /// fields with float fields (an HFA / SSE classification mismatch
+    /// the codegen can't honour).
+    fn validate_extern_c_by_value(&self, params: &[MirTy]) -> Result<(), LowerError> {
+        for pty in params {
+            if let MirTy::Object(cid) = pty {
+                let layout = &self.classes[cid.0 as usize];
+                if matches!(
+                    layout.repr,
+                    crate::program::ClassRepr::CRepr | crate::program::ClassRepr::CPacked
+                ) {
+                    let mut has_int = false;
+                    let mut has_float = false;
+                    for f in &layout.fields {
+                        if f.ty.is_int() || matches!(f.ty, MirTy::Bool) {
+                            has_int = true;
+                        }
+                        if matches!(f.ty, MirTy::F32 | MirTy::F64) {
+                            has_float = true;
+                        }
+                    }
+                    if has_int && has_float {
+                        return Err(LowerError::Other(format!(
+                            "@extern(C) by-value `{}`: supported shapes are integer/bool fields or homogeneous float aggregates",
+                            layout.name
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Pre-register every extern fn / fn definition declared in the
     /// block so other items (free fns, class methods) that call them
     /// resolve correctly during their own pre-pass.
@@ -522,6 +556,7 @@ impl Lower {
                         Some(t) => self.resolve_ty(t)?,
                         None => MirTy::Unit,
                     };
+                    self.validate_extern_c_by_value(&mir_params)?;
                     let mut value_tys: Vec<MirTy> = Vec::with_capacity(mir_params.len());
                     let mut params_box: Vec<crate::program::FuncParam> =
                         Vec::with_capacity(mir_params.len());
