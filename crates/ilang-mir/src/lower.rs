@@ -5986,9 +5986,14 @@ impl<'a> BodyCx<'a> {
         let then_tail = self.lower_block(then_branch)?;
 
         // Determine result type from then-branch tail (or Unit).
-        let result_ty = match &then_tail {
-            Some((_, t)) => t.clone(),
-            None => MirTy::Unit,
+        // Without an `else` branch, an `if` is statement-like — the
+        // tail value (if any) is discarded and the overall result is
+        // Unit. Otherwise we adopt the then-branch tail's type so
+        // the join block carries the value through a block param.
+        let result_ty = match (else_branch, &then_tail) {
+            (None, _) => MirTy::Unit,
+            (Some(_), Some((_, t))) => t.clone(),
+            (Some(_), None) => MirTy::Unit,
         };
 
         let cont = self.fb.new_block();
@@ -6216,6 +6221,66 @@ impl<'a> BodyCx<'a> {
                 args: Box::new([p_i64, n_i64, stride_v, kind_v]),
             });
             return Ok((dst, arr_ty));
+        }
+        // `readT(p, off): T` / `writeT(p, off, v)` raw-memory FFI
+        // marshalling helpers. Each maps the source name (e.g.
+        // `readU64`) to the host symbol (`__read_u64`) and the MIR
+        // return type the lowerer should use. The args go through
+        // unchanged — the host helper does the offset arithmetic
+        // and the right-width primitive load/store.
+        let mem_io = match callee.as_str() {
+            "readI8" => Some(("__read_i8", MirTy::I8)),
+            "readI16" => Some(("__read_i16", MirTy::I16)),
+            "readI32" => Some(("__read_i32", MirTy::I32)),
+            "readI64" => Some(("__read_i64", MirTy::I64)),
+            "readU8" => Some(("__read_u8", MirTy::U8)),
+            "readU16" => Some(("__read_u16", MirTy::U16)),
+            "readU32" => Some(("__read_u32", MirTy::U32)),
+            "readU64" => Some(("__read_u64", MirTy::U64)),
+            "readF32" => Some(("__read_f32", MirTy::F32)),
+            "readF64" => Some(("__read_f64", MirTy::F64)),
+            "writeI8" => Some(("__write_i8", MirTy::Unit)),
+            "writeI16" => Some(("__write_i16", MirTy::Unit)),
+            "writeI32" => Some(("__write_i32", MirTy::Unit)),
+            "writeI64" => Some(("__write_i64", MirTy::Unit)),
+            "writeU8" => Some(("__write_u8", MirTy::Unit)),
+            "writeU16" => Some(("__write_u16", MirTy::Unit)),
+            "writeU32" => Some(("__write_u32", MirTy::Unit)),
+            "writeU64" => Some(("__write_u64", MirTy::Unit)),
+            "writeF32" => Some(("__write_f32", MirTy::Unit)),
+            "writeF64" => Some(("__write_f64", MirTy::Unit)),
+            _ => None,
+        };
+        if let Some((host_sym, ret_ty)) = mem_io {
+            let mut arg_vals = Vec::with_capacity(args.len());
+            for (i, a) in args.iter().enumerate() {
+                let (mut v, vty) = self.lower_expr(a)?;
+                // First arg is the pointer (raw or *const T) — coerce
+                // to i64 so the host helper sees a uniform address.
+                if i == 0 {
+                    if matches!(vty, MirTy::RawPtr { .. }) {
+                        let dst = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Cast {
+                            dst,
+                            kind: crate::inst::CastKind::PtrIntCast,
+                            src: v,
+                        });
+                        v = dst;
+                    }
+                }
+                arg_vals.push(v);
+            }
+            let dst = if matches!(ret_ty, MirTy::Unit) {
+                None
+            } else {
+                Some(self.fb.new_value(ret_ty.clone()))
+            };
+            self.fb.push_inst(Inst::Call {
+                dst,
+                callee: FuncRef::Builtin(Symbol::intern(host_sym)),
+                args: arg_vals.into_boxed_slice(),
+            });
+            return Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty));
         }
         // FFI marshalling helpers (auto-routed to host symbols).
         let ffi_helper = match callee.as_str() {

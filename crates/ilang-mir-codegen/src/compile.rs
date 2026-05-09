@@ -275,6 +275,30 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
     jit_builder.symbol("__repl_load_slot", host_repl_load_slot as *const u8);
     jit_builder.symbol("__repl_store_slot", host_repl_store_slot as *const u8);
+    // Raw-memory FFI marshalling: `readT(p, off): T` / `writeT(p,
+    // off, v)`. The `read*` family folds the loaded primitive to
+    // i64 (or f32/f64) for the cross-FFI return; callers reinterpret
+    // via the slot-typing handled in `lower_call`.
+    jit_builder.symbol("__read_i8", host_read_i8 as *const u8);
+    jit_builder.symbol("__read_i16", host_read_i16 as *const u8);
+    jit_builder.symbol("__read_i32", host_read_i32 as *const u8);
+    jit_builder.symbol("__read_i64", host_read_i64 as *const u8);
+    jit_builder.symbol("__read_u8", host_read_u8 as *const u8);
+    jit_builder.symbol("__read_u16", host_read_u16 as *const u8);
+    jit_builder.symbol("__read_u32", host_read_u32 as *const u8);
+    jit_builder.symbol("__read_u64", host_read_u64 as *const u8);
+    jit_builder.symbol("__read_f32", host_read_f32 as *const u8);
+    jit_builder.symbol("__read_f64", host_read_f64 as *const u8);
+    jit_builder.symbol("__write_i8", host_write_i8 as *const u8);
+    jit_builder.symbol("__write_i16", host_write_i16 as *const u8);
+    jit_builder.symbol("__write_i32", host_write_i32 as *const u8);
+    jit_builder.symbol("__write_i64", host_write_i64 as *const u8);
+    jit_builder.symbol("__write_u8", host_write_u8 as *const u8);
+    jit_builder.symbol("__write_u16", host_write_u16 as *const u8);
+    jit_builder.symbol("__write_u32", host_write_u32 as *const u8);
+    jit_builder.symbol("__write_u64", host_write_u64 as *const u8);
+    jit_builder.symbol("__write_f32", host_write_f32 as *const u8);
+    jit_builder.symbol("__write_f64", host_write_f64 as *const u8);
     jit_builder.symbol("__array_map", host_array_map as *const u8);
     jit_builder.symbol("__array_filter", host_array_filter as *const u8);
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
@@ -477,6 +501,56 @@ pub fn compile_with_builtins(
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__c_array_to_array", Linkage::Import, &sig)?;
+    }
+    // `read*(p: i64, off: i64) -> {i64|f32|f64}` declarations.
+    for name in &[
+        "__read_i8", "__read_i16", "__read_i32", "__read_i64",
+        "__read_u8", "__read_u16", "__read_u32", "__read_u64",
+    ] {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function(name, Linkage::Import, &sig)?;
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::F32));
+        module.declare_function("__read_f32", Linkage::Import, &sig)?;
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::F64));
+        module.declare_function("__read_f64", Linkage::Import, &sig)?;
+    }
+    // `write*(p: i64, off: i64, v: {i64|f32|f64})` declarations.
+    for name in &[
+        "__write_i8", "__write_i16", "__write_i32", "__write_i64",
+        "__write_u8", "__write_u16", "__write_u32", "__write_u64",
+    ] {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function(name, Linkage::Import, &sig)?;
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F32));
+        module.declare_function("__write_f32", Linkage::Import, &sig)?;
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::F64));
+        module.declare_function("__write_f64", Linkage::Import, &sig)?;
     }
     // REPL slot accessors. Loaded as imports so chunk-level
     // compilations don't need a fresh declaration; the host symbol
@@ -2258,6 +2332,77 @@ extern "C" fn host_c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64
     header
 }
 
+// `readT(p: *const void, offset: i64): T` family — primitive load
+// at `p + offset` (offset in bytes). Used by FFI bindings to peek
+// fields off opaque C structs whose layout the language doesn't
+// know. Bytes-narrower-than-i64 values zero-extend (unsigned) or
+// sign-extend (signed) on return so callers see the right value
+// after the i64 boxing the cross-FFI call performs.
+extern "C" fn host_read_i8(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i8) as i64 }
+}
+extern "C" fn host_read_i16(p: i64, off: i64) -> i64 {
+    unsafe { (*((p + off) as *const i16)) as i64 }
+}
+extern "C" fn host_read_i32(p: i64, off: i64) -> i64 {
+    unsafe { (*((p + off) as *const i32)) as i64 }
+}
+extern "C" fn host_read_i64(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i64) }
+}
+extern "C" fn host_read_u8(p: i64, off: i64) -> i64 {
+    unsafe { (*((p + off) as *const u8)) as i64 }
+}
+extern "C" fn host_read_u16(p: i64, off: i64) -> i64 {
+    unsafe { (*((p + off) as *const u16)) as i64 }
+}
+extern "C" fn host_read_u32(p: i64, off: i64) -> i64 {
+    unsafe { (*((p + off) as *const u32)) as i64 }
+}
+extern "C" fn host_read_u64(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const u64) as i64 }
+}
+extern "C" fn host_read_f32(p: i64, off: i64) -> f32 {
+    unsafe { *((p + off) as *const f32) }
+}
+extern "C" fn host_read_f64(p: i64, off: i64) -> f64 {
+    unsafe { *((p + off) as *const f64) }
+}
+
+// `writeT(p: *void, offset: i64, value: T)` family — paired
+// primitive store at `p + offset`. The value comes in as the wider
+// host-ABI type; the host helper truncates as needed.
+extern "C" fn host_write_i8(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i8) = v as i8; }
+}
+extern "C" fn host_write_i16(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i16) = v as i16; }
+}
+extern "C" fn host_write_i32(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i32) = v as i32; }
+}
+extern "C" fn host_write_i64(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i64) = v; }
+}
+extern "C" fn host_write_u8(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u8) = v as u8; }
+}
+extern "C" fn host_write_u16(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u16) = v as u16; }
+}
+extern "C" fn host_write_u32(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u32) = v as u32; }
+}
+extern "C" fn host_write_u64(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u64) = v as u64; }
+}
+extern "C" fn host_write_f32(p: i64, off: i64, v: f32) {
+    unsafe { *((p + off) as *mut f32) = v; }
+}
+extern "C" fn host_write_f64(p: i64, off: i64, v: f64) {
+    unsafe { *((p + off) as *mut f64) = v; }
+}
+
 /// Box a raw discriminant value into a unit-variant enum heap cell.
 /// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
 /// the tag at offset 0, no payload. Used by the integer→enum
@@ -3420,6 +3565,12 @@ fn lower_inst(
                             | "__c_array_to_array"
                             | "__repl_load_slot"
                             | "__repl_store_slot"
+                            | "__read_i8" | "__read_i16" | "__read_i32" | "__read_i64"
+                            | "__read_u8" | "__read_u16" | "__read_u32" | "__read_u64"
+                            | "__read_f32" | "__read_f64"
+                            | "__write_i8" | "__write_i16" | "__write_i32" | "__write_i64"
+                            | "__write_u8" | "__write_u16" | "__write_u32" | "__write_u64"
+                            | "__write_f32" | "__write_f64"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"
