@@ -26,4 +26,13 @@
     // interpreter has no native free pipeline.
     fn countedFree(ptr: i64)
     fn countedFreeCount(): i32
+    // Memory-tracking helpers for leak-detection fixtures. mir-jit
+    // only — the legacy backend doesn't share the same allocator
+    // tracking. `liveAllocBytes` / `liveAllocCount` reflect the
+    // host_mir_alloc tracker (Object / Array / Optional / Tuple /
+    // Closure / internal cells); `liveStringCount` reflects the
+    // rc-tracked string registry (leak_cstring buffers).
+    fn liveAllocBytes(): i64
+    fn liveAllocCount(): i64
+    fn liveStringCount(): i64
 }

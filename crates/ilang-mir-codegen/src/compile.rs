@@ -347,6 +347,12 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__retain_map", host_retain_map as *const u8);
     jit_builder.symbol("__release_string", host_release_string as *const u8);
     jit_builder.symbol("__retain_string", host_retain_string as *const u8);
+    // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
+    // / `test.liveStringCount`. Used by the leak-detection fixtures
+    // under tests/programs/.
+    jit_builder.symbol("test.liveAllocBytes", host_test_live_alloc_bytes as *const u8);
+    jit_builder.symbol("test.liveAllocCount", host_test_live_alloc_count as *const u8);
+    jit_builder.symbol("test.liveStringCount", host_test_live_string_count as *const u8);
     jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
     jit_builder.symbol("__map_set_object_value", host_map_set_object_value as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
@@ -2007,11 +2013,30 @@ extern "C" fn host_print_object(obj_ptr: i64) {
     print!("{s}");
 }
 
+// Always-on counters for the host_mir_alloc / host_mir_free pair.
+// Two atomic ops per alloc/free is a noise-floor cost for the JIT
+// (~ns scale), and exposing the live deltas via `test.liveAlloc*`
+// lets fixtures detect leaks of Object / Array / Optional / Tuple /
+// Closure / internal cell allocations from inside an .il program.
+// Strings (Box::leak) and ManagedMap (Rust HashMap) are tracked
+// separately — see STRING_REGISTRY and the test.liveStringCount
+// helper.
+static ALLOC_BYTES: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+static FREE_BYTES: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+static ALLOC_COUNT: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+static FREE_COUNT: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+
 extern "C" fn host_mir_alloc(size: i64) -> i64 {
     let n = size as usize;
     let mut v: Vec<u8> = vec![0; n];
     let ptr = v.as_mut_ptr() as i64;
     std::mem::forget(v);
+    ALLOC_BYTES.fetch_add(size, AtomicOrdering::Relaxed);
+    ALLOC_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
     ptr
 }
 
@@ -2028,6 +2053,35 @@ extern "C" fn host_mir_free(ptr: i64, size: i64) {
     unsafe {
         let _ = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
     }
+    FREE_BYTES.fetch_add(size, AtomicOrdering::Relaxed);
+    FREE_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
+}
+
+/// `test.liveAllocBytes(): i64` — currently-held bytes through the
+/// host_mir_alloc tracker. Leaks of Object / Array / Optional / etc.
+/// show up as a steady delta after a release sweep.
+extern "C" fn host_test_live_alloc_bytes() -> i64 {
+    ALLOC_BYTES.load(AtomicOrdering::Relaxed)
+        - FREE_BYTES.load(AtomicOrdering::Relaxed)
+}
+
+/// `test.liveAllocCount(): i64` — currently-held alloc count. Useful
+/// for catching per-call cell allocations that should be cached or
+/// released (e.g. unit-variant enum cells).
+extern "C" fn host_test_live_alloc_count() -> i64 {
+    ALLOC_COUNT.load(AtomicOrdering::Relaxed)
+        - FREE_COUNT.load(AtomicOrdering::Relaxed)
+}
+
+/// `test.liveStringCount(): i64` — number of entries currently in
+/// the rc-tracked string registry (leak_cstring buffers). Catches
+/// `intToStr` / `str_concat` / `getError` etc. temps that should
+/// have been released after their consumer ran.
+extern "C" fn host_test_live_string_count() -> i64 {
+    let reg = string_registry_lock()
+        .lock()
+        .expect("string registry poisoned");
+    reg.len() as i64
 }
 
 /// Map runtime: a Rust HashMap<i64, i64> wrapped with rc + per-value
