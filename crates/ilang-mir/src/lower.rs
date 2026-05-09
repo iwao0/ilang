@@ -587,6 +587,7 @@ impl Lower {
                         closure_env: None,
                         span: None,
                         local_tys: Vec::new(),
+                        c_symbol: *c_symbol,
                     });
                     self.fn_ids.insert(mangled, id);
                     self.fn_sigs.insert(
@@ -673,6 +674,7 @@ impl Lower {
                         closure_env: None,
                         span: None,
                         local_tys: Vec::new(),
+                        c_symbol: *c_symbol,
                     });
                     self.fn_ids.insert(mangled, id);
                     self.fn_sigs.insert(
@@ -2196,6 +2198,7 @@ fn placeholder_function(name: Symbol) -> Function {
         closure_env: None,
         span: None,
         local_tys: Vec::new(),
+        c_symbol: None,
     }
 }
 
@@ -5938,10 +5941,31 @@ impl<'a> BodyCx<'a> {
                 return Ok(dst);
             }
         }
-        // Array → *T (passes array's data pointer).
+        // Array → *T (passes the array's data pointer, not the
+        // header). Reads `data_ptr` at offset 16 of the header.
         if let (MirTy::Array { .. }, MirTy::RawPtr { .. }) = (from, to) {
+            let zero = self.const_int(MirTy::I64, 16 / 8);
+            let _ = zero;
+            let raw = self.fb.new_value(MirTy::I64);
+            // Treat the header as a 1-element array of i64 ptrs and
+            // load index 2 (= byte offset 16). Reuses ArrayLoad's
+            // emit path; the OOB check is benign — len is at offset
+            // 0 and is always > 2 for any valid header.
+            //
+            // ArrayLoad would do bounds-check; instead emit a raw
+            // memory load via a fresh Inst::LoadField on a synthetic
+            // class — but that's heavier than needed. Use a Cast +
+            // explicit pointer arithmetic via const-index ArrayLoad
+            // skip: simpler is to emit a bare load through a helper
+            // builtin so we avoid the bounds check.
+            let _ = raw;
+            // Fall back to a short builtin call: __array_data_ptr.
             let dst = self.fb.new_value(to.clone());
-            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("__array_data_ptr")),
+                args: Box::new([v]),
+            });
             return Ok(dst);
         }
         // *T → *const T (drop write capability).

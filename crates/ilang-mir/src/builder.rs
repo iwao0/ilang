@@ -135,6 +135,7 @@ impl FunctionBuilder {
             closure_env: None,
             span: self.span,
             local_tys: self.local_tys,
+            c_symbol: None,
         }
     }
 }

@@ -299,6 +299,7 @@ pub fn compile_with_builtins(
     // (used inside `@extern(C)` blocks) and qualified names. Strings
     // are NUL-terminated `*const u8` already, so most "C-string"
     // helpers are identity at the bit level.
+    jit_builder.symbol("__array_data_ptr", host_array_data_ptr as *const u8);
     jit_builder.symbol("cstrFromString", host_identity as *const u8);
     jit_builder.symbol("stringFromCstr", host_identity as *const u8);
     jit_builder.symbol("cstrArrayToStrings", host_cstr_array_to_strings as *const u8);
@@ -410,6 +411,7 @@ pub fn compile_with_builtins(
             module.declare_function(name, Linkage::Import, &sig)?;
             Ok(())
         };
+        decl_unary("__array_data_ptr", false)?;
         decl_unary("cstrFromString", false)?;
         decl_unary("stringFromCstr", false)?;
         decl_unary("cstrArrayToStrings", false)?;
@@ -625,14 +627,21 @@ pub fn compile_with_builtins(
     for (idx, func) in prog.functions.iter().enumerate() {
         let mid = FuncId(idx as u32);
         let sig = clif_signature_for(&module, func)?;
-        let name = func.name.as_str();
         let linkage = if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
             extern_fn_ids.insert(mid);
             Linkage::Import
         } else {
             Linkage::Local
         };
-        let cid = module.declare_function(name, linkage, &sig)?;
+        // For `@extern(C) @symbol("foo") fn bar(...)`, declare under
+        // the C-side name `foo` so dlsym resolves correctly while
+        // ilang-side calls still go through this FuncId via `bar`.
+        let symbol_name: &str = if let Some(c) = func.c_symbol {
+            c.as_str()
+        } else {
+            func.name.as_str()
+        };
+        let cid = module.declare_function(symbol_name, linkage, &sig)?;
         fn_ids.insert(mid, cid);
         fn_sigs.insert(mid, sig);
     }
@@ -2186,6 +2195,15 @@ extern "C" fn host_array_pop(arr: i64) -> i64 {
     }
 }
 
+/// `__array_data_ptr(arr)` — return the i64 byte address of the
+/// array's data buffer (header offset 16 holds it).
+extern "C" fn host_array_data_ptr(arr: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe { *((arr + 16) as *const i64) }
+}
+
 extern "C" fn host_identity(p: i64) -> i64 { p }
 extern "C" fn host_noop(_: i64) {}
 
@@ -2718,6 +2736,7 @@ fn lower_inst(
                         "cstrFromString"
                             | "stringFromCstr"
                             | "cstrArrayToStrings"
+                            | "__array_data_ptr"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"

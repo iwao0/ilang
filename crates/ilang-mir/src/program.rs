@@ -45,6 +45,11 @@ pub struct Function {
     /// Type of every defined `LocalId` (mutable slot). Indexed by
     /// `LocalId.0`. Empty for fns with no mutable locals.
     pub local_tys: Vec<MirTy>,
+    /// `@extern(C)` C-side symbol name. `None` for non-extern fns
+    /// (or extern fns whose `@symbol` matches the ilang name).
+    /// `Some(s)` causes the JIT to declare-import `s` as the C
+    /// symbol while still letting the ilang code call by `name`.
+    pub c_symbol: Option<Symbol>,
 }
 
 #[derive(Debug, Clone)]
