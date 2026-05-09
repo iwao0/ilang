@@ -1848,15 +1848,15 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // Object memory free is staged but currently disabled. Several
-    // ARC accounting gaps (subclass init flowing through Object→
-    // Object coerce, Map<K, ClassT> retain on map.set, fresh array
-    // element store from array.map closure, …) still drop rc to 0
-    // while another binding owns the value; flipping free on causes
-    // 10+ fixture crashes via use-after-free / double-free. The
-    // weak-class skip-list, class_size_table, and callee-retain
-    // convention are all in place; once those gaps are closed the
-    // free below can be re-enabled by removing this comment.
+    // Object cell free is staged but currently disabled. Even
+    // with the recent ARC infrastructure (callee_retain, weak
+    // skip, array element retain, enum payload cascade, et al.),
+    // 9 fixtures still crash when the free is enabled — likely
+    // around subclass-init Object→Object coerce, common-ancestor
+    // type widening, and is/as cross-class patterns. Needs
+    // further per-fixture diagnosis. The class_size_table is
+    // populated and ready; just remove the gate when those
+    // patterns are tightened.
     let _ = class_size_table_lock;
 }
 
