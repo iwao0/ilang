@@ -17,7 +17,7 @@ use cranelift_module::{Linkage, Module};
 
 use ilang_ast::Symbol;
 use ilang_mir::{
-    BinOp, ClassId, FieldId, FuncId, FuncRef, Function as MirFunction, Inst, MirConst, MirTy,
+    BinOp, ClassId, FuncId, FuncRef, Function as MirFunction, Inst, MirConst, MirTy,
     Program, StaticSlotId, Terminator, UnOp, ValueId,
 };
 
@@ -126,6 +126,7 @@ struct PrintIds {
 }
 
 #[derive(Clone, Copy)]
+#[allow(dead_code)] // `drop_dispatch` / `print_map` are only consumed via runtime symbol resolution today, but kept on this aggregate so future codegen sites can reach for them without re-plumbing.
 struct PanicAux {
     fn_id: cranelift_module::FuncId,
     drop_dispatch: cranelift_module::FuncId,

@@ -230,6 +230,11 @@ struct Lower {
     repl_slot_ast: HashMap<Symbol, (u32, ilang_ast::Type)>,
 }
 
+// Recorded for every `@extern(C) @lib(..)` fn while lowering. The
+// MIR-codegen reads these fields off `Function` directly today, so
+// the fields here are bookkeeping for any future passes that might
+// want richer per-extern metadata in the AST→MIR layer.
+#[allow(dead_code)]
 struct ExternMeta {
     libs: Vec<Symbol>,
     optional: bool,
@@ -1600,7 +1605,7 @@ impl Lower {
     fn lower_method(
         &mut self,
         class_id: crate::types::ClassId,
-        class_name: Symbol,
+        _class_name: Symbol,
         m: &FnDecl,
     ) -> Result<(), LowerError> {
         let id = *self
@@ -2470,6 +2475,13 @@ enum Binding {
     /// box between an outer scope and any closures that capture +
     /// mutate this name. Reads / writes go through `ArrayLoad` /
     /// `ArrayStore` at index 0.
+    ///
+    /// As of the per-closure cell capture refactor (commit 727a814)
+    /// no construction site remains: each writing closure now
+    /// allocates its own private cell at the construction call. The
+    /// variant + match arms are kept so the lookup_var / assign_var
+    /// helpers stay defensive against any future re-introduction.
+    #[allow(dead_code)]
     Cell(ValueId, MirTy),
 }
 
@@ -2494,6 +2506,7 @@ impl Env {
             .unwrap()
             .push((name, Binding::Ssa(v, ty)));
     }
+    #[allow(dead_code)]
     fn bind_cell(&mut self, name: Symbol, cell_v: ValueId, ty: MirTy) {
         if self.scopes.is_empty() {
             self.scopes.push(Vec::new());
@@ -2867,7 +2880,6 @@ fn score_coerce(from: &MirTy, to: &MirTy) -> Option<u32> {
     if from == to {
         return Some(0);
     }
-    use MirTyExt as _;
     if from.is_signed_int() && to.is_signed_int() && to.int_width() >= from.int_width() {
         return Some(1);
     }
@@ -3787,9 +3799,9 @@ impl<'a> BodyCx<'a> {
                 }
                 Ok((dst, MirTy::Object(class_id)))
             }
-            // Everything else lands here; expanded coverage is the
-            // ongoing M1 implementation work.
-            _ => Err(LowerError::Unsupported("expression kind not yet wired (M1 in progress)")),
+            // M1 is feature-complete — every variant of `ExprKind`
+            // is handled above. Removed the legacy catch-all because
+            // the compiler now flags it as `unreachable_pattern`.
         }
     }
 
@@ -6806,6 +6818,11 @@ pub fn ty_to_mir(t: &Type) -> Result<MirTy, LowerError> {
 }
 
 // Helper for MirTy methods that need shared definitions.
+// Predates the inherent `MirTy::int_width` etc. on `crate::types`;
+// kept as a soft-deprecated trait for any out-of-tree code that
+// still refers to it. The compiler reports it as unused because
+// every in-tree call now resolves to the inherent method.
+#[allow(dead_code)]
 trait MirTyExt {
     fn is_int(&self) -> bool;
     fn is_signed_int(&self) -> bool;
