@@ -121,6 +121,7 @@ struct PrintIds {
     fn_: cranelift_module::FuncId,
     map: cranelift_module::FuncId,
     weak: cranelift_module::FuncId,
+    enum_: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]
@@ -277,6 +278,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__print_object", host_print_object as *const u8);
     jit_builder.symbol("__class_name", host_class_name as *const u8);
     jit_builder.symbol("__print_weak", host_print_weak as *const u8);
+    jit_builder.symbol("__print_enum", host_print_enum as *const u8);
     jit_builder.symbol("__print_fn", host_print_fn as *const u8);
     jit_builder.symbol("__release_object", host_release_object as *const u8);
     jit_builder.symbol("__retain_object", host_retain_object as *const u8);
@@ -494,6 +496,12 @@ pub fn compile_with_builtins(
     let print_map_id = declare_unit_i64(&mut module, "__print_map")?;
     let class_name_id = declare_unary_i64(&mut module, "__class_name")?;
     let print_weak_id = declare_unit_i64(&mut module, "__print_weak")?;
+    let print_enum_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__print_enum", Linkage::Import, &sig)?
+    };
     let print_ids = PrintIds {
         int: declare_unit_i64(&mut module, "__print_int")?,
         bool_: declare_unit_i64(&mut module, "__print_bool")?,
@@ -505,6 +513,7 @@ pub fn compile_with_builtins(
         fn_: print_fn_id,
         map: print_map_id,
         weak: print_weak_id,
+        enum_: print_enum_id,
     };
 
     // Declare builtin imports. Each gets a Cranelift FuncId so call
@@ -770,6 +779,34 @@ pub fn compile_with_builtins(
                 ClassPrintInfo {
                     name: class.name.as_str().to_string(),
                     fields,
+                },
+            );
+        }
+    }
+    // Populate enum-print-info registry — host_print_enum walks
+    // enum tag → variant name + payload kinds.
+    {
+        let mut t = enum_info_lock().lock().expect("enum info poisoned");
+        t.clear();
+        for e in &prog.enums {
+            let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
+            for v in &e.variants {
+                let kinds: Vec<PrintKind> = match &v.payload {
+                    ilang_mir::VariantPayload::Unit => Vec::new(),
+                    ilang_mir::VariantPayload::Tuple(tys) => {
+                        tys.iter().map(print_kind_of).collect()
+                    }
+                    ilang_mir::VariantPayload::Struct(fs) => {
+                        fs.iter().map(|(_, t)| print_kind_of(t)).collect()
+                    }
+                };
+                variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
+            }
+            t.insert(
+                e.id.0,
+                EnumPrintInfo {
+                    name: e.name.as_str().to_string(),
+                    variants,
                 },
             );
         }
@@ -1482,6 +1519,63 @@ extern "C" fn host_print_fn(closure_ptr: i64) {
 /// `typeof(x).name` resolves to this. Looks the class id up in the
 /// per-class info registry and returns a leaked NUL-terminated copy
 /// of the class name as a `*const u8`.
+#[derive(Clone)]
+struct EnumPrintInfo {
+    name: String,
+    /// discriminant → (variant_name, payload_kinds)
+    variants: HashMap<i64, (String, Vec<PrintKind>)>,
+}
+
+static ENUM_INFO: OnceLock<Mutex<HashMap<u32, EnumPrintInfo>>> = OnceLock::new();
+
+fn enum_info_lock() -> &'static Mutex<HashMap<u32, EnumPrintInfo>> {
+    ENUM_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+extern "C" fn host_print_enum(enum_id: i64, ptr: i64) {
+    let mut out = String::new();
+    let info = {
+        let m = enum_info_lock().lock().expect("enum info poisoned");
+        m.get(&(enum_id as u32)).cloned()
+    };
+    let info = match info {
+        Some(i) => i,
+        None => {
+            print!("<enum#{enum_id}>");
+            return;
+        }
+    };
+    if ptr == 0 {
+        print!("{}::<null>", info.name);
+        return;
+    }
+    let tag = unsafe { *(ptr as *const i64) };
+    let (vname, pkinds) = match info.variants.get(&tag) {
+        Some(v) => v.clone(),
+        None => {
+            print!("{}::<tag#{tag}>", info.name);
+            return;
+        }
+    };
+    // Strip generic suffix from enum name (Result<i64,string> → Result).
+    let base = info.name.split('<').next().unwrap_or(info.name.as_str());
+    out.push_str(base);
+    out.push_str("::");
+    out.push_str(&vname);
+    if !pkinds.is_empty() {
+        out.push('(');
+        for (i, k) in pkinds.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            let raw = unsafe { *((ptr + 8 + (i as i64) * 8) as *const i64) };
+            format_value(&mut out, k, raw);
+        }
+        out.push(')');
+    }
+    print!("{out}");
+}
+
 extern "C" fn host_print_weak(weak_ptr: i64) {
     if weak_ptr == 0 {
         print!("weak(<dead>)");
@@ -1533,12 +1627,51 @@ extern "C" fn host_mir_alloc(size: i64) -> i64 {
 
 /// Map runtime: a Rust HashMap<i64, i64> wrapped with rc + per-value
 /// kind tag (1 = values are Object refs, cascade-release on drop).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum MapKey {
+    Int(i64),
+    Str(String),
+}
+
 struct ManagedMap {
     rc: i64,
     val_kind: i64,
     key_print_kind: i64,
     val_print_kind: i64,
-    inner: std::collections::HashMap<i64, i64>,
+    inner: std::collections::HashMap<MapKey, i64>,
+    /// For string-keyed maps: canonical key → original C-string ptr
+    /// the user inserted. Lets `keys()` return the original ptrs so
+    /// downstream `arr.includes(orig)` works without content compare.
+    str_key_origs: std::collections::HashMap<MapKey, i64>,
+}
+
+fn raw_to_map_key(raw: i64, key_print_kind: i64) -> MapKey {
+    if key_print_kind == PK_STR {
+        if raw == 0 {
+            MapKey::Str(String::new())
+        } else {
+            let bytes = unsafe { cstr_bytes(raw) };
+            MapKey::Str(String::from_utf8_lossy(bytes).into_owned())
+        }
+    } else {
+        MapKey::Int(raw)
+    }
+}
+
+fn map_key_to_raw(k: &MapKey) -> i64 {
+    match k {
+        MapKey::Int(n) => *n,
+        MapKey::Str(s) => {
+            // Re-emit a leaked NUL-terminated copy so callers reading
+            // back keys via host_map_keys see a stable C-string ptr.
+            let mut bytes: Vec<u8> = s.as_bytes().to_vec();
+            bytes.push(0);
+            let bx = bytes.into_boxed_slice();
+            let ptr = bx.as_ptr() as i64;
+            Box::leak(bx);
+            ptr
+        }
+    }
 }
 
 const PK_I64_SIG: i64 = 0;
@@ -1634,6 +1767,7 @@ extern "C" fn host_map_new() -> i64 {
         key_print_kind: PK_OTHER,
         val_print_kind: PK_OTHER,
         inner: std::collections::HashMap::new(),
+        str_key_origs: std::collections::HashMap::new(),
     });
     Box::into_raw(m) as i64
 }
@@ -1655,8 +1789,11 @@ extern "C" fn host_print_map(map_ptr: i64) {
         return;
     }
     let m = unsafe { &*(map_ptr as *const ManagedMap) };
-    let mut entries: Vec<(i64, i64)> =
-        m.inner.iter().map(|(&k, &v)| (k, v)).collect();
+    let mut entries: Vec<(i64, i64)> = m
+        .inner
+        .iter()
+        .map(|(k, &v)| (map_key_to_raw(k), v))
+        .collect();
     let kk = m.key_print_kind;
     let vk = m.val_print_kind;
     entries.sort_by(|a, b| {
@@ -1684,7 +1821,8 @@ extern "C" fn host_map_get(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    *m.inner.get(&key).unwrap_or(&0)
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    *m.inner.get(&mk).unwrap_or(&0)
 }
 
 extern "C" fn host_map_get_optional(map: i64, key: i64) -> i64 {
@@ -1692,9 +1830,9 @@ extern "C" fn host_map_get_optional(map: i64, key: i64) -> i64 {
         return 0;
     }
     let m = unsafe { &*(map as *const ManagedMap) };
-    match m.inner.get(&key) {
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    match m.inner.get(&mk) {
         Some(&v) => {
-            // 24-byte Optional cell [value | rc | kind_tag].
             let cell = host_mir_alloc(24) as *mut i64;
             unsafe {
                 *cell = v;
@@ -1712,7 +1850,11 @@ extern "C" fn host_map_set(map: i64, key: i64, value: i64) {
         return;
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
-    m.inner.insert(key, value);
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    if m.key_print_kind == PK_STR && key != 0 {
+        m.str_key_origs.entry(mk.clone()).or_insert(key);
+    }
+    m.inner.insert(mk, value);
 }
 
 extern "C" fn host_map_set_object_value(map: i64) {
@@ -2190,8 +2332,9 @@ extern "C" fn host_map_has(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
     }
-    let m = unsafe { &(*(map as *const ManagedMap)).inner };
-    if m.contains_key(&key) { 1 } else { 0 }
+    let mm = unsafe { &*(map as *const ManagedMap) };
+    let mk = raw_to_map_key(key, mm.key_print_kind);
+    if mm.inner.contains_key(&mk) { 1 } else { 0 }
 }
 
 extern "C" fn host_map_size(map: i64) -> i64 {
@@ -2206,16 +2349,28 @@ extern "C" fn host_map_delete(map: i64, key: i64) -> i64 {
     if map == 0 {
         return 0;
     }
-    let m = unsafe { &mut (*(map as *mut ManagedMap)).inner };
-    if m.remove(&key).is_some() { 1 } else { 0 }
+    let mm = unsafe { &mut *(map as *mut ManagedMap) };
+    let mk = raw_to_map_key(key, mm.key_print_kind);
+    if mm.inner.remove(&mk).is_some() { 1 } else { 0 }
 }
 
 extern "C" fn host_map_keys(map: i64) -> i64 {
     if map == 0 {
         return build_array(&[]);
     }
-    let m = unsafe { &(*(map as *const ManagedMap)).inner };
-    let v: Vec<i64> = m.keys().copied().collect();
+    let mm = unsafe { &*(map as *const ManagedMap) };
+    let v: Vec<i64> = mm
+        .inner
+        .keys()
+        .map(|k| {
+            // Prefer the original C-string ptr the user inserted, so
+            // `keys().includes(orig)` succeeds with raw-ptr equality.
+            mm.str_key_origs
+                .get(k)
+                .copied()
+                .unwrap_or_else(|| map_key_to_raw(k))
+        })
+        .collect();
     build_array(&v)
 }
 
@@ -2223,8 +2378,8 @@ extern "C" fn host_map_values(map: i64) -> i64 {
     if map == 0 {
         return build_array(&[]);
     }
-    let m = unsafe { &(*(map as *const ManagedMap)).inner };
-    let v: Vec<i64> = m.values().copied().collect();
+    let mm = unsafe { &*(map as *const ManagedMap) };
+    let v: Vec<i64> = mm.inner.values().copied().collect();
     build_array(&v)
 }
 
@@ -3550,6 +3705,11 @@ fn emit_print_value(
         MirTy::Weak(_) => {
             let r = module.declare_func_in_func(print_ids.weak, fb.func);
             fb.ins().call(r, &[av]);
+        }
+        MirTy::Enum(eid) => {
+            let id_v = fb.ins().iconst(types::I64, eid.0 as i64);
+            let r = module.declare_func_in_func(print_ids.enum_, fb.func);
+            fb.ins().call(r, &[id_v, av]);
         }
         _ => {
             // Fallback: print as raw int (pointer / tag).
