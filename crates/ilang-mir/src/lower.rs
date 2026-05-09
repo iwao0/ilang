@@ -2772,16 +2772,36 @@ impl<'a> BodyCx<'a> {
     /// existed. For Local bindings, emits a `DefLocal`. For Ssa
     /// bindings, replaces the slot's payload.
     fn assign_var(&mut self, name: Symbol, v: ValueId, ty: MirTy) -> bool {
+        // The rhs's MirTy may be wider than the binding's declared
+        // type after `unify_numeric` promoted a mixed-sign / mixed-
+        // width arithmetic operand. `i = i + 1` (i: i32) is the
+        // canonical case: `i + 1` widens to i64, but the Local was
+        // declared i32, so a raw `def_var` would fail the
+        // Cranelift type check. Insert a narrowing coerce when the
+        // shapes don't already match.
         match self.env.lookup_binding(name) {
-            Some(Binding::Local(lid, _)) => {
+            Some(Binding::Local(lid, slot_ty)) => {
+                let coerced = if slot_ty == ty {
+                    v
+                } else {
+                    self.coerce(v, &ty, &slot_ty, Span::dummy()).unwrap_or(v)
+                };
                 self.fb
-                    .push_inst(Inst::DefLocal { local: lid, value: v });
+                    .push_inst(Inst::DefLocal { local: lid, value: coerced });
                 true
             }
-            Some(Binding::Cell(cell_v, _)) => {
+            Some(Binding::Cell(cell_v, slot_ty)) => {
+                let coerced = if slot_ty == ty {
+                    v
+                } else {
+                    self.coerce(v, &ty, &slot_ty, Span::dummy()).unwrap_or(v)
+                };
                 let zero = self.const_int(MirTy::I64, 0);
-                self.fb
-                    .push_inst(Inst::ArrayStore { arr: cell_v, idx: zero, value: v });
+                self.fb.push_inst(Inst::ArrayStore {
+                    arr: cell_v,
+                    idx: zero,
+                    value: coerced,
+                });
                 true
             }
             Some(Binding::Ssa(_, _)) => {
@@ -6003,8 +6023,55 @@ impl<'a> BodyCx<'a> {
         rhs: &Expr,
         _span: Span,
     ) -> Result<(ValueId, MirTy), LowerError> {
-        let (lv, lty) = self.lower_expr(lhs)?;
-        let (rv, rty) = self.lower_expr(rhs)?;
+        let (lv0, lty0) = self.lower_expr(lhs)?;
+        let (rv0, rty0) = self.lower_expr(rhs)?;
+        // `@flags` enum bitwise ops: extract each operand's tag,
+        // perform the op on the underlying integer repr, box the
+        // result back into the same enum.
+        if matches!(
+            op,
+            AstBinOp::BitOr | AstBinOp::BitAnd | AstBinOp::BitXor
+        ) {
+            if let (MirTy::Enum(le), MirTy::Enum(re)) = (&lty0, &rty0) {
+                if le == re {
+                    let eid = *le;
+                    let layout = &self.enums[eid.0 as usize];
+                    if layout.is_flags {
+                        let repr_ty = layout.repr.clone();
+                        let lt = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::EnumTag { dst: lt, value: lv0 });
+                        let rt = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::EnumTag { dst: rt, value: rv0 });
+                        let bop = match op {
+                            AstBinOp::BitOr => BinOp::IOr,
+                            AstBinOp::BitAnd => BinOp::IAnd,
+                            AstBinOp::BitXor => BinOp::IXor,
+                            _ => unreachable!(),
+                        };
+                        let combined = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::BinOp {
+                            dst: combined,
+                            op: bop,
+                            lhs: lt,
+                            rhs: rt,
+                        });
+                        // Re-box as a unit-variant enum cell; matches
+                        // the runtime layout `Inst::NewEnum` produces
+                        // for unit variants.
+                        let dst = self.fb.new_value(MirTy::Enum(eid));
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(dst),
+                            callee: FuncRef::Builtin(Symbol::intern("__enum_box")),
+                            args: Box::new([combined]),
+                        });
+                        let _ = repr_ty;
+                        return Ok((dst, MirTy::Enum(eid)));
+                    }
+                }
+            }
+        }
+        let (lv, lty) = (lv0, lty0);
+        let (rv, rty) = (rv0, rty0);
         // Numeric promotion (i64+f64 etc.) — pick the wider/float side.
         let (lv, rv, ty) = self.unify_numeric(lv, lty, rv, rty)?;
 
@@ -6143,9 +6210,19 @@ impl<'a> BodyCx<'a> {
             Some(self.fb.add_block_param(cont, result_ty.clone()))
         };
 
+        // Coerce branch tail values to the join block's parameter
+        // type so Cranelift sees matching block-arg types. Mixed
+        // narrower / wider integer branches show up in code like
+        // `if cond { some_i8 } else { some_i64 }` where unify
+        // pushed the result to i64 but one branch's value stayed
+        // narrower.
         let then_arg: Box<[ValueId]> = match (&result_ty, then_tail) {
             (MirTy::Unit, _) => Box::new([]),
-            (_, Some((v, _))) => Box::new([v]),
+            (rt, Some((v, t))) if &t == rt => Box::new([v]),
+            (rt, Some((v, t))) => {
+                let coerced = self.coerce(v, &t, rt, Span::dummy()).unwrap_or(v);
+                Box::new([coerced])
+            }
             (_, None) => Box::new([self.const_unit()]),
         };
         self.fb.set_terminator(Terminator::Br { dst: cont, args: then_arg });
@@ -6153,11 +6230,14 @@ impl<'a> BodyCx<'a> {
         self.fb.switch_to(else_blk);
         let else_arg: Box<[ValueId]> = match else_branch {
             Some(e) => {
-                let (v, _ty) = self.lower_expr(e)?;
+                let (v, vty) = self.lower_expr(e)?;
                 if matches!(result_ty, MirTy::Unit) {
                     Box::new([])
-                } else {
+                } else if vty == result_ty {
                     Box::new([v])
+                } else {
+                    let coerced = self.coerce(v, &vty, &result_ty, Span::dummy()).unwrap_or(v);
+                    Box::new([coerced])
                 }
             }
             None => {
@@ -6297,6 +6377,38 @@ impl<'a> BodyCx<'a> {
                 Some(coerced)
             }
             None => None,
+        };
+        // The fn's signature might require a non-Unit return value
+        // even when the user wrote a bare `return`. The canonical
+        // case is `init()` for a class — its source signature is
+        // void but the synthesised MIR returns the receiver. If we
+        // emit `return_(&[])` here, Cranelift fails because the fn
+        // declares one i64 return slot. Synthesise `this` for the
+        // init case, a typed-zero for everything else.
+        let v = if v.is_some() || matches!(self.ret_ty, MirTy::Unit) {
+            v
+        } else {
+            let want = self.ret_ty.clone();
+            if let Some((this_v, this_ty)) = self.lookup_var(Symbol::intern("this")) {
+                if this_ty == want {
+                    Some(this_v)
+                } else {
+                    Some(
+                        self.coerce(this_v, &this_ty, &want, Span::dummy())
+                            .unwrap_or(this_v),
+                    )
+                }
+            } else {
+                let synth = self.fb.new_value(want.clone());
+                let c = match &want {
+                    MirTy::Bool => Inst::Const { dst: synth, value: MirConst::Bool(false) },
+                    MirTy::F32 => Inst::Const { dst: synth, value: MirConst::F32(0) },
+                    MirTy::F64 => Inst::Const { dst: synth, value: MirConst::F64(0) },
+                    _ => Inst::Const { dst: synth, value: MirConst::Int(0) },
+                };
+                self.fb.push_inst(c);
+                Some(synth)
+            }
         };
         self.fb.set_terminator(Terminator::Return { value: v });
         let dead = self.fb.new_block();

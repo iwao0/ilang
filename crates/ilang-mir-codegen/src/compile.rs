@@ -387,6 +387,26 @@ pub fn compile_with_builtins(
     for b in builtins {
         jit_builder.symbol(b.name, b.ptr);
     }
+    // Eagerly dlopen every `@lib(...)` library declared anywhere
+    // in the program. Without this, dlsym(RTLD_DEFAULT, "SDL_Init")
+    // misses because the dynamic loader hasn't pulled libSDL2 into
+    // the process yet. Handles are leaked via Box::leak so the
+    // libs stay live for the JIT's lifetime.
+    {
+        let mut tried: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for f in &prog.functions {
+            if !matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) {
+                continue;
+            }
+            for lib in &f.libs {
+                let name = lib.as_str().to_string();
+                if !tried.insert(name.clone()) {
+                    continue;
+                }
+                let _ = try_open_lib(&name);
+            }
+        }
+    }
     // For every `@extern(C) @optional` fn whose target dlsym would
     // fail (the lib couldn't be opened, or the symbol is missing),
     // bind a host stub so finalize doesn't panic. The stub aborts
@@ -2806,13 +2826,32 @@ fn try_open_lib(name: &str) -> Option<*mut u8> {
     if let Some(h) = try_one(name) {
         return Some(h);
     }
-    // Bare name like "c" → try standard lib<NAME>.dylib / .so
-    // variants. dlopen("c") returns NULL on macOS; you need
-    // "libc.dylib".
+    // Bare name like "c" / "SDL2" — try OS-specific candidate
+    // filenames and Homebrew install dirs (Apple Silicon
+    // `/opt/homebrew`, Intel `/usr/local`) so user-installed libs
+    // resolve out of the box. Mirrors the candidates the legacy
+    // `crates/ilang-codegen/src/native_extern.rs` walks.
     if !name.contains('.') && !name.contains('/') {
-        for ext in &["dylib", "so", "so.6", "so.1"] {
-            let candidate = format!("lib{name}.{ext}");
-            if let Some(h) = try_one(&candidate) {
+        let candidates: Vec<String> = if cfg!(target_os = "macos") {
+            vec![
+                format!("lib{name}.dylib"),
+                format!("{name}.dylib"),
+                format!("/opt/homebrew/lib/lib{name}.dylib"),
+                format!("/opt/homebrew/lib/{name}.dylib"),
+                format!("/usr/local/lib/lib{name}.dylib"),
+                format!("/usr/local/lib/{name}.dylib"),
+            ]
+        } else if cfg!(target_os = "windows") {
+            vec![format!("{name}.dll"), format!("lib{name}.dll")]
+        } else {
+            let mut out = vec![format!("lib{name}.so")];
+            for n in [6, 5, 4, 3, 2, 1, 0] {
+                out.push(format!("lib{name}.so.{n}"));
+            }
+            out
+        };
+        for cand in candidates {
+            if let Some(h) = try_one(&cand) {
                 return Some(h);
             }
         }
@@ -4140,7 +4179,16 @@ fn lower_inst(
         }
         Inst::DefLocal { local, value } => {
             let var = locals[local.0 as usize];
-            fb.def_var(var, vmap[value]);
+            let v = vmap[value];
+            if std::env::var("ILANG_DEBUG_DEFLOCAL").is_ok() {
+                let want = func.local_tys[local.0 as usize].clone();
+                let got = fb.func.dfg.value_type(v);
+                eprintln!(
+                    "[deflocal] fn={} local#{} declared={want} clif_val_ty={got}",
+                    func.name.as_str(), local.0
+                );
+            }
+            fb.def_var(var, v);
         }
         Inst::UseLocal { dst, local } => {
             let var = locals[local.0 as usize];
@@ -4318,7 +4366,13 @@ fn lower_inst(
         }
         Inst::ArrayLoad { dst, arr, idx } => {
             let p = vmap[arr];
-            let i = vmap[idx];
+            let i_raw = vmap[idx];
+            // Index may come in as a narrower int (i32 / u32 / etc.)
+            // when the source code uses an int-typed counter. The
+            // OOB check + offset arithmetic below all run on i64,
+            // so widen up-front rather than threading a sign-cross
+            // cast at every consumer.
+            let i = extend_to_i64(fb, i_raw);
             // Inline fixed-size array (`u8[4]` field of an @extern(C)
             // struct, etc) — base ptr is the start of the elements,
             // no header. Use the static elem stride from the type.
@@ -4375,7 +4429,8 @@ fn lower_inst(
         }
         Inst::ArrayStore { arr, idx, value } => {
             let p = vmap[arr];
-            let i = vmap[idx];
+            let i_raw = vmap[idx];
+            let i = extend_to_i64(fb, i_raw);
             let arr_ty = func.ty_of(*arr).clone();
             let inline_info = match &arr_ty {
                 MirTy::Array { elem, len: Some(n) } => {
@@ -5239,6 +5294,43 @@ fn emit_panic_if(
 }
 
 fn lower_binop(fb: &mut ClifFnBuilder, op: BinOp, lhs: Value, rhs: Value) -> Value {
+    // Defensive type-bridging: the MIR's `unify_numeric` aligns
+    // operand MirTys but the AST→MIR path can leak a literal that
+    // ended up wider than the binop's intended cell width (e.g. a
+    // bare `1` inside `cellH - 1` where cellH is i32). Cranelift
+    // requires both arithmetic / compare operands to share the
+    // exact clif type, so widen/narrow the smaller operand on the
+    // fly. For shifts we leave the count as-is (Cranelift accepts
+    // any integer type for the shift amount).
+    let (lhs, rhs) = match op {
+        BinOp::IAdd
+        | BinOp::ISub
+        | BinOp::IMul
+        | BinOp::IDivS
+        | BinOp::IDivU
+        | BinOp::IRemS
+        | BinOp::IRemU
+        | BinOp::IAnd
+        | BinOp::IOr
+        | BinOp::IXor
+        | BinOp::IEq
+        | BinOp::INe
+        | BinOp::ILtS | BinOp::ILeS | BinOp::IGtS | BinOp::IGeS
+        | BinOp::ILtU | BinOp::ILeU | BinOp::IGtU | BinOp::IGeU => {
+            let lt = fb.func.dfg.value_type(lhs);
+            let rt = fb.func.dfg.value_type(rhs);
+            if lt != rt && lt.is_int() && rt.is_int() {
+                if lt.bits() < rt.bits() {
+                    (fb.ins().sextend(rt, lhs), rhs)
+                } else {
+                    (lhs, fb.ins().sextend(lt, rhs))
+                }
+            } else {
+                (lhs, rhs)
+            }
+        }
+        _ => (lhs, rhs),
+    };
     match op {
         BinOp::IAdd => fb.ins().iadd(lhs, rhs),
         BinOp::ISub => fb.ins().isub(lhs, rhs),
