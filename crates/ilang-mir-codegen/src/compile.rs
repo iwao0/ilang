@@ -308,6 +308,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("errnoCheckI64", host_errno_check_i64 as *const u8);
     jit_builder.symbol("os.errno", host_os_errno as *const u8);
     jit_builder.symbol("os.setErrno", host_os_set_errno as *const u8);
+    jit_builder.symbol("os.libLoaded", host_os_lib_loaded as *const u8);
+    jit_builder.symbol("os.libLoadError", host_os_lib_load_error as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     jit_builder.symbol("test.applyI32Cb", host_test_apply_i32_cb as *const u8);
@@ -2044,6 +2046,20 @@ extern "C" fn host_array_includes(arr: i64, value: i64) -> i64 {
     if host_array_index_of(arr, value) >= 0 { 1 } else { 0 }
 }
 
+/// Write a value into a packed array slot at `data + idx*stride`,
+/// truncating the i64 source down to the stride width.
+unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
+    unsafe {
+        let addr = (data + idx * stride) as *mut u8;
+        match stride {
+            1 => *(addr as *mut u8) = value as u8,
+            2 => *(addr as *mut u16) = value as u16,
+            4 => *(addr as *mut u32) = value as u32,
+            _ => *(addr as *mut i64) = value,
+        }
+    }
+}
+
 extern "C" fn host_array_push(arr: i64, value: i64) {
     if arr == 0 {
         return;
@@ -2053,38 +2069,40 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
         let len = *h;
         let cap = *h.add(1);
         let data = *h.add(2);
+        let stride = *h.add(5);
         if len < cap {
-            *((data + len * 8) as *mut i64) = value;
+            store_packed(data, len, stride, value);
             *h = len + 1;
         } else {
-            // Grow: alloc new buffer (2x capacity, min 4), copy, swap.
             let new_cap = (cap * 2).max(4);
-            let new_data = host_mir_alloc(new_cap * 8);
+            let new_data = host_mir_alloc(new_cap * stride);
             std::ptr::copy_nonoverlapping(
                 data as *const u8,
                 new_data as *mut u8,
-                (len as usize) * 8,
+                (len * stride) as usize,
             );
-            *((new_data + len * 8) as *mut i64) = value;
+            store_packed(new_data, len, stride, value);
             *h = len + 1;
             *h.add(1) = new_cap;
             *h.add(2) = new_data;
-            // Old `data` allocation leaks until ARC lands.
         }
     }
 }
 
-/// Construct a new array (using the codegen's 24-byte header layout)
-/// from an i64 slice. Returns the i64 header pointer.
+/// Construct a new i64-cell array (48-byte header, stride 8) from an
+/// i64 slice. Used by helpers that produce string[] / i64[] results.
 fn build_array(items: &[i64]) -> i64 {
     let cap = items.len().max(4);
-    let header = host_mir_alloc(24);
+    let header = host_mir_alloc(48);
     let data = host_mir_alloc((cap * 8) as i64);
     unsafe {
         let h = header as *mut i64;
         *h = items.len() as i64;
         *h.add(1) = cap as i64;
         *h.add(2) = data;
+        *h.add(3) = 1; // rc
+        *h.add(4) = 0; // kind tag (no cascade for raw i64 / string ptrs)
+        *h.add(5) = 8; // stride
         for (i, v) in items.iter().enumerate() {
             *((data + (i as i64) * 8) as *mut i64) = *v;
         }
@@ -2184,7 +2202,14 @@ extern "C" fn host_array_pop(arr: i64) -> i64 {
             return 0;
         }
         let data = *h.add(2);
-        let v = *((data + (len - 1) * 8) as *const i64);
+        let stride = *h.add(5);
+        let addr = (data + (len - 1) * stride) as *const u8;
+        let v: i64 = match stride {
+            1 => *(addr as *const u8) as i64,
+            2 => *(addr as *const u16) as i64,
+            4 => *(addr as *const u32) as i64,
+            _ => *(addr as *const i64),
+        };
         *h = len - 1;
         let elem_tag = *h.add(4);
         let cell = host_mir_alloc(24) as *mut i64;
@@ -2202,6 +2227,54 @@ extern "C" fn host_array_data_ptr(arr: i64) -> i64 {
         return 0;
     }
     unsafe { *((arr + 16) as *const i64) }
+}
+
+/// Byte stride of an array element type. 1 / 2 / 4 / 8 — anything
+/// not one of the small numeric types lands on the i64 cell.
+fn elem_byte_stride(t: &MirTy) -> i64 {
+    match t {
+        MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => 1,
+        MirTy::I16 | MirTy::U16 => 2,
+        MirTy::I32 | MirTy::U32 | MirTy::F32 => 4,
+        _ => 8,
+    }
+}
+
+/// Cranelift type to use for a packed array load/store of `t`. Only
+/// the small numeric types get tight packing; everything else uses
+/// the i64 cell path (returns `None`).
+fn elem_clif_type(t: &MirTy) -> Option<cranelift::prelude::Type> {
+    use cranelift::prelude::types as ct;
+    match t {
+        MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => Some(ct::I8),
+        MirTy::I16 | MirTy::U16 => Some(ct::I16),
+        MirTy::I32 | MirTy::U32 => Some(ct::I32),
+        MirTy::F32 => Some(ct::F32),
+        MirTy::F64 => Some(ct::F64),
+        _ => None,
+    }
+}
+
+/// Truncate a Cranelift value to fit the target type if it is wider;
+/// otherwise pass through (assumes the source already matches).
+fn ireduce_or_pass(
+    fb: &mut ClifFnBuilder,
+    v: cranelift::prelude::Value,
+    target: cranelift::prelude::Type,
+) -> cranelift::prelude::Value {
+    let cur = fb.func.dfg.value_type(v);
+    if cur == target {
+        return v;
+    }
+    if target.is_int() && cur.is_int() {
+        if cur.bits() > target.bits() {
+            return fb.ins().ireduce(target, v);
+        }
+        if cur.bits() < target.bits() {
+            return fb.ins().uextend(target, v);
+        }
+    }
+    v
 }
 
 extern "C" fn host_identity(p: i64) -> i64 { p }
@@ -2225,7 +2298,7 @@ extern "C" fn host_cstr_array_to_strings(ptrs: i64) -> i64 {
         }
     }
     let n = elems.len() as i64;
-    let header = host_mir_alloc(40);
+    let header = host_mir_alloc(48);
     let data = host_mir_alloc(n.max(1) * 8);
     unsafe {
         let h = header as *mut i64;
@@ -2233,7 +2306,8 @@ extern "C" fn host_cstr_array_to_strings(ptrs: i64) -> i64 {
         *h.add(1) = n;
         *h.add(2) = data;
         *h.add(3) = 1;
-        *h.add(4) = 0; // elem_kind_tag: string is non-Object so no cascade
+        *h.add(4) = 0;
+        *h.add(5) = 8; // stride
         let d = data as *mut i64;
         for (i, s) in elems.iter().enumerate() {
             *d.add(i) = *s;
@@ -2265,13 +2339,50 @@ extern "C" fn host_errno_check_i64(rc: i64) -> i64 {
     cell as i64
 }
 
+/// `os.libLoaded(name)` — true if the JIT could resolve symbols
+/// from `name` (or any fallback in its `@lib(...)` group). The
+/// mir-codegen pipeline relies on Cranelift JIT's process-wide
+/// symbol search, which always succeeds for libc-provided names,
+/// so the contract reduces to: returning true matches what the
+/// fallback paths do.
+extern "C" fn host_os_lib_loaded(_name: i64) -> i64 {
+    1
+}
+
+/// `os.libLoadError(name)` — empty string when no error was
+/// recorded.  Same caveat as `host_os_lib_loaded`.
+extern "C" fn host_os_lib_load_error(_name: i64) -> i64 {
+    leak_cstring(String::new())
+}
+
 extern "C" fn host_os_errno() -> i32 {
     // Best-effort errno: read Rust's libc `errno`.
     std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
 }
 
-extern "C" fn host_os_set_errno(_code: i32) {
-    // No portable Rust API to set errno; no-op for now.
+extern "C" fn host_os_set_errno(code: i32) {
+    #[cfg(target_os = "macos")]
+    unsafe extern "C" {
+        fn __error() -> *mut i32;
+    }
+    #[cfg(target_os = "linux")]
+    unsafe extern "C" {
+        fn __errno_location() -> *mut i32;
+    }
+    unsafe {
+        #[cfg(target_os = "macos")]
+        {
+            *__error() = code;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            *__errno_location() = code;
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        {
+            let _ = code;
+        }
+    }
 }
 
 extern "C" fn host_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
@@ -3204,16 +3315,18 @@ fn lower_inst(
             }
         }
         Inst::NewArray { dst, elem, items } => {
-            // Layout: 5-i64 header [length | capacity | data_ptr | rc | elem_kind_tag]
-            // followed by a separately-allocated `i64×capacity` buffer.
-            // elem_kind_tag: 0 = no cascade needed, 1 = elements are
-            // Object pointers (deinit them on rc→0).
+            // Layout: 6-i64 header [len | cap | data_ptr | rc | kind_tag | stride]
+            // + separately-allocated `stride×capacity` buffer. stride is
+            // 1/2/4/8 picked from `elem` so `u8[]` / `u16[]` / `u32[]`
+            // pack tightly enough for native memcpy/memset to land on
+            // the right slots.
+            let stride_bytes = elem_byte_stride(elem);
             let n = items.len() as i64;
-            let header_bytes = fb.ins().iconst(types::I64, 40);
+            let header_bytes = fb.ins().iconst(types::I64, 48);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[header_bytes]);
             let ptr = fb.inst_results(call)[0];
-            let data_bytes = fb.ins().iconst(types::I64, n.max(1) * 8);
+            let data_bytes = fb.ins().iconst(types::I64, n.max(1) * stride_bytes);
             let dcall = fb.ins().call(alloc_ref, &[data_bytes]);
             let data_ptr = fb.inst_results(dcall)[0];
 
@@ -3226,20 +3339,31 @@ fn lower_inst(
             let tag = if matches!(elem, MirTy::Object(_)) { 1 } else { 0 };
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
+            let stride_v = fb.ins().iconst(types::I64, stride_bytes);
+            fb.ins().store(MemFlags::trusted(), stride_v, ptr, 40);
+            let elem_clif_opt = elem_clif_type(elem);
             for (i, it) in items.iter().enumerate() {
-                let v_ext = extend_to_i64(fb, vmap[it]);
-                fb.ins().store(MemFlags::trusted(), v_ext, data_ptr, (i as i32) * 8);
+                let raw = vmap[it];
+                let off = (i as i32) * (stride_bytes as i32);
+                if let Some(elem_ct) = elem_clif_opt {
+                    let truncated = ireduce_or_pass(fb, raw, elem_ct);
+                    fb.ins().store(MemFlags::trusted(), truncated, data_ptr, off);
+                } else {
+                    let v_ext = extend_to_i64(fb, raw);
+                    fb.ins().store(MemFlags::trusted(), v_ext, data_ptr, off);
+                }
             }
             vmap.insert(*dst, ptr);
         }
         Inst::NewArrayEmpty { dst, elem, fixed_len } => {
+            let stride_bytes = elem_byte_stride(elem);
             let n = fixed_len.unwrap_or(0) as i64;
-            let header_bytes = fb.ins().iconst(types::I64, 40);
+            let header_bytes = fb.ins().iconst(types::I64, 48);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let call = fb.ins().call(alloc_ref, &[header_bytes]);
             let ptr = fb.inst_results(call)[0];
             let cap = n.max(4);
-            let data_bytes = fb.ins().iconst(types::I64, cap * 8);
+            let data_bytes = fb.ins().iconst(types::I64, cap * stride_bytes);
             let dcall = fb.ins().call(alloc_ref, &[data_bytes]);
             let data_ptr = fb.inst_results(dcall)[0];
             let len_v = fb.ins().iconst(types::I64, n);
@@ -3252,6 +3376,8 @@ fn lower_inst(
             let tag = if matches!(elem, MirTy::Object(_)) { 1 } else { 0 };
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
+            let stride_v = fb.ins().iconst(types::I64, stride_bytes);
+            fb.ins().store(MemFlags::trusted(), stride_v, ptr, 40);
             vmap.insert(*dst, ptr);
         }
         Inst::ArrayLen { dst, arr } => {
@@ -3268,12 +3394,31 @@ fn lower_inst(
             let oob = fb.ins().bor(oob_lo, oob_hi);
             emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
             let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-            let stride = fb.ins().iconst(types::I64, 8);
+            let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
             let dst_ty_mir = func.ty_of(*dst);
-            let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
-            let v = reduce_from_i64(fb, dst_ty_mir, raw);
+            let v = match elem_clif_type(dst_ty_mir) {
+                Some(elem_ct) if elem_ct == types::I8 => {
+                    fb.ins().load(types::I8, MemFlags::trusted(), addr, 0)
+                }
+                Some(elem_ct) if elem_ct == types::I16 => {
+                    fb.ins().load(types::I16, MemFlags::trusted(), addr, 0)
+                }
+                Some(elem_ct) if elem_ct == types::I32 => {
+                    fb.ins().load(types::I32, MemFlags::trusted(), addr, 0)
+                }
+                Some(elem_ct) if elem_ct == types::F32 => {
+                    fb.ins().load(types::F32, MemFlags::trusted(), addr, 0)
+                }
+                Some(elem_ct) if elem_ct == types::F64 => {
+                    fb.ins().load(types::F64, MemFlags::trusted(), addr, 0)
+                }
+                _ => {
+                    let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
+                    reduce_from_i64(fb, dst_ty_mir, raw)
+                }
+            };
             vmap.insert(*dst, v);
         }
         Inst::ArrayStore { arr, idx, value } => {
@@ -3285,11 +3430,21 @@ fn lower_inst(
             let oob = fb.ins().bor(oob_lo, oob_hi);
             emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
             let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-            let stride = fb.ins().iconst(types::I64, 8);
+            let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
-            let v_ext = extend_to_i64(fb, vmap[value]);
-            fb.ins().store(MemFlags::trusted(), v_ext, addr, 0);
+            let val_ty_mir = func.ty_of(*value);
+            let raw = vmap[value];
+            match elem_clif_type(val_ty_mir) {
+                Some(elem_ct) if elem_ct != types::I64 => {
+                    let truncated = ireduce_or_pass(fb, raw, elem_ct);
+                    fb.ins().store(MemFlags::trusted(), truncated, addr, 0);
+                }
+                _ => {
+                    let v_ext = extend_to_i64(fb, raw);
+                    fb.ins().store(MemFlags::trusted(), v_ext, addr, 0);
+                }
+            }
         }
         Inst::NewMap { dst, key, val, entries } => {
             let new_ref = module.declare_func_in_func(map_ids.new, fb.func);

@@ -2814,7 +2814,12 @@ impl<'a> BodyCx<'a> {
                         });
                         (dst, ty_full)
                     } else {
-                        self.lower_expr(value)?
+                        // Hint-directed lowering: build an array whose
+                        // element MirTy matches the binding's hint, so
+                        // packed `u8[]` / `u16[]` / `u32[]` allocate
+                        // tight strides instead of being lowered as a
+                        // generic i64-cell array and then "coerced".
+                        self.lower_array_literal_with_hint(items, Some((**elem).clone()))?
                     }
                 } else {
                     self.lower_expr(value)?
@@ -3442,6 +3447,45 @@ impl<'a> BodyCx<'a> {
             entries: pairs.into_boxed_slice(),
         });
         Ok((dst, ty))
+    }
+
+    fn lower_array_literal_with_hint(
+        &mut self,
+        items: &[Expr],
+        elem_hint: Option<MirTy>,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        if items.is_empty() {
+            let elem = elem_hint.unwrap_or(MirTy::I64);
+            let ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+            let v = self.fb.new_value(ty.clone());
+            self.fb.push_inst(Inst::NewArrayEmpty {
+                dst: v,
+                elem,
+                fixed_len: None,
+            });
+            return Ok((v, ty));
+        }
+        let mut elem_vals = Vec::with_capacity(items.len());
+        let mut elem_ty: Option<MirTy> = elem_hint.clone();
+        for it in items {
+            let (vv, vty) = self.lower_expr(it)?;
+            let target = elem_ty.get_or_insert(vty.clone()).clone();
+            let coerced = if target == vty {
+                vv
+            } else {
+                self.coerce(vv, &vty, &target, it.span)?
+            };
+            elem_vals.push(coerced);
+        }
+        let elem = elem_ty.unwrap();
+        let ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewArray {
+            dst: v,
+            elem,
+            items: elem_vals.into_boxed_slice(),
+        });
+        Ok((v, ty))
     }
 
     fn lower_array_literal(&mut self, items: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {
