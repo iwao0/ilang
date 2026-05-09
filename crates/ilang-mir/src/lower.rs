@@ -518,20 +518,59 @@ impl Lower {
                 let packed = matches!(layout_clone.repr, crate::program::ClassRepr::CPacked);
                 let is_union = matches!(layout_clone.repr, crate::program::ClassRepr::CUnion);
                 let mut offsets = Vec::with_capacity(layout_clone.fields.len());
+                let mut bit_offsets: Vec<Option<u32>> =
+                    Vec::with_capacity(layout_clone.fields.len());
                 let mut cur: i64 = 0;
                 let mut max_align: i64 = 1;
                 let mut max_size: i64 = 0;
+                // Bitfield run state: when the previous field was a
+                // bitfield, we keep packing into the same storage
+                // unit until either the type changes or the bit
+                // budget overflows.
+                let mut bit_run_offset: i64 = 0;
+                let mut bit_run_size: i64 = 0;
+                let mut bit_run_align: i64 = 0;
+                let mut bit_run_consumed: u32 = 0;
                 for f in &layout_clone.fields {
                     let (sz, al) = self.c_size_align_of(&f.ty);
                     let align = if packed { 1 } else { al };
+                    let is_bitfield = f.bit_field.is_some();
                     if is_union {
                         offsets.push(0);
+                        bit_offsets.push(None);
                         if sz > max_size { max_size = sz; }
                         if align > max_align { max_align = align; }
+                        continue;
+                    }
+                    if is_bitfield {
+                        let width = f.bit_field.unwrap().width;
+                        let f_total_bits = (sz * 8) as u32;
+                        let same_unit = bit_run_size == sz
+                            && bit_run_align == align
+                            && bit_run_consumed + width <= f_total_bits
+                            && bit_run_size > 0;
+                        if !same_unit {
+                            // Start a new storage unit for this bitfield.
+                            if align > max_align { max_align = align; }
+                            cur = (cur + align - 1) / align * align;
+                            bit_run_offset = cur;
+                            bit_run_size = sz;
+                            bit_run_align = align;
+                            bit_run_consumed = 0;
+                            cur += sz;
+                        }
+                        offsets.push(bit_run_offset);
+                        bit_offsets.push(Some(bit_run_consumed));
+                        bit_run_consumed += width;
                     } else {
+                        // Normal field — close any open bitfield run.
+                        bit_run_size = 0;
+                        bit_run_align = 0;
+                        bit_run_consumed = 0;
                         if align > max_align { max_align = align; }
                         cur = (cur + align - 1) / align * align;
                         offsets.push(cur);
+                        bit_offsets.push(None);
                         cur += sz;
                     }
                 }
@@ -541,8 +580,20 @@ impl Lower {
                 } else {
                     (cur + max_align - 1) / max_align * max_align
                 };
+                let mut bit_changed = false;
+                for (i, bf_offset) in bit_offsets.iter().enumerate() {
+                    if let (Some(off), Some(bf)) =
+                        (bf_offset, &mut self.classes[cid_idx].fields[i].bit_field)
+                    {
+                        if bf.offset != *off {
+                            bf.offset = *off;
+                            bit_changed = true;
+                        }
+                    }
+                }
                 if self.classes[cid_idx].c_field_offsets != offsets
                     || self.classes[cid_idx].c_size != total
+                    || bit_changed
                 {
                     self.classes[cid_idx].c_field_offsets = offsets;
                     self.classes[cid_idx].c_size = total;

@@ -4122,7 +4122,7 @@ fn lower_inst(
             let obj_v = vmap[obj];
             let dst_ty_mir = func.ty_of(*dst).clone();
             let obj_ty_mir = func.ty_of(*obj).clone();
-            let crepr = if let MirTy::Object(cid) = &obj_ty_mir {
+            let (crepr, bit_info) = if let MirTy::Object(cid) = &obj_ty_mir {
                 let layout = &prog.classes[cid.0 as usize];
                 if matches!(
                     layout.repr,
@@ -4130,13 +4130,47 @@ fn lower_inst(
                         | ilang_mir::ClassRepr::CPacked
                         | ilang_mir::ClassRepr::CUnion
                 ) {
-                    Some(layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0))
+                    let off = layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0);
+                    let bf = layout
+                        .fields
+                        .get(field.0 as usize)
+                        .and_then(|f| f.bit_field);
+                    (Some(off), bf)
                 } else {
-                    None
+                    (None, None)
                 }
             } else {
-                None
+                (None, None)
             };
+            // Bitfield read: load the storage unit, shift right by
+            // bit_offset, mask off the high bits beyond `width`.
+            if let (Some(c_off), Some(bf)) = (crepr, bit_info) {
+                let storage_ct = match elem_clif_type(&dst_ty_mir) {
+                    Some(t) if t.bits() <= 32 => t,
+                    _ => types::I32,
+                };
+                let raw = fb.ins().load(
+                    storage_ct,
+                    MemFlags::trusted(),
+                    obj_v,
+                    c_off as i32,
+                );
+                let shifted = if bf.offset == 0 {
+                    raw
+                } else {
+                    let shift = fb.ins().iconst(storage_ct, bf.offset as i64);
+                    fb.ins().ushr(raw, shift)
+                };
+                let mask_val: u64 = if bf.width >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bf.width) - 1
+                };
+                let mask = fb.ins().iconst(storage_ct, mask_val as i64);
+                let v = fb.ins().band(shifted, mask);
+                vmap.insert(*dst, v);
+                return Ok(());
+            }
             if let Some(c_off) = crepr {
                 // CRepr: load with the field's natural type at the
                 // computed byte offset. Nested CRepr struct fields
@@ -4196,7 +4230,7 @@ fn lower_inst(
         Inst::StoreField { obj, field, value } => {
             let obj_v = vmap[obj];
             let obj_ty_mir = func.ty_of(*obj).clone();
-            let crepr = if let MirTy::Object(cid) = &obj_ty_mir {
+            let (crepr, bit_info) = if let MirTy::Object(cid) = &obj_ty_mir {
                 let layout = &prog.classes[cid.0 as usize];
                 if matches!(
                     layout.repr,
@@ -4204,13 +4238,55 @@ fn lower_inst(
                         | ilang_mir::ClassRepr::CPacked
                         | ilang_mir::ClassRepr::CUnion
                 ) {
-                    Some(layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0))
+                    let off = layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0);
+                    let bf = layout
+                        .fields
+                        .get(field.0 as usize)
+                        .and_then(|f| f.bit_field);
+                    (Some(off), bf)
                 } else {
-                    None
+                    (None, None)
                 }
             } else {
-                None
+                (None, None)
             };
+            // Bitfield write: read-modify-write: load storage, mask
+            // off the field's bits, OR in the new value's bits at
+            // the right offset, store back.
+            if let (Some(c_off), Some(bf)) = (crepr, bit_info) {
+                let val_ty_mir = func.ty_of(*value).clone();
+                let raw_val = vmap[value];
+                let storage_ct = match elem_clif_type(&val_ty_mir) {
+                    Some(t) if t.bits() <= 32 => t,
+                    _ => types::I32,
+                };
+                let cur = fb.ins().load(
+                    storage_ct,
+                    MemFlags::trusted(),
+                    obj_v,
+                    c_off as i32,
+                );
+                let mask_val: u64 = if bf.width >= 64 {
+                    u64::MAX
+                } else {
+                    (1u64 << bf.width) - 1
+                };
+                let inv_mask_val = !(mask_val << bf.offset);
+                let inv_mask = fb.ins().iconst(storage_ct, inv_mask_val as i64);
+                let cleared = fb.ins().band(cur, inv_mask);
+                let v_truncated = ireduce_or_pass(fb, raw_val, storage_ct);
+                let mask = fb.ins().iconst(storage_ct, mask_val as i64);
+                let v_masked = fb.ins().band(v_truncated, mask);
+                let v_shifted = if bf.offset == 0 {
+                    v_masked
+                } else {
+                    let shift = fb.ins().iconst(storage_ct, bf.offset as i64);
+                    fb.ins().ishl(v_masked, shift)
+                };
+                let new_val = fb.ins().bor(cleared, v_shifted);
+                fb.ins().store(MemFlags::trusted(), new_val, obj_v, c_off as i32);
+                return Ok(());
+            }
             if let Some(c_off) = crepr {
                 let val_ty_mir = func.ty_of(*value).clone();
                 let raw = vmap[value];
