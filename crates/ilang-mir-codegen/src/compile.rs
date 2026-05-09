@@ -312,12 +312,13 @@ pub fn compile_with_builtins(
     jit_builder.symbol("os.libLoadError", host_os_lib_load_error as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
-    jit_builder.symbol("test.applyI32Cb", host_test_apply_i32_cb as *const u8);
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,
-    // by-value structs, sret returns, errno helpers, etc). Layout-
-    // mismatched ones (StringRc payload) won't be invoked by the
-    // mir-jit fixtures that rely on those.
+    // by-value structs, sret returns, errno helpers, etc), then
+    // override the closure-callback shim with our mir-aware one
+    // since the legacy version expects a raw fn pointer and would
+    // jump to a heap-data address otherwise.
     ilang_codegen::test_externs::register_test_symbols(&mut jit_builder);
+    jit_builder.symbol("test.applyI32Cb", host_test_apply_i32_cb as *const u8);
     jit_builder.symbol("test.expect", host_test_expect as *const u8);
     jit_builder.symbol("test.expectStr", host_test_expect_str as *const u8);
     jit_builder.symbol("test.expectBool", host_test_expect_bool as *const u8);
@@ -730,8 +731,10 @@ pub fn compile_with_builtins(
             fb.finalize();
         }
 
+        if std::env::var("ILANG_DUMP_CLIF").is_ok() {
+            eprintln!("=== {} clif ===\n{}", func.name.as_str(), ctx.func.display());
+        }
         if let Err(e) = module.define_function(cid, &mut ctx) {
-            // Surface the function name + clif IR for easier debugging.
             return Err(CompileError::Other(format!(
                 "define_function `{}`: {e:?}\nclif IR:\n{}",
                 func.name,
@@ -2577,9 +2580,13 @@ fn clif_signature_for(
             return Err(CompileError::Unsupported("unit / void params"));
         }
     }
-    // Hidden trailing env-pointer param. Direct callers pass 0;
-    // indirect (closure) callers pass the closure block pointer.
-    sig.params.push(AbiParam::new(types::I64));
+    // Hidden trailing env-pointer param — only for ilang-defined
+    // functions, since extern host fns follow the C ABI directly
+    // and would receive a stray garbage arg otherwise.
+    let is_extern = matches!(f.kind, ilang_mir::FunctionKind::Extern { .. });
+    if !is_extern {
+        sig.params.push(AbiParam::new(types::I64));
+    }
     if !matches!(f.ret, MirTy::Unit) {
         let ret = mir_to_clif(&f.ret)
             .ok_or(CompileError::Unsupported("unit return through ABI"))?;
@@ -2843,12 +2850,17 @@ fn lower_inst(
                 })
                 .collect();
             let (cid, is_builtin) = match callee {
-                FuncRef::Local(id) => (
-                    *fn_ids.get(id).ok_or_else(|| {
+                FuncRef::Local(id) => {
+                    let target_func = &prog.functions[id.0 as usize];
+                    let is_extern_callee =
+                        matches!(target_func.kind, ilang_mir::FunctionKind::Extern { .. });
+                    let cid = *fn_ids.get(id).ok_or_else(|| {
                         CompileError::Other(format!("missing fn id #{}", id.0))
-                    })?,
-                    false,
-                ),
+                    })?;
+                    // Treat extern fns like builtins for the trailing
+                    // env arg: skip it so the C ABI sig matches.
+                    (cid, is_extern_callee)
+                }
                 FuncRef::Builtin(sym) => {
                     // FFI marshalling helpers are declared by name —
                     // route them via `module.declarations` lookup so we
