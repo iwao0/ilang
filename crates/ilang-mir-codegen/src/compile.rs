@@ -84,6 +84,18 @@ fn declare_binary_i64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
+fn declare_ternary_i64(
+    module: &mut JITModule,
+    name: &str,
+) -> Result<cranelift_module::FuncId, CompileError> {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    sig.returns.push(AbiParam::new(types::I64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
 fn declare_unit_i64(
     module: &mut JITModule,
     name: &str,
@@ -662,7 +674,7 @@ pub fn compile_with_builtins(
             module.declare_function("__array_push", Linkage::Import, &sig)?
         },
         array_pop: declare_unary_i64(&mut module, "__array_pop")?,
-        array_map: declare_binary_i64(&mut module, "__array_map")?,
+        array_map: declare_ternary_i64(&mut module, "__array_map")?,
         array_filter: declare_binary_i64(&mut module, "__array_filter")?,
         array_for_each: {
             let mut sig = module.make_signature();
@@ -2956,9 +2968,9 @@ extern "C" fn host_fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) 
     header
 }
 
-extern "C" fn host_array_map(arr: i64, closure: i64) -> i64 {
+extern "C" fn host_array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
     if arr == 0 || closure == 0 {
-        return build_array(&[], KIND_NONE);
+        return build_array(&[], result_kind);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let mut out = Vec::with_capacity(len as usize);
@@ -2967,12 +2979,10 @@ extern "C" fn host_array_map(arr: i64, closure: i64) -> i64 {
         let v = unsafe { call_closure_1(closure, cell) };
         out.push(v);
     }
-    // map's output element kind is unknown to us at runtime
-    // (the MIR knows the closure's return MirTy but doesn't
-    // thread it through). Default to KIND_NONE — heap content
-    // in the result leaks until the lower side starts emitting
-    // an explicit kind argument.
-    build_array(&out, KIND_NONE)
+    // result_kind is the closure's return MirTy's KIND_* tag,
+    // threaded in by the lower side. Lets the result array's
+    // drop cascade-release each closure-produced value.
+    build_array(&out, result_kind)
 }
 
 extern "C" fn host_array_filter(arr: i64, closure: i64) -> i64 {

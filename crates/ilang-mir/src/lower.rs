@@ -5206,11 +5206,25 @@ impl<'a> BodyCx<'a> {
                     elem_ty.clone()
                 };
                 let arr_ty = MirTy::Array { elem: Box::new(ret_ty.clone()), len: None };
+                // Pass the result element's KIND_* tag to host_array_map
+                // so the result array's drop cascades correctly. Tags
+                // mirror compile.rs's `kind_tag_of`.
+                let kind = match &ret_ty {
+                    MirTy::Object(_) => 1,
+                    MirTy::Array { .. } => 2,
+                    MirTy::Optional(_) => 3,
+                    MirTy::Tuple(_) => 4,
+                    MirTy::Map { .. } => 5,
+                    MirTy::Fn(_) => 6,
+                    MirTy::Str => 7,
+                    _ => 0,
+                };
+                let kind_v = self.const_int(MirTy::I64, kind);
                 let v = self.fb.new_value(arr_ty.clone());
                 self.fb.push_inst(Inst::Call {
                     dst: Some(v),
                     callee: FuncRef::Builtin(Symbol::intern("array_map")),
-                    args: Box::new([ov, fv]),
+                    args: Box::new([ov, fv, kind_v]),
                 });
                 Ok((v, arr_ty))
             }
