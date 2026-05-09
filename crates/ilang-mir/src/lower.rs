@@ -5617,51 +5617,15 @@ impl<'a> BodyCx<'a> {
 
                 self.fb.switch_to(exit);
                 // After the for-in finishes, a fresh-receiver array
-                // of Objects has no surviving owner — emit a runtime
-                // sweep that Releases each element so their deinits
-                // fire.
-                if iter_is_fresh && matches!(elem_ty, MirTy::Object(_)) {
-                    let drop_header = self.fb.new_block();
-                    let drop_body = self.fb.new_block();
-                    let drop_exit = self.fb.new_block();
-                    let j = self.fb.add_block_param(drop_header, MirTy::I64);
-                    let zero2 = self.const_int(MirTy::I64, 0);
-                    self.fb.set_terminator(Terminator::Br {
-                        dst: drop_header,
-                        args: Box::new([zero2]),
-                    });
-                    self.fb.switch_to(drop_header);
-                    let cd = self.fb.new_value(MirTy::Bool);
-                    self.fb.push_inst(Inst::BinOp {
-                        dst: cd,
-                        op: BinOp::ILtS,
-                        lhs: j,
-                        rhs: len,
-                    });
-                    self.fb.set_terminator(Terminator::CondBr {
-                        cond: cd,
-                        then_block: drop_body,
-                        then_args: Box::new([]),
-                        else_block: drop_exit,
-                        else_args: Box::new([]),
-                    });
-                    self.fb.switch_to(drop_body);
-                    let ev = self.fb.new_value(elem_ty.clone());
-                    self.fb.push_inst(Inst::ArrayLoad { dst: ev, arr: av, idx: j });
-                    self.fb.push_inst(Inst::Release { value: ev });
-                    let one2 = self.const_int(MirTy::I64, 1);
-                    let nj = self.fb.new_value(MirTy::I64);
-                    self.fb.push_inst(Inst::BinOp {
-                        dst: nj,
-                        op: BinOp::IAdd,
-                        lhs: j,
-                        rhs: one2,
-                    });
-                    self.fb.set_terminator(Terminator::Br {
-                        dst: drop_header,
-                        args: Box::new([nj]),
-                    });
-                    self.fb.switch_to(drop_exit);
+                // has no surviving owner — release it. host_release_array
+                // both cascades release_object on every Object element
+                // (when the array's kind_tag == 1) and frees the
+                // 48-byte header + data buffer. Without this, the
+                // fresh array leaks even when its elements are
+                // primitives (e.g. `for x in make_arr(): i64[]`).
+                let _ = len;
+                if iter_is_fresh {
+                    self.fb.push_inst(Inst::Release { value: av });
                 }
                 Ok((self.const_unit(), MirTy::Unit))
             }
