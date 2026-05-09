@@ -1865,6 +1865,23 @@ impl Lower {
         for (_name, binding) in top_scope.into_iter().rev() {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {
+                    // CRepr Locals: only release the ones that own
+                    // their backing buffer (mirrors the check in
+                    // `release_top_scope_objects`). A `let p =
+                    // r.origin` borrow stays alive with its
+                    // parent struct.
+                    if let MirTy::Object(cid) = &ty {
+                        let layout = &bcx.classes[cid.0 as usize];
+                        let is_crepr = matches!(
+                            layout.repr,
+                            crate::program::ClassRepr::CRepr
+                                | crate::program::ClassRepr::CPacked
+                                | crate::program::ClassRepr::CUnion
+                        );
+                        if is_crepr && !bcx.crepr_owned_locals.contains(&lid) {
+                            continue;
+                        }
+                    }
                     let v = bcx.fb.new_value(ty.clone());
                     bcx.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                     bcx.fb.push_inst(Inst::Release { value: v });
@@ -3073,14 +3090,11 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Map { .. }
             )
         };
-        let tail_aliases_local = blk
-            .tail
-            .as_ref()
-            .map(|e| match &e.kind {
-                ExprKind::Var(_) => true,
-                _ => false,
-            })
-            .unwrap_or(false);
+        let tail_alias_name = blk.tail.as_ref().and_then(|e| match &e.kind {
+            ExprKind::Var(name) => Some(*name),
+            _ => None,
+        });
+        let tail_aliases_local = tail_alias_name.is_some();
         let tail = match tail {
             Some((v, ty)) if tail_needs_retain(&ty) && tail_aliases_local => {
                 self.fb.push_inst(Inst::Retain { value: v });
@@ -3088,6 +3102,16 @@ impl<'a> BodyCx<'a> {
             }
             other => other,
         };
+        // CRepr Locals carry no rc — Retain above is a no-op for
+        // them. Transfer ownership of the tail-aliased local to
+        // the caller by un-marking it before scope exit, otherwise
+        // `release_top_scope_objects` would free the buffer the
+        // caller is about to use.
+        if let Some(name) = tail_alias_name {
+            if let Some(Binding::Local(lid, _)) = self.env.lookup_binding(name) {
+                self.crepr_owned_locals.remove(&lid);
+            }
+        }
         self.release_top_scope_objects();
         self.env.exit_scope();
         Ok(tail)
@@ -3096,6 +3120,7 @@ impl<'a> BodyCx<'a> {
     fn is_fresh_object_expr(&self, e: &Expr) -> bool {
         match &e.kind {
             ExprKind::New { .. }
+            | ExprKind::StructLit { .. }
             | ExprKind::Call { .. }
             | ExprKind::MethodCall { .. }
             | ExprKind::SuperCall { .. } => true,

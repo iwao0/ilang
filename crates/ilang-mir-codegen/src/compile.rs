@@ -4020,14 +4020,19 @@ fn lower_inst(
                             | ilang_mir::ClassRepr::CPacked
                             | ilang_mir::ClassRepr::CUnion
                     ) {
-                        // Skip — CRepr structs leak their c_size
-                        // bytes today. A future cleanup pass needs
-                        // to track NewObject vs LoadField provenance
-                        // (the latter returns a borrow into a parent
-                        // struct, so freeing it would corrupt the
-                        // parent). The `crepr_owned_locals` work in
-                        // `lower.rs` is the start of that path but
-                        // doesn't yet cover every NewObject site.
+                        // CRepr struct: no rc header, free the
+                        // backing buffer directly. The lower side
+                        // only emits this Release for Locals
+                        // tagged in `crepr_owned_locals` — i.e.
+                        // values that came from a fresh NewObject
+                        // (or an aggregate-literal desugar that
+                        // owns its temp), never a `let p =
+                        // r.origin` borrow.
+                        let av = vmap[value];
+                        let sz = layout.c_size.max(1);
+                        let sz_v = fb.ins().iconst(types::I64, sz);
+                        let r = module.declare_func_in_func(panic_aux.mir_free, fb.func);
+                        fb.ins().call(r, &[av, sz_v]);
                         return Ok(());
                     }
                     let av = vmap[value];
