@@ -185,7 +185,7 @@ extern "C" fn test_fail(msg_ptr: i64) {
     std::process::exit(2);
 }
 
-pub(crate) fn register_test_symbols(builder: &mut JITBuilder) {
+pub fn register_test_symbols(builder: &mut JITBuilder) {
     builder.symbol("test.expect", test_expect as *const u8);
     builder.symbol("test.expectStr", test_expect_str as *const u8);
     builder.symbol("test.expectBool", test_expect_bool as *const u8);

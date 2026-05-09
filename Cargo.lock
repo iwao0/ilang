@@ -690,9 +690,11 @@ name = "ilang-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ilang-ast",
  "ilang-codegen",
- "ilang-eval",
  "ilang-lexer",
+ "ilang-mir",
+ "ilang-mir-codegen",
  "ilang-parser",
  "ilang-types",
  "rustyline",
@@ -720,17 +722,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ilang-eval"
-version = "0.1.0"
-dependencies = [
- "ilang-ast",
- "ilang-lexer",
- "ilang-parser",
- "ilang-types",
- "thiserror",
-]
-
-[[package]]
 name = "ilang-lexer"
 version = "0.1.0"
 dependencies = [
@@ -751,6 +742,34 @@ dependencies = [
  "tokio",
  "toml",
  "tower-lsp",
+]
+
+[[package]]
+name = "ilang-mir"
+version = "0.1.0"
+dependencies = [
+ "ilang-ast",
+ "ilang-lexer",
+ "ilang-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "ilang-mir-codegen"
+version = "0.1.0"
+dependencies = [
+ "cranelift",
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "ilang-ast",
+ "ilang-codegen",
+ "ilang-lexer",
+ "ilang-mir",
+ "ilang-parser",
+ "thiserror",
 ]
 
 [[package]]

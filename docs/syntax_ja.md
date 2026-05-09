@@ -4,7 +4,7 @@
 
 実装済みの構文を一覧で示します。各項目は実際にパース・型チェック・実行が通る形のみ。
 
-`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (ツリーウォーク) または `... run --jit path.il` (Cranelift JIT) で実行できます。引数なしで起動すると REPL に入ります。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
+`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (デフォルト: AST→MIR→Cranelift JIT) で実行できます。`--jit` を付けると旧 `ilang-codegen` 経路 (退役予定、parity check 用) に切替わります。引数なしで起動すると REPL に入ります (incremental MIR JIT で fn / class / enum / 多くの top-level let が chunk 間で永続)。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
 
 ---
 
@@ -1436,12 +1436,19 @@ double(21)                          // 42
 | モード | コマンド | 特徴 |
 | --- | --- | --- |
 | ツリーウォーク | `ilang run path.il` | 全機能サポート、起動が速い |
-| Cranelift JIT | `ilang run --jit path.il` | ネイティブコード、interpreter の数十〜数百倍速いが一部機能制限あり |
+| Cranelift JIT (legacy) | `ilang run --jit path.il` | ネイティブコード、interpreter の数十〜数百倍速いが一部機能制限あり |
+| MIR → Cranelift JIT | `ilang run --mir-jit path.il` | 新しい AST → MIR → clif パイプライン (進行中、非 FFI サブセット) |
 | REPL | `ilang` (引数なし) | 1 行ずつ評価、`let`/`fn`/`class` が永続化、interpreter のみ |
 
-JIT で `Unsupported` になる主なケース:
+JIT (legacy `--jit`) で `Unsupported` になる主なケース:
 - `@lib(...)` 付きの fn / `static` (dlsym 経由のネイティブ extern) は **JIT 専用** — interpreter からは "no extern handler" エラー。ホスト登録形 (`@lib` なし) の bare fn は両モードで動作
 - 静的フィールドの **`string` / オブジェクト型** (現状は `i64` / `f64` / `bool` のみ — 継承の vtable とは別の Phase)
+
+`--mir-jit` (新パイプライン):
+- 経路: `ilang_parser::loader` → 型チェック → mangle → `ilang_mir::lower_program`
+  (AST → MIR) → `ilang_mir_codegen::compile_program` (MIR → clif) → Cranelift JIT
+- カバー範囲: 数値演算 / 制御フロー / クラス (継承時の仮想ディスパッチをランタイム vtable 経由でサポート) / 配列 (push/pop/map/filter/forEach/indexOf) / タプル / Optional / enum (match) / Map / closure (キャプチャ + ネスト) / RTTI (typeof/is/as?/weak) / 文字列 (length/concat/eq/toUpper/toLower/trim/includes/startsWith/endsWith/charAt/slice/replace/split) / static / const / `console.log` (variadic)
+- 未対応 (明示的にエラー): `@extern(C)` FFI の dlsym、ジェネリックインスタンス化 (`--jit` を使用)、完全な ARC (現状ヒープ確保はリーク — 短時間プログラム / テスト用途では問題なし)
 
 ---
 

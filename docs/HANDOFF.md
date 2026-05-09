@@ -13,7 +13,7 @@
 - **JS / TypeScript / Rust 風** のハイブリッド構文。文末は **JS 風 ASI** (改行が `;` 代わり)
 - 例外なし。失敗は `Result<T, E>`、回復不能エラーは panic
 
-実装言語: **Rust 1.95**。実行モデル: ツリーウォーク インタプリタ + **Cranelift JIT** (`ilang run --jit`)。
+実装言語: **Rust 1.95**。実行モデル: AST → MIR (SSA) → **Cranelift JIT** (デフォルト) + 旧 ilang-codegen 経由のレガシー JIT (`--jit` で opt-in、退役予定)。ツリーウォーク インタプリタ (`ilang-eval`) は M1 Step 6 完遂とともに撤去済み。
 
 ## 現在地
 
@@ -151,8 +151,9 @@ crates/
 ├── ilang-lexer/     # 字句解析 (Token, leading_newline, numeric_suffix)
 ├── ilang-parser/    # Pratt 構文解析 + loader (use 解決 / @export use / ilang.toml dep paths) + normalize + const 折りたたみ
 ├── ilang-types/     # 型チェッカー (overload resolution / mangle / inheritance / closures / @extern(C) コンテキスト)
-├── ilang-eval/      # ツリーウォーク インタプリタ (REPL 状態は Interpreter が保持)
-├── ilang-codegen/   # Cranelift JIT
+├── ilang-mir/       # AST→MIR (SSA + block-args)、モノモーフィゼーション、validator/printer
+├── ilang-mir-codegen/ # MIR→Cranelift JIT (デフォルト経路、ARC + FFI + REPL slot)
+├── ilang-codegen/   # 旧 Cranelift JIT (`--jit` で opt-in、退役予定)
 │   ├── compiler.rs        # JitCompiler 本体 + jit_run_with エントリ + extern_c synthesize
 │   ├── runtime.rs         # extern "C" ヘルパ (alloc, retain/release, str/array fns ほか)
 │   ├── ty.rs              # JitTy (JIT 内部型)、ClassLayout
