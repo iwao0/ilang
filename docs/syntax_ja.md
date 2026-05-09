@@ -4,7 +4,7 @@
 
 実装済みの構文を一覧で示します。各項目は実際にパース・型チェック・実行が通る形のみ。
 
-`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (ツリーウォーク) または `... run --jit path.il` (Cranelift JIT) で実行できます。引数なしで起動すると REPL に入ります。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
+`.il` ファイルを `cargo run -p ilang-cli -- run path.il` (デフォルト: AST→MIR→Cranelift JIT) で実行できます。`--jit` を付けると旧 `ilang-codegen` 経路 (退役予定、parity check 用) に切替わります。引数なしで起動すると REPL に入ります (incremental MIR JIT で fn / class / enum / 多くの top-level let が chunk 間で永続)。文末セミコロン `;` は省略可で、改行が文の区切りになります (JS 風 ASI)。
 
 ---
 
