@@ -151,6 +151,8 @@ struct PanicAux {
     /// have no rc header but still need their backing buffer
     /// freed when they fall out of scope).
     mir_free: cranelift_module::FuncId,
+    release_string: cranelift_module::FuncId,
+    retain_string: cranelift_module::FuncId,
     msg_div: DataId,
     msg_mod: DataId,
     msg_oob: DataId,
@@ -329,6 +331,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__retain_tuple", host_retain_tuple as *const u8);
     jit_builder.symbol("__release_map", host_release_map as *const u8);
     jit_builder.symbol("__retain_map", host_retain_map as *const u8);
+    jit_builder.symbol("__release_string", host_release_string as *const u8);
+    jit_builder.symbol("__retain_string", host_retain_string as *const u8);
     jit_builder.symbol("__map_set_object_value", host_map_set_object_value as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
@@ -681,6 +685,8 @@ pub fn compile_with_builtins(
     let retain_tuple_id = declare_unit_i64(&mut module, "__retain_tuple")?;
     let release_map_id = declare_unit_i64(&mut module, "__release_map")?;
     let retain_map_id = declare_unit_i64(&mut module, "__retain_map")?;
+    let release_string_id = declare_unit_i64(&mut module, "__release_string")?;
+    let retain_string_id = declare_unit_i64(&mut module, "__retain_string")?;
     let map_set_obj_val_id = declare_unit_i64(&mut module, "__map_set_object_value")?;
     let map_set_print_kinds_id = {
         let mut sig = module.make_signature();
@@ -898,6 +904,8 @@ pub fn compile_with_builtins(
                 print_map: print_map_id,
                 class_name: class_name_id,
                 mir_free: free_id,
+                release_string: release_string_id,
+                retain_string: retain_string_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,
@@ -2195,9 +2203,34 @@ extern "C" fn host_str_length(p: i64) -> i64 {
         .unwrap_or(bytes.len() as i64)
 }
 
+/// Refcount-managed heap-string registry. Strings produced by
+/// `leak_cstring` (and therefore by `host_int_to_string`,
+/// `host_str_concat`, `host_string_from_cstr`, …) are tracked here
+/// so `host_release_string` can drop the underlying buffer once rc
+/// reaches 0. Pointers we don't own (`string_data` literal symbols
+/// baked into the JIT module, FFI-returned `*const char` that the
+/// program treats as `string`, etc.) simply miss the registry and
+/// the release becomes a no-op — the same conservative direction
+/// every other heap-typed Release takes.
+struct StringEntry {
+    /// Owns the underlying buffer; dropped (and freed) when the entry
+    /// is removed from the registry. Never read directly — the JIT
+    /// reaches the bytes via the `body_ptr` map key.
+    #[allow(dead_code)]
+    backing: Box<[u8]>,
+    rc: i64,
+}
+static STRING_REGISTRY: OnceLock<Mutex<HashMap<i64, StringEntry>>> = OnceLock::new();
+
+fn string_registry_lock() -> &'static Mutex<HashMap<i64, StringEntry>> {
+    STRING_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// Build a heap string with the documented `[ i64 len | bytes | \0 ]`
 /// layout. The returned i64 is the user-visible pointer (points at
-/// the first UTF-8 byte).
+/// the first UTF-8 byte). The backing buffer is registered with
+/// `STRING_REGISTRY` at rc=1; a matching `__release_string` call
+/// drops it.
 fn leak_cstring(s: String) -> i64 {
     let body = s.into_bytes();
     let len = body.len() as i64;
@@ -2207,8 +2240,43 @@ fn leak_cstring(s: String) -> i64 {
     bytes.push(0);
     let boxed = bytes.into_boxed_slice();
     let body_ptr = unsafe { boxed.as_ptr().add(8) } as i64;
-    Box::leak(boxed);
+    {
+        let mut reg = string_registry_lock()
+            .lock()
+            .expect("string registry poisoned");
+        reg.insert(body_ptr, StringEntry { backing: boxed, rc: 1 });
+    }
     body_ptr
+}
+
+extern "C" fn host_retain_string(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = string_registry_lock()
+        .lock()
+        .expect("string registry poisoned");
+    if let Some(e) = reg.get_mut(&p) {
+        e.rc += 1;
+    }
+}
+
+extern "C" fn host_release_string(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = string_registry_lock()
+        .lock()
+        .expect("string registry poisoned");
+    let drop_it = if let Some(e) = reg.get_mut(&p) {
+        e.rc -= 1;
+        e.rc <= 0
+    } else {
+        false
+    };
+    if drop_it {
+        reg.remove(&p);
+    }
 }
 
 extern "C" fn host_str_concat(a: i64, b: i64) -> i64 {
@@ -4090,6 +4158,11 @@ fn lower_inst(
                     let r = module.declare_func_in_func(panic_aux.release_map, fb.func);
                     fb.ins().call(r, &[av]);
                 }
+                MirTy::Str => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.release_string, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
                 _ => {}
             }
         }
@@ -4136,6 +4209,11 @@ fn lower_inst(
                 MirTy::Map { .. } => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_map, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
+                MirTy::Str => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.retain_string, fb.func);
                     fb.ins().call(r, &[av]);
                 }
                 _ => {}

@@ -1860,6 +1860,7 @@ impl Lower {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Str
             )
         };
         for (_name, binding) in top_scope.into_iter().rev() {
@@ -3088,6 +3089,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Str
             )
         };
         let tail_alias_name = blk.tail.as_ref().and_then(|e| match &e.kind {
@@ -3123,7 +3125,15 @@ impl<'a> BodyCx<'a> {
             | ExprKind::StructLit { .. }
             | ExprKind::Call { .. }
             | ExprKind::MethodCall { .. }
-            | ExprKind::SuperCall { .. } => true,
+            | ExprKind::SuperCall { .. }
+            // Binary / Unary on heap operands (string +) lowers to a
+            // host helper (str_concat etc.) that returns a freshly
+            // leak_cstring'd, registry-tracked buffer. Treating them
+            // as fresh prevents the let-bind retain from leaking the
+            // intermediate. For non-heap operand types, "fresh" is a
+            // no-op decision so this is safe to widen unconditionally.
+            | ExprKind::Binary { .. }
+            | ExprKind::Unary { .. } => true,
             // Indexing a fresh tuple / array donates ownership of the
             // selected element to the caller — the lowerer retains
             // that element exactly once on the fresh-receiver path.
@@ -3171,6 +3181,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Str
             )
         };
         for (_name, binding) in scope.into_iter().rev() {
@@ -3338,7 +3349,9 @@ impl<'a> BodyCx<'a> {
                 // For an aliased Object value (anything that isn't a
                 // freshly-constructed `new T(...)`), bump refcount —
                 // the binding shares ownership with the source.
-                if matches!(bind_ty, MirTy::Object(_)) && !value_is_fresh_object {
+                if matches!(bind_ty, MirTy::Object(_) | MirTy::Str)
+                    && !value_is_fresh_object
+                {
                     self.fb.push_inst(Inst::Retain { value: bound });
                 }
                 // Slot-backed top-level binding: skip the local
@@ -4861,8 +4874,13 @@ impl<'a> BodyCx<'a> {
         if let ExprKind::Var(name) = &obj.kind {
             if name.as_str() == "console" && method.as_str() == "log" {
                 let mut arg_vals = Vec::with_capacity(args.len());
+                let mut fresh_str_args: Vec<ValueId> = Vec::new();
                 for a in args {
-                    let (v, _) = self.lower_expr(a)?;
+                    let arg_is_fresh = self.is_fresh_object_expr(a);
+                    let (v, vty) = self.lower_expr(a)?;
+                    if arg_is_fresh && matches!(vty, MirTy::Str) {
+                        fresh_str_args.push(v);
+                    }
                     arg_vals.push(v);
                 }
                 self.fb.push_inst(Inst::Call {
@@ -4870,6 +4888,9 @@ impl<'a> BodyCx<'a> {
                     callee: FuncRef::Builtin(Symbol::intern("console_log")),
                     args: arg_vals.into_boxed_slice(),
                 });
+                for fv in fresh_str_args {
+                    self.fb.push_inst(Inst::Release { value: fv });
+                }
                 return Ok((self.const_unit(), MirTy::Unit));
             }
             // `ClassName.staticMethod(args)` when the ident names a
@@ -6223,6 +6244,8 @@ impl<'a> BodyCx<'a> {
         rhs: &Expr,
         _span: Span,
     ) -> Result<(ValueId, MirTy), LowerError> {
+        let lhs_fresh = self.is_fresh_object_expr(lhs);
+        let rhs_fresh = self.is_fresh_object_expr(rhs);
         let (lv0, lty0) = self.lower_expr(lhs)?;
         let (rv0, rty0) = self.lower_expr(rhs)?;
         // `@flags` enum bitwise ops: extract each operand's tag,
@@ -6270,8 +6293,8 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
-        let (lv, lty) = (lv0, lty0);
-        let (rv, rty) = (rv0, rty0);
+        let (lv, lty) = (lv0, lty0.clone());
+        let (rv, rty) = (rv0, rty0.clone());
         // Numeric promotion (i64+f64 etc.) — pick the wider/float side.
         let (lv, rv, ty) = self.unify_numeric(lv, lty, rv, rty)?;
 
@@ -6313,6 +6336,20 @@ impl<'a> BodyCx<'a> {
         };
         let dst = self.fb.new_value(out_ty.clone());
         self.fb.push_inst(Inst::BinOp { dst, op: mop, lhs: lv, rhs: rv });
+        // String concat consumes its operands but doesn't transfer
+        // their ownership — drop any fresh +1 we got from a Call /
+        // Binary / etc. so the registry-tracked buffer is freed
+        // immediately. Without this, every per-frame
+        // `"FPS: " + intToStr(fps)` leaks both temps for the life of
+        // the process.
+        if matches!(mop, BinOp::StrConcat | BinOp::StrEq | BinOp::StrNe) {
+            if matches!(lty0, MirTy::Str) && lhs_fresh {
+                self.fb.push_inst(Inst::Release { value: lv0 });
+            }
+            if matches!(rty0, MirTy::Str) && rhs_fresh {
+                self.fb.push_inst(Inst::Release { value: rv0 });
+            }
+        }
         Ok((dst, out_ty))
     }
 
@@ -6580,6 +6617,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Optional(_)
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
+                    | MirTy::Str
             )
         };
         let mut to_release: Vec<Binding> = Vec::new();
@@ -6968,7 +7006,7 @@ impl<'a> BodyCx<'a> {
                 } else {
                     v
                 };
-                if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
+                if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
                     fresh_obj_args.push(coerced);
                 }
                 arg_vals.push(coerced);
