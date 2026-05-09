@@ -2589,6 +2589,12 @@ fn clif_signature_for(
     }
     for p in f.params.iter() {
         if is_extern {
+            if let Some((elem_ct, count)) = struct_hfa(&p.ty, prog) {
+                for _ in 0..count {
+                    sig.params.push(AbiParam::new(elem_ct));
+                }
+                continue;
+            }
             if let Some(chunks) = struct_chunks(&p.ty, prog) {
                 for _ in 0..chunks {
                     sig.params.push(AbiParam::new(types::I64));
@@ -2612,6 +2618,12 @@ fn clif_signature_for(
     }
     if !matches!(f.ret, MirTy::Unit) {
         if is_extern {
+            if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
+                for _ in 0..count {
+                    sig.returns.push(AbiParam::new(elem_ct));
+                }
+                return Ok(sig);
+            }
             if let Some(chunks) = struct_chunks(&f.ret, prog) {
                 for _ in 0..chunks {
                     sig.returns.push(AbiParam::new(types::I64));
@@ -2643,6 +2655,38 @@ fn struct_chunks(ty: &MirTy, prog: &Program) -> Option<usize> {
                 return Some(2);
             }
         }
+    }
+    None
+}
+
+/// HFA detection (AArch64 AAPCS64 / x86_64 SysV "homogeneous
+/// floating-point aggregate"): 1–4 fields, all the same float type.
+/// Returns `Some((elem_clif_type, count))` so the caller can push a
+/// matching `AbiParam(F32|F64)` per element.
+fn struct_hfa(ty: &MirTy, prog: &Program) -> Option<(cranelift::prelude::Type, usize)> {
+    use cranelift::prelude::types as ct;
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        if !matches!(layout.repr, ilang_mir::ClassRepr::CRepr) {
+            return None;
+        }
+        if layout.fields.is_empty() || layout.fields.len() > 4 {
+            return None;
+        }
+        let mut clif_ty: Option<cranelift::prelude::Type> = None;
+        for f in &layout.fields {
+            let ct_for = match &f.ty {
+                MirTy::F32 => ct::F32,
+                MirTy::F64 => ct::F64,
+                _ => return None,
+            };
+            match clif_ty {
+                None => clif_ty = Some(ct_for),
+                Some(prev) if prev != ct_for => return None,
+                _ => {}
+            }
+        }
+        return clif_ty.map(|c| (c, layout.fields.len()));
     }
     None
 }
@@ -2952,8 +2996,22 @@ fn lower_inst(
                 });
                 if is_callee_extern {
                     let aty = func.ty_of(*a);
+                    if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
+                        // Read `count` floats from the struct body
+                        // (offset = i × elem_byte_size).
+                        let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                        for c in 0..count {
+                            let v = fb.ins().load(
+                                elem_ct,
+                                MemFlags::trusted(),
+                                av,
+                                (c as i32) * elem_size,
+                            );
+                            arg_vs.push(v);
+                        }
+                        continue;
+                    }
                     if let Some(chunks) = struct_chunks(aty, prog) {
-                        // Read `chunks` i64 cells from the struct body.
                         for c in 0..chunks {
                             let cell = fb.ins().load(
                                 types::I64,
@@ -3106,6 +3164,29 @@ fn lower_inst(
             if let Some(d) = dst {
                 let dst_ty = func.ty_of(*d).clone();
                 if is_callee_extern {
+                    if let Some((elem_ct, count)) = struct_hfa(&dst_ty, prog) {
+                        let layout = if let MirTy::Object(cid) = &dst_ty {
+                            &prog.classes[cid.0 as usize]
+                        } else {
+                            unreachable!()
+                        };
+                        let size_v = fb.ins().iconst(types::I64, layout.c_size.max(1));
+                        let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                        let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                        let ptr = fb.inst_results(alloc_call)[0];
+                        let results: Vec<Value> = fb.inst_results(inst_ref).to_vec();
+                        let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                        for (i, &v) in results.iter().take(count).enumerate() {
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                v,
+                                ptr,
+                                (i as i32) * elem_size,
+                            );
+                        }
+                        vmap.insert(*d, ptr);
+                        return Ok(());
+                    }
                     if let Some(chunks) = struct_chunks(&dst_ty, prog) {
                         let layout = if let MirTy::Object(cid) = &dst_ty {
                             &prog.classes[cid.0 as usize]

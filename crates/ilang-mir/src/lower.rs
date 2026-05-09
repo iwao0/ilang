@@ -6316,7 +6316,17 @@ pub fn ty_to_mir(t: &Type) -> Result<MirTy, LowerError> {
         }
         Type::Optional(inner) => MirTy::Optional(Box::new(ty_to_mir(inner)?)),
         Type::Weak(_) => return Err(LowerError::Unsupported("weak types")),
-        Type::RawPtr { .. } => return Err(LowerError::Unsupported("raw pointer types")),
+        Type::RawPtr { is_const, inner } => {
+            // Raw pointers are i64 at runtime; the inner type is
+            // only carried for source-level diagnostics. Try to
+            // resolve, but on failure (e.g. opaque struct names like
+            // `Buf` that ty_to_mir can't see) fall back to `*void`.
+            let inner_mir = ty_to_mir(inner).unwrap_or(MirTy::CVoid);
+            MirTy::RawPtr {
+                is_const: *is_const,
+                inner: Box::new(inner_mir),
+            }
+        }
     })
 }
 
