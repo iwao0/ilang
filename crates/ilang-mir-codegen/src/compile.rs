@@ -301,7 +301,7 @@ pub fn compile_with_builtins(
     // helpers are identity at the bit level.
     jit_builder.symbol("__array_data_ptr", host_array_data_ptr as *const u8);
     jit_builder.symbol("cstrFromString", host_identity as *const u8);
-    jit_builder.symbol("stringFromCstr", host_identity as *const u8);
+    jit_builder.symbol("stringFromCstr", host_string_from_cstr as *const u8);
     jit_builder.symbol("cstrArrayToStrings", host_cstr_array_to_strings as *const u8);
     jit_builder.symbol("freeCstr", host_noop as *const u8);
     jit_builder.symbol("errnoCheck", host_errno_check_i32 as *const u8);
@@ -2278,6 +2278,17 @@ fn ireduce_or_pass(
 }
 
 extern "C" fn host_identity(p: i64) -> i64 { p }
+
+/// `stringFromCstr(p)` — copy the bytes pointed to by `p` into a
+/// fresh leaked NUL-terminated buffer so `free(p)` afterwards
+/// doesn't invalidate the caller's string view.
+extern "C" fn host_string_from_cstr(p: i64) -> i64 {
+    if p == 0 {
+        return leak_cstring(String::new());
+    }
+    let bytes = unsafe { cstr_bytes(p) };
+    leak_cstring(String::from_utf8_lossy(bytes).into_owned())
+}
 extern "C" fn host_noop(_: i64) {}
 
 /// `cstrArrayToStrings(p: *const *const char): string[]` — walk a
@@ -3116,7 +3127,10 @@ fn lower_inst(
                     let r = module.declare_func_in_func(panic_aux.release_closure, fb.func);
                     fb.ins().call(r, &[av]);
                 }
-                MirTy::Array { .. } => {
+                MirTy::Array { len, .. } => {
+                    if len.is_some() {
+                        return Ok(());
+                    }
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.release_array, fb.func);
                     fb.ins().call(r, &[av]);
@@ -3161,7 +3175,10 @@ fn lower_inst(
                     let r = module.declare_func_in_func(panic_aux.retain_closure, fb.func);
                     fb.ins().call(r, &[av]);
                 }
-                MirTy::Array { .. } => {
+                MirTy::Array { len, .. } => {
+                    if len.is_some() {
+                        return Ok(());
+                    }
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_array, fb.func);
                     fb.ins().call(r, &[av]);
@@ -3344,6 +3361,35 @@ fn lower_inst(
             }
         }
         Inst::NewArray { dst, elem, items } => {
+            // Inline fixed-length output (when the dst MirTy carries
+            // `len: Some(n)`): allocate `n*stride` bytes with no
+            // header, store elements directly at `data + i*stride`.
+            // This keeps the layout consistent with array fields of
+            // `@extern(C)` structs that LoadField returns as inline
+            // addresses.
+            let dst_ty = func.ty_of(*dst).clone();
+            if let MirTy::Array { len: Some(_), .. } = &dst_ty {
+                let stride_bytes = elem_byte_stride(elem);
+                let n = items.len() as i64;
+                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                let bytes = fb.ins().iconst(types::I64, n.max(1) * stride_bytes);
+                let call = fb.ins().call(alloc_ref, &[bytes]);
+                let ptr = fb.inst_results(call)[0];
+                let elem_clif_opt = elem_clif_type(elem);
+                for (i, it) in items.iter().enumerate() {
+                    let raw = vmap[it];
+                    let off = (i as i32) * (stride_bytes as i32);
+                    if let Some(elem_ct) = elem_clif_opt {
+                        let truncated = ireduce_or_pass(fb, raw, elem_ct);
+                        fb.ins().store(MemFlags::trusted(), truncated, ptr, off);
+                    } else {
+                        let v_ext = extend_to_i64(fb, raw);
+                        fb.ins().store(MemFlags::trusted(), v_ext, ptr, off);
+                    }
+                }
+                vmap.insert(*dst, ptr);
+                return Ok(());
+            }
             // Layout: 6-i64 header [len | cap | data_ptr | rc | kind_tag | stride]
             // + separately-allocated `stride×capacity` buffer. stride is
             // 1/2/4/8 picked from `elem` so `u8[]` / `u16[]` / `u32[]`
@@ -3410,20 +3456,46 @@ fn lower_inst(
             vmap.insert(*dst, ptr);
         }
         Inst::ArrayLen { dst, arr } => {
-            let p = vmap[arr];
-            let v = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let arr_ty = func.ty_of(*arr).clone();
+            let v = if let MirTy::Array { len: Some(n), .. } = &arr_ty {
+                fb.ins().iconst(types::I64, *n as i64)
+            } else {
+                let p = vmap[arr];
+                fb.ins().load(types::I64, MemFlags::trusted(), p, 0)
+            };
             vmap.insert(*dst, v);
         }
         Inst::ArrayLoad { dst, arr, idx } => {
             let p = vmap[arr];
             let i = vmap[idx];
-            let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
-            let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
-            let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
-            let oob = fb.ins().bor(oob_lo, oob_hi);
-            emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
-            let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-            let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+            // Inline fixed-size array (`u8[4]` field of an @extern(C)
+            // struct, etc) — base ptr is the start of the elements,
+            // no header. Use the static elem stride from the type.
+            let arr_ty = func.ty_of(*arr).clone();
+            let inline_info = match &arr_ty {
+                MirTy::Array { elem, len: Some(n) } => {
+                    Some((elem_byte_stride(elem), *n as i64))
+                }
+                _ => None,
+            };
+            let (data_ptr, stride) = if let Some((s, n)) = inline_info {
+                let n_v = fb.ins().iconst(types::I64, n);
+                let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
+                let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, n_v);
+                let oob = fb.ins().bor(oob_lo, oob_hi);
+                emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
+                let s_v = fb.ins().iconst(types::I64, s);
+                (p, s_v)
+            } else {
+                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+                let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
+                let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
+                let oob = fb.ins().bor(oob_lo, oob_hi);
+                emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
+                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
+                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+                (data_ptr, stride)
+            };
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
             let dst_ty_mir = func.ty_of(*dst);
@@ -3453,13 +3525,31 @@ fn lower_inst(
         Inst::ArrayStore { arr, idx, value } => {
             let p = vmap[arr];
             let i = vmap[idx];
-            let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
-            let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
-            let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
-            let oob = fb.ins().bor(oob_lo, oob_hi);
-            emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
-            let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
-            let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+            let arr_ty = func.ty_of(*arr).clone();
+            let inline_info = match &arr_ty {
+                MirTy::Array { elem, len: Some(n) } => {
+                    Some((elem_byte_stride(elem), *n as i64))
+                }
+                _ => None,
+            };
+            let (data_ptr, stride) = if let Some((s, n)) = inline_info {
+                let n_v = fb.ins().iconst(types::I64, n);
+                let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
+                let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, n_v);
+                let oob = fb.ins().bor(oob_lo, oob_hi);
+                emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
+                let s_v = fb.ins().iconst(types::I64, s);
+                (p, s_v)
+            } else {
+                let len = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+                let oob_lo = fb.ins().icmp_imm(IntCC::SignedLessThan, i, 0);
+                let oob_hi = fb.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, len);
+                let oob = fb.ins().bor(oob_lo, oob_hi);
+                emit_panic_if(fb, module, panic_aux.fn_id, panic_aux.msg_oob, oob);
+                let data_ptr = fb.ins().load(types::I64, MemFlags::trusted(), p, 16);
+                let stride = fb.ins().load(types::I64, MemFlags::trusted(), p, 40);
+                (data_ptr, stride)
+            };
             let off = fb.ins().imul(i, stride);
             let addr = fb.ins().iadd(data_ptr, off);
             let val_ty_mir = func.ty_of(*value);
@@ -3678,26 +3768,23 @@ fn lower_inst(
                         fb.ins().load(types::F64, MemFlags::trusted(), obj_v, c_off as i32)
                     }
                     _ => {
-                        // Nested CRepr struct or i64-sized field —
-                        // produce the inline address (additive offset).
-                        if let MirTy::Object(inner_cid) = &dst_ty_mir {
-                            let inner_layout = &prog.classes[inner_cid.0 as usize];
-                            if matches!(
-                                inner_layout.repr,
+                        // Nested CRepr struct, fixed-size array, or
+                        // i64-sized field — produce the inline address
+                        // (additive offset) for composites, otherwise
+                        // load the i64 cell.
+                        let returns_inline = match &dst_ty_mir {
+                            MirTy::Object(inner_cid) => matches!(
+                                prog.classes[inner_cid.0 as usize].repr,
                                 ilang_mir::ClassRepr::CRepr
                                     | ilang_mir::ClassRepr::CPacked
                                     | ilang_mir::ClassRepr::CUnion
-                            ) {
-                                let off_v = fb.ins().iconst(types::I64, c_off);
-                                fb.ins().iadd(obj_v, off_v)
-                            } else {
-                                fb.ins().load(
-                                    types::I64,
-                                    MemFlags::trusted(),
-                                    obj_v,
-                                    c_off as i32,
-                                )
-                            }
+                            ),
+                            MirTy::Array { len: Some(_), .. } => true,
+                            _ => false,
+                        };
+                        if returns_inline {
+                            let off_v = fb.ins().iconst(types::I64, c_off);
+                            fb.ins().iadd(obj_v, off_v)
                         } else {
                             fb.ins().load(
                                 types::I64,

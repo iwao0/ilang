@@ -563,6 +563,11 @@ impl Lower {
             MirTy::I16 | MirTy::U16 => (2, 2),
             MirTy::I32 | MirTy::U32 | MirTy::F32 => (4, 4),
             MirTy::I64 | MirTy::U64 | MirTy::F64 | MirTy::Size | MirTy::SSize => (8, 8),
+            // Fixed-length array: inline `T[N]` lays out as N×T.
+            MirTy::Array { elem, len: Some(n) } => {
+                let (es, ea) = self.c_size_align_of(elem);
+                (es * (*n as i64), ea)
+            }
             MirTy::Object(cid) => {
                 let layout = &self.classes[cid.0 as usize];
                 if matches!(
@@ -2912,11 +2917,15 @@ impl<'a> BodyCx<'a> {
                         (dst, ty_full)
                     } else {
                         // Hint-directed lowering: build an array whose
-                        // element MirTy matches the binding's hint, so
-                        // packed `u8[]` / `u16[]` / `u32[]` allocate
-                        // tight strides instead of being lowered as a
-                        // generic i64-cell array and then "coerced".
-                        self.lower_array_literal_with_hint(items, Some((**elem).clone()))?
+                        // element MirTy AND fixed-length match the
+                        // binding's hint, so the inline-vs-dynamic
+                        // codegen layout is consistent with how
+                        // ArrayLoad / ArrayLen later type-dispatch.
+                        self.lower_array_literal_with_hint(
+                            items,
+                            Some((**elem).clone()),
+                            *len,
+                        )?
                     }
                 } else {
                     self.lower_expr(value)?
@@ -3550,15 +3559,16 @@ impl<'a> BodyCx<'a> {
         &mut self,
         items: &[Expr],
         elem_hint: Option<MirTy>,
+        len_hint: Option<usize>,
     ) -> Result<(ValueId, MirTy), LowerError> {
         if items.is_empty() {
             let elem = elem_hint.unwrap_or(MirTy::I64);
-            let ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+            let ty = MirTy::Array { elem: Box::new(elem.clone()), len: len_hint };
             let v = self.fb.new_value(ty.clone());
             self.fb.push_inst(Inst::NewArrayEmpty {
                 dst: v,
                 elem,
-                fixed_len: None,
+                fixed_len: len_hint,
             });
             return Ok((v, ty));
         }
@@ -3575,7 +3585,7 @@ impl<'a> BodyCx<'a> {
             elem_vals.push(coerced);
         }
         let elem = elem_ty.unwrap();
-        let ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+        let ty = MirTy::Array { elem: Box::new(elem.clone()), len: len_hint };
         let v = self.fb.new_value(ty.clone());
         self.fb.push_inst(Inst::NewArray {
             dst: v,
