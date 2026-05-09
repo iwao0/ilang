@@ -407,6 +407,13 @@ impl TypeChecker {
         tc
     }
 
+    /// Look up a top-level (module-scope) binding's resolved type.
+    /// Used by the REPL to find the type of `let` bindings between
+    /// chunks so they can be promoted to persistent host slots.
+    pub fn lookup_global(&self, name: Symbol) -> Option<Type> {
+        self.vars.get(&name).cloned()
+    }
+
     /// Map of generic-fn call site → (callee name, inferred type args).
     /// Filled in during `check`; consumed by the JIT monomorphizer.
     pub fn fn_call_type_args(&self) -> HashMap<Span, (Symbol, Vec<Type>)> {

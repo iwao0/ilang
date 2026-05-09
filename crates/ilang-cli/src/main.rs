@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use ilang_ast::{Program as AstProgram, Stmt, StmtKind};
+use ilang_ast::{Item, Program as AstProgram, StmtKind, Symbol};
+use std::collections::HashMap;
 use ilang_eval::{Interpreter, Value};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
@@ -44,71 +45,115 @@ fn main() -> ExitCode {
     }
 }
 
-/// Persistent state that lets the REPL remember definitions and
-/// top-level statements across `> ` prompts. Each new chunk's source
-/// is appended to `accumulated`; the whole accumulated AST is then
-/// re-typechecked, MIR-lowered, JIT-compiled, and run from scratch.
+/// Persistent state for the JIT REPL. Each turn appends new
+/// definitions (fn / class / enum) to `accumulated_items`; top-level
+/// `let` bindings whose declared type can be lowered to a `MirTy`
+/// are promoted to a stable host-side slot index so future chunks
+/// can read / mutate them via `__repl_load_slot` / `__repl_store_slot`.
 ///
-/// This re-execution model is lossy: side-effecting top-level code
-/// (e.g. `console.log("hi")`) re-runs each turn. The trade-off keeps
-/// the REPL implementation simple while still supporting cross-turn
-/// `let` / `fn` / `class` / `enum` definitions. Future work: split
-/// each chunk into its own JIT fragment fn and persist top-level
-/// `let` values via host slots.
+/// Each turn compiles a *fresh* program: all accumulated items + a
+/// chunk-only `__main` body containing only the new chunk's stmts /
+/// tail. Side effects fire exactly once per chunk because the prior
+/// chunks' bodies are not re-run.
+///
+/// Limitation: top-level lets whose type the AST→MIR conversion
+/// can't handle (currently bare `Object` / `Generic` instantiations
+/// — class types lack a stable id outside the lower context) fall
+/// through as ordinary chunk-local lets and don't persist. The
+/// TypeChecker still tracks them, so subsequent chunks that
+/// reference them produce a clean undefined-variable runtime error.
 struct ReplSession {
-    /// The accumulated AST. New chunks append to `items` / `stmts`,
-    /// and the trailing expression (if any) is the LATEST chunk's
-    /// tail — it produces the value the REPL prints.
-    accumulated: AstProgram,
+    /// TypeChecker carried across chunks — it accumulates fn / class
+    /// / enum signatures and top-level `let` types in `self.vars`.
+    tc: TypeChecker,
+    /// Accumulated definitions (Item::Fn / Class / Enum / ExternC /
+    /// Const / Use) from every chunk so far. Replayed verbatim into
+    /// the per-chunk MIR program so chunk bodies can call them.
+    accumulated_items: Vec<Item>,
+    /// Top-level `let` name → (slot index, AST Type). The AST type
+    /// is resolved to MirTy inside `lower_program_with_slots` once
+    /// per-chunk class / enum tables are populated. Drives slot
+    /// emission downstream.
+    slot_table: HashMap<Symbol, (u32, ilang_ast::Type)>,
+    /// Next slot index handed out for a newly-promoted top-level let.
+    next_slot: u32,
 }
 
 impl ReplSession {
     fn new() -> Self {
         Self {
-            accumulated: AstProgram::default(),
+            tc: TypeChecker::new(),
+            accumulated_items: Vec::new(),
+            slot_table: HashMap::new(),
+            next_slot: 0,
         }
     }
 
-    /// Append a chunk and run the resulting accumulated program.
-    /// Returns the latest tail's printed form, or empty if the chunk
-    /// produced a Unit value.
     fn run_chunk(&mut self, src: &str) -> Result<String, String> {
         let toks = tokenize(src).map_err(|e| format!("<repl> {e}"))?;
-        let new_prog = parse(&toks).map_err(|e| format!("<repl> {e}"))?;
-        // Move any prior tail into a stmt so the new chunk's tail
-        // becomes the program's value-producing expression.
-        if let Some(prev_tail) = self.accumulated.tail.take() {
-            let span = prev_tail.span;
-            self.accumulated.stmts.push(Stmt {
-                kind: StmtKind::Expr(prev_tail),
-                span,
-            });
-        }
-        self.accumulated.items.extend(new_prog.items);
-        self.accumulated.stmts.extend(new_prog.stmts);
-        self.accumulated.tail = new_prog.tail;
+        let chunk_prog = parse(&toks).map_err(|e| format!("<repl> {e}"))?;
 
-        // Fresh TypeChecker each turn — accumulated AST is the
-        // authoritative state.
-        let mut tc = TypeChecker::new();
-        tc.check(&self.accumulated)
+        // Type-check the chunk in isolation — the persistent
+        // TypeChecker already remembers fn / class / enum / let
+        // signatures from prior chunks via `self.vars` / `self.fns`
+        // / `self.classes`.
+        self.tc
+            .check(&chunk_prog)
             .map_err(|e| format!("<repl> {e}"))?;
+
+        // Promote any new top-level `let` to a slot. The AST type
+        // gets resolved to MirTy inside the lowerer once it has
+        // class / enum ids; we just store the AST type here.
+        for stmt in &chunk_prog.stmts {
+            if let StmtKind::Let { name, .. } = &stmt.kind {
+                if self.slot_table.contains_key(name) {
+                    continue;
+                }
+                let Some(ty) = self.tc.lookup_global(*name) else {
+                    continue;
+                };
+                let idx = self.next_slot;
+                self.next_slot += 1;
+                self.slot_table.insert(*name, (idx, ty));
+            }
+        }
+
+        // Build the per-chunk Program: accumulated definitions stay
+        // available for calls / class instantiations; only the new
+        // chunk's stmts / tail run inside the synthesised __main.
+        let mut per_chunk = AstProgram::default();
+        per_chunk.items = self.accumulated_items.clone();
+        per_chunk.items.extend(chunk_prog.items.iter().cloned());
+        per_chunk.stmts = chunk_prog.stmts.clone();
+        per_chunk.tail = chunk_prog.tail.clone();
+
+        // The downstream MIR pipeline reads picks / type-arg dicts
+        // from the persistent TypeChecker — it has accumulated
+        // entries for every chunk seen so far, including this one.
         let prog = ilang_types::mangle::mangle_overloads(
-            self.accumulated.clone(),
-            &tc.fn_overload_picks(),
-            &tc.method_overload_picks(),
-            &tc.call_default_fills(),
+            per_chunk,
+            &self.tc.fn_overload_picks(),
+            &self.tc.method_overload_picks(),
+            &self.tc.call_default_fills(),
         );
         let prog = ilang_mir::monomorphize::monomorphize(&prog);
-        let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
-        let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
-        let mir = ilang_mir::lower_program(&prog).map_err(|e| format!("<repl> mir: {e}"))?;
+        let prog = ilang_mir::monomorphize::monomorphize_enums(
+            &prog,
+            &self.tc.enum_ctor_type_args(),
+        );
+        let prog =
+            ilang_mir::monomorphize::monomorphize_fns(&prog, &self.tc.fn_call_type_args());
+        let mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
+            .map_err(|e| format!("<repl> mir: {e}"))?;
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
         let r = ilang_mir_codegen::run_main(&compiled);
-        // M1 REPL prints __main's i64 return when non-zero (matches
-        // the file-mode behaviour). Future work: thread the tail's
-        // declared MirTy through so we can format heap values.
+
+        // Commit the chunk's definitions to the accumulated state
+        // only after a successful run — partial failures don't
+        // pollute future chunks.
+        self.accumulated_items.extend(chunk_prog.items.into_iter());
+
         if r != 0 {
             Ok(r.to_string())
         } else {

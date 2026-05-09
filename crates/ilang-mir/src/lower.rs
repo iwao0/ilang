@@ -32,7 +32,37 @@ pub enum LowerError {
 /// expected to have run the type checker first; we re-derive
 /// expression types locally because the AST does not carry them.
 pub fn lower_program(prog: &AstProgram) -> Result<Program, LowerError> {
+    lower_program_with_slots(prog, &HashMap::new())
+}
+
+/// REPL variant: lower with a slot table that maps top-level binding
+/// names to a stable host-side slot index plus the binding's AST
+/// `Type`. The AST type is converted to `MirTy` lazily inside the
+/// lower context so class / enum names can be resolved against the
+/// per-program registries.
+///
+/// At lowering:
+///
+/// 1. A top-level `let x = expr` whose name is in `slots` gets, after
+///    its normal init, a `__repl_store_slot(idx, x_as_i64)` call so
+///    the value persists across REPL turns.
+/// 2. Any `Var(x)` lookup that misses every local binding (i.e. the
+///    name is not bound in this chunk) is resolved by emitting a
+///    `__repl_load_slot(idx)` call, then bit-reinterpreting the
+///    returned i64 as the slot's declared MirTy.
+///
+/// All heap-typed slots store an i64 pointer; reinterpretation is a
+/// no-op for those. Primitive slots round-trip through coerce.
+pub fn lower_program_with_slots(
+    prog: &AstProgram,
+    slots: &HashMap<Symbol, (u32, ilang_ast::Type)>,
+) -> Result<Program, LowerError> {
     let mut lower = Lower::new();
+    // Defer slot-type resolution: classes/enums/etc. need the
+    // class_ids/enum_ids tables that are populated during the
+    // pre-passes below. We resolve and stash them right after
+    // `register_class` / `register_enum` complete.
+    lower.repl_slot_ast = slots.clone();
     // Built-in `Result<T, E>` is always available — the language
     // reserves the name and the loader doesn't include a stdlib file
     // for it. Pre-register so user `Result.ok(...)` / match on Result
@@ -99,6 +129,20 @@ pub fn lower_program(prog: &AstProgram) -> Result<Program, LowerError> {
     for item in &prog.items {
         if let Item::Class(cd) = item {
             lower.declare_class_methods(cd)?;
+        }
+    }
+
+    // 3b. REPL slot-type resolution. The class / enum tables are now
+    //     populated, so any pending `repl_slot_ast` entry (deferred by
+    //     `lower_program_with_slots`) can be promoted to the typed
+    //     `repl_slots` map. Entries whose type still doesn't resolve
+    //     (e.g. types depending on items not in this chunk) are
+    //     silently dropped — the REPL falls back to chunk-local
+    //     binding semantics for those names.
+    let pending_slots = std::mem::take(&mut lower.repl_slot_ast);
+    for (name, (idx, ty)) in pending_slots {
+        if let Ok(mir_ty) = lower.resolve_ty(&ty) {
+            lower.repl_slots.insert(name, (idx, mir_ty));
         }
     }
 
@@ -174,6 +218,16 @@ struct Lower {
     /// equal to the user name; overloaded fns have one entry per
     /// declared overload.
     overloads: HashMap<Symbol, Vec<Symbol>>,
+    /// REPL persistent slots: name → (slot index, MirTy). Set via
+    /// [`lower_program_with_slots`]. Empty for non-REPL compilations.
+    /// Drives host-slot store/load emission in __main and Var lookup.
+    /// Resolved lazily from `repl_slot_ast` after the class / enum
+    /// pre-passes register their ids.
+    repl_slots: HashMap<Symbol, (u32, MirTy)>,
+    /// Pre-resolution slot table from the REPL caller. Each entry is
+    /// converted to `repl_slots[name]` once the lowerer's class /
+    /// enum tables are populated.
+    repl_slot_ast: HashMap<Symbol, (u32, ilang_ast::Type)>,
 }
 
 struct ExternMeta {
@@ -309,6 +363,8 @@ impl Lower {
             extern_meta: HashMap::new(),
             main_id: None,
             overloads: HashMap::new(),
+            repl_slots: HashMap::new(),
+            repl_slot_ast: HashMap::new(),
         }
     }
 
@@ -1448,6 +1504,8 @@ impl Lower {
             cell_captures: Some(&cell_caps_set),
             overloads: &self.overloads,
             cellify_set: &cellify_inner,
+            repl_slots: &self.repl_slots,
+            is_main_body: false,
         };
         let tail = bcx.lower_block(&pc.body)?;
         bcx.finalise_return(tail)?;
@@ -1528,6 +1586,8 @@ impl Lower {
             cell_captures: None,
             cellify_set: &__cellify,
             overloads: &self.overloads,
+            repl_slots: &self.repl_slots,
+            is_main_body: false,
         };
         let tail = bcx.lower_block(&m.body)?;
         bcx.finalise_return(tail)?;
@@ -1613,6 +1673,8 @@ impl Lower {
             cell_captures: None,
             cellify_set: &__cellify,
             overloads: &self.overloads,
+            repl_slots: &self.repl_slots,
+            is_main_body: false,
         };
         let tail = bcx.lower_block(&m.body)?;
         // For `init`, the synthetic return is the receiver itself
@@ -1706,6 +1768,8 @@ impl Lower {
             cell_captures: None,
             cellify_set: &__cellify,
             overloads: &self.overloads,
+            repl_slots: &self.repl_slots,
+            is_main_body: false,
         };
         let tail = bcx.lower_block(&fd.body)?;
         bcx.finalise_return(tail)?;
@@ -1752,6 +1816,8 @@ impl Lower {
             cell_captures: None,
             cellify_set: &__cellify,
             overloads: &self.overloads,
+            repl_slots: &self.repl_slots,
+            is_main_body: true,
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
@@ -2527,6 +2593,15 @@ struct BodyCx<'a> {
     /// body (because some inner closure captures+mutates them).
     /// Populated by a per-fn-body pre-pass.
     cellify_set: &'a std::collections::HashSet<Symbol>,
+    /// REPL persistent slots: name → (slot index, MirTy). Forwarded
+    /// from `Lower::repl_slots`. Drives `__repl_load_slot` emission
+    /// in `Var` lookup (any fn body) and `__repl_store_slot` after
+    /// top-level `let`s in `__main` when `is_main_body` is set.
+    repl_slots: &'a HashMap<Symbol, (u32, MirTy)>,
+    /// True iff we're lowering `__main`'s body. Restricts top-level
+    /// `let` → slot-store to that scope so a same-named local in a
+    /// fn body doesn't accidentally clobber the REPL slot.
+    is_main_body: bool,
 }
 
 impl<'a> BodyCx<'a> {
@@ -2535,6 +2610,98 @@ impl<'a> BodyCx<'a> {
     }
     fn overloads_lookup(&self, name: Symbol) -> Option<Vec<Symbol>> {
         self.overloads.get(&name).cloned()
+    }
+
+    /// Bit-cast a value of `from` MirTy to a raw i64 for storage in a
+    /// REPL slot. Heap pointers pass through; signed ints sextend;
+    /// unsigned / bool zext; floats bitcast. Used by both the let-
+    /// store path and any other slot-write site.
+    fn value_to_i64(&mut self, v: ValueId, from: &MirTy) -> Result<ValueId, LowerError> {
+        use crate::inst::CastKind;
+        match from {
+            MirTy::I64 | MirTy::U64 => Ok(v),
+            MirTy::Object(_)
+            | MirTy::Array { .. }
+            | MirTy::Tuple(_)
+            | MirTy::Map { .. }
+            | MirTy::Optional(_)
+            | MirTy::Fn(_)
+            | MirTy::Str
+            | MirTy::Enum(_)
+            | MirTy::Weak(_)
+            | MirTy::RawPtr { .. } => Ok(v),
+            MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::SSize => {
+                let dst = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntResize, src: v });
+                Ok(dst)
+            }
+            MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::Size | MirTy::CChar | MirTy::Bool => {
+                let dst = self.fb.new_value(MirTy::I64);
+                // IntSignCross widens via uextend (zero-extend).
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntSignCross, src: v });
+                Ok(dst)
+            }
+            MirTy::F64 | MirTy::F32 => {
+                // No bitcast inst — funnel through the raw-ptr cast
+                // which is a same-width identity at the clif level.
+                // For F32 we'd lose the high bits; document as an
+                // M1 limitation (REPL never round-trips f32 specially).
+                let dst = self.fb.new_value(MirTy::I64);
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+                Ok(dst)
+            }
+            MirTy::Unit => {
+                // Unit slot: store a zero sentinel.
+                Ok(self.const_int(MirTy::I64, 0))
+            }
+            MirTy::CVoid | MirTy::TypeVar(_) => Err(LowerError::Other(format!(
+                "REPL slot store: unsupported type {from}"
+            ))),
+        }
+    }
+
+    /// Reverse of `value_to_i64` — narrow a raw i64 back to the slot's
+    /// declared MirTy. Heap pointers reinterpret via PtrIntCast (a
+    /// no-op at the bit level); primitives narrow via Cast.
+    fn i64_to_slot_value(
+        &mut self,
+        raw: ValueId,
+        to: &MirTy,
+    ) -> Result<ValueId, LowerError> {
+        use crate::inst::CastKind;
+        match to {
+            MirTy::I64 | MirTy::U64 => Ok(raw),
+            MirTy::Object(_)
+            | MirTy::Array { .. }
+            | MirTy::Tuple(_)
+            | MirTy::Map { .. }
+            | MirTy::Optional(_)
+            | MirTy::Fn(_)
+            | MirTy::Str
+            | MirTy::Enum(_)
+            | MirTy::Weak(_)
+            | MirTy::RawPtr { .. } => {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: raw });
+                Ok(dst)
+            }
+            MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::SSize
+            | MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::Size | MirTy::CChar
+            | MirTy::Bool => {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntResize, src: raw });
+                Ok(dst)
+            }
+            MirTy::F64 | MirTy::F32 => {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: raw });
+                Ok(dst)
+            }
+            MirTy::Unit => Ok(self.const_unit()),
+            MirTy::CVoid | MirTy::TypeVar(_) => Err(LowerError::Other(format!(
+                "REPL slot load: unsupported type {to}"
+            ))),
+        }
     }
 
     /// Resolve a name to its current value, emitting `UseLocal` for
@@ -3034,12 +3201,44 @@ impl<'a> BodyCx<'a> {
                     // Unit-typed bindings have no clif representation;
                     // keep the SSA path so reads return a synthetic
                     // unit value.
-                    self.env.bind(*name, bound, bind_ty);
+                    self.env.bind(*name, bound, bind_ty.clone());
                 } else {
                     let _ = &self.cellify_set; // legacy field, retained for ABI
                     let lid = self.fb.new_local(bind_ty.clone());
                     self.fb.push_inst(Inst::DefLocal { local: lid, value: bound });
-                    self.env.bind_local(*name, lid, bind_ty);
+                    self.env.bind_local(*name, lid, bind_ty.clone());
+                }
+                // REPL: top-level let in __main with a registered slot
+                // → persist the value to a host-side cell so future
+                // chunks can read it via `__repl_load_slot`.
+                if self.is_main_body {
+                    if let Some((idx, _slot_ty)) = self.repl_slots.get(name).cloned() {
+                        let idx_v = self.const_int(MirTy::I64, idx as i64);
+                        // Bit-cast the bound value to i64 for storage.
+                        // Heap pointer types are already i64; signed
+                        // ints widen via sextend; unsigned ints / bool
+                        // via zext; floats via bitcast.
+                        let v_i64 = self.value_to_i64(bound, &bind_ty)?;
+                        // Heap values stored in slots gain an extra
+                        // owner reference so the host outlives the
+                        // chunk's __main scope-exit release.
+                        if matches!(
+                            bind_ty,
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                        ) {
+                            self.fb.push_inst(Inst::Retain { value: bound });
+                        }
+                        self.fb.push_inst(Inst::Call {
+                            dst: None,
+                            callee: FuncRef::Builtin(Symbol::intern("__repl_store_slot")),
+                            args: Box::new([idx_v, v_i64]),
+                        });
+                    }
                 }
                 Ok(())
             }
@@ -3143,6 +3342,35 @@ impl<'a> BodyCx<'a> {
             ExprKind::Var(name) => {
                 if let Some(found) = self.lookup_var(*name) {
                     return Ok(found);
+                }
+                // REPL persistent slot — read whenever a free name
+                // matches a registered top-level binding from a prior
+                // chunk. Heap types reuse the i64 pointer; primitives
+                // narrow back to their declared MirTy.
+                if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
+                    let idx_v = self.const_int(MirTy::I64, idx as i64);
+                    let raw = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(raw),
+                        callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                        args: Box::new([idx_v]),
+                    });
+                    let v = self.i64_to_slot_value(raw, &slot_ty)?;
+                    // Heap reads from a slot retain so the caller
+                    // owns its reference (mirrors aliased-let
+                    // semantics in the same chunk).
+                    if matches!(
+                        slot_ty,
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                    ) {
+                        self.fb.push_inst(Inst::Retain { value: v });
+                    }
+                    return Ok((v, slot_ty));
                 }
                 // Closure capture (only when lowering a closure body).
                 if let Some(caps) = self.captures_in_scope {
@@ -6010,13 +6238,31 @@ impl<'a> BodyCx<'a> {
         }
         // Local fn-typed binding → call_indirect. Also picks up
         // closure captures (the body's `f(...)` where `f` was
-        // captured from the outer scope).
+        // captured from the outer scope) and REPL persistent slots
+        // (a fn value bound at top level in a prior chunk).
         let local_or_capture = self.lookup_var(callee).or_else(|| {
             self.captures_in_scope.and_then(|caps| {
                 caps.get(&callee).cloned().map(|(idx, cty)| {
                     let v = self.fb.new_value(cty.clone());
                     self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
                     (v, cty)
+                })
+            })
+            .or_else(|| {
+                self.repl_slots.get(&callee).cloned().and_then(|(idx, slot_ty)| {
+                    if !matches!(slot_ty, MirTy::Fn(_)) {
+                        return None;
+                    }
+                    let idx_v = self.const_int(MirTy::I64, idx as i64);
+                    let raw = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(raw),
+                        callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
+                        args: Box::new([idx_v]),
+                    });
+                    let v = self.i64_to_slot_value(raw, &slot_ty).ok()?;
+                    self.fb.push_inst(Inst::Retain { value: v });
+                    Some((v, slot_ty))
                 })
             })
         });
