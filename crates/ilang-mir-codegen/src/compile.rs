@@ -1499,20 +1499,21 @@ extern "C" fn host_release_tuple(tup_ptr: i64) {
     if new_rc != 0 {
         return;
     }
-    let packed = unsafe { *((base + 8) as *const i64) };
-    // Lower 32 bits = heap-element kind_mask (bit i = 1 ⇒ Object),
-    // upper 32 bits = arity. NewTuple writes both at construction.
-    let arity = ((packed as u64) >> 32) as i64;
-    let kind_mask = (packed as u64) & 0xFFFF_FFFF;
-    let mut m = kind_mask;
-    let mut i: i64 = 0;
-    while m != 0 {
-        if m & 1 != 0 {
+    let packed = unsafe { *((base + 8) as *const i64) } as u64;
+    // packed layout (set by NewTuple codegen):
+    //   bits  0-15 : arity (max 65535 elements)
+    //   bits 16-63 : 4-bit KIND_* tag per element, up to 12
+    //                elements (12 × 4 = 48 bits). Tuples > 12
+    //                elements have their kinds 12+ implicitly
+    //                KIND_NONE — those slots leak heap content
+    //                but the cell itself is still freed.
+    let arity = (packed & 0xFFFF) as i64;
+    for i in 0..arity.min(12) {
+        let kind = ((packed >> (16 + (i as u64) * 4)) & 0xF) as i64;
+        if kind != KIND_NONE {
             let elem = unsafe { *((tup_ptr + i * 8) as *const i64) };
-            release_object(elem);
+            release_by_kind(elem, kind);
         }
-        m >>= 1;
-        i += 1;
     }
     // Free the tuple cell. base = tup_ptr - 16; total = 16 + arity*8.
     host_mir_free(base, 16 + arity.max(1) * 8);
@@ -1752,6 +1753,26 @@ fn release_by_kind(ptr: i64, kind: i64) {
         KIND_CLOSURE => host_release_closure(ptr),
         KIND_STR => host_release_string(ptr),
         _ => {} // KIND_NONE / unknown — primitive, no cascade.
+    }
+}
+
+/// Mirror of `release_by_kind` for retain. Used when one container
+/// hands an element pointer to another (e.g. `arr.filter(...)`
+/// keeps a subset of the source array's elements; both arrays then
+/// own the kept elements at +1 each).
+fn retain_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_OBJECT => host_retain_object(ptr),
+        KIND_ARRAY => host_retain_array(ptr),
+        KIND_OPTIONAL => host_retain_optional(ptr),
+        KIND_TUPLE => host_retain_tuple(ptr),
+        KIND_MAP => host_retain_map(ptr),
+        KIND_CLOSURE => host_retain_closure(ptr),
+        KIND_STR => host_retain_string(ptr),
+        _ => {}
     }
 }
 
@@ -2717,7 +2738,11 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
 
 /// Construct a new i64-cell array (48-byte header, stride 8) from an
 /// i64 slice. Used by helpers that produce string[] / i64[] results.
-fn build_array(items: &[i64]) -> i64 {
+/// `elem_kind` should be the KIND_* tag for the element type so
+/// `host_release_array` can cascade-release the contents on drop
+/// (e.g. KIND_STR for split() results, KIND_OBJECT for
+/// Map<_, ClassT>.values()).
+fn build_array(items: &[i64], elem_kind: i64) -> i64 {
     let cap = items.len().max(4);
     let header = host_mir_alloc(48);
     let data = host_mir_alloc((cap * 8) as i64);
@@ -2727,7 +2752,7 @@ fn build_array(items: &[i64]) -> i64 {
         *h.add(1) = cap as i64;
         *h.add(2) = data;
         *h.add(3) = 1; // rc
-        *h.add(4) = 0; // kind tag (no cascade for raw i64 / string ptrs)
+        *h.add(4) = elem_kind;
         *h.add(5) = 8; // stride
         for (i, v) in items.iter().enumerate() {
             *((data + (i as i64) * 8) as *mut i64) = *v;
@@ -2933,7 +2958,7 @@ extern "C" fn host_fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) 
 
 extern "C" fn host_array_map(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
-        return build_array(&[]);
+        return build_array(&[], KIND_NONE);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
     let mut out = Vec::with_capacity(len as usize);
@@ -2942,39 +2967,58 @@ extern "C" fn host_array_map(arr: i64, closure: i64) -> i64 {
         let v = unsafe { call_closure_1(closure, cell) };
         out.push(v);
     }
-    build_array(&out)
+    // map's output element kind is unknown to us at runtime
+    // (the MIR knows the closure's return MirTy but doesn't
+    // thread it through). Default to KIND_NONE — heap content
+    // in the result leaks until the lower side starts emitting
+    // an explicit kind argument.
+    build_array(&out, KIND_NONE)
 }
 
 extern "C" fn host_array_filter(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
-        return build_array(&[]);
+        return build_array(&[], KIND_NONE);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
     let mut out = Vec::new();
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
         let keep = unsafe { call_closure_1(closure, cell) };
         if keep != 0 {
+            // Filter passes through source elements unchanged —
+            // share their +1 by retaining the kept ones so both
+            // the source array (when it drops) and the result
+            // array (when it drops) account for the reference.
+            if elem_kind != KIND_NONE {
+                retain_by_kind(cell, elem_kind);
+            }
             out.push(cell);
         }
     }
-    build_array(&out)
+    build_array(&out, elem_kind)
 }
 
 extern "C" fn host_array_slice(arr: i64, start: i64, end: i64) -> i64 {
     if arr == 0 {
-        return build_array(&[]);
+        return build_array(&[], KIND_NONE);
     }
     let (len, _cap, data) = unsafe { array_header(arr) };
+    let elem_kind = unsafe { *((arr + 32) as *const i64) };
     let lo = start.max(0).min(len) as usize;
     let hi = end.max(0).min(len) as usize;
     let lo = lo.min(hi);
     let mut out: Vec<i64> = Vec::with_capacity(hi - lo);
     for i in lo..hi {
         let cell = unsafe { *((data + (i as i64) * 8) as *const i64) };
+        // Slice copies element references — retain so both arrays
+        // own the reference (mirrors filter).
+        if elem_kind != KIND_NONE {
+            retain_by_kind(cell, elem_kind);
+        }
         out.push(cell);
     }
-    build_array(&out)
+    build_array(&out, elem_kind)
 }
 
 extern "C" fn host_array_for_each(arr: i64, closure: i64) {
@@ -2997,7 +3041,10 @@ extern "C" fn host_str_split(p: i64, sep: i64) -> i64 {
     } else {
         s.split(sp).map(|t| leak_cstring(t.to_string())).collect()
     };
-    build_array(&parts)
+    // Each part is a fresh leak_cstring entry — tag the array as
+    // KIND_STR so dropping it cascades release_string and reclaims
+    // every part.
+    build_array(&parts, KIND_STR)
 }
 
 extern "C" fn host_array_pop(arr: i64) -> i64 {
@@ -3503,31 +3550,47 @@ extern "C" fn host_map_delete(map: i64, key: i64) -> i64 {
 
 extern "C" fn host_map_keys(map: i64) -> i64 {
     if map == 0 {
-        return build_array(&[]);
+        return build_array(&[], KIND_NONE);
     }
     let mm = unsafe { &*(map as *const ManagedMap) };
+    // String-keyed maps return interned key pointers (str_key_origs
+    // is the original `cstrFromString` user passed in for hash key
+    // i.e. registry-tracked). Tag KIND_NONE for those — the keys
+    // are borrowed views, not freshly allocated copies the result
+    // array should free. Same for int keys (KIND_NONE).
     let v: Vec<i64> = mm
         .inner
         .keys()
         .map(|k| {
-            // Prefer the original C-string ptr the user inserted, so
-            // `keys().includes(orig)` succeeds with raw-ptr equality.
             mm.str_key_origs
                 .get(k)
                 .copied()
                 .unwrap_or_else(|| map_key_to_raw(k))
         })
         .collect();
-    build_array(&v)
+    build_array(&v, KIND_NONE)
 }
 
 extern "C" fn host_map_values(map: i64) -> i64 {
     if map == 0 {
-        return build_array(&[]);
+        return build_array(&[], KIND_NONE);
     }
     let mm = unsafe { &*(map as *const ManagedMap) };
+    let val_kind = mm.val_kind;
     let v: Vec<i64> = mm.inner.values().copied().collect();
-    build_array(&v)
+    // Result array's kind reflects the map's value side. A
+    // Map<K, ClassT>.values() should cascade release_object on
+    // drop so each value's deinit fires when the result array
+    // is reclaimed. Borrowed-from-map values need a retain so
+    // both the source map and the result array account for the
+    // reference.
+    let elem_kind = if val_kind == 1 { KIND_OBJECT } else { KIND_NONE };
+    if elem_kind != KIND_NONE {
+        for &cell in &v {
+            retain_by_kind(cell, elem_kind);
+        }
+    }
+    build_array(&v, elem_kind)
 }
 
 fn clif_signature_for(
@@ -5074,10 +5137,13 @@ fn lower_inst(
             // Heterogeneous fixed-arity product. Hidden 16-byte
             // header lives BEFORE the user-facing pointer:
             //   base + 0  = rc
-            //   base + 8  = packed: lower 32 bits = kind_mask
-            //              (bit i = 1 ⇒ element i is Object),
-            //              upper 32 bits = arity (used by
-            //              host_release_tuple to free the cell).
+            //   base + 8  = packed:
+            //                 bits  0-15 = arity (max 65535)
+            //                 bits 16-63 = 4-bit KIND_* tag per
+            //                              element (up to 12 elements;
+            //                              elements 12+ leak any
+            //                              heap content but the cell
+            //                              itself is still freed).
             //   base + 16 = element 0 ← user_ptr
             // TupleExtract reads from offset 0 of user_ptr, unchanged.
             let n = items.len() as i64;
@@ -5090,17 +5156,18 @@ fn lower_inst(
             // rc = 1
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, base, 0);
-            // packed (mask | arity)
+            // packed (kinds | arity)
             let dst_ty = func.ty_of(*dst).clone();
-            let mut mask: i64 = 0;
+            let mut packed: i64 = n & 0xFFFF;
             if let MirTy::Tuple(elems) = &dst_ty {
                 for (i, ety) in elems.iter().enumerate() {
-                    if matches!(ety, MirTy::Object(_)) && i < 32 {
-                        mask |= 1i64 << i;
+                    if i >= 12 {
+                        break;
                     }
+                    let kind = kind_tag_of(ety) & 0xF;
+                    packed |= kind << (16 + (i as i64) * 4);
                 }
             }
-            let packed = mask | ((n & 0xFFFF_FFFF) << 32);
             let mask_v = fb.ins().iconst(types::I64, packed);
             fb.ins().store(MemFlags::trusted(), mask_v, base, 8);
             for (i, it) in items.iter().enumerate() {
