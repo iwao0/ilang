@@ -3258,17 +3258,30 @@ fn lower_inst(
             // by spaces and terminated by a newline.
             if let FuncRef::Builtin(sym) = callee {
                 if sym.as_str() == "console_log" {
-                    for (i, a) in args.iter().enumerate() {
-                        if i > 0 {
+                    // Skip Unit-typed args entirely. The CLI's
+                    // `wrap_trailing_print` may pass them when a
+                    // program's trailing expression is a void method
+                    // call (e.g. `test.expect(...)`); in that case
+                    // nothing should be printed and the trailing
+                    // newline is suppressed too so stdout stays clean.
+                    let mut printed = 0usize;
+                    for a in args.iter() {
+                        let aty = func.ty_of(*a).clone();
+                        if matches!(aty, MirTy::Unit) {
+                            continue;
+                        }
+                        if printed > 0 {
                             let r = module.declare_func_in_func(print_ids.space, fb.func);
                             fb.ins().call(r, &[]);
                         }
-                        let aty = func.ty_of(*a).clone();
                         let av = vmap[a];
                         emit_print_value(fb, module, print_ids, print_lits, &aty, av);
+                        printed += 1;
                     }
-                    let r = module.declare_func_in_func(print_ids.newline, fb.func);
-                    fb.ins().call(r, &[]);
+                    if printed > 0 {
+                        let r = module.declare_func_in_func(print_ids.newline, fb.func);
+                        fb.ins().call(r, &[]);
+                    }
                     if let Some(d) = dst {
                         // console.log returns Unit — produce a sentinel
                         // for any (unlikely) consumer.

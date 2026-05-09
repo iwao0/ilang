@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use ilang_ast::{Item, Program as AstProgram, StmtKind, Symbol};
+use ilang_ast::{Expr, ExprKind, Item, Program as AstProgram, StmtKind, Symbol};
 use std::collections::HashMap;
 use ilang_eval::{Interpreter, Value};
 use ilang_lexer::tokenize;
@@ -204,15 +204,37 @@ fn run_repl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// If the program has a trailing expression, wrap it in
+/// `console.log(<tail>)` so the JIT path's `__main` prints the
+/// value the user expected to see. Mirrors the tree-walking
+/// interpreter's behaviour of returning + auto-printing the tail.
+/// Programs without a tail (everything in fixture form) are
+/// untouched.
+fn wrap_trailing_print(mut prog: AstProgram) -> AstProgram {
+    if let Some(tail) = prog.tail.take() {
+        let span = tail.span;
+        let console = Expr::new(ExprKind::Var(Symbol::intern("console")), span);
+        let log_call = Expr::new(
+            ExprKind::MethodCall {
+                obj: Box::new(console),
+                method: Symbol::intern("log"),
+                args: Box::new([tail]),
+            },
+            span,
+        );
+        prog.tail = Some(log_call);
+    }
+    prog
+}
+
 fn run_file(path: &PathBuf, jit: bool, mir_jit: bool, interp: bool) -> ExitCode {
-    // Backend selection priority: explicit `--mir-jit` first, then
-    // `--jit` (legacy), then `--interp` or no flag (tree-walking
-    // interpreter via `ilang-eval`). The default stays as interp
-    // for now because several `run.rs` tests rely on its
-    // tail-expression auto-print; switching the default to mir-jit
-    // is a follow-up once the JIT path emits an equivalent print.
-    let _ = interp;
-    let use_mir_jit = mir_jit;
+    // Backend selection priority: explicit `--interp` forces the
+    // tree-walking interpreter; explicit `--jit` selects the legacy
+    // ilang-codegen pipeline; everything else (no flag, or
+    // `--mir-jit`) routes through the new mir-jit backend, which is
+    // now the default.
+    let use_mir_jit = !interp && !jit;
+    let _ = mir_jit;
     // Resolve any `ilang.toml` next to (or above) the entry file
     // and turn its `[deps]` table into extra `use`-resolution paths.
     let extra_paths = match collect_dep_paths(path) {
@@ -237,6 +259,13 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool, interp: bool) -> ExitCode 
     }
     let display_path = path.display().to_string();
     if use_mir_jit {
+        // Auto-print the trailing expression — matches what the
+        // tree-walking interpreter does with the value of
+        // `Interpreter::run`. Wrapping at the AST level routes
+        // through the existing `console.log` builtin (variadic +
+        // type-aware), so heap values pretty-print without extra
+        // codegen plumbing.
+        let prog = wrap_trailing_print(prog);
         let mut tc = TypeChecker::new();
         if let Err(e) = tc.check(&prog) {
             eprintln!("{display_path} {e}");
