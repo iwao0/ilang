@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 ilang-ast = { workspace = true }
 ilang-mir = { workspace = true }
+ilang-codegen = { workspace = true }
 cranelift = "0.131"
 cranelift-jit = "0.131"
 cranelift-module = "0.131"

@@ -301,6 +301,7 @@ pub fn compile_with_builtins(
     // helpers are identity at the bit level.
     jit_builder.symbol("cstrFromString", host_identity as *const u8);
     jit_builder.symbol("stringFromCstr", host_identity as *const u8);
+    jit_builder.symbol("cstrArrayToStrings", host_cstr_array_to_strings as *const u8);
     jit_builder.symbol("freeCstr", host_noop as *const u8);
     jit_builder.symbol("errnoCheck", host_errno_check_i32 as *const u8);
     jit_builder.symbol("errnoCheckI64", host_errno_check_i64 as *const u8);
@@ -309,6 +310,11 @@ pub fn compile_with_builtins(
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     jit_builder.symbol("test.applyI32Cb", host_test_apply_i32_cb as *const u8);
+    // Reuse the legacy JIT's full test-extern symbol set (callbacks,
+    // by-value structs, sret returns, errno helpers, etc). Layout-
+    // mismatched ones (StringRc payload) won't be invoked by the
+    // mir-jit fixtures that rely on those.
+    ilang_codegen::test_externs::register_test_symbols(&mut jit_builder);
     jit_builder.symbol("test.expect", host_test_expect as *const u8);
     jit_builder.symbol("test.expectStr", host_test_expect_str as *const u8);
     jit_builder.symbol("test.expectBool", host_test_expect_bool as *const u8);
@@ -406,6 +412,7 @@ pub fn compile_with_builtins(
         };
         decl_unary("cstrFromString", false)?;
         decl_unary("stringFromCstr", false)?;
+        decl_unary("cstrArrayToStrings", false)?;
         decl_unary("freeCstr", true)?;
         decl_unary("errnoCheck", false)?;
         decl_unary("errnoCheckI64", false)?;
@@ -2182,6 +2189,41 @@ extern "C" fn host_array_pop(arr: i64) -> i64 {
 extern "C" fn host_identity(p: i64) -> i64 { p }
 extern "C" fn host_noop(_: i64) {}
 
+/// `cstrArrayToStrings(p: *const *const char): string[]` — walk a
+/// NULL-terminated `char**` and copy each `char*` into a fresh
+/// NUL-terminated buffer, packed into a 40-byte-header ilang array.
+extern "C" fn host_cstr_array_to_strings(ptrs: i64) -> i64 {
+    let mut elems: Vec<i64> = Vec::new();
+    if ptrs != 0 {
+        unsafe {
+            let mut p = ptrs as *const *const u8;
+            while !(*p).is_null() {
+                let raw = (*p) as i64;
+                let bytes = cstr_bytes(raw);
+                let s = String::from_utf8_lossy(bytes).into_owned();
+                elems.push(leak_cstring(s));
+                p = p.add(1);
+            }
+        }
+    }
+    let n = elems.len() as i64;
+    let header = host_mir_alloc(40);
+    let data = host_mir_alloc(n.max(1) * 8);
+    unsafe {
+        let h = header as *mut i64;
+        *h = n;
+        *h.add(1) = n;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = 0; // elem_kind_tag: string is non-Object so no cascade
+        let d = data as *mut i64;
+        for (i, s) in elems.iter().enumerate() {
+            *d.add(i) = *s;
+        }
+    }
+    header
+}
+
 extern "C" fn host_errno_check_i32(rc: i32) -> i64 {
     // Returns Optional<i32> as a heap cell: 0 = none, ptr = some(rc).
     if rc < 0 {
@@ -2675,6 +2717,7 @@ fn lower_inst(
                         sym.as_str(),
                         "cstrFromString"
                             | "stringFromCstr"
+                            | "cstrArrayToStrings"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"

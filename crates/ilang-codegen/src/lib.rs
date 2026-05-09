@@ -16,7 +16,7 @@ mod lower_stmt;
 mod math_externs;
 mod native_extern;
 mod os_externs;
-mod test_externs;
+pub mod test_externs;
 mod monomorphize;
 mod runtime;
 mod ty;

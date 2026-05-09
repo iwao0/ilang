@@ -776,6 +776,7 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "ilang-ast",
+ "ilang-codegen",
  "ilang-lexer",
  "ilang-mir",
  "ilang-parser",

@@ -5633,6 +5633,10 @@ impl<'a> BodyCx<'a> {
         let ffi_helper = match callee.as_str() {
             "cstrFromString" => Some(MirTy::I64),
             "stringFromCstr" => Some(MirTy::Str),
+            "cstrArrayToStrings" => Some(MirTy::Array {
+                elem: Box::new(MirTy::Str),
+                len: None,
+            }),
             "freeCstr" => Some(MirTy::Unit),
             "errnoCheck" => Some(MirTy::Optional(Box::new(MirTy::I32))),
             "errnoCheckI64" => Some(MirTy::Optional(Box::new(MirTy::I64))),
