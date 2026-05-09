@@ -5229,7 +5229,7 @@ impl<'a> BodyCx<'a> {
                         Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
                         _ => v,
                     };
-                    if arg_is_fresh && matches!(vty, MirTy::Object(_) | MirTy::Str) {
+                    if arg_is_fresh && matches!(vty, MirTy::Object(_)) {
                         fresh_obj_args.push(coerced);
                     }
                     arg_vals_all.push(coerced);
