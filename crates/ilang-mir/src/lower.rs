@@ -688,6 +688,8 @@ impl Lower {
                         span: None,
                         local_tys: Vec::new(),
                         c_symbol: *c_symbol,
+                        is_optional: *optional,
+                        libs: libs.iter().copied().collect(),
                     });
                     self.fn_ids.insert(mangled, id);
                     self.fn_sigs.insert(
@@ -775,6 +777,8 @@ impl Lower {
                         span: None,
                         local_tys: Vec::new(),
                         c_symbol: *c_symbol,
+                        is_optional: *optional,
+                        libs: libs.iter().copied().collect(),
                     });
                     self.fn_ids.insert(mangled, id);
                     self.fn_sigs.insert(
@@ -2301,6 +2305,8 @@ fn placeholder_function(name: Symbol) -> Function {
         span: None,
         local_tys: Vec::new(),
         c_symbol: None,
+        is_optional: false,
+        libs: Vec::new(),
     }
 }
 

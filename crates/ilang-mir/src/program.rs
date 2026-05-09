@@ -50,6 +50,15 @@ pub struct Function {
     /// `Some(s)` causes the JIT to declare-import `s` as the C
     /// symbol while still letting the ilang code call by `name`.
     pub c_symbol: Option<Symbol>,
+    /// `true` for `@extern(C) @optional` fns — the JIT installs an
+    /// always-trapping stub when the C symbol can't be resolved, so
+    /// the surrounding `os.libLoaded(...)` gating logic still runs.
+    pub is_optional: bool,
+    /// `@lib("name1", "name2", ...)` libs declared on this fn. The
+    /// JIT runtime treats them as a fallback group: an
+    /// `os.libLoaded(any-of-them)` query returns true as long as at
+    /// least one opens.
+    pub libs: Vec<Symbol>,
 }
 
 #[derive(Debug, Clone)]

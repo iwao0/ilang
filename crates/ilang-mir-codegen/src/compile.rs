@@ -356,6 +356,43 @@ pub fn compile_with_builtins(
     for b in builtins {
         jit_builder.symbol(b.name, b.ptr);
     }
+    // For every `@extern(C) @optional` fn whose target dlsym would
+    // fail (the lib couldn't be opened, or the symbol is missing),
+    // bind a host stub so finalize doesn't panic. The stub aborts
+    // when actually invoked — callers are expected to gate via
+    // `os.libLoaded(...)` first.
+    // Collect `@lib(...)` groups so `os.libLoaded(name)` can fall
+    // through to alternates declared on the same fn.
+    {
+        let mut groups = lib_groups_lock().lock().expect("lib groups poisoned");
+        groups.clear();
+        for f in &prog.functions {
+            if matches!(f.kind, ilang_mir::FunctionKind::Extern { .. })
+                && f.libs.len() > 1
+            {
+                groups.push(f.libs.clone());
+            }
+        }
+    }
+    for f in &prog.functions {
+        if !matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            continue;
+        }
+        if !f.is_optional {
+            continue;
+        }
+        let sym_name = f
+            .c_symbol
+            .as_ref()
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_else(|| f.name.as_str().to_string());
+        // Only register the stub if no real symbol exists in the
+        // current process (dlsym from RTLD_DEFAULT). Otherwise the
+        // JIT would prefer the stub over the real implementation.
+        if !process_symbol_exists(&sym_name) {
+            jit_builder.symbol(sym_name, host_optional_missing_stub as *const u8);
+        }
+    }
     let mut module = JITModule::new(jit_builder);
 
     // Declare the alloc builtin so NewObject can call it.
@@ -2282,6 +2319,35 @@ fn ireduce_or_pass(
 
 extern "C" fn host_identity(p: i64) -> i64 { p }
 
+/// Stub for `@extern(C) @optional` fns whose lib / symbol couldn't
+/// be resolved. Aborts if called; user code is expected to gate
+/// via `os.libLoaded(...)`.
+extern "C" fn host_optional_missing_stub() -> ! {
+    eprintln!(
+        "panic: invoked an `@extern(C) @optional` fn whose library was not loaded"
+    );
+    std::process::exit(1);
+}
+
+unsafe extern "C" {
+    fn dlsym(handle: *mut u8, name: *const u8) -> *mut u8;
+}
+
+// `RTLD_DEFAULT` differs by platform: macOS uses (-2 as *mut u8),
+// Linux uses NULL. Use a const fn so each target picks the right
+// sentinel.
+#[cfg(target_os = "macos")]
+const RTLD_DEFAULT: *mut u8 = -2isize as *mut u8;
+#[cfg(not(target_os = "macos"))]
+const RTLD_DEFAULT: *mut u8 = std::ptr::null_mut();
+
+fn process_symbol_exists(name: &str) -> bool {
+    let mut nul = name.as_bytes().to_vec();
+    nul.push(0);
+    let p = unsafe { dlsym(RTLD_DEFAULT, nul.as_ptr()) };
+    !p.is_null()
+}
+
 /// `stringFromCstr(p)` — copy the bytes pointed to by `p` into a
 /// fresh leaked NUL-terminated buffer so `free(p)` afterwards
 /// doesn't invalidate the caller's string view.
@@ -2359,14 +2425,108 @@ extern "C" fn host_errno_check_i64(rc: i64) -> i64 {
 /// symbol search, which always succeeds for libc-provided names,
 /// so the contract reduces to: returning true matches what the
 /// fallback paths do.
-extern "C" fn host_os_lib_loaded(_name: i64) -> i64 {
-    1
+/// `os.libLoaded(name)` — try to dlopen the library on demand and
+/// remember whether it succeeded. The mir-codegen pipeline relies on
+/// Cranelift JIT's process-wide symbol search, which always succeeds
+/// for libc-provided names; for fallback libs declared via
+/// `@lib("primary", "fallback")` we attempt each in turn so the
+/// `os.libLoaded` query reflects reality.
+extern "C" fn host_os_lib_loaded(name: i64) -> i64 {
+    let n = if name == 0 {
+        return 0;
+    } else {
+        let bytes = unsafe { cstr_bytes(name) };
+        String::from_utf8_lossy(bytes).into_owned()
+    };
+    // First, check whether `name` itself opens.
+    if try_open_lib(&n).is_some() {
+        return 1;
+    }
+    // Otherwise, check fallback groups: any `@lib(a, b, c)` group
+    // containing `n` whose other entry opens counts as loaded.
+    let registry = lib_groups_lock().lock().expect("lib groups poisoned");
+    for group in registry.iter() {
+        if !group.iter().any(|s| s.as_str() == n) {
+            continue;
+        }
+        for alt in group {
+            let s = alt.as_str();
+            if s == n {
+                continue;
+            }
+            if try_open_lib(s).is_some() {
+                return 1;
+            }
+        }
+    }
+    0
 }
 
-/// `os.libLoadError(name)` — empty string when no error was
-/// recorded.  Same caveat as `host_os_lib_loaded`.
-extern "C" fn host_os_lib_load_error(_name: i64) -> i64 {
-    leak_cstring(String::new())
+extern "C" fn host_os_lib_load_error(name: i64) -> i64 {
+    let n = if name == 0 {
+        return leak_cstring(String::new());
+    } else {
+        let bytes = unsafe { cstr_bytes(name) };
+        String::from_utf8_lossy(bytes).into_owned()
+    };
+    match try_open_lib_err(&n) {
+        Some(e) => leak_cstring(e),
+        None => leak_cstring(String::new()),
+    }
+}
+
+unsafe extern "C" {
+    fn dlopen(path: *const u8, flags: i32) -> *mut u8;
+    fn dlerror() -> *const u8;
+}
+
+static LIB_GROUPS: OnceLock<Mutex<Vec<Vec<ilang_ast::Symbol>>>> = OnceLock::new();
+
+fn lib_groups_lock() -> &'static Mutex<Vec<Vec<ilang_ast::Symbol>>> {
+    LIB_GROUPS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+const RTLD_LAZY: i32 = 1;
+
+fn try_open_lib(name: &str) -> Option<*mut u8> {
+    let try_one = |n: &str| -> Option<*mut u8> {
+        let mut nul = n.as_bytes().to_vec();
+        nul.push(0);
+        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        if h.is_null() { None } else { Some(h) }
+    };
+    if let Some(h) = try_one(name) {
+        return Some(h);
+    }
+    // Bare name like "c" → try standard lib<NAME>.dylib / .so
+    // variants. dlopen("c") returns NULL on macOS; you need
+    // "libc.dylib".
+    if !name.contains('.') && !name.contains('/') {
+        for ext in &["dylib", "so", "so.6", "so.1"] {
+            let candidate = format!("lib{name}.{ext}");
+            if let Some(h) = try_one(&candidate) {
+                return Some(h);
+            }
+        }
+    }
+    None
+}
+
+fn try_open_lib_err(name: &str) -> Option<String> {
+    let mut nul = name.as_bytes().to_vec();
+    nul.push(0);
+    let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+    if !h.is_null() {
+        return None;
+    }
+    unsafe {
+        let p = dlerror();
+        if p.is_null() {
+            return Some(format!("could not load `{name}`"));
+        }
+        let bytes = cstr_bytes(p as i64);
+        Some(String::from_utf8_lossy(bytes).into_owned())
+    }
 }
 
 extern "C" fn host_os_errno() -> i32 {

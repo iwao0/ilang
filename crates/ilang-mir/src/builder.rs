@@ -136,6 +136,8 @@ impl FunctionBuilder {
             span: self.span,
             local_tys: self.local_tys,
             c_symbol: None,
+            is_optional: false,
+            libs: Vec::new(),
         }
     }
 }
