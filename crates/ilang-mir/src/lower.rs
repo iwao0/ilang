@@ -3451,6 +3451,17 @@ impl<'a> BodyCx<'a> {
                 // module slot — a closure that captured `factor`
                 // when it was 10 must keep seeing 10 even if the
                 // outer code reassigned the slot to 999.
+                // Slot reads borrow ownership from the slot itself
+                // (the host store keeps a stable refcount on the
+                // slot's heap value). We deliberately do NOT retain
+                // here — that's the same contract `lookup_var`
+                // honours for Local reads, and it's what avoids the
+                // per-loop-iteration leak in long-running programs
+                // (e.g. `examples/sdl_breakout`'s game loop, where
+                // every frame reads slot-promoted globals dozens of
+                // times). Downstream `let`-binding / fn-arg /
+                // closure-capture sites bump the refcount when they
+                // need persistent ownership.
                 if let Some(caps) = self.captures_in_scope {
                     if caps.contains_key(name) {
                         // Fall through to the existing capture
@@ -3464,17 +3475,6 @@ impl<'a> BodyCx<'a> {
                             args: Box::new([idx_v]),
                         });
                         let v = self.i64_to_slot_value(raw, &slot_ty)?;
-                        if matches!(
-                            slot_ty,
-                            MirTy::Object(_)
-                                | MirTy::Array { .. }
-                                | MirTy::Tuple(_)
-                                | MirTy::Map { .. }
-                                | MirTy::Optional(_)
-                                | MirTy::Fn(_)
-                        ) {
-                            self.fb.push_inst(Inst::Retain { value: v });
-                        }
                         return Ok((v, slot_ty));
                     }
                 } else if let Some((idx, slot_ty)) = self.repl_slots.get(name).cloned() {
@@ -3488,17 +3488,6 @@ impl<'a> BodyCx<'a> {
                         args: Box::new([idx_v]),
                     });
                     let v = self.i64_to_slot_value(raw, &slot_ty)?;
-                    if matches!(
-                        slot_ty,
-                        MirTy::Object(_)
-                            | MirTy::Array { .. }
-                            | MirTy::Tuple(_)
-                            | MirTy::Map { .. }
-                            | MirTy::Optional(_)
-                            | MirTy::Fn(_)
-                    ) {
-                        self.fb.push_inst(Inst::Retain { value: v });
-                    }
                     return Ok((v, slot_ty));
                 }
                 // Closure capture (only when lowering a closure body).
@@ -6689,8 +6678,11 @@ impl<'a> BodyCx<'a> {
                         callee: FuncRef::Builtin(Symbol::intern("__repl_load_slot")),
                         args: Box::new([idx_v]),
                     });
+                    // Borrow from the slot — the slot keeps the
+                    // owning ref. No retain here (the call site
+                    // doesn't take persistent ownership of the fn
+                    // value, it just invokes it).
                     let v = self.i64_to_slot_value(raw, &slot_ty).ok()?;
-                    self.fb.push_inst(Inst::Retain { value: v });
                     Some((v, slot_ty))
                 })
             })
