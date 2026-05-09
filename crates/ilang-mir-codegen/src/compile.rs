@@ -1132,7 +1132,12 @@ pub fn compile_with_builtins(
         let mut t = closure_capture_table_lock()
             .lock()
             .expect("closure capture table poisoned");
-        t.clear();
+        let mut sizes = closure_size_table_lock()
+            .lock()
+            .expect("closure size table poisoned");
+        // Don't clear — entries are keyed by fn_addr (globally
+        // unique runtime address) and accumulate so parallel
+        // modules coexist.
         for (idx, func) in prog.functions.iter().enumerate() {
             if extern_fn_ids.contains(&FuncId(idx as u32)) {
                 continue;
@@ -1167,6 +1172,10 @@ pub fn compile_with_builtins(
                 }
             }
             t.insert(addr, entries);
+            // Mirror the MakeClosure codegen layout:
+            // [fn_addr @ 0 | rc @ 8 | capture_0 @ 16 | …] = (2 + n_caps)*8.
+            let total_size = (2 + env.captures.len() as i64) * 8;
+            sizes.insert(addr, total_size);
         }
     }
     // Populate fn-name registry — host_print_fn looks up the fn
@@ -1409,6 +1418,14 @@ fn closure_capture_table_lock() -> &'static Mutex<HashMap<i64, Vec<(i64, PrintKi
     CLOSURE_CAPTURE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// fn_addr → total byte size of the closure heap cell. Used by
+/// `host_release_closure` to free the block once rc reaches 0.
+static CLOSURE_SIZE_TABLE: OnceLock<Mutex<HashMap<i64, i64>>> = OnceLock::new();
+
+fn closure_size_table_lock() -> &'static Mutex<HashMap<i64, i64>> {
+    CLOSURE_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 extern "C" fn host_release_closure(closure_ptr: i64) {
     if closure_ptr == 0 {
         return;
@@ -1437,6 +1454,17 @@ extern "C" fn host_release_closure(closure_ptr: i64) {
             let raw = unsafe { *((closure_ptr + *off) as *const i64) };
             release_value_by_kind(raw, kind);
         }
+    }
+    // Free the closure cell. Size is keyed off fn_addr — registered
+    // at compile time alongside the capture table.
+    let size = {
+        let m = closure_size_table_lock()
+            .lock()
+            .expect("closure size table poisoned");
+        m.get(&fn_addr).copied()
+    };
+    if let Some(size) = size {
+        host_mir_free(closure_ptr, size);
     }
 }
 
@@ -1471,11 +1499,12 @@ extern "C" fn host_release_tuple(tup_ptr: i64) {
     if new_rc != 0 {
         return;
     }
-    let mask = unsafe { *((base + 8) as *const i64) };
-    if mask == 0 {
-        return;
-    }
-    let mut m = mask as u64;
+    let packed = unsafe { *((base + 8) as *const i64) };
+    // Lower 32 bits = heap-element kind_mask (bit i = 1 ⇒ Object),
+    // upper 32 bits = arity. NewTuple writes both at construction.
+    let arity = ((packed as u64) >> 32) as i64;
+    let kind_mask = (packed as u64) & 0xFFFF_FFFF;
+    let mut m = kind_mask;
     let mut i: i64 = 0;
     while m != 0 {
         if m & 1 != 0 {
@@ -1485,6 +1514,8 @@ extern "C" fn host_release_tuple(tup_ptr: i64) {
         m >>= 1;
         i += 1;
     }
+    // Free the tuple cell. base = tup_ptr - 16; total = 16 + arity*8.
+    host_mir_free(base, 16 + arity.max(1) * 8);
 }
 
 extern "C" fn host_retain_tuple(tup_ptr: i64) {
@@ -1522,10 +1553,12 @@ extern "C" fn host_release_optional(opt_ptr: i64) {
         let inner = unsafe { *(opt_ptr as *const i64) };
         release_object(inner);
     }
-    // NOTE: not freeing opt_ptr — see the comment in release_object.
-    // Some `some(...)` lowering sites can over-release the inner if
-    // the Optional cell is freed while the inner is still expected
-    // to be reachable.
+    // Free the 24-byte Optional cell. The earlier some(_) over-
+    // release concern was resolved by 192b91d (Some/Break/EnumCtor
+    // retain on aliased heap inner) so freeing the cell on rc=0
+    // is now safe — fresh `some(new T())` transfers the inner's
+    // +1 to the Optional, aliased `some(x)` bumps rc on the inner.
+    host_mir_free(opt_ptr, 24);
 }
 
 extern "C" fn host_retain_optional(opt_ptr: i64) {
@@ -2310,7 +2343,17 @@ extern "C" fn host_map_set(map: i64, key: i64, value: i64) {
     if m.key_print_kind == PK_STR && key != 0 {
         m.str_key_origs.entry(mk.clone()).or_insert(key);
     }
-    m.inner.insert(mk, value);
+    let val_kind = m.val_kind;
+    let prev = m.inner.insert(mk, value);
+    // Releasing the displaced value when the map's value side is
+    // tagged as Object — without this, `m["k"] = v1; m["k"] = v2`
+    // leaks v1 (its rc never decrements, deinit never runs, and
+    // its memory stays unreachable).
+    if let Some(old) = prev {
+        if val_kind == 1 {
+            release_object(old);
+        }
+    }
 }
 
 extern "C" fn host_map_set_object_value(map: i64) {
@@ -2606,6 +2649,13 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
                 (len * stride) as usize,
             );
             store_packed(new_data, len, stride, value);
+            // Free the old data buffer — without this, every grow
+            // leaks the previous backing store. log2(N) grows for
+            // N pushes, so a long loop accumulates ~2*N*stride
+            // unreachable bytes.
+            if data != 0 && cap > 0 {
+                host_mir_free(data, cap * stride);
+            }
             *h = len + 1;
             *h.add(1) = new_cap;
             *h.add(2) = new_data;
@@ -3385,7 +3435,18 @@ extern "C" fn host_map_delete(map: i64, key: i64) -> i64 {
     }
     let mm = unsafe { &mut *(map as *mut ManagedMap) };
     let mk = raw_to_map_key(key, mm.key_print_kind);
-    if mm.inner.remove(&mk).is_some() { 1 } else { 0 }
+    let val_kind = mm.val_kind;
+    if let Some(old) = mm.inner.remove(&mk) {
+        // Match the cascade-on-drop semantics — a removed key drops
+        // its value just as if the whole map were released. Without
+        // this, deleting a heap-valued key leaks the value.
+        if val_kind == 1 {
+            release_object(old);
+        }
+        1
+    } else {
+        0
+    }
 }
 
 extern "C" fn host_map_keys(map: i64) -> i64 {
@@ -4961,7 +5022,10 @@ fn lower_inst(
             // Heterogeneous fixed-arity product. Hidden 16-byte
             // header lives BEFORE the user-facing pointer:
             //   base + 0  = rc
-            //   base + 8  = kind_mask  (bit i = 1 ⇒ element i is Object)
+            //   base + 8  = packed: lower 32 bits = kind_mask
+            //              (bit i = 1 ⇒ element i is Object),
+            //              upper 32 bits = arity (used by
+            //              host_release_tuple to free the cell).
             //   base + 16 = element 0 ← user_ptr
             // TupleExtract reads from offset 0 of user_ptr, unchanged.
             let n = items.len() as i64;
@@ -4974,17 +5038,18 @@ fn lower_inst(
             // rc = 1
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, base, 0);
-            // kind_mask
+            // packed (mask | arity)
             let dst_ty = func.ty_of(*dst).clone();
             let mut mask: i64 = 0;
             if let MirTy::Tuple(elems) = &dst_ty {
                 for (i, ety) in elems.iter().enumerate() {
-                    if matches!(ety, MirTy::Object(_)) && i < 64 {
+                    if matches!(ety, MirTy::Object(_)) && i < 32 {
                         mask |= 1i64 << i;
                     }
                 }
             }
-            let mask_v = fb.ins().iconst(types::I64, mask);
+            let packed = mask | ((n & 0xFFFF_FFFF) << 32);
+            let mask_v = fb.ins().iconst(types::I64, packed);
             fb.ins().store(MemFlags::trusted(), mask_v, base, 8);
             for (i, it) in items.iter().enumerate() {
                 let v_ext = extend_to_i64(fb, vmap[it]);

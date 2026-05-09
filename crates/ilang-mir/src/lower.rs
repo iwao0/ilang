@@ -3449,11 +3449,16 @@ impl<'a> BodyCx<'a> {
                 } else {
                     v
                 };
-                // For an aliased Object value (anything that isn't a
-                // freshly-constructed `new T(...)`), bump refcount —
-                // the binding shares ownership with the source.
-                if matches!(bind_ty, MirTy::Object(_) | MirTy::Str)
-                    && !value_is_fresh_object
+                // For an aliased heap value (anything that isn't a
+                // freshly-constructed `new T(...)` / closure expr /
+                // literal), bump refcount — the binding shares
+                // ownership with the source. Includes Fn so that
+                // `let g = this.f` doesn't release the closure's
+                // sole +1 at scope exit while the field still holds it.
+                if matches!(
+                    bind_ty,
+                    MirTy::Object(_) | MirTy::Str | MirTy::Fn(_)
+                ) && !value_is_fresh_object
                 {
                     self.fb.push_inst(Inst::Retain { value: bound });
                 }
@@ -4401,7 +4406,27 @@ impl<'a> BodyCx<'a> {
         let mut vals = Vec::with_capacity(items.len());
         let mut tys = Vec::with_capacity(items.len());
         for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
             let (v, t) = self.lower_expr(it)?;
+            // Tuple slots own their stored heap value's +1, mirroring
+            // the array-literal element-retain rule. Without this,
+            // `(read, bump)` over locals like `let read = fn(){...}`
+            // would let the surrounding scope-exit release the
+            // closure to rc=0 and free it while the tuple still
+            // points there.
+            let is_heap = matches!(
+                t,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: v });
+            }
             vals.push(v);
             tys.push(t);
         }
