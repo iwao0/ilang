@@ -271,6 +271,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_pop", host_array_pop as *const u8);
     jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", host_enum_box as *const u8);
+    jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
     jit_builder.symbol("__array_map", host_array_map as *const u8);
     jit_builder.symbol("__array_filter", host_array_filter as *const u8);
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
@@ -464,6 +465,15 @@ pub fn compile_with_builtins(
         decl_unary("errnoCheckI64", false)?;
         // os.errno / os.setErrno are declared by the user's @extern(C)
         // block (the `os` stdlib); we just register the host symbols.
+    }
+    {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__c_array_to_array", Linkage::Import, &sig)?;
     }
     let str_ids = StrIds {
         length: declare_unary_i64(&mut module, "__str_length")?,
@@ -2172,6 +2182,30 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 { unsafe {
     f(arg, closure)
 }}
 
+/// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
+/// bytes from a C-side array into a fresh ilang dyn-array `T[]`.
+/// The lower side picks `stride` from T's MirTy so the host doesn't
+/// need to know T.
+extern "C" fn host_c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64) -> i64 {
+    let n_safe = if n < 0 { 0 } else { n };
+    let bytes = n_safe * stride;
+    let header = host_mir_alloc(48);
+    let data = host_mir_alloc(bytes.max(stride));
+    unsafe {
+        if bytes > 0 && src != 0 {
+            std::ptr::copy_nonoverlapping(src as *const u8, data as *mut u8, bytes as usize);
+        }
+        let h = header as *mut i64;
+        *h = n_safe;
+        *h.add(1) = n_safe;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = kind_tag;
+        *h.add(5) = stride;
+    }
+    header
+}
+
 /// Box a raw discriminant value into a unit-variant enum heap cell.
 /// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
 /// the tag at offset 0, no payload. Used by the integer→enum
@@ -3281,6 +3315,7 @@ fn lower_inst(
                             | "cstrArrayToStrings"
                             | "__array_data_ptr"
                             | "__enum_box"
+                            | "__c_array_to_array"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"

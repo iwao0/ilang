@@ -5924,21 +5924,62 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::TypeOf { dst, value: v });
             return Ok((dst, MirTy::I64));
         }
+        // arrayFromCArray<T>(p: *const T, n: size_t) — special-case
+        // before the generic FFI helper table because we need to
+        // peek the actual T off the first arg's MirTy (`*const T`)
+        // and pass an explicit elem stride to the host helper. Type
+        // monomorphisation already substituted T at the source level.
+        if callee.as_str() == "arrayFromCArray" && args.len() == 2 {
+            let (pv, pty) = self.lower_expr(&args[0])?;
+            let (nv, nty) = self.lower_expr(&args[1])?;
+            let elem_ty = match &pty {
+                MirTy::RawPtr { inner, .. } => (**inner).clone(),
+                _ => MirTy::U8,
+            };
+            // Coerce length to i64.
+            let n_i64 = if matches!(nty, MirTy::I64) {
+                nv
+            } else {
+                self.coerce(nv, &nty, &MirTy::I64, args[1].span)?
+            };
+            // Coerce ptr to i64 so the host helper sees a uniform
+            // address.
+            let p_i64 = match &pty {
+                MirTy::RawPtr { .. } => {
+                    let dst = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Cast {
+                        dst,
+                        kind: crate::inst::CastKind::PtrIntCast,
+                        src: pv,
+                    });
+                    dst
+                }
+                _ => pv,
+            };
+            let stride = match &elem_ty {
+                MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => 1,
+                MirTy::I16 | MirTy::U16 => 2,
+                MirTy::I32 | MirTy::U32 | MirTy::F32 => 4,
+                _ => 8,
+            };
+            let kind_tag = if matches!(elem_ty, MirTy::Object(_) | MirTy::Str) { 1 } else { 0 };
+            let stride_v = self.const_int(MirTy::I64, stride);
+            let kind_v = self.const_int(MirTy::I64, kind_tag);
+            let arr_ty = MirTy::Array { elem: Box::new(elem_ty), len: None };
+            let dst = self.fb.new_value(arr_ty.clone());
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("__c_array_to_array")),
+                args: Box::new([p_i64, n_i64, stride_v, kind_v]),
+            });
+            return Ok((dst, arr_ty));
+        }
         // FFI marshalling helpers (auto-routed to host symbols).
         let ffi_helper = match callee.as_str() {
             "cstrFromString" => Some(MirTy::I64),
             "stringFromCstr" => Some(MirTy::Str),
             "cstrArrayToStrings" => Some(MirTy::Array {
                 elem: Box::new(MirTy::Str),
-                len: None,
-            }),
-            // arrayFromCArray<T>(ptr, len) — copy a C array of T's
-            // into a fresh ilang T[]. We don't know T's monomorph
-            // type at this layer; the codegen reads the type-args
-            // dictionary instead. Default to `i64[]` here, the codegen
-            // path widens to the right elem stride at runtime.
-            "arrayFromCArray" => Some(MirTy::Array {
-                elem: Box::new(MirTy::I64),
                 len: None,
             }),
             "freeCstr" => Some(MirTy::Unit),
