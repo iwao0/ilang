@@ -138,6 +138,7 @@ impl FunctionBuilder {
             c_symbol: None,
             is_optional: false,
             libs: Vec::new(),
+            is_variadic: false,
         }
     }
 }

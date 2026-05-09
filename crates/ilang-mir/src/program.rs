@@ -59,6 +59,10 @@ pub struct Function {
     /// `os.libLoaded(any-of-them)` query returns true as long as at
     /// least one opens.
     pub libs: Vec<Symbol>,
+    /// `@extern(C)` C-variadic declaration (`fn snprintf(..., ...): i32`).
+    /// At call sites, the codegen builds a per-call signature with
+    /// the actual extra-arg types and dispatches via `call_indirect`.
+    pub is_variadic: bool,
 }
 
 #[derive(Debug, Clone)]

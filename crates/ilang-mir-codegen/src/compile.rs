@@ -3431,7 +3431,83 @@ fn lower_inst(
                 }
             }
             let local_ref = module.declare_func_in_func(cid, fb.func);
-            let inst_ref = fb.ins().call(local_ref, &arg_vs);
+            // C-variadic extern: build a per-call signature with the
+            // actual arg types and dispatch via call_indirect (the
+            // declared signature only covers the fixed prefix). On
+            // Apple AArch64 the variadic ABI pads the integer / FP
+            // register files so the variadic tail spills to the stack
+            // — fill the spare slots with zero placeholders.
+            let variadic_dispatch = if is_callee_extern {
+                if let FuncRef::Local(fid) = callee {
+                    let target = &prog.functions[fid.0 as usize];
+                    if target.is_variadic && arg_vs.len() > target.params.len() {
+                        Some(target.params.len())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let inst_ref = if let Some(n_fixed) = variadic_dispatch {
+                let mut cl_sig = module.make_signature();
+                let needs_apple_pad =
+                    cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
+                let fixed: Vec<Value> = arg_vs[..n_fixed].to_vec();
+                let varargs: Vec<Value> = arg_vs[n_fixed..].to_vec();
+                for v in &fixed {
+                    cl_sig.params.push(AbiParam::new(fb.func.dfg.value_type(*v)));
+                }
+                let mut padded: Vec<Value> = fixed.clone();
+                if needs_apple_pad && !varargs.is_empty() {
+                    let n_int_fixed = fixed
+                        .iter()
+                        .filter(|v| fb.func.dfg.value_type(**v).is_int())
+                        .count();
+                    let n_fp_fixed = fixed
+                        .iter()
+                        .filter(|v| fb.func.dfg.value_type(**v).is_float())
+                        .count();
+                    let n_int_pad = 8usize.saturating_sub(n_int_fixed);
+                    let n_fp_pad = 8usize.saturating_sub(n_fp_fixed);
+                    for _ in 0..n_int_pad {
+                        cl_sig.params.push(AbiParam::new(types::I64));
+                    }
+                    for _ in 0..n_fp_pad {
+                        cl_sig.params.push(AbiParam::new(types::F64));
+                    }
+                    let zero_i = fb.ins().iconst(types::I64, 0);
+                    let zero_f = fb.ins().f64const(0.0);
+                    for _ in 0..n_int_pad {
+                        padded.push(zero_i);
+                    }
+                    for _ in 0..n_fp_pad {
+                        padded.push(zero_f);
+                    }
+                }
+                for v in &varargs {
+                    cl_sig.params.push(AbiParam::new(fb.func.dfg.value_type(*v)));
+                    padded.push(*v);
+                }
+                let target_func = match callee {
+                    FuncRef::Local(fid) => &prog.functions[fid.0 as usize],
+                    _ => unreachable!(),
+                };
+                if !matches!(target_func.ret, MirTy::Unit) {
+                    if let Some(rt) = elem_clif_type(&target_func.ret) {
+                        cl_sig.returns.push(AbiParam::new(rt));
+                    } else {
+                        cl_sig.returns.push(AbiParam::new(types::I64));
+                    }
+                }
+                let sig_ref = fb.import_signature(cl_sig);
+                let func_addr = fb.ins().func_addr(types::I64, local_ref);
+                fb.ins().call_indirect(sig_ref, func_addr, &padded)
+            } else {
+                fb.ins().call(local_ref, &arg_vs)
+            };
             // sret: the call has no clif return; the pre-alloc'd
             // pointer is what the user sees.
             if let Some((d, ptr)) = sret_dst {
