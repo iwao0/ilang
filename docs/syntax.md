@@ -1909,14 +1909,15 @@ double(21)                          // 42
 | Mode | Command | Notes |
 | --- | --- | --- |
 | Tree-walking | `ilang run path.il` | Every feature except FFI; fast startup |
-| Cranelift JIT | `ilang run --jit path.il` | Native code; tens to hundreds of times faster than the interpreter |
+| Cranelift JIT (legacy) | `ilang run --jit path.il` | Native code; tens to hundreds of times faster than the interpreter |
+| MIR → Cranelift JIT | `ilang run --mir-jit path.il` | New AST → MIR → clif pipeline (in progress; non-FFI subset) |
 | REPL | `ilang` (no args) | Line-by-line evaluation, `let`/`fn`/`class` persist; interpreter only |
 
 The CLI walks upward from the entry file looking for an
 `ilang.toml`. If present, each `[deps]` value adds an extra
 search directory the loader uses for `use module` resolution.
 
-JIT-only:
+JIT-only (legacy `--jit`):
 - Static fields are limited to `i64` / `f64` / `bool` (no
   string / object yet).
 - Inheritance / static members / properties on generic classes
@@ -1926,6 +1927,23 @@ Interpreter-only:
 - `@extern(C) { @lib(...) fn ... }` requires dlsym, which the
   interpreter doesn't drive — host-form (`@lib` omitted) bare
   functions still work in both modes.
+
+`--mir-jit` (new pipeline):
+- Lowering: `ilang_parser::loader` → `ilang_types::TypeChecker` →
+  `ilang_types::mangle::mangle_overloads` → `ilang_mir::lower_program`
+  (AST → MIR) → `ilang_mir_codegen::compile_program` (MIR → clif) →
+  Cranelift JIT.
+- Covers: numerics, control flow, classes (incl. inheritance with
+  virtual dispatch via runtime vtable lookup), arrays (push/pop/
+  map/filter/forEach/indexOf), tuples, optionals, enums (incl.
+  match), maps, closures (capturing locals + nested), RTTI
+  (typeof/is/as?/weak), strings (length/concat/eq/toUpper/toLower/
+  trim/includes/startsWith/endsWith/charAt/slice/replace/split),
+  static / const fields, `console.log` (variadic).
+- Not yet covered (falls back with a clear error): `@extern(C)`
+  FFI dlsym, generic instantiations (use `--jit`), full ARC
+  (heap allocations leak — fine for short-running programs and
+  test harnesses).
 
 ---
 

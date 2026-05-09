@@ -1,0 +1,20 @@
+[package]
+name = "ilang-mir-codegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ilang-ast = { workspace = true }
+ilang-mir = { workspace = true }
+cranelift = "0.131"
+cranelift-jit = "0.131"
+cranelift-module = "0.131"
+cranelift-frontend = "0.131"
+cranelift-codegen = "0.131"
+cranelift-native = "0.131"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+ilang-lexer = { workspace = true }
+ilang-parser = { workspace = true }

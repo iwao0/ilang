@@ -14,6 +14,8 @@ ilang-parser = { workspace = true }
 ilang-eval = { workspace = true }
 ilang-types = { workspace = true }
 ilang-codegen = { workspace = true }
+ilang-mir = { workspace = true }
+ilang-mir-codegen = { workspace = true }
 clap = { workspace = true }
 rustyline = { workspace = true }
 toml = { workspace = true }

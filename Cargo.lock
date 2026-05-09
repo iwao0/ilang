@@ -693,6 +693,8 @@ dependencies = [
  "ilang-codegen",
  "ilang-eval",
  "ilang-lexer",
+ "ilang-mir",
+ "ilang-mir-codegen",
  "ilang-parser",
  "ilang-types",
  "rustyline",
@@ -751,6 +753,33 @@ dependencies = [
  "tokio",
  "toml",
  "tower-lsp",
+]
+
+[[package]]
+name = "ilang-mir"
+version = "0.1.0"
+dependencies = [
+ "ilang-ast",
+ "ilang-lexer",
+ "ilang-parser",
+ "thiserror",
+]
+
+[[package]]
+name = "ilang-mir-codegen"
+version = "0.1.0"
+dependencies = [
+ "cranelift",
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "ilang-ast",
+ "ilang-lexer",
+ "ilang-mir",
+ "ilang-parser",
+ "thiserror",
 ]
 
 [[package]]

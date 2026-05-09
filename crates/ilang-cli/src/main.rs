@@ -27,6 +27,11 @@ enum Cmd {
         /// with an error for strings, arrays, classes, etc.
         #[arg(long)]
         jit: bool,
+        /// Run via the new MIR → Cranelift pipeline (`ilang-mir-codegen`).
+        /// Covers most of the language; the FFI / ARC paths still go
+        /// through the legacy `--jit` codegen.
+        #[arg(long = "mir-jit")]
+        mir_jit: bool,
     },
 }
 
@@ -34,7 +39,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),
-        Some(Cmd::Run { path, jit }) => run_file(&path, jit),
+        Some(Cmd::Run { path, jit, mir_jit }) => run_file(&path, jit, mir_jit),
     }
 }
 
@@ -74,7 +79,7 @@ fn run_repl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
+fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
     // Resolve any `ilang.toml` next to (or above) the entry file
     // and turn its `[deps]` table into extra `use`-resolution paths.
     let extra_paths = match collect_dep_paths(path) {
@@ -98,6 +103,40 @@ fn run_file(path: &PathBuf, jit: bool) -> ExitCode {
         eprintln!("[timing] parse+load: {:?}", _t0.elapsed());
     }
     let display_path = path.display().to_string();
+    if mir_jit {
+        let mut tc = TypeChecker::new();
+        if let Err(e) = tc.check(&prog) {
+            eprintln!("{display_path} {e}");
+            return ExitCode::FAILURE;
+        }
+        let prog = ilang_types::mangle::mangle_overloads(
+            prog,
+            &tc.fn_overload_picks(),
+            &tc.method_overload_picks(),
+            &tc.call_default_fills(),
+        );
+        let mir = match ilang_mir::lower_program(&prog) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{display_path}: mir lower: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let compiled = match ilang_mir_codegen::compile_program(&mir) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{display_path}: mir-codegen: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let r = ilang_mir_codegen::run_main(&compiled);
+        // The MIR pipeline returns __main's i64; print it only if
+        // it's non-zero so stdout-capture-based tests stay clean.
+        if r != 0 {
+            println!("{r}");
+        }
+        return ExitCode::SUCCESS;
+    }
     if jit {
         let _t1 = std::time::Instant::now();
         let mut tc = TypeChecker::new();
