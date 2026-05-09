@@ -3985,7 +3985,27 @@ impl<'a> BodyCx<'a> {
                 Ok((v, ty))
             }
             ExprKind::Some(inner) => {
+                let value_is_fresh = self.is_fresh_object_expr(inner);
                 let (iv, ity) = self.lower_expr(inner)?;
+                // `some(arr)` where `arr` is an aliased Var that the
+                // surrounding scope is about to release — bump the
+                // inner's rc so the Optional doesn't dangle once the
+                // source binding's scope-exit Release fires. With
+                // host_release_array now actually freeing memory at
+                // rc==0, omitting this retain caused use-after-free
+                // in some_aliased_inner.il.
+                let needs_retain = !value_is_fresh
+                    && matches!(
+                        ity,
+                        MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                    );
+                if needs_retain {
+                    self.fb.push_inst(Inst::Retain { value: iv });
+                }
                 let ty = MirTy::Optional(Box::new(ity.clone()));
                 let v = self.fb.new_value(ty.clone());
                 self.fb.push_inst(Inst::NewOptional { dst: v, value: iv });
@@ -5472,12 +5492,29 @@ impl<'a> BodyCx<'a> {
                 }
                 let mut out = Vec::with_capacity(tys.len());
                 for (i, ae) in arg_exprs.iter().enumerate() {
+                    let arg_is_fresh = self.is_fresh_object_expr(ae);
                     let (v, vty) = self.lower_expr(ae)?;
                     let coerced = if vty == tys[i] {
                         v
                     } else {
                         self.coerce(v, &vty, &tys[i], ae.span)?
                     };
+                    // Heap payload from an aliased Var: retain so the
+                    // enum value owns its own +1. Required now that
+                    // host_release_array actually frees memory at
+                    // rc==0 (match_fresh_scrutinee.il regression).
+                    let needs_retain = !arg_is_fresh
+                        && matches!(
+                            tys[i],
+                            MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                        );
+                    if needs_retain {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     out.push(coerced);
                 }
                 out
@@ -5501,12 +5538,25 @@ impl<'a> BodyCx<'a> {
                                 "{enum_name}.{variant} has no field {name}"
                             ))
                         })?;
+                    let arg_is_fresh = self.is_fresh_object_expr(ae);
                     let (v, vty) = self.lower_expr(ae)?;
                     let coerced = if vty == fty {
                         v
                     } else {
                         self.coerce(v, &vty, &fty, ae.span)?
                     };
+                    let needs_retain = !arg_is_fresh
+                        && matches!(
+                            fty,
+                            MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                        );
+                    if needs_retain {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     out[idx] = Some(coerced);
                 }
                 out.into_iter()
@@ -6480,7 +6530,26 @@ impl<'a> BodyCx<'a> {
 
         let args: Box<[ValueId]> = match value {
             Some(e) => {
+                let value_is_fresh = self.is_fresh_object_expr(e);
                 let (v, ty) = self.lower_expr(e)?;
+                // `break arr` where `arr` is an aliased Var owned by
+                // a scope we're about to release: bump rc so the
+                // value survives past the imminent scope-exit
+                // Release. Otherwise the loop's exit-block receives
+                // a pointer the scope is about to free (only matters
+                // for Array/Tuple/etc. which actually free memory).
+                let needs_retain = !value_is_fresh
+                    && matches!(
+                        ty,
+                        MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                    );
+                if needs_retain {
+                    self.fb.push_inst(Inst::Retain { value: v });
+                }
                 // Lazily attach a block param to the loop's exit block
                 // the first time we see a `break v`.
                 if self.fb.block(target).params.is_empty() {

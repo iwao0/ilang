@@ -1367,6 +1367,10 @@ extern "C" fn host_release_optional(opt_ptr: i64) {
         let inner = unsafe { *(opt_ptr as *const i64) };
         release_object(inner);
     }
+    // NOTE: not freeing opt_ptr — see the comment in release_object.
+    // Some `some(...)` lowering sites can over-release the inner if
+    // the Optional cell is freed while the inner is still expected
+    // to be reachable.
 }
 
 extern "C" fn host_retain_optional(opt_ptr: i64) {
@@ -1400,14 +1404,24 @@ extern "C" fn host_release_array(arr_ptr: i64) {
         return;
     }
     let tag = unsafe { *((arr_ptr + 32) as *const i64) };
+    let len = unsafe { *(arr_ptr as *const i64) };
+    let cap = unsafe { *((arr_ptr + 8) as *const i64) };
+    let data_ptr = unsafe { *((arr_ptr + 16) as *const i64) };
+    let stride = unsafe { *((arr_ptr + 40) as *const i64) };
     if tag == 1 {
-        let len = unsafe { *(arr_ptr as *const i64) };
-        let data_ptr = unsafe { *((arr_ptr + 16) as *const i64) };
         for i in 0..len {
             let elem = unsafe { *((data_ptr + i * 8) as *const i64) };
             release_object(elem);
         }
     }
+    // Free the data buffer + the 48-byte header. Both came from
+    // host_mir_alloc in NewArray / NewArrayEmpty / build_array /
+    // host_array_push grow path, so reconstructing the same byte
+    // counts via host_mir_free drops the underlying Vec.
+    if data_ptr != 0 {
+        host_mir_free(data_ptr, cap.max(1) * stride);
+    }
+    host_mir_free(arr_ptr, 48);
 }
 
 extern "C" fn host_retain_array(arr_ptr: i64) {
@@ -1528,6 +1542,15 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
+    // NOTE: We deliberately do NOT free `obj_ptr` here. Several MIR
+    // patterns (most notably methods that `return this` like the
+    // builder chain `c.inc().inc()`) treat callsite returns as
+    // carrying a +1 even though the callee never bumped it. Actually
+    // freeing on rc==0 would expose those latent ARC mismatches as
+    // use-after-free (see method_chain_returns_self.il). The
+    // dominant per-frame leak is the array header / data buffer,
+    // which we DO free in host_release_array since arrays don't
+    // have the same return-borrow ambiguity.
 }
 
 #[derive(Clone)]
