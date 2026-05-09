@@ -69,7 +69,15 @@ fn run(jit: bool, path: &Path) -> Output {
     let mut cmd = Command::new(ilang_bin());
     cmd.arg("run");
     if jit {
+        // Legacy ilang-codegen path — kept as a parity reference
+        // until ilang-eval is retired.
         cmd.arg("--jit");
+    } else {
+        // Default arm: the mir-jit pipeline. (Used to be the
+        // tree-walking interpreter; switched here as part of M1
+        // Step 6, leaving `ilang-eval` reachable only via the
+        // explicit `--interp` flag.)
+        cmd.arg("--mir-jit");
     }
     cmd.arg(path);
     cmd.output().expect("failed to spawn ilang")
@@ -143,11 +151,14 @@ fn run_all_program_fixtures() {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| path.to_string_lossy().to_string());
 
-        let mut interp_stdout: Option<String> = None;
+        // Default arm — mir-jit. (The harness directive
+        // `// interp: skip` historically guarded the interpreter
+        // arm; now it gates the default mir-jit run too.)
+        let mut mir_stdout: Option<String> = None;
         if !spec.skip_interp {
             match check(&spec, &run(false, path)) {
-                Ok(s) => interp_stdout = Some(s),
-                Err(msg) => failures.push(format!("{rel} [interp]: {msg}")),
+                Ok(s) => mir_stdout = Some(s),
+                Err(msg) => failures.push(format!("{rel} [mir-jit]: {msg}")),
             }
         }
         let mut jit_stdout: Option<String> = None;
@@ -157,13 +168,13 @@ fn run_all_program_fixtures() {
                 Err(msg) => failures.push(format!("{rel} [jit]: {msg}")),
             }
         }
-        // Cross-check: when both modes ran successfully, their stdouts
-        // must agree. Catches divergence even if both happen to satisfy
-        // the spec individually.
-        if let (Some(i), Some(j)) = (&interp_stdout, &jit_stdout) {
+        // Cross-check: when both backends ran successfully, their
+        // stdouts must agree. Catches divergence even if both
+        // happen to satisfy the spec individually.
+        if let (Some(i), Some(j)) = (&mir_stdout, &jit_stdout) {
             if i != j {
                 failures.push(format!(
-                    "{rel} [parity]: interpreter and JIT diverge\n  interp:\n{}\n  jit:\n{}",
+                    "{rel} [parity]: mir-jit and legacy JIT diverge\n  mir-jit:\n{}\n  jit:\n{}",
                     i.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
                     j.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
                 ));

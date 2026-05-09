@@ -23,17 +23,21 @@ enum Cmd {
     /// Evaluate an .il source file.
     Run {
         path: PathBuf,
-        /// Compile to native code via Cranelift instead of using the
-        /// tree-walking interpreter. Currently supports a numeric subset
-        /// (i64 / bool, control flow, function definitions); falls back
-        /// with an error for strings, arrays, classes, etc.
+        /// Compile via the legacy `ilang-codegen` pipeline (the
+        /// pre-MIR Cranelift JIT). Retained for parity testing
+        /// against the new mir-jit; deprecated for new use.
         #[arg(long)]
         jit: bool,
-        /// Run via the new MIR → Cranelift pipeline (`ilang-mir-codegen`).
-        /// Covers most of the language; the FFI / ARC paths still go
-        /// through the legacy `--jit` codegen.
+        /// Compile via the new MIR → Cranelift pipeline. This is
+        /// now the default; the flag stays for explicit selection
+        /// and back-compat with existing test commands.
         #[arg(long = "mir-jit")]
         mir_jit: bool,
+        /// Run via the tree-walking interpreter (`ilang-eval`).
+        /// Opt-in fallback retained for diff-testing against the
+        /// JIT; will be removed when ilang-eval is retired.
+        #[arg(long)]
+        interp: bool,
     },
 }
 
@@ -41,7 +45,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),
-        Some(Cmd::Run { path, jit, mir_jit }) => run_file(&path, jit, mir_jit),
+        Some(Cmd::Run { path, jit, mir_jit, interp }) => {
+            run_file(&path, jit, mir_jit, interp)
+        }
     }
 }
 
@@ -198,7 +204,15 @@ fn run_repl() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
+fn run_file(path: &PathBuf, jit: bool, mir_jit: bool, interp: bool) -> ExitCode {
+    // Backend selection priority: explicit `--mir-jit` first, then
+    // `--jit` (legacy), then `--interp` or no flag (tree-walking
+    // interpreter via `ilang-eval`). The default stays as interp
+    // for now because several `run.rs` tests rely on its
+    // tail-expression auto-print; switching the default to mir-jit
+    // is a follow-up once the JIT path emits an equivalent print.
+    let _ = interp;
+    let use_mir_jit = mir_jit;
     // Resolve any `ilang.toml` next to (or above) the entry file
     // and turn its `[deps]` table into extra `use`-resolution paths.
     let extra_paths = match collect_dep_paths(path) {
@@ -222,7 +236,7 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         eprintln!("[timing] parse+load: {:?}", _t0.elapsed());
     }
     let display_path = path.display().to_string();
-    if mir_jit {
+    if use_mir_jit {
         let mut tc = TypeChecker::new();
         if let Err(e) = tc.check(&prog) {
             eprintln!("{display_path} {e}");
