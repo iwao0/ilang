@@ -1893,6 +1893,7 @@ impl Lower {
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
                     | MirTy::Str
+                    | MirTy::Enum(_)
             )
         };
         for (_name, binding) in top_scope.into_iter().rev() {
@@ -3185,6 +3186,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
                     | MirTy::Str
+                    | MirTy::Enum(_)
             )
         };
         let tail_alias_name = blk.tail.as_ref().and_then(|e| match &e.kind {
@@ -3285,6 +3287,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
                     | MirTy::Str
+                    | MirTy::Enum(_)
             )
         };
         for (_name, binding) in scope.into_iter().rev() {
@@ -6785,6 +6788,7 @@ impl<'a> BodyCx<'a> {
                     | MirTy::Tuple(_)
                     | MirTy::Map { .. }
                     | MirTy::Str
+                    | MirTy::Enum(_)
             )
         };
         let mut to_release: Vec<Binding> = Vec::new();

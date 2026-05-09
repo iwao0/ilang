@@ -166,6 +166,9 @@ struct PanicAux {
     release_string: cranelift_module::FuncId,
     retain_string: cranelift_module::FuncId,
     enum_unit_get: cranelift_module::FuncId,
+    enum_alloc: cranelift_module::FuncId,
+    release_enum: cranelift_module::FuncId,
+    retain_enum: cranelift_module::FuncId,
     msg_div: DataId,
     msg_mod: DataId,
     msg_oob: DataId,
@@ -365,6 +368,9 @@ pub fn compile_with_builtins(
     jit_builder.symbol("test.liveAllocBytes", host_test_live_alloc_bytes as *const u8);
     jit_builder.symbol("test.liveAllocCount", host_test_live_alloc_count as *const u8);
     jit_builder.symbol("test.liveStringCount", host_test_live_string_count as *const u8);
+    jit_builder.symbol("__enum_alloc", host_enum_alloc as *const u8);
+    jit_builder.symbol("__release_enum", host_release_enum as *const u8);
+    jit_builder.symbol("__retain_enum", host_retain_enum as *const u8);
     jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
     jit_builder.symbol("__map_set_object_value", host_map_set_object_value as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
@@ -727,6 +733,9 @@ pub fn compile_with_builtins(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__enum_unit_get", Linkage::Import, &sig)?
     };
+    let enum_alloc_id = declare_ternary_i64(&mut module, "__enum_alloc")?;
+    let release_enum_id = declare_unit_i64(&mut module, "__release_enum")?;
+    let retain_enum_id = declare_unit_i64(&mut module, "__retain_enum")?;
     let map_set_obj_val_id = declare_unit_i64(&mut module, "__map_set_object_value")?;
     let map_set_print_kinds_id = {
         let mut sig = module.make_signature();
@@ -947,6 +956,9 @@ pub fn compile_with_builtins(
                 release_string: release_string_id,
                 retain_string: retain_string_id,
                 enum_unit_get: enum_unit_get_id,
+                enum_alloc: enum_alloc_id,
+                release_enum: release_enum_id,
+                retain_enum: retain_enum_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,
@@ -1733,6 +1745,7 @@ const KIND_TUPLE: i64 = 4;
 const KIND_MAP: i64 = 5;
 const KIND_CLOSURE: i64 = 6;
 const KIND_STR: i64 = 7;
+const KIND_ENUM: i64 = 8;
 
 /// Compute the kind tag for a static MirTy. Used at compile time
 /// when a heap container (Array / Optional) emits its header.
@@ -1745,6 +1758,7 @@ fn kind_tag_of(ty: &MirTy) -> i64 {
         MirTy::Map { .. } => KIND_MAP,
         MirTy::Fn(_) => KIND_CLOSURE,
         MirTy::Str => KIND_STR,
+        MirTy::Enum(_) => KIND_ENUM,
         _ => KIND_NONE,
     }
 }
@@ -1764,6 +1778,7 @@ fn release_by_kind(ptr: i64, kind: i64) {
         KIND_MAP => host_release_map(ptr),
         KIND_CLOSURE => host_release_closure(ptr),
         KIND_STR => host_release_string(ptr),
+        KIND_ENUM => host_release_enum(ptr),
         _ => {} // KIND_NONE / unknown — primitive, no cascade.
     }
 }
@@ -1784,6 +1799,7 @@ fn retain_by_kind(ptr: i64, kind: i64) {
         KIND_MAP => host_retain_map(ptr),
         KIND_CLOSURE => host_retain_closure(ptr),
         KIND_STR => host_retain_string(ptr),
+        KIND_ENUM => host_retain_enum(ptr),
         _ => {}
     }
 }
@@ -2918,6 +2934,77 @@ extern "C" fn host_enum_box(disc: i64) -> i64 {
     let p = host_mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
     p
+}
+
+/// rc-tracked registry for enum payload-variant cells. Unit-variant
+/// cells go through `__enum_unit_get` instead (interned) and are
+/// NOT tracked here. Cells in this registry are freed when their
+/// rc reaches 0 — the cascade-on-cell-drop for any heap payload
+/// content is not yet implemented (conservative: cell is freed,
+/// heap payload leaks until match-time extraction retain + cell
+/// release cascade are wired together).
+struct EnumEntry {
+    rc: i64,
+    total_bytes: i64,
+}
+static ENUM_REGISTRY: OnceLock<Mutex<HashMap<i64, EnumEntry>>> = OnceLock::new();
+
+fn enum_registry_lock() -> &'static Mutex<HashMap<i64, EnumEntry>> {
+    ENUM_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `__enum_alloc(global_eid, n_payload, disc)` — allocate an enum
+/// payload-variant cell, register with rc=1, write the discriminant
+/// at offset 0. Returns the ptr the lower side then writes payload
+/// fields into (offsets 8 + i*8). NewEnum codegen invokes this
+/// instead of the bare alloc + tag-write for `n_payload > 0`.
+extern "C" fn host_enum_alloc(_global_eid: i64, n_payload: i64, disc: i64) -> i64 {
+    let total = (1 + n_payload) * 8;
+    let ptr = host_mir_alloc(total);
+    unsafe { *(ptr as *mut i64) = disc; }
+    let mut reg = enum_registry_lock()
+        .lock()
+        .expect("enum registry poisoned");
+    reg.insert(ptr, EnumEntry { rc: 1, total_bytes: total });
+    ptr
+}
+
+extern "C" fn host_retain_enum(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = enum_registry_lock()
+        .lock()
+        .expect("enum registry poisoned");
+    if let Some(e) = reg.get_mut(&p) {
+        e.rc += 1;
+    }
+    // Unit-variant cells (interned via __enum_unit_get) miss the
+    // registry — the retain becomes a no-op, which is what we want.
+}
+
+extern "C" fn host_release_enum(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = enum_registry_lock()
+        .lock()
+        .expect("enum registry poisoned");
+    let to_free = if let Some(e) = reg.get_mut(&p) {
+        e.rc -= 1;
+        if e.rc <= 0 {
+            Some(e.total_bytes)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(total) = to_free {
+        reg.remove(&p);
+        drop(reg);
+        host_mir_free(p, total);
+    }
 }
 
 /// Cached unit-variant enum cell. Same `(global_enum_id, disc)`
@@ -4595,6 +4682,11 @@ fn lower_inst(
                     let r = module.declare_func_in_func(panic_aux.release_string, fb.func);
                     fb.ins().call(r, &[av]);
                 }
+                MirTy::Enum(_) => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.release_enum, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
                 _ => {}
             }
         }
@@ -4646,6 +4738,11 @@ fn lower_inst(
                 MirTy::Str => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_string, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
+                MirTy::Enum(_) => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.retain_enum, fb.func);
                     fb.ins().call(r, &[av]);
                 }
                 _ => {}
@@ -5112,13 +5209,17 @@ fn lower_inst(
                 vmap.insert(*dst, ptr);
                 return Ok(());
             }
-            // [tag: i64 | payload...]
-            let bytes = fb.ins().iconst(types::I64, (1 + n_payload) * 8);
-            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-            let call = fb.ins().call(alloc_ref, &[bytes]);
+            // Payload variant — register with the rc-tracked enum
+            // registry via __enum_alloc so the cell can be freed on
+            // rc=0. Layout still `[tag | payload...]`; the registry
+            // sits beside the cell holding (rc, total_bytes).
+            let global = enum_global[enum_id.0 as usize] as i64;
+            let global_v = fb.ins().iconst(types::I64, global);
+            let n_v = fb.ins().iconst(types::I64, n_payload);
+            let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+            let alloc_fn = module.declare_func_in_func(panic_aux.enum_alloc, fb.func);
+            let call = fb.ins().call(alloc_fn, &[global_v, n_v, disc_v]);
             let ptr = fb.inst_results(call)[0];
-            let disc = fb.ins().iconst(types::I64, v.discriminant);
-            fb.ins().store(MemFlags::trusted(), disc, ptr, 0);
             for (i, p) in payload.iter().enumerate() {
                 let v_ext = extend_to_i64(fb, vmap[p]);
                 fb.ins().store(
