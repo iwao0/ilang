@@ -225,15 +225,28 @@ pub fn compile_with_builtins(
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| CompileError::Other(format!("isa: {e}")))?;
 
-    // Pre-build a per-(class_id, slot) → method-fn-id map from the
-    // MIR. The actual function addresses are filled in after
+    // Allocate globally-unique class / enum ids for this compile so
+    // its runtime tables don't collide with any other module's. The
+    // GLOBAL id is what gets stored into heap-object headers, and
+    // every host table lookup keys off it.
+    let class_global: Vec<u32> = (0..prog.classes.len())
+        .map(|_| alloc_global_class_id())
+        .collect();
+    let enum_global: Vec<u32> = (0..prog.enums.len())
+        .map(|_| alloc_global_enum_id())
+        .collect();
+    let global_cid = |local: u32| class_global[local as usize];
+    let global_eid = |local: u32| enum_global[local as usize];
+
+    // Pre-build a per-(global_class_id, slot) → method-fn-id map from
+    // the MIR. The actual function addresses are filled in after
     // `finalize_definitions()` and exposed to JIT code via the
     // `__virt_dispatch` host helper.
     let mut vtable_entries: HashMap<(u32, u32), FuncId> = HashMap::new();
     for class in &prog.classes {
         for m in &class.methods {
             if let Some(slot) = m.slot {
-                vtable_entries.insert((class.id.0, slot.0), m.func);
+                vtable_entries.insert((global_cid(class.id.0), slot.0), m.func);
             }
         }
     }
@@ -936,6 +949,8 @@ pub fn compile_with_builtins(
                 print_lits,
                 &mut module,
                 prog,
+                &class_global,
+                &enum_global,
             )?;
             fb.finalize();
         }
@@ -957,9 +972,10 @@ pub fn compile_with_builtins(
         .map_err(CompileError::Module)?;
 
     // Populate the runtime vtable now that fn addresses are stable.
+    // Don't clear — entries are keyed by GLOBAL (class_id, slot) and
+    // accumulate so parallel modules coexist without trampling.
     {
         let mut vt = vtable_lock().lock().expect("vtable poisoned");
-        vt.clear();
         for ((cid, slot), fid) in &vtable_entries {
             if let Some(cl_id) = fn_ids.get(fid) {
                 let addr = module.get_finalized_function(*cl_id) as i64;
@@ -973,7 +989,8 @@ pub fn compile_with_builtins(
         let mut t = object_field_table_lock()
             .lock()
             .expect("field table poisoned");
-        t.clear();
+        // Don't clear — entries are keyed by GLOBAL class id and
+        // accumulate across compiles so parallel modules coexist.
         for class in &prog.classes {
             let mut entries: Vec<(i64, PrintKind)> = Vec::new();
             for (i, f) in class.fields.iter().enumerate() {
@@ -990,14 +1007,14 @@ pub fn compile_with_builtins(
                     entries.push((off, kind));
                 }
             }
-            t.insert(class.id.0, entries);
+            t.insert(global_cid(class.id.0), entries);
         }
     }
     // Populate the class-print-info registry — host_print_object
     // walks an object's fields by class id.
     {
         let mut info_map = class_info_lock().lock().expect("class info poisoned");
-        info_map.clear();
+        // Don't clear — keyed by GLOBAL class id, accumulates.
         for class in &prog.classes {
             let fields: Vec<(String, PrintKind)> = class
                 .fields
@@ -1005,7 +1022,7 @@ pub fn compile_with_builtins(
                 .map(|f| (f.name.as_str().to_string(), print_kind_of(&f.ty)))
                 .collect();
             info_map.insert(
-                class.id.0,
+                global_cid(class.id.0),
                 ClassPrintInfo {
                     name: class.name.as_str().to_string(),
                     fields,
@@ -1017,7 +1034,7 @@ pub fn compile_with_builtins(
     // enum tag → variant name + payload kinds.
     {
         let mut t = enum_info_lock().lock().expect("enum info poisoned");
-        t.clear();
+        // Don't clear — keyed by GLOBAL enum id, accumulates.
         for e in &prog.enums {
             let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
             for v in &e.variants {
@@ -1033,7 +1050,7 @@ pub fn compile_with_builtins(
                 variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
             }
             t.insert(
-                e.id.0,
+                global_eid(e.id.0),
                 EnumPrintInfo {
                     name: e.name.as_str().to_string(),
                     variants,
@@ -1111,12 +1128,12 @@ pub fn compile_with_builtins(
     // method table — read it back from the lowered class.
     {
         let mut dt = drop_table_lock().lock().expect("drop table poisoned");
-        dt.clear();
+        // Don't clear — keyed by GLOBAL class id, accumulates.
         for class in &prog.classes {
             if class.drop_fn.0 != u32::MAX {
                 if let Some(cl_id) = fn_ids.get(&class.drop_fn) {
                     let addr = module.get_finalized_function(*cl_id) as i64;
-                    dt.insert(class.id.0, addr);
+                    dt.insert(global_cid(class.id.0), addr);
                 }
             }
         }
@@ -1145,16 +1162,19 @@ fn emit_is_subclass(
     class_id_value: Value,
     target: ClassId,
     prog: &Program,
+    class_global: &[u32],
 ) -> Value {
     // Collect target + every descendant via a single hierarchy scan.
-    let mut accept: Vec<i64> = vec![target.0 as i64];
-    // Multi-pass: any class whose parent is already in `accept` joins.
+    // Local class ids first; we translate the final accept set to
+    // GLOBAL ids before emitting the icmp chain (the runtime cid
+    // loaded from obj+0 is the GLOBAL id).
+    let mut accept: Vec<u32> = vec![target.0];
     loop {
         let before = accept.len();
         for c in &prog.classes {
             if let Some(p) = c.parent {
-                if !accept.contains(&(c.id.0 as i64)) && accept.contains(&(p.0 as i64)) {
-                    accept.push(c.id.0 as i64);
+                if !accept.contains(&c.id.0) && accept.contains(&p.0) {
+                    accept.push(c.id.0);
                 }
             }
         }
@@ -1163,8 +1183,9 @@ fn emit_is_subclass(
         }
     }
     let mut result: Option<Value> = None;
-    for cid in accept {
-        let lit = fb.ins().iconst(types::I64, cid);
+    for local in accept {
+        let global = class_global[local as usize] as i64;
+        let lit = fb.ins().iconst(types::I64, global);
         let eq = fb.ins().icmp(IntCC::Equal, class_id_value, lit);
         result = Some(match result {
             Some(prev) => fb.ins().bor(prev, eq),
@@ -1208,13 +1229,33 @@ fn reduce_from_i64(fb: &mut ClifFnBuilder, target_ty: &MirTy, raw: Value) -> Val
     }
 }
 
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-/// Runtime vtable: (class_id, slot) → fn pointer (i64). Populated
-/// after `module.finalize_definitions()` for the latest compile.
-/// Subsequent `compile_program` calls overwrite. Single-threaded
-/// usage for now.
+/// Globally-unique class / enum id allocators. Each `compile_program`
+/// call carves out a fresh range so the per-program local id space
+/// (`class.id.0`, `enum.id.0`) never collides with a parallel
+/// compilation's. NewObject / EnumCtor codegen stores the GLOBAL id
+/// into the heap header, and every host-side table (vtable,
+/// object_field_table, drop_table, class_info, enum_info) is keyed
+/// by that same global id. Without this, parallel cargo-test
+/// processes corrupted each other's tables and SIGSEGV'd inside
+/// release_object on the first deinit.
+static NEXT_GLOBAL_CLASS_ID: AtomicU32 = AtomicU32::new(1);
+static NEXT_GLOBAL_ENUM_ID: AtomicU32 = AtomicU32::new(1);
+
+fn alloc_global_class_id() -> u32 {
+    NEXT_GLOBAL_CLASS_ID.fetch_add(1, AtomicOrdering::Relaxed)
+}
+
+fn alloc_global_enum_id() -> u32 {
+    NEXT_GLOBAL_ENUM_ID.fetch_add(1, AtomicOrdering::Relaxed)
+}
+
+/// Runtime vtable: (global_class_id, slot) → fn pointer (i64).
+/// Persistent across compiles — entries accumulate so multiple
+/// independently-compiled modules can coexist without trampling.
 static VTABLE: OnceLock<Mutex<HashMap<(u32, u32), i64>>> = OnceLock::new();
 
 fn vtable_lock() -> &'static Mutex<HashMap<(u32, u32), i64>> {
@@ -3350,6 +3391,8 @@ fn lower_function(
     print_lits: PrintLits,
     module: &mut JITModule,
     prog: &Program,
+    class_global: &[u32],
+    enum_global: &[u32],
 ) -> Result<(), CompileError> {
     // Allocate clif blocks 1:1 with MIR blocks. Skip Unit-typed
     // block params at the clif level since clif has no unit type;
@@ -3436,6 +3479,8 @@ fn lower_function(
                 &locals,
                 prog,
                 env_value,
+                class_global,
+                enum_global,
             )?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks)?;
@@ -3469,6 +3514,8 @@ fn lower_inst(
     locals: &[Variable],
     prog: &Program,
     env_value: Value,
+    class_global: &[u32],
+    enum_global: &[u32],
 ) -> Result<(), CompileError> {
     match inst {
         Inst::Const { dst, value } => {
@@ -3579,7 +3626,7 @@ fn lower_inst(
                             fb.ins().call(r, &[]);
                         }
                         let av = vmap[a];
-                        emit_print_value(fb, module, print_ids, print_lits, &aty, av);
+                        emit_print_value(fb, module, print_ids, print_lits, &aty, av, enum_global);
                         printed += 1;
                     }
                     if printed > 0 {
@@ -4231,7 +4278,7 @@ fn lower_inst(
         Inst::IsInstance { dst, value, class } => {
             let p = vmap[value];
             let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
-            let v = emit_is_subclass(fb, cid, *class, prog);
+            let v = emit_is_subclass(fb, cid, *class, prog, class_global);
             vmap.insert(*dst, v);
         }
         Inst::DowncastOrNone { dst, value, class } => {
@@ -4241,7 +4288,7 @@ fn lower_inst(
             // none-branch, and merge through a block-arg.
             let p = vmap[value];
             let cid = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
-            let cond = emit_is_subclass(fb, cid, *class, prog);
+            let cond = emit_is_subclass(fb, cid, *class, prog, class_global);
 
             let some_blk = fb.create_block();
             let none_blk = fb.create_block();
@@ -4372,7 +4419,9 @@ fn lower_inst(
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let alloc_call = fb.ins().call(alloc_ref, &[size]);
             let ptr = fb.inst_results(alloc_call)[0];
-            let cid_v = fb.ins().iconst(types::I64, class.0 as i64);
+            // Store the GLOBAL class id at obj+0 — release_object,
+            // host_print_object and __virt_dispatch all key off this.
+            let cid_v = fb.ins().iconst(types::I64, class_global[class.0 as usize] as i64);
             fb.ins().store(MemFlags::trusted(), cid_v, ptr, 0);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 8);
@@ -5252,6 +5301,7 @@ fn emit_print_value(
     print_lits: PrintLits,
     ty: &MirTy,
     av: Value,
+    enum_global: &[u32],
 ) {
     match ty {
         MirTy::Bool => {
@@ -5307,7 +5357,7 @@ fn emit_print_value(
             // Load the boxed inner value (the some payload is a 1-cell heap).
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, 0);
             let inner_v = reduce_from_i64(fb, inner, raw);
-            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v);
+            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v, enum_global);
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
             fb.ins().jump(cont_blk, [].iter());
 
@@ -5323,7 +5373,7 @@ fn emit_print_value(
                 let off = (i as i32) * 8;
                 let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, off);
                 let elem_v = reduce_from_i64(fb, ity, raw);
-                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v);
+                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v, enum_global);
             }
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
         }
@@ -5368,7 +5418,7 @@ fn emit_print_value(
             let addr = fb.ins().iadd(data_ptr, off);
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
             let elem_v = reduce_from_i64(fb, elem, raw);
-            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v);
+            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global);
             // i = i + 1
             let one = fb.ins().iconst(types::I64, 1);
             let i_next = fb.ins().iadd(i_arg, one);
@@ -5396,7 +5446,8 @@ fn emit_print_value(
             fb.ins().call(r, &[av]);
         }
         MirTy::Enum(eid) => {
-            let id_v = fb.ins().iconst(types::I64, eid.0 as i64);
+            let global = enum_global[eid.0 as usize] as i64;
+            let id_v = fb.ins().iconst(types::I64, global);
             let r = module.declare_func_in_func(print_ids.enum_, fb.func);
             fb.ins().call(r, &[id_v, av]);
         }
