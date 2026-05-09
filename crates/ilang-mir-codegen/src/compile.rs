@@ -270,6 +270,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_push", host_array_push as *const u8);
     jit_builder.symbol("__array_pop", host_array_pop as *const u8);
     jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
+    jit_builder.symbol("__enum_box", host_enum_box as *const u8);
     jit_builder.symbol("__array_map", host_array_map as *const u8);
     jit_builder.symbol("__array_filter", host_array_filter as *const u8);
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
@@ -454,6 +455,7 @@ pub fn compile_with_builtins(
             Ok(())
         };
         decl_unary("__array_data_ptr", false)?;
+        decl_unary("__enum_box", false)?;
         decl_unary("cstrFromString", false)?;
         decl_unary("stringFromCstr", false)?;
         decl_unary("cstrArrayToStrings", false)?;
@@ -2170,6 +2172,16 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 { unsafe {
     f(arg, closure)
 }}
 
+/// Box a raw discriminant value into a unit-variant enum heap cell.
+/// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
+/// the tag at offset 0, no payload. Used by the integer→enum
+/// coerce path.
+extern "C" fn host_enum_box(disc: i64) -> i64 {
+    let p = host_mir_alloc(8);
+    unsafe { *(p as *mut i64) = disc; }
+    p
+}
+
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
 /// of `stride` bytes each) into a dynamic-array header that the
 /// host_array_* helpers expect. Used at builtin call sites where the
@@ -3114,7 +3126,8 @@ fn lower_inst(
         Inst::Cast { dst, kind, src } => {
             let sv = vmap[src];
             let dst_ty = func.ty_of(*dst);
-            let v = lower_cast(fb, *kind, sv, dst_ty)?;
+            let src_ty = func.ty_of(*src);
+            let v = lower_cast(fb, *kind, sv, dst_ty, src_ty)?;
             vmap.insert(*dst, v);
         }
         Inst::Call { dst, callee, args } => {
@@ -3267,6 +3280,7 @@ fn lower_inst(
                             | "stringFromCstr"
                             | "cstrArrayToStrings"
                             | "__array_data_ptr"
+                            | "__enum_box"
                             | "freeCstr"
                             | "errnoCheck"
                             | "errnoCheckI64"
@@ -4902,6 +4916,7 @@ fn lower_cast(
     kind: ilang_mir::CastKind,
     src: Value,
     dst_ty: &MirTy,
+    src_mir_ty: &MirTy,
 ) -> Result<Value, CompileError> {
     use ilang_mir::CastKind;
     let dst_ct = mir_to_clif(dst_ty).ok_or(CompileError::Unsupported("cast to non-clif type"))?;
@@ -4911,7 +4926,12 @@ fn lower_cast(
             if src_ty.bits() == dst_ct.bits() {
                 src
             } else if src_ty.bits() < dst_ct.bits() {
-                if matches!(kind, CastKind::IntSignCross) {
+                // Widening: pick uextend for unsigned source (incl.
+                // bool / u8 / u16 / u32 / size_t) or for explicit
+                // sign-cross casts; sextend for signed widening.
+                let use_unsigned = matches!(kind, CastKind::IntSignCross)
+                    || src_mir_ty.is_unsigned_int();
+                if use_unsigned {
                     fb.ins().uextend(dst_ct, src)
                 } else {
                     fb.ins().sextend(dst_ct, src)

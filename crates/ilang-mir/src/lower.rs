@@ -6156,6 +6156,50 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntSignCross, src: v });
             return Ok(dst);
         }
+        // Integer → Enum: build a unit-variant heap enum [tag] from
+        // the integer (matches the heap layout `Inst::NewEnum` uses).
+        // Used by `value as EnumName` casts whose discriminant only
+        // becomes known at runtime.
+        if from.is_int() && matches!(to, MirTy::Enum(_)) {
+            // Widen to i64 first so the box always sees the canonical
+            // integer width.
+            let i64_v = if matches!(from, MirTy::I64 | MirTy::U64) {
+                v
+            } else {
+                let widened = self.fb.new_value(MirTy::I64);
+                let kind = if from.is_signed_int() {
+                    CastKind::IntResize
+                } else {
+                    CastKind::IntResize
+                };
+                self.fb.push_inst(Inst::Cast { dst: widened, kind, src: v });
+                widened
+            };
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("__enum_box")),
+                args: Box::new([i64_v]),
+            });
+            return Ok(dst);
+        }
+        // Enum → Integer: read the tag at offset 0, then resize to
+        // the requested int width.
+        if matches!(from, MirTy::Enum(_)) && to.is_int() {
+            let tag = self.fb.new_value(MirTy::I64);
+            self.fb.push_inst(Inst::EnumTag { dst: tag, value: v });
+            if matches!(to, MirTy::I64) {
+                return Ok(tag);
+            }
+            let dst = self.fb.new_value(to.clone());
+            let kind = if to.is_signed_int() {
+                CastKind::IntResize
+            } else {
+                CastKind::IntResize
+            };
+            self.fb.push_inst(Inst::Cast { dst, kind, src: tag });
+            return Ok(dst);
+        }
         // `T → T?` Optional auto-wrap — must precede the i64-heap
         // bit-erasure paths below; otherwise `let x: i64? = 7`
         // would treat the literal `7` as a raw pointer.
