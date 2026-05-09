@@ -1511,6 +1511,7 @@ impl Lower {
             cellify_set: &cellify_inner,
             repl_slots: &self.repl_slots,
             is_main_body: false,
+            binding_self_name: None,
         };
         let tail = bcx.lower_block(&pc.body)?;
         bcx.finalise_return(tail)?;
@@ -1593,6 +1594,7 @@ impl Lower {
             overloads: &self.overloads,
             repl_slots: &self.repl_slots,
             is_main_body: false,
+            binding_self_name: None,
         };
         let tail = bcx.lower_block(&m.body)?;
         bcx.finalise_return(tail)?;
@@ -1680,6 +1682,7 @@ impl Lower {
             overloads: &self.overloads,
             repl_slots: &self.repl_slots,
             is_main_body: false,
+            binding_self_name: None,
         };
         let tail = bcx.lower_block(&m.body)?;
         // For `init`, the synthetic return is the receiver itself
@@ -1775,6 +1778,7 @@ impl Lower {
             overloads: &self.overloads,
             repl_slots: &self.repl_slots,
             is_main_body: false,
+            binding_self_name: None,
         };
         let tail = bcx.lower_block(&fd.body)?;
         bcx.finalise_return(tail)?;
@@ -1823,6 +1827,7 @@ impl Lower {
             overloads: &self.overloads,
             repl_slots: &self.repl_slots,
             is_main_body: true,
+            binding_self_name: None,
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
@@ -2584,6 +2589,12 @@ impl Env {
 }
 
 struct LoopFrame {
+    /// `env.scopes.len()` recorded right when the loop body's
+    /// outer scope was pushed. A `break` from anywhere inside the
+    /// body needs to release every heap-typed binding introduced
+    /// in scopes pushed since this point — `lower_block`'s
+    /// scope-exit release pass is bypassed by an early jump.
+    env_depth_at_entry: usize,
     /// Block to jump to on `continue`.
     continue_target: BlockId,
     /// Block to jump to on `break`. The block has zero block params
@@ -2637,6 +2648,15 @@ struct BodyCx<'a> {
     /// `let` → slot-store to that scope so a same-named local in a
     /// fn body doesn't accidentally clobber the REPL slot.
     is_main_body: bool,
+    /// Name of the top-level slot binding currently being assigned
+    /// (Some(X) while we're inside the value of `let X = ...`).
+    /// `lower_fn_expr` checks this to avoid snapshotting the X slot
+    /// when X appears as a free var inside the FnExpr body — that's
+    /// the canonical self-recursive closure pattern, where the slot
+    /// hasn't been written yet at construction time. The Var
+    /// lookup inside the body resolves through the slot at call
+    /// time instead.
+    binding_self_name: Option<Symbol>,
 }
 
 impl<'a> BodyCx<'a> {
@@ -3213,6 +3233,15 @@ impl<'a> BodyCx<'a> {
                 // without a needs-coerce step that doesn't exist.
                 let bind_hint = ty.as_ref().and_then(|t| self.resolve_ty(t).ok());
                 let value_is_fresh_object = self.is_fresh_object_expr(value);
+                // While lowering this let's value, mark `name` as the
+                // currently-binding self name so a recursive FnExpr
+                // body referencing `name` resolves through the slot
+                // at call time instead of snapshotting the (still
+                // unwritten) slot at construction.
+                let saved_self = self.binding_self_name;
+                if self.is_main_body && self.repl_slots.contains_key(name) {
+                    self.binding_self_name = Some(*name);
+                }
                 let (v, mty) = if let (
                     ExprKind::Array(items),
                     Some(MirTy::Array { elem, len }),
@@ -3314,6 +3343,7 @@ impl<'a> BodyCx<'a> {
                         });
                     }
                 }
+                self.binding_self_name = saved_self;
                 Ok(())
             }
             StmtKind::LetTuple { elems, value } => {
@@ -4429,6 +4459,7 @@ impl<'a> BodyCx<'a> {
                         is_cell: false,
                     });
                 }
+                continue;
             }
             // 4) Source is a top-level slot-backed binding. Snapshot
             //    its current value at construction time so the
@@ -4436,6 +4467,19 @@ impl<'a> BodyCx<'a> {
             //    the slot happens to hold at call time. (Mirrors
             //    standard "capture by value" semantics for fn-expr
             //    free vars.)
+            //
+            //    Self-recursive closures (`let f = fn(...) { f(...)
+            //    }`) are the exception: at construction the slot
+            //    hasn't been written yet, so a snapshot would
+            //    capture 0/null and a later call would crash.
+            //    Detect via `binding_self_name` (set by lower_stmt
+            //    while lowering the let value); skip the capture so
+            //    the body's `Var` lookup hits the slot fallback at
+            //    call time, which is the standard "late binding"
+            //    semantics expected for self-reference.
+            if Some(name) == self.binding_self_name {
+                continue;
+            }
             if let Some((idx, slot_ty)) = self.repl_slots.get(&name).cloned() {
                 let idx_v = self.const_int(MirTy::I64, idx as i64);
                 let raw = self.fb.new_value(MirTy::I64);
@@ -5146,6 +5190,7 @@ impl<'a> BodyCx<'a> {
                 self.env.enter_scope();
                 self.env.bind(var, i, sty.clone());
                 self.loops.push(LoopFrame {
+                    env_depth_at_entry: self.env.scopes.len(),
                     continue_target: step,
                     break_target: exit,
                 });
@@ -5219,6 +5264,7 @@ impl<'a> BodyCx<'a> {
                 self.env.enter_scope();
                 self.env.bind(var, elem_v, elem_ty.clone());
                 self.loops.push(LoopFrame {
+                    env_depth_at_entry: self.env.scopes.len(),
                     continue_target: step,
                     break_target: exit,
                 });
@@ -6279,6 +6325,7 @@ impl<'a> BodyCx<'a> {
 
         self.fb.switch_to(body_blk);
         self.loops.push(LoopFrame {
+            env_depth_at_entry: self.env.scopes.len(),
             continue_target: header,
             break_target: exit,
         });
@@ -6297,6 +6344,7 @@ impl<'a> BodyCx<'a> {
         self.fb.set_terminator(Terminator::Br { dst: header, args: Box::new([]) });
         self.fb.switch_to(header);
         self.loops.push(LoopFrame {
+            env_depth_at_entry: self.env.scopes.len(),
             continue_target: header,
             break_target: exit,
         });
@@ -6324,6 +6372,7 @@ impl<'a> BodyCx<'a> {
             .last()
             .ok_or_else(|| LowerError::Other("break outside loop".into()))?;
         let target = frame.break_target;
+        let frame_depth = frame.env_depth_at_entry;
 
         let args: Box<[ValueId]> = match value {
             Some(e) => {
@@ -6344,6 +6393,57 @@ impl<'a> BodyCx<'a> {
                 }
             }
         };
+        // Release every heap-typed binding introduced in scopes
+        // pushed since the loop frame's entry — `lower_block`'s
+        // scope-exit release pass is bypassed by the early jump.
+        // Snapshot first to avoid the &mut self borrow conflict
+        // on `self.fb` inside the release calls.
+        let needs_release = |ty: &MirTy| {
+            matches!(
+                ty,
+                MirTy::Object(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+            )
+        };
+        let mut to_release: Vec<Binding> = Vec::new();
+        for scope in self.env.scopes.iter().skip(frame_depth.saturating_sub(0)) {
+            for (_n, b) in scope.iter().rev() {
+                let keep = match b {
+                    Binding::Local(_, ty) => needs_release(ty),
+                    Binding::Ssa(_, ty) => needs_release(ty),
+                    Binding::Cell(_, ty) => needs_release(ty),
+                };
+                if keep {
+                    to_release.push(b.clone());
+                }
+            }
+        }
+        for b in to_release {
+            match b {
+                Binding::Local(lid, ty) => {
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
+                Binding::Ssa(v, _) => {
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
+                Binding::Cell(cell_v, ty) => {
+                    let zero = self.const_int(MirTy::I64, 0);
+                    let v = self.fb.new_value(ty.clone());
+                    self.fb.push_inst(Inst::ArrayLoad {
+                        dst: v,
+                        arr: cell_v,
+                        idx: zero,
+                    });
+                    self.fb.push_inst(Inst::Release { value: v });
+                }
+            }
+        }
         self.fb.set_terminator(Terminator::Br { dst: target, args });
         // After break, code is unreachable in the current block. Open
         // a fresh dead block for any stray post-break statements.
