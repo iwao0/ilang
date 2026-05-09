@@ -60,6 +60,7 @@ struct StrIds {
     array_slice: cranelift_module::FuncId,
     str_split: cranelift_module::FuncId,
     virt_dispatch: cranelift_module::FuncId,
+    fixed_to_dyn: cranelift_module::FuncId,
 }
 
 fn declare_unary_i64(
@@ -268,6 +269,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_includes", host_array_includes as *const u8);
     jit_builder.symbol("__array_push", host_array_push as *const u8);
     jit_builder.symbol("__array_pop", host_array_pop as *const u8);
+    jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
     jit_builder.symbol("__array_map", host_array_map as *const u8);
     jit_builder.symbol("__array_filter", host_array_filter as *const u8);
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
@@ -517,6 +519,15 @@ pub fn compile_with_builtins(
         },
         str_split: declare_binary_i64(&mut module, "__str_split")?,
         virt_dispatch: declare_binary_i64(&mut module, "__virt_dispatch")?,
+        fixed_to_dyn: {
+            let mut sig = module.make_signature();
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            sig.params.push(AbiParam::new(types::I64));
+            sig.returns.push(AbiParam::new(types::I64));
+            module.declare_function("__fixed_to_dyn", Linkage::Import, &sig)?
+        },
     };
     let panic_fn_id = declare_unit_i64(&mut module, "__ilang_panic")?;
     let drop_dispatch_id = declare_unary_i64(&mut module, "__drop_dispatch")?;
@@ -2159,6 +2170,27 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 { unsafe {
     f(arg, closure)
 }}
 
+/// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
+/// of `stride` bytes each) into a dynamic-array header that the
+/// host_array_* helpers expect. Used at builtin call sites where the
+/// MIR arg type is `Array { len: Some(n), .. }` — those have no
+/// header, just the raw element block. The wrapper is freshly heap-
+/// allocated and considered owned by the caller (release rules apply
+/// as for any other freshly-built array).
+extern "C" fn host_fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) -> i64 {
+    let header = host_mir_alloc(48);
+    unsafe {
+        let h = header as *mut i64;
+        *h = len;            // len
+        *h.add(1) = len;     // cap
+        *h.add(2) = ptr;     // data_ptr (alias — no copy)
+        *h.add(3) = 1;       // rc
+        *h.add(4) = kind_tag;
+        *h.add(5) = stride;
+    }
+    header
+}
+
 extern "C" fn host_array_map(arr: i64, closure: i64) -> i64 {
     if arr == 0 || closure == 0 {
         return build_array(&[]);
@@ -3147,13 +3179,49 @@ fn lower_inst(
             } else {
                 None
             };
-            for a in args.iter() {
-                let av = *vmap.get(a).unwrap_or_else(|| {
+            // Builtins like array_map / array_filter / array_for_each /
+            // array_slice / array_index_of / array_includes consume a
+            // dynamic-array header (6×i64 [len|cap|data|rc|kind|stride]).
+            // Fixed-length arrays carry no header — they're just inline
+            // element data — so wrap them on-the-fly via __fixed_to_dyn
+            // so the receiver sees a uniform header shape.
+            let wrap_fixed_first_arg: Option<i64> = if let FuncRef::Builtin(sym) = callee {
+                let kind_tag = match sym.as_str() {
+                    "array_map"
+                    | "array_filter"
+                    | "array_for_each"
+                    | "array_slice"
+                    | "array_index_of"
+                    | "array_includes" => Some(0i64),
+                    _ => None,
+                };
+                kind_tag
+            } else {
+                None
+            };
+            for (arg_ix, a) in args.iter().enumerate() {
+                let mut av = *vmap.get(a).unwrap_or_else(|| {
                     panic!(
                         "missing vmap entry for arg {:?} in call to {:?}",
                         a, callee
                     )
                 });
+                if let (Some(kind_tag_for_obj), 0) = (wrap_fixed_first_arg, arg_ix) {
+                    if let MirTy::Array { elem, len: Some(n) } = func.ty_of(*a) {
+                        let stride = elem_byte_stride(elem);
+                        let kind_tag = if matches!(**elem, MirTy::Object(_)) {
+                            1
+                        } else {
+                            kind_tag_for_obj
+                        };
+                        let len_v = fb.ins().iconst(types::I64, *n as i64);
+                        let stride_v = fb.ins().iconst(types::I64, stride);
+                        let kind_v = fb.ins().iconst(types::I64, kind_tag);
+                        let f = module.declare_func_in_func(str_ids.fixed_to_dyn, fb.func);
+                        let call = fb.ins().call(f, &[av, len_v, stride_v, kind_v]);
+                        av = fb.inst_results(call)[0];
+                    }
+                }
                 if is_callee_extern {
                     let aty = func.ty_of(*a);
                     if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
