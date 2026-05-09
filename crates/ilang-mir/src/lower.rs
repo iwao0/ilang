@@ -1514,7 +1514,16 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
         };
+        let needs_retain = pc
+            .body
+            .tail
+            .as_ref()
+            .map(|e| bcx.callee_retain_decision(e))
+            .unwrap_or(false);
         let tail = bcx.lower_block(&pc.body)?;
+        if needs_retain {
+            bcx.emit_callee_retain(&tail);
+        }
         bcx.finalise_return(tail)?;
 
         let env_layout = if pc.captures.is_empty() {
@@ -1598,7 +1607,16 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
         };
+        let needs_retain = m
+            .body
+            .tail
+            .as_ref()
+            .map(|e| bcx.callee_retain_decision(e))
+            .unwrap_or(false);
         let tail = bcx.lower_block(&m.body)?;
+        if needs_retain {
+            bcx.emit_callee_retain(&tail);
+        }
         bcx.finalise_return(tail)?;
 
         let func = fb.finish(params_box.into_boxed_slice());
@@ -1687,15 +1705,20 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
         };
+        let needs_retain = m
+            .body
+            .tail
+            .as_ref()
+            .map(|e| bcx.callee_retain_decision(e))
+            .unwrap_or(false);
         let tail = bcx.lower_block(&m.body)?;
-        // For `init`, the synthetic return is the receiver itself
-        // (the JIT runtime threads `this` through). For now we just
-        // close with no value — the MIR→clif step will rewire init's
-        // return to `this`.
         let is_init = matches!(m.name.as_str(), "init");
         if is_init {
             bcx.fb.set_terminator(Terminator::Return { value: Some(this_v) });
         } else {
+            if needs_retain {
+                bcx.emit_callee_retain(&tail);
+            }
             bcx.finalise_return(tail)?;
         }
 
@@ -1784,7 +1807,16 @@ impl Lower {
             binding_self_name: None,
             crepr_owned_locals: std::collections::HashSet::new(),
         };
+        let needs_retain = fd
+            .body
+            .tail
+            .as_ref()
+            .map(|e| bcx.callee_retain_decision(e))
+            .unwrap_or(false);
         let tail = bcx.lower_block(&fd.body)?;
+        if needs_retain {
+            bcx.emit_callee_retain(&tail);
+        }
         bcx.finalise_return(tail)?;
 
         let func = fb.finish(params_box.into_boxed_slice());
@@ -3015,6 +3047,69 @@ impl<'a> BodyCx<'a> {
         dst
     }
 
+    /// Standard refcount calling convention: callee returns +1 to
+    /// caller. Three tail flavours need different handling:
+    ///
+    ///  (a) Fresh allocation (NewObject / Call / Binary on Str /
+    ///      array literal / closure expr / …): rc=1 is already +1
+    ///      for the caller. No retain.
+    ///
+    ///  (b) Var that resolves to a let-bound Local INSIDE the body
+    ///      block: lower_block inserts a tail-alias retain to
+    ///      balance the scope-exit release; the Local's +1
+    ///      transfers to the caller. No extra retain.
+    ///
+    ///  (c) Var that resolves to an outer-scope binding (params
+    ///      like `this`, captures) OR any non-Var aliased ref
+    ///      (`this.field`, `arr[i]`, etc.): no +1 exists yet for
+    ///      the caller — synthesise one so `c.inc()`-style chains
+    ///      and `obj.field` returns hand the caller a real
+    ///      ownership share. Without this the caller-side release
+    ///      eventually frees while another binding still points at
+    ///      the object.
+    ///
+    /// Returns true iff a callee-retain WILL be emitted for this
+    /// tail; the actual emission must happen AFTER lower_block (so
+    /// the ValueId is known) but the lookup runs BEFORE it (so the
+    /// body block's let bindings haven't shadowed the outer scope
+    /// yet — otherwise a tail Var that names a let-bound Local
+    /// would lookup as "not Local" and we'd over-retain transient
+    /// values like `make_map()`).
+    fn callee_retain_decision(&self, tail_expr: &Expr) -> bool {
+        if self.is_fresh_object_expr(tail_expr) {
+            return false;
+        }
+        match &tail_expr.kind {
+            ExprKind::Var(name) => match self.env.lookup_binding(*name) {
+                // Resolves in the current (outer) scope — param or
+                // earlier-block tail. Needs retain.
+                Some(_) => true,
+                // Doesn't resolve here ⇒ Var must be bound by a
+                // `let` inside the body block, which lower_block
+                // already retains for the caller.
+                None => false,
+            },
+            _ => true,
+        }
+    }
+
+    fn emit_callee_retain(&mut self, tail: &Option<(ValueId, MirTy)>) {
+        if let Some((v, ty)) = tail.as_ref() {
+            if matches!(
+                ty,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            ) {
+                self.fb.push_inst(Inst::Retain { value: *v });
+            }
+        }
+    }
+
     fn finalise_return(&mut self, tail: Option<(ValueId, MirTy)>) -> Result<(), LowerError> {
         // Synthesise a placeholder return value when the lowerer is
         // sitting in a dead block (the user already issued `return`
@@ -3133,7 +3228,15 @@ impl<'a> BodyCx<'a> {
             // intermediate. For non-heap operand types, "fresh" is a
             // no-op decision so this is safe to widen unconditionally.
             | ExprKind::Binary { .. }
-            | ExprKind::Unary { .. } => true,
+            | ExprKind::Unary { .. }
+            // Aggregate / heap literals — each lowers to a fresh
+            // alloc with rc=1 already in place.
+            | ExprKind::Array(_)
+            | ExprKind::Tuple(_)
+            | ExprKind::Some(_)
+            | ExprKind::None
+            | ExprKind::EnumCtor { .. }
+            | ExprKind::FnExpr { .. } => true,
             // Indexing a fresh tuple / array donates ownership of the
             // selected element to the caller — the lowerer retains
             // that element exactly once on the fresh-receiver path.
@@ -4010,11 +4113,13 @@ impl<'a> BodyCx<'a> {
                 let needs_retain = !value_is_fresh
                     && matches!(
                         ity,
-                        MirTy::Array { .. }
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
                             | MirTy::Tuple(_)
                             | MirTy::Map { .. }
                             | MirTy::Optional(_)
                             | MirTy::Fn(_)
+                            | MirTy::Str
                     );
                 if needs_retain {
                     self.fb.push_inst(Inst::Retain { value: iv });
@@ -4188,6 +4293,7 @@ impl<'a> BodyCx<'a> {
         let mut elem_vals = Vec::with_capacity(items.len());
         let mut elem_ty: Option<MirTy> = elem_hint.clone();
         for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
             let (vv, vty) = self.lower_expr(it)?;
             let target = elem_ty.get_or_insert(vty.clone()).clone();
             let coerced = if target == vty {
@@ -4195,6 +4301,22 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.coerce(vv, &vty, &target, it.span)?
             };
+            // Mirror the no-hint path: aliased heap elements need
+            // a +1 because host_release_array cascade-releases each
+            // stored Object on drop.
+            let is_heap = matches!(
+                target,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: coerced });
+            }
             elem_vals.push(coerced);
         }
         let elem = elem_ty.unwrap();
@@ -4227,6 +4349,7 @@ impl<'a> BodyCx<'a> {
         let mut elem_vals = Vec::with_capacity(items.len());
         let mut elem_ty: Option<MirTy> = None;
         for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
             let (vv, vty) = self.lower_expr(it)?;
             let ty = elem_ty.get_or_insert(vty.clone()).clone();
             let coerced = if ty == vty {
@@ -4234,6 +4357,25 @@ impl<'a> BodyCx<'a> {
             } else {
                 self.coerce(vv, &vty, &ty, it.span)?
             };
+            // Array elements: each slot owns +1 because the array's
+            // host_release_array cascade calls release_object on
+            // every stored Object on drop. Fresh values already
+            // come with +1 (transfer); aliased Vars don't, so we
+            // bump rc here. Without this, `let xs = [a, a]` plus
+            // the eventual array drop double-frees `a`.
+            let is_heap = matches!(
+                ty,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: coerced });
+            }
             elem_vals.push(coerced);
         }
         let elem = elem_ty.unwrap();
@@ -5535,11 +5677,13 @@ impl<'a> BodyCx<'a> {
                     let needs_retain = !arg_is_fresh
                         && matches!(
                             tys[i],
-                            MirTy::Array { .. }
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
                                 | MirTy::Tuple(_)
                                 | MirTy::Map { .. }
                                 | MirTy::Optional(_)
                                 | MirTy::Fn(_)
+                                | MirTy::Str
                         );
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
@@ -5577,11 +5721,13 @@ impl<'a> BodyCx<'a> {
                     let needs_retain = !arg_is_fresh
                         && matches!(
                             fty,
-                            MirTy::Array { .. }
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
                                 | MirTy::Tuple(_)
                                 | MirTy::Map { .. }
                                 | MirTy::Optional(_)
                                 | MirTy::Fn(_)
+                                | MirTy::Str
                         );
                     if needs_retain {
                         self.fb.push_inst(Inst::Retain { value: coerced });
@@ -6586,11 +6732,13 @@ impl<'a> BodyCx<'a> {
                 let needs_retain = !value_is_fresh
                     && matches!(
                         ty,
-                        MirTy::Array { .. }
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
                             | MirTy::Tuple(_)
                             | MirTy::Map { .. }
                             | MirTy::Optional(_)
                             | MirTy::Fn(_)
+                            | MirTy::Str
                     );
                 if needs_retain {
                     self.fb.push_inst(Inst::Retain { value: v });

@@ -996,6 +996,41 @@ pub fn compile_with_builtins(
     // Populate Object field table — host_release_object_fields uses
     // it to cascade releases through heap-shaped fields.
     {
+        // Scan the whole program for any MirTy::Weak(C) reference —
+        // classes that appear as a weak target stay OUT of the size
+        // table so release_object's free path skips them. Without
+        // this, a `let w: Node.weak = strong; …; strong = …` flow
+        // (see weak_basic.il) would have the weak peek into freed
+        // memory once the original strong drops. The leak we accept
+        // for those classes is bounded — programs that use weak
+        // refs are usually small fixed graphs.
+        let mut weakable: std::collections::HashSet<u32> =
+            std::collections::HashSet::new();
+        let scan = |ty: &MirTy, set: &mut std::collections::HashSet<u32>| {
+            walk_mir_ty(ty, &mut |t| {
+                if let MirTy::Weak(c) = t {
+                    set.insert(c.0);
+                }
+            });
+        };
+        for class in &prog.classes {
+            for f in &class.fields {
+                scan(&f.ty, &mut weakable);
+            }
+        }
+        for f in &prog.functions {
+            for p in f.params.iter() {
+                scan(&p.ty, &mut weakable);
+            }
+            scan(&f.ret, &mut weakable);
+            for l in f.value_tys.iter() {
+                scan(l, &mut weakable);
+            }
+            for l in f.local_tys.iter() {
+                scan(l, &mut weakable);
+            }
+        }
+
         let mut t = object_field_table_lock()
             .lock()
             .expect("field table poisoned");
@@ -1022,14 +1057,16 @@ pub fn compile_with_builtins(
             }
             t.insert(global_cid(class.id.0), entries);
             // Mirror NewObject codegen: regular classes alloc
-            // header + n_fields*8 bytes. CRepr/packed/union classes
-            // never go through release_object so we omit them.
-            if !matches!(
+            // header + n_fields*8 bytes. Skip CRepr/packed/union
+            // (different free path) and any class referenced via
+            // Weak (would dangle weak peeks).
+            let skip_free = matches!(
                 class.repr,
                 ilang_mir::ClassRepr::CRepr
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
-            ) {
+            ) || weakable.contains(&class.id.0);
+            if !skip_free {
                 let size = OBJECT_HEADER_BYTES as i64 + (class.fields.len() as i64) * 8;
                 sizes.insert(global_cid(class.id.0), size);
             }
@@ -1323,6 +1360,34 @@ static CLASS_SIZE_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
 
 fn class_size_table_lock() -> &'static Mutex<HashMap<u32, i64>> {
     CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Visit every MirTy reachable from `ty` (recursing through Array
+/// element / Optional inner / Tuple components / Map key+value /
+/// Fn params+ret / RawPtr inner). Used by the weakable-class scan.
+fn walk_mir_ty(ty: &MirTy, f: &mut impl FnMut(&MirTy)) {
+    f(ty);
+    match ty {
+        MirTy::Array { elem, .. } => walk_mir_ty(elem, f),
+        MirTy::Optional(inner) => walk_mir_ty(inner, f),
+        MirTy::Tuple(items) => {
+            for t in items.iter() {
+                walk_mir_ty(t, f);
+            }
+        }
+        MirTy::Map { key, val } => {
+            walk_mir_ty(key, f);
+            walk_mir_ty(val, f);
+        }
+        MirTy::Fn(ft) => {
+            for p in ft.params.iter() {
+                walk_mir_ty(p, f);
+            }
+            walk_mir_ty(&ft.ret, f);
+        }
+        MirTy::RawPtr { inner, .. } => walk_mir_ty(inner, f),
+        _ => {}
+    }
 }
 
 extern "C" fn host_release_object(obj_ptr: i64) {
@@ -1626,16 +1691,16 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // NOTE: We deliberately do NOT free `obj_ptr` here. Several MIR
-    // patterns (most notably methods that `return this` like the
-    // builder chain `c.inc().inc()`) treat callsite returns as
-    // carrying a +1 even though the callee never bumped it. Actually
-    // freeing on rc==0 would expose those latent ARC mismatches as
-    // use-after-free across many fixtures. The dominant per-frame
-    // leak is the array header / data buffer, which we DO free in
-    // host_release_array since arrays don't have the same
-    // return-borrow ambiguity.
-    let _ = class_size_table_lock; // silence unused-warning
+    // Object memory free is staged but currently disabled. Several
+    // ARC accounting gaps (subclass init flowing through Object→
+    // Object coerce, Map<K, ClassT> retain on map.set, fresh array
+    // element store from array.map closure, …) still drop rc to 0
+    // while another binding owns the value; flipping free on causes
+    // 10+ fixture crashes via use-after-free / double-free. The
+    // weak-class skip-list, class_size_table, and callee-retain
+    // convention are all in place; once those gaps are closed the
+    // free below can be re-enabled by removing this comment.
+    let _ = class_size_table_lock;
 }
 
 #[derive(Clone)]
