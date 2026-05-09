@@ -3511,9 +3511,16 @@ impl<'a> BodyCx<'a> {
                         // ints widen via sextend; unsigned ints / bool
                         // via zext; floats via bitcast.
                         let v_i64 = self.value_to_i64(bound, &bind_ty)?;
-                        // Heap values stored in slots gain an extra
-                        // owner reference so the host outlives the
-                        // chunk's __main scope-exit release.
+                        // The slot becomes the only owner of the
+                        // value (slot-promoted top-level lets get NO
+                        // Local binding above, so __main's exit
+                        // release sweep doesn't touch the name).
+                        // Aliased heap values need a fresh +1 the
+                        // slot can own; fresh values already come
+                        // with rc=1, so retaining again leaves rc=2
+                        // and the exit-time slot release can't drive
+                        // the value to drop. See
+                        // top_level_let_used_in_fn_deinit_once.il.
                         if matches!(
                             bind_ty,
                             MirTy::Object(_)
@@ -3522,7 +3529,8 @@ impl<'a> BodyCx<'a> {
                                 | MirTy::Map { .. }
                                 | MirTy::Optional(_)
                                 | MirTy::Fn(_)
-                        ) {
+                        ) && !value_is_fresh_object
+                        {
                             self.fb.push_inst(Inst::Retain { value: bound });
                         }
                         self.fb.push_inst(Inst::Call {
