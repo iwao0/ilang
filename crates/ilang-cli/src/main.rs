@@ -4,7 +4,9 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use ilang_ast::{Expr, ExprKind, Item, Program as AstProgram, StmtKind, Symbol};
 use std::collections::HashMap;
-use ilang_eval::{Interpreter, Value};
+// `ilang-eval` removed in M1 Step 6 part 5 — the interpreter is no
+// longer reachable from the CLI (mir-jit is the sole execution
+// backend besides the legacy `--jit` codegen).
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
@@ -33,11 +35,6 @@ enum Cmd {
         /// and back-compat with existing test commands.
         #[arg(long = "mir-jit")]
         mir_jit: bool,
-        /// Run via the tree-walking interpreter (`ilang-eval`).
-        /// Opt-in fallback retained for diff-testing against the
-        /// JIT; will be removed when ilang-eval is retired.
-        #[arg(long)]
-        interp: bool,
     },
 }
 
@@ -45,9 +42,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),
-        Some(Cmd::Run { path, jit, mir_jit, interp }) => {
-            run_file(&path, jit, mir_jit, interp)
-        }
+        Some(Cmd::Run { path, jit, mir_jit }) => run_file(&path, jit, mir_jit),
     }
 }
 
@@ -227,13 +222,11 @@ fn wrap_trailing_print(mut prog: AstProgram) -> AstProgram {
     prog
 }
 
-fn run_file(path: &PathBuf, jit: bool, mir_jit: bool, interp: bool) -> ExitCode {
-    // Backend selection priority: explicit `--interp` forces the
-    // tree-walking interpreter; explicit `--jit` selects the legacy
+fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
+    // Backend selection: explicit `--jit` selects the legacy
     // ilang-codegen pipeline; everything else (no flag, or
-    // `--mir-jit`) routes through the new mir-jit backend, which is
-    // now the default.
-    let use_mir_jit = !interp && !jit;
+    // `--mir-jit`) routes through the new mir-jit backend.
+    let use_mir_jit = !jit;
     let _ = mir_jit;
     // Resolve any `ilang.toml` next to (or above) the entry file
     // and turn its `[deps]` table into extra `use`-resolution paths.
@@ -355,32 +348,9 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool, interp: bool) -> ExitCode 
             }
         };
     }
-    let mut tc = TypeChecker::new();
-    if let Err(e) = tc.check(&prog) {
-        eprintln!("{display_path} {e}");
-        return ExitCode::FAILURE;
-    }
-    let enum_ctor_args = tc.enum_ctor_type_args();
-    let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
-    let mut interp = Interpreter::new();
-    interp.set_enum_ctor_type_args(enum_ctor_args);
-    let outcome = interp.run(&prog);
-    // Drop top-level globals so any class with a `deinit` runs it
-    // before the process exits — matches the JIT's `__main` exit
-    // path. The REPL doesn't call this (globals must persist across
-    // chunks), so it stays out of `Interpreter::run`.
-    interp.release_globals_at_exit();
-    match outcome {
-        Ok(Value::Unit) => ExitCode::SUCCESS,
-        Ok(v) => {
-            println!("{v}");
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("{display_path} {e}");
-            ExitCode::FAILURE
-        }
-    }
+    // Unreachable: every path above returns. The legacy interpreter
+    // fallback was removed in M1 Step 6 part 5.
+    unreachable!("backend selection above always returns")
 }
 
 

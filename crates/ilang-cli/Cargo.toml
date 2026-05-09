@@ -12,7 +12,6 @@ path = "src/main.rs"
 ilang-ast = { workspace = true }
 ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
-ilang-eval = { workspace = true }
 ilang-types = { workspace = true }
 ilang-codegen = { workspace = true }
 ilang-mir = { workspace = true }

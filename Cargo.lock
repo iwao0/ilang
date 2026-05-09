@@ -692,7 +692,6 @@ dependencies = [
  "clap",
  "ilang-ast",
  "ilang-codegen",
- "ilang-eval",
  "ilang-lexer",
  "ilang-mir",
  "ilang-mir-codegen",
@@ -719,17 +718,6 @@ dependencies = [
  "ilang-types",
  "libloading",
  "target-lexicon",
- "thiserror",
-]
-
-[[package]]
-name = "ilang-eval"
-version = "0.1.0"
-dependencies = [
- "ilang-ast",
- "ilang-lexer",
- "ilang-parser",
- "ilang-types",
  "thiserror",
 ]
 

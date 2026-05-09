@@ -4,7 +4,6 @@ members = [
     "crates/ilang-ast",
     "crates/ilang-lexer",
     "crates/ilang-parser",
-    "crates/ilang-eval",
     "crates/ilang-types",
     "crates/ilang-mir",
     "crates/ilang-mir-codegen",
@@ -23,7 +22,6 @@ rust-version = "1.75"
 ilang-ast = { path = "crates/ilang-ast" }
 ilang-lexer = { path = "crates/ilang-lexer" }
 ilang-parser = { path = "crates/ilang-parser" }
-ilang-eval = { path = "crates/ilang-eval" }
 ilang-types = { path = "crates/ilang-types" }
 ilang-mir = { path = "crates/ilang-mir" }
 ilang-mir-codegen = { path = "crates/ilang-mir-codegen" }
