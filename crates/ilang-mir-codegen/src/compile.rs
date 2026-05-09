@@ -4044,7 +4044,12 @@ fn lower_inst(
             // For builtins like the map / array / str runtime, the
             // declared sig is uniformly i64. Auto-extend any narrower
             // arg so the verifier doesn't complain (bool/i32/f64
-            // bitcast to i64).
+            // bitcast to i64). Signed MIR ints sign-extend; unsigned
+            // / bool / raw bit patterns zero-extend. Without the
+            // signed branch, e.g. `(-1: i32).toString()` would pass
+            // `4294967295` to `__int_to_string` and display the
+            // unsigned bit pattern instead of `-1` (mirrored across
+            // i8 / i16 / i32 — see int_to_string_signed.il).
             if is_builtin {
                 let sig_params = module.declarations()
                     .get_function_decl(cid)
@@ -4067,7 +4072,19 @@ fn lower_inst(
                             let r32 = fb.ins().bitcast(types::I32, MemFlags::new(), *av);
                             *av = fb.ins().uextend(types::I64, r32);
                         } else if got.is_int() && got.bits() < 64 {
-                            *av = fb.ins().uextend(types::I64, *av);
+                            // arg_vs is index-aligned with `args` for
+                            // builtin calls (no sret prefix, no trailing
+                            // env). Look up the MIR type to choose the
+                            // sign-correct widening.
+                            let signed = args
+                                .get(i)
+                                .map(|a| func.ty_of(*a).is_signed_int())
+                                .unwrap_or(false);
+                            *av = if signed {
+                                fb.ins().sextend(types::I64, *av)
+                            } else {
+                                fb.ins().uextend(types::I64, *av)
+                            };
                         }
                     }
                 }
