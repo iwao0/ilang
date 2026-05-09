@@ -146,6 +146,11 @@ struct PanicAux {
     map_set_print_kinds: cranelift_module::FuncId,
     print_map: cranelift_module::FuncId,
     class_name: cranelift_module::FuncId,
+    /// `__mir_free(ptr, size)` — drops a previously-`mir_alloc`'d
+    /// block. Used by `Inst::Release` for CRepr structs (which
+    /// have no rc header but still need their backing buffer
+    /// freed when they fall out of scope).
+    mir_free: cranelift_module::FuncId,
     msg_div: DataId,
     msg_mod: DataId,
     msg_oob: DataId,
@@ -237,6 +242,7 @@ pub fn compile_with_builtins(
     // ARC step is what eventually frees it; until then it's a small
     // intentional leak that's fine for short-running test programs.
     jit_builder.symbol("__mir_alloc", host_mir_alloc as *const u8);
+    jit_builder.symbol("__mir_free", host_mir_free as *const u8);
     // Map runtime backed by Rust's HashMap<i64, i64> (one box per
     // map). Keys / values flow through as i64 cells (heap pointers
     // share identity when interned).
@@ -452,6 +458,12 @@ pub fn compile_with_builtins(
         sig.params.push(AbiParam::new(types::I64));
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__mir_alloc", Linkage::Import, &sig)?
+    };
+    let free_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__mir_free", Linkage::Import, &sig)?
     };
     // Map runtime imports.
     let map_new_id = {
@@ -885,6 +897,7 @@ pub fn compile_with_builtins(
                 map_set_print_kinds: map_set_print_kinds_id,
                 print_map: print_map_id,
                 class_name: class_name_id,
+                mir_free: free_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,
@@ -1827,6 +1840,21 @@ extern "C" fn host_mir_alloc(size: i64) -> i64 {
     let ptr = v.as_mut_ptr() as i64;
     std::mem::forget(v);
     ptr
+}
+
+/// Free a previously `host_mir_alloc`'d block. The caller must
+/// know the exact `size` it was originally allocated with —
+/// `host_mir_alloc` is just a leaked `Vec<u8>` and we reconstruct
+/// the same vec to drop it. Used by the codegen's CRepr-struct
+/// scope-exit release path so transient stack-replacement structs
+/// (e.g. an SDL `Rect` built per draw call) actually free.
+extern "C" fn host_mir_free(ptr: i64, size: i64) {
+    if ptr == 0 || size <= 0 {
+        return;
+    }
+    unsafe {
+        let _ = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
+    }
 }
 
 /// Map runtime: a Rust HashMap<i64, i64> wrapped with rc + per-value
@@ -3985,7 +4013,6 @@ fn lower_inst(
             let aty = func.ty_of(*value).clone();
             match &aty {
                 MirTy::Object(cid) => {
-                    // CRepr structs have no refcount header — skip.
                     let layout = &prog.classes[cid.0 as usize];
                     if matches!(
                         layout.repr,
@@ -3993,6 +4020,14 @@ fn lower_inst(
                             | ilang_mir::ClassRepr::CPacked
                             | ilang_mir::ClassRepr::CUnion
                     ) {
+                        // Skip — CRepr structs leak their c_size
+                        // bytes today. A future cleanup pass needs
+                        // to track NewObject vs LoadField provenance
+                        // (the latter returns a borrow into a parent
+                        // struct, so freeing it would corrupt the
+                        // parent). The `crepr_owned_locals` work in
+                        // `lower.rs` is the start of that path but
+                        // doesn't yet cover every NewObject site.
                         return Ok(());
                     }
                     let av = vmap[value];

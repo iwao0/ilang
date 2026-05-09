@@ -1512,6 +1512,7 @@ impl Lower {
             repl_slots: &self.repl_slots,
             is_main_body: false,
             binding_self_name: None,
+            crepr_owned_locals: std::collections::HashSet::new(),
         };
         let tail = bcx.lower_block(&pc.body)?;
         bcx.finalise_return(tail)?;
@@ -1595,6 +1596,7 @@ impl Lower {
             repl_slots: &self.repl_slots,
             is_main_body: false,
             binding_self_name: None,
+            crepr_owned_locals: std::collections::HashSet::new(),
         };
         let tail = bcx.lower_block(&m.body)?;
         bcx.finalise_return(tail)?;
@@ -1683,6 +1685,7 @@ impl Lower {
             repl_slots: &self.repl_slots,
             is_main_body: false,
             binding_self_name: None,
+            crepr_owned_locals: std::collections::HashSet::new(),
         };
         let tail = bcx.lower_block(&m.body)?;
         // For `init`, the synthetic return is the receiver itself
@@ -1779,6 +1782,7 @@ impl Lower {
             repl_slots: &self.repl_slots,
             is_main_body: false,
             binding_self_name: None,
+            crepr_owned_locals: std::collections::HashSet::new(),
         };
         let tail = bcx.lower_block(&fd.body)?;
         bcx.finalise_return(tail)?;
@@ -1828,6 +1832,7 @@ impl Lower {
             repl_slots: &self.repl_slots,
             is_main_body: true,
             binding_self_name: None,
+            crepr_owned_locals: std::collections::HashSet::new(),
         };
         for stmt in stmts {
             bcx.lower_stmt(stmt)?;
@@ -2648,6 +2653,14 @@ struct BodyCx<'a> {
     /// `let` → slot-store to that scope so a same-named local in a
     /// fn body doesn't accidentally clobber the REPL slot.
     is_main_body: bool,
+    /// Locals whose value is an owned `host_mir_alloc` buffer for a
+    /// CRepr (no-rc-header) struct. Populated when a `let` binding
+    /// stores a fresh `new T()` of a CRepr class. `release_top_scope
+    /// _objects` consults this when emitting the scope-exit Release
+    /// for CRepr Locals — without it, a `let p = r.origin` (where
+    /// `r.origin` is just a borrow into `r`'s buffer) would
+    /// erroneously free part of `r`'s memory.
+    crepr_owned_locals: std::collections::HashSet<crate::inst::LocalId>,
     /// Name of the top-level slot binding currently being assigned
     /// (Some(X) while we're inside the value of `let X = ...`).
     /// `lower_fn_expr` checks this to avoid snapshotting the X slot
@@ -3138,6 +3151,23 @@ impl<'a> BodyCx<'a> {
         for (_name, binding) in scope.into_iter().rev() {
             match binding {
                 Binding::Local(lid, ty) if needs_release(&ty) => {
+                    // For CRepr Locals, only emit Release if this
+                    // Local owns the underlying buffer. Borrowed
+                    // CRepr values (e.g. nested-field reads) stay
+                    // alive with their parent and must NOT be
+                    // freed independently.
+                    if let MirTy::Object(cid) = &ty {
+                        let layout = &self.classes[cid.0 as usize];
+                        let is_crepr = matches!(
+                            layout.repr,
+                            crate::program::ClassRepr::CRepr
+                                | crate::program::ClassRepr::CPacked
+                                | crate::program::ClassRepr::CUnion
+                        );
+                        if is_crepr && !self.crepr_owned_locals.contains(&lid) {
+                            continue;
+                        }
+                    }
                     let v = self.fb.new_value(ty.clone());
                     self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                     self.fb.push_inst(Inst::Release { value: v });
@@ -3310,6 +3340,24 @@ impl<'a> BodyCx<'a> {
                     let lid = self.fb.new_local(bind_ty.clone());
                     self.fb.push_inst(Inst::DefLocal { local: lid, value: bound });
                     self.env.bind_local(*name, lid, bind_ty.clone());
+                    // Mark CRepr Locals as "owns the buffer" only
+                    // when the source was a fresh `new T()` (or
+                    // similar) — that's what makes the buffer
+                    // safe to free at scope exit. A `let p =
+                    // r.origin` style borrow stays unmarked so
+                    // the scope-exit path leaves it alone.
+                    if let MirTy::Object(cid) = &bind_ty {
+                        let layout = &self.classes[cid.0 as usize];
+                        if matches!(
+                            layout.repr,
+                            crate::program::ClassRepr::CRepr
+                                | crate::program::ClassRepr::CPacked
+                                | crate::program::ClassRepr::CUnion
+                        ) && value_is_fresh_object
+                        {
+                            self.crepr_owned_locals.insert(lid);
+                        }
+                    }
                 }
                 // REPL: top-level let in __main with a registered slot
                 // → persist the value to a host-side cell so future
@@ -3408,9 +3456,22 @@ impl<'a> BodyCx<'a> {
             StmtKind::Expr(e) => {
                 let (v, ty) = self.lower_expr(e)?;
                 // If the expression-statement produced a fresh,
-                // unowned object value (e.g. `new T()` discarded as a
-                // statement), release it so its deinit fires now.
-                if matches!(ty, MirTy::Object(_)) && self.is_fresh_object_expr(e) {
+                // unowned heap value, release it so its refcount
+                // drops to 0 (firing class deinit / freeing the
+                // backing buffer). Without this, a discarded
+                // method call result like `xs.map(fn(...){...})`
+                // (its fresh array, plus the fresh closure arg)
+                // leaks every iteration of a long-running loop.
+                let is_heap = matches!(
+                    ty,
+                    MirTy::Object(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                        | MirTy::Fn(_)
+                );
+                if is_heap && self.is_fresh_object_expr(e) {
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Ok(())
@@ -3650,7 +3711,22 @@ impl<'a> BodyCx<'a> {
                 let fty = meta.field_ty.get(&fid).cloned().unwrap_or(MirTy::I64);
                 let value_is_fresh = self.is_fresh_object_expr(value);
                 let (vv, _) = self.lower_expr(value)?;
-                if matches!(fty, MirTy::Object(_)) {
+                // ARC for any heap-typed field: retain the incoming
+                // value (unless it was a fresh allocation that
+                // already owned its +1) and release the previous
+                // occupant. Without this, `this.balls = newArr` etc.
+                // leaks the prior array's refcount on every frame
+                // of `examples/sdl_breakout`'s game loop.
+                let is_heap = matches!(
+                    fty,
+                    MirTy::Object(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                        | MirTy::Fn(_)
+                );
+                if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });
                     }
@@ -3790,11 +3866,25 @@ impl<'a> BodyCx<'a> {
                     let meta = self.class_meta.get(&cid).expect("class meta");
                     if let Some(&fid) = meta.field_ix.get(target) {
                         let (this_v, _) = self.lookup_var(Symbol::intern("this")).unwrap();
-                        // Object field write: take ownership of `value`
-                        // (retain if aliased), and release whatever was
-                        // there before (if any).
+                        // Heap field write: take ownership of `value`
+                        // (retain if aliased) and release whatever was
+                        // there before (if any). Covers every heap
+                        // type — Object / Array / Tuple / Map /
+                        // Optional / Fn — so re-assigning a field
+                        // doesn't leak the prior occupant. Crucial
+                        // for game-loop code that swaps arrays /
+                        // optionals on every frame.
                         let value_is_fresh = self.is_fresh_object_expr(value);
-                        if matches!(vty, MirTy::Object(_)) {
+                        let is_heap = matches!(
+                            vty,
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                        );
+                        if is_heap {
                             if !value_is_fresh {
                                 self.fb.push_inst(Inst::Retain { value: v });
                             }
