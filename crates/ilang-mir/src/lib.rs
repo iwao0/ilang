@@ -19,6 +19,7 @@
 pub mod builder;
 pub mod inst;
 pub mod lower;
+pub mod monomorphize;
 pub mod printer;
 pub mod program;
 pub mod types;

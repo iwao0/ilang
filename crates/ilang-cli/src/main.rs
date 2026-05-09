@@ -115,6 +115,20 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
             &tc.method_overload_picks(),
             &tc.call_default_fills(),
         );
+        // Monomorphize generics (classes / enums / fns) before
+        // AST→MIR lowering. We deliberately skip `hoist_anon_fns`
+        // — the MIR lowerer handles anon fn / closure capture
+        // analysis itself, and the legacy hoister rewrites them in
+        // a way that conflicts with our cell-based capture model.
+        let prog = ilang_mir::monomorphize::monomorphize(&prog);
+        let prog = ilang_mir::monomorphize::monomorphize_enums(
+            &prog,
+            &tc.enum_ctor_type_args(),
+        );
+        let prog = ilang_mir::monomorphize::monomorphize_fns(
+            &prog,
+            &tc.fn_call_type_args(),
+        );
         let mir = match ilang_mir::lower_program(&prog) {
             Ok(m) => m,
             Err(e) => {

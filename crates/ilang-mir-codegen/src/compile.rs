@@ -1432,7 +1432,14 @@ fn format_object(out: &mut String, obj_ptr: i64) {
             return;
         }
     };
-    out.push_str(&info.name);
+    // Strip the monomorphisation suffix (`Box<i64>` → `Box`) so the
+    // printed name matches the source-level identifier.
+    let base = info
+        .name
+        .split('<')
+        .next()
+        .unwrap_or(info.name.as_str());
+    out.push_str(base);
     out.push_str(" {");
     if !info.fields.is_empty() {
         out.push(' ');
@@ -1497,7 +1504,8 @@ extern "C" fn host_class_name(class_id: i64) -> i64 {
         Some(i) => i.name,
         None => format!("<obj#{class_id}>"),
     };
-    let mut bytes: Vec<u8> = name.into_bytes();
+    let base = name.split('<').next().unwrap_or(&name).to_string();
+    let mut bytes: Vec<u8> = base.into_bytes();
     bytes.push(0);
     let bx = bytes.into_boxed_slice();
     let ptr = bx.as_ptr() as i64;
