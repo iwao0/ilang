@@ -3032,24 +3032,8 @@ impl<'a> BodyCx<'a> {
                     // keep the SSA path so reads return a synthetic
                     // unit value.
                     self.env.bind(*name, bound, bind_ty);
-                } else if self.cellify_set.contains(name) {
-                    // This name is captured + mutated by some inner
-                    // closure — allocate as a 1-element heap array
-                    // (the "cell"). Reads/writes go through
-                    // ArrayLoad / ArrayStore[0]. The closure captures
-                    // the array pointer so it shares state.
-                    let cell_ty = MirTy::Array {
-                        elem: Box::new(bind_ty.clone()),
-                        len: None,
-                    };
-                    let cell_v = self.fb.new_value(cell_ty.clone());
-                    self.fb.push_inst(Inst::NewArray {
-                        dst: cell_v,
-                        elem: bind_ty.clone(),
-                        items: Box::new([bound]),
-                    });
-                    self.env.bind_cell(*name, cell_v, bind_ty);
                 } else {
+                    let _ = &self.cellify_set; // legacy field, retained for ABI
                     let lid = self.fb.new_local(bind_ty.clone());
                     self.fb.push_inst(Inst::DefLocal { local: lid, value: bound });
                     self.env.bind_local(*name, lid, bind_ty);
@@ -3950,15 +3934,29 @@ impl<'a> BodyCx<'a> {
         let mut frees: Vec<Symbol> = Vec::new();
         collect_free_vars_block(body, &mut bound, &mut frees);
 
+        // Names that this closure (transitively, through nested
+        // FnExprs in its body) writes via `Assign`. These need cell
+        // capture so writes persist across calls. Names not in this
+        // set are captured by value snapshot — independent per
+        // closure (B1 semantics: sibling closures sharing the same
+        // outer name do NOT see each other's writes).
+        let mut writes: std::collections::HashSet<Symbol> =
+            std::collections::HashSet::new();
+        collect_mut_assigned_block(body, &mut writes);
+        // The closure's own params are local mutable, not captured.
+        for p in params.iter() {
+            writes.remove(&p.name);
+        }
+
         // Filter out names that aren't bound in the surrounding scope
         // (top-level fns / classes / enums / statics — they're
         // resolved globally, not captured).
         let mut captures: Vec<crate::program::EnvCapture> = Vec::new();
         let mut capture_vals: Vec<ValueId> = Vec::new();
         for name in frees {
-            // Cell-bound name: capture the cell pointer (an i64 array
-            // ptr), don't dereference. The closure body will share
-            // state with the outer scope through this pointer.
+            let needs_cell = writes.contains(&name);
+            // 1) Source already has a cell binding in current scope —
+            // share that cell directly (whether or not we write).
             if let Some((cell_v, inner_ty)) = self.lookup_cell_ptr(name) {
                 capture_vals.push(cell_v);
                 captures.push(crate::program::EnvCapture {
@@ -3968,26 +3966,87 @@ impl<'a> BodyCx<'a> {
                 });
                 continue;
             }
-            if let Some((v, ty)) = self.lookup_var(name) {
-                capture_vals.push(v);
-                captures.push(crate::program::EnvCapture {
-                    name,
-                    ty,
-                    is_cell: false,
-                });
-            } else if let Some(caps) = self.captures_in_scope {
+            // 2) Source is a captured cell from the enclosing closure
+            // body — load the cell pointer (not its inner value) and
+            // forward it.
+            if let Some(caps) = self.captures_in_scope {
                 if let Some((idx, cty)) = caps.get(&name).cloned() {
-                    let v = self.fb.new_value(cty.clone());
-                    self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
-                    let is_cell = self
+                    let outer_is_cell = self
                         .cell_captures
                         .map(|s| s.contains(&name))
                         .unwrap_or(false);
+                    if outer_is_cell {
+                        let cell_v = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::LoadCapture { dst: cell_v, idx });
+                        capture_vals.push(cell_v);
+                        captures.push(crate::program::EnvCapture {
+                            name,
+                            ty: cty,
+                            is_cell: true,
+                        });
+                        continue;
+                    }
+                    // Outer capture is a value snapshot — load it.
+                    let v = self.fb.new_value(cty.clone());
+                    self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
+                    if needs_cell {
+                        // Allocate a fresh private cell initialised
+                        // from the snapshot.
+                        let cell_ty = MirTy::Array {
+                            elem: Box::new(cty.clone()),
+                            len: None,
+                        };
+                        let cell_v = self.fb.new_value(cell_ty);
+                        self.fb.push_inst(Inst::NewArray {
+                            dst: cell_v,
+                            elem: cty.clone(),
+                            items: Box::new([v]),
+                        });
+                        capture_vals.push(cell_v);
+                        captures.push(crate::program::EnvCapture {
+                            name,
+                            ty: cty,
+                            is_cell: true,
+                        });
+                    } else {
+                        capture_vals.push(v);
+                        captures.push(crate::program::EnvCapture {
+                            name,
+                            ty: cty,
+                            is_cell: false,
+                        });
+                    }
+                    continue;
+                }
+            }
+            // 3) Source is a regular local / SSA in current scope.
+            if let Some((v, ty)) = self.lookup_var(name) {
+                if needs_cell {
+                    // Allocate a private cell initialised from the
+                    // snapshot of the current value. The outer scope
+                    // does NOT see writes (sibling-closure isolation).
+                    let cell_ty = MirTy::Array {
+                        elem: Box::new(ty.clone()),
+                        len: None,
+                    };
+                    let cell_v = self.fb.new_value(cell_ty);
+                    self.fb.push_inst(Inst::NewArray {
+                        dst: cell_v,
+                        elem: ty.clone(),
+                        items: Box::new([v]),
+                    });
+                    capture_vals.push(cell_v);
+                    captures.push(crate::program::EnvCapture {
+                        name,
+                        ty,
+                        is_cell: true,
+                    });
+                } else {
                     capture_vals.push(v);
                     captures.push(crate::program::EnvCapture {
                         name,
-                        ty: cty,
-                        is_cell,
+                        ty,
+                        is_cell: false,
                     });
                 }
             }
