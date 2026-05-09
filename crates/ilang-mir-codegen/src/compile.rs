@@ -609,7 +609,13 @@ pub fn compile_with_builtins(
     }
 
     // Pre-collect every string literal in the program; each gets a
-    // Cranelift data symbol with NUL-terminated UTF-8 bytes.
+    // Cranelift data symbol laid out as
+    //   [ i64 length ][ UTF-8 bytes ][ \0 ]
+    // The user-visible runtime pointer points at the first byte of
+    // the UTF-8 area (offset 8 from the symbol). The length prefix
+    // lets `host_str_length` and friends round-trip strings that
+    // contain embedded NUL bytes; the trailing NUL keeps cstr-style
+    // C interop working.
     let mut string_data: HashMap<Symbol, DataId> = HashMap::new();
     let mut next_str_id: u32 = 0;
     for f in &prog.functions {
@@ -617,7 +623,10 @@ pub fn compile_with_builtins(
             for inst in &blk.insts {
                 if let Inst::Const { value: MirConst::Str(s), .. } = inst {
                     if !string_data.contains_key(s) {
-                        let mut bytes: Vec<u8> = s.as_str().as_bytes().to_vec();
+                        let body = s.as_str().as_bytes();
+                        let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+                        bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
+                        bytes.extend_from_slice(body);
                         bytes.push(0);
                         let mut desc = DataDescription::new();
                         desc.define(bytes.into_boxed_slice());
@@ -635,8 +644,15 @@ pub fn compile_with_builtins(
     // Pre-define panic message C-strings reused across all check
     // sites. Returns a DataId; later emitters take its address via
     // `module.declare_data_in_func`.
+    // Same `[ i64 length | bytes | \0 ]` shape as user string
+    // literals — keeps cstr_bytes / host_ilang_panic / host_print_str
+    // happy without per-call-site special-casing. Consumers add 8 to
+    // the symbol address to get the user-visible pointer.
     let mut declare_msg = |name: &str, text: &str| -> Result<DataId, CompileError> {
-        let mut bytes: Vec<u8> = text.as_bytes().to_vec();
+        let body = text.as_bytes();
+        let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+        bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
+        bytes.extend_from_slice(body);
         bytes.push(0);
         let mut desc = DataDescription::new();
         desc.define(bytes.into_boxed_slice());
@@ -1680,12 +1696,7 @@ extern "C" fn host_class_name(class_id: i64) -> i64 {
         None => format!("<obj#{class_id}>"),
     };
     let base = name.split('<').next().unwrap_or(&name).to_string();
-    let mut bytes: Vec<u8> = base.into_bytes();
-    bytes.push(0);
-    let bx = bytes.into_boxed_slice();
-    let ptr = bx.as_ptr() as i64;
-    Box::leak(bx);
-    ptr
+    leak_cstring(base)
 }
 
 extern "C" fn host_print_object(obj_ptr: i64) {
@@ -1743,14 +1754,11 @@ fn map_key_to_raw(k: &MapKey) -> i64 {
     match k {
         MapKey::Int(n) => *n,
         MapKey::Str(s) => {
-            // Re-emit a leaked NUL-terminated copy so callers reading
-            // back keys via host_map_keys see a stable C-string ptr.
-            let mut bytes: Vec<u8> = s.as_bytes().to_vec();
-            bytes.push(0);
-            let bx = bytes.into_boxed_slice();
-            let ptr = bx.as_ptr() as i64;
-            Box::leak(bx);
-            ptr
+            // Re-emit a leaked length-prefixed copy so callers reading
+            // back keys via host_map_keys see a stable ilang-string
+            // pointer (matches the `[ i64 len | bytes | \0 ]` layout
+            // used everywhere else).
+            leak_cstring(s.clone())
         }
     }
 }
@@ -1983,9 +1991,28 @@ extern "C" fn host_retain_map(map: i64) {
     m.rc += 1;
 }
 
-// String runtime helpers — operate on NUL-terminated `*const u8`
-// pointers. Returned strings are leaked Rust allocations.
+// String runtime helpers. Each ilang string lives on the heap as
+//   [ i64 length ][ UTF-8 bytes ][ \0 ]
+// and the user-visible pointer points at the first UTF-8 byte. The
+// length prefix lets reads survive embedded NULs (e.g. `"a\0b"` has
+// length 3); the trailing NUL keeps cstr-style C interop working
+// (snprintf etc. read up to the first NUL, which is a documented
+// truncation if the user puts NULs inside the string).
 unsafe fn cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
+    if p == 0 {
+        return &[];
+    }
+    let len = *((p - 8) as *const i64);
+    if len <= 0 {
+        return &[];
+    }
+    std::slice::from_raw_parts(p as *const u8, len as usize)
+}}
+
+/// Raw C-string scanner — for pointers crossing the FFI boundary
+/// from C land (e.g. `getenv()`, char** array elements). These have
+/// no length prefix; we walk to the first NUL.
+unsafe fn raw_cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
     if p == 0 {
         return &[];
     }
@@ -2005,13 +2032,20 @@ extern "C" fn host_str_length(p: i64) -> i64 {
         .unwrap_or(bytes.len() as i64)
 }
 
+/// Build a heap string with the documented `[ i64 len | bytes | \0 ]`
+/// layout. The returned i64 is the user-visible pointer (points at
+/// the first UTF-8 byte).
 fn leak_cstring(s: String) -> i64 {
-    let mut bytes = s.into_bytes();
+    let body = s.into_bytes();
+    let len = body.len() as i64;
+    let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+    bytes.extend_from_slice(&len.to_le_bytes());
+    bytes.extend_from_slice(&body);
     bytes.push(0);
     let boxed = bytes.into_boxed_slice();
-    let ptr = boxed.as_ptr() as i64;
+    let body_ptr = unsafe { boxed.as_ptr().add(8) } as i64;
     Box::leak(boxed);
-    ptr
+    body_ptr
 }
 
 extern "C" fn host_str_concat(a: i64, b: i64) -> i64 {
@@ -2433,7 +2467,7 @@ extern "C" fn host_string_from_cstr(p: i64) -> i64 {
     if p == 0 {
         return leak_cstring(String::new());
     }
-    let bytes = unsafe { cstr_bytes(p) };
+    let bytes = unsafe { raw_cstr_bytes(p) };
     leak_cstring(String::from_utf8_lossy(bytes).into_owned())
 }
 extern "C" fn host_noop(_: i64) {}
@@ -2448,7 +2482,7 @@ extern "C" fn host_cstr_array_to_strings(ptrs: i64) -> i64 {
             let mut p = ptrs as *const *const u8;
             while !(*p).is_null() {
                 let raw = (*p) as i64;
-                let bytes = cstr_bytes(raw);
+                let bytes = raw_cstr_bytes(raw);
                 let s = String::from_utf8_lossy(bytes).into_owned();
                 elems.push(leak_cstring(s));
                 p = p.add(1);
@@ -3095,7 +3129,11 @@ fn lower_inst(
                     CompileError::Other(format!("missing string data for {:?}", s.as_str()))
                 })?;
                 let gv = module.declare_data_in_func(did, fb.func);
-                let v = fb.ins().symbol_value(types::I64, gv);
+                let base = fb.ins().symbol_value(types::I64, gv);
+                // The user-visible string pointer skips the 8-byte
+                // length prefix (see string_data layout above).
+                let off = fb.ins().iconst(types::I64, 8);
+                let v = fb.ins().iadd(base, off);
                 vmap.insert(*dst, v);
                 return Ok(());
             }
@@ -4784,7 +4822,9 @@ fn emit_print_lit(
     msg_data: DataId,
 ) {
     let gv = module.declare_data_in_func(msg_data, fb.func);
-    let addr = fb.ins().symbol_value(types::I64, gv);
+    let base = fb.ins().symbol_value(types::I64, gv);
+    let off = fb.ins().iconst(types::I64, 8);
+    let addr = fb.ins().iadd(base, off);
     let fr = module.declare_func_in_func(print_str, fb.func);
     fb.ins().call(fr, &[addr]);
 }
@@ -4971,7 +5011,9 @@ fn emit_panic_if(
     fb.switch_to_block(panic_block);
     fb.seal_block(panic_block);
     let gv = module.declare_data_in_func(msg_data, fb.func);
-    let addr = fb.ins().symbol_value(types::I64, gv);
+    let base = fb.ins().symbol_value(types::I64, gv);
+    let off = fb.ins().iconst(types::I64, 8);
+    let addr = fb.ins().iadd(base, off);
     let fr = module.declare_func_in_func(panic_fn, fb.func);
     fb.ins().call(fr, &[addr]);
     fb.ins().trap(TrapCode::user(1).unwrap());
