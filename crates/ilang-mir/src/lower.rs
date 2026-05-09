@@ -57,6 +57,8 @@ pub fn lower_program(prog: &AstProgram) -> Result<Program, LowerError> {
                     drop_fn: FuncId(u32::MAX),
                     vtable: None,
                     repr: crate::program::ClassRepr::ArcObject,
+                    c_field_offsets: Vec::new(),
+                    c_size: 0,
                 });
                 lower.class_meta.insert(id, ClassMeta::default());
             }
@@ -418,6 +420,8 @@ impl Lower {
                             drop_fn: FuncId(u32::MAX),
                             vtable: None,
                             repr: crate::program::ClassRepr::CRepr,
+                    c_field_offsets: Vec::new(),
+                    c_size: 0,
                         });
                         self.class_meta.insert(id, ClassMeta::default());
                     }
@@ -496,7 +500,98 @@ impl Lower {
                 self.register_class(cd)?;
             }
         }
+        // Compute C-struct field offsets + total sizes. Iterates a few
+        // times to settle on nested struct sizes (forward references
+        // produce a 0 placeholder on the first pass).
+        for _ in 0..8 {
+            let mut updated = false;
+            for cid_idx in 0..self.classes.len() {
+                let layout_clone = self.classes[cid_idx].clone();
+                if !matches!(
+                    layout_clone.repr,
+                    crate::program::ClassRepr::CRepr
+                        | crate::program::ClassRepr::CPacked
+                        | crate::program::ClassRepr::CUnion
+                ) {
+                    continue;
+                }
+                let packed = matches!(layout_clone.repr, crate::program::ClassRepr::CPacked);
+                let is_union = matches!(layout_clone.repr, crate::program::ClassRepr::CUnion);
+                let mut offsets = Vec::with_capacity(layout_clone.fields.len());
+                let mut cur: i64 = 0;
+                let mut max_align: i64 = 1;
+                let mut max_size: i64 = 0;
+                for f in &layout_clone.fields {
+                    let (sz, al) = self.c_size_align_of(&f.ty);
+                    let align = if packed { 1 } else { al };
+                    if is_union {
+                        offsets.push(0);
+                        if sz > max_size { max_size = sz; }
+                        if align > max_align { max_align = align; }
+                    } else {
+                        if align > max_align { max_align = align; }
+                        cur = (cur + align - 1) / align * align;
+                        offsets.push(cur);
+                        cur += sz;
+                    }
+                }
+                let total = if is_union {
+                    let aligned = (max_size + max_align - 1) / max_align * max_align;
+                    aligned
+                } else {
+                    (cur + max_align - 1) / max_align * max_align
+                };
+                if self.classes[cid_idx].c_field_offsets != offsets
+                    || self.classes[cid_idx].c_size != total
+                {
+                    self.classes[cid_idx].c_field_offsets = offsets;
+                    self.classes[cid_idx].c_size = total;
+                    updated = true;
+                }
+            }
+            if !updated {
+                break;
+            }
+        }
         Ok(())
+    }
+
+    /// (size, alignment) of a MirTy when laid out as a C value.
+    fn c_size_align_of(&self, t: &MirTy) -> (i64, i64) {
+        match t {
+            MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => (1, 1),
+            MirTy::I16 | MirTy::U16 => (2, 2),
+            MirTy::I32 | MirTy::U32 | MirTy::F32 => (4, 4),
+            MirTy::I64 | MirTy::U64 | MirTy::F64 | MirTy::Size | MirTy::SSize => (8, 8),
+            MirTy::Object(cid) => {
+                let layout = &self.classes[cid.0 as usize];
+                if matches!(
+                    layout.repr,
+                    crate::program::ClassRepr::CRepr
+                        | crate::program::ClassRepr::CPacked
+                        | crate::program::ClassRepr::CUnion
+                ) {
+                    let s = layout.c_size;
+                    // Nested struct alignment = its max field alignment
+                    // (re-derived; cheap for small structs). Defaults
+                    // to 8 if unknown.
+                    let mut al: i64 = 1;
+                    for f in &layout.fields {
+                        let (_, fa) = self.c_size_align_of(&f.ty);
+                        if fa > al { al = fa; }
+                    }
+                    if matches!(layout.repr, crate::program::ClassRepr::CPacked) {
+                        (s.max(0), 1)
+                    } else {
+                        (s.max(0), al)
+                    }
+                } else {
+                    (8, 8) // ARC pointer
+                }
+            }
+            MirTy::RawPtr { .. } => (8, 8),
+            _ => (8, 8),
+        }
     }
 
     /// By-value `@extern(C) struct` ABI checker: refuse to register an
@@ -879,6 +974,8 @@ impl Lower {
                     drop_fn: FuncId(u32::MAX),
                     vtable: None,
                     repr: crate::program::ClassRepr::ArcObject,
+                    c_field_offsets: Vec::new(),
+                    c_size: 0,
                 });
                 id
             }

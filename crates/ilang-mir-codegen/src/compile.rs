@@ -3096,7 +3096,17 @@ fn lower_inst(
         Inst::Release { value } => {
             let aty = func.ty_of(*value).clone();
             match &aty {
-                MirTy::Object(_) => {
+                MirTy::Object(cid) => {
+                    // CRepr structs have no refcount header — skip.
+                    let layout = &prog.classes[cid.0 as usize];
+                    if matches!(
+                        layout.repr,
+                        ilang_mir::ClassRepr::CRepr
+                            | ilang_mir::ClassRepr::CPacked
+                            | ilang_mir::ClassRepr::CUnion
+                    ) {
+                        return Ok(());
+                    }
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.release_obj, fb.func);
                     fb.ins().call(r, &[av]);
@@ -3132,7 +3142,16 @@ fn lower_inst(
         Inst::Retain { value } => {
             let aty = func.ty_of(*value).clone();
             match &aty {
-                MirTy::Object(_) => {
+                MirTy::Object(cid) => {
+                    let layout = &prog.classes[cid.0 as usize];
+                    if matches!(
+                        layout.repr,
+                        ilang_mir::ClassRepr::CRepr
+                            | ilang_mir::ClassRepr::CPacked
+                            | ilang_mir::ClassRepr::CUnion
+                    ) {
+                        return Ok(());
+                    }
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_obj, fb.func);
                     fb.ins().call(r, &[av]);
@@ -3275,22 +3294,32 @@ fn lower_inst(
         }
         Inst::NewObject { dst, class, init_args, init } => {
             let layout = &prog.classes[class.0 as usize];
+            // `@extern(C) struct` lives flat with no header / rc:
+            // alloc exactly c_size bytes (zero-init by host_mir_alloc)
+            // and bind that pointer. No init / deinit / vtable.
+            if matches!(
+                layout.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            ) {
+                let size = fb.ins().iconst(types::I64, layout.c_size.max(1));
+                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                let alloc_call = fb.ins().call(alloc_ref, &[size]);
+                let ptr = fb.inst_results(alloc_call)[0];
+                vmap.insert(*dst, ptr);
+                return Ok(());
+            }
             let n_fields = layout.fields.len() as i64;
-            // Layout: [class_id: i64 | field0 | field1 | ...] — one
-            // i64 cell per field, 8-byte header for RTTI.
             let size = fb.ins().iconst(types::I64, OBJECT_HEADER_BYTES as i64 + n_fields * 8);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let alloc_call = fb.ins().call(alloc_ref, &[size]);
             let ptr = fb.inst_results(alloc_call)[0];
-            // Tag with class id so RTTI can recover the dynamic class,
-            // and refcount = 1 so Release can fire deinit exactly
-            // once when the last owner drops.
             let cid_v = fb.ins().iconst(types::I64, class.0 as i64);
             fb.ins().store(MemFlags::trusted(), cid_v, ptr, 0);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 8);
 
-            // If a user init exists (FuncId != u32::MAX), call it.
             if init.0 != u32::MAX {
                 let cid = *fn_ids.get(init).ok_or_else(|| {
                     CompileError::Other(format!("missing init fn id #{}", init.0))
@@ -3611,17 +3640,204 @@ fn lower_inst(
         }
         Inst::LoadField { dst, obj, field } => {
             let obj_v = vmap[obj];
-            let off = OBJECT_HEADER_BYTES + (field.0 as i32) * 8;
             let dst_ty_mir = func.ty_of(*dst).clone();
-            let raw = fb.ins().load(types::I64, MemFlags::trusted(), obj_v, off);
-            let v = reduce_from_i64(fb, &dst_ty_mir, raw);
-            vmap.insert(*dst, v);
+            let obj_ty_mir = func.ty_of(*obj).clone();
+            let crepr = if let MirTy::Object(cid) = &obj_ty_mir {
+                let layout = &prog.classes[cid.0 as usize];
+                if matches!(
+                    layout.repr,
+                    ilang_mir::ClassRepr::CRepr
+                        | ilang_mir::ClassRepr::CPacked
+                        | ilang_mir::ClassRepr::CUnion
+                ) {
+                    Some(layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(c_off) = crepr {
+                // CRepr: load with the field's natural type at the
+                // computed byte offset. Nested CRepr struct fields
+                // return the inline address.
+                let v = match elem_clif_type(&dst_ty_mir) {
+                    Some(elem_ct) if elem_ct == types::I8 => {
+                        fb.ins().load(types::I8, MemFlags::trusted(), obj_v, c_off as i32)
+                    }
+                    Some(elem_ct) if elem_ct == types::I16 => {
+                        fb.ins().load(types::I16, MemFlags::trusted(), obj_v, c_off as i32)
+                    }
+                    Some(elem_ct) if elem_ct == types::I32 => {
+                        fb.ins().load(types::I32, MemFlags::trusted(), obj_v, c_off as i32)
+                    }
+                    Some(elem_ct) if elem_ct == types::F32 => {
+                        fb.ins().load(types::F32, MemFlags::trusted(), obj_v, c_off as i32)
+                    }
+                    Some(elem_ct) if elem_ct == types::F64 => {
+                        fb.ins().load(types::F64, MemFlags::trusted(), obj_v, c_off as i32)
+                    }
+                    _ => {
+                        // Nested CRepr struct or i64-sized field —
+                        // produce the inline address (additive offset).
+                        if let MirTy::Object(inner_cid) = &dst_ty_mir {
+                            let inner_layout = &prog.classes[inner_cid.0 as usize];
+                            if matches!(
+                                inner_layout.repr,
+                                ilang_mir::ClassRepr::CRepr
+                                    | ilang_mir::ClassRepr::CPacked
+                                    | ilang_mir::ClassRepr::CUnion
+                            ) {
+                                let off_v = fb.ins().iconst(types::I64, c_off);
+                                fb.ins().iadd(obj_v, off_v)
+                            } else {
+                                fb.ins().load(
+                                    types::I64,
+                                    MemFlags::trusted(),
+                                    obj_v,
+                                    c_off as i32,
+                                )
+                            }
+                        } else {
+                            fb.ins().load(
+                                types::I64,
+                                MemFlags::trusted(),
+                                obj_v,
+                                c_off as i32,
+                            )
+                        }
+                    }
+                };
+                vmap.insert(*dst, v);
+            } else {
+                let off = OBJECT_HEADER_BYTES + (field.0 as i32) * 8;
+                let raw = fb.ins().load(types::I64, MemFlags::trusted(), obj_v, off);
+                let v = reduce_from_i64(fb, &dst_ty_mir, raw);
+                vmap.insert(*dst, v);
+            }
         }
         Inst::StoreField { obj, field, value } => {
             let obj_v = vmap[obj];
-            let off = OBJECT_HEADER_BYTES + (field.0 as i32) * 8;
-            let store_v = extend_to_i64(fb, vmap[value]);
-            fb.ins().store(MemFlags::trusted(), store_v, obj_v, off);
+            let obj_ty_mir = func.ty_of(*obj).clone();
+            let crepr = if let MirTy::Object(cid) = &obj_ty_mir {
+                let layout = &prog.classes[cid.0 as usize];
+                if matches!(
+                    layout.repr,
+                    ilang_mir::ClassRepr::CRepr
+                        | ilang_mir::ClassRepr::CPacked
+                        | ilang_mir::ClassRepr::CUnion
+                ) {
+                    Some(layout.c_field_offsets.get(field.0 as usize).copied().unwrap_or(0))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(c_off) = crepr {
+                let val_ty_mir = func.ty_of(*value).clone();
+                let raw = vmap[value];
+                // If the field type is itself a CRepr struct, copy
+                // the source struct's bytes into the destination's
+                // inline region rather than storing the pointer.
+                if let MirTy::Object(inner_cid) = &val_ty_mir {
+                    let inner_layout = &prog.classes[inner_cid.0 as usize];
+                    if matches!(
+                        inner_layout.repr,
+                        ilang_mir::ClassRepr::CRepr
+                            | ilang_mir::ClassRepr::CPacked
+                            | ilang_mir::ClassRepr::CUnion
+                    ) {
+                        let dst_addr = if c_off == 0 {
+                            obj_v
+                        } else {
+                            let off_v = fb.ins().iconst(types::I64, c_off);
+                            fb.ins().iadd(obj_v, off_v)
+                        };
+                        // Inline byte-wise copy of `c_size` bytes —
+                        // avoids depending on the JIT's memcpy libcall
+                        // resolution, which can race with how mir-codegen
+                        // declares its own symbols.
+                        let total = inner_layout.c_size.max(0);
+                        let mut copied = 0i64;
+                        while copied + 8 <= total {
+                            let v = fb.ins().load(
+                                types::I64,
+                                MemFlags::trusted(),
+                                raw,
+                                copied as i32,
+                            );
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                v,
+                                dst_addr,
+                                copied as i32,
+                            );
+                            copied += 8;
+                        }
+                        while copied + 4 <= total {
+                            let v = fb.ins().load(
+                                types::I32,
+                                MemFlags::trusted(),
+                                raw,
+                                copied as i32,
+                            );
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                v,
+                                dst_addr,
+                                copied as i32,
+                            );
+                            copied += 4;
+                        }
+                        while copied + 2 <= total {
+                            let v = fb.ins().load(
+                                types::I16,
+                                MemFlags::trusted(),
+                                raw,
+                                copied as i32,
+                            );
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                v,
+                                dst_addr,
+                                copied as i32,
+                            );
+                            copied += 2;
+                        }
+                        while copied < total {
+                            let v = fb.ins().load(
+                                types::I8,
+                                MemFlags::trusted(),
+                                raw,
+                                copied as i32,
+                            );
+                            fb.ins().store(
+                                MemFlags::trusted(),
+                                v,
+                                dst_addr,
+                                copied as i32,
+                            );
+                            copied += 1;
+                        }
+                        return Ok(());
+                    }
+                }
+                match elem_clif_type(&val_ty_mir) {
+                    Some(elem_ct) if elem_ct != types::I64 => {
+                        let truncated = ireduce_or_pass(fb, raw, elem_ct);
+                        fb.ins().store(MemFlags::trusted(), truncated, obj_v, c_off as i32);
+                    }
+                    _ => {
+                        let v_ext = extend_to_i64(fb, raw);
+                        fb.ins().store(MemFlags::trusted(), v_ext, obj_v, c_off as i32);
+                    }
+                }
+            } else {
+                let off = OBJECT_HEADER_BYTES + (field.0 as i32) * 8;
+                let store_v = extend_to_i64(fb, vmap[value]);
+                fb.ins().store(MemFlags::trusted(), store_v, obj_v, off);
+            }
         }
         Inst::LoadStatic { dst, slot } => {
             let did = *static_data.get(slot).ok_or_else(|| {

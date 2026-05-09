@@ -109,6 +109,12 @@ pub struct ClassLayout {
     /// `@extern(C)` C-compat layout marker. When set, the class has C
     /// struct semantics: natural alignment, no ARC header, no methods.
     pub repr: ClassRepr,
+    /// For `CRepr` / `CPacked` / `CUnion` classes: byte offset of each
+    /// field within the struct. `Vec::new()` for ARC-managed classes.
+    pub c_field_offsets: Vec<i64>,
+    /// For `CRepr` / `CPacked` / `CUnion` classes: total byte size of
+    /// the struct. Zero for ARC-managed classes.
+    pub c_size: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
