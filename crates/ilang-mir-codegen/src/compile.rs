@@ -1549,9 +1549,9 @@ extern "C" fn host_release_optional(opt_ptr: i64) {
         return;
     }
     let tag = unsafe { *((opt_ptr + 16) as *const i64) };
-    if tag == 1 {
+    if tag != KIND_NONE {
         let inner = unsafe { *(opt_ptr as *const i64) };
-        release_object(inner);
+        release_by_kind(inner, tag);
     }
     // Free the 24-byte Optional cell. The earlier some(_) over-
     // release concern was resolved by 192b91d (Some/Break/EnumCtor
@@ -1596,10 +1596,15 @@ extern "C" fn host_release_array(arr_ptr: i64) {
     let cap = unsafe { *((arr_ptr + 8) as *const i64) };
     let data_ptr = unsafe { *((arr_ptr + 16) as *const i64) };
     let stride = unsafe { *((arr_ptr + 40) as *const i64) };
-    if tag == 1 {
+    // Cascade-release each stored element by its kind. The tag was
+    // 0/1 ("Object or not") under the old scheme; it now carries
+    // the full KIND_* discriminant so Array<Array<...>> /
+    // Array<Optional<...>> / Array<Str> reclaim their inner cells
+    // too. KIND_NONE skips the loop (primitive elements).
+    if tag != KIND_NONE {
         for i in 0..len {
             let elem = unsafe { *((data_ptr + i * 8) as *const i64) };
-            release_object(elem);
+            release_by_kind(elem, tag);
         }
     }
     // Free the data buffer + the 48-byte header. Both came from
@@ -1700,6 +1705,53 @@ fn release_value_by_kind(raw: i64, kind: &PrintKind) {
             }
         }
         _ => {}
+    }
+}
+
+// Element / inner-value kind tags used by Array, Optional and (in
+// the future) Tuple cells to dispatch the right release function
+// at cascade time. NewArray / NewOptional codegen writes these
+// into the heap header; `release_by_kind` below reads back.
+const KIND_NONE: i64 = 0;
+const KIND_OBJECT: i64 = 1;
+const KIND_ARRAY: i64 = 2;
+const KIND_OPTIONAL: i64 = 3;
+const KIND_TUPLE: i64 = 4;
+const KIND_MAP: i64 = 5;
+const KIND_CLOSURE: i64 = 6;
+const KIND_STR: i64 = 7;
+
+/// Compute the kind tag for a static MirTy. Used at compile time
+/// when a heap container (Array / Optional) emits its header.
+fn kind_tag_of(ty: &MirTy) -> i64 {
+    match ty {
+        MirTy::Object(_) => KIND_OBJECT,
+        MirTy::Array { .. } => KIND_ARRAY,
+        MirTy::Optional(_) => KIND_OPTIONAL,
+        MirTy::Tuple(_) => KIND_TUPLE,
+        MirTy::Map { .. } => KIND_MAP,
+        MirTy::Fn(_) => KIND_CLOSURE,
+        MirTy::Str => KIND_STR,
+        _ => KIND_NONE,
+    }
+}
+
+/// Dispatch release on a runtime value given its static kind.
+/// Recurses through nested containers (Array of Array, Optional
+/// of Array, etc.) so deep cascades reclaim every level.
+fn release_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_OBJECT => release_object(ptr),
+        KIND_ARRAY => host_release_array(ptr),
+        KIND_OPTIONAL => host_release_optional(ptr),
+        KIND_TUPLE => host_release_tuple(ptr),
+        KIND_MAP => host_release_map(ptr),
+        KIND_CLOSURE => host_release_closure(ptr),
+        KIND_STR => host_release_string(ptr),
+        _ => {} // KIND_NONE / unknown — primitive, no cascade.
     }
 }
 
@@ -4760,7 +4812,7 @@ fn lower_inst(
             fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 24);
-            let tag = if matches!(elem, MirTy::Object(_)) { 1 } else { 0 };
+            let tag = kind_tag_of(elem);
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
@@ -4797,7 +4849,7 @@ fn lower_inst(
             fb.ins().store(MemFlags::trusted(), data_ptr, ptr, 16);
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 24);
-            let tag = if matches!(elem, MirTy::Object(_)) { 1 } else { 0 };
+            let tag = kind_tag_of(elem);
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 32);
             let stride_v = fb.ins().iconst(types::I64, stride_bytes);
@@ -5078,12 +5130,14 @@ fn lower_inst(
             let one = fb.ins().iconst(types::I64, 1);
             fb.ins().store(MemFlags::trusted(), one, ptr, 8);
             // Tag from the dst's static type — kind_tag mirrors the
-            // Array convention: 1 = inner is Object (cascade).
+            // Array convention: KIND_* discriminant of the inner
+            // type so host_release_optional can dispatch the right
+            // release fn at cascade time.
             let dst_ty = func.ty_of(*dst).clone();
             let tag = if let MirTy::Optional(inner) = &dst_ty {
-                if matches!(**inner, MirTy::Object(_)) { 1 } else { 0 }
+                kind_tag_of(inner)
             } else {
-                0
+                KIND_NONE
             };
             let tag_v = fb.ins().iconst(types::I64, tag);
             fb.ins().store(MemFlags::trusted(), tag_v, ptr, 16);

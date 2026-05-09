@@ -1,12 +1,11 @@
-// `i64[][]` (array of arrays) — the outer array's drop must
-// cascade-release every inner array, otherwise the inner
-// arrays' headers + data buffers leak permanently.
+// `i64[][]` (array of arrays) — the outer array's drop cascades
+// release on every inner array, so nothing leaks.
 //
-// `host_release_array` only walks the inner pointers when the
-// kind_tag header word is 1 (set by NewArray when the static
-// element type is an Object). For Array-of-Array element types,
-// the tag is currently 0, so nothing cascades and only the outer
-// array's own header + data are freed — every inner array leaks.
+// `host_release_array` reads the kind_tag header word and
+// dispatches to the matching release fn (KIND_ARRAY →
+// host_release_array recursively, KIND_OPTIONAL →
+// host_release_optional, etc.). NewArray / NewArrayEmpty set
+// the tag from the element MirTy via `kind_tag_of`.
 //
 // jit: skip
 
@@ -25,8 +24,6 @@ while i < 1000 {
 let after = test.liveAllocBytes()
 let grew = after - baseline
 
-// Loose threshold for documentation: each iter would leak two
-// inner arrays at ≥ 48 + cap*8 bytes each (cap rounds up to 4),
-// so ~160 bytes / iter × 1000 ≈ 160 KB. Tighten to < 1024 once
-// host_release_array's cascade also handles Array-of-Array.
-test.expectTrue(grew < 524288)
+// With the cascade in place, growth is bounded by allocator
+// overhead. Pre-fix would leak ~160 KB.
+test.expectTrue(grew < 1024)
