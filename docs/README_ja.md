@@ -22,6 +22,39 @@ fn fib(n: i64): i64 {
 console.log(fib(20))    // → 6765
 ```
 
+## 🔬 リーク検出が言語の標準機能
+
+メモリのリークチェックは、多くの言語で外部ツール
+(Valgrind / ASan / Xcode Instruments / heap snapshot)が必要です。
+ilang は標準 `test` モジュールにアロケータ計測を組み込んでいて、
+リーク検証は **普通の `expect` と同じ書き味** で書けます:
+
+```rust
+use test
+
+let baseline = test.liveAllocBytes()
+
+let i = 0
+while i < 1000 {
+    let _ = "x" + i.toString()   // 中間文字列、毎回 heap 確保
+    i = i + 1
+}
+
+// ループ中で確保された中間ヒープはすべて解放されているはず。
+test.expectTrue(test.liveAllocBytes() - baseline < 1024)
+```
+
+`test.liveAllocBytes()` / `liveAllocCount()` / `liveStringCount()`
+はランタイムが現在保持している量を返します。
+[`tests/programs/05_edge_cases/leak_*.il`](../crates/ilang-cli/tests/programs/05_edge_cases/)
+にはこのパターンで構成毎の「メモリ契約」を固定する fixture が
+30 件以上あり、文字列連結 / 配列 push / クロージャセル /
+enum payload / Map 削除 / weak upgrade などを網羅しています。
+
+ilang の中で他言語と最も差別化できる部分はおそらくここです。
+すべての PR が leak テストを自動で走らせる — 外部ツールも、
+サンプリングプロファイラも、環境設定も不要です。
+
 ---
 
 ## ✨ ビジョン

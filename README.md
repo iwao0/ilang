@@ -23,6 +23,39 @@ fn fib(n: i64): i64 {
 console.log(fib(20))    // → 6765
 ```
 
+## 🔬 Leak checks are first-class
+
+Most languages need a separate tool for memory hygiene —
+Valgrind, ASan, Xcode Instruments, a heap-snapshot diff. ilang
+exposes the allocator counter through the standard `test`
+module, so a leak assertion is *just another `expect`*:
+
+```rust
+use test
+
+let baseline = test.liveAllocBytes()
+
+let i = 0
+while i < 1000 {
+    let _ = "x" + i.toString()   // intermediate strings, fresh heap
+    i = i + 1
+}
+
+// All that intermediate heap should be reclaimed by now.
+test.expectTrue(test.liveAllocBytes() - baseline < 1024)
+```
+
+`test.liveAllocBytes()` / `liveAllocCount()` / `liveStringCount()`
+report what the runtime is currently holding. The fixture suite
+under [`tests/programs/05_edge_cases/leak_*.il`](crates/ilang-cli/tests/programs/05_edge_cases/)
+uses this pattern to lock down per-construct memory contracts —
+30+ fixtures across string concat, array push, closure cells,
+enum payloads, map deletions, weak upgrades, and more.
+
+This is the part of ilang we think is genuinely uncommon: every
+PR runs its leak tests automatically, no external tooling, no
+sampling profiler, no environment setup.
+
 ---
 
 ## ✨ Vision
