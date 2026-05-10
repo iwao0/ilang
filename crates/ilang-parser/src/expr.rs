@@ -118,6 +118,7 @@ impl<'a> Parser<'a> {
                             obj,
                             field: name,
                             value: Box::new(value),
+                            is_init: false,
                         },
                         lhs_span,
                     ),

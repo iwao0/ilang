@@ -1132,10 +1132,11 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             target,
             value: Box::new(rewrite_expr(*value, ctx)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: Box::new(rewrite_expr(*obj, ctx)),
             field,
             value: Box::new(rewrite_expr(*value, ctx)),
+            is_init,
         },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: Box::new(rewrite_expr(*obj, ctx)),
@@ -1179,6 +1180,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                         obj: Box::new(Expr::new(ExprKind::Var(tmp), span)),
                         field: fname,
                         value: Box::new(rewrite_expr(fval, ctx)),
+                        is_init: false,
                     },
                     span,
                 );

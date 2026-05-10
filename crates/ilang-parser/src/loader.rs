@@ -1282,11 +1282,10 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             target,
             value: Box::new(prefix_expr(*value, prefix)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: Box::new(prefix_expr(*obj, prefix)),
             field,
-            value: Box::new(prefix_expr(*value, prefix)),
-        },
+            value: Box::new(prefix_expr(*value, prefix)), is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: Box::new(prefix_expr(*obj, prefix)),
             index: Box::new(prefix_expr(*index, prefix)),
@@ -1420,6 +1419,21 @@ fn is_builtin_type(name: &str) -> bool {
 
 // ─── const substitution ────────────────────────────────────────────────
 
+/// Build a typed zero-default `Expr` for the placeholder value of
+/// a runtime-init static const. The declared type drives the
+/// shape: numeric → `Int(0)` (or `Float(0.0)`), `bool` → `false`,
+/// `string` → empty literal. Other types fall back to `Int(0)` —
+/// the runtime init overwrites it before the user can read it.
+fn zero_default_for(ty: &Type, span: Span) -> Expr {
+    let kind = match ty {
+        Type::F32 | Type::F64 => ExprKind::Float(0.0),
+        Type::Bool => ExprKind::Bool(false),
+        Type::Str => ExprKind::Str(String::new()),
+        _ => ExprKind::Int(0),
+    };
+    Expr::new(kind, span)
+}
+
 /// Walk the merged program collecting every `Item::Const`, then
 /// replace `Var(const_name)` references everywhere with the literal
 /// RHS. Removes the Item::Const entries from the output. Consts are
@@ -1513,18 +1527,43 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     // `__main` startup, so the AST value isn't read for them.
     for item in items_no_const.iter_mut() {
         if let Item::Class(c) = item {
+            let class_name = c.name.clone();
             for sf in c.static_fields.iter_mut() {
                 if matches!(sf.value.kind, ExprKind::Array(_)) {
                     continue;
                 }
-                let folded = fold_const_expr(&sf.value, &consts).map_err(|reason| {
-                    LoadError::BadConst {
-                        name: format!("{}.{}", c.name, sf.name).into(),
-                        reason,
-                        span: sf.value.span,
+                match fold_const_expr(&sf.value, &consts) {
+                    Ok(folded) => {
+                        sf.value = folded;
                     }
-                })?;
-                sf.value = folded;
+                    Err(_reason) => {
+                        // Non-foldable initializer — replace the slot's
+                        // declared init with a typed zero default so the
+                        // JIT can still lay it out, and emit a runtime
+                        // assignment that fills in the real value at
+                        // program startup. `is_init: true` exempts the
+                        // synthetic write from the "cannot assign to
+                        // const static field" rule.
+                        let span = sf.value.span;
+                        let value_expr =
+                            std::mem::replace(&mut sf.value, zero_default_for(&sf.ty, span));
+                        runtime_consts.push(ilang_ast::Stmt {
+                            kind: ilang_ast::StmtKind::Expr(Expr::new(
+                                ExprKind::AssignField {
+                                    obj: Box::new(Expr::new(
+                                        ExprKind::Var(class_name.clone()),
+                                        span,
+                                    )),
+                                    field: sf.name.clone(),
+                                    value: Box::new(value_expr),
+                                    is_init: true,
+                                },
+                                span,
+                            )),
+                            span,
+                        });
+                    }
+                }
             }
         }
     }
@@ -2010,11 +2049,10 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             target,
             value: Box::new(subst_const_expr(*value, ctx)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: Box::new(subst_const_expr(*obj, ctx)),
             field,
-            value: Box::new(subst_const_expr(*value, ctx)),
-        },
+            value: Box::new(subst_const_expr(*value, ctx)), is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: Box::new(subst_const_expr(*obj, ctx)),
             index: Box::new(subst_const_expr(*index, ctx)),

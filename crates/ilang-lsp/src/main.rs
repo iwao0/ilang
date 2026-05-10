@@ -4382,7 +4382,7 @@ impl<'a> Walker<'a> {
                 }
                 self.walk_expr(value, scope, this_class);
             }
-            ExprKind::AssignField { obj, field, value } => {
+            ExprKind::AssignField { obj, field, value, is_init: _ } => {
                 self.walk_expr(obj, scope, this_class);
                 if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {

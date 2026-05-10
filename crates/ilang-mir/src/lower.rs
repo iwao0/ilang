@@ -3892,7 +3892,7 @@ impl<'a> BodyCx<'a> {
                 }
                 self.lower_new(*class, args, *init_method)
             }
-            ExprKind::AssignField { obj, field, value } => {
+            ExprKind::AssignField { obj, field, value, is_init } => {
                 // `ClassName.field = v` on a static slot.
                 if let ExprKind::Var(maybe_class) = &obj.kind {
                     if self.lookup_var(*maybe_class).is_none() {
@@ -3906,7 +3906,7 @@ impl<'a> BodyCx<'a> {
                             let meta = self.class_meta.get(&cid).unwrap();
                             if let Some(&slot) = meta.static_slots.get(field) {
                                 let s = self.statics_by_id(slot);
-                                if s.is_const {
+                                if s.is_const && !*is_init {
                                     return Err(LowerError::Other(format!(
                                         "cannot assign to const {field}"
                                     )));

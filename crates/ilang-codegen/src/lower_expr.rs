@@ -643,7 +643,7 @@ pub(crate) fn lower_expr(
                 span: e.span,
             })
         }
-        ExprKind::AssignField { obj, field, value } => {
+        ExprKind::AssignField { obj, field, value, is_init: _ } => {
             // Static field write: `ClassName.field = v`.
             if let ExprKind::Var(rname) = &obj.kind {
                 if !lc.env.bindings.contains_key(rname) {

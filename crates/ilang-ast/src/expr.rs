@@ -152,6 +152,13 @@ pub enum ExprKind {
         obj: Box<Expr>,
         field: Symbol,
         value: Box<Expr>,
+        /// `true` for synthetic loader-emitted writes that
+        /// initialise a `const` static field whose declared
+        /// initializer wasn't compile-time constant. The type
+        /// checker exempts these from the
+        /// "cannot assign to const static field" rule. Always
+        /// `false` for parser-built assignments.
+        is_init: bool,
     },
     /// Numeric (or `bool`-to-int) cast: `expr as Type`.
     Cast {

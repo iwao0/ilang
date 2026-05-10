@@ -4162,14 +4162,14 @@ impl TypeChecker {
                 self.validate_type(ty, span, &[])?;
                 Ok(Type::Optional(Box::new(ty.clone())))
             }
-            ExprKind::AssignField { obj, field, value } => {
+            ExprKind::AssignField { obj, field, value, is_init } => {
                 // Static field write: `ClassName.field = v`.
                 if let ExprKind::Var(rname) = &obj.kind {
                     let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
                     if !is_local_shadow {
                         if let Some(cls) = self.classes.get(&rname) {
                             if let Some(ft) = cls.static_fields.get(field).cloned() {
-                                if cls.static_const_fields.contains(field) {
+                                if cls.static_const_fields.contains(field) && !*is_init {
                                     return Err(TypeError::Unsupported {
                                         what: format!(
                                             "cannot assign to const static field {:?}.{:?}",

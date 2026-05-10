@@ -595,11 +595,10 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             target: target.clone(),
             value: Box::new(hoist_in_expr(value, ctx)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: obj.clone(),
             field: field.clone(),
-            value: Box::new(hoist_in_expr(value, ctx)),
-        },
+            value: Box::new(hoist_in_expr(value, ctx)), is_init: *is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: obj.clone(),
             index: index.clone(),
@@ -1312,11 +1311,10 @@ fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
             target: target.clone(),
             value: Box::new(subst_expr(value, params, args)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: obj.clone(),
             field: field.clone(),
-            value: Box::new(subst_expr(value, params, args)),
-        },
+            value: Box::new(subst_expr(value, params, args)), is_init: *is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: obj.clone(),
             index: index.clone(),
@@ -1666,11 +1664,10 @@ fn rewrite_expr(e: &Expr) -> Expr {
             target: target.clone(),
             value: Box::new(rewrite_expr(value)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: obj.clone(),
             field: field.clone(),
-            value: Box::new(rewrite_expr(value)),
-        },
+            value: Box::new(rewrite_expr(value)), is_init: *is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: obj.clone(),
             index: index.clone(),
@@ -2588,11 +2585,10 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             target: target.clone(),
             value: Box::new(f(value)),
         },
-        ExprKind::AssignField { obj, field, value } => ExprKind::AssignField {
+        ExprKind::AssignField { obj, field, value, is_init } => ExprKind::AssignField {
             obj: obj.clone(),
             field: field.clone(),
-            value: Box::new(f(value)),
-        },
+            value: Box::new(f(value)), is_init: *is_init },
         ExprKind::AssignIndex { obj, index, value } => ExprKind::AssignIndex {
             obj: obj.clone(),
             index: index.clone(),
