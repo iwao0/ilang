@@ -209,7 +209,7 @@ pub enum SystemCursor: i32 {
             this.owned = true
         }
 
-        pub deinit() {
+        deinit() {
             if this.owned && this.handle != 0 {
                 SDL_FreeCursor(this.handle as *SDL_Cursor)
             }

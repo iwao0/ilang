@@ -445,7 +445,7 @@ pub enum RendererFlip: i32 {
             }
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_DestroyRenderer(this.handle as *SDL_Renderer)
             }
@@ -1089,7 +1089,7 @@ pub enum RendererFlip: i32 {
             }
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_DestroyTexture(this.handle as *SDL_Texture)
             }

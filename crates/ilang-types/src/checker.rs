@@ -1772,6 +1772,16 @@ impl TypeChecker {
             {
                 return Err(TypeError::BadDeinitSignature { span: m.span });
             }
+            // `pub deinit` makes no sense — the destructor is invoked by
+            // the ARC runtime when the rc reaches zero, never by user
+            // code. Marking it `pub` would imply external callability
+            // that doesn't exist; reject at the type-check layer.
+            if m.name == "deinit" && m.is_pub {
+                return Err(TypeError::Unsupported {
+                    what: "`deinit` cannot be marked `pub` — it is invoked by the ARC runtime, never by external callers".into(),
+                    span: m.span,
+                });
+            }
             self.check_fn(m, Some(c.name))?;
         }
         // Init coverage: every field whose type has no safe runtime

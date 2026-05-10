@@ -197,7 +197,7 @@ pub enum AudioStatus: i32 {
             )
         }
 
-        pub deinit() {
+        deinit() {
             if this.id != 0 {
                 SDL_CloseAudioDevice(this.id)
             }
@@ -358,7 +358,7 @@ pub enum AudioStatus: i32 {
             this.handle = p as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_FreeAudioStream(this.handle as *SDL_AudioStream)
             }

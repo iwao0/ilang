@@ -248,7 +248,7 @@ pub enum MixInitFlag: i32 {
             this.handle = Mix_LoadWAV(cstrFromString(path)) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 Mix_FreeChunk(this.handle as *Mix_Chunk)
             }
@@ -311,7 +311,7 @@ pub enum MixInitFlag: i32 {
             this.handle = Mix_LoadMUS(cstrFromString(path)) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 Mix_FreeMusic(this.handle as *Mix_Music)
             }

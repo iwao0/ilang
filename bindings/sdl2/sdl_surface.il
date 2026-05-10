@@ -246,7 +246,7 @@ pub enum BlendMode: i32 {
             ) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_FreeSurface(this.handle as *SDL_Surface)
             }
@@ -466,7 +466,7 @@ pub enum BlendMode: i32 {
             this.handle = SDL_AllocPalette(ncolors) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_FreePalette(this.handle as *SDL_Palette)
             }

@@ -200,7 +200,7 @@ pub enum ControllerType: i32 {
             }
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_GameControllerClose(this.handle as *SDL_GameController)
             }

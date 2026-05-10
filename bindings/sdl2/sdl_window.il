@@ -517,7 +517,7 @@ pub enum SubSystem: u32 {
             this.handle = win as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_DestroyWindow(this.handle as *SDL_Window)
             }

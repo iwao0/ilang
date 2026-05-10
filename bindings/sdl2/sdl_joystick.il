@@ -104,7 +104,7 @@ pub enum EventState: i32 {
             this.handle = SDL_JoystickOpen(deviceIndex) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 SDL_JoystickClose(this.handle as *SDL_Joystick)
             }

@@ -157,7 +157,7 @@ pub class GlyphMetrics {
             this.handle = TTF_OpenFont(cstrFromString(path), ptsize) as i64
         }
 
-        pub deinit() {
+        deinit() {
             if this.handle != 0 {
                 TTF_CloseFont(this.handle as *TTF_Font)
             }
