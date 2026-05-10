@@ -100,6 +100,13 @@ fn emits_object_for_console_log_multi_arg() {
 }
 
 #[test]
+fn emits_object_for_integer_division() {
+    // Division compiles even though div-by-zero panics at runtime —
+    // we just verify the AOT pass emits something.
+    expect_object("20 / 4");
+}
+
+#[test]
 fn rejects_classes_in_subset() {
     let src = r#"
         class P { x: i64 }

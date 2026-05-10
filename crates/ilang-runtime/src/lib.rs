@@ -39,3 +39,29 @@ pub extern "C" fn __print_newline() {
     let mut out = std::io::stdout().lock();
     let _ = out.write_all(b"\n");
 }
+
+/// Runtime panic for AOT-emitted code. `msg` points at a
+/// NUL-terminated C string laid out by the codegen as a data symbol.
+/// Prints to stderr and aborts. Used for integer divide-by-zero (and,
+/// later, out-of-bounds / unwrap-of-none).
+#[unsafe(no_mangle)]
+pub extern "C" fn __ilang_panic(msg: *const u8) -> ! {
+    use std::io::Write;
+    // Walk to NUL. Safe to read up to the first 0 byte since the
+    // codegen always emits a terminating NUL after the message body.
+    let mut len = 0usize;
+    if !msg.is_null() {
+        while unsafe { *msg.add(len) } != 0 {
+            len += 1;
+        }
+    }
+    let bytes = if msg.is_null() {
+        b"panic"[..].to_vec()
+    } else {
+        unsafe { std::slice::from_raw_parts(msg, len) }.to_vec()
+    };
+    let mut err = std::io::stderr().lock();
+    let _ = err.write_all(&bytes);
+    let _ = err.write_all(b"\n");
+    std::process::abort()
+}

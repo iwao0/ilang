@@ -16,12 +16,12 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::{AbiParam, Function as ClifFunc, InstBuilder, UserFuncName};
 use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataDescription, DataId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
 use ilang_mir::{
-    FuncId as MirFuncId, FuncRef, FunctionKind, Inst, MirConst, MirTy, Program, Terminator,
-    UnOp, ValueId,
+    BinOp, FuncId as MirFuncId, FuncRef, FunctionKind, Inst, MirConst, MirTy, Program,
+    Terminator, UnOp, ValueId,
 };
 
 use crate::compile::lower_binop;
@@ -81,12 +81,27 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     let print_f64 = declare_print_unary_f64(&mut module, "__print_f64")?;
     let print_space = declare_print_void(&mut module, "__print_space")?;
     let print_newline = declare_print_void(&mut module, "__print_newline")?;
+    // `__ilang_panic(msg: *const u8) -> !`. Cranelift has no never
+    // type, so we declare it as `() -> ()` and emit a `trap` after
+    // every call site to keep IR validation happy.
+    let panic_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__ilang_panic", Linkage::Import, &sig)?
+    };
+    let panic_msg_div = declare_cstr_data(&mut module, "__ilang_panic_msg_div",
+        "panic: division by zero")?;
+    let panic_msg_mod = declare_cstr_data(&mut module, "__ilang_panic_msg_mod",
+        "panic: modulo by zero / division by zero")?;
     let runtime = RuntimeIds {
         print_int,
         print_bool,
         print_f64,
         print_space,
         print_newline,
+        panic_fn: panic_id,
+        panic_msg_div,
+        panic_msg_mod,
     };
 
     // Declare every Local function up front so call sites resolve in
@@ -210,6 +225,27 @@ struct RuntimeIds {
     print_f64: cranelift_module::FuncId,
     print_space: cranelift_module::FuncId,
     print_newline: cranelift_module::FuncId,
+    /// `__ilang_panic(msg)` — prints `msg` (NUL-terminated) to stderr
+    /// and aborts. Called for integer divide-by-zero etc.
+    panic_fn: cranelift_module::FuncId,
+    panic_msg_div: DataId,
+    panic_msg_mod: DataId,
+}
+
+fn declare_cstr_data(
+    module: &mut ObjectModule,
+    sym: &str,
+    text: &str,
+) -> Result<DataId, AotError> {
+    // Plain `[<bytes>\0]` — no length prefix, so the runtime walks to
+    // NUL. Aligned to 1 byte; the data is read sequentially as bytes.
+    let mut bytes = text.as_bytes().to_vec();
+    bytes.push(0);
+    let mut desc = DataDescription::new();
+    desc.define(bytes.into_boxed_slice());
+    let did = module.declare_data(sym, Linkage::Local, false, false)?;
+    module.define_data(did, &desc).map_err(AotError::Module)?;
+    Ok(did)
 }
 
 fn declare_print_unary_i64(
@@ -374,8 +410,17 @@ fn lower_inst_minimal(
         Inst::BinOp { dst, op, lhs, rhs } => {
             let lv = vmap[lhs];
             let rv = vmap[rhs];
-            // Integer division by zero is left as undefined for now —
-            // panic emission needs runtime symbols we don't link yet.
+            if matches!(
+                op,
+                BinOp::IDivS | BinOp::IDivU | BinOp::IRemS | BinOp::IRemU
+            ) {
+                let msg = if matches!(op, BinOp::IRemS | BinOp::IRemU) {
+                    runtime.panic_msg_mod
+                } else {
+                    runtime.panic_msg_div
+                };
+                emit_aot_panic_if_zero(fb, module, runtime.panic_fn, msg, rv);
+            }
             let v = lower_binop(fb, *op, lv, rv);
             vmap.insert(*dst, v);
         }
@@ -504,6 +549,37 @@ fn lower_term(
             "Switch terminator (use if/else for now)".into(),
         )),
     }
+}
+
+/// Emit `if rv == 0 { __ilang_panic(msg); trap } else { fallthrough }`.
+/// Used for integer `/` and `%` to give a clean abort instead of a
+/// hardware exception. The trap after the panic call is unreachable
+/// (panic is divergent) but Cranelift IR requires a terminator on the
+/// block, and `panic` is declared as a regular `() -> ()` import.
+fn emit_aot_panic_if_zero(
+    fb: &mut ClifFnBuilder,
+    module: &mut ObjectModule,
+    panic_fn: cranelift_module::FuncId,
+    msg: DataId,
+    rv: Value,
+) {
+    let rv_ty = fb.func.dfg.value_type(rv);
+    let zero = fb.ins().iconst(rv_ty, 0);
+    let is_zero = fb.ins().icmp(IntCC::Equal, rv, zero);
+    let panic_block = fb.create_block();
+    let cont_block = fb.create_block();
+    fb.ins().brif(is_zero, panic_block, &[], cont_block, &[]);
+
+    fb.switch_to_block(panic_block);
+    fb.seal_block(panic_block);
+    let gv = module.declare_data_in_func(msg, fb.func);
+    let addr = fb.ins().symbol_value(types::I64, gv);
+    let fr = module.declare_func_in_func(panic_fn, fb.func);
+    fb.ins().call(fr, &[addr]);
+    fb.ins().trap(TrapCode::user(1).expect("trap code 1"));
+
+    fb.switch_to_block(cont_block);
+    fb.seal_block(cont_block);
 }
 
 /// Lower a `console.log(<a>, <b>, …)` call. Each printable arg goes
