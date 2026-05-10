@@ -731,6 +731,23 @@ impl Lower {
                 }
             }
             MirTy::RawPtr { .. } => (8, 8),
+            // Unit-only enums marshal as their underlying repr int
+            // (`enum X: u16` → 2 bytes, etc.) so they line up with
+            // C `enum`-typed struct fields. Payload-bearing enums
+            // are heap-allocated (`NewEnum`) — keep the 8/8 default
+            // since they aren't meaningful inside a C ABI struct.
+            MirTy::Enum(eid) => {
+                let layout = &self.enums[eid.0 as usize];
+                let unit_only = layout
+                    .variants
+                    .iter()
+                    .all(|v| matches!(v.payload, crate::program::VariantPayload::Unit));
+                if unit_only {
+                    self.c_size_align_of(&layout.repr)
+                } else {
+                    (8, 8)
+                }
+            }
             _ => (8, 8),
         }
     }

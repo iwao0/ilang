@@ -3338,6 +3338,30 @@ fn elem_clif_type(t: &MirTy) -> Option<cranelift::prelude::Type> {
     }
 }
 
+/// `elem_clif_type` extended to see through unit-only enums. A
+/// `MirTy::Enum` is reduced to its underlying repr (`u8`/`u16`/
+/// `u32`/`i32`/...) so CRepr struct fields typed against an enum
+/// load/store at the right width — without this, the field falls
+/// into the `i64` catch-all and reads/writes 8 bytes at the
+/// (already u16-sized) offset, corrupting subsequent fields.
+/// Payload-bearing enums stay opaque (they're heap pointers).
+fn celem_clif_type_with_enum(
+    prog: &ilang_mir::Program,
+    t: &MirTy,
+) -> Option<cranelift::prelude::Type> {
+    if let MirTy::Enum(eid) = t {
+        let layout = &prog.enums[eid.0 as usize];
+        let unit_only = layout
+            .variants
+            .iter()
+            .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
+        if unit_only {
+            return elem_clif_type(&layout.repr);
+        }
+    }
+    elem_clif_type(t)
+}
+
 /// Truncate a Cranelift value to fit the target type if it is wider;
 /// otherwise pass through (assumes the source already matches).
 fn ireduce_or_pass(
@@ -5594,6 +5618,14 @@ fn lower_inst(
                 // CRepr: load with the field's natural type at the
                 // computed byte offset. Nested CRepr struct fields
                 // return the inline address.
+                //
+                // Enum-typed fields keep the i64 catch-all here on
+                // purpose — downstream `EnumTag` lowers as a load
+                // from the SSA value treated as a heap-box pointer,
+                // so narrowing to the enum's underlying repr would
+                // produce a mis-shaped SSA value. Stores still
+                // narrow correctly via `celem_clif_type_with_enum`
+                // below so the C ABI sees the right field width.
                 let v = match elem_clif_type(&dst_ty_mir) {
                     Some(elem_ct) if elem_ct == types::I8 => {
                         fb.ins().load(types::I8, MemFlags::trusted(), obj_v, c_off as i32)
@@ -5795,7 +5827,25 @@ fn lower_inst(
                         return Ok(());
                     }
                 }
-                match elem_clif_type(&val_ty_mir) {
+                // Unit-only enum field: the SSA value is a heap-box
+                // pointer; the C struct slot wants the underlying
+                // discriminant. Load tag from the box (offset 0) and
+                // narrow to the field's repr width before storing.
+                let raw = if let MirTy::Enum(eid) = &val_ty_mir {
+                    let layout = &prog.enums[eid.0 as usize];
+                    let unit_only = layout
+                        .variants
+                        .iter()
+                        .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
+                    if unit_only {
+                        fb.ins().load(types::I64, MemFlags::trusted(), raw, 0)
+                    } else {
+                        raw
+                    }
+                } else {
+                    raw
+                };
+                match celem_clif_type_with_enum(prog, &val_ty_mir) {
                     Some(elem_ct) if elem_ct != types::I64 => {
                         let truncated = ireduce_or_pass(fb, raw, elem_ct);
                         fb.ins().store(MemFlags::trusted(), truncated, obj_v, c_off as i32);
