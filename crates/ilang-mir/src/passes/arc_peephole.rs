@@ -5,12 +5,13 @@
 //!
 //! - **Intra-block** (M2-α): `Retain v` and `Release v` in the same
 //!   block with only safe-to-cross insts between them.
-//! - **Extended-BB** (M2-β step 1): `Retain v` near the end of `B1`,
-//!   `B1` ends with an unconditional `Br B2(.. v ..)`, `B2` has
-//!   exactly one predecessor (`B1`), and `Release w` near the start
-//!   of `B2` where `w` is the block-param that received `v`. The
-//!   block-arg/param plumbing stays untouched; only the two ARC
-//!   insts are removed.
+//! - **Extended-BB chain** (M2-β step 1+2): `Retain v` near the end
+//!   of some block `B0`, with `B0` ending in an unconditional `Br`.
+//!   We follow the unique-predecessor chain `B0 → B1 → … → Bn`,
+//!   renaming `v` through each block's arg→param mapping, scanning
+//!   each block's body left-to-right for the matching `Release`.
+//!   Intermediate blocks must be entirely safe-to-cross. Block-arg
+//!   plumbing stays untouched; only the two ARC insts go away.
 //!
 //! Both patterns share the same notion of "safe to cross": pure
 //! arithmetic / loads / extracts / unrelated ARC ops. Calls,
@@ -18,6 +19,8 @@
 //!
 //! Dominator-aware whole-CFG cancellation and escape analysis are
 //! deferred to later M2 steps.
+
+use std::collections::HashSet;
 
 use crate::inst::{BlockId, Inst, Terminator, ValueId};
 use crate::program::{Function, Program};
@@ -69,47 +72,78 @@ fn run_extended_bb(func: &mut Function) -> Stats {
     let mut stats = Stats::default();
     let preds = predecessors(func);
     let n = func.blocks.len();
-    for b1_idx in 0..n {
-        let (b2_idx, args) = match &func.blocks[b1_idx].term {
-            Terminator::Br { dst, args } => (dst.0 as usize, args.clone()),
-            _ => continue,
-        };
-        if b2_idx == b1_idx {
-            // Self-loop — the param-renaming would alias `v` to its
-            // own param, breaking the value-identity assumptions.
-            // Skip to keep the analysis local.
-            continue;
-        }
-        if preds.get(b2_idx).map(|p| p.len()).unwrap_or(0) != 1 {
-            continue;
-        }
-        let b2_params: Vec<ValueId> = func.blocks[b2_idx].params.clone();
-        if b2_params.len() != args.len() {
-            // Validator should reject this, but guard anyway.
-            continue;
-        }
+    for b0_idx in 0..n {
         let Some((retain_pos, retain_v)) =
-            scan_back_for_retain(&func.blocks[b1_idx].insts)
+            scan_back_for_retain(&func.blocks[b0_idx].insts)
         else {
             continue;
         };
-        // Map B1's value to the corresponding B2 block-param.
-        let Some(arg_pos) = args.iter().position(|x| *x == retain_v) else {
-            continue;
-        };
-        let b2_v = b2_params[arg_pos];
-        let Some(release_pos) =
-            scan_forward_for_release(&func.blocks[b2_idx].insts, b2_v)
+        let Some((release_block, release_pos)) =
+            find_chain_release(func, &preds, b0_idx, retain_v)
         else {
             continue;
         };
-        // Apply removal. b1 != b2 was checked above, so the two
-        // mutations don't overlap.
-        func.blocks[b1_idx].insts.remove(retain_pos);
-        func.blocks[b2_idx].insts.remove(release_pos);
+        // The chain visited new blocks only (cycle guard ensures
+        // release_block != b0_idx), so the two mutations don't
+        // overlap.
+        debug_assert_ne!(release_block, b0_idx);
+        func.blocks[b0_idx].insts.remove(retain_pos);
+        func.blocks[release_block].insts.remove(release_pos);
         stats.pairs_removed += 1;
     }
     stats
+}
+
+/// Walk the unique-predecessor chain starting from `start_block`'s
+/// terminator. Returns `(block, inst_idx)` of the matching Release if
+/// the chain reaches one without crossing a barrier or losing the
+/// renamed value.
+fn find_chain_release(
+    func: &Function,
+    preds: &[Vec<BlockId>],
+    start_block: usize,
+    start_v: ValueId,
+) -> Option<(usize, usize)> {
+    let mut visited: HashSet<usize> = HashSet::new();
+    visited.insert(start_block);
+    let mut current_block = start_block;
+    let mut current_v = start_v;
+    loop {
+        let (next_idx, args) = match &func.blocks[current_block].term {
+            Terminator::Br { dst, args } => (dst.0 as usize, args.clone()),
+            _ => return None,
+        };
+        if preds.get(next_idx).map(|p| p.len()).unwrap_or(0) != 1 {
+            return None;
+        }
+        if !visited.insert(next_idx) {
+            return None;
+        }
+        let next_params = &func.blocks[next_idx].params;
+        if next_params.len() != args.len() {
+            return None;
+        }
+        let arg_pos = args.iter().position(|x| *x == current_v)?;
+        let next_v = next_params[arg_pos];
+
+        for (i, inst) in func.blocks[next_idx].insts.iter().enumerate() {
+            if let Inst::Release { value } = inst {
+                if *value == next_v {
+                    return Some((next_idx, i));
+                }
+            }
+            if uses_value(inst, next_v) {
+                return None;
+            }
+            if !is_safe_to_cross(inst) {
+                return None;
+            }
+        }
+        // Passed through `next_idx`'s entire body — extend the
+        // chain by following its terminator next round.
+        current_block = next_idx;
+        current_v = next_v;
+    }
 }
 
 fn predecessors(func: &Function) -> Vec<Vec<BlockId>> {
@@ -149,24 +183,6 @@ fn scan_back_for_retain(insts: &[Inst]) -> Option<(usize, ValueId)> {
     None
 }
 
-/// Scan B2's insts from the start, looking for `Release v` such that
-/// every inst before it is safe to cross AND none of them use `v`.
-fn scan_forward_for_release(insts: &[Inst], v: ValueId) -> Option<usize> {
-    for (i, inst) in insts.iter().enumerate() {
-        if let Inst::Release { value } = inst {
-            if *value == v {
-                return Some(i);
-            }
-        }
-        if uses_value(inst, v) {
-            return None;
-        }
-        if !is_safe_to_cross(inst) {
-            return None;
-        }
-    }
-    None
-}
 
 fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
     let mut remove = vec![false; insts.len()];

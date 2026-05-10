@@ -334,9 +334,10 @@ fn cross_block_pair_kept_when_b1_tail_has_barrier() {
     assert_eq!(stats.pairs_removed, 0);
 }
 
-/// Extended-BB chains through three blocks (B0 → B1 → B2), each with
-/// a single predecessor for the next. With fixed-point iteration the
-/// pass should peel one pair per round.
+/// Extended-BB chains through three blocks (B0 → B1 → B2), each
+/// with a single predecessor for the next. The chain walker follows
+/// the rename through the empty intermediate block and cancels the
+/// pair across two hops.
 #[test]
 fn cross_block_chain_is_peeled() {
     let mut fb = FunctionBuilder::new(
@@ -357,7 +358,6 @@ fn cross_block_chain_is_peeled() {
     });
     fb.switch_to(b1);
     let v1 = fb.add_block_param(b1, MirTy::I64);
-    // No retain/release here; just forward.
     fb.set_terminator(Terminator::Br {
         dst: b2,
         args: Box::new([v1]),
@@ -375,10 +375,109 @@ fn cross_block_chain_is_peeled() {
         .into_boxed_slice(),
     );
     let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
-    // Step 1 (extended-BB B0→B1): no Release in B1, no removal.
-    // Step 1 (extended-BB B1→B2): no Retain in B1, no removal.
-    // So this case isn't actually peeled by the simple pass. Verify
-    // we observe that limitation honestly.
+    assert_eq!(stats.pairs_removed, 1);
+    assert!(f.blocks[0].insts.is_empty());
+    assert!(f.blocks[1].insts.is_empty());
+    assert!(f.blocks[2].insts.is_empty());
+}
+
+/// Chain walking gives up if any intermediate block contains a
+/// barrier (here, a Call) — even if the value being chained isn't
+/// touched by the barrier.
+#[test]
+fn cross_block_chain_kept_when_intermediate_has_barrier() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b1 = fb.new_block();
+    let b2 = fb.new_block();
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    fb.push_inst(Inst::Retain { value: v });
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([v]),
+    });
+    fb.switch_to(b1);
+    let v1 = fb.add_block_param(b1, MirTy::I64);
+    fb.push_inst(Inst::Call {
+        dst: None,
+        callee: FuncRef::Builtin(Symbol::intern("noop")),
+        args: Box::new([]),
+    });
+    fb.set_terminator(Terminator::Br {
+        dst: b2,
+        args: Box::new([v1]),
+    });
+    fb.switch_to(b2);
+    let v2 = fb.add_block_param(b2, MirTy::I64);
+    fb.push_inst(Inst::Release { value: v2 });
+    fb.set_terminator(Terminator::Return { value: Some(v2) });
+    let mut f = fb.finish(
+        vec![FuncParam {
+            name: Symbol::intern("v"),
+            ty: MirTy::I64,
+            value: v,
+        }]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 0);
+}
+
+/// Chain walking gives up if any intermediate block stops
+/// forwarding `v` as a block-arg.
+#[test]
+fn cross_block_chain_kept_when_v_dropped_midchain() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b1 = fb.new_block();
+    let b2 = fb.new_block();
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    let other = fb.add_block_param(b0, MirTy::I64);
+    fb.push_inst(Inst::Retain { value: v });
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([v, other]),
+    });
+    fb.switch_to(b1);
+    let _v1 = fb.add_block_param(b1, MirTy::I64);
+    let other1 = fb.add_block_param(b1, MirTy::I64);
+    // forward only `other` past this block — `v` doesn't survive.
+    fb.set_terminator(Terminator::Br {
+        dst: b2,
+        args: Box::new([other1]),
+    });
+    fb.switch_to(b2);
+    let v2 = fb.add_block_param(b2, MirTy::I64);
+    fb.push_inst(Inst::Release { value: v2 });
+    fb.set_terminator(Terminator::Return { value: Some(v2) });
+    let mut f = fb.finish(
+        vec![
+            FuncParam {
+                name: Symbol::intern("v"),
+                ty: MirTy::I64,
+                value: v,
+            },
+            FuncParam {
+                name: Symbol::intern("o"),
+                ty: MirTy::I64,
+                value: other,
+            },
+        ]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
     assert_eq!(stats.pairs_removed, 0);
 }
 
