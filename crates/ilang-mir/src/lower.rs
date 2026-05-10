@@ -3222,7 +3222,13 @@ impl<'a> BodyCx<'a> {
             | ExprKind::StructLit { .. }
             | ExprKind::Call { .. }
             | ExprKind::MethodCall { .. }
-            | ExprKind::SuperCall { .. }
+            // SuperCall returns `this` aliased — init's calling
+            // convention does NOT add a +1 (see lower_method's
+            // is_init terminator special-case which sets the
+            // terminator directly to `return this_v` with no
+            // retain). Treating super() as fresh would emit a
+            // bogus release-on-discard that drops rc below the
+            // alloc's +1 and triggers free-during-init.
             // Binary / Unary on heap operands (string +) lowers to a
             // host helper (str_concat etc.) that returns a freshly
             // leak_cstring'd, registry-tracked buffer. Treating them

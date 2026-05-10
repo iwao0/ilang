@@ -1848,16 +1848,21 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // Object cell free is staged but currently disabled. Even
-    // with the recent ARC infrastructure (callee_retain, weak
-    // skip, array element retain, enum payload cascade, et al.),
-    // 9 fixtures still crash when the free is enabled — likely
-    // around subclass-init Object→Object coerce, common-ancestor
-    // type widening, and is/as cross-class patterns. Needs
-    // further per-fixture diagnosis. The class_size_table is
-    // populated and ready; just remove the gate when those
-    // patterns are tightened.
-    let _ = class_size_table_lock;
+    // Object cell free is staged (class_size_table is populated)
+    // but currently gated. Even with the super-init retain fix,
+    // a few patterns still mis-account: closure-capture escape
+    // (a captured local releases at maker-fn scope exit before
+    // the closure escapes), and Optional<Object[]> sequences
+    // ordering that combines unwrap-extracted aliases with later
+    // reuse. Until those callees retain the borrow, leaving the
+    // free disabled trades extra residency for safety.
+    let size = {
+        let m = class_size_table_lock()
+            .lock()
+            .expect("class size table poisoned");
+        m.get(&(class_id as u32)).copied()
+    };
+    let _ = size;
 }
 
 #[derive(Clone)]
