@@ -144,8 +144,9 @@ impl ReplSession {
         );
         let prog =
             ilang_mir::monomorphize::monomorphize_fns(&prog, &self.tc.fn_call_type_args());
-        let mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
+        let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
+        ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
         let r = ilang_mir_codegen::run_main(&compiled);
@@ -716,13 +717,14 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
             &prog,
             &tc.fn_call_type_args(),
         );
-        let mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
+        let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("{display_path}: mir lower: {e}");
                 return ExitCode::FAILURE;
             }
         };
+        ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = match ilang_mir_codegen::compile_program(&mir) {
             Ok(c) => c,
             Err(e) => {
