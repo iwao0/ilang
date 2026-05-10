@@ -95,11 +95,11 @@ fn call_between_pair_is_a_barrier() {
 }
 
 #[test]
-fn use_of_value_between_pair_is_a_barrier() {
-    // Retain v ; LoadField v ; Release v — pair must NOT be removed
-    // because the borrowed +1 is what guarantees v is still alive
-    // during the load (in general — for this load instruction it
-    // happens to be safe, but the peephole is conservative).
+fn pure_use_of_value_between_pair_is_crossed() {
+    // Retain v ; LoadField v ; Release v — the pair *can* be removed.
+    // LoadField is a pure read, so it doesn't observe v's refcount.
+    // The load result has its own refcount lifecycle independent of
+    // the parent, so dropping v back to its original count is safe.
     let mut f = build_one_block(|fb, v| {
         let dst = fb.new_value(MirTy::I64);
         fb.push_inst(Inst::Retain { value: v });
@@ -111,8 +111,74 @@ fn use_of_value_between_pair_is_a_barrier() {
         fb.push_inst(Inst::Release { value: v });
     });
     let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 1);
+    // Only the LoadField remains.
+    assert_eq!(f.blocks[0].insts.len(), 1);
+    assert!(matches!(f.blocks[0].insts[0], Inst::LoadField { .. }));
+}
+
+#[test]
+fn local_aliased_pair_is_removed() {
+    // Mirrors the lowered pattern that the M2-α/β identity-based
+    // pass missed entirely:
+    //   def_local %0 = v       (heap alloc bound to slot)
+    //   v_a = use_local %0     (alias of v through the slot)
+    //   retain v_a
+    //   def_local %1 = v_a
+    //   v_b = use_local %1     (alias of v_a through %1)
+    //   release v_b            <- ValueId differs from retain target
+    //
+    // With local-aware equivalence the retain/release pair collapses.
+    let mut f = build_one_block(|fb, v| {
+        let l0 = fb.new_local(MirTy::I64);
+        let l1 = fb.new_local(MirTy::I64);
+        let v_a = fb.new_value(MirTy::I64);
+        let v_b = fb.new_value(MirTy::I64);
+        fb.push_inst(Inst::DefLocal { local: l0, value: v });
+        fb.push_inst(Inst::UseLocal { dst: v_a, local: l0 });
+        fb.push_inst(Inst::Retain { value: v_a });
+        fb.push_inst(Inst::DefLocal { local: l1, value: v_a });
+        fb.push_inst(Inst::UseLocal { dst: v_b, local: l1 });
+        fb.push_inst(Inst::Release { value: v_b });
+    });
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 1);
+    // Retain and Release gone; the four DefLocal/UseLocal stay.
+    assert_eq!(f.blocks[0].insts.len(), 4);
+    for inst in &f.blocks[0].insts {
+        assert!(
+            !matches!(inst, Inst::Retain { .. } | Inst::Release { .. }),
+            "ARC inst should be gone, found {inst:?}"
+        );
+    }
+}
+
+#[test]
+fn local_rebind_breaks_equivalence() {
+    // After `def_local %0 = v_other`, reads from %0 give a value
+    // unrelated to the originally-retained one. The pair must NOT
+    // be removed.
+    let mut f = build_one_block(|fb, v| {
+        let l0 = fb.new_local(MirTy::I64);
+        let v_a = fb.new_value(MirTy::I64);
+        let v_other = fb.new_value(MirTy::I64);
+        let v_b = fb.new_value(MirTy::I64);
+        fb.push_inst(Inst::DefLocal { local: l0, value: v });
+        fb.push_inst(Inst::UseLocal { dst: v_a, local: l0 });
+        fb.push_inst(Inst::Retain { value: v_a });
+        fb.push_inst(Inst::Const {
+            dst: v_other,
+            value: ilang_mir::MirConst::Int(42),
+        });
+        fb.push_inst(Inst::DefLocal {
+            local: l0,
+            value: v_other,
+        });
+        fb.push_inst(Inst::UseLocal { dst: v_b, local: l0 });
+        fb.push_inst(Inst::Release { value: v_b });
+    });
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
     assert_eq!(stats.pairs_removed, 0);
-    assert_eq!(f.blocks[0].insts.len(), 3);
 }
 
 #[test]

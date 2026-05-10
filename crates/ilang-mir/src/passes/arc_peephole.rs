@@ -1,33 +1,39 @@
 //! ARC peephole: cancel `Retain v` / `Release v` pairs whose net
 //! effect on `v`'s refcount is zero across a small window.
 //!
-//! Two patterns:
+//! Three patterns:
 //!
 //! - **Intra-block** (M2-α): `Retain v` and `Release v` in the same
 //!   block with only safe-to-cross insts between them.
+//! - **Local-aware intra-block** (M2-γ): same as above, but
+//!   `DefLocal`/`UseLocal` chains are followed so two `ValueId`s
+//!   that name the same runtime object via a mutable slot count as
+//!   the same value. `let x = …; retain x; let y = x; …; release y;
+//!   release x` collapses cleanly even though `retain` and the
+//!   first `release` use different `ValueId`s.
 //! - **Extended-BB chain** (M2-β step 1+2): `Retain v` near the end
 //!   of some block `B0`, with `B0` ending in an unconditional `Br`.
 //!   We follow the unique-predecessor chain `B0 → B1 → … → Bn`,
 //!   renaming `v` through each block's arg→param mapping, scanning
 //!   each block's body left-to-right for the matching `Release`.
-//!   Intermediate blocks must be entirely safe-to-cross. Block-arg
-//!   plumbing stays untouched; only the two ARC insts go away.
+//!   Intermediate blocks must be entirely safe-to-cross.
 //!
-//! Both patterns share the same notion of "safe to cross": pure
-//! arithmetic / loads / extracts / unrelated ARC ops. Calls,
-//! stores, allocations, and anything else are barriers.
+//! All three patterns share the same notion of "safe to cross": pure
+//! arithmetic / loads / extracts / unrelated ARC ops / mutable-slot
+//! reads and writes. Calls, stores into heaps, allocations, and
+//! anything else are barriers.
 //!
 //! Dominator-aware whole-CFG cancellation and escape analysis are
 //! deferred to later M2 steps.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use crate::inst::{BlockId, Inst, Terminator, ValueId};
+use crate::inst::{BlockId, Inst, LocalId, Terminator, ValueId};
 use crate::program::{Function, Program};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
-    /// Pairs removed by the intra-block peephole.
+    /// Pairs removed by the intra-block (incl. local-aware) peephole.
     pub intra_block: usize,
     /// Pairs removed by the single-pred chain walker.
     pub chain: usize,
@@ -142,9 +148,6 @@ fn find_chain_release(
                     return Some((next_idx, i));
                 }
             }
-            if uses_value(inst, next_v) {
-                return None;
-            }
             if !is_safe_to_cross(inst) {
                 return None;
             }
@@ -193,8 +196,8 @@ fn scan_back_for_retain(insts: &[Inst]) -> Option<(usize, ValueId)> {
     None
 }
 
-
 fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
+    let mut equiv = build_block_equiv(insts);
     let mut remove = vec![false; insts.len()];
     let mut stats = Stats::default();
 
@@ -205,7 +208,7 @@ fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
             continue;
         }
         if let Inst::Retain { value: v } = insts[i] {
-            // Scan forward for a matching Release on the same value.
+            let target = equiv.find(v);
             let mut j = i + 1;
             while j < insts.len() {
                 if remove[j] {
@@ -214,18 +217,14 @@ fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
                 }
                 let inst = &insts[j];
                 if let Inst::Release { value: w } = inst {
-                    if *w == v {
-                        // Pair found — both safe to drop because
-                        // every inst we scanned past was either
-                        // whitelisted-pure or a Retain/Release of an
-                        // unrelated value, and none of them used `v`.
+                    if equiv.find(*w) == target {
                         remove[i] = true;
                         remove[j] = true;
                         stats.pairs_removed += 1;
                         break;
                     }
                 }
-                if uses_value(inst, v) || !is_safe_to_cross(inst) {
+                if !is_safe_to_cross(inst) {
                     break;
                 }
                 j += 1;
@@ -246,6 +245,72 @@ fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
         insts.truncate(k);
     }
     stats
+}
+
+/// Per-block runtime-equivalence union-find over `ValueId`s: two
+/// `ValueId`s become equivalent when they flow through the same
+/// mutable slot via `DefLocal` / `UseLocal` without an intervening
+/// rebind. Heap allocations and computed values stay in singleton
+/// classes.
+///
+/// The map is timing-sensitive: only the most-recently-`def_local`'d
+/// value is unioned with subsequent reads of that local, so a slot
+/// rebind cleanly partitions the equivalence classes on either side
+/// of the new `DefLocal`.
+#[derive(Default)]
+struct ValueEquiv {
+    parent: HashMap<ValueId, ValueId>,
+}
+
+impl ValueEquiv {
+    fn find(&mut self, v: ValueId) -> ValueId {
+        let mut cur = v;
+        let mut path: Vec<ValueId> = Vec::new();
+        loop {
+            match self.parent.get(&cur).copied() {
+                None => {
+                    self.parent.insert(cur, cur);
+                    break;
+                }
+                Some(p) if p == cur => break,
+                Some(p) => {
+                    path.push(cur);
+                    cur = p;
+                }
+            }
+        }
+        for x in path {
+            self.parent.insert(x, cur);
+        }
+        cur
+    }
+
+    fn union(&mut self, a: ValueId, b: ValueId) {
+        let ra = self.find(a);
+        let rb = self.find(b);
+        if ra != rb {
+            self.parent.insert(ra, rb);
+        }
+    }
+}
+
+fn build_block_equiv(insts: &[Inst]) -> ValueEquiv {
+    let mut equiv = ValueEquiv::default();
+    let mut holds: HashMap<LocalId, ValueId> = HashMap::new();
+    for inst in insts {
+        match inst {
+            Inst::DefLocal { local, value } => {
+                holds.insert(*local, *value);
+            }
+            Inst::UseLocal { dst, local } => {
+                if let Some(&v) = holds.get(local) {
+                    equiv.union(*dst, v);
+                }
+            }
+            _ => {}
+        }
+    }
+    equiv
 }
 
 /// `true` iff `inst` could be skipped over when looking for a matching
@@ -272,12 +337,16 @@ fn is_safe_to_cross(inst: &Inst) -> bool {
         | Inst::EnumPayload { .. }
         | Inst::LoadCapture { .. }
         | Inst::LoadStatic { .. }
-        | Inst::UseLocal { .. }
         | Inst::TypeOf { .. }
         | Inst::IsInstance { .. } => true,
 
-        // Retain/Release of another value — safe (operand check
-        // will catch matches on v).
+        // Mutable-slot reads / writes — observed through the
+        // local-aware equivalence map, never bumps refcounts on
+        // their own.
+        Inst::UseLocal { .. } | Inst::DefLocal { .. } => true,
+
+        // Retain/Release of another value — safe (the equivalence
+        // check decides whether one matches our candidate).
         Inst::Retain { .. }
         | Inst::Release { .. }
         | Inst::WeakRetain { .. }
@@ -285,115 +354,7 @@ fn is_safe_to_cross(inst: &Inst) -> bool {
 
         // Everything else is a barrier: calls (host or user — may
         // observe global refcount), allocations (drop on OOM),
-        // stores (alias-to-v risk), terminator-like Panic, etc.
+        // stores into heaps, terminator-like Panic, etc.
         _ => false,
     }
-}
-
-/// `true` iff `inst` reads `v` as an operand. Defines (the `dst`
-/// field) don't count.
-fn uses_value(inst: &Inst, v: ValueId) -> bool {
-    let mut hit = false;
-    let mut check = |x: ValueId| {
-        if x == v {
-            hit = true;
-        }
-    };
-    match inst {
-        Inst::Const { .. }
-        | Inst::NewArrayEmpty { .. }
-        | Inst::LoadCapture { .. }
-        | Inst::LoadStatic { .. }
-        | Inst::UseLocal { .. }
-        | Inst::Panic { .. } => {}
-        Inst::BinOp { lhs, rhs, .. } => {
-            check(*lhs);
-            check(*rhs);
-        }
-        Inst::UnOp { src, .. } | Inst::Cast { src, .. } => check(*src),
-        Inst::Call { args, .. } => {
-            for a in args.iter() {
-                check(*a);
-            }
-        }
-        Inst::CallIndirect { callee, args, .. } => {
-            check(*callee);
-            for a in args.iter() {
-                check(*a);
-            }
-        }
-        Inst::VirtCall { recv, args, .. } => {
-            check(*recv);
-            for a in args.iter() {
-                check(*a);
-            }
-        }
-        Inst::NewObject { init_args, .. } => {
-            for a in init_args.iter() {
-                check(*a);
-            }
-        }
-        Inst::LoadField { obj, .. } => check(*obj),
-        Inst::StoreField { obj, value, .. } => {
-            check(*obj);
-            check(*value);
-        }
-        Inst::NewArray { items, .. } | Inst::NewTuple { items, .. } => {
-            for a in items.iter() {
-                check(*a);
-            }
-        }
-        Inst::ArrayLen { arr, .. } => check(*arr),
-        Inst::ArrayLoad { arr, idx, .. } => {
-            check(*arr);
-            check(*idx);
-        }
-        Inst::ArrayStore { arr, idx, value } => {
-            check(*arr);
-            check(*idx);
-            check(*value);
-        }
-        Inst::NewMap { entries, .. } => {
-            for (k, val) in entries.iter() {
-                check(*k);
-                check(*val);
-            }
-        }
-        Inst::MapGet { map, key, .. } => {
-            check(*map);
-            check(*key);
-        }
-        Inst::MapSet { map, key, value } => {
-            check(*map);
-            check(*key);
-            check(*value);
-        }
-        Inst::TupleExtract { tup, .. } => check(*tup),
-        Inst::NewOptional { value, .. }
-        | Inst::OptionalIsSome { opt: value, .. }
-        | Inst::OptionalUnwrap { opt: value, .. } => check(*value),
-        Inst::NewEnum { payload, .. } => {
-            for a in payload.iter() {
-                check(*a);
-            }
-        }
-        Inst::EnumTag { value, .. } => check(*value),
-        Inst::EnumPayload { value, .. } => check(*value),
-        Inst::MakeClosure { captures, .. } => {
-            for a in captures.iter() {
-                check(*a);
-            }
-        }
-        Inst::Retain { value }
-        | Inst::Release { value }
-        | Inst::WeakRetain { value }
-        | Inst::WeakRelease { value } => check(*value),
-        Inst::WeakUpgrade { weak, .. } => check(*weak),
-        Inst::TypeOf { value, .. } => check(*value),
-        Inst::IsInstance { value, .. } => check(*value),
-        Inst::DowncastOrNone { value, .. } => check(*value),
-        Inst::StoreStatic { value, .. } => check(*value),
-        Inst::DefLocal { value, .. } => check(*value),
-    }
-    hit
 }
