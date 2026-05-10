@@ -1,5 +1,5 @@
 //! Sanity check that compile_program_to_object emits non-empty bytes
-//! for the M0 subset and rejects programs outside it.
+//! for the supported subset and rejects programs outside it.
 
 use ilang_lexer::tokenize;
 use ilang_mir::lower_program;
@@ -12,20 +12,43 @@ fn mir(src: &str) -> ilang_mir::Program {
     lower_program(&ast).expect("lower")
 }
 
-#[test]
-fn emits_object_for_int_tail() {
-    let bytes = compile_program_to_object(&mir("42")).expect("compile");
+fn expect_object(src: &str) {
+    let bytes = compile_program_to_object(&mir(src)).expect("compile");
     assert!(bytes.len() > 64, "object too small: {} bytes", bytes.len());
 }
 
 #[test]
-fn rejects_arithmetic_in_m0() {
-    let err = compile_program_to_object(&mir("1 + 2")).unwrap_err();
-    assert!(matches!(err, AotError::Unsupported(_)), "got {err:?}");
+fn emits_object_for_int_tail() {
+    expect_object("42");
 }
 
 #[test]
-fn rejects_classes_in_m0() {
+fn emits_object_for_let_then_int() {
+    expect_object("let x = 42\nx");
+}
+
+#[test]
+fn emits_object_for_arithmetic() {
+    expect_object("1 + 2 * 3");
+}
+
+#[test]
+fn emits_object_for_let_with_arithmetic() {
+    expect_object("let a = 10\nlet b = 3\na - b");
+}
+
+#[test]
+fn emits_object_for_if_else() {
+    expect_object(
+        r#"
+        let x = 7
+        if x > 5 { 100 } else { 0 }
+    "#,
+    );
+}
+
+#[test]
+fn rejects_classes_in_subset() {
     let src = r#"
         class P { x: i64 }
         let p = P { x: 1 }

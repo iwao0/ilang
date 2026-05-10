@@ -6354,7 +6354,7 @@ fn emit_panic_if<M: Module>(
     fb.seal_block(cont_block);
 }
 
-fn lower_binop(fb: &mut ClifFnBuilder, op: BinOp, lhs: Value, rhs: Value) -> Value {
+pub(crate) fn lower_binop(fb: &mut ClifFnBuilder, op: BinOp, lhs: Value, rhs: Value) -> Value {
     // Defensive type-bridging: the MIR's `unify_numeric` aligns
     // operand MirTys but the AST→MIR path can leak a literal that
     // ended up wider than the binop's intended cell width (e.g. a
