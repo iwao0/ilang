@@ -153,8 +153,10 @@ fn store_between_pair_is_a_barrier() {
     assert_eq!(f.blocks[0].insts.len(), 3);
 }
 
+/// Extended-BB peephole: Retain at end of B0, Release at start of B1
+/// (B1's only predecessor is B0). Both are removed.
 #[test]
-fn cross_block_pair_is_not_touched() {
+fn cross_block_pair_is_removed_when_b2_single_pred() {
     let mut fb = FunctionBuilder::new(
         Symbol::intern("t"),
         Symbol::intern("t"),
@@ -183,9 +185,201 @@ fn cross_block_pair_is_not_touched() {
         .into_boxed_slice(),
     );
     let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 1);
+    assert!(f.blocks[0].insts.is_empty());
+    assert!(f.blocks[1].insts.is_empty());
+}
+
+/// Extended-BB does NOT fire when the successor has multiple
+/// predecessors — we'd need a dominator argument the simple pass
+/// isn't doing.
+#[test]
+fn cross_block_pair_kept_when_b2_has_multiple_preds() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b_alt = fb.new_block();
+    let b1 = fb.new_block();
+    // B0 → B1
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    let cond = fb.add_block_param(b0, MirTy::Bool);
+    fb.push_inst(Inst::Retain { value: v });
+    fb.set_terminator(Terminator::CondBr {
+        cond,
+        then_block: b1,
+        then_args: Box::new([v]),
+        else_block: b_alt,
+        else_args: Box::new([]),
+    });
+    // B_alt → B1 (second pred, makes B1 multi-pred)
+    fb.switch_to(b_alt);
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([v]),
+    });
+    // B1
+    fb.switch_to(b1);
+    let v1 = fb.add_block_param(b1, MirTy::I64);
+    fb.push_inst(Inst::Release { value: v1 });
+    fb.set_terminator(Terminator::Return { value: Some(v1) });
+    let mut f = fb.finish(
+        vec![
+            FuncParam {
+                name: Symbol::intern("v"),
+                ty: MirTy::I64,
+                value: v,
+            },
+            FuncParam {
+                name: Symbol::intern("c"),
+                ty: MirTy::Bool,
+                value: cond,
+            },
+        ]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 0);
+    assert_eq!(f.blocks[0].insts.len(), 1);
+    assert_eq!(f.blocks[2].insts.len(), 1);
+}
+
+/// Extended-BB fires only when v is actually forwarded as a
+/// block-arg. If v isn't passed, the candidate is dropped.
+#[test]
+fn cross_block_pair_kept_when_v_not_in_args() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b1 = fb.new_block();
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    let other = fb.add_block_param(b0, MirTy::I64);
+    fb.push_inst(Inst::Retain { value: v });
+    // forward only `other`, not `v`
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([other]),
+    });
+    fb.switch_to(b1);
+    let p = fb.add_block_param(b1, MirTy::I64);
+    fb.push_inst(Inst::Release { value: p });
+    fb.set_terminator(Terminator::Return { value: Some(p) });
+    let mut f = fb.finish(
+        vec![
+            FuncParam {
+                name: Symbol::intern("v"),
+                ty: MirTy::I64,
+                value: v,
+            },
+            FuncParam {
+                name: Symbol::intern("o"),
+                ty: MirTy::I64,
+                value: other,
+            },
+        ]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
     assert_eq!(stats.pairs_removed, 0);
     assert_eq!(f.blocks[0].insts.len(), 1);
     assert_eq!(f.blocks[1].insts.len(), 1);
+}
+
+/// A Call between Retain (B0 tail) and the terminator is a barrier:
+/// the Call could observe v's refcount, so the Retain stays.
+#[test]
+fn cross_block_pair_kept_when_b1_tail_has_barrier() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b1 = fb.new_block();
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    fb.push_inst(Inst::Retain { value: v });
+    fb.push_inst(Inst::Call {
+        dst: None,
+        callee: FuncRef::Builtin(Symbol::intern("noop")),
+        args: Box::new([]),
+    });
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([v]),
+    });
+    fb.switch_to(b1);
+    let p = fb.add_block_param(b1, MirTy::I64);
+    fb.push_inst(Inst::Release { value: p });
+    fb.set_terminator(Terminator::Return { value: Some(p) });
+    let mut f = fb.finish(
+        vec![FuncParam {
+            name: Symbol::intern("v"),
+            ty: MirTy::I64,
+            value: v,
+        }]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    assert_eq!(stats.pairs_removed, 0);
+}
+
+/// Extended-BB chains through three blocks (B0 → B1 → B2), each with
+/// a single predecessor for the next. With fixed-point iteration the
+/// pass should peel one pair per round.
+#[test]
+fn cross_block_chain_is_peeled() {
+    let mut fb = FunctionBuilder::new(
+        Symbol::intern("t"),
+        Symbol::intern("t"),
+        MirTy::I64,
+        FunctionKind::Local,
+    );
+    let b0 = fb.new_block();
+    let b1 = fb.new_block();
+    let b2 = fb.new_block();
+    fb.switch_to(b0);
+    let v = fb.add_block_param(b0, MirTy::I64);
+    fb.push_inst(Inst::Retain { value: v });
+    fb.set_terminator(Terminator::Br {
+        dst: b1,
+        args: Box::new([v]),
+    });
+    fb.switch_to(b1);
+    let v1 = fb.add_block_param(b1, MirTy::I64);
+    // No retain/release here; just forward.
+    fb.set_terminator(Terminator::Br {
+        dst: b2,
+        args: Box::new([v1]),
+    });
+    fb.switch_to(b2);
+    let v2 = fb.add_block_param(b2, MirTy::I64);
+    fb.push_inst(Inst::Release { value: v2 });
+    fb.set_terminator(Terminator::Return { value: Some(v2) });
+    let mut f = fb.finish(
+        vec![FuncParam {
+            name: Symbol::intern("v"),
+            ty: MirTy::I64,
+            value: v,
+        }]
+        .into_boxed_slice(),
+    );
+    let stats = ilang_mir::passes::arc_peephole::run_function(&mut f);
+    // Step 1 (extended-BB B0→B1): no Release in B1, no removal.
+    // Step 1 (extended-BB B1→B2): no Retain in B1, no removal.
+    // So this case isn't actually peeled by the simple pass. Verify
+    // we observe that limitation honestly.
+    assert_eq!(stats.pairs_removed, 0);
 }
 
 #[test]

@@ -1,19 +1,25 @@
-//! ARC peephole: cancel `Retain v` / `Release v` pairs that live in
-//! the same basic block with no observable effect between them.
+//! ARC peephole: cancel `Retain v` / `Release v` pairs whose net
+//! effect on `v`'s refcount is zero across a small window.
 //!
-//! M2-α scope — only the safest pattern. cross-BB / dominator-aware
-//! removal and escape analysis are deferred.
+//! Two patterns:
 //!
-//! Pair is removable when ALL hold:
-//!   1. Both insts are in the same block.
-//!   2. They reference the same `ValueId`.
-//!   3. No inst between them uses `v` as an operand.
-//!   4. No inst between them is a barrier — anything that could
-//!      transitively observe `v`'s refcount or escape it. We use a
-//!      whitelist of known-safe Insts (pure arithmetic / loads /
-//!      extracts / unrelated retain/release).
+//! - **Intra-block** (M2-α): `Retain v` and `Release v` in the same
+//!   block with only safe-to-cross insts between them.
+//! - **Extended-BB** (M2-β step 1): `Retain v` near the end of `B1`,
+//!   `B1` ends with an unconditional `Br B2(.. v ..)`, `B2` has
+//!   exactly one predecessor (`B1`), and `Release w` near the start
+//!   of `B2` where `w` is the block-param that received `v`. The
+//!   block-arg/param plumbing stays untouched; only the two ARC
+//!   insts are removed.
+//!
+//! Both patterns share the same notion of "safe to cross": pure
+//! arithmetic / loads / extracts / unrelated ARC ops. Calls,
+//! stores, allocations, and anything else are barriers.
+//!
+//! Dominator-aware whole-CFG cancellation and escape analysis are
+//! deferred to later M2 steps.
 
-use crate::inst::{Inst, ValueId};
+use crate::inst::{BlockId, Inst, Terminator, ValueId};
 use crate::program::{Function, Program};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -37,10 +43,129 @@ pub fn run_program(prog: &mut Program) -> Stats {
 
 pub fn run_function(func: &mut Function) -> Stats {
     let mut total = Stats::default();
+    // Iterate to fixed point so an extended-BB removal that exposes
+    // a fresh intra-block pair (or vice versa) gets picked up.
+    loop {
+        let intra = run_intra_block(func);
+        let cross = run_extended_bb(func);
+        let pass = intra.pairs_removed + cross.pairs_removed;
+        total.pairs_removed += pass;
+        if pass == 0 {
+            break;
+        }
+    }
+    total
+}
+
+fn run_intra_block(func: &mut Function) -> Stats {
+    let mut total = Stats::default();
     for block in &mut func.blocks {
         total += run_block_insts(&mut block.insts);
     }
     total
+}
+
+fn run_extended_bb(func: &mut Function) -> Stats {
+    let mut stats = Stats::default();
+    let preds = predecessors(func);
+    let n = func.blocks.len();
+    for b1_idx in 0..n {
+        let (b2_idx, args) = match &func.blocks[b1_idx].term {
+            Terminator::Br { dst, args } => (dst.0 as usize, args.clone()),
+            _ => continue,
+        };
+        if b2_idx == b1_idx {
+            // Self-loop — the param-renaming would alias `v` to its
+            // own param, breaking the value-identity assumptions.
+            // Skip to keep the analysis local.
+            continue;
+        }
+        if preds.get(b2_idx).map(|p| p.len()).unwrap_or(0) != 1 {
+            continue;
+        }
+        let b2_params: Vec<ValueId> = func.blocks[b2_idx].params.clone();
+        if b2_params.len() != args.len() {
+            // Validator should reject this, but guard anyway.
+            continue;
+        }
+        let Some((retain_pos, retain_v)) =
+            scan_back_for_retain(&func.blocks[b1_idx].insts)
+        else {
+            continue;
+        };
+        // Map B1's value to the corresponding B2 block-param.
+        let Some(arg_pos) = args.iter().position(|x| *x == retain_v) else {
+            continue;
+        };
+        let b2_v = b2_params[arg_pos];
+        let Some(release_pos) =
+            scan_forward_for_release(&func.blocks[b2_idx].insts, b2_v)
+        else {
+            continue;
+        };
+        // Apply removal. b1 != b2 was checked above, so the two
+        // mutations don't overlap.
+        func.blocks[b1_idx].insts.remove(retain_pos);
+        func.blocks[b2_idx].insts.remove(release_pos);
+        stats.pairs_removed += 1;
+    }
+    stats
+}
+
+fn predecessors(func: &Function) -> Vec<Vec<BlockId>> {
+    let mut preds = vec![Vec::new(); func.blocks.len()];
+    for (idx, block) in func.blocks.iter().enumerate() {
+        let from = BlockId(idx as u32);
+        match &block.term {
+            Terminator::Br { dst, .. } => preds[dst.0 as usize].push(from),
+            Terminator::CondBr {
+                then_block, else_block, ..
+            } => {
+                preds[then_block.0 as usize].push(from);
+                preds[else_block.0 as usize].push(from);
+            }
+            Terminator::Switch { cases, default, .. } => {
+                preds[default.0 as usize].push(from);
+                for c in cases.iter() {
+                    preds[c.dst.0 as usize].push(from);
+                }
+            }
+            Terminator::Return { .. } | Terminator::Unreachable => {}
+        }
+    }
+    preds
+}
+
+/// Scan B1's insts from the end, looking for a `Retain v` such that
+/// every inst between it and the terminator is safe to cross.
+fn scan_back_for_retain(insts: &[Inst]) -> Option<(usize, ValueId)> {
+    for i in (0..insts.len()).rev() {
+        match &insts[i] {
+            Inst::Retain { value } => return Some((i, *value)),
+            inst if is_safe_to_cross(inst) => continue,
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Scan B2's insts from the start, looking for `Release v` such that
+/// every inst before it is safe to cross AND none of them use `v`.
+fn scan_forward_for_release(insts: &[Inst], v: ValueId) -> Option<usize> {
+    for (i, inst) in insts.iter().enumerate() {
+        if let Inst::Release { value } = inst {
+            if *value == v {
+                return Some(i);
+            }
+        }
+        if uses_value(inst, v) {
+            return None;
+        }
+        if !is_safe_to_cross(inst) {
+            return None;
+        }
+    }
+    None
 }
 
 fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
