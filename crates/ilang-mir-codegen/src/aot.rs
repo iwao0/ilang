@@ -149,13 +149,24 @@ fn lower_entry(
 
     // Declare a Cranelift Variable per MIR local. Locals carry across
     // blocks via Cranelift's SSA construction.
+    // Locals with no clif counterpart (`unit`) get a sentinel `Variable`
+    // that's never used. Mirroring the JIT path lets `DefLocal` /
+    // `UseLocal` for unit-typed bindings no-op cleanly.
     let mut locals: Vec<Variable> = Vec::with_capacity(entry.local_tys.len());
-    for (i, ty) in entry.local_tys.iter().enumerate() {
-        let ct = mir_to_clif(ty).ok_or_else(|| {
-            AotError::Unsupported(format!("local #{i} type {ty:?}"))
-        })?;
-        let var = fb.declare_var(ct);
-        locals.push(var);
+    let mut local_has_clif: Vec<bool> = Vec::with_capacity(entry.local_tys.len());
+    for ty in entry.local_tys.iter() {
+        match mir_to_clif(ty) {
+            Some(ct) => {
+                locals.push(fb.declare_var(ct));
+                local_has_clif.push(true);
+            }
+            None => {
+                // Placeholder — never read because every code path that
+                // would hit this var is also Unit-typed.
+                locals.push(fb.declare_var(types::I8));
+                local_has_clif.push(false);
+            }
+        }
     }
 
     // Lower each block. `vmap` is per-function (ValueIds are unique
@@ -176,7 +187,7 @@ fn lower_entry(
             }
         }
         for inst in &blk.insts {
-            lower_inst_minimal(fb, inst, &mut vmap, &locals, entry)?;
+            lower_inst_minimal(fb, inst, &mut vmap, &locals, &local_has_clif, entry)?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks)?;
     }
@@ -193,11 +204,18 @@ fn lower_inst_minimal(
     inst: &Inst,
     vmap: &mut HashMap<ValueId, Value>,
     locals: &[Variable],
+    local_has_clif: &[bool],
     func: &ilang_mir::Function,
 ) -> Result<(), AotError> {
     match inst {
         Inst::Const { dst, value } => {
             let ty = func.ty_of(*dst);
+            // Unit values have no clif counterpart — leaving them out
+            // of vmap matches the JIT path and lets terminators /
+            // block-arg propagation skip them via filter_map.
+            if matches!(ty, MirTy::Unit) || matches!(value, MirConst::Unit) {
+                return Ok(());
+            }
             let v = match value {
                 MirConst::Int(n) => {
                     let ct = mir_to_clif(ty).ok_or_else(|| {
@@ -244,11 +262,19 @@ fn lower_inst_minimal(
             vmap.insert(*dst, v);
         }
         Inst::DefLocal { local, value } => {
+            // Unit-typed locals have no real clif slot — skip the
+            // def_var so we don't try to fetch an absent vmap entry.
+            if !local_has_clif[local.0 as usize] {
+                return Ok(());
+            }
             let var = locals[local.0 as usize];
             let v = vmap[value];
             fb.def_var(var, v);
         }
         Inst::UseLocal { dst, local } => {
+            if !local_has_clif[local.0 as usize] {
+                return Ok(());
+            }
             let var = locals[local.0 as usize];
             let v = fb.use_var(var);
             vmap.insert(*dst, v);
@@ -270,9 +296,8 @@ fn lower_term(
 ) -> Result<(), AotError> {
     match term {
         Terminator::Return { value } => {
-            match value {
-                Some(v) => {
-                    let cv = vmap[v];
+            match value.and_then(|v| vmap.get(&v).copied()) {
+                Some(cv) => {
                     fb.ins().return_(&[cv]);
                 }
                 None => {
@@ -282,17 +307,14 @@ fn lower_term(
             Ok(())
         }
         Terminator::Br { dst, args } => {
-            let cargs: Vec<cranelift_codegen::ir::BlockArg> =
-                args.iter().map(|a| vmap[a].into()).collect();
+            let cargs = visible_block_args(args, vmap);
             fb.ins().jump(blocks[dst.0 as usize], cargs.iter());
             Ok(())
         }
         Terminator::CondBr { cond, then_block, then_args, else_block, else_args } => {
             let c = vmap[cond];
-            let ta: Vec<cranelift_codegen::ir::BlockArg> =
-                then_args.iter().map(|a| vmap[a].into()).collect();
-            let ea: Vec<cranelift_codegen::ir::BlockArg> =
-                else_args.iter().map(|a| vmap[a].into()).collect();
+            let ta = visible_block_args(then_args, vmap);
+            let ea = visible_block_args(else_args, vmap);
             fb.ins().brif(
                 c,
                 blocks[then_block.0 as usize],
@@ -310,6 +332,18 @@ fn lower_term(
             "Switch terminator (use if/else for now)".into(),
         )),
     }
+}
+
+/// Turn MIR block arguments into Cranelift `BlockArg`s, dropping any
+/// unit-typed values (no clif counterpart). Mirrors the JIT path's
+/// `visible` helper so both backends see the same arg list.
+fn visible_block_args(
+    args: &[ValueId],
+    vmap: &HashMap<ValueId, Value>,
+) -> Vec<cranelift_codegen::ir::BlockArg> {
+    args.iter()
+        .filter_map(|a| vmap.get(a).copied().map(|v| v.into()))
+        .collect()
 }
 
 /// Truncate / extend / convert the entry's return value to a process

@@ -48,6 +48,21 @@ fn emits_object_for_if_else() {
 }
 
 #[test]
+fn emits_object_for_while_loop() {
+    expect_object(
+        r#"
+        let total = 0
+        let i = 1
+        while i <= 10 {
+          total = total + i
+          i = i + 1
+        }
+        total
+    "#,
+    );
+}
+
+#[test]
 fn rejects_classes_in_subset() {
     let src = r#"
         class P { x: i64 }
