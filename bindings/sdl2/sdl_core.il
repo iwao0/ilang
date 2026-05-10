@@ -74,95 +74,92 @@ pub enum PowerState: i32 {
 }
 
 // ─── SDL_HINT_* names ────────────────────────────────────────────
-// String constants matching the C `SDL_HINT_*` macros. Pass these
-// to `setHint` / `getHint`. The full list is large; the entries
-// below cover audio, video/render, input, mouse, gamepad, window
-// management, and miscellaneous behaviour controls — i.e. the
-// hints most apps reach for. Anything not here can still be set
-// with `setHint("SDL_THE_NAME", value)`.
+// String-repr enum mirroring the C `SDL_HINT_*` macros. Pass a
+// `Hint.x` to `setHint(...)` / `setHintWithPriority(...)` /
+// `resetHint(...)` via `Hint.x as string`. The list below covers
+// audio, video/render, input, mouse, gamepad, window management,
+// and miscellaneous behaviour controls — the hints most apps
+// reach for. Anything not enumerated here can still be set with
+// `setHint("SDL_THE_NAME", value)`.
+pub enum Hint: string {
+    // Audio
+    audioResamplingMode               = "SDL_AUDIO_RESAMPLING_MODE"
+    audioCategory                     = "SDL_AUDIO_CATEGORY"
+    audioDeviceAppName                = "SDL_AUDIO_DEVICE_APP_NAME"
+    audioDeviceStreamName             = "SDL_AUDIO_DEVICE_STREAM_NAME"
 
-// Audio
-pub const HINT_AUDIO_RESAMPLING_MODE: string         = "SDL_AUDIO_RESAMPLING_MODE"
-pub const HINT_AUDIO_CATEGORY: string                = "SDL_AUDIO_CATEGORY"
-pub const HINT_AUDIO_DEVICE_APP_NAME: string         = "SDL_AUDIO_DEVICE_APP_NAME"
-pub const HINT_AUDIO_DEVICE_STREAM_NAME: string      = "SDL_AUDIO_DEVICE_STREAM_NAME"
+    // Video / Render
+    framebufferAcceleration           = "SDL_FRAMEBUFFER_ACCELERATION"
+    renderDriver                      = "SDL_RENDER_DRIVER"
+    renderOpenGLShaders               = "SDL_RENDER_OPENGL_SHADERS"
+    renderDirect3DThreadsafe          = "SDL_RENDER_DIRECT3D_THREADSAFE"
+    renderDirect3D11Debug             = "SDL_RENDER_DIRECT3D11_DEBUG"
+    renderLogicalSizeMode             = "SDL_RENDER_LOGICAL_SIZE_MODE"
+    renderScaleQuality                = "SDL_RENDER_SCALE_QUALITY"
+    renderVsync                       = "SDL_RENDER_VSYNC"
+    renderBatching                    = "SDL_RENDER_BATCHING"
+    videoAllowScreensaver             = "SDL_VIDEO_ALLOW_SCREENSAVER"
+    videoHighDPIDisabled              = "SDL_VIDEO_HIGHDPI_DISABLED"
+    videoMacFullscreenSpaces          = "SDL_VIDEO_MAC_FULLSCREEN_SPACES"
+    videoWinD3DCompiler               = "SDL_VIDEO_WIN_D3DCOMPILER"
+    videoX11NetWMPing                 = "SDL_VIDEO_X11_NET_WM_PING"
+    videoX11NetWMBypassCompositor     = "SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR"
+    videoX11Xinerama                  = "SDL_VIDEO_X11_XINERAMA"
+    videoX11Xrandr                    = "SDL_VIDEO_X11_XRANDR"
+    videoX11Xvidmode                  = "SDL_VIDEO_X11_XVIDMODE"
+    openGLESDriver                    = "SDL_OPENGL_ES_DRIVER"
 
-// Video / Render
-pub const HINT_FRAMEBUFFER_ACCELERATION: string      = "SDL_FRAMEBUFFER_ACCELERATION"
-pub const HINT_RENDER_DRIVER: string                 = "SDL_RENDER_DRIVER"
-pub const HINT_RENDER_OPENGL_SHADERS: string         = "SDL_RENDER_OPENGL_SHADERS"
-pub const HINT_RENDER_DIRECT3D_THREADSAFE: string    = "SDL_RENDER_DIRECT3D_THREADSAFE"
-pub const HINT_RENDER_DIRECT3D11_DEBUG: string       = "SDL_RENDER_DIRECT3D11_DEBUG"
-pub const HINT_RENDER_LOGICAL_SIZE_MODE: string      = "SDL_RENDER_LOGICAL_SIZE_MODE"
-pub const HINT_RENDER_SCALE_QUALITY: string          = "SDL_RENDER_SCALE_QUALITY"
-pub const HINT_RENDER_VSYNC: string                  = "SDL_RENDER_VSYNC"
-pub const HINT_RENDER_BATCHING: string               = "SDL_RENDER_BATCHING"
-pub const HINT_VIDEO_ALLOW_SCREENSAVER: string       = "SDL_VIDEO_ALLOW_SCREENSAVER"
-pub const HINT_VIDEO_HIGHDPI_DISABLED: string        = "SDL_VIDEO_HIGHDPI_DISABLED"
-pub const HINT_VIDEO_MAC_FULLSCREEN_SPACES: string   = "SDL_VIDEO_MAC_FULLSCREEN_SPACES"
-pub const HINT_VIDEO_WIN_D3DCOMPILER: string         = "SDL_VIDEO_WIN_D3DCOMPILER"
-pub const HINT_VIDEO_X11_NET_WM_PING: string         = "SDL_VIDEO_X11_NET_WM_PING"
-pub const HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR: string =
-    "SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR"
-pub const HINT_VIDEO_X11_XINERAMA: string            = "SDL_VIDEO_X11_XINERAMA"
-pub const HINT_VIDEO_X11_XRANDR: string              = "SDL_VIDEO_X11_XRANDR"
-pub const HINT_VIDEO_X11_XVIDMODE: string            = "SDL_VIDEO_X11_XVIDMODE"
-pub const HINT_OPENGL_ES_DRIVER: string              = "SDL_OPENGL_ES_DRIVER"
+    // Window
+    windowsDisableThreadNaming        = "SDL_WINDOWS_DISABLE_THREAD_NAMING"
+    windowsEnableMessageloop          = "SDL_WINDOWS_ENABLE_MESSAGELOOP"
+    windowFrameUsableWhileCursorHidden = "SDL_WINDOW_FRAME_USABLE_WHILE_CURSOR_HIDDEN"
 
-// Window
-pub const HINT_WINDOWS_DISABLE_THREAD_NAMING: string = "SDL_WINDOWS_DISABLE_THREAD_NAMING"
-pub const HINT_WINDOWS_ENABLE_MESSAGELOOP: string    = "SDL_WINDOWS_ENABLE_MESSAGELOOP"
-pub const HINT_WINDOW_FRAME_USABLE_WHILE_CURSOR_HIDDEN: string =
-    "SDL_WINDOW_FRAME_USABLE_WHILE_CURSOR_HIDDEN"
+    // Mouse / touch
+    mouseNormalSpeedScale             = "SDL_MOUSE_NORMAL_SPEED_SCALE"
+    mouseRelativeSpeedScale           = "SDL_MOUSE_RELATIVE_SPEED_SCALE"
+    mouseRelativeModeWarp             = "SDL_MOUSE_RELATIVE_MODE_WARP"
+    mouseFocusClickthrough            = "SDL_MOUSE_FOCUS_CLICKTHROUGH"
+    touchMouseEvents                  = "SDL_TOUCH_MOUSE_EVENTS"
+    mouseTouchEvents                  = "SDL_MOUSE_TOUCH_EVENTS"
+    mouseDoubleClickTime              = "SDL_MOUSE_DOUBLE_CLICK_TIME"
+    mouseDoubleClickRadius            = "SDL_MOUSE_DOUBLE_CLICK_RADIUS"
 
-// Mouse / touch
-pub const HINT_MOUSE_NORMAL_SPEED_SCALE: string         = "SDL_MOUSE_NORMAL_SPEED_SCALE"
-pub const HINT_MOUSE_RELATIVE_SPEED_SCALE: string       = "SDL_MOUSE_RELATIVE_SPEED_SCALE"
-pub const HINT_MOUSE_RELATIVE_MODE_WARP: string         = "SDL_MOUSE_RELATIVE_MODE_WARP"
-pub const HINT_MOUSE_FOCUS_CLICKTHROUGH: string         = "SDL_MOUSE_FOCUS_CLICKTHROUGH"
-pub const HINT_TOUCH_MOUSE_EVENTS: string               = "SDL_TOUCH_MOUSE_EVENTS"
-pub const HINT_MOUSE_TOUCH_EVENTS: string               = "SDL_MOUSE_TOUCH_EVENTS"
-pub const HINT_MOUSE_DOUBLE_CLICK_TIME: string          = "SDL_MOUSE_DOUBLE_CLICK_TIME"
-pub const HINT_MOUSE_DOUBLE_CLICK_RADIUS: string        = "SDL_MOUSE_DOUBLE_CLICK_RADIUS"
+    // Keyboard
+    grabKeyboard                      = "SDL_GRAB_KEYBOARD"
+    keyboardElement                   = "SDL_KEYBOARD_ELEMENT"
+    noSignalHandlers                  = "SDL_NO_SIGNAL_HANDLERS"
 
-// Keyboard
-pub const HINT_GRAB_KEYBOARD: string                  = "SDL_GRAB_KEYBOARD"
-pub const HINT_KEYBOARD_ELEMENT: string               = "SDL_KEYBOARD_ELEMENT"
-pub const HINT_NO_SIGNAL_HANDLERS: string             = "SDL_NO_SIGNAL_HANDLERS"
+    // Joystick / gamepad
+    joystickAllowBackgroundEvents     = "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"
+    gameControllerConfig              = "SDL_GAMECONTROLLERCONFIG"
+    gameControllerConfigFile          = "SDL_GAMECONTROLLERCONFIG_FILE"
+    gameControllerUseButtonLabels     = "SDL_GAMECONTROLLER_USE_BUTTON_LABELS"
+    gameControllerIgnoreDevices       = "SDL_GAMECONTROLLER_IGNORE_DEVICES"
+    gameControllerIgnoreDevicesExcept = "SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT"
 
-// Joystick / gamepad
-pub const HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS: string = "SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS"
-pub const HINT_GAMECONTROLLERCONFIG: string             = "SDL_GAMECONTROLLERCONFIG"
-pub const HINT_GAMECONTROLLERCONFIG_FILE: string        = "SDL_GAMECONTROLLERCONFIG_FILE"
-pub const HINT_GAMECONTROLLER_USE_BUTTON_LABELS: string = "SDL_GAMECONTROLLER_USE_BUTTON_LABELS"
-pub const HINT_GAMECONTROLLER_IGNORE_DEVICES: string    = "SDL_GAMECONTROLLER_IGNORE_DEVICES"
-pub const HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT: string =
-    "SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT"
+    // Apple / iOS / accelerometer
+    accelerometerAsJoystick           = "SDL_ACCELEROMETER_AS_JOYSTICK"
+    appleTVControllerUIEvents         = "SDL_APPLE_TV_CONTROLLER_UI_EVENTS"
+    appleTVRemoteAllowRotation        = "SDL_APPLE_TV_REMOTE_ALLOW_ROTATION"
+    iosIdleTimerDisabled              = "SDL_IOS_IDLE_TIMER_DISABLED"
+    iosOrientations                   = "SDL_IOS_ORIENTATIONS"
 
-// Apple / iOS / accelerometer
-pub const HINT_ACCELEROMETER_AS_JOYSTICK: string     = "SDL_ACCELEROMETER_AS_JOYSTICK"
-pub const HINT_APPLE_TV_CONTROLLER_UI_EVENTS: string = "SDL_APPLE_TV_CONTROLLER_UI_EVENTS"
-pub const HINT_APPLE_TV_REMOTE_ALLOW_ROTATION: string = "SDL_APPLE_TV_REMOTE_ALLOW_ROTATION"
-pub const HINT_IDLE_TIMER_DISABLED: string           = "SDL_IOS_IDLE_TIMER_DISABLED"
-pub const HINT_ORIENTATIONS: string                  = "SDL_IOS_ORIENTATIONS"
+    // Android
+    androidApkExpansionMainFileVersion  = "SDL_ANDROID_APK_EXPANSION_MAIN_FILE_VERSION"
+    androidApkExpansionPatchFileVersion = "SDL_ANDROID_APK_EXPANSION_PATCH_FILE_VERSION"
+    androidTrapBackButton             = "SDL_ANDROID_TRAP_BACK_BUTTON"
 
-// Android
-pub const HINT_ANDROID_APK_EXPANSION_MAIN_FILE_VERSION: string =
-    "SDL_ANDROID_APK_EXPANSION_MAIN_FILE_VERSION"
-pub const HINT_ANDROID_APK_EXPANSION_PATCH_FILE_VERSION: string =
-    "SDL_ANDROID_APK_EXPANSION_PATCH_FILE_VERSION"
-pub const HINT_ANDROID_TRAP_BACK_BUTTON: string      = "SDL_ANDROID_TRAP_BACK_BUTTON"
+    // XInput / Wii / RPI
+    xinputEnabled                     = "SDL_XINPUT_ENABLED"
+    xinputUseOldJoystickMapping       = "SDL_XINPUT_USE_OLD_JOYSTICK_MAPPING"
+    rpiVideoLayer                     = "SDL_RPI_VIDEO_LAYER"
 
-// XInput / Wii / RPI
-pub const HINT_XINPUT_ENABLED: string                = "SDL_XINPUT_ENABLED"
-pub const HINT_XINPUT_USE_OLD_JOYSTICK_MAPPING: string = "SDL_XINPUT_USE_OLD_JOYSTICK_MAPPING"
-pub const HINT_RPI_VIDEO_LAYER: string               = "SDL_RPI_VIDEO_LAYER"
-
-// Threads / behaviour
-pub const HINT_THREAD_STACK_SIZE: string             = "SDL_THREAD_STACK_SIZE"
-pub const HINT_THREAD_PRIORITY_POLICY: string        = "SDL_THREAD_PRIORITY_POLICY"
-pub const HINT_TIMER_RESOLUTION: string              = "SDL_TIMER_RESOLUTION"
-pub const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORMAT"
+    // Threads / behaviour
+    threadStackSize                   = "SDL_THREAD_STACK_SIZE"
+    threadPriorityPolicy              = "SDL_THREAD_PRIORITY_POLICY"
+    timerResolution                   = "SDL_TIMER_RESOLUTION"
+    bmpSaveLegacyFormat               = "SDL_BMP_SAVE_LEGACY_FORMAT"
+}
 
 @extern(C) {
     /// SDL library version triple. Mirrors C `SDL_version` (3 u8
