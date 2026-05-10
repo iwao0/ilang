@@ -12,7 +12,7 @@ pub use expr::{
 };
 pub use item::{
     AttrArg, Attribute, ClassDecl, ConstDecl, EnumDecl, ExternCBlock, ExternCItem, FieldDecl, FnDecl, Item, Param,
-    PropertyDecl, StaticFieldDecl, UseDecl, Variant, VariantPayload,
+    PropertyDecl, StaticFieldDecl, UseAlias, UseDecl, Variant, VariantPayload,
 };
 pub use program::Program;
 pub use span::Span;
