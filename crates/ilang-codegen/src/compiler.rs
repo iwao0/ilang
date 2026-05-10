@@ -2436,6 +2436,11 @@ impl JitCompiler {
 
     fn define_main(&mut self, prog: &Program) -> Result<JitTy, CodegenError> {
         let mut tc = ilang_types::TypeChecker::new();
+        // The hoist / monomorphize pass strips `pub` from synthetic
+        // items, so re-running the cross-module visibility checks
+        // here would surface false positives. The user's source has
+        // already passed those checks at the CLI's first typecheck.
+        tc.skip_visibility = true;
         // Tell the type checker about closure wrappers' captures
         // so their bodies type-check (free vars in the body
         // resolve to captured names).

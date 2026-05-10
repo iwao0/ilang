@@ -199,6 +199,11 @@ struct Signature {
     /// missing trailing arguments. Always empty for built-ins and for
     /// the indirect-call path (no FnDecl behind it).
     defaults: Vec<Option<Expr>>,
+    /// `pub` modifier on the original declaration. Built-ins are
+    /// always public. Drives cross-module access enforcement: a fn
+    /// (or class member) defined in module `M` is reachable from a
+    /// different module only when `is_pub` is `true`.
+    is_pub: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -208,6 +213,10 @@ struct ClassSig {
     /// `Type::TypeVar(name)`; instantiation substitutes them.
     type_params: Vec<Symbol>,
     fields: HashMap<Symbol, Type>,
+    /// `pub` flag per field. Drives cross-module access checks at
+    /// `obj.field` / `obj.field = …` sites — a non-pub field is
+    /// reachable only from the class's own module.
+    field_pub: HashMap<Symbol, bool>,
     /// Methods grouped by source name, allowing overloads. Resolution
     /// at each MethodCall (and `new C(args)` for `init`) site picks
     /// the best match the same way top-level fn overloads do.
@@ -221,6 +230,9 @@ struct ClassSig {
     /// `static` fields — class-level mutable storage. Read/write
     /// dispatched at `ClassName.field` field expressions.
     static_fields: HashMap<Symbol, Type>,
+    /// Per-static-field `pub` flag (mirrors `field_pub` for instance
+    /// fields).
+    static_field_pub: HashMap<Symbol, bool>,
     /// Subset of `static_fields` declared with `const` (immutable —
     /// reassignment is rejected at type-check time).
     static_const_fields: HashSet<Symbol>,
@@ -249,6 +261,10 @@ struct ClassSig {
     /// (`T[]` last field). `new ClassName(n)` accepts a single i64
     /// arg (the trailing element count) for these.
     has_fam: bool,
+    /// Defining module — derived from the class's declaration name
+    /// (`sdl.Window` ⇒ `"sdl"`, top-level entry items ⇒ `""`). Used
+    /// to gate cross-module access on non-pub members.
+    module: String,
 }
 
 #[derive(Debug, Clone)]
@@ -256,6 +272,7 @@ struct PropertySig {
     ty: Type,
     has_get: bool,
     has_set: bool,
+    is_pub: bool,
 }
 
 /// Type-checker view of an enum. Variants preserve declaration order so
@@ -376,6 +393,35 @@ pub struct TypeChecker {
     /// pass must append to the Call's `args`. Keyed by the call
     /// expression's span.
     call_default_fills: std::cell::RefCell<HashMap<Span, Vec<Expr>>>,
+    /// Module the currently-checked top-level item belongs to —
+    /// derived from the item name's prefix (`sdl.Window` ⇒
+    /// `"sdl"`, entry items ⇒ `""`). `obj.field` / method-call
+    /// access sites compare this against the resolved class /
+    /// fn's module to enforce the `module-private default + pub
+    /// for cross-module exposure` rule. Saved / restored across
+    /// nested item checks.
+    current_module: std::cell::RefCell<String>,
+    /// JIT pipelines re-run `check` on a monomorphized /
+    /// hoisted program whose synthetic items lose their `pub`
+    /// flags. The original user source already passed the
+    /// visibility checks; rerunning them on the rewritten form
+    /// surfaces false positives. Setting this flag (`true`)
+    /// makes `require_visible` a no-op while still checking
+    /// every other invariant. The CLI's first typecheck leaves
+    /// it at `false`.
+    pub skip_visibility: bool,
+}
+
+/// Extract the module portion from a possibly-prefixed item name.
+/// `"sdl.Window"` ⇒ `"sdl"`, `"sdl_audio.AudioDevice"` ⇒
+/// `"sdl_audio"`, `"Foo"` ⇒ `""` (entry module). The loader merges
+/// imported items under `module.<name>`, so the prefix is the only
+/// post-load module signal we have.
+fn module_of_name(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(i) => &name[..i],
+        None => "",
+    }
 }
 
 #[derive(Debug)]
@@ -671,8 +717,7 @@ impl TypeChecker {
                 // arg flows through unchecked.
                 params: vec![],
                 ret: Type::Unit,
-                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
-            }],
+                variadic: true, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         self.classes.insert(
             "Console".into(),
@@ -690,6 +735,9 @@ impl TypeChecker {
                 extern_lib: None,
                 is_repr_c: false,
                 has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
             },
         );
         self.vars
@@ -705,47 +753,44 @@ impl TypeChecker {
         let mut map_methods = HashMap::new();
         map_methods.insert(
             "init".into(),
-            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
+            vec![Signature { params: vec![], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "get".into(),
             vec![Signature {
                 params: vec![k()],
                 ret: Type::Optional(Box::new(v())),
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
-            }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "set".into(),
-            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
+            vec![Signature { params: vec![k(), v()], ret: Type::Unit, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "has".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "delete".into(),
-            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
+            vec![Signature { params: vec![k()], ret: Type::Bool, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "size".into(),
-            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new() }],
+            vec![Signature { params: vec![], ret: Type::I64, variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "keys".into(),
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(k()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
-            }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         map_methods.insert(
             "values".into(),
             vec![Signature {
                 params: vec![],
                 ret: Type::Array { elem: Box::new(v()), fixed: None },
-                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(),
-            }],
+                variadic: false, decl_span: Span::dummy(), type_params: Vec::new(), defaults: Vec::new(), is_pub: true }],
         );
         self.classes.insert(
             "Map".into(),
@@ -763,6 +808,9 @@ impl TypeChecker {
                 extern_lib: None,
                 is_repr_c: false,
                 has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
             },
         );
 
@@ -790,6 +838,7 @@ impl TypeChecker {
             decl_span: Span::dummy(),
             type_params,
             defaults: Vec::new(),
+            is_pub: true,
         };
         // stringFromCstr(p: *const char): string
         self.fns.insert(
@@ -985,6 +1034,9 @@ impl TypeChecker {
                 extern_lib: None,
                 is_repr_c: false,
                 has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
             },
         );
 
@@ -999,8 +1051,7 @@ impl TypeChecker {
                 variadic: false,
                 decl_span: Span::dummy(),
                 type_params: Vec::new(),
-                defaults: Vec::new(),
-            }],
+                defaults: Vec::new(), is_pub: true }],
         );
     }
 
@@ -1153,6 +1204,18 @@ impl TypeChecker {
         }
 
         for item in &prog.items {
+            // Each top-level item belongs to a module — derived from
+            // the loader-prefixed name (`sdl.X` ⇒ `"sdl"`, plain
+            // entry items ⇒ `""`). Set `current_module` so member
+            // access checks know whose perspective they're judging.
+            let saved_module = self.current_module.borrow().clone();
+            let item_module = match item {
+                Item::Fn(f) => module_of_name(f.name.as_str()).to_string(),
+                Item::Class(c) => module_of_name(c.name.as_str()).to_string(),
+                Item::Enum(e) => module_of_name(e.name.as_str()).to_string(),
+                _ => saved_module.clone(),
+            };
+            *self.current_module.borrow_mut() = item_module;
             match item {
                 Item::Fn(f) => self.check_fn(f, None)?,
                 Item::Class(c) => self.check_class(c)?,
@@ -1165,6 +1228,7 @@ impl TypeChecker {
                     result?;
                 }
             }
+            *self.current_module.borrow_mut() = saved_module;
         }
 
         let mut env: Vars = self.vars.clone();
@@ -1609,6 +1673,42 @@ impl TypeChecker {
             }
         }
         Ok(())
+    }
+
+    /// Reject access to a non-`pub` class member when the access
+    /// site lives in a different module from the class's
+    /// declaration. Same-module access is unrestricted (matches
+    /// the top-level pub rule). The error is structured as
+    /// `Unsupported` so the existing diagnostic plumbing handles
+    /// it.
+    fn require_visible(
+        &self,
+        class_name: &str,
+        class_module: &str,
+        member_kind: &str,
+        member_name: &str,
+        is_pub: bool,
+        span: Span,
+    ) -> Result<(), TypeError> {
+        if self.skip_visibility {
+            return Ok(());
+        }
+        if is_pub {
+            return Ok(());
+        }
+        let cur = self.current_module.borrow();
+        if cur.as_str() == class_module {
+            return Ok(());
+        }
+        let class_disp = class_name;
+        let cur_disp = if cur.is_empty() { "<entry>" } else { cur.as_str() };
+        let mod_disp = if class_module.is_empty() { "<entry>" } else { class_module };
+        Err(TypeError::Unsupported {
+            what: format!(
+                "{member_kind} `{class_disp}.{member_name}` is module-private (defined in module `{mod_disp}`) — not reachable from module `{cur_disp}`. Mark it `pub` to expose it"
+            ),
+            span,
+        })
     }
 
     fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
@@ -2494,8 +2594,7 @@ impl TypeChecker {
                         params: ft.params.to_vec(),
                         ret: ft.ret.clone(),
                         variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-                        defaults: Vec::new(),
-                    };
+                        defaults: Vec::new(), is_pub: true };
                     self.check_args(*callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
                     return Ok(sig.ret);
                 }
@@ -2610,6 +2709,12 @@ impl TypeChecker {
                     if !is_local_shadow {
                         if let Some(cls) = self.classes.get(&rname) {
                             if let Some(t) = cls.static_fields.get(name) {
+                                let is_pub = cls.static_field_pub.get(name).copied().unwrap_or(false);
+                                let cmod = cls.module.clone();
+                                let cn = rname.as_str().to_string();
+                                self.require_visible(
+                                    &cn, &cmod, "static field", name.as_str(), is_pub, span,
+                                )?;
                                 return Ok(t.clone());
                             }
                         }
@@ -2677,6 +2782,10 @@ impl TypeChecker {
                             span,
                         });
                     }
+                    let cmod = cls.module.clone();
+                    self.require_visible(
+                        class_name.as_str(), &cmod, "property", name.as_str(), p.is_pub, span,
+                    )?;
                     return Ok(subst_type(
                         &p.ty,
                         &cls.type_params,
@@ -2690,6 +2799,16 @@ impl TypeChecker {
                         span,
                     }
                 })?;
+                // `@extern(C) struct` fields are transparent C ABI
+                // bridges — there's no private state to protect, so
+                // skip the per-field visibility check on them.
+                if !cls.is_repr_c {
+                    let is_pub = cls.field_pub.get(name).copied().unwrap_or(false);
+                    let cmod = cls.module.clone();
+                    self.require_visible(
+                        class_name.as_str(), &cmod, "field", name.as_str(), is_pub, span,
+                    )?;
+                }
                 Ok(subst_type(&raw, &cls.type_params, type_args_of(&ot)))
             }
             ExprKind::MethodCall { obj, method, args } => {
@@ -2705,6 +2824,11 @@ impl TypeChecker {
                     if !is_local_shadow {
                         if let Some(cls) = self.classes.get(&name) {
                             if let Some(sig) = cls.static_methods.get(method).cloned() {
+                                let cmod = cls.module.clone();
+                                let cn = name.as_str().to_string();
+                                self.require_visible(
+                                    &cn, &cmod, "static method", method.as_str(), sig.is_pub, span,
+                                )?;
                                 self.check_args(
                                     *method, &sig, args, env, ret_ty, in_class, loop_depth, span,
                                 )?;
@@ -3099,10 +3223,19 @@ impl TypeChecker {
                         type_params: Vec::new(),
                         decl_span: raw.decl_span,
                         defaults: raw.defaults.clone(),
+                        is_pub: raw.is_pub,
                     })
                     .collect();
+                // At least one overload must be reachable from the
+                // current module for the call to be legal. We check
+                // pub on the chosen overload after resolution to
+                // surface a precise error.
                 let chosen = self.resolve_method_call(
                     class_name_owned, *method, &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                )?;
+                let cmod = cls.module.clone();
+                self.require_visible(
+                    class_name.as_str(), &cmod, "method", method.as_str(), chosen.is_pub, span,
                 )?;
                 Ok(chosen.ret)
             }
@@ -3162,10 +3295,15 @@ impl TypeChecker {
                             type_params: Vec::new(),
                             decl_span: init.decl_span,
                             defaults: init.defaults.clone(),
+                            is_pub: init.is_pub,
                         })
                         .collect();
-                    self.resolve_method_call(
+                    let chosen = self.resolve_method_call(
                         *class, "init".into(), &substituted, args, env, ret_ty, in_class, loop_depth, span,
+                    )?;
+                    let cmod = cls.module.clone();
+                    self.require_visible(
+                        class.as_str(), &cmod, "init", "init", chosen.is_pub, span,
                     )?;
                 } else if !args.is_empty() {
                     // C99 flexible array member: `@extern(C) struct`
@@ -3988,6 +4126,12 @@ impl TypeChecker {
                                         span,
                                     });
                                 }
+                                let is_pub = cls.static_field_pub.get(field).copied().unwrap_or(false);
+                                let cmod = cls.module.clone();
+                                let cn = rname.as_str().to_string();
+                                self.require_visible(
+                                    &cn, &cmod, "static field", field.as_str(), is_pub, span,
+                                )?;
                                 let vt =
                                     self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                                 if !self.value_assignable(value, &vt, &ft) {
@@ -4022,6 +4166,10 @@ impl TypeChecker {
                             span,
                         });
                     }
+                    let cmod = cls.module.clone();
+                    self.require_visible(
+                        class_name.as_str(), &cmod, "property", field.as_str(), p.is_pub, span,
+                    )?;
                     let prop_ty =
                         subst_type(&p.ty, &cls.type_params, type_args_of(&ot));
                     let v_ty =
@@ -4042,6 +4190,13 @@ impl TypeChecker {
                         span,
                     }
                 })?;
+                if !cls.is_repr_c {
+                    let is_pub = cls.field_pub.get(field).copied().unwrap_or(false);
+                    let cmod = cls.module.clone();
+                    self.require_visible(
+                        class_name.as_str(), &cmod, "field", field.as_str(), is_pub, span,
+                    )?;
+                }
                 // Substitute the receiver's generic type args so a
                 // `Box<i64>.x = 100` check sees `i64` for `x: T`.
                 // Mirrors the substitution done by the Field read path.
@@ -5182,6 +5337,7 @@ fn signature_of(f: &FnDecl) -> Signature {
         decl_span: f.span,
         type_params: Vec::from(f.type_params.clone()),
         defaults: f.params.iter().map(|p| p.default.clone()).collect(),
+        is_pub: f.is_pub,
     }
 }
 
@@ -5211,6 +5367,9 @@ fn class_signature(
     let mut fields: HashMap<Symbol, Type> = parent
         .map(|p| p.fields.clone())
         .unwrap_or_default();
+    let mut field_pub: HashMap<Symbol, bool> = parent
+        .map(|p| p.field_pub.clone())
+        .unwrap_or_default();
     for f in &c.fields {
         if fields.contains_key(&f.name) {
             return Err(TypeError::Unsupported {
@@ -5222,6 +5381,7 @@ fn class_signature(
             });
         }
         fields.insert(f.name.clone(), rewrite_type_params(&f.ty, &c.type_params));
+        field_pub.insert(f.name.clone(), f.is_pub);
     }
     let mut methods: HashMap<Symbol, Vec<Signature>> = parent
         .map(|p| p.methods.clone())
@@ -5480,6 +5640,7 @@ fn class_signature(
                 ty: prop_ty,
                 has_get: prop.getter.is_some(),
                 has_set: prop.setter.is_some(),
+                is_pub: prop.is_pub,
             },
         );
     }
@@ -5528,6 +5689,7 @@ fn class_signature(
         static_methods.insert(m.name.clone(), sig);
     }
     let mut static_fields: HashMap<Symbol, Type> = HashMap::new();
+    let mut static_field_pub: HashMap<Symbol, bool> = HashMap::new();
     let mut static_const_fields: HashSet<Symbol> = HashSet::new();
     for sf in &c.static_fields {
         if static_fields.contains_key(&sf.name)
@@ -5578,17 +5740,21 @@ fn class_signature(
             });
         }
         static_fields.insert(sf.name.clone(), sf.ty.clone());
+        static_field_pub.insert(sf.name.clone(), sf.is_pub);
         if sf.is_const {
             static_const_fields.insert(sf.name.clone());
         }
     }
+    let module = module_of_name(c.name.as_str()).to_string();
     Ok(ClassSig {
         type_params: Vec::from(c.type_params.clone()),
         fields,
+        field_pub,
         methods,
         properties,
         static_methods,
         static_fields,
+        static_field_pub,
         static_const_fields,
         parent: c.parent.clone(),
         method_slots,
@@ -5599,6 +5765,7 @@ fn class_signature(
             && c.fields.last().map_or(false, |f| matches!(
                 &f.ty, Type::Array { fixed: None, .. }
             )),
+        module,
     })
 }
 
