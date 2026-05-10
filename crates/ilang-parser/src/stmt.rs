@@ -17,6 +17,10 @@ pub(crate) fn parse_block(p: &mut Parser) -> Result<Block, ParseError> {
                 let s = parse_let_stmt(p)?;
                 stmts.push(s);
             }
+            TokenKind::Const => {
+                let s = parse_local_const_stmt(p)?;
+                stmts.push(s);
+            }
             _ => {
                 let e = p.parse_expr(0)?;
                 let span = e.span;
@@ -46,7 +50,8 @@ pub(crate) fn parse_top_level_let(p: &mut Parser) -> Result<Stmt, ParseError> {
     };
     let mut s = parse_let_stmt(p)?;
     if is_pub {
-        if let StmtKind::Let { is_pub: out, .. } = &mut s.kind {
+        if let StmtKind::Let { is_pub: out,
+                is_const: false, .. } = &mut s.kind {
             *out = true;
         } else {
             // `pub let (a, b) = ...` / `pub let X { ... } = ...` —
@@ -159,5 +164,37 @@ pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
     p.expect(&TokenKind::Equals, "'='")?;
     let value = p.parse_expr(0)?;
     p.consume_stmt_terminator()?;
-    Ok(Stmt::new(StmtKind::Let { is_pub: false, name, ty, value }, let_span))
+    Ok(Stmt::new(StmtKind::Let { is_pub: false,
+                is_const: false, name, ty, value }, let_span))
+}
+
+/// `const x [: T] = expr` inside a block — a one-time-assigned
+/// local binding. Same shape as `let`, but the type checker
+/// rejects subsequent assignments. Tuple / struct destructure
+/// forms are not supported (consts are single-name only).
+pub(crate) fn parse_local_const_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
+    let const_span = p.peek().span;
+    p.expect(&TokenKind::Const, "'const'")?;
+    let name = p.expect_ident("constant name")?;
+    let ty = if matches!(p.peek().kind, TokenKind::Colon) {
+        p.bump();
+        Some(p.parse_type()?)
+    } else {
+        None
+    };
+    if !matches!(p.peek().kind, TokenKind::Equals) {
+        let t = p.peek();
+        return Err(ParseError::Unexpected {
+            found: t.kind.clone(),
+            expected: "`=` — local `const` must have an initializer expression".into(),
+            span: t.span,
+        });
+    }
+    p.bump();
+    let value = p.parse_expr(0)?;
+    p.consume_stmt_terminator()?;
+    Ok(Stmt::new(
+        StmtKind::Let { is_pub: false, is_const: true, name, ty, value },
+        const_span,
+    ))
 }

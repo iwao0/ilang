@@ -374,6 +374,7 @@ fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name: name.clone(),
             ty: ty.clone(),
             value: hoist_in_expr(value, ctx),
@@ -560,7 +561,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             then_branch,
             else_branch,
         } => ExprKind::IfLet {
-            name: name.clone(),
+                name: name.clone(),
             expr: Box::new(hoist_in_expr(expr, ctx)),
             then_branch: hoist_in_block(then_branch, ctx),
             else_branch: else_branch
@@ -1157,6 +1158,7 @@ fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name: name.clone(),
             ty: ty.as_ref().map(|t| subst_type(t, params, args)),
             value: subst_expr(value, params, args),
@@ -1281,7 +1283,7 @@ fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
             then_branch,
             else_branch,
         } => ExprKind::IfLet {
-            name: name.clone(),
+                name: name.clone(),
             expr: Box::new(subst_expr(expr, params, args)),
             then_branch: subst_block(then_branch, params, args),
             else_branch: else_branch.as_ref().map(|e| Box::new(subst_expr(e, params, args))),
@@ -1506,6 +1508,7 @@ fn rewrite_stmt(s: &Stmt) -> Stmt {
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name: name.clone(),
             ty: ty.as_ref().map(rewrite_type),
             value: rewrite_expr(value),
@@ -1634,7 +1637,7 @@ fn rewrite_expr(e: &Expr) -> Expr {
             then_branch,
             else_branch,
         } => ExprKind::IfLet {
-            name: name.clone(),
+                name: name.clone(),
             expr: Box::new(rewrite_expr(expr)),
             then_branch: rewrite_block(then_branch),
             else_branch: else_branch.as_ref().map(|e| Box::new(rewrite_expr(e))),
@@ -2231,6 +2234,7 @@ fn rewrite_calls_in_stmt(
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name: name.clone(),
             ty: ty.clone(),
             value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
@@ -2557,7 +2561,7 @@ fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> ExprKind {
             then_branch,
             else_branch,
         } => ExprKind::IfLet {
-            name: name.clone(),
+                name: name.clone(),
             expr: Box::new(f(expr)),
             then_branch: map_block_children(then_branch, f),
             else_branch: else_branch.as_ref().map(|e| Box::new(f(e))),
@@ -2647,6 +2651,7 @@ fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
                 let kind = match &s.kind {
                     StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
                         is_pub: false,
+                is_const: false,
                         name: name.clone(),
                         ty: ty.clone(),
                         value: f(value),
@@ -3318,6 +3323,7 @@ fn rewrite_enum_refs_in_stmt(
     let kind = match &s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name: name.clone(),
             ty: ty.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
             value: rewrite_enum_refs_in_expr(

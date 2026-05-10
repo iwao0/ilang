@@ -1099,8 +1099,9 @@ fn prefix_block_calls(b: Block, prefix: &str) -> Block {
 
 fn prefix_stmt(s: Stmt, prefix: &str) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
+        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
+            is_pub,
+            is_const,
             name,
             ty: ty.map(|t| prefix_type(&t, prefix)),
             value: prefix_expr(value, prefix),
@@ -1438,16 +1439,38 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     // for ints, the natural literal type otherwise).
     let mut const_types: HashMap<Symbol, ilang_ast::Type> = HashMap::new();
     let mut items_no_const: Vec<Item> = Vec::new();
+    // Top-level `const NAME = expr` whose RHS isn't a compile-time
+    // constant get demoted to a runtime `let` (with `is_const:
+    // true` so the type checker still rejects reassignment).
+    // Collected here in declaration order; prepended to
+    // `prog.stmts` at the end so initialisation runs before any
+    // user code that references the name.
+    let mut runtime_consts: Vec<ilang_ast::Stmt> = Vec::new();
     for item in prog.items {
         match item {
             Item::Const(c) => {
-                let folded = fold_const_expr(&c.value, &consts).map_err(|reason| {
-                    LoadError::BadConst {
-                        name: c.name.clone(),
-                        reason,
-                        span: c.value.span,
+                let fold_result = fold_const_expr(&c.value, &consts);
+                let folded = match fold_result {
+                    Ok(f) => f,
+                    Err(_reason) => {
+                        // Non-foldable expression — keep as a runtime
+                        // one-shot init. References to the name elsewhere
+                        // resolve to this top-level binding the normal
+                        // way (no inline substitution).
+                        let span = c.value.span;
+                        runtime_consts.push(ilang_ast::Stmt {
+                            kind: ilang_ast::StmtKind::Let {
+                                is_pub: c.is_pub,
+                                is_const: true,
+                                name: c.name.clone(),
+                                ty: c.ty.clone(),
+                                value: c.value,
+                            },
+                            span,
+                        });
+                        continue;
                     }
-                })?;
+                };
                 if let Some(ty) = &c.ty {
                     // Don't wrap string / bool literals — those have
                     // a single natural type and casting them would
@@ -1505,10 +1528,17 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
             }
         }
     }
+    // Combine runtime-const initialisers (front) with the user's
+    // existing top-level statements so constants run before
+    // anything that might reference them.
+    let mut combined_stmts: Vec<ilang_ast::Stmt> =
+        Vec::with_capacity(runtime_consts.len() + prog.stmts.len());
+    combined_stmts.extend(runtime_consts.into_iter());
+    combined_stmts.extend(prog.stmts.into_iter());
     if consts.is_empty() {
         return Ok(Program {
             items: items_no_const.into(),
-            stmts: prog.stmts,
+            stmts: combined_stmts,
             tail: prog.tail,
         });
     }
@@ -1518,8 +1548,7 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
             .into_iter()
             .map(|i| subst_const_item(i, &ctx))
             .collect(),
-        stmts: prog
-            .stmts
+        stmts: combined_stmts
             .into_iter()
             .map(|s| subst_const_stmt(s, &ctx))
             .collect(),
@@ -1826,8 +1855,9 @@ fn subst_const_block(b: Block, ctx: &SubstCtx<'_>) -> Block {
 
 fn subst_const_stmt(s: Stmt, ctx: &SubstCtx<'_>) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
+        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
+            is_pub,
+            is_const,
             name,
             ty,
             value: subst_const_expr(value, ctx),

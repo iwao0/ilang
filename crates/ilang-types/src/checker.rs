@@ -410,6 +410,21 @@ pub struct TypeChecker {
     /// every other invariant. The CLI's first typecheck leaves
     /// it at `false`.
     pub skip_visibility: bool,
+    /// Names introduced by `const x = …` statements (one-time
+    /// assigned). Reassignment is rejected by the `Assign`
+    /// arm. Cleared at each fn-body boundary so the same name
+    /// can be a `let` in one fn and a `const` in another.
+    /// Limitation: nested-block shadowing of a const with a
+    /// `let` of the same name still surfaces as a const-
+    /// reassign error. In practice rare enough to leave for a
+    /// later pass.
+    const_names: std::cell::RefCell<HashSet<Symbol>>,
+    /// Top-level `const NAME = expr` (runtime form, demoted from
+    /// `Item::Const` by the loader when the RHS isn't a
+    /// compile-time constant). Persists across fn-body
+    /// boundaries — assigning to a top-level const from anywhere
+    /// is rejected.
+    top_level_consts: std::cell::RefCell<HashSet<Symbol>>,
 }
 
 /// Extract the module portion from a possibly-prefixed item name.
@@ -1188,7 +1203,7 @@ impl TypeChecker {
         // `let X: T = expr` was only reachable from sibling script-
         // stmts (and even then only in the entry file).
         for s in &prog.stmts {
-            if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+            if let StmtKind::Let { name, ty, value, is_const, .. } = &s.kind {
                 if is_reserved_global(name.as_str()) {
                     continue;
                 }
@@ -1199,6 +1214,9 @@ impl TypeChecker {
                 };
                 if let Some(t) = bind_ty {
                     self.vars.insert(name.clone(), t);
+                }
+                if *is_const {
+                    self.top_level_consts.borrow_mut().insert(name.clone());
                 }
             }
         }
@@ -1956,6 +1974,23 @@ impl TypeChecker {
             &mut *self.current_type_params.borrow_mut(),
             class_params.clone(),
         );
+        // Reset the per-fn const-name set on entry, restore on
+        // exit. Bindings inside this fn don't leak out and
+        // outer-scope consts shouldn't leak in.
+        struct ConstGuard<'a> {
+            slot: &'a std::cell::RefCell<HashSet<Symbol>>,
+            saved: HashSet<Symbol>,
+        }
+        impl<'a> Drop for ConstGuard<'a> {
+            fn drop(&mut self) {
+                *self.slot.borrow_mut() = std::mem::take(&mut self.saved);
+            }
+        }
+        let saved_consts = std::mem::take(&mut *self.const_names.borrow_mut());
+        let _const_guard = ConstGuard {
+            slot: &self.const_names,
+            saved: saved_consts,
+        };
         let _tps_guard = TpsGuard {
             slot: &self.current_type_params,
             saved: saved_tps,
@@ -2175,7 +2210,7 @@ impl TypeChecker {
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         match &stmt.kind {
-            StmtKind::Let { name, ty, value, .. } => {
+            StmtKind::Let { name, ty, value, is_const, .. } => {
                 // `let a = []` cannot pick an element type. Force the
                 // user to annotate before we lose the chance to do so.
                 if ty.is_none() {
@@ -2252,6 +2287,13 @@ impl TypeChecker {
                     }
                 }
                 env.insert(name.clone(), bind);
+                if *is_const {
+                    self.const_names.borrow_mut().insert(name.clone());
+                } else {
+                    // A `let` of the same name shadows / drops any
+                    // previous const flag in this fn body.
+                    self.const_names.borrow_mut().remove(name);
+                }
                 Ok(Type::Unit)
             }
             StmtKind::LetTuple { elems, value } => {
@@ -3646,6 +3688,16 @@ impl TypeChecker {
             }
             ExprKind::Assign { target, value } => {
                 if let Some(var_ty) = env.get(target).cloned() {
+                    if self.const_names.borrow().contains(target)
+                        || self.top_level_consts.borrow().contains(target)
+                    {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "cannot assign to `{target}` — it is bound by `const` (one-time assignment)"
+                            ),
+                            span,
+                        });
+                    }
                     let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
                     if !self.value_assignable(value, &v_ty, &var_ty) {
                         return Err(TypeError::Mismatch {

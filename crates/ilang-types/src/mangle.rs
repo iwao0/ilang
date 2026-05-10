@@ -291,6 +291,7 @@ fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
     let kind = match s.kind {
         StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
             is_pub: false,
+                is_const: false,
             name,
             ty,
             value: rewrite_expr(value, ctx),

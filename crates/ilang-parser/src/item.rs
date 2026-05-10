@@ -189,7 +189,15 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        self.expect(&TokenKind::Equals, "'='")?;
+        if !matches!(self.peek().kind, TokenKind::Equals) {
+            let t = self.peek();
+            return Err(ParseError::Unexpected {
+                found: t.kind.clone(),
+                expected: "`=` — `const` requires an initializer expression".into(),
+                span: t.span,
+            });
+        }
+        self.bump();
         let value = self.parse_expr(0)?;
         // The parser accepts any expression here; the loader's
         // `inline_constants` pass folds it to a literal (or errors).

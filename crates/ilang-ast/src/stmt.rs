@@ -23,6 +23,10 @@ pub enum StmtKind {
         /// the parser rejects `pub let` inside fn/class bodies.
         /// `false` for nested lets and for unmarked top-level lets.
         is_pub: bool,
+        /// `true` for `const x = expr` (one-time assignment —
+        /// reassignment is rejected by the type checker). `false`
+        /// for ordinary `let` bindings.
+        is_const: bool,
         name: Symbol,
         ty: Option<Type>,
         value: Expr,

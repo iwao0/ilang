@@ -938,8 +938,9 @@ fn rewrite_block(b: Block, ctx: &Ctx) -> Block {
 
 fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
-            is_pub: false,
+        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
+            is_pub,
+            is_const,
             name,
             ty,
             value: rewrite_expr(value, ctx),
@@ -1157,6 +1158,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             stmts.push(ilang_ast::Stmt {
                 kind: ilang_ast::StmtKind::Let {
                     is_pub: false,
+                is_const: false,
                     name: tmp,
                     ty: None,
                     value: Expr::new(

@@ -83,7 +83,8 @@ fn direct_pubs(prog: &Program) -> HashSet<Symbol> {
         }
     }
     for s in &prog.stmts {
-        if let StmtKind::Let { is_pub: true, name, .. } = &s.kind {
+        if let StmtKind::Let { is_pub: true,
+                is_const: false, name, .. } = &s.kind {
             out.insert(name.clone());
         }
     }
