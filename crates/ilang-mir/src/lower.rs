@@ -1311,6 +1311,22 @@ impl Lower {
             });
         }
 
+        // If this class doesn't define its own deinit but inherits
+        // from a parent that has one, point our drop_fn at the
+        // parent's so dropping a subclass instance still triggers
+        // the parent's destruction chain. Parent classes are
+        // processed before children (source-order requirement), so
+        // the parent's drop_fn is already set by the time we get
+        // here.
+        if self.classes[class_id.0 as usize].drop_fn == FuncId(u32::MAX) {
+            if let Some(pid) = parent_id {
+                let parent_drop = self.classes[pid.0 as usize].drop_fn;
+                if parent_drop != FuncId(u32::MAX) {
+                    self.classes[class_id.0 as usize].drop_fn = parent_drop;
+                }
+            }
+        }
+
         // Static methods — registered as top-level fns under
         // `Class.method`.
         for sm in cd.static_methods.iter() {
@@ -3461,14 +3477,14 @@ impl<'a> BodyCx<'a> {
                 // For an aliased heap value (anything that isn't a
                 // freshly-constructed `new T(...)` / closure expr /
                 // literal), bump refcount — the binding shares
-                // ownership with the source. Includes Fn so that
-                // `let g = this.f` doesn't release the closure's
-                // sole +1 at scope exit while the field still holds it.
-                if matches!(
-                    bind_ty,
-                    MirTy::Object(_) | MirTy::Str | MirTy::Fn(_)
-                ) && !value_is_fresh_object
-                {
+                // ownership with the source. All heap kinds (incl.
+                // Array, Tuple, Map, Optional, Enum) need this so
+                // the slot's scope-exit release has its own +1 to
+                // drop; without it a container that releases the
+                // element on overwrite (e.g. host_map_set's
+                // release_by_kind) would free the buffer the slot
+                // still points at.
+                if bind_ty.is_heap() && !value_is_fresh_object {
                     self.fb.push_inst(Inst::Retain { value: bound });
                 }
                 // Slot-backed top-level binding: skip the local
@@ -4153,15 +4169,26 @@ impl<'a> BodyCx<'a> {
             }
             ExprKind::Index { obj, index } => self.lower_index(obj, index),
             ExprKind::AssignIndex { obj, index, value } => {
+                let value_is_fresh = self.is_fresh_object_expr(value);
                 let (av, aty) = self.lower_expr(obj)?;
                 let (iv, _) = self.lower_expr(index)?;
-                let (vv, _) = self.lower_expr(value)?;
+                let (vv, vty) = self.lower_expr(value)?;
                 match aty {
                     MirTy::Array { .. } => {
                         self.fb.push_inst(Inst::ArrayStore { arr: av, idx: iv, value: vv });
                     }
                     MirTy::Map { .. } => {
                         self.fb.push_inst(Inst::MapSet { map: av, key: iv, value: vv });
+                        // Map takes its own +1 share via host_map_set's
+                        // retain_by_kind. For a fresh value the caller
+                        // also has a transient +1 from the source
+                        // expression — release it here so the only
+                        // remaining share is the map's. Borrowed values
+                        // (use_local etc.) leave their slot's share to
+                        // be dropped by scope-exit release as usual.
+                        if value_is_fresh && vty.is_heap() {
+                            self.fb.push_inst(Inst::Release { value: vv });
+                        }
                     }
                     other => {
                         return Err(LowerError::Other(format!(
@@ -5352,7 +5379,9 @@ impl<'a> BodyCx<'a> {
                     }
                 };
                 let mut arg_vals = vec![ov];
+                let mut arg_meta: Vec<(bool, crate::inst::ValueId, MirTy)> = Vec::new();
                 for a in args {
+                    let arg_is_fresh = self.is_fresh_object_expr(a);
                     let (v, vty) = self.lower_expr(a)?;
                     // Map host fns are uniformly (i64, i64, i64). Cast
                     // smaller / float / bool args to i64 cells.
@@ -5376,6 +5405,7 @@ impl<'a> BodyCx<'a> {
                         v
                     };
                     arg_vals.push(v_ext);
+                    arg_meta.push((arg_is_fresh, v_ext, vty));
                 }
                 let dst = if matches!(ret_ty, MirTy::Unit) {
                     None
@@ -5387,6 +5417,17 @@ impl<'a> BodyCx<'a> {
                     callee: FuncRef::Builtin(Symbol::intern(builtin_name)),
                     args: arg_vals.into_boxed_slice(),
                 });
+                // m.set takes its own +1 share via host_map_set's
+                // retain_by_kind. Mirror the AssignIndex path — for a
+                // fresh value the caller's transient +1 is released
+                // here so the only remaining share is the map's.
+                if m == "set" {
+                    if let Some((is_fresh, vv, vty)) = arg_meta.get(1) {
+                        if *is_fresh && vty.is_heap() {
+                            self.fb.push_inst(Inst::Release { value: *vv });
+                        }
+                    }
+                }
                 // Fresh map receiver, non-Object result: release the
                 // map after the dispatch so its cascade fires.
                 if obj_is_fresh

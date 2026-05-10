@@ -154,7 +154,7 @@ struct PanicAux {
     retain_tuple: cranelift_module::FuncId,
     release_map: cranelift_module::FuncId,
     retain_map: cranelift_module::FuncId,
-    map_set_obj_val: cranelift_module::FuncId,
+    map_set_val_kind: cranelift_module::FuncId,
     map_set_print_kinds: cranelift_module::FuncId,
     print_map: cranelift_module::FuncId,
     class_name: cranelift_module::FuncId,
@@ -372,7 +372,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__release_enum", host_release_enum as *const u8);
     jit_builder.symbol("__retain_enum", host_retain_enum as *const u8);
     jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
-    jit_builder.symbol("__map_set_object_value", host_map_set_object_value as *const u8);
+    jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
     // FFI marshalling helpers — registered both with their bare names
@@ -736,7 +736,12 @@ pub fn compile_with_builtins(
     let enum_alloc_id = declare_ternary_i64(&mut module, "__enum_alloc")?;
     let release_enum_id = declare_unit_i64(&mut module, "__release_enum")?;
     let retain_enum_id = declare_unit_i64(&mut module, "__retain_enum")?;
-    let map_set_obj_val_id = declare_unit_i64(&mut module, "__map_set_object_value")?;
+    let map_set_val_kind_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__map_set_value_kind", Linkage::Import, &sig)?
+    };
     let map_set_print_kinds_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -948,7 +953,7 @@ pub fn compile_with_builtins(
                 retain_tuple: retain_tuple_id,
                 release_map: release_map_id,
                 retain_map: retain_map_id,
-                map_set_obj_val: map_set_obj_val_id,
+                map_set_val_kind: map_set_val_kind_id,
                 map_set_print_kinds: map_set_print_kinds_id,
                 print_map: print_map_id,
                 class_name: class_name_id,
@@ -2467,26 +2472,34 @@ extern "C" fn host_map_set(map: i64, key: i64, value: i64) {
         m.str_key_origs.entry(mk.clone()).or_insert(key);
     }
     let val_kind = m.val_kind;
+    // Retain the new value so the map owns its own +1 share. Without
+    // this, a let-bound value flowing in through use_local would have
+    // only the caller's slot share — the slot's scope-exit release
+    // then drops the rc to 0 and frees the registry entry, leaving
+    // the map's stored pointer dangling for the next get.
+    if val_kind != KIND_NONE {
+        retain_by_kind(value, val_kind);
+    }
     let prev = m.inner.insert(mk, value);
-    // Releasing the displaced value when the map's value side is
-    // tagged as Object — without this, `m["k"] = v1; m["k"] = v2`
-    // leaks v1 (its rc never decrements, deinit never runs, and
-    // its memory stays unreachable).
+    // Release the displaced value (if any) so `m["k"] = v1; m["k"] =
+    // v2` doesn't leak v1.
     if let Some(old) = prev {
-        if val_kind == 1 {
-            release_object(old);
+        if val_kind != KIND_NONE {
+            release_by_kind(old, val_kind);
         }
     }
 }
 
-extern "C" fn host_map_set_object_value(map: i64) {
-    // Marks the map's value side as Object so cascade-release on drop
-    // calls deinit on each stored value.
+extern "C" fn host_map_set_value_kind(map: i64, kind: i64) {
+    // Tags the map's value side with KIND_* so retain-on-insert and
+    // cascade-release-on-drop know which per-type runtime helper to
+    // dispatch through. Called by NewMap codegen for every heap-
+    // typed value side.
     if map == 0 {
         return;
     }
     let m = unsafe { &mut *(map as *mut ManagedMap) };
-    m.val_kind = 1;
+    m.val_kind = kind;
 }
 
 extern "C" fn host_release_map(map: i64) {
@@ -2501,10 +2514,11 @@ extern "C" fn host_release_map(map: i64) {
     if m_mut.rc != 0 {
         return;
     }
-    if m_mut.val_kind == 1 {
+    let val_kind = m_mut.val_kind;
+    if val_kind != KIND_NONE {
         let values: Vec<i64> = m_mut.inner.values().copied().collect();
         for v in values {
-            release_object(v);
+            release_by_kind(v, val_kind);
         }
     }
     // Reclaim the box so the HashMap drops its allocation.
@@ -5194,10 +5208,16 @@ fn lower_inst(
             let new_ref = module.declare_func_in_func(map_ids.new, fb.func);
             let call = fb.ins().call(new_ref, &[]);
             let map_ptr = fb.inst_results(call)[0];
-            if matches!(val, MirTy::Object(_)) {
+            // Tag the map's value-side runtime kind so host_map_set
+            // can retain on insert and host_release_map can cascade-
+            // release on drop, for any heap-typed value (Object,
+            // String, Array, Tuple, Optional, Map, Closure, Enum).
+            let val_kind = kind_tag_of(val);
+            if val_kind != KIND_NONE {
                 let mark_ref =
-                    module.declare_func_in_func(panic_aux.map_set_obj_val, fb.func);
-                fb.ins().call(mark_ref, &[map_ptr]);
+                    module.declare_func_in_func(panic_aux.map_set_val_kind, fb.func);
+                let kind_v = fb.ins().iconst(types::I64, val_kind);
+                fb.ins().call(mark_ref, &[map_ptr, kind_v]);
             }
             // Tag the map with key/value print-kind ids so
             // `console.log(map)` can format entries correctly.
