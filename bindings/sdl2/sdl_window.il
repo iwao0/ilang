@@ -899,6 +899,98 @@ pub enum SubSystem: u32 {
             }
             info
         }
+
+        // ─── platform native-handle accessors ────────────────────
+        //
+        // Each instance method calls `wmInfo()` internally, gates
+        // on the recorded subsystem, and returns the matching
+        // native handle cast to `i64` (or `0` when the platform
+        // doesn't match / the wmInfo call failed).
+        //
+        // For batch reads (multiple handles in one go) call
+        // `wmInfo()` once and read `info.handle1`/`handle2`/
+        // `handle3`/`handle4` directly to avoid re-issuing
+        // `SDL_GetWindowWMInfo` per accessor.
+
+        /// macOS Cocoa: underlying `NSWindow *`.
+        pub cocoaWindow(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.cocoa as u32 { return 0 }
+            info.handle1
+        }
+
+        /// Windows: native `HWND`.
+        pub win32Hwnd(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.windows as u32 { return 0 }
+            info.handle1
+        }
+
+        /// Windows: `HDC`.
+        pub win32Hdc(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.windows as u32 { return 0 }
+            info.handle2
+        }
+
+        /// Windows: `HINSTANCE`.
+        pub win32Hinstance(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.windows as u32 { return 0 }
+            info.handle3
+        }
+
+        /// X11: `Display *`.
+        pub x11Display(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.x11 as u32 { return 0 }
+            info.handle1
+        }
+
+        /// X11: `Window` (an unsigned long XID).
+        pub x11Window(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.x11 as u32 { return 0 }
+            info.handle2
+        }
+
+        /// Wayland: `wl_display *`.
+        pub waylandDisplay(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.wayland as u32 { return 0 }
+            info.handle1
+        }
+
+        /// Wayland: `wl_surface *`.
+        pub waylandSurface(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.wayland as u32 { return 0 }
+            info.handle2
+        }
+
+        /// Wayland: legacy `wl_shell_surface *`. Newer compositors
+        /// use xdg_surface / xdg_toplevel which live in the tail
+        /// padding — extract them with `readU64` against the raw
+        /// struct address if needed.
+        pub waylandShellSurface(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.wayland as u32 { return 0 }
+            info.handle3
+        }
+
+        /// UIKit (iOS / tvOS): `UIWindow *`.
+        pub uiKitWindow(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.uikit as u32 { return 0 }
+            info.handle1
+        }
+
+        /// Android: native `ANativeWindow *`.
+        pub androidWindow(): i64 {
+            let info = this.wmInfo()
+            if info.subsystem != SubSystem.android as u32 { return 0 }
+            info.handle1
+        }
     }
 
     // ─── shape mode helpers (SDL_shape.h) ────────────────────────
@@ -937,82 +1029,6 @@ pub enum SubSystem: u32 {
         m.params2 = colorKey.b
         m.params3 = colorKey.a
         m
-    }
-
-    // ─── platform-handle accessors (SDL_syswm.h) ─────────────────
-    //
-    // Read individual native handles from a `SysWMinfo` populated
-    // by `Window.wmInfo()`. Each accessor gates on the recorded
-    // `subsystem`, returning `0` when the platform doesn't match.
-
-    /// macOS Cocoa: return the underlying `NSWindow *` cast to
-    /// i64. `0` when `info` isn't a Cocoa window.
-    pub fn getCocoaWindow(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.cocoa as u32 { return 0 }
-        info.handle1
-    }
-
-    /// Windows: native `HWND` cast to i64.
-    pub fn getWin32Hwnd(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.windows as u32 { return 0 }
-        info.handle1
-    }
-
-    /// Windows: `HDC` cast to i64.
-    pub fn getWin32Hdc(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.windows as u32 { return 0 }
-        info.handle2
-    }
-
-    /// Windows: `HINSTANCE` cast to i64.
-    pub fn getWin32Hinstance(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.windows as u32 { return 0 }
-        info.handle3
-    }
-
-    /// X11: `Display *` cast to i64.
-    pub fn getX11Display(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.x11 as u32 { return 0 }
-        info.handle1
-    }
-
-    /// X11: `Window` (an unsigned long ID) cast to i64.
-    pub fn getX11Window(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.x11 as u32 { return 0 }
-        info.handle2
-    }
-
-    /// Wayland: `wl_display *` cast to i64.
-    pub fn getWaylandDisplay(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.wayland as u32 { return 0 }
-        info.handle1
-    }
-
-    /// Wayland: `wl_surface *` cast to i64.
-    pub fn getWaylandSurface(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.wayland as u32 { return 0 }
-        info.handle2
-    }
-
-    /// Wayland: legacy `wl_shell_surface *` cast to i64. Newer
-    /// compositors use xdg_surface / xdg_toplevel which live in
-    /// the tail padding — extract them with `readU64` against the
-    /// raw struct address if needed.
-    pub fn getWaylandShellSurface(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.wayland as u32 { return 0 }
-        info.handle3
-    }
-
-    /// UIKit (iOS / tvOS): `UIWindow *` cast to i64.
-    pub fn getUIKitWindow(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.uikit as u32 { return 0 }
-        info.handle1
-    }
-
-    /// Android: native `ANativeWindow *` cast to i64.
-    pub fn getAndroidWindow(info: SysWMinfo): i64 {
-        if info.subsystem != SubSystem.android as u32 { return 0 }
-        info.handle1
     }
 
     // ─── module-level video / display fns ────────────────────────
