@@ -63,8 +63,10 @@ pub fn run_function(func: &mut Function) -> Stats {
     // Iterate to fixed point so an extended-BB removal that exposes
     // a fresh intra-block pair (or vice versa) gets picked up.
     loop {
-        let intra = run_intra_block(func);
-        let cross = run_extended_bb(func);
+        let preds = predecessors(func);
+        let mut equiv = build_function_equiv(func, &preds);
+        let intra = run_intra_block(func, &mut equiv);
+        let cross = run_extended_bb(func, &preds, &mut equiv);
         let pass = intra.pairs_removed + cross.pairs_removed;
         total.intra_block += intra.pairs_removed;
         total.chain += cross.pairs_removed;
@@ -76,17 +78,20 @@ pub fn run_function(func: &mut Function) -> Stats {
     total
 }
 
-fn run_intra_block(func: &mut Function) -> Stats {
+fn run_intra_block(func: &mut Function, equiv: &mut ValueEquiv) -> Stats {
     let mut total = Stats::default();
     for block in &mut func.blocks {
-        total += run_block_insts(&mut block.insts);
+        total += run_block_insts(&mut block.insts, equiv);
     }
     total
 }
 
-fn run_extended_bb(func: &mut Function) -> Stats {
+fn run_extended_bb(
+    func: &mut Function,
+    preds: &[Vec<BlockId>],
+    equiv: &mut ValueEquiv,
+) -> Stats {
     let mut stats = Stats::default();
-    let preds = predecessors(func);
     let n = func.blocks.len();
     for b0_idx in 0..n {
         let Some((retain_pos, retain_v)) =
@@ -95,13 +100,10 @@ fn run_extended_bb(func: &mut Function) -> Stats {
             continue;
         };
         let Some((release_block, release_pos)) =
-            find_chain_release(func, &preds, b0_idx, retain_v)
+            find_chain_release(func, preds, equiv, b0_idx, retain_v)
         else {
             continue;
         };
-        // The chain visited new blocks only (cycle guard ensures
-        // release_block != b0_idx), so the two mutations don't
-        // overlap.
         debug_assert_ne!(release_block, b0_idx);
         func.blocks[b0_idx].insts.remove(retain_pos);
         func.blocks[release_block].insts.remove(release_pos);
@@ -111,22 +113,23 @@ fn run_extended_bb(func: &mut Function) -> Stats {
 }
 
 /// Walk the unique-predecessor chain starting from `start_block`'s
-/// terminator. Returns `(block, inst_idx)` of the matching Release if
-/// the chain reaches one without crossing a barrier or losing the
-/// renamed value.
+/// terminator and look for a `Release w` with `equiv(w) == target`.
+/// Returns `(block, inst_idx)` of the matching Release if the chain
+/// reaches one without crossing a barrier.
 fn find_chain_release(
     func: &Function,
     preds: &[Vec<BlockId>],
+    equiv: &mut ValueEquiv,
     start_block: usize,
     start_v: ValueId,
 ) -> Option<(usize, usize)> {
+    let target = equiv.find(start_v);
     let mut visited: HashSet<usize> = HashSet::new();
     visited.insert(start_block);
     let mut current_block = start_block;
-    let mut current_v = start_v;
     loop {
-        let (next_idx, args) = match &func.blocks[current_block].term {
-            Terminator::Br { dst, args } => (dst.0 as usize, args.clone()),
+        let next_idx = match &func.blocks[current_block].term {
+            Terminator::Br { dst, .. } => dst.0 as usize,
             _ => return None,
         };
         if preds.get(next_idx).map(|p| p.len()).unwrap_or(0) != 1 {
@@ -135,16 +138,10 @@ fn find_chain_release(
         if !visited.insert(next_idx) {
             return None;
         }
-        let next_params = &func.blocks[next_idx].params;
-        if next_params.len() != args.len() {
-            return None;
-        }
-        let arg_pos = args.iter().position(|x| *x == current_v)?;
-        let next_v = next_params[arg_pos];
 
         for (i, inst) in func.blocks[next_idx].insts.iter().enumerate() {
-            if let Inst::Release { value } = inst {
-                if *value == next_v {
+            if let Inst::Release { value: w } = inst {
+                if equiv.find(*w) == target {
                     return Some((next_idx, i));
                 }
             }
@@ -155,7 +152,6 @@ fn find_chain_release(
         // Passed through `next_idx`'s entire body — extend the
         // chain by following its terminator next round.
         current_block = next_idx;
-        current_v = next_v;
     }
 }
 
@@ -196,8 +192,7 @@ fn scan_back_for_retain(insts: &[Inst]) -> Option<(usize, ValueId)> {
     None
 }
 
-fn run_block_insts(insts: &mut Vec<Inst>) -> Stats {
-    let mut equiv = build_block_equiv(insts);
+fn run_block_insts(insts: &mut Vec<Inst>, equiv: &mut ValueEquiv) -> Stats {
     let mut remove = vec![false; insts.len()];
     let mut stats = Stats::default();
 
@@ -294,20 +289,105 @@ impl ValueEquiv {
     }
 }
 
-fn build_block_equiv(insts: &[Inst]) -> ValueEquiv {
+/// Function-wide equivalence built from three sources:
+///
+/// 1. **Per-block local-slot tracking**: within each block the most
+///    recent `DefLocal %X = v` is unioned with subsequent
+///    `UseLocal %X → w` reads. Slot rebinds partition the equivalence
+///    so values on either side stay distinct.
+/// 2. **Single-DefLocal locals**: if a local has exactly one
+///    `DefLocal` site in the entire function, every `UseLocal` of it
+///    (in any block) is unioned with that single value. Multi-DefLocal
+///    locals stay block-local to avoid over-unioning values that join
+///    at a slot.
+/// 3. **Single-pred block-arg/param edges**: when a terminator
+///    transfers `args[i]` into a successor whose only predecessor is
+///    the current block, `args[i]` and `params[i]` are unioned.
+///    Branches into multi-pred merge blocks are skipped to avoid
+///    the same join-induced over-union.
+fn build_function_equiv(func: &Function, preds: &[Vec<BlockId>]) -> ValueEquiv {
     let mut equiv = ValueEquiv::default();
-    let mut holds: HashMap<LocalId, ValueId> = HashMap::new();
-    for inst in insts {
-        match inst {
-            Inst::DefLocal { local, value } => {
-                holds.insert(*local, *value);
+
+    // (1) and prep for (2): scan every block for DefLocal sites.
+    let mut def_count: HashMap<LocalId, usize> = HashMap::new();
+    let mut single_def_value: HashMap<LocalId, ValueId> = HashMap::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Inst::DefLocal { local, value } = inst {
+                *def_count.entry(*local).or_insert(0) += 1;
+                single_def_value.insert(*local, *value);
             }
-            Inst::UseLocal { dst, local } => {
-                if let Some(&v) = holds.get(local) {
-                    equiv.union(*dst, v);
+        }
+    }
+    let single_def: HashMap<LocalId, ValueId> = single_def_value
+        .into_iter()
+        .filter(|(l, _)| def_count.get(l) == Some(&1))
+        .collect();
+
+    for block in &func.blocks {
+        // Per-block local tracking (1).
+        let mut holds: HashMap<LocalId, ValueId> = HashMap::new();
+        for inst in &block.insts {
+            match inst {
+                Inst::DefLocal { local, value } => {
+                    holds.insert(*local, *value);
+                }
+                Inst::UseLocal { dst, local } => {
+                    // Prefer the per-block holds (timing-aware); for
+                    // single-DefLocal locals fall back to the global
+                    // value when the local hasn't been written in
+                    // this block yet.
+                    if let Some(&v) = holds.get(local) {
+                        equiv.union(*dst, v);
+                    } else if let Some(&v) = single_def.get(local) {
+                        equiv.union(*dst, v);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Single-pred block-arg/param edges (3).
+        let union_args = |equiv: &mut ValueEquiv,
+                          dst_idx: usize,
+                          args: &[ValueId]| {
+            if preds.get(dst_idx).map(|p| p.len()) != Some(1) {
+                return;
+            }
+            let params = &func.blocks[dst_idx].params;
+            if params.len() != args.len() {
+                return;
+            }
+            for (a, p) in args.iter().zip(params.iter()) {
+                equiv.union(*a, *p);
+            }
+        };
+        match &block.term {
+            Terminator::Br { dst, args } => {
+                union_args(&mut equiv, dst.0 as usize, args);
+            }
+            Terminator::CondBr {
+                then_block,
+                then_args,
+                else_block,
+                else_args,
+                ..
+            } => {
+                union_args(&mut equiv, then_block.0 as usize, then_args);
+                union_args(&mut equiv, else_block.0 as usize, else_args);
+            }
+            Terminator::Switch {
+                cases,
+                default,
+                default_args,
+                ..
+            } => {
+                union_args(&mut equiv, default.0 as usize, default_args);
+                for c in cases.iter() {
+                    union_args(&mut equiv, c.dst.0 as usize, &c.args);
                 }
             }
-            _ => {}
+            Terminator::Return { .. } | Terminator::Unreachable => {}
         }
     }
     equiv
