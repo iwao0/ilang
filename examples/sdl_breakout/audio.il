@@ -109,12 +109,12 @@ pub class AudioSession {
     pub beepBrick: i16[]
 
     pub init() {
-        this.sfx = new sdl.AudioDevice(consts.sampleRate, 1)
+        this.sfx = new sdl.AudioDevice(consts.sampleRate, sdl.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
         if this.sfx.id != 0 {
             this.sfx.play()
         }
 
-        this.bgm = new sdl.AudioDevice(consts.sampleRate, 1)
+        this.bgm = new sdl.AudioDevice(consts.sampleRate, sdl.AudioFormat.s16Lsb, 1 as u8, 4096 as u16)
         let bgmBuf = makeBgmLoop()
         this.bgmLoop = bgmBuf
         this.bgmBytes = (bgmBuf.length * 2) as u32

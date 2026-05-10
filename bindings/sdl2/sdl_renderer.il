@@ -1032,18 +1032,20 @@ pub enum RendererFlip: i32 {
         /// Args:
         ///   renderer — the parent `Renderer`.
         ///   w, h     — texture dimensions in pixels.
-        ///   access   — `1` = STREAMING (CPU-uploaded pixels via
-        ///              `update`); `2` = TARGET (`Renderer.setTarget`
-        ///              draws into it).
+        ///   access   — `TextureAccess.streaming` for CPU-uploaded
+        ///              pixels via `update`; `TextureAccess.target`
+        ///              for a draw target (`Renderer.setTarget`);
+        ///              `TextureAccess.static` for a one-shot
+        ///              upload that won't change after creation.
         ///
         /// Pixel format is `SDL_PIXELFORMAT_ABGR8888` (= `0x16762004`,
         /// `R, G, B, A` on little-endian).
-        pub init(renderer: Renderer, w: i32, h: i32, access: i32) {
+        pub init(renderer: Renderer, w: i32, h: i32, access: TextureAccess) {
             this.width = w
             this.height = h
             this.handle = SDL_CreateTexture(
                 renderer.handle as *SDL_Renderer,
-                0x16762004 as u32, access,
+                0x16762004 as u32, access as i32,
                 w, h
             ) as i64
             if this.handle != 0 {
@@ -1058,15 +1060,17 @@ pub enum RendererFlip: i32 {
         /// Args:
         ///   renderer — the parent `Renderer`.
         ///   format   — `SDL_PIXELFORMAT_*` value.
-        ///   access   — `1` = STREAMING, `2` = TARGET.
+        ///   access   — `TextureAccess.streaming` / `target` /
+        ///              `static`.
         ///   w, h     — texture dimensions.
         pub init(
-            renderer: Renderer, format: u32, access: i32, w: i32, h: i32
+            renderer: Renderer, format: u32, access: TextureAccess,
+            w: i32, h: i32
         ) {
             this.width = w
             this.height = h
             this.handle = SDL_CreateTexture(
-                renderer.handle as *SDL_Renderer, format, access, w, h
+                renderer.handle as *SDL_Renderer, format, access as i32, w, h
             ) as i64
             if this.handle != 0 {
                 SDL_SetTextureBlendMode(this.handle as *SDL_Texture, 1)

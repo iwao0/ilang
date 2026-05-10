@@ -62,7 +62,7 @@ pub class Font {
             y += 1
         }
         // STREAMING access — uploads pixel data via update().
-        this.atlas = new sdl.Texture(renderer, atlas_w, this.cellH, 1)
+        this.atlas = new sdl.Texture(renderer, atlas_w, this.cellH, sdl.TextureAccess.streaming)
         let _ = this.atlas.update(pixels)
     }
 

@@ -6,6 +6,34 @@
 // (channels = 1) or stereo (channels = 2). For stereo the sample
 // stream interleaves L, R, L, R, ...
 
+/// Mirrors C's `SDL_AudioFormat` constants from SDL_audio.h. The
+/// 16-bit value is bit-packed:
+///
+///   bit 15 — sign     (1 = signed)
+///   bit 12 — endian   (1 = big endian)
+///   bit  8 — datatype (1 = float, 0 = integer)
+///   bits 0..7 — sample size in bits (8 / 16 / 32)
+///
+/// `*Lsb` / `*Msb` distinguishes byte order for multi-byte formats;
+/// the unsuffixed `s16` / `s32` / `f32` aliases pick little-endian
+/// (the common choice on every desktop SDL2 supports).
+pub enum AudioFormat: u16 {
+    u8     = 0x0008
+    s8     = 0x8008
+    u16Lsb = 0x0010
+    s16Lsb = 0x8010
+    u16Msb = 0x1010
+    s16Msb = 0x9010
+    u16    = 0x0010   // alias for u16Lsb
+    s16    = 0x8010   // alias for s16Lsb
+    s32Lsb = 0x8020
+    s32Msb = 0x9020
+    s32    = 0x8020   // alias for s32Lsb
+    f32Lsb = 0x8120
+    f32Msb = 0x9120
+    f32    = 0x8120   // alias for f32Lsb
+}
+
 @extern(C) {
     /// Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
     /// a callback (queue-based playback), so `callback` and
@@ -13,8 +41,9 @@
     pub struct AudioSpec {
         /// Sample rate in Hz (e.g. 44100).
         freq: i32
-        /// `AUDIO_*` format constant (we use `AUDIO_S16LSB = 0x8010`).
-        format: u16
+        /// Sample format. Defaults to `AudioFormat.s16Lsb` for the
+        /// queue-based API used by `AudioDevice`.
+        format: AudioFormat
         /// Channel count: 1 = mono, 2 = stereo.
         channels: u8
         /// Silence value for the chosen format. SDL fills this in.
@@ -137,16 +166,20 @@
         /// Open the default playback device.
         ///
         /// Args:
-        ///   freq     — sample rate in Hz (e.g. 44100).
+        ///   freq     — sample rate in Hz (e.g. 48000).
+        ///   format   — sample format (`AudioFormat.*`).
         ///   channels — 1 = mono, 2 = stereo.
+        ///   samples  — device buffer size in samples (power of 2,
+        ///              e.g. 1024 / 2048 / 4096). Smaller = lower
+        ///              latency, higher CPU load.
         ///
         /// After construction check `id == 0` to detect failure.
-        pub init(freq: i32, channels: u8) {
+        pub init(freq: i32, format: AudioFormat, channels: u8, samples: u16) {
             let desired = new AudioSpec()
             desired.freq = freq
-            desired.format = 0x8010              // AUDIO_S16LSB
+            desired.format = format
             desired.channels = channels
-            desired.samples = 4096               // device buffer size
+            desired.samples = samples
             // callback / userdata default to 0 (NULL) — queue API.
 
             let obtained = new AudioSpec()
@@ -221,64 +254,71 @@
         pub unlock() {
             SDL_UnlockAudioDevice(this.id)
         }
-    }
 
-    /// Returns:
-    ///   number of available output devices when `capture` is false,
-    ///   or capture devices when true. `-1` means "unknown" (some
-    ///   backends can't enumerate without opening a device first).
-    pub fn numAudioDevices(capture: bool): i32 {
-        let cap: i32 = if capture { 1 } else { 0 }
-        SDL_GetNumAudioDevices(cap)
-    }
+        // ─── static helpers ──────────────────────────────────────
 
-    /// Args:
-    ///   index   — `[0, numAudioDevices(capture))`.
-    ///   capture — true for capture devices, false for output.
-    ///
-    /// Returns:
-    ///   human-readable device name, or empty when out of range.
-    pub fn audioDeviceName(index: i32, capture: bool): string {
-        let cap: i32 = if capture { 1 } else { 0 }
-        stringFromCstr(SDL_GetAudioDeviceName(index, cap))
-    }
+        /// Returns:
+        ///   number of available output devices when `capture` is
+        ///   false, or capture devices when true. `-1` means
+        ///   "unknown" (some backends can't enumerate without
+        ///   opening a device first).
+        pub static numDevices(capture: bool): i32 {
+            let cap: i32 = if capture { 1 } else { 0 }
+            SDL_GetNumAudioDevices(cap)
+        }
 
-    /// Returns:
-    ///   the audio backend currently in use (e.g. `"coreaudio"`,
-    ///   `"pulseaudio"`, `"wasapi"`), or empty when audio isn't
-    ///   initialised.
-    pub fn currentAudioDriver(): string {
-        stringFromCstr(SDL_GetCurrentAudioDriver())
-    }
+        /// Args:
+        ///   index   — `[0, numDevices(capture))`.
+        ///   capture — true for capture devices, false for output.
+        ///
+        /// Returns:
+        ///   human-readable device name, or empty when out of
+        ///   range.
+        pub static deviceName(index: i32, capture: bool): string {
+            let cap: i32 = if capture { 1 } else { 0 }
+            stringFromCstr(SDL_GetAudioDeviceName(index, cap))
+        }
 
-    /// Returns:
-    ///   how many audio drivers SDL was built with.
-    pub fn numAudioDrivers(): i32 {
-        SDL_GetNumAudioDrivers()
-    }
+        /// Returns:
+        ///   the audio backend currently in use (e.g.
+        ///   `"coreaudio"`, `"pulseaudio"`, `"wasapi"`), or empty
+        ///   when audio isn't initialised.
+        pub static currentDriver(): string {
+            stringFromCstr(SDL_GetCurrentAudioDriver())
+        }
 
-    /// Args:
-    ///   index — `[0, numAudioDrivers())`.
-    ///
-    /// Returns:
-    ///   the driver name at that index.
-    pub fn audioDriver(index: i32): string {
-        stringFromCstr(SDL_GetAudioDriver(index))
-    }
+        /// Returns:
+        ///   how many audio drivers SDL was built with.
+        pub static numDrivers(): i32 {
+            SDL_GetNumAudioDrivers()
+        }
 
-    /// Mix `len` bytes of `src` (in `format`) into `dst` at the
-    /// given `volume` (0..128 — 128 is full volume). Useful for
-    /// callback-style devices that hand-roll their own mixer.
-    ///
-    /// Args:
-    ///   dst, src — byte buffers (must be `len` bytes long).
-    ///   format   — `AUDIO_*` format constant.
-    ///   len      — byte count to mix.
-    ///   volume   — 0..128.
-    pub fn mixAudioFormat(dst: u8[], src: u8[], format: u16, len: u32, volume: i32) {
-        let pd: *u8 = dst
-        let ps: *u8 = src
-        SDL_MixAudioFormat(pd, ps as *const u8, format, len, volume)
+        /// Args:
+        ///   index — `[0, numDrivers())`.
+        ///
+        /// Returns:
+        ///   the driver name at that index.
+        pub static driverName(index: i32): string {
+            stringFromCstr(SDL_GetAudioDriver(index))
+        }
+
+        /// Mix `len` bytes of `src` (in `format`) into `dst` at
+        /// the given `volume` (0..128 — 128 is full volume).
+        /// Useful for callback-style devices that hand-roll their
+        /// own mixer.
+        ///
+        /// Args:
+        ///   dst, src — byte buffers (must be `len` bytes long).
+        ///   format   — sample format (`AudioFormat.*`).
+        ///   len      — byte count to mix.
+        ///   volume   — 0..128.
+        pub static mixFormat(
+            dst: u8[], src: u8[], format: AudioFormat, len: u32, volume: i32
+        ) {
+            let pd: *u8 = dst
+            let ps: *u8 = src
+            SDL_MixAudioFormat(pd, ps as *const u8, format as u16, len, volume)
+        }
     }
 
     /// ARC-managed wrapper around `SDL_AudioStream` — SDL's built-in
@@ -287,27 +327,26 @@
     /// via `get()` once enough are queued. `deinit` releases the
     /// underlying stream.
     ///
-    /// Format constants are the same `AUDIO_*` values
-    /// (`AUDIO_S16LSB = 0x8010`, `AUDIO_F32LSB = 0x8120`, etc.).
+    /// Use the `AudioFormat.*` constants for the format args.
     pub class AudioStream {
         /// Raw `SDL_AudioStream*` cast to i64. `0` when allocation
         /// failed at construction time.
         pub handle: i64
 
         /// Args:
-        ///   srcFormat   — input `AUDIO_*` format.
+        ///   srcFormat   — input format (`AudioFormat.*`).
         ///   srcChannels — 1 = mono, 2 = stereo.
         ///   srcRate     — input sample rate (Hz).
-        ///   dstFormat   — output `AUDIO_*` format.
+        ///   dstFormat   — output format.
         ///   dstChannels — output channel count.
         ///   dstRate     — output sample rate (Hz).
         pub init(
-            srcFormat: u16, srcChannels: u8, srcRate: i32,
-            dstFormat: u16, dstChannels: u8, dstRate: i32
+            srcFormat: AudioFormat, srcChannels: u8, srcRate: i32,
+            dstFormat: AudioFormat, dstChannels: u8, dstRate: i32
         ) {
             let p = SDL_NewAudioStream(
-                srcFormat, srcChannels, srcRate,
-                dstFormat, dstChannels, dstRate
+                srcFormat as u16, srcChannels, srcRate,
+                dstFormat as u16, dstChannels, dstRate
             )
             this.handle = p as i64
         }

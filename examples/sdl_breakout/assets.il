@@ -23,7 +23,7 @@ pub class Assets {
     pub init(ren: sdl.Renderer) {
         // White star sprite for particle bursts. Tinted at draw
         // time via `setColorMod`, rotated via `drawTextureRot`.
-        this.starTex = new sdl.Texture(ren, consts.starTexSize, consts.starTexSize, 1)
+        this.starTex = new sdl.Texture(ren, consts.starTexSize, consts.starTexSize, sdl.TextureAccess.streaming)
         if this.starTex.handle == 0 {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
@@ -33,7 +33,7 @@ pub class Assets {
         // Soft radial-gradient sprite, tinted per-brick at draw
         // time so the wave highlight blooms as a blurry circle
         // rather than a rectangle.
-        this.glowTex = new sdl.Texture(ren, consts.glowTexSize, consts.glowTexSize, 1)
+        this.glowTex = new sdl.Texture(ren, consts.glowTexSize, consts.glowTexSize, sdl.TextureAccess.streaming)
         if this.glowTex.handle == 0 {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
@@ -44,7 +44,7 @@ pub class Assets {
         // channel encodes scanlines + vignette, the colour is
         // black, so blending it on top darkens each pixel by the
         // right amount.
-        this.crtTex = new sdl.Texture(ren, consts.winW, consts.winH, 1)
+        this.crtTex = new sdl.Texture(ren, consts.winW, consts.winH, sdl.TextureAccess.streaming)
         if this.crtTex.handle == 0 {
             console.log("SDL_CreateTexture failed: " + sdl.getError())
             return
@@ -55,8 +55,7 @@ pub class Assets {
         // frame (with a small per-frame fade applied first) and
         // then composited back to the window with chromatic-
         // aberration channel offsets.
-        // SDL_TEXTUREACCESS_TARGET = 2.
-        this.sceneTex = new sdl.Texture(ren, consts.winW, consts.winH, 2)
+        this.sceneTex = new sdl.Texture(ren, consts.winW, consts.winH, sdl.TextureAccess.target)
         if this.sceneTex.handle == 0 {
             console.log("SDL_CreateTexture(TARGET) failed: " + sdl.getError())
             return
@@ -73,7 +72,7 @@ pub class Assets {
         // the upscale spreads each averaged pixel across many
         // output pixels, giving a soft glow around the bright
         // stuff in the scene.
-        this.bloomTex = new sdl.Texture(ren, consts.bloomW, consts.bloomH, 2)
+        this.bloomTex = new sdl.Texture(ren, consts.bloomW, consts.bloomH, sdl.TextureAccess.target)
         if this.bloomTex.handle == 0 {
             console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
             return

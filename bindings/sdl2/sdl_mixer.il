@@ -6,12 +6,15 @@
 //
 // Lifecycle:
 //   sdl.init(InitFlag.audio)
-//   sdl_mixer.mixInit(MixInitFlag.ogg | MixInitFlag.mp3)
-//   sdl_mixer.mixOpenAudio(44100, 0x8010, 2, 2048)  // S16LSB stereo
+//   sdl.Mixer.init(MixInitFlag.ogg | MixInitFlag.mp3)
+//   sdl.Mixer.openAudioDefault()            // 44.1k / s16 / stereo
+//   // or: sdl.Mixer.openAudio(44100, sdl.AudioFormat.s16Lsb, 2, 2048)
 //   ... game loop ...
-//   sdl_mixer.mixCloseAudio()
-//   sdl_mixer.mixQuit()
+//   sdl.Mixer.closeAudio()
+//   sdl.Mixer.quit()
 //   sdl.quit()
+
+use sdl_audio { AudioFormat }
 
 /// `MIX_INIT_*` — decoder modules to initialise. Returned bitmask
 /// from `mixInit` reports which actually loaded; missing bits
@@ -26,18 +29,6 @@ pub enum MixInitFlag: i32 {
     opus    = 0x40
     wavpack = 0x80
 }
-
-/// Default `freq` argument for `mixOpenAudio` — 44.1 kHz.
-pub const MIX_DEFAULT_FREQUENCY: i32 = 44100
-/// Default `format` for `mixOpenAudio` — signed 16-bit LE
-/// (matches `AUDIO_S16LSB` in `sdl_audio.il`).
-pub const MIX_DEFAULT_FORMAT:    u16 = 0x8010
-/// Default channel count — stereo.
-pub const MIX_DEFAULT_CHANNELS:  i32 = 2
-/// Default mixer sample buffer (in samples per channel).
-pub const MIX_DEFAULT_CHUNKSIZE: i32 = 2048
-/// Volume range: 0 = silent, 128 = full.
-pub const MIX_MAX_VOLUME:        i32 = 128
 
 @extern(C) {
     /// Opaque `Mix_Chunk *` — short PCM buffer (sound effects).
@@ -108,6 +99,17 @@ pub const MIX_MAX_VOLUME:        i32 = 128
     /// Mirror of how `Joystick` / `Gamepad` / `Mouse` collect their
     /// module-level helpers.
     pub class Mixer {
+        /// Default `frequency` argument for `openAudio` — 44.1 kHz.
+        pub const defaultFrequency: i64 = 44100
+        /// Default channel count — stereo. (For the format default
+        /// use `AudioFormat.s16Lsb`.)
+        pub const defaultChannels:  i64 = 2
+        /// Default mixer sample buffer (samples per channel).
+        pub const defaultChunksize: i64 = 2048
+        /// Volume range: 0 = silent, 128 = full. Multiply against
+        /// per-chunk / per-channel / music volumes.
+        pub const maxVolume:        i64 = 128
+
         /// Initialise SDL2_mixer with the requested decoder set.
         ///
         /// Args:
@@ -127,13 +129,11 @@ pub const MIX_MAX_VOLUME:        i32 = 128
             Mix_Quit()
         }
 
-        /// Open the mixer's audio device. Defaults are
-        /// `(44100, AUDIO_S16LSB, 2, 2048)` — use the
-        /// `MIX_DEFAULT_*` consts.
+        /// Open the mixer's audio device.
         ///
         /// Args:
         ///   frequency — sample rate (Hz).
-        ///   format    — `AUDIO_*` format constant.
+        ///   format    — sample format (`AudioFormat.*`).
         ///   channels  — `1` mono, `2` stereo.
         ///   chunksize — internal scratch buffer in samples per
         ///               channel; smaller = lower latency, higher
@@ -142,9 +142,22 @@ pub const MIX_MAX_VOLUME:        i32 = 128
         /// Returns:
         ///   `0` on success, `< 0` on failure.
         pub static openAudio(
-            frequency: i32, format: u16, channels: i32, chunksize: i32
+            frequency: i32, format: AudioFormat,
+            channels: i32, chunksize: i32
         ): i32 {
-            Mix_OpenAudio(frequency, format, channels, chunksize)
+            Mix_OpenAudio(frequency, format as u16, channels, chunksize)
+        }
+
+        /// Open the device with the `Mixer.default*` settings —
+        /// 44.1 kHz, `AudioFormat.s16Lsb`, stereo, 2048-sample
+        /// chunks. Convenience wrapper around `openAudio(...)`.
+        /// (Separate name because static methods cannot be
+        /// overloaded.)
+        pub static openAudioDefault(): i32 {
+            Mix_OpenAudio(
+                Mixer.defaultFrequency as i32, AudioFormat.s16Lsb as u16,
+                Mixer.defaultChannels as i32, Mixer.defaultChunksize as i32
+            )
         }
 
         pub static closeAudio() {
@@ -161,9 +174,9 @@ pub const MIX_MAX_VOLUME:        i32 = 128
         }
 
         /// Query the open device's spec. Returns the
-        /// `Mix_QuerySpec` raw status; callers usually just
-        /// pass `MIX_DEFAULT_*` to `openAudio` and trust the
-        /// values they asked for.
+        /// `Mix_QuerySpec` raw status; callers usually just rely
+        /// on the `Mixer.default*` values they passed to
+        /// `openAudio`.
         pub static querySpec(): i32 {
             let f: i32[] = [0]
             let fmt: u16[] = [0 as u16]
@@ -271,7 +284,7 @@ pub const MIX_MAX_VOLUME:        i32 = 128
             )
         }
 
-        /// Per-chunk volume (`0..MIX_MAX_VOLUME`). Multiplies
+        /// Per-chunk volume (`0..Mixer.maxVolume`). Multiplies
         /// against the channel volume at mix time.
         ///
         /// Args:
@@ -330,7 +343,7 @@ pub const MIX_MAX_VOLUME:        i32 = 128
         // `Music` instance — pausing the music is necessarily
         // pausing whatever's currently playing.
 
-        /// Set the global music volume (`0..MIX_MAX_VOLUME`).
+        /// Set the global music volume (`0..Mixer.maxVolume`).
         /// Passing `-1` queries without changing.
         pub static setVolume(volume: i32): i32 {
             Mix_VolumeMusic(volume)
