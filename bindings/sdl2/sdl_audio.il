@@ -41,9 +41,10 @@ pub enum AudioFormat: u16 {
     pub struct AudioSpec {
         /// Sample rate in Hz (e.g. 44100).
         freq: i32
-        /// Sample format. Defaults to `AudioFormat.s16Lsb` for the
-        /// queue-based API used by `AudioDevice`.
-        format: AudioFormat
+        /// Sample format (u16 — values mirror `AudioFormat.*`).
+        /// Kept as raw `u16` so the struct's C ABI layout matches
+        /// SDL exactly across both interp + JIT backends.
+        format: u16
         /// Channel count: 1 = mono, 2 = stereo.
         channels: u8
         /// Silence value for the chosen format. SDL fills this in.
@@ -177,7 +178,7 @@ pub enum AudioFormat: u16 {
         pub init(freq: i32, format: AudioFormat, channels: u8, samples: u16) {
             let desired = new AudioSpec()
             desired.freq = freq
-            desired.format = format
+            desired.format = format as u16
             desired.channels = channels
             desired.samples = samples
             // callback / userdata default to 0 (NULL) — queue API.
