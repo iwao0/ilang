@@ -96,7 +96,7 @@ pub enum MixInitFlag: i32 {
     /// Namespace class for SDL2_mixer's global state — the audio
     /// device, channel pool, and per-channel control. All methods
     /// are `static` (there's no per-instance Mixer to construct).
-    /// Mirror of how `Joystick` / `Gamepad` / `Mouse` collect their
+    /// Mirror of how `Joystick` / `GameController` / `Mouse` collect their
     /// module-level helpers.
     pub class Mixer {
         /// Default `frequency` argument for `openAudio` — 44.1 kHz.

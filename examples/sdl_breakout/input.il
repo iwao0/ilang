@@ -29,13 +29,13 @@ pub class InputSnapshot {
 }
 
 pub class Input {
-    pub gamepad: sdl.Gamepad
+    pub gamepad: sdl.GameController
     pub keyboard: sdl.Keyboard
     pub init() {
         // Open the first attached gamepad if any. `gamepad.handle == 0`
         // when nothing is plugged in — every poll degrades to
         // returning 0/false, so the keyboard path keeps working.
-        this.gamepad = new sdl.Gamepad()
+        this.gamepad = new sdl.GameController()
         this.keyboard = new sdl.Keyboard()
         return
     }

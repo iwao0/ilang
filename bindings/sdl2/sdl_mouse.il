@@ -65,7 +65,7 @@ pub enum SystemCursor: i32 {
     /// Namespace class for the global mouse state. All methods are
     /// `static` — there's no per-instance mouse to construct, just
     /// a process-wide pointer maintained by SDL. Mirrors the
-    /// shape of `Joystick` / `Gamepad`'s static helpers.
+    /// shape of `Joystick` / `GameController`'s static helpers.
     pub class Mouse {
         /// Snapshot of the pointer's window-local position. Pair
         /// with `Mouse.buttons()` to read pressed buttons in the

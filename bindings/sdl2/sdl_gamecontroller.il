@@ -1,7 +1,7 @@
-// SDL2 game-controller (gamepad) bindings: opens the first attached
+// SDL2 game-controller bindings: opens the first attached
 // controller, exposes axis + button polling. Initialise SDL with
 // `InitFlag.gameController` (and ideally `InitFlag.joystick`) before
-// instantiating `Gamepad`.
+// instantiating `GameController`.
 
 use sdl_core { SDL_free }
 
@@ -37,7 +37,7 @@ pub enum Axis: i32 {
 }
 
 /// `SDL_GameControllerType` — what kind of pad SDL identified the
-/// device as. Returned by `Gamepad.controllerType()`.
+/// device as. Returned by `GameController.controllerType()`.
 pub enum ControllerType: i32 {
     unknown                = 0
     xbox360                = 1
@@ -157,7 +157,7 @@ pub enum ControllerType: i32 {
     /// Edge detection (`isPressed` / `isReleased`) requires
     /// `pump()` to be called once per frame before the polling
     /// methods, so the previous-frame snapshot is up to date.
-    pub class Gamepad {
+    pub class GameController {
         /// Pointer to the underlying `SDL_GameController`, cast to
         /// `i64`. `0` when no device is open.
         pub handle: i64

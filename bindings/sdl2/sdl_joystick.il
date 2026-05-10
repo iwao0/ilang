@@ -1,6 +1,6 @@
 // SDL2 raw joystick API — for devices SDL doesn't recognise as a
 // game controller (steering wheels, flight sticks, custom HID
-// devices). Use `sdl_gamepad.il` instead for standard
+// devices). Use `sdl_gamecontroller.il` instead for standard
 // xbox/ps/switch-style pads; this file is the lower-level layer.
 // Initialise SDL with `InitFlag.joystick` before use.
 
@@ -19,7 +19,7 @@
         b: u8[16]
     }
 
-    // (`SDL_NumJoysticks` is declared in `sdl_gamepad.il` so it
+    // (`SDL_NumJoysticks` is declared in `sdl_gamecontroller.il` so it
     // re-exports under the umbrella exactly once.)
     @lib("SDL2") pub fn SDL_JoystickOpen(device_index: i32): *SDL_Joystick
     @lib("SDL2") pub fn SDL_JoystickClose(joystick: *SDL_Joystick)
