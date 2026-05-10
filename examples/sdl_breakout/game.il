@@ -19,8 +19,9 @@ use rng
 use consts
 use input { Input }
 use assets { Assets }
+use font { Font }
 
-// Width of `s` rendered through `sdl.Font.drawText`. The font is
+// Width of `s` rendered through `Font.drawText`. The font is
 // 5×7 with 1 px between glyphs, so `n` chars = `n * 6 - 1` px at
 // scale 1. Lifted to a top-level fn so the loader doesn't try to
 // rewrite a per-frame `let` binding.
@@ -54,7 +55,7 @@ pub class Game {
     pub window: sdl.Window
     pub renderer: sdl.Renderer
     pub neonRenderer: NeonRenderer
-    pub font: sdl.Font
+    pub font: Font
     /// SFX + BGM device pair plus the pre-rendered beep buffers.
     pub audioSession: AudioSession
     /// Keyboard / gamepad bundle.
@@ -116,7 +117,7 @@ pub class Game {
         // fake the glow of a saturated primary on a dark background.
         this.neonRenderer = new NeonRenderer(this.renderer)
 
-        this.font = new sdl.Font(this.renderer)
+        this.font = new Font(this.renderer)
 
         this.audioSession = new AudioSession()
         if !this.audioSession.sfxOk() {
