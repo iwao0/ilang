@@ -4,6 +4,7 @@
 // instantiating `GameController`.
 
 use sdl_core { SDL_free }
+use sdl_joystick { Joystick }
 
 /// `SDL_GameControllerButton` — face / shoulder / d-pad / stick-press
 /// buttons that follow the standard layout.
@@ -59,7 +60,6 @@ pub enum ControllerType: i32 {
     /// Opaque SDL handle.
     pub struct SDL_GameController {}
 
-    @lib("SDL2") pub fn SDL_NumJoysticks(): i32
     @lib("SDL2") pub fn SDL_IsGameController(joystick_index: i32): i32
     @lib("SDL2") pub fn SDL_GameControllerOpen(joystick_index: i32): *SDL_GameController
     @lib("SDL2") pub fn SDL_GameControllerClose(controller: *SDL_GameController)
@@ -188,7 +188,7 @@ pub enum ControllerType: i32 {
             }
             this.prev = p
             this.curr = c
-            let n = SDL_NumJoysticks()
+            let n = Joystick.count()
             let j: i32 = 0
             while j < n {
                 if SDL_IsGameController(j) != 0 {

@@ -19,9 +19,9 @@ pub use sdl_renderer
 pub use sdl_time
 pub use sdl_keyboard
 pub use sdl_audio
+pub use sdl_joystick
 pub use sdl_gamecontroller
 pub use sdl_mouse
-pub use sdl_joystick
 pub use sdl_filesystem
 pub use sdl_rwops
 pub use sdl_messagebox

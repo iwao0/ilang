@@ -19,8 +19,7 @@
         b: u8[16]
     }
 
-    // (`SDL_NumJoysticks` is declared in `sdl_gamecontroller.il` so it
-    // re-exports under the umbrella exactly once.)
+    @lib("SDL2") pub fn SDL_NumJoysticks(): i32
     @lib("SDL2") pub fn SDL_JoystickOpen(device_index: i32): *SDL_Joystick
     @lib("SDL2") pub fn SDL_JoystickClose(joystick: *SDL_Joystick)
     @lib("SDL2") pub fn SDL_JoystickGetAttached(joystick: *SDL_Joystick): u8
@@ -71,7 +70,7 @@
         pub handle: i64
 
         /// Open the joystick at `deviceIndex`
-        /// (`[0, sdl.numJoysticks())`). Use `nameForIndex` first
+        /// (`[0, Joystick.count())`). Use `nameForIndex` first
         /// to identify the device you want.
         pub init(deviceIndex: i32) {
             this.handle = SDL_JoystickOpen(deviceIndex) as i64
@@ -175,8 +174,16 @@
 
         // ─── static helpers ──────────────────────────────────────
 
+        /// Returns:
+        ///   number of joystick / game-controller devices SDL
+        ///   currently sees. Pair with `Joystick.nameForIndex` /
+        ///   `Joystick.deviceGUID` to identify each one.
+        pub static count(): i32 {
+            SDL_NumJoysticks()
+        }
+
         /// Args:
-        ///   deviceIndex — `[0, sdl.numJoysticks())`.
+        ///   deviceIndex — `[0, Joystick.count())`.
         ///
         /// Returns:
         ///   joystick name SDL would report at that index, or empty
@@ -225,7 +232,7 @@
         }
 
         /// Args:
-        ///   deviceIndex — `[0, sdl.numJoysticks())`.
+        ///   deviceIndex — `[0, Joystick.count())`.
         ///
         /// Returns:
         ///   the device's GUID *without* opening it. Pair with
