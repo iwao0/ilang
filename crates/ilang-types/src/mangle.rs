@@ -307,7 +307,7 @@ fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
         },
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, ctx)),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {

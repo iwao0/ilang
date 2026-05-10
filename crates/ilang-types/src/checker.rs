@@ -1263,7 +1263,17 @@ impl TypeChecker {
                     });
                 }
             }
+            // Top-level stmts merged in from a sub-module carry
+            // `source_module = Some(M)`. Set `current_module` to
+            // M while checking so cross-module visibility judges
+            // access from the module's perspective, not the
+            // entry's. Restored after each stmt.
+            let saved_module = self.current_module.borrow().clone();
+            if let Some(m) = &s.source_module {
+                *self.current_module.borrow_mut() = m.as_str().to_string();
+            }
             last = self.check_stmt(s, &mut env, None, None, 0)?;
+            *self.current_module.borrow_mut() = saved_module;
         }
         if let Some(t) = &prog.tail {
             last = self.check_expr(t, &env, None, None, 0)?;

@@ -13,6 +13,14 @@ pub struct Block {
 pub struct Stmt {
     pub kind: StmtKind,
     pub span: Span,
+    /// `Some(m)` when this stmt was merged in from module `m`'s
+    /// top level by the loader; `None` for entry-program stmts.
+    /// The type checker uses this to pick the right
+    /// `current_module` while checking the stmt — without it,
+    /// every merged stmt is judged from the entry module's
+    /// perspective and falsely fails cross-module visibility on
+    /// the very module that declared them.
+    pub source_module: Option<Symbol>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,7 +60,7 @@ pub enum StmtKind {
 
 impl Stmt {
     pub fn new(kind: StmtKind, span: Span) -> Self {
-        Self { kind, span }
+        Self { kind, span, source_module: None }
     }
 }
 

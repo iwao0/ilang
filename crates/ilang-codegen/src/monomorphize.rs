@@ -388,6 +388,7 @@ fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
     Stmt {
         kind,
         span: s.span,
+        source_module: s.source_module.clone(),
     }
 }
 
@@ -1170,6 +1171,7 @@ fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
     Stmt {
         kind,
         span: s.span,
+        source_module: s.source_module.clone(),
     }
 }
 
@@ -1519,6 +1521,7 @@ fn rewrite_stmt(s: &Stmt) -> Stmt {
     Stmt {
         kind,
         span: s.span,
+        source_module: s.source_module.clone(),
     }
 }
 
@@ -2242,7 +2245,7 @@ fn rewrite_calls_in_stmt(
             generic_fns,
         )),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn rewrite_calls_in_expr(
@@ -2652,7 +2655,7 @@ fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
                     },
                     StmtKind::Expr(e) => StmtKind::Expr(f(e)),
                 };
-                Stmt { kind, span: s.span }
+                Stmt { kind, span: s.span, source_module: s.source_module.clone() }
             })
             .collect(),
         tail: b.tail.as_ref().map(|e| Box::new(f(e))),
@@ -3343,7 +3346,7 @@ fn rewrite_enum_refs_in_stmt(
             outer_args,
         )),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn rewrite_enum_refs_in_expr(

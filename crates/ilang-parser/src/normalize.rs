@@ -956,7 +956,7 @@ fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
         },
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, ctx)),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
@@ -1172,8 +1172,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                         span,
                     ),
                 },
-                span,
-            });
+                span, source_module: None });
             for (fname, fval) in fields {
                 let assign = Expr::new(
                     ExprKind::AssignField {
@@ -1186,8 +1185,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 );
                 stmts.push(ilang_ast::Stmt {
                     kind: ilang_ast::StmtKind::Expr(assign),
-                    span,
-                });
+                    span, source_module: None });
             }
             return Expr::new(
                 ExprKind::Block(ilang_ast::Block {

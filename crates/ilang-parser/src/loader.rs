@@ -462,8 +462,7 @@ fn apply_use(
             let span = tail.span;
             module_prog.stmts.push(Stmt {
                 kind: StmtKind::Expr(tail),
-                span,
-            });
+                span, source_module: None });
         }
         for item in module_prog.items.iter_mut() {
             qualify_var_refs_in_item(item, &effective_prefix, &named_globals);
@@ -500,6 +499,14 @@ fn apply_use(
             if let StmtKind::Let { name, .. } = &mut s.kind {
                 *name = Symbol::intern(&format!("{effective_prefix}.{name}")).into();
             }
+            // Tag the merged stmt with its source module so the
+            // type checker judges access from that module's
+            // perspective. Without this, the module's own
+            // top-level stmts (e.g. `let X = Class.c` referring
+            // to a non-pub static of the SAME module) get
+            // judged from the entry module and falsely fail the
+            // cross-module visibility rule.
+            s.source_module = Some(Symbol::intern(&effective_prefix));
             merged.stmts.push(s);
         }
     }
@@ -1117,7 +1124,7 @@ fn prefix_stmt(s: Stmt, prefix: &str) -> Stmt {
         },
         StmtKind::Expr(e) => StmtKind::Expr(prefix_expr(e, prefix)),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn prefix_expr(e: Expr, prefix: &str) -> Expr {
@@ -1480,8 +1487,7 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                                 ty: c.ty.clone(),
                                 value: c.value,
                             },
-                            span,
-                        });
+                            span, source_module: None });
                         continue;
                     }
                 };
@@ -1560,8 +1566,7 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                                 },
                                 span,
                             )),
-                            span,
-                        });
+                            span, source_module: None });
                     }
                 }
             }
@@ -1912,7 +1917,7 @@ fn subst_const_stmt(s: Stmt, ctx: &SubstCtx<'_>) -> Stmt {
         },
         StmtKind::Expr(e) => StmtKind::Expr(subst_const_expr(e, ctx)),
     };
-    Stmt { kind, span: s.span }
+    Stmt { kind, span: s.span, source_module: s.source_module.clone() }
 }
 
 fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
