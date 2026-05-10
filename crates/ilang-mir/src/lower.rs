@@ -333,6 +333,7 @@ impl Lower {
                     id: ok_id,
                     name: Symbol::intern("ok"),
                     discriminant: 0,
+                    discriminant_str: None,
                     payload: crate::program::VariantPayload::Tuple(
                         vec![MirTy::I64].into_boxed_slice(),
                     ),
@@ -341,6 +342,7 @@ impl Lower {
                     id: err_id,
                     name: Symbol::intern("err"),
                     discriminant: 1,
+                    discriminant_str: None,
                     payload: crate::program::VariantPayload::Tuple(
                         vec![MirTy::I64].into_boxed_slice(),
                     ),
@@ -736,13 +738,19 @@ impl Lower {
             // C `enum`-typed struct fields. Payload-bearing enums
             // are heap-allocated (`NewEnum`) — keep the 8/8 default
             // since they aren't meaningful inside a C ABI struct.
+            // `: string`-repr enums fall back to (8, 8) (heap
+            // pointer); using one inside `@extern(C) struct` is a
+            // sketch case anyway since SDL never reads its own
+            // hint enum back from a struct, but we keep the size
+            // unambiguous.
             MirTy::Enum(eid) => {
                 let layout = &self.enums[eid.0 as usize];
                 let unit_only = layout
                     .variants
                     .iter()
                     .all(|v| matches!(v.payload, crate::program::VariantPayload::Unit));
-                if unit_only {
+                let int_repr = !matches!(layout.repr, MirTy::Str);
+                if unit_only && int_repr {
                     self.c_size_align_of(&layout.repr)
                 } else {
                     (8, 8)
@@ -1000,15 +1008,39 @@ impl Lower {
             Some(t) => self.resolve_ty(t)?,
             None => MirTy::I64,
         };
+        let is_str_repr = matches!(repr_ty, MirTy::Str);
+        if is_str_repr && ed.flags {
+            return Err(LowerError::Unsupported(
+                "@flags is not allowed on `: string`-repr enums (bitwise ops are int-only)",
+            ));
+        }
 
         let mut variants = Vec::with_capacity(ed.variants.len());
         let mut meta = EnumMeta::default();
         let mut prev_disc: i64 = -1;
         for (i, v) in ed.variants.iter().enumerate() {
             let vid = crate::inst::VariantId(i as u32);
-            let disc = match v.discriminant {
-                Some(n) => n,
-                None => prev_disc + 1,
+            let (disc, disc_str): (i64, Option<String>) = match (&v.discriminant, is_str_repr) {
+                (Some(ast::DiscriminantLit::Int(n)), false) => (*n, None),
+                (Some(ast::DiscriminantLit::Str(s)), true) => {
+                    (i as i64, Some(s.clone()))
+                }
+                (None, false) => (prev_disc + 1, None),
+                (None, true) => {
+                    return Err(LowerError::Unsupported(
+                        "enum with `: string` repr requires an explicit `= \"…\"` discriminant on every variant",
+                    ));
+                }
+                (Some(ast::DiscriminantLit::Str(_)), false) => {
+                    return Err(LowerError::Unsupported(
+                        "string discriminant used on a non-string-repr enum",
+                    ));
+                }
+                (Some(ast::DiscriminantLit::Int(_)), true) => {
+                    return Err(LowerError::Unsupported(
+                        "integer discriminant used on a `: string` repr enum",
+                    ));
+                }
             };
             prev_disc = disc;
             let (payload_layout, payload_meta) = match &v.payload {
@@ -1043,6 +1075,7 @@ impl Lower {
                 id: vid,
                 name: v.name,
                 discriminant: disc,
+                discriminant_str: disc_str,
                 payload: payload_layout,
             });
             meta.variants.insert(
@@ -7368,6 +7401,18 @@ impl<'a> BodyCx<'a> {
                 args: Box::new([i64_v]),
             });
             return Ok(dst);
+        }
+        // Enum → string: only valid when the enum's repr is `string`.
+        // `Inst::EnumDiscStr` carries the enum id so the codegen can
+        // call `__enum_disc_str(global, tag)` directly.
+        if let MirTy::Enum(eid) = &from {
+            if matches!(to, MirTy::Str)
+                && matches!(self.enums[eid.0 as usize].repr, MirTy::Str)
+            {
+                let dst = self.fb.new_value(MirTy::Str);
+                self.fb.push_inst(Inst::EnumDiscStr { dst, enum_id: *eid, value: v });
+                return Ok(dst);
+            }
         }
         // Enum → Integer: read the tag at offset 0, then resize to
         // the requested int width.

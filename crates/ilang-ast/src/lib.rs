@@ -11,7 +11,7 @@ pub use expr::{
     PatternKind, UnOp,
 };
 pub use item::{
-    AttrArg, Attribute, ClassDecl, ConstDecl, EnumDecl, ExternCBlock, ExternCItem, FieldDecl, FnDecl, Item, Param,
+    AttrArg, Attribute, ClassDecl, ConstDecl, DiscriminantLit, EnumDecl, ExternCBlock, ExternCItem, FieldDecl, FnDecl, Item, Param,
     PropertyDecl, StaticFieldDecl, UseAlias, UseDecl, Variant, VariantPayload,
 };
 pub use program::Program;

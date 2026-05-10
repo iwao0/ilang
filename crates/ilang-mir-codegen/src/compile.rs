@@ -167,6 +167,7 @@ struct PanicAux {
     retain_string: cranelift_module::FuncId,
     enum_unit_get: cranelift_module::FuncId,
     enum_unit_get_checked: cranelift_module::FuncId,
+    enum_disc_str: cranelift_module::FuncId,
     enum_alloc: cranelift_module::FuncId,
     release_enum: cranelift_module::FuncId,
     retain_enum: cranelift_module::FuncId,
@@ -377,6 +378,7 @@ pub fn compile_with_builtins(
         "__enum_unit_get_checked",
         host_enum_unit_get_checked as *const u8,
     );
+    jit_builder.symbol("__enum_disc_str", host_enum_disc_str as *const u8);
     jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
@@ -745,6 +747,13 @@ pub fn compile_with_builtins(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__enum_unit_get_checked", Linkage::Import, &sig)?
     };
+    let enum_disc_str_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__enum_disc_str", Linkage::Import, &sig)?
+    };
     let enum_alloc_id = declare_ternary_i64(&mut module, "__enum_alloc")?;
     let release_enum_id = declare_unit_i64(&mut module, "__release_enum")?;
     let retain_enum_id = declare_unit_i64(&mut module, "__retain_enum")?;
@@ -982,6 +991,7 @@ pub fn compile_with_builtins(
                 retain_string: retain_string_id,
                 enum_unit_get: enum_unit_get_id,
                 enum_unit_get_checked: enum_unit_get_checked_id,
+                enum_disc_str: enum_disc_str_id,
                 enum_alloc: enum_alloc_id,
                 release_enum: release_enum_id,
                 retain_enum: retain_enum_id,
@@ -1155,6 +1165,8 @@ pub fn compile_with_builtins(
         // Don't clear — keyed by GLOBAL enum id, accumulates.
         for e in &prog.enums {
             let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
+            let is_str_repr = matches!(e.repr, MirTy::Str);
+            let mut str_repr: HashMap<i64, String> = HashMap::new();
             for v in &e.variants {
                 let kinds: Vec<PrintKind> = match &v.payload {
                     ilang_mir::VariantPayload::Unit => Vec::new(),
@@ -1166,12 +1178,18 @@ pub fn compile_with_builtins(
                     }
                 };
                 variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
+                if is_str_repr {
+                    if let Some(s) = v.discriminant_str.as_ref() {
+                        str_repr.insert(v.discriminant, s.clone());
+                    }
+                }
             }
             t.insert(
                 global_eid(e.id.0),
                 EnumPrintInfo {
                     name: e.name.as_str().to_string(),
                     variants,
+                    str_repr: if is_str_repr { Some(str_repr) } else { None },
                 },
             );
         }
@@ -2113,6 +2131,11 @@ struct EnumPrintInfo {
     name: String,
     /// discriminant → (variant_name, payload_kinds)
     variants: HashMap<i64, (String, Vec<PrintKind>)>,
+    /// Discriminant strings for `: string`-repr enums, keyed by
+    /// the variant's integer tag (the declaration index used by
+    /// `EnumTag`). `None` for the usual integer-repr enums; the
+    /// tag → string lookup powers `enum-as-string` casts.
+    str_repr: Option<HashMap<i64, String>>,
 }
 
 static ENUM_INFO: OnceLock<Mutex<HashMap<u32, EnumPrintInfo>>> = OnceLock::new();
@@ -3155,6 +3178,49 @@ static ENUM_UNIT_CACHE: OnceLock<Mutex<HashMap<(u32, i64), i64>>> = OnceLock::ne
 
 fn enum_unit_cache_lock() -> &'static Mutex<HashMap<(u32, i64), i64>> {
     ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Cast helper for `enum-value as string` on `: string`-repr
+/// enums. Look the enum up by global id, find the variant whose
+/// integer tag matches `disc`, and return a fresh `StringRc *`
+/// for that variant's declared discriminant string. The caller
+/// owns the returned +1 ref (released the same way any other
+/// string is). Aborts when called on an enum that isn't
+/// string-repr or for an unknown discriminant — those should be
+/// caught by the type checker / `Inst::EnumTag` registration but
+/// the runtime check costs nothing and keeps a localised crash
+/// instead of a delayed memory bug.
+extern "C" fn host_enum_disc_str(global_eid: i64, disc: i64) -> i64 {
+    let m = enum_info_lock().lock().expect("enum info poisoned");
+    let info = match m.get(&(global_eid as u32)) {
+        Some(i) => i,
+        None => {
+            eprintln!(
+                "ilang: cast to string on unregistered enum (global={global_eid})"
+            );
+            std::process::abort();
+        }
+    };
+    let table = match info.str_repr.as_ref() {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "ilang: cast to string on enum `{}` which has no `: string` repr",
+                info.name,
+            );
+            std::process::abort();
+        }
+    };
+    match table.get(&disc) {
+        Some(s) => leak_cstring(s.clone()),
+        None => {
+            eprintln!(
+                "ilang: cast to string on enum `{}` with unknown discriminant {disc}",
+                info.name,
+            );
+            std::process::abort();
+        }
+    }
 }
 
 extern "C" fn host_enum_unit_get(global_eid: i64, disc: i64) -> i64 {
@@ -5433,6 +5499,21 @@ fn lower_inst(
         Inst::EnumTag { dst, value } => {
             let p = vmap[value];
             let v = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            vmap.insert(*dst, v);
+        }
+        Inst::EnumDiscStr { dst, enum_id, value } => {
+            // `enum-as-string` cast for `: string`-repr enums.
+            // Load the box's tag (variant index), then call
+            // `__enum_disc_str(global, tag)` to get a fresh
+            // `StringRc *` with the variant's declared
+            // discriminant string.
+            let p = vmap[value];
+            let tag = fb.ins().load(types::I64, MemFlags::trusted(), p, 0);
+            let global = enum_global[enum_id.0 as usize] as i64;
+            let global_v = fb.ins().iconst(types::I64, global);
+            let f = module.declare_func_in_func(panic_aux.enum_disc_str, fb.func);
+            let call = fb.ins().call(f, &[global_v, tag]);
+            let v = fb.inst_results(call)[0];
             vmap.insert(*dst, v);
         }
         Inst::EnumPayload { dst, value, variant: _, idx } => {

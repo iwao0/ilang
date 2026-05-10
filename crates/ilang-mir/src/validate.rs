@@ -133,6 +133,7 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         | Inst::OptionalUnwrap { dst, .. }
         | Inst::NewEnum { dst, .. }
         | Inst::EnumTag { dst, .. }
+        | Inst::EnumDiscStr { dst, .. }
         | Inst::EnumPayload { dst, .. }
         | Inst::MakeClosure { dst, .. }
         | Inst::LoadCapture { dst, .. }

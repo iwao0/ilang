@@ -2694,25 +2694,30 @@ fn register_enum_variants(
 ) {
     let mut auto: i64 = 0;
     for v in e.variants.iter() {
-        let val = match v.discriminant {
-            Some(d) => {
+        // Hover blurb for one variant. The displayed value is either
+        // the integer discriminant (auto-numbered or explicit) or
+        // the literal string for `: string`-repr enums.
+        let val_int: Option<i64> = match &v.discriminant {
+            Some(ilang_ast::DiscriminantLit::Int(d)) => {
                 auto = d + 1;
-                d
+                Some(*d)
             }
+            Some(ilang_ast::DiscriminantLit::Str(_)) => None,
             None => {
                 let cur = auto;
                 auto += 1;
-                cur
+                Some(cur)
             }
         };
         let key = format!("{enum_key}.{}", v.name);
         // Prefer the literal text the user wrote (`0x40000000` rather
-        // than `1073741824`) when source is available and the variant
-        // has an explicit discriminant. Fall back to the decimal form.
-        let val_text: String = match (src, v.discriminant) {
+        // than `1073741824`, or `"some string"` rather than the auto
+        // value) when source is available and the variant has an
+        // explicit discriminant. Fall back to the integer form.
+        let val_text: String = match (src, &v.discriminant) {
             (Some(s), Some(_)) => discriminant_literal_text(s, v.span)
-                .unwrap_or_else(|| val.to_string()),
-            _ => val.to_string(),
+                .unwrap_or_else(|| val_int.map(|n| n.to_string()).unwrap_or_default()),
+            _ => val_int.map(|n| n.to_string()).unwrap_or_default(),
         };
         let sig = match &v.payload {
             ilang_ast::VariantPayload::Unit => {

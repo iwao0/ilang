@@ -193,6 +193,11 @@ pub enum Inst {
     NewEnum { dst: ValueId, enum_id: EnumId, variant: VariantId, payload: Box<[ValueId]> },
     EnumTag { dst: ValueId, value: ValueId },
     EnumPayload { dst: ValueId, value: ValueId, variant: VariantId, idx: u32 },
+    /// `enum-value as string` for `: string`-repr enums. Emits a
+    /// runtime lookup of the discriminant string via the enum's
+    /// global id. `value`'s MirTy must be `Enum(enum_id)`; `dst`
+    /// is `Str`.
+    EnumDiscStr { dst: ValueId, enum_id: EnumId, value: ValueId },
 
     /// Build a closure with the given function pointer + captures.
     /// Captures' MirTy comes from the function's `closure_env` layout.

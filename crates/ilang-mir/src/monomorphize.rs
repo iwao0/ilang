@@ -2895,7 +2895,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
             .iter()
             .map(|v| Variant {
                 name: v.name.clone(),
-                discriminant: v.discriminant,
+                discriminant: v.discriminant.clone(),
                 payload: match &v.payload {
                     VariantPayload::Unit => VariantPayload::Unit,
                     VariantPayload::Tuple(tys) => VariantPayload::Tuple(
@@ -3249,7 +3249,7 @@ fn rewrite_enum_refs_in_item(
                 .iter()
                 .map(|v| Variant {
                     name: v.name.clone(),
-                    discriminant: v.discriminant,
+                    discriminant: v.discriminant.clone(),
                     payload: match &v.payload {
                         VariantPayload::Unit => VariantPayload::Unit,
                         VariantPayload::Tuple(tys) => VariantPayload::Tuple(

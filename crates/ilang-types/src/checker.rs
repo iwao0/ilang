@@ -269,6 +269,10 @@ struct EnumSig {
     variants: Vec<EnumVariantSig>,
     /// `@flags` enum — supports `|` `&` `^` `~` and a `has` method.
     flags: bool,
+    /// `enum X: T` repr type. `None` defaults to `i64`. `Some(Type::Str)`
+    /// flags a `: string`-repr enum (used by the `enum-as-string`
+    /// cast path).
+    repr: Option<Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -939,6 +943,7 @@ impl TypeChecker {
                     },
                 ],
                 flags: false,
+                repr: None,
             },
         );
 
@@ -961,6 +966,7 @@ impl TypeChecker {
                     EnumVariantSig { name: "unit".into(), payload: VariantPayloadSig::Unit },
                 ],
                 flags: false,
+                repr: None,
             },
         );
         self.classes.insert(
@@ -3856,6 +3862,19 @@ impl TypeChecker {
                 if matches!(from, Type::Object(ref n) if self.enums.contains_key(n)) && ty.is_numeric() {
                     return Ok(ty.clone());
                 }
+                // Enum → string: only valid for `: string`-repr
+                // enums (e.g. SDL hint name groups). Returns the
+                // declared discriminant string. Cast emits a
+                // runtime lookup against the per-variant table.
+                if let Type::Object(ref n) = from {
+                    if matches!(ty, Type::Str) {
+                        if let Some(sig) = self.enums.get(n) {
+                            if matches!(sig.repr, Some(Type::Str)) {
+                                return Ok(Type::Str);
+                            }
+                        }
+                    }
+                }
                 // Numeric → enum: reinterpret an integer as one of
                 // the enum's discriminants. Only allowed for
                 // fieldless (unit-variant-only) enums; payloaded
@@ -5741,6 +5760,7 @@ fn enum_signature(e: &EnumDecl) -> EnumSig {
         type_params: Vec::from(e.type_params.clone()),
         variants,
         flags: e.flags,
+        repr: e.repr_ty.clone(),
     }
 }
 

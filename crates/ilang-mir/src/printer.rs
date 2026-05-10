@@ -270,6 +270,12 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
         Inst::EnumTag { dst, value } => {
             format!("{}enum_tag {}", dst_pre(*dst), fmt_value(*value))
         }
+        Inst::EnumDiscStr { dst, enum_id, value } => format!(
+            "{}enum_disc_str e{} {}",
+            dst_pre(*dst),
+            enum_id.0,
+            fmt_value(*value)
+        ),
         Inst::EnumPayload { dst, value, variant, idx } => format!(
             "{}enum_payload {}.v{}.f{}",
             dst_pre(*dst),

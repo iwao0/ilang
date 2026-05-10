@@ -177,11 +177,22 @@ pub struct PropertyDecl {
 pub struct Variant {
     pub name: Symbol,
     pub payload: VariantPayload,
-    /// Explicit discriminant value (e.g. `Foo = 0x10`). Only allowed
-    /// on `Unit` payload variants. `None` means "use the auto-assigned
-    /// declaration index".
-    pub discriminant: Option<i64>,
+    /// Explicit discriminant value (e.g. `Foo = 0x10` or
+    /// `Foo = "literal"`). Only allowed on `Unit` payload
+    /// variants. `None` means "use the auto-assigned declaration
+    /// index" (which is only meaningful for integer-repr enums).
+    pub discriminant: Option<DiscriminantLit>,
     pub span: Span,
+}
+
+/// Explicit-discriminant literal — either an integer (for the
+/// usual `enum X: u16 { foo = 0x1234 }` shape) or a string (for
+/// `enum X: string { foo = "literal" }`). The choice has to
+/// match the enum's repr type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DiscriminantLit {
+    Int(i64),
+    Str(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

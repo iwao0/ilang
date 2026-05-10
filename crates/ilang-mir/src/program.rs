@@ -193,7 +193,13 @@ pub struct EnumLayout {
 pub struct VariantDecl {
     pub id: VariantId,
     pub name: Symbol,
+    /// Integer-repr enums use `discriminant` (the raw signed int).
+    /// String-repr enums use `discriminant_str` and leave the
+    /// integer slot at the variant's declaration index. Exactly
+    /// one slot is meaningful per enum, decided by the enum's
+    /// `repr` (`MirTy::Str` ⇒ string, otherwise integer).
     pub discriminant: i64,
+    pub discriminant_str: Option<String>,
     pub payload: VariantPayload,
 }
 

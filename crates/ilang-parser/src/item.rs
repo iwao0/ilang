@@ -706,20 +706,31 @@ impl<'a> Parser<'a> {
                     false
                 };
                 let lit = self.peek().clone();
-                let raw = match lit.kind {
+                match lit.kind {
                     TokenKind::Int(n) => {
                         self.bump();
-                        n
+                        let v = if neg { n.wrapping_neg() } else { n };
+                        Some(ilang_ast::DiscriminantLit::Int(v))
+                    }
+                    TokenKind::Str(s) => {
+                        if neg {
+                            return Err(ParseError::Unexpected {
+                                found: TokenKind::Str(s),
+                                expected: "integer literal after `-`".into(),
+                                span: lit.span,
+                            });
+                        }
+                        self.bump();
+                        Some(ilang_ast::DiscriminantLit::Str(s))
                     }
                     other => {
                         return Err(ParseError::Unexpected {
                             found: other,
-                            expected: "integer literal after `=`".into(),
+                            expected: "integer or string literal after `=`".into(),
                             span: lit.span,
                         });
                     }
-                };
-                Some(if neg { raw.wrapping_neg() } else { raw })
+                }
             } else {
                 None
             };

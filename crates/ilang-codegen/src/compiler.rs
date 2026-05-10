@@ -1561,7 +1561,16 @@ impl JitCompiler {
         let mut tags = Vec::with_capacity(e.variants.len());
         let mut next: i64 = 0;
         for v in &e.variants {
-            let t = v.discriminant.unwrap_or(next);
+            let t = match &v.discriminant {
+                Some(ilang_ast::DiscriminantLit::Int(n)) => *n,
+                Some(ilang_ast::DiscriminantLit::Str(_)) => {
+                    return Err(CodegenError::Unsupported {
+                        what: "string-repr enums (legacy --jit backend)".into(),
+                        span: e.span,
+                    });
+                }
+                None => next,
+            };
             tags.push(t);
             next = t + 1;
         }
