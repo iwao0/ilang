@@ -1426,21 +1426,6 @@ fn is_builtin_type(name: &str) -> bool {
 
 // ─── const substitution ────────────────────────────────────────────────
 
-/// Build a typed zero-default `Expr` for the placeholder value of
-/// a runtime-init static const. The declared type drives the
-/// shape: numeric → `Int(0)` (or `Float(0.0)`), `bool` → `false`,
-/// `string` → empty literal. Other types fall back to `Int(0)` —
-/// the runtime init overwrites it before the user can read it.
-fn zero_default_for(ty: &Type, span: Span) -> Expr {
-    let kind = match ty {
-        Type::F32 | Type::F64 => ExprKind::Float(0.0),
-        Type::Bool => ExprKind::Bool(false),
-        Type::Str => ExprKind::Str(String::new()),
-        _ => ExprKind::Int(0),
-    };
-    Expr::new(kind, span)
-}
-
 /// Walk the merged program collecting every `Item::Const`, then
 /// replace `Var(const_name)` references everywhere with the literal
 /// RHS. Removes the Item::Const entries from the output. Consts are
@@ -1553,16 +1538,19 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                         sf.value = folded;
                     }
                     Err(_reason) => {
-                        // Non-foldable initializer — replace the slot's
-                        // declared init with a typed zero default so the
-                        // JIT can still lay it out, and emit a runtime
+                        // Non-foldable initializer — emit a runtime
                         // assignment that fills in the real value at
-                        // program startup. `is_init: true` exempts the
-                        // synthetic write from the "cannot assign to
-                        // const static field" rule.
+                        // program startup. `is_init: true` exempts
+                        // the synthetic write from the
+                        // "cannot assign to const static field"
+                        // rule. We clone the original expression for
+                        // the synthetic write but leave `sf.value`
+                        // alone so hover / pretty-printers still
+                        // show the user's source expression. The
+                        // MIR lower picks a typed zero default for
+                        // non-literal slot inits.
                         let span = sf.value.span;
-                        let value_expr =
-                            std::mem::replace(&mut sf.value, zero_default_for(&sf.ty, span));
+                        let value_expr = sf.value.clone();
                         // Tag the synthetic init with the class's
                         // own module so the type checker judges
                         // the AssignField (and any non-pub fns the

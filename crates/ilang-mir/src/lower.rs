@@ -1225,12 +1225,18 @@ impl Lower {
                 ExprKind::Float(f) => MirConst::F64(f.to_bits()),
                 ExprKind::Bool(b) => MirConst::Bool(*b),
                 ExprKind::Str(s) => MirConst::Str(Symbol::intern(s)),
-                _ => {
-                    return Err(LowerError::Other(format!(
-                        "static `{}` must fold to a literal (loader's inline_constants pass)",
-                        sf.name
-                    )))
-                }
+                // Non-literal initializer — the loader has
+                // emitted a synthetic top-level
+                // `ClassName.field = expr` (with `is_init:
+                // true`) so the slot gets the real value at
+                // program startup. Use a typed zero default
+                // here just for the slot's static layout.
+                _ => match &ty {
+                    MirTy::F32 | MirTy::F64 => MirConst::F64(0u64),
+                    MirTy::Bool => MirConst::Bool(false),
+                    MirTy::Str => MirConst::Str(Symbol::intern("")),
+                    _ => MirConst::Int(0),
+                },
             };
             self.statics.push(crate::program::StaticSlot {
                 id: slot_id,
