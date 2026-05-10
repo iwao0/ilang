@@ -1297,8 +1297,16 @@ ln(2.0)                          // bare only — `math.ln` rejected after `as _
     re-exported by the umbrella `sdl` module.
   - Either form accepts an optional `as <alias>` / `as _`
     suffix — see `use ... as` below.
-- All top-level items are **public** by default. `pub` is
-  currently only meaningful on `use` (see `pub use` below).
+- All top-level items default to **module-private** — only the
+  declaring file can name them. Mark a `fn`/`class`/`enum`/
+  `const`/top-level `let`/`@extern(C){}` block item with `pub` to
+  expose it as `module.X` to other files. Cross-module references
+  to non-`pub` items are rejected at load time. Class members
+  (`init` / methods / fields / properties / `static`) are
+  similarly module-private by default; mark them `pub` to allow
+  outside-module access. (Member-level enforcement currently lives
+  at parse time; deeper checks against private-method calls
+  through typed receivers are a follow-up.)
 - Circular imports (`A → B → A`) are rejected as a DAG cycle.
 - Loading the same module multiple times is a no-op (deduped by
   file path).
@@ -1371,9 +1379,11 @@ expose those items as `sdl_window.*` even when callers say
 the entry point (no parent module) `pub use` is a regular
 nested `use`.
 
-`pub` is currently only valid before `use`. It may extend to
-`fn`/`class` later for finer-grained visibility, but today every
-top-level item is public by default.
+`pub` applies to `fn` / `class` / `enum` / `const` / top-level
+`let` / `@extern(C){}` block items, and to class members
+(`init` / methods / fields / properties / `static`). Without
+`pub`, an item is module-private. `pub` after attributes works
+too: `@flags pub enum Color { ... }`.
 
 ### `ilang.toml` project file
 

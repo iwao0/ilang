@@ -1029,7 +1029,7 @@ ln(2.0)                          // bare のみ。`as _` を付けたので `mat
   - `use module` — 名前空間越し参照 (`module.foo()`, `new module.Class()`, `module.Enum.variant`)
   - `use module { name1, name2 }` — 個別取り込み (ベアネームで使う)。**名前空間も同時に登録される**ので、`name1` と `module.name1` の両方が同じファイル内で使える。名前空間を抑止したい場合は `as _`（後述）を使う。`pub use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
   - どちらの形式も `as <別名>` / `as _` を後置できる（後述 `use ... as`）
-- すべての top-level item はデフォルトで **public**。`pub` キーワードは現状 `use` の前にだけ書けて、再エクスポート (`pub use`) を意味する
+- すべての top-level item は デフォルトで **module-private**（宣言したファイルからしか参照できない）。`fn` / `class` / `enum` / `const` / トップレベル `let` / `@extern(C){}` 内のアイテムに `pub` を付けると、他モジュールから `module.X` で参照可能になる。クロスモジュールから非 `pub` なアイテムを参照するとロード時にエラーになる。クラスメンバ（`init` / メソッド / フィールド / プロパティ / `static`）も同様で、デフォルト private、`pub` で外部モジュールから利用可能。（メンバの可視性は現状パース時にフラグとして保持されるのみで、型付きレシーバ越しの private メソッド呼び出しチェックはフォローアップで対応）
 - 循環インポート (`A → B → A`) は **DAG 検出してエラー**
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
 - 全モジュールが 1 つの Program にマージされる (ファイル境界は型チェッカ以降は意識されない)
@@ -1077,7 +1077,7 @@ new sdl.Window(...)             // sdl_window 由来
 
 `pub` を付けずに `use sdl_window` を `sdl.il` 内に書くと、呼び出し側が `use sdl` していても `sdl_window.*` のままになる。`pub use` は `sdl.*` 配下に再プレフィクスする。エントリポイント (親モジュールがない) では `pub use` は普通の入れ子 `use` と同じ。
 
-`pub` は今のところ `use` の前にしか書けない。将来 `fn`/`class` などへの拡張は未定。
+`pub` は `fn` / `class` / `enum` / `const` / トップレベル `let` / `@extern(C){}` 内の宣言、およびクラスメンバ（`init` / メソッド / フィールド / プロパティ / `static`）に付けられる。`pub` がなければ module-private。属性の後ろにも書ける: `@flags pub enum Color { ... }`。
 
 ### `@extern(C) { ... }` — FFI ブロック
 
