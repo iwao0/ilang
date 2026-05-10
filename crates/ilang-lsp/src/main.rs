@@ -5034,17 +5034,55 @@ fn render_const_value_with_src(e: &Expr, src: Option<&str>) -> Option<String> {
     }
 }
 
-/// Read the textual span [span.col, span.end_col) from `src`
-/// at `span.line` — works for any expression, not just literals.
-/// Used as the fallback for hover rendering of non-foldable
-/// const initializers.
+/// Read the textual span covered by `span` from `src`. ilang
+/// spans are inclusive on both ends. For call-shaped
+/// expressions whose AST span only covers the callee (the
+/// parser doesn't extend it across the parens / args), we
+/// follow the source forward through balanced
+/// `()` / `[]` / `{}` until the call's closing paren so the
+/// hover shows the full `tt(args)` instead of just `tt`. Used
+/// as the fallback for hover rendering of non-foldable const
+/// initializers.
 fn expr_source_text(src: &str, span: Span) -> Option<String> {
     let start = text::line_col_to_offset(src, span.line, span.col)?;
-    let end = text::line_col_to_offset(src, span.end_line, span.end_col)?;
-    if end <= start {
+    let end_inclusive = text::line_col_to_offset(src, span.end_line, span.end_col)?;
+    let mut end_exclusive = end_inclusive.saturating_add(1).min(src.len());
+    // Extend across an immediately-following balanced paren run.
+    let bytes = src.as_bytes();
+    if end_exclusive < bytes.len() && bytes[end_exclusive] == b'(' {
+        let mut depth = 0i32;
+        let mut i = end_exclusive;
+        let mut in_str = false;
+        let mut esc = false;
+        while i < bytes.len() {
+            let c = bytes[i];
+            if in_str {
+                if esc { esc = false; }
+                else if c == b'\\' { esc = true; }
+                else if c == b'"' { in_str = false; }
+            } else {
+                match c {
+                    b'"' => in_str = true,
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    b'\n' => break,
+                    _ => {}
+                }
+            }
+            i += 1;
+        }
+        end_exclusive = i;
+    }
+    if end_exclusive <= start {
         return None;
     }
-    src.get(start..end).map(|s| s.to_string())
+    src.get(start..end_exclusive).map(|s| s.to_string())
 }
 
 /// Read the literal token at `span` from `src` — captures hex /
