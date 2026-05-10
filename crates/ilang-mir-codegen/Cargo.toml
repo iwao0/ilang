@@ -10,6 +10,7 @@ ilang-mir = { workspace = true }
 ilang-codegen = { workspace = true }
 cranelift = "0.131"
 cranelift-jit = "0.131"
+cranelift-object = "0.131"
 cranelift-module = "0.131"
 cranelift-frontend = "0.131"
 cranelift-codegen = "0.131"

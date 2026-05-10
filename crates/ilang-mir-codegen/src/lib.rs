@@ -8,9 +8,11 @@
 //!
 //! Public entry point: [`compile_program`].
 
+pub mod aot;
 pub mod compile;
 pub mod ty;
 
+pub use aot::{compile_program_to_object, AotError};
 pub use compile::{
     compile_program, compile_with_builtins, reset_repl_slots, run_main, BuiltinDecl, CompileError,
 };
