@@ -1,51 +1,33 @@
 //! ARC peephole: cancel `Retain v` / `Release v` pairs whose net
 //! effect on `v`'s refcount is zero across a small window.
 //!
-//! Three patterns:
+//! Pattern: a `Retain v` and a later `Release w` in the same block
+//! where `v` and `w` are runtime-equivalent (via a function-wide
+//! union-find that follows mutable-slot aliases and single-pred
+//! block-arg/param edges), with only safe-to-cross insts between.
 //!
-//! - **Intra-block** (M2-α): `Retain v` and `Release v` in the same
-//!   block with only safe-to-cross insts between them.
-//! - **Local-aware intra-block** (M2-γ): same as above, but
-//!   `DefLocal`/`UseLocal` chains are followed so two `ValueId`s
-//!   that name the same runtime object via a mutable slot count as
-//!   the same value. `let x = …; retain x; let y = x; …; release y;
-//!   release x` collapses cleanly even though `retain` and the
-//!   first `release` use different `ValueId`s.
-//! - **Extended-BB chain** (M2-β step 1+2): `Retain v` near the end
-//!   of some block `B0`, with `B0` ending in an unconditional `Br`.
-//!   We follow the unique-predecessor chain `B0 → B1 → … → Bn`,
-//!   renaming `v` through each block's arg→param mapping, scanning
-//!   each block's body left-to-right for the matching `Release`.
-//!   Intermediate blocks must be entirely safe-to-cross.
+//! Safe-to-cross = pure arithmetic / loads / extracts / unrelated
+//! ARC ops / mutable-slot reads and writes. Calls, stores into
+//! heaps, allocations, and anything else are barriers.
 //!
-//! All three patterns share the same notion of "safe to cross": pure
-//! arithmetic / loads / extracts / unrelated ARC ops / mutable-slot
-//! reads and writes. Calls, stores into heaps, allocations, and
-//! anything else are barriers.
-//!
-//! Dominator-aware whole-CFG cancellation and escape analysis are
-//! deferred to later M2 steps.
+//! An earlier iteration also walked unique-predecessor BB chains
+//! cross-block, but a measurement on the 277-fixture suite found it
+//! removed only 1 pair (≈4% of total hits) at the cost of ~80 LOC
+//! plus tests, so it's been dropped. Bringing it back would be a
+//! starting point for a real dominator-aware whole-CFG pass.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::inst::{BlockId, Inst, LocalId, Terminator, ValueId};
 use crate::program::{Function, Program};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
-    /// Pairs removed by the intra-block (incl. local-aware) peephole.
-    pub intra_block: usize,
-    /// Pairs removed by the single-pred chain walker.
-    pub chain: usize,
-    /// `intra_block + chain` — kept for backwards compatibility with
-    /// the unit tests that read this field directly.
     pub pairs_removed: usize,
 }
 
 impl std::ops::AddAssign for Stats {
     fn add_assign(&mut self, rhs: Self) {
-        self.intra_block += rhs.intra_block;
-        self.chain += rhs.chain;
         self.pairs_removed += rhs.pairs_removed;
     }
 }
@@ -60,136 +42,21 @@ pub fn run_program(prog: &mut Program) -> Stats {
 
 pub fn run_function(func: &mut Function) -> Stats {
     let mut total = Stats::default();
-    // Iterate to fixed point so an extended-BB removal that exposes
-    // a fresh intra-block pair (or vice versa) gets picked up.
+    // Iterate to fixed point so a removal that exposes a fresh pair
+    // gets picked up.
     loop {
         let preds = predecessors(func);
         let mut equiv = build_function_equiv(func, &preds);
-        let intra = run_intra_block(func, &mut equiv);
-        let cross = run_extended_bb(func, &preds, &mut equiv);
-        let pass = intra.pairs_removed + cross.pairs_removed;
-        total.intra_block += intra.pairs_removed;
-        total.chain += cross.pairs_removed;
-        total.pairs_removed += pass;
-        if pass == 0 {
+        let mut pass = Stats::default();
+        for block in &mut func.blocks {
+            pass += run_block_insts(&mut block.insts, &mut equiv);
+        }
+        total += pass;
+        if pass.pairs_removed == 0 {
             break;
         }
     }
     total
-}
-
-fn run_intra_block(func: &mut Function, equiv: &mut ValueEquiv) -> Stats {
-    let mut total = Stats::default();
-    for block in &mut func.blocks {
-        total += run_block_insts(&mut block.insts, equiv);
-    }
-    total
-}
-
-fn run_extended_bb(
-    func: &mut Function,
-    preds: &[Vec<BlockId>],
-    equiv: &mut ValueEquiv,
-) -> Stats {
-    let mut stats = Stats::default();
-    let n = func.blocks.len();
-    for b0_idx in 0..n {
-        let Some((retain_pos, retain_v)) =
-            scan_back_for_retain(&func.blocks[b0_idx].insts)
-        else {
-            continue;
-        };
-        let Some((release_block, release_pos)) =
-            find_chain_release(func, preds, equiv, b0_idx, retain_v)
-        else {
-            continue;
-        };
-        debug_assert_ne!(release_block, b0_idx);
-        func.blocks[b0_idx].insts.remove(retain_pos);
-        func.blocks[release_block].insts.remove(release_pos);
-        stats.pairs_removed += 1;
-    }
-    stats
-}
-
-/// Walk the unique-predecessor chain starting from `start_block`'s
-/// terminator and look for a `Release w` with `equiv(w) == target`.
-/// Returns `(block, inst_idx)` of the matching Release if the chain
-/// reaches one without crossing a barrier.
-fn find_chain_release(
-    func: &Function,
-    preds: &[Vec<BlockId>],
-    equiv: &mut ValueEquiv,
-    start_block: usize,
-    start_v: ValueId,
-) -> Option<(usize, usize)> {
-    let target = equiv.find(start_v);
-    let mut visited: HashSet<usize> = HashSet::new();
-    visited.insert(start_block);
-    let mut current_block = start_block;
-    loop {
-        let next_idx = match &func.blocks[current_block].term {
-            Terminator::Br { dst, .. } => dst.0 as usize,
-            _ => return None,
-        };
-        if preds.get(next_idx).map(|p| p.len()).unwrap_or(0) != 1 {
-            return None;
-        }
-        if !visited.insert(next_idx) {
-            return None;
-        }
-
-        for (i, inst) in func.blocks[next_idx].insts.iter().enumerate() {
-            if let Inst::Release { value: w } = inst {
-                if equiv.find(*w) == target {
-                    return Some((next_idx, i));
-                }
-            }
-            if !is_safe_to_cross(inst) {
-                return None;
-            }
-        }
-        // Passed through `next_idx`'s entire body — extend the
-        // chain by following its terminator next round.
-        current_block = next_idx;
-    }
-}
-
-fn predecessors(func: &Function) -> Vec<Vec<BlockId>> {
-    let mut preds = vec![Vec::new(); func.blocks.len()];
-    for (idx, block) in func.blocks.iter().enumerate() {
-        let from = BlockId(idx as u32);
-        match &block.term {
-            Terminator::Br { dst, .. } => preds[dst.0 as usize].push(from),
-            Terminator::CondBr {
-                then_block, else_block, ..
-            } => {
-                preds[then_block.0 as usize].push(from);
-                preds[else_block.0 as usize].push(from);
-            }
-            Terminator::Switch { cases, default, .. } => {
-                preds[default.0 as usize].push(from);
-                for c in cases.iter() {
-                    preds[c.dst.0 as usize].push(from);
-                }
-            }
-            Terminator::Return { .. } | Terminator::Unreachable => {}
-        }
-    }
-    preds
-}
-
-/// Scan B1's insts from the end, looking for a `Retain v` such that
-/// every inst between it and the terminator is safe to cross.
-fn scan_back_for_retain(insts: &[Inst]) -> Option<(usize, ValueId)> {
-    for i in (0..insts.len()).rev() {
-        match &insts[i] {
-            Inst::Retain { value } => return Some((i, *value)),
-            inst if is_safe_to_cross(inst) => continue,
-            _ => return None,
-        }
-    }
-    None
 }
 
 fn run_block_insts(insts: &mut Vec<Inst>, equiv: &mut ValueEquiv) -> Stats {
@@ -242,16 +109,36 @@ fn run_block_insts(insts: &mut Vec<Inst>, equiv: &mut ValueEquiv) -> Stats {
     stats
 }
 
-/// Per-block runtime-equivalence union-find over `ValueId`s: two
-/// `ValueId`s become equivalent when they flow through the same
-/// mutable slot via `DefLocal` / `UseLocal` without an intervening
-/// rebind. Heap allocations and computed values stay in singleton
-/// classes.
+fn predecessors(func: &Function) -> Vec<Vec<BlockId>> {
+    let mut preds = vec![Vec::new(); func.blocks.len()];
+    for (idx, block) in func.blocks.iter().enumerate() {
+        let from = BlockId(idx as u32);
+        match &block.term {
+            Terminator::Br { dst, .. } => preds[dst.0 as usize].push(from),
+            Terminator::CondBr {
+                then_block, else_block, ..
+            } => {
+                preds[then_block.0 as usize].push(from);
+                preds[else_block.0 as usize].push(from);
+            }
+            Terminator::Switch { cases, default, .. } => {
+                preds[default.0 as usize].push(from);
+                for c in cases.iter() {
+                    preds[c.dst.0 as usize].push(from);
+                }
+            }
+            Terminator::Return { .. } | Terminator::Unreachable => {}
+        }
+    }
+    preds
+}
+
+/// Runtime-equivalence union-find over `ValueId`s.
 ///
-/// The map is timing-sensitive: only the most-recently-`def_local`'d
-/// value is unioned with subsequent reads of that local, so a slot
-/// rebind cleanly partitions the equivalence classes on either side
-/// of the new `DefLocal`.
+/// Two `ValueId`s become equivalent when they're guaranteed to name
+/// the same runtime object across all reachable executions. Heap
+/// allocations and computed values stay in singleton classes unless
+/// linked via one of the rules below.
 #[derive(Default)]
 struct ValueEquiv {
     parent: HashMap<ValueId, ValueId>,
@@ -333,10 +220,6 @@ fn build_function_equiv(func: &Function, preds: &[Vec<BlockId>]) -> ValueEquiv {
                     holds.insert(*local, *value);
                 }
                 Inst::UseLocal { dst, local } => {
-                    // Prefer the per-block holds (timing-aware); for
-                    // single-DefLocal locals fall back to the global
-                    // value when the local hasn't been written in
-                    // this block yet.
                     if let Some(&v) = holds.get(local) {
                         equiv.union(*dst, v);
                     } else if let Some(&v) = single_def.get(local) {

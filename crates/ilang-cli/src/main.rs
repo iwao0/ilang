@@ -738,8 +738,8 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         if dump_stats {
             let (retains_after, releases_after) = count_retain_release(&mir);
             eprintln!(
-                "{display_path}: arc_peephole retains={retains_before}->{retains_after} releases={releases_before}->{releases_after} intra={} chain={}",
-                arc_stats.intra_block, arc_stats.chain
+                "{display_path}: arc_peephole retains={retains_before}->{retains_after} releases={releases_before}->{releases_after} pairs={}",
+                arc_stats.pairs_removed
             );
         }
         let compiled = match ilang_mir_codegen::compile_program(&mir) {
