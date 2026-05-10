@@ -903,7 +903,7 @@ pub class Game {
             // channel and offset slightly. Pixel overlap reproduces the
             // original colour; high-contrast edges (including text)
             // show RGB fringing.
-            this.assets.sceneTex.blendMode = 2     // SDL_BLENDMODE_ADD
+            this.assets.sceneTex.blendMode = sdl.BlendMode.add
             let chroma: i32 = 3
             this.assets.sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, -chroma, 0, consts.winW, consts.winH)
@@ -912,7 +912,7 @@ pub class Game {
             this.assets.sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, chroma, 0, consts.winW, consts.winH)
             // Restore for next frame's setTarget pass.
-            this.assets.sceneTex.blendMode = 1     // SDL_BLENDMODE_BLEND
+            this.assets.sceneTex.blendMode = sdl.BlendMode.blend
             this.assets.sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // ─── bloom: additively overlay the upscaled blurred
@@ -921,11 +921,11 @@ pub class Game {
             // whole bloom contribution via colour-mod so mid-brightness
             // pixels don't push the composite to white. The result is
             // a soft glow only on the hottest parts of the scene.
-            this.assets.bloomTex.blendMode = 2
+            this.assets.bloomTex.blendMode = sdl.BlendMode.add
             this.assets.bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
             this.assets.bloomTex.alphaMod = 255 as u8
             this.renderer.drawTexture(this.assets.bloomTex, 0, 0, consts.winW, consts.winH)
-            this.assets.bloomTex.blendMode = 1
+            this.assets.bloomTex.blendMode = sdl.BlendMode.blend
             this.assets.bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // CRT overlay (scanlines + vignette).

@@ -48,16 +48,19 @@ pub enum PixelFormat: u32 {
     yvyu           = 0x55595659
 }
 
-/// `SDL_BlendMode` for `setSurfaceBlendMode` /
-/// `setTextureBlendMode`. Same values as in `sdl_renderer.il` but
-/// re-declared here so callers don't have to import that module
-/// just for the enum.
-pub enum SurfaceBlendMode: i32 {
-    none  = 0
-    blend = 1   // alpha blending
-    add   = 2   // additive
-    mod   = 4   // colour-modulated
-    mul   = 8   // SDL 2.0.12+
+/// `SDL_BlendMode` — the four canned blend modes plus user-defined
+/// modes assembled via `Renderer.composeCustomBlendMode(...)`.
+/// Lives here (in `sdl_surface.il`) so both surface- and
+/// renderer/texture-side accessors can share it without circular
+/// imports — the umbrella loads `sdl_surface` before
+/// `sdl_renderer`.
+pub enum BlendMode: i32 {
+    none    = 0
+    blend   = 1            // alpha blending
+    add     = 2            // additive
+    mod     = 4            // colour-modulated
+    mul     = 8            // SDL 2.0.12+
+    invalid = 0x7FFFFFFF   // sentinel returned by SDL on error
 }
 
 @extern(C) {
@@ -342,7 +345,7 @@ pub enum SurfaceBlendMode: i32 {
 
         /// Set the alpha-blend mode for subsequent blits originating
         /// from this surface.
-        pub setBlendMode(mode: SurfaceBlendMode): i32 {
+        pub setBlendMode(mode: BlendMode): i32 {
             if this.handle == 0 { return -1 }
             SDL_SetSurfaceBlendMode(this.handle as *SDL_Surface, mode as i32)
         }

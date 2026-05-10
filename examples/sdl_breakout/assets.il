@@ -63,7 +63,7 @@ pub class Assets {
         // Linear filtering on the scene texture so that the bloom
         // pass's downscale + upscale produces a smooth blur
         // instead of a chunky pixel grid.
-        this.sceneTex.scaleMode = 1
+        this.sceneTex.scaleMode = sdl.ScaleMode.linear
 
         // Tiny target used to "blur" the scene. We draw `sceneTex`
         // shrunk into `bloomTex` (each downsample averages a 4×4
@@ -77,7 +77,7 @@ pub class Assets {
             console.log("SDL_CreateTexture(bloom) failed: " + sdl.getError())
             return
         }
-        this.bloomTex.scaleMode = 1
+        this.bloomTex.scaleMode = sdl.ScaleMode.linear
         return
     }
 }

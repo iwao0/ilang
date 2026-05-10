@@ -11,6 +11,7 @@
 // textures with optional rotation through `drawTextureRot`.
 
 use sdl_core { Rect, Point, FPoint, Size, Color }
+use sdl_surface { BlendMode }
 use sdl_window { Window }
 
 // ─── enums (mirror the SDL_render.h typedefs) ─────────────────────
@@ -514,18 +515,17 @@ pub enum RendererFlip: i32 {
             c
         }
 
-        /// `SDL_BlendMode` for draw calls: `0` = NONE, `1` = BLEND,
-        /// `2` = ADD, `4` = MOD, `8` = MUL. The setter discards
-        /// the error code SDL would return; if you need to react
-        /// to a failed mode change, call `SDL_SetRenderDrawBlendMode`
-        /// directly.
-        pub get blendMode(): i32 {
+        /// Active blend mode for draw calls. The setter discards
+        /// the error code SDL would return; call
+        /// `SDL_SetRenderDrawBlendMode` directly if you need to
+        /// react to a failed mode change.
+        pub get blendMode(): BlendMode {
             let m: i32[] = [0]
             SDL_GetRenderDrawBlendMode(this.handle as *SDL_Renderer, m)
-            m[0]
+            m[0] as BlendMode
         }
-        pub set blendMode(mode: i32) {
-            SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode)
+        pub set blendMode(mode: BlendMode) {
+            SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode as i32)
             return
         }
 
@@ -1009,19 +1009,21 @@ pub enum RendererFlip: i32 {
         ///   alphaOp    — combine operation for alpha.
         ///
         /// Returns:
-        ///   the resulting `SDL_BlendMode` (a 32-bit opaque token),
-        ///   or the SDL "invalid" sentinel `0x7FFFFFFF` if the
-        ///   platform can't synthesise the requested combination.
+        ///   the resulting `BlendMode` (a 32-bit opaque token —
+        ///   feed it straight into `Renderer.blendMode = ...` /
+        ///   `Texture.blendMode = ...`), or `BlendMode.invalid`
+        ///   if the platform can't synthesise the requested
+        ///   combination.
         pub static composeCustomBlendMode(
             srcColor: BlendFactor, dstColor: BlendFactor,
             colorOp: BlendOperation,
             srcAlpha: BlendFactor, dstAlpha: BlendFactor,
             alphaOp: BlendOperation
-        ): i32 {
+        ): BlendMode {
             SDL_ComposeCustomBlendMode(
                 srcColor as i32, dstColor as i32, colorOp as i32,
                 srcAlpha as i32, dstAlpha as i32, alphaOp as i32
-            )
+            ) as BlendMode
         }
     }
 
@@ -1203,27 +1205,28 @@ pub enum RendererFlip: i32 {
             return
         }
 
-        /// `SDL_BlendMode`: `0` = NONE, `1` = BLEND, `2` = ADD,
-        /// `4` = MOD, `8` = MUL. Setter discards the error code.
-        pub get blendMode(): i32 {
+        /// Per-texture blend mode applied when the renderer
+        /// composites this texture. Setter discards the error
+        /// code.
+        pub get blendMode(): BlendMode {
             let m: i32[] = [0]
             SDL_GetTextureBlendMode(this.handle as *SDL_Texture, m)
-            m[0]
+            m[0] as BlendMode
         }
-        pub set blendMode(mode: i32) {
-            SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
+        pub set blendMode(mode: BlendMode) {
+            SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode as i32)
             return
         }
 
-        /// `ScaleMode`: `0` = Nearest, `1` = Linear, `2` = Best.
-        /// Setter discards the error code.
-        pub get scaleMode(): i32 {
+        /// Sampling filter SDL applies when scaling this texture
+        /// at draw time. Setter discards the error code.
+        pub get scaleMode(): ScaleMode {
             let m: i32[] = [0]
             SDL_GetTextureScaleMode(this.handle as *SDL_Texture, m)
-            m[0]
+            m[0] as ScaleMode
         }
-        pub set scaleMode(mode: i32) {
-            SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode)
+        pub set scaleMode(mode: ScaleMode) {
+            SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode as i32)
             return
         }
     }
