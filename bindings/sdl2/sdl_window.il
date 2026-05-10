@@ -913,56 +913,56 @@ pub enum SubSystem: u32 {
         // `SDL_GetWindowWMInfo` per accessor.
 
         /// macOS Cocoa: underlying `NSWindow *`.
-        pub cocoaWindow(): i64 {
+        pub get cocoaWindow(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.cocoa as u32 { return 0 }
             info.handle1
         }
 
         /// Windows: native `HWND`.
-        pub win32Hwnd(): i64 {
+        pub get win32Hwnd(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.windows as u32 { return 0 }
             info.handle1
         }
 
         /// Windows: `HDC`.
-        pub win32Hdc(): i64 {
+        pub get win32Hdc(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.windows as u32 { return 0 }
             info.handle2
         }
 
         /// Windows: `HINSTANCE`.
-        pub win32Hinstance(): i64 {
+        pub get win32Hinstance(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.windows as u32 { return 0 }
             info.handle3
         }
 
         /// X11: `Display *`.
-        pub x11Display(): i64 {
+        pub get x11Display(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.x11 as u32 { return 0 }
             info.handle1
         }
 
         /// X11: `Window` (an unsigned long XID).
-        pub x11Window(): i64 {
+        pub get x11Window(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.x11 as u32 { return 0 }
             info.handle2
         }
 
         /// Wayland: `wl_display *`.
-        pub waylandDisplay(): i64 {
+        pub get waylandDisplay(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.wayland as u32 { return 0 }
             info.handle1
         }
 
         /// Wayland: `wl_surface *`.
-        pub waylandSurface(): i64 {
+        pub get waylandSurface(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.wayland as u32 { return 0 }
             info.handle2
@@ -972,21 +972,21 @@ pub enum SubSystem: u32 {
         /// use xdg_surface / xdg_toplevel which live in the tail
         /// padding — extract them with `readU64` against the raw
         /// struct address if needed.
-        pub waylandShellSurface(): i64 {
+        pub get waylandShellSurface(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.wayland as u32 { return 0 }
             info.handle3
         }
 
         /// UIKit (iOS / tvOS): `UIWindow *`.
-        pub uiKitWindow(): i64 {
+        pub get uiKitWindow(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.uikit as u32 { return 0 }
             info.handle1
         }
 
         /// Android: native `ANativeWindow *`.
-        pub androidWindow(): i64 {
+        pub get androidWindow(): i64 {
             let info = this.wmInfo()
             if info.subsystem != SubSystem.android as u32 { return 0 }
             info.handle1
@@ -1031,283 +1031,306 @@ pub enum SubSystem: u32 {
         m
     }
 
-    // ─── module-level video / display fns ────────────────────────
+    /// Reference to a single display (monitor) by its `0`-based
+    /// index. Construct via `new Display(idx)` after checking
+    /// `Display.count()`. Methods here wrap the per-display SDL
+    /// queries; the underlying API is index-keyed (no SDL handle
+    /// to free), so this class is a thin façade rather than an
+    /// ARC-managed resource.
+    pub class Display {
+        pub index: i32
 
-    /// Returns:
-    ///   number of displays connected to the system.
-    pub fn numVideoDisplays(): i32 {
-        SDL_GetNumVideoDisplays()
-    }
+        pub init(index: i32) {
+            this.index = index
+        }
 
-    /// Args:
-    ///   displayIndex — `0`-based, `< numVideoDisplays()`.
-    ///
-    /// Returns:
-    ///   human-readable display name.
-    pub fn displayName(displayIndex: i32): string {
-        stringFromCstr(SDL_GetDisplayName(displayIndex))
-    }
+        /// Returns:
+        ///   number of displays connected to the system.
+        pub static count(): i32 {
+            SDL_GetNumVideoDisplays()
+        }
 
-    /// Display bounds in screen coordinates.
-    pub fn displayBounds(displayIndex: i32): Rect {
-        let r = new Rect()
-        SDL_GetDisplayBounds(displayIndex, r)
-        r
-    }
+        /// Returns:
+        ///   human-readable display name.
+        pub get name(): string {
+            stringFromCstr(SDL_GetDisplayName(this.index))
+        }
 
-    /// Display bounds excluding system UI (taskbar / dock).
-    pub fn displayUsableBounds(displayIndex: i32): Rect {
-        let r = new Rect()
-        SDL_GetDisplayUsableBounds(displayIndex, r)
-        r
-    }
+        /// Display bounds in screen coordinates.
+        pub get bounds(): Rect {
+            let r = new Rect()
+            SDL_GetDisplayBounds(this.index, r)
+            r
+        }
 
-    /// Diagonal / horizontal / vertical DPI for a display.
-    pub fn displayDPI(displayIndex: i32): DisplayDPI {
-        let dd: f32[] = [0.0 as f32]
-        let hd: f32[] = [0.0 as f32]
-        let vd: f32[] = [0.0 as f32]
-        SDL_GetDisplayDPI(displayIndex, dd, hd, vd)
-        let d = new DisplayDPI()
-        d.diagonal = dd[0]
-        d.horizontal = hd[0]
-        d.vertical = vd[0]
-        d
-    }
+        /// Display bounds excluding system UI (taskbar / dock).
+        pub get usableBounds(): Rect {
+            let r = new Rect()
+            SDL_GetDisplayUsableBounds(this.index, r)
+            r
+        }
 
-    /// Returns:
-    ///   `Orientation.*` value as a raw `i32`.
-    pub fn displayOrientation(displayIndex: i32): i32 {
-        SDL_GetDisplayOrientation(displayIndex)
-    }
+        /// Diagonal / horizontal / vertical DPI for the display.
+        pub get dpi(): DisplayDPI {
+            let dd: f32[] = [0.0 as f32]
+            let hd: f32[] = [0.0 as f32]
+            let vd: f32[] = [0.0 as f32]
+            SDL_GetDisplayDPI(this.index, dd, hd, vd)
+            let d = new DisplayDPI()
+            d.diagonal = dd[0]
+            d.horizontal = hd[0]
+            d.vertical = vd[0]
+            d
+        }
 
-    /// Returns:
-    ///   number of distinct display modes the display supports.
-    pub fn numDisplayModes(displayIndex: i32): i32 {
-        SDL_GetNumDisplayModes(displayIndex)
-    }
+        /// Returns:
+        ///   `Orientation.*` value as a raw `i32`.
+        pub get orientation(): i32 {
+            SDL_GetDisplayOrientation(this.index)
+        }
 
-    /// Args:
-    ///   displayIndex — display.
-    ///   modeIndex    — `0` is the largest / highest refresh.
-    ///
-    /// Returns:
-    ///   the corresponding `DisplayMode`.
-    pub fn displayMode(displayIndex: i32, modeIndex: i32): DisplayMode {
-        let raw = new SDL_DisplayMode()
-        SDL_GetDisplayMode(displayIndex, modeIndex, raw)
-        let m = new DisplayMode()
-        m.format = raw.format
-        m.w = raw.w
-        m.h = raw.h
-        m.refreshRate = raw.refreshRate
-        m
-    }
+        /// Returns:
+        ///   number of distinct display modes the display supports.
+        pub get numModes(): i32 {
+            SDL_GetNumDisplayModes(this.index)
+        }
 
-    /// Mode the OS desktop is configured for.
-    pub fn desktopDisplayMode(displayIndex: i32): DisplayMode {
-        let raw = new SDL_DisplayMode()
-        SDL_GetDesktopDisplayMode(displayIndex, raw)
-        let m = new DisplayMode()
-        m.format = raw.format
-        m.w = raw.w
-        m.h = raw.h
-        m.refreshRate = raw.refreshRate
-        m
-    }
+        /// Args:
+        ///   modeIndex — `0` is the largest / highest refresh.
+        ///
+        /// Returns:
+        ///   the corresponding `DisplayMode`.
+        pub mode(modeIndex: i32): DisplayMode {
+            let raw = new SDL_DisplayMode()
+            SDL_GetDisplayMode(this.index, modeIndex, raw)
+            let m = new DisplayMode()
+            m.format = raw.format
+            m.w = raw.w
+            m.h = raw.h
+            m.refreshRate = raw.refreshRate
+            m
+        }
 
-    /// Mode currently active (matches desktop unless a fullscreen
-    /// app changed it).
-    pub fn currentDisplayMode(displayIndex: i32): DisplayMode {
-        let raw = new SDL_DisplayMode()
-        SDL_GetCurrentDisplayMode(displayIndex, raw)
-        let m = new DisplayMode()
-        m.format = raw.format
-        m.w = raw.w
-        m.h = raw.h
-        m.refreshRate = raw.refreshRate
-        m
-    }
+        /// Mode the OS desktop is configured for.
+        pub get desktopMode(): DisplayMode {
+            let raw = new SDL_DisplayMode()
+            SDL_GetDesktopDisplayMode(this.index, raw)
+            let m = new DisplayMode()
+            m.format = raw.format
+            m.w = raw.w
+            m.h = raw.h
+            m.refreshRate = raw.refreshRate
+            m
+        }
 
-    /// Re-initialise the video subsystem with a different driver.
-    ///
-    /// Args:
-    ///   driver — name as returned by `videoDriver` (e.g.
-    ///            `"cocoa"`, `"x11"`, `"wayland"`).
-    ///
-    /// Returns:
-    ///   `0` on success, `< 0` on failure.
-    pub fn videoInit(driver: string): i32 {
-        SDL_VideoInit(cstrFromString(driver))
-    }
-
-    /// Tear down the video subsystem.
-    pub fn videoQuit() {
-        SDL_VideoQuit()
-    }
-
-    /// Returns:
-    ///   name of the active video driver.
-    pub fn currentVideoDriver(): string {
-        stringFromCstr(SDL_GetCurrentVideoDriver())
-    }
-
-    /// Args:
-    ///   index — `0`-based, `< numVideoDrivers()`.
-    pub fn videoDriver(index: i32): string {
-        stringFromCstr(SDL_GetVideoDriver(index))
-    }
-
-    /// Returns:
-    ///   number of compiled-in video drivers.
-    pub fn numVideoDrivers(): i32 {
-        SDL_GetNumVideoDrivers()
-    }
-
-    /// Allow the screen saver to kick in.
-    pub fn enableScreenSaver() {
-        SDL_EnableScreenSaver()
-    }
-
-    /// Suppress the screen saver (matches "video is playing" behaviour).
-    pub fn disableScreenSaver() {
-        SDL_DisableScreenSaver()
-    }
-
-    /// Returns:
-    ///   true when the screen saver is currently allowed.
-    pub fn isScreenSaverEnabled(): bool {
-        SDL_IsScreenSaverEnabled() != 0
-    }
-
-    // ─── OpenGL helpers ──────────────────────────────────────────
-
-    /// Load an OpenGL library by file name (or system default if
-    /// `path` is empty).
-    pub fn glLoadLibrary(path: string): i32 {
-        SDL_GL_LoadLibrary(cstrFromString(path))
-    }
-    pub fn glUnloadLibrary() {
-        SDL_GL_UnloadLibrary()
-    }
-
-    /// Args:
-    ///   name — extension name (e.g. `"GL_ARB_compute_shader"`).
-    ///
-    /// Returns:
-    ///   true when the extension is reported by the GL driver.
-    pub fn glExtensionSupported(name: string): bool {
-        SDL_GL_ExtensionSupported(cstrFromString(name)) != 0
-    }
-
-    /// Reset every GL attribute to its SDL default before context
-    /// creation.
-    pub fn glResetAttributes() {
-        SDL_GL_ResetAttributes()
-    }
-
-    /// Set a GL attribute used at context creation.
-    ///
-    /// Args:
-    ///   attr  — attribute key.
-    ///   value — attribute value (interpretation depends on `attr`).
-    pub fn glSetAttribute(attr: GLAttr, value: i32): i32 {
-        SDL_GL_SetAttribute(attr as i32, value)
-    }
-
-    /// Read back a GL attribute.
-    pub fn glGetAttribute(attr: GLAttr): i32 {
-        let buf: i32[] = [0]
-        SDL_GL_GetAttribute(attr as i32, buf)
-        buf[0]
-    }
-
-    /// Args:
-    ///   interval — `0` = immediate, `1` = vsync,
-    ///              `-1` = adaptive vsync.
-    pub fn glSetSwapInterval(interval: i32): i32 {
-        SDL_GL_SetSwapInterval(interval)
-    }
-
-    /// Returns:
-    ///   the current swap-interval setting.
-    pub fn glGetSwapInterval(): i32 {
-        SDL_GL_GetSwapInterval()
-    }
-
-    /// Look up a GL function pointer by name. Caller invokes the
-    /// pointer through `fnAddr`-style FFI plumbing.
-    ///
-    /// Returns:
-    ///   raw `void *` cast to i64. `0` if the GL driver doesn't
-    ///   expose `proc`.
-    pub fn glGetProcAddress(proc: string): i64 {
-        SDL_GL_GetProcAddress(cstrFromString(proc)) as i64
-    }
-
-    /// Create a GL context bound to `window`. The window must
-    /// have been created with `WindowFlag.openGL`.
-    ///
-    /// Args:
-    ///   window — the parent window.
-    ///
-    /// Returns:
-    ///   raw `SDL_GLContext` cast to i64. `0` on failure.
-    pub fn glCreateContext(window: Window): i64 {
-        if window.handle == 0 { return 0 }
-        SDL_GL_CreateContext(window.handle as *SDL_Window) as i64
-    }
-
-    /// Bind `context` as the current GL context for `window`.
-    /// Call once per window after creation, and again whenever
-    /// switching between contexts.
-    ///
-    /// Returns:
-    ///   `0` on success, `< 0` on failure.
-    pub fn glMakeCurrent(window: Window, context: i64): i32 {
-        if window.handle == 0 { return -1 }
-        SDL_GL_MakeCurrent(
-            window.handle as *SDL_Window, context as *SDL_GLContext
-        )
-    }
-
-    /// Returns:
-    ///   `*SDL_Window` of the currently-bound GL context cast to
-    ///   i64. `0` when no context is current on this thread.
-    pub fn glGetCurrentWindow(): i64 {
-        SDL_GL_GetCurrentWindow() as i64
-    }
-
-    pub fn glGetCurrentContext(): i64 {
-        SDL_GL_GetCurrentContext() as i64
-    }
-
-    /// Read the drawable size in *pixels* — distinct from the
-    /// window's logical size on HiDPI displays.
-    ///
-    /// Args:
-    ///   window     — the GL window.
-    ///   wOut, hOut — 1-element i32 arrays to receive the
-    ///                width / height.
-    pub fn glGetDrawableSize(window: Window, wOut: i32[], hOut: i32[]) {
-        if window.handle == 0 { return }
-        let pw: *i32 = wOut
-        let ph: *i32 = hOut
-        SDL_GL_GetDrawableSize(window.handle as *SDL_Window, pw, ph)
-    }
-
-    /// Present the back buffer to the screen. Call once per
-    /// rendered frame.
-    pub fn glSwapWindow(window: Window) {
-        if window.handle != 0 {
-            SDL_GL_SwapWindow(window.handle as *SDL_Window)
+        /// Mode currently active (matches desktop unless a
+        /// fullscreen app changed it).
+        pub get currentMode(): DisplayMode {
+            let raw = new SDL_DisplayMode()
+            SDL_GetCurrentDisplayMode(this.index, raw)
+            let m = new DisplayMode()
+            m.format = raw.format
+            m.w = raw.w
+            m.h = raw.h
+            m.refreshRate = raw.refreshRate
+            m
         }
     }
 
-    /// Destroy a GL context.
-    pub fn glDeleteContext(context: i64) {
-        if context != 0 {
-            SDL_GL_DeleteContext(context as *SDL_GLContext)
+    /// Namespace class for SDL's video subsystem — driver
+    /// enumeration, screen-saver toggle, and the rare
+    /// re-initialise path. All methods are `static`; there is no
+    /// per-instance Video object to construct.
+    pub class Video {
+        /// Re-initialise the video subsystem with a different driver.
+        ///
+        /// Args:
+        ///   driver — name as returned by `Video.driverName(idx)`
+        ///            (e.g. `"cocoa"`, `"x11"`, `"wayland"`).
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
+        pub static init(driver: string): i32 {
+            SDL_VideoInit(cstrFromString(driver))
+        }
+
+        /// Tear down the video subsystem.
+        pub static quit() {
+            SDL_VideoQuit()
+        }
+
+        /// Returns:
+        ///   name of the active video driver.
+        pub static currentDriver(): string {
+            stringFromCstr(SDL_GetCurrentVideoDriver())
+        }
+
+        /// Args:
+        ///   index — `0`-based, `< Video.numDrivers()`.
+        pub static driverName(index: i32): string {
+            stringFromCstr(SDL_GetVideoDriver(index))
+        }
+
+        /// Returns:
+        ///   number of compiled-in video drivers.
+        pub static numDrivers(): i32 {
+            SDL_GetNumVideoDrivers()
+        }
+
+        /// Allow the screen saver to kick in.
+        pub static enableScreenSaver() {
+            SDL_EnableScreenSaver()
+        }
+
+        /// Suppress the screen saver (matches "video is playing"
+        /// behaviour).
+        pub static disableScreenSaver() {
+            SDL_DisableScreenSaver()
+        }
+
+        /// Returns:
+        ///   true when the screen saver is currently allowed.
+        pub static isScreenSaverEnabled(): bool {
+            SDL_IsScreenSaverEnabled() != 0
+        }
+    }
+
+    /// Namespace class for SDL's OpenGL helpers — library
+    /// loading, attribute negotiation, context lifecycle, and
+    /// per-frame swap. All methods are `static` (the GL context
+    /// itself is an opaque `i64` handle returned by
+    /// `GL.createContext(window)` and freed by
+    /// `GL.deleteContext(context)`).
+    pub class GL {
+        /// Load an OpenGL library by file name (or the system
+        /// default when `path` is empty).
+        pub static loadLibrary(path: string): i32 {
+            SDL_GL_LoadLibrary(cstrFromString(path))
+        }
+
+        pub static unloadLibrary() {
+            SDL_GL_UnloadLibrary()
+        }
+
+        /// Args:
+        ///   name — extension name (e.g.
+        ///          `"GL_ARB_compute_shader"`).
+        ///
+        /// Returns:
+        ///   true when the extension is reported by the GL
+        ///   driver.
+        pub static extensionSupported(name: string): bool {
+            SDL_GL_ExtensionSupported(cstrFromString(name)) != 0
+        }
+
+        /// Reset every GL attribute to its SDL default before
+        /// context creation.
+        pub static resetAttributes() {
+            SDL_GL_ResetAttributes()
+        }
+
+        /// Set a GL attribute used at context creation.
+        ///
+        /// Args:
+        ///   attr  — attribute key.
+        ///   value — attribute value (interpretation depends on
+        ///           `attr`).
+        pub static setAttribute(attr: GLAttr, value: i32): i32 {
+            SDL_GL_SetAttribute(attr as i32, value)
+        }
+
+        /// Read back a GL attribute.
+        pub static getAttribute(attr: GLAttr): i32 {
+            let buf: i32[] = [0]
+            SDL_GL_GetAttribute(attr as i32, buf)
+            buf[0]
+        }
+
+        /// Args:
+        ///   interval — `0` = immediate, `1` = vsync,
+        ///              `-1` = adaptive vsync.
+        pub static setSwapInterval(interval: i32): i32 {
+            SDL_GL_SetSwapInterval(interval)
+        }
+
+        /// Returns:
+        ///   the current swap-interval setting.
+        pub static getSwapInterval(): i32 {
+            SDL_GL_GetSwapInterval()
+        }
+
+        /// Look up a GL function pointer by name. Caller invokes
+        /// the pointer through `fnAddr`-style FFI plumbing.
+        ///
+        /// Returns:
+        ///   raw `void *` cast to i64. `0` if the GL driver
+        ///   doesn't expose `proc`.
+        pub static getProcAddress(proc: string): i64 {
+            SDL_GL_GetProcAddress(cstrFromString(proc)) as i64
+        }
+
+        /// Create a GL context bound to `window`. The window must
+        /// have been created with `WindowFlag.openGL`.
+        ///
+        /// Returns:
+        ///   raw `SDL_GLContext` cast to i64. `0` on failure.
+        pub static createContext(window: Window): i64 {
+            if window.handle == 0 { return 0 }
+            SDL_GL_CreateContext(window.handle as *SDL_Window) as i64
+        }
+
+        /// Bind `context` as the current GL context for `window`.
+        /// Call once per window after creation, and again whenever
+        /// switching between contexts.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
+        pub static makeCurrent(window: Window, context: i64): i32 {
+            if window.handle == 0 { return -1 }
+            SDL_GL_MakeCurrent(
+                window.handle as *SDL_Window, context as *SDL_GLContext
+            )
+        }
+
+        /// Returns:
+        ///   `*SDL_Window` of the currently-bound GL context cast
+        ///   to i64. `0` when no context is current on this
+        ///   thread.
+        pub static currentWindow(): i64 {
+            SDL_GL_GetCurrentWindow() as i64
+        }
+
+        pub static currentContext(): i64 {
+            SDL_GL_GetCurrentContext() as i64
+        }
+
+        /// Read the drawable size in *pixels* — distinct from the
+        /// window's logical size on HiDPI displays.
+        ///
+        /// Args:
+        ///   window     — the GL window.
+        ///   wOut, hOut — 1-element i32 arrays to receive the
+        ///                width / height.
+        pub static drawableSize(window: Window, wOut: i32[], hOut: i32[]) {
+            if window.handle == 0 { return }
+            let pw: *i32 = wOut
+            let ph: *i32 = hOut
+            SDL_GL_GetDrawableSize(window.handle as *SDL_Window, pw, ph)
+        }
+
+        /// Present the back buffer to the screen. Call once per
+        /// rendered frame.
+        pub static swapWindow(window: Window) {
+            if window.handle != 0 {
+                SDL_GL_SwapWindow(window.handle as *SDL_Window)
+            }
+        }
+
+        /// Destroy a GL context.
+        pub static deleteContext(context: i64) {
+            if context != 0 {
+                SDL_GL_DeleteContext(context as *SDL_GLContext)
+            }
         }
     }
 }
