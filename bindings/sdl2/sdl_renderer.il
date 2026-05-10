@@ -390,44 +390,19 @@ pub enum RendererFlip: i32 {
         renderer: *SDL_Renderer, vsync: i32
     ): i32
 
-    // ─── friendlier ilang wrappers ───────────────────────────────
+    // ─── public ilang return types ────────────────────────────────
 
-    /// Number of available 2D render drivers.
-    pub fn numDrivers(): i32 {
-        SDL_GetNumRenderDrivers()
-    }
-
-    /// Public ilang return type for `driverInfo` / `Renderer.info`.
-    /// Mirrors `SDL_RendererInfo` but converts the raw `*const char`
-    /// name into an owned `string` and the fixed-length texture
-    /// format slot into a `u32[]` so callers never see a raw
-    /// pointer.
+    /// Public ilang return type for `Renderer.driverInfo` /
+    /// `Renderer.info`. Mirrors `SDL_RendererInfo` but converts
+    /// the raw `*const char` name into an owned `string` and the
+    /// fixed-length texture format slot into a `u32[]` so callers
+    /// never see a raw pointer.
     pub class RendererInfo {
         pub name: string
         pub flags: u32
         pub textureFormats: u32[]
         pub maxTextureWidth: i32
         pub maxTextureHeight: i32
-    }
-
-    /// Driver info at `index` (0..numDrivers).
-    pub fn driverInfo(index: i32): RendererInfo {
-        let raw = new SDL_RendererInfo()
-        SDL_GetRenderDriverInfo(index, raw)
-        let info = new RendererInfo()
-        info.name = stringFromCstr(raw.name)
-        info.flags = raw.flags
-        info.maxTextureWidth = raw.maxTextureWidth
-        info.maxTextureHeight = raw.maxTextureHeight
-        let n: i64 = raw.numTextureFormats as i64
-        let fmts: u32[] = []
-        let i: i64 = 0
-        while i < n {
-            fmts.push(raw.textureFormats[i])
-            i += 1
-        }
-        info.textureFormats = fmts
-        info
     }
 
     /// Bundle for `Texture.query` (mirrors `SDL_QueryTexture`'s
@@ -980,6 +955,64 @@ pub enum RendererFlip: i32 {
         pub setVSync(vsync: i32): i32 {
             SDL_RenderSetVSync(this.handle as *SDL_Renderer, vsync)
         }
+
+        // ─── static helpers ──────────────────────────────────────
+
+        /// Number of available 2D render drivers.
+        pub static numDrivers(): i32 {
+            SDL_GetNumRenderDrivers()
+        }
+
+        /// Driver info at `index` (`0..numDrivers()`).
+        pub static driverInfo(index: i32): RendererInfo {
+            let raw = new SDL_RendererInfo()
+            SDL_GetRenderDriverInfo(index, raw)
+            let info = new RendererInfo()
+            info.name = stringFromCstr(raw.name)
+            info.flags = raw.flags
+            info.maxTextureWidth = raw.maxTextureWidth
+            info.maxTextureHeight = raw.maxTextureHeight
+            let n: i64 = raw.numTextureFormats as i64
+            let fmts: u32[] = []
+            let i: i64 = 0
+            while i < n {
+                fmts.push(raw.textureFormats[i])
+                i += 1
+            }
+            info.textureFormats = fmts
+            info
+        }
+
+        /// Build a custom `SDL_BlendMode` from explicit blend
+        /// factors and operations. The returned value plugs into
+        /// `Renderer.setBlendMode` / `Texture.setBlendMode` /
+        /// `Surface.setBlendMode` exactly the same way as the
+        /// canned modes (`0` = none, `1` = blend, `2` = add,
+        /// `4` = mod, `8` = mul).
+        ///
+        /// Args:
+        ///   srcColor   — factor for the incoming RGB.
+        ///   dstColor   — factor for the existing-in-target RGB.
+        ///   colorOp    — combine operation for RGB.
+        ///   srcAlpha   — factor for the incoming alpha.
+        ///   dstAlpha   — factor for the existing-in-target alpha.
+        ///   alphaOp    — combine operation for alpha.
+        ///
+        /// Returns:
+        ///   the resulting `SDL_BlendMode` (a 32-bit opaque token),
+        ///   or the SDL "invalid" sentinel `0x7FFFFFFF` if the
+        ///   platform can't synthesise the requested combination.
+        pub static composeCustomBlendMode(
+            srcColor: BlendFactor, dstColor: BlendFactor,
+            colorOp: BlendOperation,
+            srcAlpha: BlendFactor, dstAlpha: BlendFactor,
+            alphaOp: BlendOperation
+        ): i32 {
+            SDL_ComposeCustomBlendMode(
+                srcColor as i32, dstColor as i32, colorOp as i32,
+                srcAlpha as i32, dstAlpha as i32, alphaOp as i32
+            )
+        }
     }
 
     /// ARC-managed sprite. Holds an `SDL_Texture` sized at
@@ -1186,35 +1219,5 @@ pub enum RendererFlip: i32 {
         }
     }
 
-    /// Build a custom `SDL_BlendMode` from explicit blend factors
-    /// and operations. The returned value plugs into
-    /// `Renderer.setBlendMode` / `Texture.setBlendMode` /
-    /// `Surface.setBlendMode` exactly the same way as the canned
-    /// modes (`0` = none, `1` = blend, `2` = add, `4` = mod,
-    /// `8` = mul).
-    ///
-    /// Args:
-    ///   srcColor   — factor for the incoming RGB.
-    ///   dstColor   — factor for the existing-in-target RGB.
-    ///   colorOp    — combine operation for RGB.
-    ///   srcAlpha   — factor for the incoming alpha.
-    ///   dstAlpha   — factor for the existing-in-target alpha.
-    ///   alphaOp    — combine operation for alpha.
-    ///
-    /// Returns:
-    ///   the resulting `SDL_BlendMode` (a 32-bit opaque token), or
-    ///   the SDL "invalid" sentinel `0x7FFFFFFF` if the platform
-    ///   can't synthesise the requested combination.
-    pub fn composeCustomBlendMode(
-        srcColor: BlendFactor, dstColor: BlendFactor,
-        colorOp: BlendOperation,
-        srcAlpha: BlendFactor, dstAlpha: BlendFactor,
-        alphaOp: BlendOperation
-    ): i32 {
-        SDL_ComposeCustomBlendMode(
-            srcColor as i32, dstColor as i32, colorOp as i32,
-            srcAlpha as i32, dstAlpha as i32, alphaOp as i32
-        )
-    }
 }
 

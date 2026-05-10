@@ -102,76 +102,124 @@ pub const MIX_MAX_VOLUME:        i32 = 128
     // alongside the existing `sdl.getError()`.
     @lib("SDL2_mixer") @symbol("SDL_GetError") pub fn Mix_GetError(): *const char
 
-    // ─── friendlier ilang wrappers ───────────────────────────────
+    /// Namespace class for SDL2_mixer's global state — the audio
+    /// device, channel pool, and per-channel control. All methods
+    /// are `static` (there's no per-instance Mixer to construct).
+    /// Mirror of how `Joystick` / `Gamepad` / `Mouse` collect their
+    /// module-level helpers.
+    pub class Mixer {
+        /// Initialise SDL2_mixer with the requested decoder set.
+        ///
+        /// Args:
+        ///   flags — bitwise OR of `MixInitFlag.*` values.
+        ///
+        /// Returns:
+        ///   bitmask of decoders that actually loaded. Mismatched
+        ///   bits indicate missing optional dependencies (call
+        ///   `Mixer.getError()`).
+        pub static init(flags: MixInitFlag): i32 {
+            Mix_Init(flags as i32)
+        }
 
-    /// Initialise SDL2_mixer with the requested decoder set.
-    ///
-    /// Args:
-    ///   flags — bitwise OR of `MixInitFlag.*` values.
-    ///
-    /// Returns:
-    ///   bitmask of decoders that actually loaded. Mismatched bits
-    ///   indicate missing optional dependencies (call
-    ///   `mixGetError()`).
-    pub fn mixInit(flags: MixInitFlag): i32 {
-        Mix_Init(flags as i32)
-    }
+        /// Tear down SDL2_mixer. Call after `Mixer.closeAudio()`
+        /// and before `sdl.quit()`.
+        pub static quit() {
+            Mix_Quit()
+        }
 
-    /// Tear down SDL2_mixer. Call after `mixCloseAudio()` and
-    /// before `sdl.quit()`.
-    pub fn mixQuit() {
-        Mix_Quit()
-    }
+        /// Open the mixer's audio device. Defaults are
+        /// `(44100, AUDIO_S16LSB, 2, 2048)` — use the
+        /// `MIX_DEFAULT_*` consts.
+        ///
+        /// Args:
+        ///   frequency — sample rate (Hz).
+        ///   format    — `AUDIO_*` format constant.
+        ///   channels  — `1` mono, `2` stereo.
+        ///   chunksize — internal scratch buffer in samples per
+        ///               channel; smaller = lower latency, higher
+        ///               CPU.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure.
+        pub static openAudio(
+            frequency: i32, format: u16, channels: i32, chunksize: i32
+        ): i32 {
+            Mix_OpenAudio(frequency, format, channels, chunksize)
+        }
 
-    /// Open the mixer's audio device. Defaults are `(44100,
-    /// AUDIO_S16LSB, 2, 2048)` — use the `MIX_DEFAULT_*` consts.
-    ///
-    /// Args:
-    ///   frequency — sample rate (Hz).
-    ///   format    — `AUDIO_*` format constant.
-    ///   channels  — `1` mono, `2` stereo.
-    ///   chunksize — internal scratch buffer in samples per
-    ///               channel; smaller = lower latency, higher CPU.
-    ///
-    /// Returns:
-    ///   `0` on success, `< 0` on failure.
-    pub fn mixOpenAudio(
-        frequency: i32, format: u16, channels: i32, chunksize: i32
-    ): i32 {
-        Mix_OpenAudio(frequency, format, channels, chunksize)
-    }
+        pub static closeAudio() {
+            Mix_CloseAudio()
+        }
 
-    pub fn mixCloseAudio() {
-        Mix_CloseAudio()
-    }
+        /// Allocate / resize the channel pool (default is 8).
+        /// Pass `-1` to query without resizing.
+        ///
+        /// Returns:
+        ///   the resulting channel count.
+        pub static allocateChannels(numchans: i32): i32 {
+            Mix_AllocateChannels(numchans)
+        }
 
-    /// Allocate / resize the channel pool (default is 8). Pass
-    /// `-1` to query without resizing.
-    ///
-    /// Returns:
-    ///   the resulting channel count.
-    pub fn mixAllocateChannels(numchans: i32): i32 {
-        Mix_AllocateChannels(numchans)
-    }
+        /// Query the open device's spec. Returns the
+        /// `Mix_QuerySpec` raw status; callers usually just
+        /// pass `MIX_DEFAULT_*` to `openAudio` and trust the
+        /// values they asked for.
+        pub static querySpec(): i32 {
+            let f: i32[] = [0]
+            let fmt: u16[] = [0 as u16]
+            let ch: i32[] = [0]
+            let pf: *i32 = f
+            let pfmt: *u16 = fmt
+            let pch: *i32 = ch
+            Mix_QuerySpec(pf, pfmt, pch)
+        }
 
-    /// Returns:
-    ///   `(frequency, format, channels)` triple of the open mixer
-    ///   device packed in i64 — caller unpacks via the lower 32 /
-    ///   middle 16 / upper 16 bits as needed. Mostly useful for
-    ///   debug prints; for game logic the values are usually
-    ///   whatever the caller passed to `mixOpenAudio`.
-    pub fn mixQuerySpec(): i32 {
-        let f: i32[] = [0]
-        let fmt: u16[] = [0 as u16]
-        let ch: i32[] = [0]
-        let pf: *i32 = f
-        let pfmt: *u16 = fmt
-        let pch: *i32 = ch
-        Mix_QuerySpec(pf, pfmt, pch)
-    }
+        pub static getError(): string {
+            stringFromCstr(Mix_GetError())
+        }
 
-    pub fn mixGetError(): string {
-        stringFromCstr(Mix_GetError())
+        // ─── per-channel control ─────────────────────────────────
+        //
+        // Channels are i32 ids handed out by the pool allocated in
+        // `allocateChannels`. There's no per-channel object — the
+        // helpers below take the id and forward to the matching
+        // SDL2_mixer fn. `-1` for `channel` usually means "all
+        // channels".
+
+        /// Set the volume of `channel` (`-1` = all channels).
+        /// `volume = -1` queries without changing.
+        ///
+        /// Returns:
+        ///   the volume in effect after the call (or the average
+        ///   when querying with `channel = -1`).
+        pub static setChannelVolume(channel: i32, volume: i32): i32 {
+            Mix_Volume(channel, volume)
+        }
+
+        pub static pauseChannel(channel: i32) {
+            Mix_Pause(channel)
+        }
+
+        pub static resumeChannel(channel: i32) {
+            Mix_Resume(channel)
+        }
+
+        /// Stop playback on `channel` (`-1` = all channels).
+        pub static haltChannel(channel: i32): i32 {
+            Mix_HaltChannel(channel)
+        }
+
+        pub static fadeOutChannel(channel: i32, ms: i32): i32 {
+            Mix_FadeOutChannel(channel, ms)
+        }
+
+        pub static isChannelPlaying(channel: i32): bool {
+            Mix_Playing(channel) != 0
+        }
+
+        pub static isChannelPaused(channel: i32): bool {
+            Mix_Paused(channel) != 0
+        }
     }
 
     /// ARC-managed `Mix_Chunk`. Construct via `new Chunk(path)`;
@@ -273,80 +321,49 @@ pub const MIX_MAX_VOLUME:        i32 = 128
             if this.handle == 0 { return -1 }
             Mix_FadeInMusic(this.handle as *Mix_Music, loops, ms)
         }
-    }
 
-    // ─── module-level music control (only one music at a time) ──
+        // ─── global music slot (only one music plays at a time) ──
+        //
+        // SDL2_mixer maintains a single "current music" slot that
+        // any `instance.play(...)` replaces. The control statics
+        // below operate on that slot rather than on a particular
+        // `Music` instance — pausing the music is necessarily
+        // pausing whatever's currently playing.
 
-    /// Set the global music volume (`0..MIX_MAX_VOLUME`). Passing
-    /// `-1` queries without changing.
-    pub fn setMusicVolume(volume: i32): i32 {
-        Mix_VolumeMusic(volume)
-    }
+        /// Set the global music volume (`0..MIX_MAX_VOLUME`).
+        /// Passing `-1` queries without changing.
+        pub static setVolume(volume: i32): i32 {
+            Mix_VolumeMusic(volume)
+        }
 
-    pub fn pauseMusic() {
-        Mix_PauseMusic()
-    }
+        pub static pause() {
+            Mix_PauseMusic()
+        }
 
-    pub fn resumeMusic() {
-        Mix_ResumeMusic()
-    }
+        pub static resume() {
+            Mix_ResumeMusic()
+        }
 
-    pub fn rewindMusic() {
-        Mix_RewindMusic()
-    }
+        pub static rewind() {
+            Mix_RewindMusic()
+        }
 
-    /// Stop music playback immediately.
-    pub fn haltMusic(): i32 {
-        Mix_HaltMusic()
-    }
+        /// Stop music playback immediately.
+        pub static halt(): i32 {
+            Mix_HaltMusic()
+        }
 
-    /// Fade out the currently-playing music over `ms` ms.
-    pub fn fadeOutMusic(ms: i32): i32 {
-        Mix_FadeOutMusic(ms)
-    }
+        /// Fade out the currently-playing music over `ms` ms.
+        pub static fadeOut(ms: i32): i32 {
+            Mix_FadeOutMusic(ms)
+        }
 
-    pub fn isMusicPlaying(): bool {
-        Mix_PlayingMusic() != 0
-    }
+        pub static isPlaying(): bool {
+            Mix_PlayingMusic() != 0
+        }
 
-    pub fn isMusicPaused(): bool {
-        Mix_PausedMusic() != 0
-    }
-
-    // ─── module-level channel control ────────────────────────────
-
-    /// Set the volume of `channel` (`-1` = all channels).
-    /// `volume = -1` queries without changing.
-    ///
-    /// Returns:
-    ///   the volume in effect after the call (or the average when
-    ///   querying with `channel = -1`).
-    pub fn setChannelVolume(channel: i32, volume: i32): i32 {
-        Mix_Volume(channel, volume)
-    }
-
-    pub fn pauseChannel(channel: i32) {
-        Mix_Pause(channel)
-    }
-
-    pub fn resumeChannel(channel: i32) {
-        Mix_Resume(channel)
-    }
-
-    /// Stop playback on `channel` (`-1` = all channels).
-    pub fn haltChannel(channel: i32): i32 {
-        Mix_HaltChannel(channel)
-    }
-
-    pub fn fadeOutChannel(channel: i32, ms: i32): i32 {
-        Mix_FadeOutChannel(channel, ms)
-    }
-
-    pub fn isChannelPlaying(channel: i32): bool {
-        Mix_Playing(channel) != 0
-    }
-
-    pub fn isChannelPaused(channel: i32): bool {
-        Mix_Paused(channel) != 0
+        pub static isPaused(): bool {
+            Mix_PausedMusic() != 0
+        }
     }
 }

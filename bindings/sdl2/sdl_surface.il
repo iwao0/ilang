@@ -414,6 +414,43 @@ pub enum SurfaceBlendMode: i32 {
             ) as i64
             Surface.fromHandle(h)
         }
+
+        // ─── format-level helpers (static) ───────────────────────
+        //
+        // Don't operate on a Surface instance; expressed as
+        // `Surface.*` statics to keep the format-related helpers
+        // namespaced rather than loose at the module level.
+
+        /// Pack an `(r, g, b)` triple as a single pixel value in
+        /// `format`. `0` on allocation failure.
+        pub static mapRGB(
+            format: PixelFormat, r: u8, g: u8, b: u8
+        ): u32 {
+            let f = SDL_AllocFormat(format as u32)
+            if f as i64 == 0 { return 0 as u32 }
+            let v = SDL_MapRGB(f, r, g, b)
+            SDL_FreeFormat(f)
+            v
+        }
+
+        /// Pack an `(r, g, b, a)` quadruple as a single pixel
+        /// value in `format`.
+        pub static mapRGBA(
+            format: PixelFormat, r: u8, g: u8, b: u8, a: u8
+        ): u32 {
+            let f = SDL_AllocFormat(format as u32)
+            if f as i64 == 0 { return 0 as u32 }
+            let v = SDL_MapRGBA(f, r, g, b, a)
+            SDL_FreeFormat(f)
+            v
+        }
+
+        /// Returns:
+        ///   the SDL canonical name for `format` (e.g.
+        ///   `"SDL_PIXELFORMAT_RGBA8888"`).
+        pub static pixelFormatName(format: PixelFormat): string {
+            stringFromCstr(SDL_GetPixelFormatName(format as u32))
+        }
     }
 
     /// 8-bit indexed colour palette. Wraps `*SDL_Palette` with ARC.
@@ -446,37 +483,6 @@ pub enum SurfaceBlendMode: i32 {
                 firstColor, colors.length as i32
             )
         }
-    }
-
-    // ─── format-level helpers ────────────────────────────────────
-    //
-    // Don't take a Surface; mirror what `sdl_window` does for the
-    // display / video / GL helpers (free fns alongside the class).
-
-    /// Pack an `(r, g, b)` triple as a single pixel value in the
-    /// given format. `0` on allocation failure.
-    pub fn mapRGB(format: PixelFormat, r: u8, g: u8, b: u8): u32 {
-        let f = SDL_AllocFormat(format as u32)
-        if f as i64 == 0 { return 0 as u32 }
-        let v = SDL_MapRGB(f, r, g, b)
-        SDL_FreeFormat(f)
-        v
-    }
-
-    /// Pack an `(r, g, b, a)` quadruple as a single pixel value.
-    pub fn mapRGBA(format: PixelFormat, r: u8, g: u8, b: u8, a: u8): u32 {
-        let f = SDL_AllocFormat(format as u32)
-        if f as i64 == 0 { return 0 as u32 }
-        let v = SDL_MapRGBA(f, r, g, b, a)
-        SDL_FreeFormat(f)
-        v
-    }
-
-    /// Returns:
-    ///   the SDL canonical name for `format` (e.g.
-    ///   `"SDL_PIXELFORMAT_RGBA8888"`).
-    pub fn pixelFormatName(format: PixelFormat): string {
-        stringFromCstr(SDL_GetPixelFormatName(format as u32))
     }
 
     // Inline RWFromFile shim — `Surface.loadBmp` / `saveBmp` use
