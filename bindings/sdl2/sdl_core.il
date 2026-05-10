@@ -455,8 +455,8 @@ pub const HINT_BMP_SAVE_LEGACY_FORMAT: string        = "SDL_BMP_SAVE_LEGACY_FORM
 
     /// Returns:
     ///   the priority threshold currently set for `category`.
-    pub fn logGetPriority(category: LogCategory): i32 {
-        SDL_LogGetPriority(category as i32)
+    pub fn logGetPriority(category: LogCategory): LogPriority {
+        SDL_LogGetPriority(category as i32) as LogPriority
     }
 
     /// Restore the per-category priority defaults.

@@ -34,6 +34,14 @@ pub enum AudioFormat: u16 {
     f32    = 0x8120   // alias for f32Lsb
 }
 
+/// `SDL_AudioStatus` — runtime state of an `AudioDevice`.
+/// Returned by `AudioDevice.status`.
+pub enum AudioStatus: i32 {
+    stopped = 0
+    playing = 1
+    paused  = 2
+}
+
 @extern(C) {
     /// Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
     /// a callback (queue-based playback), so `callback` and
@@ -238,10 +246,9 @@ pub enum AudioFormat: u16 {
             SDL_ClearQueuedAudio(this.id)
         }
 
-        /// Returns:
-        ///   `0` stopped, `1` playing, `2` paused.
-        pub get status(): i32 {
-            SDL_GetAudioDeviceStatus(this.id)
+        /// Current `AudioStatus` — `stopped` / `playing` / `paused`.
+        pub get status(): AudioStatus {
+            SDL_GetAudioDeviceStatus(this.id) as AudioStatus
         }
 
         /// Acquire the device's audio lock — blocks the audio

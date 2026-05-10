@@ -4,6 +4,34 @@
 // xbox/ps/switch-style pads; this file is the lower-level layer.
 // Initialise SDL with `InitFlag.joystick` before use.
 
+/// `SDL_HAT_*` — D-pad / POV hat reading. Cardinal directions are
+/// powers of two so diagonals (`rightUp` / `leftDown` / etc.)
+/// fall out as bitwise OR. `centered` is `0`. Returned by
+/// `Joystick.getHat(hat)`.
+@flags
+pub enum HatPosition: u8 {
+    centered  = 0x00
+    up        = 0x01
+    right     = 0x02
+    down      = 0x04
+    left      = 0x08
+    rightUp   = 0x03    // right | up
+    rightDown = 0x06    // right | down
+    leftUp    = 0x09    // left  | up
+    leftDown  = 0x0C    // left  | down
+}
+
+/// State value for `Joystick.eventState` /
+/// `GameController.eventState` — toggle whether
+/// `SDL_PollEvent` / `WaitEvent` deliver joystick / controller
+/// events. `query` returns the current setting without changing
+/// it.
+pub enum EventState: i32 {
+    query    = -1
+    disabled = 0
+    enabled  = 1
+}
+
 @extern(C) {
     /// Opaque SDL_Joystick — created by `Joystick.open(index)`,
     /// destroyed by `deinit`.
@@ -134,13 +162,13 @@
             SDL_JoystickGetButton(this.handle as *SDL_Joystick, button)
         }
 
-        /// Read one hat (D-pad). Returns one of the
-        /// `SDL_HAT_CENTERED` (0) / `_UP` (1) / `_RIGHT` (2) /
-        /// `_DOWN` (4) / `_LEFT` (8) values, or a bitwise OR of the
-        /// diagonal pairs (e.g. `_RIGHTUP = 3`).
-        pub getHat(hat: i32): u8 {
-            if this.handle == 0 { return 0 as u8 }
-            SDL_JoystickGetHat(this.handle as *SDL_Joystick, hat)
+        /// Read one hat (D-pad). Returns a `HatPosition` —
+        /// cardinal values are powers of two so a diagonal reads
+        /// as `rightUp` / `rightDown` / `leftUp` / `leftDown`
+        /// (i.e. the bitwise OR of two cardinals).
+        pub getHat(hat: i32): HatPosition {
+            if this.handle == 0 { return HatPosition.centered }
+            SDL_JoystickGetHat(this.handle as *SDL_Joystick, hat) as HatPosition
         }
 
         /// Trigger a rumble effect.
@@ -194,8 +222,17 @@
 
         /// Toggle whether `SDL_PollEvent` / `WaitEvent` deliver
         /// joystick events.
-        pub static eventState(state: i32): i32 {
-            SDL_JoystickEventState(state)
+        ///
+        /// Args:
+        ///   state — `EventState.disabled` / `.enabled` to set,
+        ///           `.query` to read the current setting without
+        ///           changing it.
+        ///
+        /// Returns:
+        ///   the resulting `EventState` (or, for `query`, the
+        ///   current setting).
+        pub static eventState(state: EventState): EventState {
+            SDL_JoystickEventState(state as i32) as EventState
         }
 
         /// Force SDL to poll the joystick subsystem and refresh
