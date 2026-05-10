@@ -13,14 +13,14 @@ use sdl
 use sprites
 use consts
 
-class Assets {
-    starTex: sdl.Texture
-    glowTex: sdl.Texture
-    crtTex: sdl.Texture
-    sceneTex: sdl.Texture
-    bloomTex: sdl.Texture
+pub class Assets {
+    pub starTex: sdl.Texture
+    pub glowTex: sdl.Texture
+    pub crtTex: sdl.Texture
+    pub sceneTex: sdl.Texture
+    pub bloomTex: sdl.Texture
 
-    init(ren: sdl.Renderer) {
+    pub init(ren: sdl.Renderer) {
         // White star sprite for particle bursts. Tinted at draw
         // time via `setColorMod`, rotated via `drawTextureRot`.
         this.starTex = new sdl.Texture(ren, consts.starTexSize, consts.starTexSize, 1)

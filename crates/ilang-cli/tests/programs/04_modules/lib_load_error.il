@@ -11,7 +11,7 @@ use test
 
 test.expectFalse(os.libLoaded("definitely_not_real_xyz_abc123.so"))
 
-let err = os.libLoadError("definitely_not_real_xyz_abc123.so")
+pub let err = os.libLoadError("definitely_not_real_xyz_abc123.so")
 // Non-empty error message — exact wording depends on the OS
 // linker, so we just check it's not empty and contains the lib
 // name so it's actionable for the user.

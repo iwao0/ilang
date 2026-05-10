@@ -1199,8 +1199,10 @@ impl TypeChecker {
                     fields,
                     is_packed,
                     span,
+                    ..
                 } => {
                     let synth = ClassDecl {
+                        is_pub: false,
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
@@ -1218,8 +1220,9 @@ impl TypeChecker {
                     let sig = class_signature(&synth, None, &|_, _| false)?;
                     self.classes.insert(name.clone(), sig);
                 }
-                ilang_ast::ExternCItem::Union { name, fields, span } => {
+                ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
                     let synth = ClassDecl {
+                        is_pub: false,
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
@@ -1250,6 +1253,7 @@ impl TypeChecker {
                         args: extern_args.into(),
                     }];
                     let synth = FnDecl {
+                        is_pub: false,
                         attrs: attrs.into(),
                         name: name.clone(),
                         type_params: Box::new([]),
@@ -2055,7 +2059,7 @@ impl TypeChecker {
         loop_depth: u32,
     ) -> Result<Type, TypeError> {
         match &stmt.kind {
-            StmtKind::Let { name, ty, value } => {
+            StmtKind::Let { name, ty, value, .. } => {
                 // `let a = []` cannot pick an element type. Force the
                 // user to annotate before we lose the chance to do so.
                 if ty.is_none() {

@@ -3786,7 +3786,7 @@ impl<'a> Walker<'a> {
 
     fn walk_stmt(&mut self, s: &Stmt, scope: &mut Vec<Binding>, this_class: Option<&str>) {
         match &s.kind {
-            StmtKind::Let { name, ty, value } => {
+            StmtKind::Let { name, ty, value, .. } => {
                 self.walk_expr(value, scope, this_class);
                 let inferred = ty
                     .clone()

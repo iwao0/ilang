@@ -5,26 +5,26 @@
 // needs both the paddle and the renderer alongside the screen-shake
 // offsets, all main-loop state), so we leave drawing where it is.
 
-class Paddle {
+pub class Paddle {
     // Left-edge x in window pixels. Stored as f64 because analog
     // stick input nudges sub-pixel.
-    x: f64
-    y: i32
+    pub x: f64
+    pub y: i32
     // Default ("non-widened") width. The visible width is queried
     // through `width()` and depends on `widerTimer`.
-    baseW: i32
-    h: i32
-    speed: f64
+    pub baseW: i32
+    pub h: i32
+    pub speed: f64
     // Frames remaining for the WIDER power-up. While > 0 the paddle
     // renders 1.5× wide; the previous-width tracking re-anchors `x`
     // around the centre so the paddle grows / shrinks symmetrically
     // rather than growing rightward.
-    widerTimer: i32
+    pub widerTimer: i32
     // Last-frame width — used by `tick` to detect the wider toggle
     // and re-anchor `x`.
-    prevW: i32
+    pub prevW: i32
 
-    init(x: f64, y: i32, baseW: i32, h: i32, speed: f64) {
+    pub init(x: f64, y: i32, baseW: i32, h: i32, speed: f64) {
         this.x = x
         this.y = y
         this.baseW = baseW
@@ -36,7 +36,7 @@ class Paddle {
 
     /// Visible paddle width on this frame (`baseW * 1.5` while
     /// WIDER is active, `baseW` otherwise).
-    width(): i32 {
+    pub width(): i32 {
         if this.widerTimer > 0 {
             this.baseW + this.baseW / (2 as i32)
         } else {
@@ -46,14 +46,14 @@ class Paddle {
 
     /// Activate / extend the WIDER power-up. `frames` is added to
     /// the existing timer so back-to-back catches stack the effect.
-    widen(frames: i32) {
+    pub widen(frames: i32) {
         this.widerTimer = this.widerTimer + frames
     }
 
     /// Per-frame bookkeeping: tick the WIDER timer down, and re-
     /// anchor `x` around the paddle centre when the width changes
     /// so the visible centre doesn't jump.
-    tick() {
+    pub tick() {
         if this.widerTimer > 0 {
             this.widerTimer = this.widerTimer - 1
         }
@@ -65,16 +65,16 @@ class Paddle {
         }
     }
 
-    moveLeft() {
+    pub moveLeft() {
         this.x = this.x - this.speed
     }
-    moveRight() {
+    pub moveRight() {
         this.x = this.x + this.speed
     }
 
     /// Apply analog-stick lateral input. `stickX` is SDL's raw
     /// `[-32768, 32767]` value; the standard 24% deadzone applies.
-    moveAnalog(stickX: i32) {
+    pub moveAnalog(stickX: i32) {
         let abs: i32 = if stickX < 0 { -stickX } else { stickX }
         if abs > 8000 {
             let norm = (stickX as f64) / 32767.0
@@ -83,7 +83,7 @@ class Paddle {
     }
 
     /// Clamp `x` so the paddle stays inside `[0, winW - width()]`.
-    clamp(winW: i32) {
+    pub clamp(winW: i32) {
         if this.x < 0.0 {
             this.x = 0.0
         }
@@ -93,7 +93,7 @@ class Paddle {
         }
     }
 
-    centerX(): f64 {
+    pub centerX(): f64 {
         this.x + (this.width() as f64) / 2.0
     }
 }

@@ -19,7 +19,7 @@ pub(crate) fn lower_stmt(
     s: &Stmt,
 ) -> Result<(), CodegenError> {
     match &s.kind {
-        StmtKind::Let { name, ty, value } => {
+        StmtKind::Let { name, ty, value, .. } => {
             // Special-case `let a: T[] = [...]` so the literal is built
             // with the annotated element type from the start. Otherwise
             // the array would be allocated with the literal's natural

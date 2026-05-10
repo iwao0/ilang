@@ -17,7 +17,7 @@ use sdl
 use sdl { InitFlag }
 use game { Game }
 
-let rc = sdl.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
+pub let rc = sdl.init(InitFlag.video | InitFlag.audio | InitFlag.gameController)
 if rc < 0 {
     console.log("SDL_Init failed: " + sdl.getError())
     return

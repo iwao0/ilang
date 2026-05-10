@@ -17,7 +17,7 @@ use sdl_surface { SDL_Surface }
 
 /// `WindowShapeMode` — how the shape surface's pixels translate
 /// to opaque vs. cut-out regions.
-enum WindowShapeModeKind: i32 {
+pub enum WindowShapeModeKind: i32 {
     /// Binarise the surface's alpha channel at cutoff = 1
     /// (default).
     default               = 0
@@ -36,7 +36,7 @@ enum WindowShapeModeKind: i32 {
     /// or `colorKey` r/g/b/a in params0/1/2/3. Use the helper
     /// constructors `binarizeMode` / `reverseBinarizeMode` /
     /// `colorKeyMode` rather than building one by hand.
-    struct WindowShapeMode {
+    pub struct WindowShapeMode {
         mode: i32
         params0: u8
         params1: u8
@@ -44,17 +44,17 @@ enum WindowShapeModeKind: i32 {
         params3: u8
     }
 
-    @lib("SDL2") fn SDL_CreateShapedWindow(
+    @lib("SDL2") pub fn SDL_CreateShapedWindow(
         title: *const char,
         x: u32, y: u32, w: u32, h: u32,
         flags: u32
     ): *SDL_Window
-    @lib("SDL2") fn SDL_IsShapedWindow(window: *SDL_Window): u8
-    @lib("SDL2") fn SDL_SetWindowShape(
+    @lib("SDL2") pub fn SDL_IsShapedWindow(window: *SDL_Window): u8
+    @lib("SDL2") pub fn SDL_SetWindowShape(
         window: *SDL_Window, shape: *SDL_Surface,
         shape_mode: *WindowShapeMode
     ): i32
-    @lib("SDL2") fn SDL_GetShapedWindowMode(
+    @lib("SDL2") pub fn SDL_GetShapedWindowMode(
         window: *SDL_Window, shape_mode: *WindowShapeMode
     ): i32
 
@@ -63,7 +63,7 @@ enum WindowShapeModeKind: i32 {
     /// Build a `WindowShapeMode` for "binarize the alpha channel
     /// at `cutoff`". Pixels with α ≥ cutoff are window; the rest
     /// are cut-out.
-    fn binarizeMode(cutoff: u8): WindowShapeMode {
+    pub fn binarizeMode(cutoff: u8): WindowShapeMode {
         let m = new WindowShapeMode()
         m.mode = WindowShapeModeKind.binarizeAlpha as i32
         m.params0 = cutoff
@@ -72,7 +72,7 @@ enum WindowShapeModeKind: i32 {
 
     /// Inverse of `binarizeMode` — pixels with α < cutoff are
     /// window.
-    fn reverseBinarizeMode(cutoff: u8): WindowShapeMode {
+    pub fn reverseBinarizeMode(cutoff: u8): WindowShapeMode {
         let m = new WindowShapeMode()
         m.mode = WindowShapeModeKind.reverseBinarizeAlpha as i32
         m.params0 = cutoff
@@ -82,7 +82,7 @@ enum WindowShapeModeKind: i32 {
     /// Build a `WindowShapeMode` for "treat `colorKey` pixels as
     /// transparent". Useful for paletted / indexed shape masks
     /// where alpha isn't the right discriminator.
-    fn colorKeyMode(colorKey: Color): WindowShapeMode {
+    pub fn colorKeyMode(colorKey: Color): WindowShapeMode {
         let m = new WindowShapeMode()
         m.mode = WindowShapeModeKind.colorKey as i32
         m.params0 = colorKey.r
@@ -104,7 +104,7 @@ enum WindowShapeModeKind: i32 {
     ///                   `SDL_WINDOWPOS_CENTERED`.
     ///   w, h          — initial dimensions.
     ///   flags         — `WindowFlag.*` mask (see `sdl_window.il`).
-    fn createShapedWindow(
+    pub fn createShapedWindow(
         title: string, x: u32, y: u32, w: u32, h: u32, flags: u32
     ): i64 {
         SDL_CreateShapedWindow(
@@ -116,7 +116,7 @@ enum WindowShapeModeKind: i32 {
     ///   true if `windowHandle` was created via
     ///   `createShapedWindow`. Plain `SDL_CreateWindow` results
     ///   are *not* shapeable.
-    fn isShapedWindow(windowHandle: i64): bool {
+    pub fn isShapedWindow(windowHandle: i64): bool {
         if windowHandle == 0 { return false }
         SDL_IsShapedWindow(windowHandle as *SDL_Window) != 0 as u8
     }
@@ -133,7 +133,7 @@ enum WindowShapeModeKind: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure (call `sdl.getError()`).
-    fn setWindowShape(
+    pub fn setWindowShape(
         windowHandle: i64, shapeHandle: i64, mode: WindowShapeMode
     ): i32 {
         if windowHandle == 0 || shapeHandle == 0 { return -1 }
@@ -148,7 +148,7 @@ enum WindowShapeModeKind: i32 {
     /// The mode is written into `out` (caller-allocated). Returns
     /// `0` on success, `< 0` if `windowHandle` isn't shaped or
     /// hasn't had a shape set yet.
-    fn getShapedWindowMode(windowHandle: i64, out: WindowShapeMode): i32 {
+    pub fn getShapedWindowMode(windowHandle: i64, out: WindowShapeMode): i32 {
         if windowHandle == 0 { return -1 }
         SDL_GetShapedWindowMode(windowHandle as *SDL_Window, out)
     }

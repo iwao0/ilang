@@ -1196,15 +1196,22 @@ fn emit_broken(
     let mut out = String::new();
     out.push_str(head);
     out.push('\n');
-    for (s, e) in elem_ranges {
-        let elem = line[s..e].trim();
-        if elem.is_empty() {
-            // Trailing comma / empty element — skip to keep output clean.
-            continue;
-        }
+    let non_empty: Vec<(usize, usize)> = elem_ranges
+        .into_iter()
+        .filter(|(s, e)| !line[*s..*e].trim().is_empty())
+        .collect();
+    let last_idx = non_empty.len().saturating_sub(1);
+    for (i, (s, e)) in non_empty.iter().enumerate() {
+        let elem = line[*s..*e].trim();
         out.push_str(&inner_indent);
         out.push_str(elem);
-        out.push(',');
+        // Trailing comma on every element except the last — adding
+        // one after the last would change the token stream (the
+        // source had no comma there) and break the
+        // formatter-preserves-lexability invariant.
+        if i != last_idx {
+            out.push(',');
+        }
         out.push('\n');
     }
     out.push_str(&close_indent);
@@ -1411,9 +1418,13 @@ mod tests {
         // Head line ends with `(`.
         let lines: Vec<&str> = out.split('\n').collect();
         assert!(lines[0].ends_with('('), "head: {:?}", lines[0]);
-        // Each arg on its own line with a trailing comma, indented one level.
+        // Each arg on its own line, indented one level. Internal
+        // separators get a trailing comma; the last element matches
+        // the source (which had no trailing comma), so no extra
+        // comma is added after `zeta_value` — that would change the
+        // token stream and break the lexability invariant.
         assert!(lines.iter().any(|l| l == &"    alpha_value,"), "lines: {lines:#?}");
-        assert!(lines.iter().any(|l| l == &"    zeta_value,"), "lines: {lines:#?}");
+        assert!(lines.iter().any(|l| l == &"    zeta_value"), "lines: {lines:#?}");
         // Closing paren back at base indent.
         assert!(lines.iter().any(|l| l == &")"), "lines: {lines:#?}");
     }

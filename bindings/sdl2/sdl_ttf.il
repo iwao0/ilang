@@ -15,7 +15,7 @@ use sdl_core { Color, Size }
 /// `TTF_STYLE_*` — text-decoration bitflags. AND-combine with `|`
 /// when passing to `Font.setStyle`.
 @flags
-enum FontStyle: i32 {
+pub enum FontStyle: i32 {
     normal        = 0x00
     bold          = 0x01
     italic        = 0x02
@@ -25,7 +25,7 @@ enum FontStyle: i32 {
 
 /// `TTF_HINTING_*` — TrueType hinting modes. `lightSubpixel` is
 /// SDL2_ttf 2.0.18+ only.
-enum FontHinting: i32 {
+pub enum FontHinting: i32 {
     normal        = 0
     light         = 1
     mono          = 2
@@ -34,60 +34,60 @@ enum FontHinting: i32 {
 }
 
 /// Outcome of `Font.glyphMetrics`. All values in pixels.
-class GlyphMetrics {
-    minX:    i32
-    maxX:    i32
-    minY:    i32
-    maxY:    i32
-    advance: i32
+pub class GlyphMetrics {
+    pub minX:    i32
+    pub maxX:    i32
+    pub minY:    i32
+    pub maxY:    i32
+    pub advance: i32
 }
 
 @extern(C) {
     /// Opaque `TTF_Font *`. Callers see `Font.handle` cast to i64.
-    struct TTF_Font {}
+    pub struct TTF_Font {}
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_Init(): i32
-    @lib("SDL2_ttf") fn TTF_Quit()
-    @lib("SDL2_ttf") fn TTF_WasInit(): i32
-    @lib("SDL2_ttf") fn TTF_GetError(): *const char
+    @lib("SDL2_ttf") pub fn TTF_Init(): i32
+    @lib("SDL2_ttf") pub fn TTF_Quit()
+    @lib("SDL2_ttf") pub fn TTF_WasInit(): i32
+    @lib("SDL2_ttf") pub fn TTF_GetError(): *const char
 
     // ─── font open / close ───────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_OpenFont(file: *const char, ptsize: i32): *TTF_Font
-    @lib("SDL2_ttf") fn TTF_OpenFontIndex(
+    @lib("SDL2_ttf") pub fn TTF_OpenFont(file: *const char, ptsize: i32): *TTF_Font
+    @lib("SDL2_ttf") pub fn TTF_OpenFontIndex(
         file: *const char, ptsize: i32, index: i64
     ): *TTF_Font
-    @lib("SDL2_ttf") fn TTF_CloseFont(font: *TTF_Font)
+    @lib("SDL2_ttf") pub fn TTF_CloseFont(font: *TTF_Font)
 
     // ─── font metrics ────────────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_FontHeight(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_FontAscent(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_FontDescent(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_FontLineSkip(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_FontFaces(font: *TTF_Font): i64
-    @lib("SDL2_ttf") fn TTF_FontFaceIsFixedWidth(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_FontFaceFamilyName(font: *TTF_Font): *const char
-    @lib("SDL2_ttf") fn TTF_FontFaceStyleName(font: *TTF_Font): *const char
+    @lib("SDL2_ttf") pub fn TTF_FontHeight(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_FontAscent(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_FontDescent(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_FontLineSkip(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_FontFaces(font: *TTF_Font): i64
+    @lib("SDL2_ttf") pub fn TTF_FontFaceIsFixedWidth(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_FontFaceFamilyName(font: *TTF_Font): *const char
+    @lib("SDL2_ttf") pub fn TTF_FontFaceStyleName(font: *TTF_Font): *const char
 
     // ─── font configuration ──────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_GetFontStyle(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_SetFontStyle(font: *TTF_Font, style: i32)
-    @lib("SDL2_ttf") fn TTF_GetFontOutline(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_SetFontOutline(font: *TTF_Font, outline: i32)
-    @lib("SDL2_ttf") fn TTF_GetFontHinting(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_SetFontHinting(font: *TTF_Font, hinting: i32)
-    @lib("SDL2_ttf") fn TTF_GetFontKerning(font: *TTF_Font): i32
-    @lib("SDL2_ttf") fn TTF_SetFontKerning(font: *TTF_Font, allowed: i32)
+    @lib("SDL2_ttf") pub fn TTF_GetFontStyle(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_SetFontStyle(font: *TTF_Font, style: i32)
+    @lib("SDL2_ttf") pub fn TTF_GetFontOutline(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_SetFontOutline(font: *TTF_Font, outline: i32)
+    @lib("SDL2_ttf") pub fn TTF_GetFontHinting(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_SetFontHinting(font: *TTF_Font, hinting: i32)
+    @lib("SDL2_ttf") pub fn TTF_GetFontKerning(font: *TTF_Font): i32
+    @lib("SDL2_ttf") pub fn TTF_SetFontKerning(font: *TTF_Font, allowed: i32)
 
     // ─── glyph queries ───────────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_GlyphIsProvided(font: *TTF_Font, ch: u16): i32
-    @lib("SDL2_ttf") fn TTF_GlyphMetrics(
+    @lib("SDL2_ttf") pub fn TTF_GlyphIsProvided(font: *TTF_Font, ch: u16): i32
+    @lib("SDL2_ttf") pub fn TTF_GlyphMetrics(
         font: *TTF_Font, ch: u16,
         minx: *i32, maxx: *i32, miny: *i32, maxy: *i32, advance: *i32
     ): i32
 
     // ─── text size ───────────────────────────────────────────────
-    @lib("SDL2_ttf") fn TTF_SizeUTF8(
+    @lib("SDL2_ttf") pub fn TTF_SizeUTF8(
         font: *TTF_Font, text: *const char, w: *i32, h: *i32
     ): i32
 
@@ -96,16 +96,16 @@ class GlyphMetrics {
     // independent of `sdl_surface.il`'s struct layout — callers
     // pass the i64 to `sdl_surface.freeSurface` / texture
     // constructors as appropriate.
-    @lib("SDL2_ttf") fn TTF_RenderUTF8_Solid(
+    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Solid(
         font: *TTF_Font, text: *const char, fg: Color
     ): i64
-    @lib("SDL2_ttf") fn TTF_RenderUTF8_Shaded(
+    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Shaded(
         font: *TTF_Font, text: *const char, fg: Color, bg: Color
     ): i64
-    @lib("SDL2_ttf") fn TTF_RenderUTF8_Blended(
+    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Blended(
         font: *TTF_Font, text: *const char, fg: Color
     ): i64
-    @lib("SDL2_ttf") fn TTF_RenderUTF8_Blended_Wrapped(
+    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Blended_Wrapped(
         font: *TTF_Font, text: *const char, fg: Color, wrapLength: u32
     ): i64
 
@@ -115,19 +115,19 @@ class GlyphMetrics {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure (call `ttfGetError()`).
-    fn ttfInit(): i32 {
+    pub fn ttfInit(): i32 {
         TTF_Init()
     }
 
     /// Tear down SDL2_ttf. Call exactly once before `sdl.quit()`.
-    fn ttfQuit() {
+    pub fn ttfQuit() {
         TTF_Quit()
     }
 
     /// Returns:
     ///   true when `ttfInit()` has been called and `ttfQuit()`
     ///   hasn't undone it yet.
-    fn ttfWasInit(): bool {
+    pub fn ttfWasInit(): bool {
         TTF_WasInit() != 0
     }
 
@@ -136,26 +136,26 @@ class GlyphMetrics {
     ///   its errors through `SDL_SetError`, so `sdl.getError()`
     ///   works too — this exists for callers that prefer the
     ///   namespaced form.
-    fn ttfGetError(): string {
+    pub fn ttfGetError(): string {
         stringFromCstr(TTF_GetError())
     }
 
     /// ARC-managed `TTF_Font`. Construct via `new TtfFont(path,
     /// ptsize)`; `deinit` closes the underlying handle.
-    class TtfFont {
+    pub class TtfFont {
         /// Raw `TTF_Font *` cast to i64. `0` when loading failed.
-        handle: i64
+        pub handle: i64
 
         /// Open a font from disk.
         ///
         /// Args:
         ///   path   — filesystem path to a .ttf / .otf file.
         ///   ptsize — point size at which to rasterise.
-        init(path: string, ptsize: i32) {
+        pub init(path: string, ptsize: i32) {
             this.handle = TTF_OpenFont(cstrFromString(path), ptsize) as i64
         }
 
-        deinit() {
+        pub deinit() {
             if this.handle != 0 {
                 TTF_CloseFont(this.handle as *TTF_Font)
             }
@@ -163,21 +163,21 @@ class GlyphMetrics {
 
         /// Returns:
         ///   pixel height of a tall character (`TTF_FontHeight`).
-        height(): i32 {
+        pub height(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontHeight(this.handle as *TTF_Font)
         }
 
         /// Returns:
         ///   the ascent (positive distance above the baseline).
-        ascent(): i32 {
+        pub ascent(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontAscent(this.handle as *TTF_Font)
         }
 
         /// Returns:
         ///   the descent (negative distance below the baseline).
-        descent(): i32 {
+        pub descent(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontDescent(this.handle as *TTF_Font)
         }
@@ -185,7 +185,7 @@ class GlyphMetrics {
         /// Returns:
         ///   recommended pixel distance between baselines for
         ///   stacked lines of text (`TTF_FontLineSkip`).
-        lineSkip(): i32 {
+        pub lineSkip(): i32 {
             if this.handle == 0 { return 0 }
             TTF_FontLineSkip(this.handle as *TTF_Font)
         }
@@ -194,7 +194,7 @@ class GlyphMetrics {
         ///   number of font faces in the file (TTC collections can
         ///   carry multiple — use `TTF_OpenFontIndex` raw to pick
         ///   one). `1` for ordinary single-face fonts.
-        faces(): i64 {
+        pub faces(): i64 {
             if this.handle == 0 { return 0 }
             TTF_FontFaces(this.handle as *TTF_Font)
         }
@@ -202,7 +202,7 @@ class GlyphMetrics {
         /// Returns:
         ///   true when every glyph in the font is the same width
         ///   (typewriter / monospace fonts).
-        isFixedWidth(): bool {
+        pub isFixedWidth(): bool {
             if this.handle == 0 { return false }
             TTF_FontFaceIsFixedWidth(this.handle as *TTF_Font) != 0
         }
@@ -210,7 +210,7 @@ class GlyphMetrics {
         /// Returns:
         ///   the font's family name as embedded in the file
         ///   (e.g. `"DejaVu Sans"`).
-        familyName(): string {
+        pub familyName(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(TTF_FontFaceFamilyName(
                 this.handle as *TTF_Font
@@ -219,7 +219,7 @@ class GlyphMetrics {
 
         /// Returns:
         ///   the font's style name (e.g. `"Regular"`, `"Bold Italic"`).
-        styleName(): string {
+        pub styleName(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(TTF_FontFaceStyleName(
                 this.handle as *TTF_Font
@@ -228,14 +228,14 @@ class GlyphMetrics {
 
         /// Returns:
         ///   bitwise OR of `FontStyle` flags currently active.
-        getStyle(): i32 {
+        pub getStyle(): i32 {
             if this.handle == 0 { return 0 }
             TTF_GetFontStyle(this.handle as *TTF_Font)
         }
 
         /// Args:
         ///   style — bitwise OR of `FontStyle` flags.
-        setStyle(style: i32) {
+        pub setStyle(style: i32) {
             if this.handle != 0 {
                 TTF_SetFontStyle(this.handle as *TTF_Font, style)
             }
@@ -243,23 +243,23 @@ class GlyphMetrics {
 
         /// Returns:
         ///   outline thickness in pixels. `0` = no outline.
-        getOutline(): i32 {
+        pub getOutline(): i32 {
             if this.handle == 0 { return 0 }
             TTF_GetFontOutline(this.handle as *TTF_Font)
         }
 
-        setOutline(outline: i32) {
+        pub setOutline(outline: i32) {
             if this.handle != 0 {
                 TTF_SetFontOutline(this.handle as *TTF_Font, outline)
             }
         }
 
-        getHinting(): FontHinting {
+        pub getHinting(): FontHinting {
             if this.handle == 0 { return FontHinting.normal }
             TTF_GetFontHinting(this.handle as *TTF_Font) as FontHinting
         }
 
-        setHinting(hinting: FontHinting) {
+        pub setHinting(hinting: FontHinting) {
             if this.handle != 0 {
                 TTF_SetFontHinting(this.handle as *TTF_Font, hinting as i32)
             }
@@ -267,12 +267,12 @@ class GlyphMetrics {
 
         /// Returns:
         ///   true when kerning (per-pair spacing) is enabled.
-        getKerning(): bool {
+        pub getKerning(): bool {
             if this.handle == 0 { return false }
             TTF_GetFontKerning(this.handle as *TTF_Font) != 0
         }
 
-        setKerning(enabled: bool) {
+        pub setKerning(enabled: bool) {
             if this.handle != 0 {
                 let v: i32 = if enabled { 1 } else { 0 }
                 TTF_SetFontKerning(this.handle as *TTF_Font, v)
@@ -282,7 +282,7 @@ class GlyphMetrics {
         /// Returns:
         ///   true if the font has a glyph for the given codepoint
         ///   (BMP only — `ch` is u16). False for `0` handle.
-        hasGlyph(ch: u16): bool {
+        pub hasGlyph(ch: u16): bool {
             if this.handle == 0 { return false }
             TTF_GlyphIsProvided(this.handle as *TTF_Font, ch) != 0
         }
@@ -290,7 +290,7 @@ class GlyphMetrics {
         /// Returns:
         ///   pixel-level glyph metrics for `ch`. All-zero on
         ///   missing glyph or no font.
-        glyphMetrics(ch: u16): GlyphMetrics {
+        pub glyphMetrics(ch: u16): GlyphMetrics {
             let m = new GlyphMetrics()
             if this.handle == 0 { return m }
             let xs0: i32[] = [0]
@@ -324,7 +324,7 @@ class GlyphMetrics {
         ///
         /// Returns:
         ///   `(w, h)` in pixels, both `0` on error or empty handle.
-        size(text: string): Size {
+        pub size(text: string): Size {
             let s = new Size()
             if this.handle == 0 { return s }
             let ws: i32[] = [0]
@@ -348,7 +348,7 @@ class GlyphMetrics {
         ///   raw `*SDL_Surface` cast to i64, ready for
         ///   `Texture.fromSurface(...)` or `sdl_surface.freeSurface`.
         ///   `0` on failure (call `getError()`).
-        renderSolid(text: string, fg: Color): i64 {
+        pub renderSolid(text: string, fg: Color): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Solid(
                 this.handle as *TTF_Font, cstrFromString(text), fg
@@ -362,7 +362,7 @@ class GlyphMetrics {
         ///   text — UTF-8 input.
         ///   fg   — foreground colour.
         ///   bg   — solid background colour painted under the text.
-        renderShaded(text: string, fg: Color, bg: Color): i64 {
+        pub renderShaded(text: string, fg: Color, bg: Color): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Shaded(
                 this.handle as *TTF_Font, cstrFromString(text), fg, bg
@@ -371,7 +371,7 @@ class GlyphMetrics {
 
         /// Render `text` as a 32-bit ARGB surface with alpha-blended
         /// edges. Highest quality, slowest of the three modes.
-        renderBlended(text: string, fg: Color): i64 {
+        pub renderBlended(text: string, fg: Color): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Blended(
                 this.handle as *TTF_Font, cstrFromString(text), fg
@@ -381,7 +381,7 @@ class GlyphMetrics {
         /// Word-wrapping variant of `renderBlended` — breaks lines
         /// so each line fits in `wrapLength` pixels (use `0` to
         /// wrap only on `\n`).
-        renderBlendedWrapped(text: string, fg: Color, wrapLength: u32): i64 {
+        pub renderBlendedWrapped(text: string, fg: Color, wrapLength: u32): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Blended_Wrapped(
                 this.handle as *TTF_Font, cstrFromString(text), fg, wrapLength

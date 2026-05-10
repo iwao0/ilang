@@ -10,7 +10,7 @@
     /// Mirror of C `SDL_AudioSpec` (32 B on 64-bit). We never pass
     /// a callback (queue-based playback), so `callback` and
     /// `userdata` stay zero.
-    struct AudioSpec {
+    pub struct AudioSpec {
         /// Sample rate in Hz (e.g. 44100).
         freq: i32
         /// `AUDIO_*` format constant (we use `AUDIO_S16LSB = 0x8010`).
@@ -32,65 +32,65 @@
 
     /// Opaque SDL_AudioStream — created by `SDL_NewAudioStream`,
     /// destroyed by `SDL_FreeAudioStream`.
-    struct SDL_AudioStream {}
+    pub struct SDL_AudioStream {}
 
-    @lib("SDL2") fn SDL_OpenAudioDevice(
+    @lib("SDL2") pub fn SDL_OpenAudioDevice(
         device: *const char, iscapture: i32,
         desired: *AudioSpec, obtained: *AudioSpec,
         allowed_changes: i32
     ): u32
-    @lib("SDL2") fn SDL_CloseAudioDevice(dev: u32)
-    @lib("SDL2") fn SDL_QueueAudio(dev: u32, data: *const void, len: u32): i32
-    @lib("SDL2") fn SDL_PauseAudioDevice(dev: u32, pause_on: i32)
-    @lib("SDL2") fn SDL_GetQueuedAudioSize(dev: u32): u32
-    @lib("SDL2") fn SDL_ClearQueuedAudio(dev: u32)
+    @lib("SDL2") pub fn SDL_CloseAudioDevice(dev: u32)
+    @lib("SDL2") pub fn SDL_QueueAudio(dev: u32, data: *const void, len: u32): i32
+    @lib("SDL2") pub fn SDL_PauseAudioDevice(dev: u32, pause_on: i32)
+    @lib("SDL2") pub fn SDL_GetQueuedAudioSize(dev: u32): u32
+    @lib("SDL2") pub fn SDL_ClearQueuedAudio(dev: u32)
 
     // ─── device enumeration / status ─────────────────────────────
-    @lib("SDL2") fn SDL_GetNumAudioDevices(iscapture: i32): i32
-    @lib("SDL2") fn SDL_GetAudioDeviceName(
+    @lib("SDL2") pub fn SDL_GetNumAudioDevices(iscapture: i32): i32
+    @lib("SDL2") pub fn SDL_GetAudioDeviceName(
         index: i32, iscapture: i32
     ): *const char
-    @lib("SDL2") fn SDL_GetAudioDeviceStatus(dev: u32): i32
+    @lib("SDL2") pub fn SDL_GetAudioDeviceStatus(dev: u32): i32
 
     // ─── lock / unlock for callback-style devices ────────────────
-    @lib("SDL2") fn SDL_LockAudioDevice(dev: u32)
-    @lib("SDL2") fn SDL_UnlockAudioDevice(dev: u32)
+    @lib("SDL2") pub fn SDL_LockAudioDevice(dev: u32)
+    @lib("SDL2") pub fn SDL_UnlockAudioDevice(dev: u32)
 
     // ─── mixing ──────────────────────────────────────────────────
-    @lib("SDL2") fn SDL_MixAudioFormat(
+    @lib("SDL2") pub fn SDL_MixAudioFormat(
         dst: *u8, src: *const u8,
         format: u16, len: u32, volume: i32
     )
 
     // ─── driver enumeration ──────────────────────────────────────
-    @lib("SDL2") fn SDL_GetCurrentAudioDriver(): *const char
-    @lib("SDL2") fn SDL_GetNumAudioDrivers(): i32
-    @lib("SDL2") fn SDL_GetAudioDriver(index: i32): *const char
+    @lib("SDL2") pub fn SDL_GetCurrentAudioDriver(): *const char
+    @lib("SDL2") pub fn SDL_GetNumAudioDrivers(): i32
+    @lib("SDL2") pub fn SDL_GetAudioDriver(index: i32): *const char
 
     // ─── AudioStream (sample-rate / format conversion) ───────────
-    @lib("SDL2") fn SDL_NewAudioStream(
+    @lib("SDL2") pub fn SDL_NewAudioStream(
         src_format: u16, src_channels: u8, src_rate: i32,
         dst_format: u16, dst_channels: u8, dst_rate: i32
     ): *SDL_AudioStream
-    @lib("SDL2") fn SDL_AudioStreamPut(
+    @lib("SDL2") pub fn SDL_AudioStreamPut(
         stream: *SDL_AudioStream, buf: *const void, len: i32
     ): i32
-    @lib("SDL2") fn SDL_AudioStreamGet(
+    @lib("SDL2") pub fn SDL_AudioStreamGet(
         stream: *SDL_AudioStream, buf: *const void, len: i32
     ): i32
-    @lib("SDL2") fn SDL_AudioStreamAvailable(stream: *SDL_AudioStream): i32
-    @lib("SDL2") fn SDL_AudioStreamFlush(stream: *SDL_AudioStream): i32
-    @lib("SDL2") fn SDL_AudioStreamClear(stream: *SDL_AudioStream)
-    @lib("SDL2") fn SDL_FreeAudioStream(stream: *SDL_AudioStream)
+    @lib("SDL2") pub fn SDL_AudioStreamAvailable(stream: *SDL_AudioStream): i32
+    @lib("SDL2") pub fn SDL_AudioStreamFlush(stream: *SDL_AudioStream): i32
+    @lib("SDL2") pub fn SDL_AudioStreamClear(stream: *SDL_AudioStream)
+    @lib("SDL2") pub fn SDL_FreeAudioStream(stream: *SDL_AudioStream)
 
     // ─── WAV loading ─────────────────────────────────────────────
     // Allocates a buffer SDL owns; pair `LoadWAV_RW` with `FreeWAV`.
     // `freesrc != 0` makes SDL close the RWops for us.
-    @lib("SDL2") fn SDL_LoadWAV_RW(
+    @lib("SDL2") pub fn SDL_LoadWAV_RW(
         src: *const void, freesrc: i32,
         spec: *AudioSpec, audio_buf: **u8, audio_len: *u32
     ): *AudioSpec
-    @lib("SDL2") fn SDL_FreeWAV(audio_buf: *u8)
+    @lib("SDL2") pub fn SDL_FreeWAV(audio_buf: *u8)
 
     // ─── AudioCVT (SDL's built-in resampler / format converter) ──
     // SDL_AudioCVT is a 132-byte struct: bookkeeping flags, source
@@ -98,7 +98,7 @@
     // counters, then a 10-slot fixed conversion-filter array. We
     // mirror it field-for-field so `BuildAudioCVT` /
     // `ConvertAudio` operate on the same layout libSDL2 expects.
-    struct AudioCVT {
+    pub struct AudioCVT {
         /// Set by BuildAudioCVT to 1 when conversion is needed, 0
         /// when the formats already match.
         needed: i32
@@ -120,19 +120,19 @@
         filter_index: i32
     }
 
-    @lib("SDL2") fn SDL_BuildAudioCVT(
+    @lib("SDL2") pub fn SDL_BuildAudioCVT(
         cvt: *AudioCVT,
         src_format: u16, src_channels: u8, src_rate: i32,
         dst_format: u16, dst_channels: u8, dst_rate: i32
     ): i32
-    @lib("SDL2") fn SDL_ConvertAudio(cvt: *AudioCVT): i32
+    @lib("SDL2") pub fn SDL_ConvertAudio(cvt: *AudioCVT): i32
 
     /// ARC-managed audio device. Open with `new AudioDevice(freq,
     /// channels)`, queue PCM samples via `queue`, start with
     /// `play`. `deinit` closes the underlying SDL device.
-    class AudioDevice {
+    pub class AudioDevice {
         /// SDL device id. `1+` on success, `0` when opening failed.
-        id: u32
+        pub id: u32
 
         /// Open the default playback device.
         ///
@@ -141,7 +141,7 @@
         ///   channels — 1 = mono, 2 = stereo.
         ///
         /// After construction check `id == 0` to detect failure.
-        init(freq: i32, channels: u8) {
+        pub init(freq: i32, channels: u8) {
             let desired = new AudioSpec()
             desired.freq = freq
             desired.format = 0x8010              // AUDIO_S16LSB
@@ -156,7 +156,7 @@
             )
         }
 
-        deinit() {
+        pub deinit() {
             if this.id != 0 {
                 SDL_CloseAudioDevice(this.id)
             }
@@ -170,7 +170,7 @@
         ///
         /// Returns:
         ///   0 on success, < 0 on failure (call `sdl.getError()`).
-        queue(data: i16[]): i32 {
+        pub queue(data: i16[]): i32 {
             // i16[] auto-coerces to *i16; reinterpret as *const void
             // for the C API. byte count = sample count × sizeof(i16).
             let p: *i16 = data
@@ -180,12 +180,12 @@
         /// Start (or resume) playback. Devices come up paused, so a
         /// freshly-opened device needs an explicit `play()` to begin
         /// draining the queue.
-        play() {
+        pub play() {
             SDL_PauseAudioDevice(this.id, 0)
         }
 
         /// Pause playback without dropping queued samples.
-        pause() {
+        pub pause() {
             SDL_PauseAudioDevice(this.id, 1)
         }
 
@@ -195,30 +195,30 @@
         ///
         /// Returns:
         ///   queued byte count.
-        queuedBytes(): u32 {
+        pub queuedBytes(): u32 {
             SDL_GetQueuedAudioSize(this.id)
         }
 
         /// Drop everything still in the queue. Playback restarts
         /// from silence the next time `play` runs.
-        clear() {
+        pub clear() {
             SDL_ClearQueuedAudio(this.id)
         }
 
         /// Returns:
         ///   `0` stopped, `1` playing, `2` paused.
-        status(): i32 {
+        pub status(): i32 {
             SDL_GetAudioDeviceStatus(this.id)
         }
 
         /// Acquire the device's audio lock — blocks the audio
         /// callback (when one is wired up) so the caller can mutate
         /// shared state. Pair with `unlock()`.
-        lock() {
+        pub lock() {
             SDL_LockAudioDevice(this.id)
         }
 
-        unlock() {
+        pub unlock() {
             SDL_UnlockAudioDevice(this.id)
         }
     }
@@ -227,7 +227,7 @@
     ///   number of available output devices when `capture` is false,
     ///   or capture devices when true. `-1` means "unknown" (some
     ///   backends can't enumerate without opening a device first).
-    fn numAudioDevices(capture: bool): i32 {
+    pub fn numAudioDevices(capture: bool): i32 {
         let cap: i32 = if capture { 1 } else { 0 }
         SDL_GetNumAudioDevices(cap)
     }
@@ -238,7 +238,7 @@
     ///
     /// Returns:
     ///   human-readable device name, or empty when out of range.
-    fn audioDeviceName(index: i32, capture: bool): string {
+    pub fn audioDeviceName(index: i32, capture: bool): string {
         let cap: i32 = if capture { 1 } else { 0 }
         stringFromCstr(SDL_GetAudioDeviceName(index, cap))
     }
@@ -247,13 +247,13 @@
     ///   the audio backend currently in use (e.g. `"coreaudio"`,
     ///   `"pulseaudio"`, `"wasapi"`), or empty when audio isn't
     ///   initialised.
-    fn currentAudioDriver(): string {
+    pub fn currentAudioDriver(): string {
         stringFromCstr(SDL_GetCurrentAudioDriver())
     }
 
     /// Returns:
     ///   how many audio drivers SDL was built with.
-    fn numAudioDrivers(): i32 {
+    pub fn numAudioDrivers(): i32 {
         SDL_GetNumAudioDrivers()
     }
 
@@ -262,7 +262,7 @@
     ///
     /// Returns:
     ///   the driver name at that index.
-    fn audioDriver(index: i32): string {
+    pub fn audioDriver(index: i32): string {
         stringFromCstr(SDL_GetAudioDriver(index))
     }
 
@@ -275,7 +275,7 @@
     ///   format   — `AUDIO_*` format constant.
     ///   len      — byte count to mix.
     ///   volume   — 0..128.
-    fn mixAudioFormat(dst: u8[], src: u8[], format: u16, len: u32, volume: i32) {
+    pub fn mixAudioFormat(dst: u8[], src: u8[], format: u16, len: u32, volume: i32) {
         let pd: *u8 = dst
         let ps: *u8 = src
         SDL_MixAudioFormat(pd, ps as *const u8, format, len, volume)
@@ -289,10 +289,10 @@
     ///
     /// Format constants are the same `AUDIO_*` values
     /// (`AUDIO_S16LSB = 0x8010`, `AUDIO_F32LSB = 0x8120`, etc.).
-    class AudioStream {
+    pub class AudioStream {
         /// Raw `SDL_AudioStream*` cast to i64. `0` when allocation
         /// failed at construction time.
-        handle: i64
+        pub handle: i64
 
         /// Args:
         ///   srcFormat   — input `AUDIO_*` format.
@@ -301,7 +301,7 @@
         ///   dstFormat   — output `AUDIO_*` format.
         ///   dstChannels — output channel count.
         ///   dstRate     — output sample rate (Hz).
-        init(
+        pub init(
             srcFormat: u16, srcChannels: u8, srcRate: i32,
             dstFormat: u16, dstChannels: u8, dstRate: i32
         ) {
@@ -312,7 +312,7 @@
             this.handle = p as i64
         }
 
-        deinit() {
+        pub deinit() {
             if this.handle != 0 {
                 SDL_FreeAudioStream(this.handle as *SDL_AudioStream)
             }
@@ -325,7 +325,7 @@
         ///
         /// Returns:
         ///   `0` on success, `< 0` on failure.
-        put(bytes: u8[]): i32 {
+        pub put(bytes: u8[]): i32 {
             if this.handle == 0 { return -1 }
             let p: *u8 = bytes
             SDL_AudioStreamPut(
@@ -343,7 +343,7 @@
         /// Returns:
         ///   number of bytes actually written (`<= bytes.length`),
         ///   or `< 0` on error.
-        get(bytes: u8[]): i32 {
+        pub get(bytes: u8[]): i32 {
             if this.handle == 0 { return -1 }
             let p: *u8 = bytes
             SDL_AudioStreamGet(
@@ -354,7 +354,7 @@
 
         /// Returns:
         ///   bytes of converted output ready to be pulled.
-        available(): i32 {
+        pub available(): i32 {
             if this.handle == 0 { return 0 }
             SDL_AudioStreamAvailable(this.handle as *SDL_AudioStream)
         }
@@ -362,13 +362,13 @@
         /// Drain any partially-buffered samples through the
         /// converter. Call before the last `get()` so trailing
         /// samples don't get stuck in SDL's internal scratch.
-        flush(): i32 {
+        pub flush(): i32 {
             if this.handle == 0 { return 0 }
             SDL_AudioStreamFlush(this.handle as *SDL_AudioStream)
         }
 
         /// Throw away every queued / partially-converted byte.
-        clear() {
+        pub clear() {
             if this.handle != 0 {
                 SDL_AudioStreamClear(this.handle as *SDL_AudioStream)
             }

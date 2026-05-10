@@ -71,6 +71,14 @@ pub enum LoadError {
         reason: String,
         span: ilang_ast::Span,
     },
+    /// Cross-module reference to an item that isn't `pub` in its
+    /// declaring module. Default visibility is module-private; the
+    /// declaring module must mark items `pub` to opt them in.
+    PrivateItemRef {
+        module: Symbol,
+        name: Symbol,
+        span: ilang_ast::Span,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -89,6 +97,12 @@ impl std::fmt::Display for LoadError {
             }
             LoadError::BadConst { name, reason, span } => {
                 write!(f, "{span}: `const {name}` is not a constant expression: {reason}")
+            }
+            LoadError::PrivateItemRef { module, name, span } => {
+                write!(
+                    f,
+                    "{span}: `{module}.{name}` is not `pub` in module `{module}` — mark the declaration with `pub` to expose it"
+                )
             }
         }
     }
@@ -132,6 +146,12 @@ pub fn load_program_with_overlay(
         &entry_canon, &entry_dir, &extra_paths,
         &mut visiting, &mut chain, &mut loaded, overlay,
     )?;
+
+    // Cross-module visibility check before merging: every `M.X`
+    // qualified reference and every selective `use M { X }` must
+    // target a `pub` item in M. Walks every loaded file (entry
+    // included) using the catalog of `pub` items per module.
+    crate::visibility::validate_visibility(&loaded, &entry_canon)?;
 
     let entry_prog = loaded.remove(&entry_canon).expect("entry just loaded");
     // Process the entry's use items into actual merged content.
@@ -1084,7 +1104,8 @@ fn prefix_block_calls(b: Block, prefix: &str) -> Block {
 
 fn prefix_stmt(s: Stmt, prefix: &str) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name,
             ty: ty.map(|t| prefix_type(&t, prefix)),
             value: prefix_expr(value, prefix),
@@ -1810,7 +1831,8 @@ fn subst_const_block(b: Block, ctx: &SubstCtx<'_>) -> Block {
 
 fn subst_const_stmt(s: Stmt, ctx: &SubstCtx<'_>) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name,
             ty,
             value: subst_const_expr(value, ctx),

@@ -11,27 +11,27 @@ use sdl
 /// held; `*Down` fire once on the rising edge (rendered + consumed
 /// the same frame); `padLx` is the raw left-stick X axis value
 /// (`[-32768, 32767]`).
-class InputSnapshot {
-    padLx: i32
-    padDpadL: bool
-    padDpadR: bool
-    padADown: bool
-    padStartDown: bool
-    padBackDown: bool
-    keyEscDown: bool
-    keyFDown: bool
-    keyRDown: bool
-    keyLeft: bool
-    keyRight: bool
-    keyA: bool
-    keyD: bool
-    keySpaceDown: bool
+pub class InputSnapshot {
+    pub padLx: i32
+    pub padDpadL: bool
+    pub padDpadR: bool
+    pub padADown: bool
+    pub padStartDown: bool
+    pub padBackDown: bool
+    pub keyEscDown: bool
+    pub keyFDown: bool
+    pub keyRDown: bool
+    pub keyLeft: bool
+    pub keyRight: bool
+    pub keyA: bool
+    pub keyD: bool
+    pub keySpaceDown: bool
 }
 
-class Input {
-    gamepad: sdl.Gamepad
-    keyboard: sdl.Keyboard
-    init() {
+pub class Input {
+    pub gamepad: sdl.Gamepad
+    pub keyboard: sdl.Keyboard
+    pub init() {
         // Open the first attached gamepad if any. `gamepad.handle == 0`
         // when nothing is plugged in — every poll degrades to
         // returning 0/false, so the keyboard path keeps working.
@@ -44,7 +44,7 @@ class Input {
     /// keyboard / gamepad state, and read keyboard + gamepad state
     /// for the current frame. Call once per frame — Game.run()
     /// should not call `sdl.pumpEvents()` separately.
-    poll(): InputSnapshot {
+    pub poll(): InputSnapshot {
         // Snapshot previous-frame state BEFORE `sdl.pumpEvents()`
         // mutates SDL's internal buffers; then pump events so
         // subsequent reads see the new state.

@@ -7,15 +7,15 @@
 use sdl
 use math
 
-class NeonRenderer {
-    renderer: sdl.Renderer
-    init(ren: sdl.Renderer) {
+pub class NeonRenderer {
+    pub renderer: sdl.Renderer
+    pub init(ren: sdl.Renderer) {
         this.renderer = ren
     }
 
     /// Filled rectangle with two semi-transparent halo passes
     /// around it.
-    fillRect(x: i32, y: i32, w: i32, h: i32,
+    pub fillRect(x: i32, y: i32, w: i32, h: i32,
              r: u8, g: u8, b: u8) {
         let ren = this.renderer
         ren.setColor(r, g, b, 50)
@@ -30,7 +30,7 @@ class NeonRenderer {
     /// Filled rectangle with small rounded corners (pill / chiclet
     /// shape). Three accumulating halo passes give the same neon
     /// glow as `fillRect`.
-    fillRoundedRect(x: i32, y: i32, w: i32, h: i32, radius: i32,
+    pub fillRoundedRect(x: i32, y: i32, w: i32, h: i32, radius: i32,
                     r: u8, g: u8, b: u8) {
         let ren = this.renderer
         let pass: i32 = 0
@@ -70,7 +70,7 @@ class NeonRenderer {
 
     /// Filled stadium (rectangle with semicircular ends) — used for
     /// the paddle. Three accumulating halo passes again.
-    fillStadium(x: i32, y: i32, w: i32, h: i32,
+    pub fillStadium(x: i32, y: i32, w: i32, h: i32,
                 r: u8, g: u8, b: u8) {
         let ren = this.renderer
         let pass: i32 = 0
@@ -112,7 +112,7 @@ class NeonRenderer {
     /// Filled circle as a stack of 1-pixel-tall horizontal strips
     /// (scanline rasteriser). Three passes at different radii +
     /// alphas give the same neon halo as the rectangles.
-    fillCircle(cx: i32, cy: i32, radius: i32,
+    pub fillCircle(cx: i32, cy: i32, radius: i32,
                r: u8, g: u8, b: u8) {
         let ren = this.renderer
         let pass: i32 = 0

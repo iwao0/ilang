@@ -258,7 +258,9 @@ fn fresh_anon_name(counter: &mut u32) -> Symbol {
 fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
     match item {
         Item::Fn(f) => Item::Fn(FnDecl {
+            is_pub: false,
             attrs: f.attrs.clone(),
+
             name: f.name.clone(),
             type_params: f.type_params.clone(),
             params: f.params.clone(),
@@ -268,6 +270,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
         is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
+            is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
@@ -280,7 +283,9 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                 .methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
@@ -294,7 +299,9 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                 .static_methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
@@ -309,10 +316,13 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                 .properties
                 .iter()
                 .map(|p| ilang_ast::PropertyDecl {
+                    is_pub: false,
                     name: p.name.clone(),
                     ty: p.ty.clone(),
                     getter: p.getter.as_ref().map(|g| FnDecl {
+                        is_pub: false,
                         attrs: g.attrs.clone(),
+
                         name: g.name.clone(),
                         type_params: g.type_params.clone(),
                         params: g.params.clone(),
@@ -322,7 +332,9 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
+                        is_pub: false,
                         attrs: s.attrs.clone(),
+
                         name: s.name.clone(),
                         type_params: s.type_params.clone(),
                         params: s.params.clone(),
@@ -360,7 +372,8 @@ fn hoist_in_block(b: &Block, ctx: &mut HoistCtx) -> Block {
 
 fn hoist_in_stmt(s: &Stmt, ctx: &mut HoistCtx) -> Stmt {
     let kind = match &s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name: name.clone(),
             ty: ty.clone(),
             value: hoist_in_expr(value, ctx),
@@ -449,7 +462,9 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
             // hide.
             let mutable = mutable_pre;
             ctx.hoisted.push(Item::Fn(FnDecl {
+                is_pub: false,
                 attrs: Box::new([]),
+
                 name: name.clone(),
                 type_params: Box::new([]),
                 params: wrapper_params.into(),
@@ -1059,6 +1074,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         .fields
         .iter()
         .map(|f| FieldDecl {
+            is_pub: false,
             name: f.name.clone(),
             ty: subst_type(&f.ty, &params, args),
             span: f.span, bits: f.bits,
@@ -1078,6 +1094,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         .properties
         .iter()
         .map(|p| ilang_ast::PropertyDecl {
+            is_pub: false,
             name: p.name.clone(),
             ty: subst_type(&p.ty, &params, args),
             getter: p.getter.as_ref().map(|g| specialize_fn(g, &params, args)),
@@ -1086,10 +1103,11 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
         })
         .collect();
     ClassDecl {
+        is_pub: c.is_pub,
         extern_lib: c.extern_lib.clone(),
         is_repr_c: c.is_repr_c,
-            is_packed: c.is_packed,
-            is_union: c.is_union,
+        is_packed: c.is_packed,
+        is_union: c.is_union,
         name: mangled.into(),
         type_params: Box::new([]),
         parent: c.parent.clone(),
@@ -1107,6 +1125,7 @@ fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> ClassDecl {
 
 fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnDecl {
     FnDecl {
+        is_pub: f.is_pub,
         name: f.name.clone(),
         type_params: Box::new([]),
         params: f
@@ -1136,7 +1155,8 @@ fn subst_block(b: &Block, params: &[Symbol], args: &[Type]) -> Block {
 
 fn subst_stmt(s: &Stmt, params: &[Symbol], args: &[Type]) -> Stmt {
     let kind = match &s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name: name.clone(),
             ty: ty.as_ref().map(|t| subst_type(t, params, args)),
             value: subst_expr(value, params, args),
@@ -1408,6 +1428,7 @@ fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
 fn rewrite_item(item: &Item) -> Item {
     match item {
         Item::Class(c) => Item::Class(ClassDecl {
+            is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
@@ -1419,6 +1440,7 @@ fn rewrite_item(item: &Item) -> Item {
                 .fields
                 .iter()
                 .map(|f| FieldDecl {
+                    is_pub: false,
                     name: f.name.clone(),
                     ty: rewrite_type(&f.ty),
                     span: f.span, bits: f.bits,
@@ -1431,6 +1453,7 @@ fn rewrite_item(item: &Item) -> Item {
                 .properties
                 .iter()
                 .map(|p| ilang_ast::PropertyDecl {
+                    is_pub: false,
                     name: p.name.clone(),
                     ty: rewrite_type(&p.ty),
                     getter: p.getter.as_ref().map(rewrite_fn),
@@ -1451,6 +1474,7 @@ fn rewrite_item(item: &Item) -> Item {
 
 fn rewrite_fn(f: &FnDecl) -> FnDecl {
     FnDecl {
+        is_pub: f.is_pub,
         name: f.name.clone(),
         type_params: f.type_params.clone(),
         params: f
@@ -1480,7 +1504,8 @@ fn rewrite_block(b: &Block) -> Block {
 
 fn rewrite_stmt(s: &Stmt) -> Stmt {
     let kind = match &s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name: name.clone(),
             ty: ty.as_ref().map(rewrite_type),
             value: rewrite_expr(value),
@@ -2049,7 +2074,9 @@ fn rewrite_calls_in_item(
 ) -> Item {
     match item {
         Item::Fn(f) => Item::Fn(FnDecl {
+            is_pub: false,
             attrs: f.attrs.clone(),
+
             name: f.name.clone(),
             type_params: f.type_params.clone(),
             params: f.params.clone(),
@@ -2059,6 +2086,7 @@ fn rewrite_calls_in_item(
         is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
+            is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
@@ -2071,7 +2099,9 @@ fn rewrite_calls_in_item(
                 .methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
@@ -2091,7 +2121,9 @@ fn rewrite_calls_in_item(
                 .static_methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m.params.clone(),
@@ -2112,10 +2144,13 @@ fn rewrite_calls_in_item(
                 .properties
                 .iter()
                 .map(|p| ilang_ast::PropertyDecl {
+                    is_pub: false,
                     name: p.name.clone(),
                     ty: p.ty.clone(),
                     getter: p.getter.as_ref().map(|g| FnDecl {
+                        is_pub: false,
                         attrs: g.attrs.clone(),
+
                         name: g.name.clone(),
                         type_params: g.type_params.clone(),
                         params: g.params.clone(),
@@ -2131,7 +2166,9 @@ fn rewrite_calls_in_item(
                     is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
+                        is_pub: false,
                         attrs: s.attrs.clone(),
+
                         name: s.name.clone(),
                         type_params: s.type_params.clone(),
                         params: s.params.clone(),
@@ -2192,7 +2229,8 @@ fn rewrite_calls_in_stmt(
     generic_fns: &HashMap<Symbol, FnDecl>,
 ) -> Stmt {
     let kind = match &s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name: name.clone(),
             ty: ty.clone(),
             value: rewrite_calls_in_expr(value, table, outer_params, outer_args, generic_fns),
@@ -2607,7 +2645,8 @@ fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
             .iter()
             .map(|s| {
                 let kind = match &s.kind {
-                    StmtKind::Let { name, ty, value } => StmtKind::Let {
+                    StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+                        is_pub: false,
                         name: name.clone(),
                         ty: ty.clone(),
                         value: f(value),
@@ -2650,6 +2689,7 @@ fn map_block_children(b: &Block, f: &mut dyn FnMut(&Expr) -> Expr) -> Block {
 fn result_template() -> EnumDecl {
     let span = Span::dummy();
     EnumDecl {
+        is_pub: true,
         name: "Result".into(),
         type_params: Box::new(["T".into(), "E".into()]),
         repr_ty: None,
@@ -2845,6 +2885,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
     // mangled instead of leaking back as Type::Generic).
     let args: Vec<Type> = args.iter().map(rewrite_type).collect();
     EnumDecl {
+        is_pub: false,
         name: mangled.into(),
         type_params: Box::new([]),
         repr_ty: e.repr_ty.clone(),
@@ -2864,6 +2905,7 @@ fn specialize_enum(e: &EnumDecl, args: &[Type], mangled: &str) -> EnumDecl {
                         fields
                             .iter()
                             .map(|f| FieldDecl {
+                                is_pub: false,
                                 name: f.name.clone(),
                                 ty: subst_type(&f.ty, &params, &args),
                                 span: f.span, bits: f.bits,
@@ -3058,7 +3100,9 @@ fn rewrite_enum_refs_in_item(
 ) -> Item {
     match item {
         Item::Fn(f) => Item::Fn(FnDecl {
+            is_pub: false,
             attrs: f.attrs.clone(),
+
             name: f.name.clone(),
             type_params: f.type_params.clone(),
             params: f
@@ -3079,6 +3123,7 @@ fn rewrite_enum_refs_in_item(
         is_override: f.is_override,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
+            is_pub: false,
             extern_lib: c.extern_lib.clone(),
             is_repr_c: c.is_repr_c,
             is_packed: c.is_packed,
@@ -3090,6 +3135,7 @@ fn rewrite_enum_refs_in_item(
                 .fields
                 .iter()
                 .map(|f| FieldDecl {
+                    is_pub: false,
                     name: f.name.clone(),
                     ty: rewrite_enum_refs_in_type(&f.ty, generic_enums),
                     span: f.span, bits: f.bits,
@@ -3099,7 +3145,9 @@ fn rewrite_enum_refs_in_item(
                 .methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m
@@ -3124,7 +3172,9 @@ fn rewrite_enum_refs_in_item(
                 .static_methods
                 .iter()
                 .map(|m| FnDecl {
+                    is_pub: false,
                     attrs: m.attrs.clone(),
+
                     name: m.name.clone(),
                     type_params: m.type_params.clone(),
                     params: m.params.iter().map(|p| Param {
@@ -3146,10 +3196,13 @@ fn rewrite_enum_refs_in_item(
                 .properties
                 .iter()
                 .map(|p| ilang_ast::PropertyDecl {
+                    is_pub: false,
                     name: p.name.clone(),
                     ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
                     getter: p.getter.as_ref().map(|g| FnDecl {
+                        is_pub: false,
                         attrs: g.attrs.clone(),
+
                         name: g.name.clone(),
                         type_params: g.type_params.clone(),
                         params: g.params.iter().map(|q| Param {
@@ -3164,7 +3217,9 @@ fn rewrite_enum_refs_in_item(
                     is_override: g.is_override,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
+                        is_pub: false,
                         attrs: s.attrs.clone(),
+
                         name: s.name.clone(),
                         type_params: s.type_params.clone(),
                         params: s.params.iter().map(|q| Param {
@@ -3184,6 +3239,7 @@ fn rewrite_enum_refs_in_item(
             span: c.span,
         }),
         Item::Enum(e) => Item::Enum(EnumDecl {
+            is_pub: false,
             name: e.name.clone(),
             type_params: e.type_params.clone(),
             repr_ty: e.repr_ty.clone(),
@@ -3205,6 +3261,7 @@ fn rewrite_enum_refs_in_item(
                             fields
                                 .iter()
                                 .map(|f| FieldDecl {
+                                    is_pub: false,
                                     name: f.name.clone(),
                                     ty: rewrite_enum_refs_in_type(&f.ty, generic_enums),
                                     span: f.span, bits: f.bits,
@@ -3259,7 +3316,8 @@ fn rewrite_enum_refs_in_stmt(
     outer_args: &[Type],
 ) -> Stmt {
     let kind = match &s.kind {
-        StmtKind::Let { name, ty, value } => StmtKind::Let {
+        StmtKind::Let { name, ty, value, .. } => StmtKind::Let {
+            is_pub: false,
             name: name.clone(),
             ty: ty.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
             value: rewrite_enum_refs_in_expr(

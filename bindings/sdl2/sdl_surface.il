@@ -10,7 +10,7 @@ use sdl_core { Rect, Color }
 /// are SDL's macro encodings (type / order / layout / bits / bytes
 /// packed into 32 bits). Use these with `createRGBSurfaceWithFormat`
 /// or for `Texture` creation.
-enum PixelFormat: u32 {
+pub enum PixelFormat: u32 {
     unknown        = 0
     index1lsb      = 0x11100100
     index1msb      = 0x11200100
@@ -52,7 +52,7 @@ enum PixelFormat: u32 {
 /// `setTextureBlendMode`. Same values as in `sdl_renderer.il` but
 /// re-declared here so callers don't have to import that module
 /// just for the enum.
-enum SurfaceBlendMode: i32 {
+pub enum SurfaceBlendMode: i32 {
     none  = 0
     blend = 1   // alpha blending
     add   = 2   // additive
@@ -63,12 +63,12 @@ enum SurfaceBlendMode: i32 {
 @extern(C) {
     /// Opaque SDL_PixelFormat — pointer-typed in C. We never need
     /// to peek inside, so an empty struct suffices.
-    struct SDL_PixelFormat {}
+    pub struct SDL_PixelFormat {}
 
     /// Mirror of C `SDL_Surface` (about 88 B; padding to 96 for
     /// safety on every platform). We expose just the fields most
     /// callers reach for; the rest stay in the tail buffer.
-    struct SDL_Surface {
+    pub struct SDL_Surface {
         flags: u32
         format: i64           // SDL_PixelFormat *
         w: i32
@@ -84,96 +84,96 @@ enum SurfaceBlendMode: i32 {
     }
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2") fn SDL_CreateRGBSurface(
+    @lib("SDL2") pub fn SDL_CreateRGBSurface(
         flags: u32, w: i32, h: i32, depth: i32,
         rmask: u32, gmask: u32, bmask: u32, amask: u32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_CreateRGBSurfaceWithFormat(
+    @lib("SDL2") pub fn SDL_CreateRGBSurfaceWithFormat(
         flags: u32, w: i32, h: i32, depth: i32, format: u32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_CreateRGBSurfaceFrom(
+    @lib("SDL2") pub fn SDL_CreateRGBSurfaceFrom(
         pixels: *const void, w: i32, h: i32, depth: i32, pitch: i32,
         rmask: u32, gmask: u32, bmask: u32, amask: u32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_CreateRGBSurfaceWithFormatFrom(
+    @lib("SDL2") pub fn SDL_CreateRGBSurfaceWithFormatFrom(
         pixels: *const void, w: i32, h: i32, depth: i32, pitch: i32,
         format: u32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_FreeSurface(surface: *SDL_Surface)
+    @lib("SDL2") pub fn SDL_FreeSurface(surface: *SDL_Surface)
 
     // ─── BMP I/O ─────────────────────────────────────────────────
-    @lib("SDL2") fn SDL_LoadBMP_RW(
+    @lib("SDL2") pub fn SDL_LoadBMP_RW(
         src: *const void, freesrc: i32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_SaveBMP_RW(
+    @lib("SDL2") pub fn SDL_SaveBMP_RW(
         surface: *SDL_Surface, dst: *const void, freedst: i32
     ): i32
 
     // ─── locking (for direct pixel access) ───────────────────────
-    @lib("SDL2") fn SDL_LockSurface(surface: *SDL_Surface): i32
-    @lib("SDL2") fn SDL_UnlockSurface(surface: *SDL_Surface)
+    @lib("SDL2") pub fn SDL_LockSurface(surface: *SDL_Surface): i32
+    @lib("SDL2") pub fn SDL_UnlockSurface(surface: *SDL_Surface)
     // SDL_MUSTLOCK is a C macro, not a real symbol —
     // implemented as the ilang `mustLock` helper below.
 
     // ─── blits + fills ───────────────────────────────────────────
-    @lib("SDL2") fn SDL_UpperBlit(
+    @lib("SDL2") pub fn SDL_UpperBlit(
         src: *SDL_Surface, srcrect: *const Rect,
         dst: *SDL_Surface, dstrect: *Rect
     ): i32
-    @lib("SDL2") fn SDL_UpperBlitScaled(
+    @lib("SDL2") pub fn SDL_UpperBlitScaled(
         src: *SDL_Surface, srcrect: *const Rect,
         dst: *SDL_Surface, dstrect: *Rect
     ): i32
-    @lib("SDL2") fn SDL_FillRect(
+    @lib("SDL2") pub fn SDL_FillRect(
         dst: *SDL_Surface, rect: *const Rect, color: u32
     ): i32
-    @lib("SDL2") fn SDL_FillRects(
+    @lib("SDL2") pub fn SDL_FillRects(
         dst: *SDL_Surface, rects: *const Rect, count: i32, color: u32
     ): i32
 
     // ─── modulation / blending ───────────────────────────────────
-    @lib("SDL2") fn SDL_SetSurfaceBlendMode(
+    @lib("SDL2") pub fn SDL_SetSurfaceBlendMode(
         surface: *SDL_Surface, blend_mode: i32
     ): i32
-    @lib("SDL2") fn SDL_GetSurfaceBlendMode(
+    @lib("SDL2") pub fn SDL_GetSurfaceBlendMode(
         surface: *SDL_Surface, blend_mode: *i32
     ): i32
-    @lib("SDL2") fn SDL_SetSurfaceColorMod(
+    @lib("SDL2") pub fn SDL_SetSurfaceColorMod(
         surface: *SDL_Surface, r: u8, g: u8, b: u8
     ): i32
-    @lib("SDL2") fn SDL_SetSurfaceAlphaMod(
+    @lib("SDL2") pub fn SDL_SetSurfaceAlphaMod(
         surface: *SDL_Surface, alpha: u8
     ): i32
-    @lib("SDL2") fn SDL_SetColorKey(
+    @lib("SDL2") pub fn SDL_SetColorKey(
         surface: *SDL_Surface, flag: i32, key: u32
     ): i32
-    @lib("SDL2") fn SDL_GetColorKey(
+    @lib("SDL2") pub fn SDL_GetColorKey(
         surface: *SDL_Surface, key: *u32
     ): i32
 
     // ─── clipping ────────────────────────────────────────────────
-    @lib("SDL2") fn SDL_SetClipRect(
+    @lib("SDL2") pub fn SDL_SetClipRect(
         surface: *SDL_Surface, rect: *const Rect
     ): i32
-    @lib("SDL2") fn SDL_GetClipRect(
+    @lib("SDL2") pub fn SDL_GetClipRect(
         surface: *SDL_Surface, rect: *Rect
     )
 
     // ─── pixel-format helpers ────────────────────────────────────
-    @lib("SDL2") fn SDL_AllocFormat(pixel_format: u32): *SDL_PixelFormat
-    @lib("SDL2") fn SDL_FreeFormat(format: *SDL_PixelFormat)
-    @lib("SDL2") fn SDL_GetPixelFormatName(format: u32): *const char
-    @lib("SDL2") fn SDL_MapRGB(
+    @lib("SDL2") pub fn SDL_AllocFormat(pixel_format: u32): *SDL_PixelFormat
+    @lib("SDL2") pub fn SDL_FreeFormat(format: *SDL_PixelFormat)
+    @lib("SDL2") pub fn SDL_GetPixelFormatName(format: u32): *const char
+    @lib("SDL2") pub fn SDL_MapRGB(
         format: *SDL_PixelFormat, r: u8, g: u8, b: u8
     ): u32
-    @lib("SDL2") fn SDL_MapRGBA(
+    @lib("SDL2") pub fn SDL_MapRGBA(
         format: *SDL_PixelFormat, r: u8, g: u8, b: u8, a: u8
     ): u32
-    @lib("SDL2") fn SDL_GetRGB(
+    @lib("SDL2") pub fn SDL_GetRGB(
         pixel: u32, format: *SDL_PixelFormat,
         r: *u8, g: *u8, b: *u8
     )
-    @lib("SDL2") fn SDL_GetRGBA(
+    @lib("SDL2") pub fn SDL_GetRGBA(
         pixel: u32, format: *SDL_PixelFormat,
         r: *u8, g: *u8, b: *u8, a: *u8
     )
@@ -181,26 +181,26 @@ enum SurfaceBlendMode: i32 {
     // ─── palette (8-bit indexed images) ──────────────────────────
     /// Opaque `SDL_Palette *`. Construct via `allocPalette`,
     /// release with `freePalette`.
-    struct SDL_Palette {}
+    pub struct SDL_Palette {}
 
-    @lib("SDL2") fn SDL_AllocPalette(ncolors: i32): *SDL_Palette
-    @lib("SDL2") fn SDL_FreePalette(palette: *SDL_Palette)
-    @lib("SDL2") fn SDL_SetPaletteColors(
+    @lib("SDL2") pub fn SDL_AllocPalette(ncolors: i32): *SDL_Palette
+    @lib("SDL2") pub fn SDL_FreePalette(palette: *SDL_Palette)
+    @lib("SDL2") pub fn SDL_SetPaletteColors(
         palette: *SDL_Palette, colors: *const Color,
         firstcolor: i32, ncolors: i32
     ): i32
-    @lib("SDL2") fn SDL_SetSurfacePalette(
+    @lib("SDL2") pub fn SDL_SetSurfacePalette(
         surface: *SDL_Surface, palette: *SDL_Palette
     ): i32
-    @lib("SDL2") fn SDL_SetPixelFormatPalette(
+    @lib("SDL2") pub fn SDL_SetPixelFormatPalette(
         format: *SDL_PixelFormat, palette: *SDL_Palette
     ): i32
 
     // ─── format conversion ───────────────────────────────────────
-    @lib("SDL2") fn SDL_ConvertSurface(
+    @lib("SDL2") pub fn SDL_ConvertSurface(
         src: *SDL_Surface, fmt: *SDL_PixelFormat, flags: u32
     ): *SDL_Surface
-    @lib("SDL2") fn SDL_ConvertSurfaceFormat(
+    @lib("SDL2") pub fn SDL_ConvertSurfaceFormat(
         src: *SDL_Surface, pixel_format: u32, flags: u32
     ): *SDL_Surface
 
@@ -215,7 +215,7 @@ enum SurfaceBlendMode: i32 {
     /// Returns:
     ///   raw `*SDL_Surface` cast to i64. `0` on allocation
     ///   failure.
-    fn createSurface(w: i32, h: i32, format: PixelFormat): i64 {
+    pub fn createSurface(w: i32, h: i32, format: PixelFormat): i64 {
         let depth: i32 = if format == PixelFormat.rgb24
                          || format == PixelFormat.bgr24 {
             24
@@ -233,7 +233,7 @@ enum SurfaceBlendMode: i32 {
 
     /// Free a surface allocated by `createSurface` /
     /// `loadBmp` / one of the conversion fns.
-    fn freeSurface(handle: i64) {
+    pub fn freeSurface(handle: i64) {
         if handle != 0 {
             SDL_FreeSurface(handle as *SDL_Surface)
         }
@@ -247,7 +247,7 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   raw `*SDL_Surface` cast to i64. `0` on failure.
-    fn loadBmp(path: string): i64 {
+    pub fn loadBmp(path: string): i64 {
         let mode = cstrFromString("rb")
         // We need an RWops. Use SDL_RWFromFile via the rwops module
         // would introduce a dep cycle (rwops would in turn want
@@ -267,7 +267,7 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn saveBmp(handle: i64, path: string): i32 {
+    pub fn saveBmp(handle: i64, path: string): i32 {
         if handle == 0 { return -1 }
         let mode = cstrFromString("wb")
         let rw = SDL_RWFromFileLocal(cstrFromString(path), mode)
@@ -277,7 +277,7 @@ enum SurfaceBlendMode: i32 {
 
     // Inline RWFromFile shim — we re-declare it here under a unique
     // ilang name so this module stays usable without `use sdl_rwops`.
-    @lib("SDL2") @symbol("SDL_RWFromFile") fn SDL_RWFromFileLocal(
+    @lib("SDL2") @symbol("SDL_RWFromFile") pub fn SDL_RWFromFileLocal(
         file: *const char, mode: *const char
     ): i64
 
@@ -291,14 +291,14 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn fillSurfaceRect(handle: i64, rect: Rect, colour: u32): i32 {
+    pub fn fillSurfaceRect(handle: i64, rect: Rect, colour: u32): i32 {
         if handle == 0 { return -1 }
         SDL_FillRect(handle as *SDL_Surface, rect, colour)
     }
 
     /// Variant of `fillSurfaceRect` that fills the entire surface
     /// (rect = NULL).
-    fn fillSurface(handle: i64, colour: u32): i32 {
+    pub fn fillSurface(handle: i64, colour: u32): i32 {
         if handle == 0 { return -1 }
         SDL_FillRect(handle as *SDL_Surface, 0 as *const Rect, colour)
     }
@@ -308,7 +308,7 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn blit(srcHandle: i64, srcRect: Rect, dstHandle: i64, dstRect: Rect): i32 {
+    pub fn blit(srcHandle: i64, srcRect: Rect, dstHandle: i64, dstRect: Rect): i32 {
         if srcHandle == 0 || dstHandle == 0 { return -1 }
         SDL_UpperBlit(
             srcHandle as *SDL_Surface, srcRect,
@@ -317,7 +317,7 @@ enum SurfaceBlendMode: i32 {
     }
 
     /// Scaling blit — stretches `src` into `dstRect`.
-    fn blitScaled(srcHandle: i64, srcRect: Rect, dstHandle: i64, dstRect: Rect): i32 {
+    pub fn blitScaled(srcHandle: i64, srcRect: Rect, dstHandle: i64, dstRect: Rect): i32 {
         if srcHandle == 0 || dstHandle == 0 { return -1 }
         SDL_UpperBlitScaled(
             srcHandle as *SDL_Surface, srcRect,
@@ -327,19 +327,19 @@ enum SurfaceBlendMode: i32 {
 
     /// Set the alpha-blend mode for subsequent blits originating
     /// from `handle`.
-    fn setSurfaceBlendMode(handle: i64, mode: SurfaceBlendMode): i32 {
+    pub fn setSurfaceBlendMode(handle: i64, mode: SurfaceBlendMode): i32 {
         if handle == 0 { return -1 }
         SDL_SetSurfaceBlendMode(handle as *SDL_Surface, mode as i32)
     }
 
     /// Per-blit RGB tint multiplied against the surface pixels.
-    fn setSurfaceColorMod(handle: i64, r: u8, g: u8, b: u8): i32 {
+    pub fn setSurfaceColorMod(handle: i64, r: u8, g: u8, b: u8): i32 {
         if handle == 0 { return -1 }
         SDL_SetSurfaceColorMod(handle as *SDL_Surface, r, g, b)
     }
 
     /// Per-blit alpha multiplier (0 transparent, 255 opaque).
-    fn setSurfaceAlphaMod(handle: i64, alpha: u8): i32 {
+    pub fn setSurfaceAlphaMod(handle: i64, alpha: u8): i32 {
         if handle == 0 { return -1 }
         SDL_SetSurfaceAlphaMod(handle as *SDL_Surface, alpha)
     }
@@ -351,7 +351,7 @@ enum SurfaceBlendMode: i32 {
     ///   handle  — `*SDL_Surface` cast to i64.
     ///   enabled — true turns the colour key on, false off.
     ///   key     — pixel value to treat as transparent.
-    fn setColorKey(handle: i64, enabled: bool, key: u32): i32 {
+    pub fn setColorKey(handle: i64, enabled: bool, key: u32): i32 {
         if handle == 0 { return -1 }
         let flag: i32 = if enabled { 1 } else { 0 }
         SDL_SetColorKey(handle as *SDL_Surface, flag, key)
@@ -359,7 +359,7 @@ enum SurfaceBlendMode: i32 {
 
     /// Pack an `(r, g, b)` triple as a single pixel value in the
     /// given format.
-    fn mapRGB(format: PixelFormat, r: u8, g: u8, b: u8): u32 {
+    pub fn mapRGB(format: PixelFormat, r: u8, g: u8, b: u8): u32 {
         let f = SDL_AllocFormat(format as u32)
         if f as i64 == 0 { return 0 as u32 }
         let v = SDL_MapRGB(f, r, g, b)
@@ -368,7 +368,7 @@ enum SurfaceBlendMode: i32 {
     }
 
     /// Pack an `(r, g, b, a)` quadruple as a single pixel value.
-    fn mapRGBA(format: PixelFormat, r: u8, g: u8, b: u8, a: u8): u32 {
+    pub fn mapRGBA(format: PixelFormat, r: u8, g: u8, b: u8, a: u8): u32 {
         let f = SDL_AllocFormat(format as u32)
         if f as i64 == 0 { return 0 as u32 }
         let v = SDL_MapRGBA(f, r, g, b, a)
@@ -379,7 +379,7 @@ enum SurfaceBlendMode: i32 {
     /// Returns:
     ///   the SDL canonical name for `format` (e.g.
     ///   `"SDL_PIXELFORMAT_RGBA8888"`).
-    fn pixelFormatName(format: PixelFormat): string {
+    pub fn pixelFormatName(format: PixelFormat): string {
         stringFromCstr(SDL_GetPixelFormatName(format as u32))
     }
 
@@ -396,7 +396,7 @@ enum SurfaceBlendMode: i32 {
     /// Returns:
     ///   true if the surface needs a `SDL_LockSurface` call before
     ///   touching its `pixels` buffer.
-    fn mustLock(handle: i64): bool {
+    pub fn mustLock(handle: i64): bool {
         if handle == 0 { return false }
         (readU32(handle as *const void, 0) & (2 as u32)) != 0 as u32
     }
@@ -406,14 +406,14 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   raw `*SDL_Palette` cast to i64. `0` on allocation failure.
-    fn allocPalette(ncolors: i32): i64 {
+    pub fn allocPalette(ncolors: i32): i64 {
         SDL_AllocPalette(ncolors) as i64
     }
 
     /// Decrement the palette's refcount and free it once it hits
     /// zero. Surfaces / pixel formats holding a reference keep it
     /// alive until they themselves are freed.
-    fn freePalette(handle: i64) {
+    pub fn freePalette(handle: i64) {
         if handle != 0 {
             SDL_FreePalette(handle as *SDL_Palette)
         }
@@ -431,7 +431,7 @@ enum SurfaceBlendMode: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn setPaletteColors(handle: i64, colors: Color[], firstColor: i32): i32 {
+    pub fn setPaletteColors(handle: i64, colors: Color[], firstColor: i32): i32 {
         if handle == 0 { return -1 }
         let p: *Color = colors
         SDL_SetPaletteColors(
@@ -442,7 +442,7 @@ enum SurfaceBlendMode: i32 {
 
     /// Bind `paletteHandle` (or `0` to clear) to `surfaceHandle`.
     /// Mostly relevant for 8-bit indexed surfaces (`PixelFormat.index8`).
-    fn setSurfacePalette(surfaceHandle: i64, paletteHandle: i64): i32 {
+    pub fn setSurfacePalette(surfaceHandle: i64, paletteHandle: i64): i32 {
         if surfaceHandle == 0 { return -1 }
         SDL_SetSurfacePalette(
             surfaceHandle as *SDL_Surface,

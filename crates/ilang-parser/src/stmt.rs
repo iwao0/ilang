@@ -34,6 +34,34 @@ pub(crate) fn parse_block(p: &mut Parser) -> Result<Block, ParseError> {
     Ok(Block { stmts: stmts.into(), tail })
 }
 
+/// Top-level entrypoint that allows an optional `pub` prefix —
+/// `pub let X = ...` exposes the binding as `module.X`. Inside fn /
+/// class bodies, `parse_let_stmt` is called directly without `pub`.
+pub(crate) fn parse_top_level_let(p: &mut Parser) -> Result<Stmt, ParseError> {
+    let is_pub = if matches!(p.peek().kind, TokenKind::Pub) {
+        p.bump();
+        true
+    } else {
+        false
+    };
+    let mut s = parse_let_stmt(p)?;
+    if is_pub {
+        if let StmtKind::Let { is_pub: out, .. } = &mut s.kind {
+            *out = true;
+        } else {
+            // `pub let (a, b) = ...` / `pub let X { ... } = ...` —
+            // tuple/struct destructures aren't a single named export,
+            // so reject them.
+            return Err(ParseError::Unexpected {
+                found: TokenKind::Pub,
+                expected: "`pub let` only supports a single-name binding".into(),
+                span: s.span,
+            });
+        }
+    }
+    Ok(s)
+}
+
 pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
     let let_span = p.peek().span;
     p.expect(&TokenKind::Let, "'let'")?;
@@ -131,5 +159,5 @@ pub(crate) fn parse_let_stmt(p: &mut Parser) -> Result<Stmt, ParseError> {
     p.expect(&TokenKind::Equals, "'='")?;
     let value = p.parse_expr(0)?;
     p.consume_stmt_terminator()?;
-    Ok(Stmt::new(StmtKind::Let { name, ty, value }, let_span))
+    Ok(Stmt::new(StmtKind::Let { is_pub: false, name, ty, value }, let_span))
 }

@@ -50,7 +50,7 @@ fn write_module(dir: &std::path::Path, name: &str, content: &str) -> std::path::
 fn use_whole_module_namespace() {
     let dir = std::env::temp_dir().join(format!("ilang_use_test_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    write_module(&dir, "utils", "fn double(n: i64): i64 { n * 2 }");
+    write_module(&dir, "utils", "pub fn double(n: i64): i64 { n * 2 }");
     let main = write_module(&dir, "main", "use utils\nutils.double(21)");
     let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -64,7 +64,7 @@ fn use_selective_import() {
     write_module(
         &dir,
         "nums",
-        "fn double(n: i64): i64 { n * 2 }\nfn triple(n: i64): i64 { n * 3 }\nfn quad(n: i64): i64 { n * 4 }",
+        "pub fn double(n: i64): i64 { n * 2 }\npub fn triple(n: i64): i64 { n * 3 }\npub fn quad(n: i64): i64 { n * 4 }",
     );
     let main = write_module(
         &dir,
@@ -88,13 +88,13 @@ fn use_selective_through_export_chain() {
     write_module(
         &dir,
         "lib_inner",
-        "enum Color: i32 { red = 1, green = 2, blue = 3 }",
+        "pub enum Color: i32 { red = 1, green = 2, blue = 3 }",
     );
     write_module(
         &dir,
         "umbrella",
         "pub use lib_inner\n\
-         fn paint(c: Color): i32 { c as i32 }",
+         pub fn paint(c: Color): i32 { c as i32 }",
     );
     let main = write_module(
         &dir,
@@ -124,7 +124,7 @@ fn use_selective_struct_inside_extern_c() {
         &dir,
         "a",
         "@extern(C) {\n\
-             struct Pt {\n\
+             pub struct Pt {\n\
                  x: i32\n\
                  y: i32\n\
              }\n\
@@ -144,7 +144,7 @@ fn use_selective_struct_inside_extern_c() {
                  p\n\
              }\n\
          }\n\
-         fn report(): i32 { make().a.x + make().b.y }",
+         pub fn report(): i32 { make().a.x + make().b.y }",
     );
     let main = write_module(
         &dir,
@@ -187,7 +187,7 @@ fn use_class_via_namespace() {
     write_module(
         &dir,
         "lib",
-        "class Counter {\n  n: i64\n  init(start: i64) { this.n = start }\n  bump() { this.n = this.n + 1 }\n  get(): i64 { this.n }\n}",
+        "pub class Counter {\n  pub n: i64\n  pub init(start: i64) { this.n = start }\n  pub bump() { this.n = this.n + 1 }\n  pub get(): i64 { this.n }\n}",
     );
     let main = write_module(
         &dir,

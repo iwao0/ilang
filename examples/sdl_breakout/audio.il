@@ -8,7 +8,7 @@ use consts
 
 // Short sine-wave beep with a 5ms attack/release ramp so the start
 // and end don't click.
-fn makeBeep(freqHz: f64, ms: i32): i16[] {
+pub fn makeBeep(freqHz: f64, ms: i32): i16[] {
     let n = (consts.sampleRate * ms) / 1000
     let buf: i16[] = []
     let twoPi: f64 = 2.0 * math.pi
@@ -32,7 +32,7 @@ fn makeBeep(freqHz: f64, ms: i32): i16[] {
 
 // Single chiptune note (square wave) of `ms` milliseconds. Used as
 // the building block for the BGM loop.
-fn makeNote(freqHz: f64, ms: i32, vol: f64): i16[] {
+pub fn makeNote(freqHz: f64, ms: i32, vol: f64): i16[] {
     let n = (consts.sampleRate * ms) / 1000
     let buf: i16[] = []
     let i: i32 = 0
@@ -61,7 +61,7 @@ fn makeNote(freqHz: f64, ms: i32, vol: f64): i16[] {
 // ~180ms per step → ≈2.9s loop). Returns one full loop ready to be
 // queued into an AudioDevice; the main loop refills the queue when
 // it gets low.
-fn makeBgmLoop(): i16[] {
+pub fn makeBgmLoop(): i16[] {
     let buf: i16[] = []
     let beatMs: i32 = 180
     let notes: f64[] = [
@@ -94,21 +94,21 @@ fn makeBgmLoop(): i16[] {
 /// sound effects (wall / paddle / brick) queue and dequeue rapidly
 /// on `sfx`. The session also owns the pre-rendered beep buffers
 /// so callers don't have to thread them around.
-class AudioSession {
-    sfx: sdl.AudioDevice
-    bgm: sdl.AudioDevice
+pub class AudioSession {
+    pub sfx: sdl.AudioDevice
+    pub bgm: sdl.AudioDevice
     /// Pre-rendered BGM loop (one full Am→F→C→G arpeggio).
-    bgmLoop: i16[]
+    pub bgmLoop: i16[]
     /// Cached byte length of `bgmLoop` (samples × 2). Used by
     /// `refillBgm` to know when the queued buffer has drained
     /// below one full loop.
-    bgmBytes: u32
+    pub bgmBytes: u32
     /// Pre-rendered SFX waveforms — built once on construction.
-    beepWall: i16[]
-    beepPaddle: i16[]
-    beepBrick: i16[]
+    pub beepWall: i16[]
+    pub beepPaddle: i16[]
+    pub beepBrick: i16[]
 
-    init() {
+    pub init() {
         this.sfx = new sdl.AudioDevice(consts.sampleRate, 1)
         if this.sfx.id != 0 {
             this.sfx.play()
@@ -132,19 +132,19 @@ class AudioSession {
     }
 
     /// True when `init` opened the SFX device successfully.
-    sfxOk(): bool {
+    pub sfxOk(): bool {
         this.sfx.id != 0
     }
 
-    playWall() {
+    pub playWall() {
         let _ = this.sfx.queue(this.beepWall)
         return
     }
-    playPaddle() {
+    pub playPaddle() {
         let _ = this.sfx.queue(this.beepPaddle)
         return
     }
-    playBrick() {
+    pub playBrick() {
         let _ = this.sfx.queue(this.beepBrick)
         return
     }
@@ -152,7 +152,7 @@ class AudioSession {
     /// Append another copy of the BGM loop when the BGM device's
     /// queued bytes have drained below one full loop. Call once
     /// per frame.
-    refillBgm() {
+    pub refillBgm() {
         if this.bgm.id != 0 && this.bgm.queuedBytes() < this.bgmBytes {
             let _ = this.bgm.queue(this.bgmLoop)
         }

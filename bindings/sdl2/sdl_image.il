@@ -12,7 +12,7 @@ use sdl_renderer { SDL_Renderer, SDL_Texture }
 /// are SDL2_image 2.6+ and depend on the optional libjxl / libavif
 /// being present at build time.
 @flags
-enum ImgInitFlag: i32 {
+pub enum ImgInitFlag: i32 {
     jpg  = 0x01
     png  = 0x02
     tif  = 0x04
@@ -22,33 +22,33 @@ enum ImgInitFlag: i32 {
 }
 
 @extern(C) {
-    @lib("SDL2_image") fn IMG_Init(flags: i32): i32
-    @lib("SDL2_image") fn IMG_Quit()
-    @lib("SDL2_image") fn IMG_GetError(): *const char
+    @lib("SDL2_image") pub fn IMG_Init(flags: i32): i32
+    @lib("SDL2_image") pub fn IMG_Quit()
+    @lib("SDL2_image") pub fn IMG_GetError(): *const char
 
     /// Load any supported image format into a fresh `SDL_Surface`.
     /// SDL2_image picks the decoder by sniffing magic bytes, then
     /// falls back to extension. Returns `*SDL_Surface` (cast to
     /// `i64` so callers can pass through to `Texture.fromSurface`
     /// / `sdl_surface.freeSurface` without naming the struct).
-    @lib("SDL2_image") fn IMG_Load(file: *const char): i64
+    @lib("SDL2_image") pub fn IMG_Load(file: *const char): i64
 
     /// One-step "load image → upload to GPU texture". Returns
     /// `*SDL_Texture` (cast to `i64`). `renderer` is the GPU
     /// renderer the texture binds to. Caller frees with
     /// `Texture.deinit` (or by destroying the wrapping class).
-    @lib("SDL2_image") fn IMG_LoadTexture(
+    @lib("SDL2_image") pub fn IMG_LoadTexture(
         renderer: *SDL_Renderer, file: *const char
     ): *SDL_Texture
 
     /// Encode `surface` as a PNG.
-    @lib("SDL2_image") fn IMG_SavePNG(
+    @lib("SDL2_image") pub fn IMG_SavePNG(
         surface: *const void, file: *const char
     ): i32
 
     /// Encode `surface` as a JPEG. `quality` is 0..100 (libjpeg
     /// scale; `90` is a good default for general use).
-    @lib("SDL2_image") fn IMG_SaveJPG(
+    @lib("SDL2_image") pub fn IMG_SaveJPG(
         surface: *const void, file: *const char, quality: i32
     ): i32
 
@@ -64,12 +64,12 @@ enum ImgInitFlag: i32 {
     ///   match `flags as i32` on success. Mismatched bits indicate
     ///   missing optional dependencies (`call imgGetError()` for
     ///   the message).
-    fn imgInit(flags: ImgInitFlag): i32 {
+    pub fn imgInit(flags: ImgInitFlag): i32 {
         IMG_Init(flags as i32)
     }
 
     /// Tear down SDL2_image. Call before `sdl.quit()`.
-    fn imgQuit() {
+    pub fn imgQuit() {
         IMG_Quit()
     }
 
@@ -77,7 +77,7 @@ enum ImgInitFlag: i32 {
     ///   the latest SDL2_image error message. Most IMG fns route
     ///   through `SDL_SetError`, so `sdl.getError()` works too —
     ///   this exists for the namespaced form.
-    fn imgGetError(): string {
+    pub fn imgGetError(): string {
         stringFromCstr(IMG_GetError())
     }
 
@@ -91,7 +91,7 @@ enum ImgInitFlag: i32 {
     ///   raw `*SDL_Surface` cast to i64. `0` on failure (call
     ///   `imgGetError()`). Callers free with
     ///   `sdl_surface.freeSurface(handle)`.
-    fn imgLoad(path: string): i64 {
+    pub fn imgLoad(path: string): i64 {
         IMG_Load(cstrFromString(path))
     }
 
@@ -107,7 +107,7 @@ enum ImgInitFlag: i32 {
     ///   raw `*SDL_Texture` cast to i64. `0` on failure. Callers
     ///   pass into a `Texture` wrapper or free directly with
     ///   `SDL_DestroyTexture` (re-exported from `sdl_renderer.il`).
-    fn imgLoadTexture(rendererHandle: i64, path: string): i64 {
+    pub fn imgLoadTexture(rendererHandle: i64, path: string): i64 {
         if rendererHandle == 0 { return 0 }
         IMG_LoadTexture(
             rendererHandle as *SDL_Renderer, cstrFromString(path)
@@ -122,7 +122,7 @@ enum ImgInitFlag: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn imgSavePNG(surfaceHandle: i64, path: string): i32 {
+    pub fn imgSavePNG(surfaceHandle: i64, path: string): i32 {
         if surfaceHandle == 0 { return -1 }
         IMG_SavePNG(surfaceHandle as *const void, cstrFromString(path))
     }
@@ -137,7 +137,7 @@ enum ImgInitFlag: i32 {
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn imgSaveJPG(surfaceHandle: i64, path: string, quality: i32): i32 {
+    pub fn imgSaveJPG(surfaceHandle: i64, path: string, quality: i32): i32 {
         if surfaceHandle == 0 { return -1 }
         IMG_SaveJPG(
             surfaceHandle as *const void,

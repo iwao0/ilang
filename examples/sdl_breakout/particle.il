@@ -8,18 +8,18 @@
 use math
 use rng
 
-class Particle {
-    x: f64
-    y: f64
-    vx: f64
-    vy: f64
-    angle: f64
-    spin: f64
-    life: i32
-    r: u8
-    g: u8
-    b: u8
-    init(x: f64, y: f64, vx: f64, vy: f64, angle: f64, spin: f64,
+pub class Particle {
+    pub x: f64
+    pub y: f64
+    pub vx: f64
+    pub vy: f64
+    pub angle: f64
+    pub spin: f64
+    pub life: i32
+    pub r: u8
+    pub g: u8
+    pub b: u8
+    pub init(x: f64, y: f64, vx: f64, vy: f64, angle: f64, spin: f64,
          life: i32, r: u8, g: u8, b: u8) {
         this.x = x
         this.y = y
@@ -36,16 +36,16 @@ class Particle {
 
 // Floating "+100" text that drifts up from a brick break and
 // fades to nothing.
-class Popup {
-    x: f64
-    y: f64
-    vy: f64
-    life: i32
-    text: string
-    r: u8
-    g: u8
-    b: u8
-    init(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
+pub class Popup {
+    pub x: f64
+    pub y: f64
+    pub vy: f64
+    pub life: i32
+    pub text: string
+    pub r: u8
+    pub g: u8
+    pub b: u8
+    pub init(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
         this.x = x
         this.y = y
         this.vy = -1.6
@@ -61,11 +61,11 @@ class Popup {
 /// step (advance position / spin / life, prune dead entries).
 /// Spawning / drawing the colour-tinted particles still goes
 /// through `spawnParticles` / the renderer in main.il.
-class ParticleSystem {
-    particles: Particle[]
-    popups: Popup[]
+pub class ParticleSystem {
+    pub particles: Particle[]
+    pub popups: Popup[]
 
-    init() {
+    pub init() {
         let p: Particle[] = []
         let pp: Popup[] = []
         this.particles = p
@@ -73,19 +73,19 @@ class ParticleSystem {
     }
 
     /// Spawn a 14-particle burst at `(cx, cy)` tinted `(r, g, b)`.
-    spawn(cx: f64, cy: f64, r: u8, g: u8, b: u8) {
+    pub spawn(cx: f64, cy: f64, r: u8, g: u8, b: u8) {
         spawnParticles(this.particles, cx, cy, r, g, b)
     }
 
     /// Push a "+100"-style floating text popup.
-    spawnPopup(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
+    pub spawnPopup(x: f64, y: f64, text: string, r: u8, g: u8, b: u8) {
         this.popups.push(new Popup(x, y, text, r, g, b))
     }
 
     /// Advance every particle / popup by one frame and prune the
     /// dead. Particles fall under a gentle gravity; popups drift
     /// upward and decelerate.
-    step() {
+    pub step() {
         let aliveP: Particle[] = []
         let i: i64 = 0
         let n: i64 = this.particles.length
@@ -120,7 +120,7 @@ class ParticleSystem {
     }
 
     /// Drop everything (used on game restart).
-    reset() {
+    pub reset() {
         let p: Particle[] = []
         let pp: Popup[] = []
         this.particles = p
@@ -131,7 +131,7 @@ class ParticleSystem {
 /// Burst 14 colour-tinted particles outward from `(cx, cy)`, mixing
 /// random angles, speeds and spins so the cloud doesn't move
 /// uniformly.
-fn spawnParticles(particles: Particle[], cx: f64, cy: f64,
+pub fn spawnParticles(particles: Particle[], cx: f64, cy: f64,
                   r: u8, g: u8, b: u8) {
     let n: i32 = 14
     let i: i32 = 0

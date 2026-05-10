@@ -5,6 +5,7 @@ pub mod loader;
 mod normalize;
 mod parser;
 mod stmt;
+mod visibility;
 
 use ilang_ast::{Expr, Item, Program, Stmt, StmtKind};
 use ilang_lexer::{Token, TokenKind};
@@ -12,7 +13,7 @@ use ilang_lexer::{Token, TokenKind};
 pub use error::ParseError;
 
 use parser::{ExprEnd, Parser};
-use stmt::parse_let_stmt;
+use stmt::{parse_let_stmt, parse_top_level_let};
 
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
     let mut p = Parser { tokens, pos: 0, pending_close_gt: 0 };
@@ -43,6 +44,15 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
     loop {
         match &p.peek().kind {
             TokenKind::Eof => break,
+            TokenKind::Pub
+                if matches!(
+                    p.tokens.get(p.pos + 1).map(|t| &t.kind),
+                    Some(TokenKind::Let)
+                ) =>
+            {
+                let s = parse_top_level_let(p)?;
+                stmts.push(s);
+            }
             TokenKind::At
             | TokenKind::Fn
             | TokenKind::Class
