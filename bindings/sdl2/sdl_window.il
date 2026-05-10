@@ -370,6 +370,21 @@ pub enum GLProfile: i32 {
             }
         }
 
+        /// Internal "wrap an existing handle" init. Distinguished
+        /// from the public ones by its single-i64 signature — the
+        /// other inits all start with the title string. Used only
+        /// by `Window.fromHandle(...)`.
+        pub init(handle: i64) {
+            this.handle = handle
+        }
+
+        /// Wrap a raw `*SDL_Window` (cast to i64) returned by
+        /// another module (e.g. `sdl_shape.createShapedWindow`).
+        /// Takes ownership: `deinit` will call `SDL_DestroyWindow`.
+        pub static fromHandle(handle: i64): Window {
+            new Window(handle)
+        }
+
         // ─── identity / state ────────────────────────────────────
 
         /// Per-instance window id (used by `SDL_Event.windowID`).
@@ -857,27 +872,29 @@ pub enum GLProfile: i32 {
         SDL_GL_GetProcAddress(cstrFromString(proc)) as i64
     }
 
-    /// Create a GL context bound to `windowHandle`. The window
-    /// must have been created with `WindowFlag.openGL`.
+    /// Create a GL context bound to `window`. The window must
+    /// have been created with `WindowFlag.openGL`.
     ///
     /// Args:
-    ///   windowHandle — `*SDL_Window` cast to i64 (e.g. `w.handle`).
+    ///   window — the parent window.
     ///
     /// Returns:
     ///   raw `SDL_GLContext` cast to i64. `0` on failure.
-    pub fn glCreateContext(windowHandle: i64): i64 {
-        SDL_GL_CreateContext(windowHandle as *SDL_Window) as i64
+    pub fn glCreateContext(window: Window): i64 {
+        if window.handle == 0 { return 0 }
+        SDL_GL_CreateContext(window.handle as *SDL_Window) as i64
     }
 
-    /// Bind `context` as the current GL context for
-    /// `windowHandle`. Call once per window after creation, and
-    /// again whenever switching between contexts.
+    /// Bind `context` as the current GL context for `window`.
+    /// Call once per window after creation, and again whenever
+    /// switching between contexts.
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    pub fn glMakeCurrent(windowHandle: i64, context: i64): i32 {
+    pub fn glMakeCurrent(window: Window, context: i64): i32 {
+        if window.handle == 0 { return -1 }
         SDL_GL_MakeCurrent(
-            windowHandle as *SDL_Window, context as *SDL_GLContext
+            window.handle as *SDL_Window, context as *SDL_GLContext
         )
     }
 
@@ -896,19 +913,22 @@ pub enum GLProfile: i32 {
     /// window's logical size on HiDPI displays.
     ///
     /// Args:
-    ///   windowHandle — `*SDL_Window` cast to i64.
-    ///   wOut, hOut    — 1-element i32 arrays to receive the
-    ///                  width / height.
-    pub fn glGetDrawableSize(windowHandle: i64, wOut: i32[], hOut: i32[]) {
+    ///   window     — the GL window.
+    ///   wOut, hOut — 1-element i32 arrays to receive the
+    ///                width / height.
+    pub fn glGetDrawableSize(window: Window, wOut: i32[], hOut: i32[]) {
+        if window.handle == 0 { return }
         let pw: *i32 = wOut
         let ph: *i32 = hOut
-        SDL_GL_GetDrawableSize(windowHandle as *SDL_Window, pw, ph)
+        SDL_GL_GetDrawableSize(window.handle as *SDL_Window, pw, ph)
     }
 
     /// Present the back buffer to the screen. Call once per
     /// rendered frame.
-    pub fn glSwapWindow(windowHandle: i64) {
-        SDL_GL_SwapWindow(windowHandle as *SDL_Window)
+    pub fn glSwapWindow(window: Window) {
+        if window.handle != 0 {
+            SDL_GL_SwapWindow(window.handle as *SDL_Window)
+        }
     }
 
     /// Destroy a GL context.

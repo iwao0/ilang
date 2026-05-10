@@ -5,6 +5,8 @@
 // custom buttons / colour schemes — building the
 // `SDL_MessageBoxData` structure is fiddly so we don't wrap it.
 
+use sdl_window { Window }
+
 /// `SDL_MessageBoxFlags` — visual style of the dialog. Use these
 /// with `showSimpleMessageBox`. SDL ignores the flag on platforms
 /// whose native dialog has no equivalent (e.g. KDE simple
@@ -18,33 +20,38 @@ pub enum MessageBoxFlag: u32 {
 }
 
 @extern(C) {
-    /// Show a single-button modal dialog and block until it
-    /// closes.
-    ///
-    /// Args:
-    ///   flags         — `MessageBoxFlag.*` (info / warning / error
-    ///                   icon).
-    ///   title         — dialog title bar text.
-    ///   message       — dialog body text.
-    ///   windowHandle  — `*SDL_Window` cast to i64 to make the box
-    ///                   modal to that window. Pass `0` for a
-    ///                   detached system-modal dialog.
+    /// Raw SDL2 binding. Most callers want
+    /// `showSimpleMessageBox(...)` (Window-typed) instead — this
+    /// stays public so power users can pass a raw window pointer
+    /// (`0` for "system-modal, no parent").
     @lib("SDL2") pub fn SDL_ShowSimpleMessageBox(
         flags: u32, title: *const char, message: *const char,
         window: *void
     ): i32
 
+    /// Show a single-button modal dialog and block until it
+    /// closes.
+    ///
+    /// Args:
+    ///   flags   — `MessageBoxFlag.*` (info / warning / error icon).
+    ///   title   — dialog title bar text.
+    ///   message — dialog body text.
+    ///   parent  — when `some(window)`, the dialog is modal to
+    ///             that window; when `none`, the dialog is
+    ///             system-modal with no parent.
+    ///
     /// Returns:
     ///   `0` on success, `< 0` on failure (call `sdl.getError()`).
     pub fn showSimpleMessageBox(
         flags: MessageBoxFlag, title: string, message: string,
-        windowHandle: i64
+        parent: Window?
     ): i32 {
+        let h: i64 = if let some(w) = parent { w.handle } else { 0 }
         SDL_ShowSimpleMessageBox(
             flags as u32,
             cstrFromString(title),
             cstrFromString(message),
-            windowHandle as *void
+            h as *void
         )
     }
 

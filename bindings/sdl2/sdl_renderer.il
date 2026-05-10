@@ -1046,6 +1046,35 @@ pub enum RendererFlip: i32 {
             }
         }
 
+        /// Internal "wrap an existing handle" init. Distinguished
+        /// from the public ones by its (i64, i32, i32) signature
+        /// — none of the public inits have a non-Object first
+        /// argument. Used only by `Texture.fromHandle(...)`.
+        pub init(handle: i64, w: i32, h: i32) {
+            this.handle = handle
+            this.width = w
+            this.height = h
+        }
+
+        /// Wrap a raw `*SDL_Texture` (cast to i64) returned by
+        /// another module (e.g. `sdl_image.imgLoadTexture`,
+        /// `sdl_ttf` rendering). Takes ownership: `deinit` will
+        /// call `SDL_DestroyTexture`. Width / height are queried
+        /// from SDL since the caller doesn't always know them.
+        /// Pass `0` to construct a "dead" Texture (every method
+        /// short-circuits on `handle == 0`).
+        pub static fromHandle(handle: i64): Texture {
+            if handle == 0 {
+                return new Texture(0 as i64, 0 as i32, 0 as i32)
+            }
+            let fmt: u32[] = [0 as u32]
+            let access: i32[] = [0]
+            let w: i32[] = [0]
+            let h: i32[] = [0]
+            SDL_QueryTexture(handle as *SDL_Texture, fmt, access, w, h)
+            new Texture(handle, w[0], h[0])
+        }
+
         /// SDL_QueryTexture in one shot — format / access / w / h.
         pub query(): TextureInfo {
             let fmt: u32[] = [0 as u32]
@@ -1160,9 +1189,9 @@ pub enum RendererFlip: i32 {
     /// Build a custom `SDL_BlendMode` from explicit blend factors
     /// and operations. The returned value plugs into
     /// `Renderer.setBlendMode` / `Texture.setBlendMode` /
-    /// `sdl_surface.setSurfaceBlendMode` exactly the same way as
-    /// the canned modes (`0` = none, `1` = blend, `2` = add,
-    /// `4` = mod, `8` = mul).
+    /// `Surface.setBlendMode` exactly the same way as the canned
+    /// modes (`0` = none, `1` = blend, `2` = add, `4` = mod,
+    /// `8` = mul).
     ///
     /// Args:
     ///   srcColor   — factor for the incoming RGB.

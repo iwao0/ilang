@@ -7,8 +7,9 @@
 //
 // Render fns produce `*SDL_Surface` (CPU-side bitmaps). Convert
 // to a GPU `Texture` for fast on-screen drawing via
-// `Texture.fromSurface(renderer, surfaceHandle)` and free the
-// surface with `sdl_surface.freeSurface(handle)` afterwards.
+// `Texture.fromSurface(renderer, surfaceHandle)`, or wrap the
+// raw handle in `sdl_surface.Surface.fromHandle(...)` for
+// ARC-managed lifetime.
 
 use sdl_core { Color, Size }
 
@@ -94,8 +95,9 @@ pub class GlyphMetrics {
     // ─── rendering (each returns a fresh SDL_Surface*) ───────────
     // Returning `i64` (not `*SDL_Surface`) keeps this module
     // independent of `sdl_surface.il`'s struct layout — callers
-    // pass the i64 to `sdl_surface.freeSurface` / texture
-    // constructors as appropriate.
+    // either pass the i64 straight to `Texture.fromSurface(...)`
+    // or wrap with `sdl_surface.Surface.fromHandle(...)` for ARC
+    // lifetime management.
     @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Solid(
         font: *TTF_Font, text: *const char, fg: Color
     ): i64
@@ -346,8 +348,9 @@ pub class GlyphMetrics {
         ///
         /// Returns:
         ///   raw `*SDL_Surface` cast to i64, ready for
-        ///   `Texture.fromSurface(...)` or `sdl_surface.freeSurface`.
-        ///   `0` on failure (call `getError()`).
+        ///   `Texture.fromSurface(...)` or
+        ///   `sdl_surface.Surface.fromHandle(...)`. `0` on failure
+        ///   (call `getError()`).
         pub renderSolid(text: string, fg: Color): i64 {
             if this.handle == 0 { return 0 }
             TTF_RenderUTF8_Solid(

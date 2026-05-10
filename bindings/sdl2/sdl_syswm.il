@@ -15,7 +15,7 @@
 // accessors (`getCocoaWindow`, `getWin32Hwnd`, …) which guard
 // the read on the recorded `subsystem`.
 
-use sdl_window { SDL_Window }
+use sdl_window { Window, SDL_Window }
 
 /// `SDL_SYSWM_TYPE` — which platform / windowing system the
 /// `info` payload was filled in for. Read back from
@@ -73,21 +73,21 @@ pub enum SubSystem: u32 {
 
     // ─── friendlier ilang wrappers ───────────────────────────────
 
-    /// Pull the native window-manager info for `windowHandle`.
+    /// Pull the native window-manager info for `window`.
     /// Initialises the `version` field with `2.0.0` so SDL agrees
     /// to populate the rest.
     ///
     /// Args:
-    ///   windowHandle — `*SDL_Window` cast to i64.
+    ///   window — the SDL `Window` whose native handle to fetch.
     ///
     /// Returns:
     ///   a freshly populated `SDL_SysWMinfo`, or one with
     ///   `subsystem == SubSystem.unknown` if the call failed
-    ///   (typically because `windowHandle` is `0` or SDL's
+    ///   (typically because the window's handle is `0` or SDL's
     ///   binary-compat check rejected our version).
-    pub fn getWindowWMInfo(windowHandle: i64): SDL_SysWMinfo {
+    pub fn getWindowWMInfo(window: Window): SDL_SysWMinfo {
         let info = new SDL_SysWMinfo()
-        if windowHandle == 0 {
+        if window.handle == 0 {
             return info
         }
         // SDL's compat gate accepts any major == 2 build; the
@@ -96,7 +96,7 @@ pub enum SubSystem: u32 {
         info.versionMajor = 2 as u8
         info.versionMinor = 0 as u8
         info.versionPatch = 0 as u8
-        let ok = SDL_GetWindowWMInfo(windowHandle as *SDL_Window, info)
+        let ok = SDL_GetWindowWMInfo(window.handle as *SDL_Window, info)
         if ok == 0 as u8 {
             // Reset subsystem so callers see `unknown` rather than
             // whatever stale bytes happened to be in `info`.

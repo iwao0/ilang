@@ -11,9 +11,9 @@
 //   sdl.setWindowShape(win, shape, sdl.binarizeMode(128))
 //   ... event loop ...
 
-use sdl_window { SDL_Window }
+use sdl_window { Window, SDL_Window }
 use sdl_core { Color }
-use sdl_surface { SDL_Surface }
+use sdl_surface { Surface, SDL_Surface }
 
 /// `WindowShapeMode` — how the shape surface's pixels translate
 /// to opaque vs. cut-out regions.
@@ -37,7 +37,7 @@ pub enum WindowShapeModeKind: i32 {
     /// constructors `binarizeMode` / `reverseBinarizeMode` /
     /// `colorKeyMode` rather than building one by hand.
     pub struct WindowShapeMode {
-        mode: i32
+        mode: WindowShapeModeKind
         params0: u8
         params1: u8
         params2: u8
@@ -65,7 +65,7 @@ pub enum WindowShapeModeKind: i32 {
     /// are cut-out.
     pub fn binarizeMode(cutoff: u8): WindowShapeMode {
         let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.binarizeAlpha as i32
+        m.mode = WindowShapeModeKind.binarizeAlpha
         m.params0 = cutoff
         m
     }
@@ -74,7 +74,7 @@ pub enum WindowShapeModeKind: i32 {
     /// window.
     pub fn reverseBinarizeMode(cutoff: u8): WindowShapeMode {
         let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.reverseBinarizeAlpha as i32
+        m.mode = WindowShapeModeKind.reverseBinarizeAlpha
         m.params0 = cutoff
         m
     }
@@ -84,7 +84,7 @@ pub enum WindowShapeModeKind: i32 {
     /// where alpha isn't the right discriminator.
     pub fn colorKeyMode(colorKey: Color): WindowShapeMode {
         let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.colorKey as i32
+        m.mode = WindowShapeModeKind.colorKey
         m.params0 = colorKey.r
         m.params1 = colorKey.g
         m.params2 = colorKey.b
@@ -106,50 +106,49 @@ pub enum WindowShapeModeKind: i32 {
     ///   flags         — `WindowFlag.*` mask (see `sdl_window.il`).
     pub fn createShapedWindow(
         title: string, x: u32, y: u32, w: u32, h: u32, flags: u32
-    ): i64 {
-        SDL_CreateShapedWindow(
+    ): Window {
+        let h = SDL_CreateShapedWindow(
             cstrFromString(title), x, y, w, h, flags
         ) as i64
+        Window.fromHandle(h)
     }
 
     /// Returns:
-    ///   true if `windowHandle` was created via
-    ///   `createShapedWindow`. Plain `SDL_CreateWindow` results
-    ///   are *not* shapeable.
-    pub fn isShapedWindow(windowHandle: i64): bool {
-        if windowHandle == 0 { return false }
-        SDL_IsShapedWindow(windowHandle as *SDL_Window) != 0 as u8
+    ///   true if `window` was created via `createShapedWindow`.
+    ///   Plain `SDL_CreateWindow` results are *not* shapeable.
+    pub fn isShapedWindow(window: Window): bool {
+        if window.handle == 0 { return false }
+        SDL_IsShapedWindow(window.handle as *SDL_Window) != 0 as u8
     }
 
     /// Apply a shape mask to a shaped window.
     ///
     /// Args:
-    ///   windowHandle  — `*SDL_Window` cast to i64.
-    ///   shapeHandle   — `*SDL_Surface` cast to i64. The surface's
-    ///                   pixels (filtered through `mode`) define
-    ///                   which window pixels stay visible.
-    ///   mode          — see `binarizeMode` / `reverseBinarizeMode`
-    ///                   / `colorKeyMode`.
+    ///   window — the shaped window to mask.
+    ///   shape  — surface whose pixels (filtered through `mode`)
+    ///            define which window pixels stay visible.
+    ///   mode   — see `binarizeMode` / `reverseBinarizeMode` /
+    ///            `colorKeyMode`.
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure (call `sdl.getError()`).
     pub fn setWindowShape(
-        windowHandle: i64, shapeHandle: i64, mode: WindowShapeMode
+        window: Window, shape: Surface, mode: WindowShapeMode
     ): i32 {
-        if windowHandle == 0 || shapeHandle == 0 { return -1 }
+        if window.handle == 0 || shape.handle == 0 { return -1 }
         SDL_SetWindowShape(
-            windowHandle as *SDL_Window,
-            shapeHandle as *SDL_Surface,
+            window.handle as *SDL_Window,
+            shape.handle as *SDL_Surface,
             mode
         )
     }
 
-    /// Read back the shape mode in effect for `windowHandle`.
-    /// The mode is written into `out` (caller-allocated). Returns
-    /// `0` on success, `< 0` if `windowHandle` isn't shaped or
-    /// hasn't had a shape set yet.
-    pub fn getShapedWindowMode(windowHandle: i64, out: WindowShapeMode): i32 {
-        if windowHandle == 0 { return -1 }
-        SDL_GetShapedWindowMode(windowHandle as *SDL_Window, out)
+    /// Read back the shape mode in effect for `window`. The mode
+    /// is written into `out` (caller-allocated). Returns `0` on
+    /// success, `< 0` if `window` isn't shaped or hasn't had a
+    /// shape set yet.
+    pub fn getShapedWindowMode(window: Window, out: WindowShapeMode): i32 {
+        if window.handle == 0 { return -1 }
+        SDL_GetShapedWindowMode(window.handle as *SDL_Window, out)
     }
 }

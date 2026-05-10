@@ -5,7 +5,8 @@
 // after `sdl.init(...)`, tear down with `imgQuit()` before
 // `sdl.quit()`.
 
-use sdl_renderer { SDL_Renderer, SDL_Texture }
+use sdl_renderer { Renderer, Texture, SDL_Renderer, SDL_Texture }
+use sdl_surface { Surface }
 
 /// `IMG_INIT_*` — bitwise OR of the formats whose decoder support
 /// to initialise. JPG / PNG / TIFF are the common trio; jxl / avif
@@ -29,8 +30,8 @@ pub enum ImgInitFlag: i32 {
     /// Load any supported image format into a fresh `SDL_Surface`.
     /// SDL2_image picks the decoder by sniffing magic bytes, then
     /// falls back to extension. Returns `*SDL_Surface` (cast to
-    /// `i64` so callers can pass through to `Texture.fromSurface`
-    /// / `sdl_surface.freeSurface` without naming the struct).
+    /// `i64`); pass through to `Texture.fromSurface` or wrap with
+    /// `sdl_surface.Surface.fromHandle(...)` for ARC management.
     @lib("SDL2_image") pub fn IMG_Load(file: *const char): i64
 
     /// One-step "load image → upload to GPU texture". Returns
@@ -82,65 +83,64 @@ pub enum ImgInitFlag: i32 {
     }
 
     /// Load an image file (PNG / JPEG / TIFF / WebP / JXL / AVIF)
-    /// into a fresh CPU-side surface.
+    /// into a fresh CPU-side `Surface`.
     ///
     /// Args:
     ///   path — filesystem path.
     ///
     /// Returns:
-    ///   raw `*SDL_Surface` cast to i64. `0` on failure (call
-    ///   `imgGetError()`). Callers free with
-    ///   `sdl_surface.freeSurface(handle)`.
-    pub fn imgLoad(path: string): i64 {
-        IMG_Load(cstrFromString(path))
+    ///   a `Surface` whose `handle` is `0` on failure (call
+    ///   `imgGetError()` for the message).
+    pub fn imgLoad(path: string): Surface {
+        Surface.fromHandle(IMG_Load(cstrFromString(path)))
     }
 
-    /// Convenience: load an image and upload it as a `Texture` on
-    /// `renderer` in one shot — skips the intermediate surface.
+    /// Convenience: load an image and upload it as a `Texture`
+    /// on `renderer` in one shot — skips the intermediate
+    /// surface.
     ///
     /// Args:
-    ///   rendererHandle — `*SDL_Renderer` cast to i64 (e.g.
-    ///                    `r.handle`).
-    ///   path           — filesystem path.
+    ///   renderer — the parent renderer.
+    ///   path     — filesystem path.
     ///
     /// Returns:
-    ///   raw `*SDL_Texture` cast to i64. `0` on failure. Callers
-    ///   pass into a `Texture` wrapper or free directly with
-    ///   `SDL_DestroyTexture` (re-exported from `sdl_renderer.il`).
-    pub fn imgLoadTexture(rendererHandle: i64, path: string): i64 {
-        if rendererHandle == 0 { return 0 }
-        IMG_LoadTexture(
-            rendererHandle as *SDL_Renderer, cstrFromString(path)
+    ///   a `Texture` whose `handle` is `0` on failure.
+    pub fn imgLoadTexture(renderer: Renderer, path: string): Texture {
+        if renderer.handle == 0 {
+            return Texture.fromHandle(0)
+        }
+        let h = IMG_LoadTexture(
+            renderer.handle as *SDL_Renderer, cstrFromString(path)
         ) as i64
+        Texture.fromHandle(h)
     }
 
-    /// Encode an in-memory surface as a PNG file on disk.
+    /// Encode `surface` as a PNG file on disk.
     ///
     /// Args:
-    ///   surfaceHandle — `*SDL_Surface` cast to i64.
-    ///   path          — output filesystem path.
+    ///   surface — source surface.
+    ///   path    — output filesystem path.
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    pub fn imgSavePNG(surfaceHandle: i64, path: string): i32 {
-        if surfaceHandle == 0 { return -1 }
-        IMG_SavePNG(surfaceHandle as *const void, cstrFromString(path))
+    pub fn imgSavePNG(surface: Surface, path: string): i32 {
+        if surface.handle == 0 { return -1 }
+        IMG_SavePNG(surface.handle as *const void, cstrFromString(path))
     }
 
-    /// Encode an in-memory surface as a JPEG file on disk.
+    /// Encode `surface` as a JPEG file on disk.
     ///
     /// Args:
-    ///   surfaceHandle — `*SDL_Surface` cast to i64.
-    ///   path          — output filesystem path.
-    ///   quality       — 0..100 (libjpeg scale; `90` is a sane
-    ///                   default).
+    ///   surface — source surface.
+    ///   path    — output filesystem path.
+    ///   quality — 0..100 (libjpeg scale; `90` is a sane default).
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    pub fn imgSaveJPG(surfaceHandle: i64, path: string, quality: i32): i32 {
-        if surfaceHandle == 0 { return -1 }
+    pub fn imgSaveJPG(surface: Surface, path: string, quality: i32): i32 {
+        if surface.handle == 0 { return -1 }
         IMG_SaveJPG(
-            surfaceHandle as *const void,
+            surface.handle as *const void,
             cstrFromString(path), quality
         )
     }
