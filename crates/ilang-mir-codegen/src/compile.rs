@@ -3949,8 +3949,8 @@ extern "C" fn host_map_values(map: i64) -> i64 {
     build_array(&v, elem_kind)
 }
 
-fn clif_signature_for(
-    module: &JITModule,
+fn clif_signature_for<M: Module>(
+    module: &M,
     f: &MirFunction,
     prog: &Program,
 ) -> Result<Signature, CompileError> {
@@ -4089,7 +4089,7 @@ fn struct_indirect(ty: &MirTy, prog: &Program) -> Option<i64> {
     None
 }
 
-fn lower_function(
+fn lower_function<M: Module>(
     fb: &mut ClifFnBuilder,
     func: &MirFunction,
     fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
@@ -4103,7 +4103,7 @@ fn lower_function(
     print_ids: PrintIds,
     panic_aux: PanicAux,
     print_lits: PrintLits,
-    module: &mut JITModule,
+    module: &mut M,
     prog: &Program,
     class_global: &[u32],
     enum_global: &[u32],
@@ -4209,7 +4209,7 @@ fn lower_function(
     Ok(())
 }
 
-fn lower_inst(
+fn lower_inst<M: Module>(
     fb: &mut ClifFnBuilder,
     inst: &Inst,
     vmap: &mut HashMap<ValueId, Value>,
@@ -4224,7 +4224,7 @@ fn lower_inst(
     print_ids: PrintIds,
     panic_aux: PanicAux,
     print_lits: PrintLits,
-    module: &mut JITModule,
+    module: &mut M,
     locals: &[Variable],
     prog: &Program,
     env_value: Value,
@@ -6146,9 +6146,9 @@ fn lower_const(
 }
 
 /// Print a literal C-string (DataId) via `__print_str`.
-fn emit_print_lit(
+fn emit_print_lit<M: Module>(
     fb: &mut ClifFnBuilder,
-    module: &mut JITModule,
+    module: &mut M,
     print_str: cranelift_module::FuncId,
     msg_data: DataId,
 ) {
@@ -6163,9 +6163,9 @@ fn emit_print_lit(
 /// Emit code that prints `value` of static type `ty`. Recurses into
 /// composite types (Optional, Tuple, Array). For Map/Object/Closure/
 /// Weak/Enum we fall back to printing the raw pointer (limited).
-fn emit_print_value(
+fn emit_print_value<M: Module>(
     fb: &mut ClifFnBuilder,
-    module: &mut JITModule,
+    module: &mut M,
     print_ids: PrintIds,
     print_lits: PrintLits,
     ty: &MirTy,
@@ -6331,9 +6331,9 @@ fn emit_print_value(
 
 /// Emit `if cond_truthy { call __ilang_panic(msg); trap } else { fallthrough }`.
 /// `cond` must be an i8 boolean (1 = panic). Used for div/0, OOB, unwrap-None.
-fn emit_panic_if(
+fn emit_panic_if<M: Module>(
     fb: &mut ClifFnBuilder,
-    module: &mut JITModule,
+    module: &mut M,
     panic_fn: cranelift_module::FuncId,
     msg_data: DataId,
     cond: Value,
