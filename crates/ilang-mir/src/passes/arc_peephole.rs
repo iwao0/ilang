@@ -27,11 +27,19 @@ use crate::program::{Function, Program};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
+    /// Pairs removed by the intra-block peephole.
+    pub intra_block: usize,
+    /// Pairs removed by the single-pred chain walker.
+    pub chain: usize,
+    /// `intra_block + chain` — kept for backwards compatibility with
+    /// the unit tests that read this field directly.
     pub pairs_removed: usize,
 }
 
 impl std::ops::AddAssign for Stats {
     fn add_assign(&mut self, rhs: Self) {
+        self.intra_block += rhs.intra_block;
+        self.chain += rhs.chain;
         self.pairs_removed += rhs.pairs_removed;
     }
 }
@@ -52,6 +60,8 @@ pub fn run_function(func: &mut Function) -> Stats {
         let intra = run_intra_block(func);
         let cross = run_extended_bb(func);
         let pass = intra.pairs_removed + cross.pairs_removed;
+        total.intra_block += intra.pairs_removed;
+        total.chain += cross.pairs_removed;
         total.pairs_removed += pass;
         if pass == 0 {
             break;

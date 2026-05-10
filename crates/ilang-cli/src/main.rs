@@ -724,7 +724,24 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        ilang_mir::passes::arc_peephole::run_program(&mut mir);
+        if std::env::var_os("ILANG_MIR_DUMP").is_some() {
+            eprintln!("--- MIR (post-lower, pre-pass) ---\n{}\n--- end MIR ---",
+                ilang_mir::print_program(&mir));
+        }
+        let dump_stats = std::env::var_os("ILANG_MIR_PASS_STATS").is_some();
+        let (retains_before, releases_before) = if dump_stats {
+            count_retain_release(&mir)
+        } else {
+            (0, 0)
+        };
+        let arc_stats = ilang_mir::passes::arc_peephole::run_program(&mut mir);
+        if dump_stats {
+            let (retains_after, releases_after) = count_retain_release(&mir);
+            eprintln!(
+                "{display_path}: arc_peephole retains={retains_before}->{retains_after} releases={releases_before}->{releases_after} intra={} chain={}",
+                arc_stats.intra_block, arc_stats.chain
+            );
+        }
         let compiled = match ilang_mir_codegen::compile_program(&mir) {
             Ok(c) => c,
             Err(e) => {
@@ -860,6 +877,23 @@ fn collect_dep_paths(entry: &PathBuf) -> Result<Vec<PathBuf>, String> {
         out.push(canon);
     }
     Ok(out)
+}
+
+fn count_retain_release(prog: &ilang_mir::Program) -> (usize, usize) {
+    let mut retains = 0;
+    let mut releases = 0;
+    for f in &prog.functions {
+        for block in &f.blocks {
+            for inst in &block.insts {
+                match inst {
+                    ilang_mir::Inst::Retain { .. } => retains += 1,
+                    ilang_mir::Inst::Release { .. } => releases += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+    (retains, releases)
 }
 
 fn find_project_file(start: &std::path::Path) -> Option<PathBuf> {
