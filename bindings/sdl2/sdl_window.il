@@ -833,7 +833,7 @@ pub enum SubSystem: u32 {
         ///   true if this window was created via
         ///   `Window.createShaped(...)`. Plain `new Window(...)`
         ///   results are *not* shapeable.
-        pub isShaped(): bool {
+        pub get isShaped(): bool {
             if this.handle == 0 { return false }
             SDL_IsShapedWindow(this.handle as *SDL_Window) != 0 as u8
         }
