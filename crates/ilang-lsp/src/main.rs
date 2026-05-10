@@ -2758,6 +2758,26 @@ fn discriminant_literal_text(src: &str, v_span: Span) -> Option<String> {
     while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
         i += 1;
     }
+    // String discriminant: `= "literal"` for `: string`-repr
+    // enums. Capture the entire quoted span (including the
+    // surrounding quotes) so hover shows `= "SDL_AUDIO"`
+    // verbatim.
+    if i < bytes.len() && bytes[i] == b'"' {
+        let start = i;
+        i += 1;
+        while i < bytes.len() && bytes[i] != b'"' {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        if i < bytes.len() && bytes[i] == b'"' {
+            i += 1;
+            return std::str::from_utf8(&bytes[start..i]).ok().map(|s| s.to_string());
+        }
+        return None;
+    }
     let start = i;
     if i < bytes.len() && bytes[i] == b'-' {
         i += 1;
@@ -5587,6 +5607,72 @@ mod organize_imports_tests {
             out.starts_with("use math\nuse test\nfn foo() {}\nuse later\n"),
             "out:\n{out}"
         );
+    }
+}
+
+#[cfg(test)]
+mod discriminant_literal_text_tests {
+    use super::*;
+    use ilang_lexer::tokenize;
+    use ilang_parser::parse;
+
+    fn span_of_first_variant(src: &str) -> Span {
+        let toks = tokenize(src).expect("lex");
+        let prog = parse(&toks).expect("parse");
+        for it in &prog.items {
+            if let Item::Enum(e) = it {
+                return e.variants[0].span;
+            }
+        }
+        panic!("no enum");
+    }
+
+    #[test]
+    fn integer_literal() {
+        let src = "enum X: i32 { foo = 0x10 }";
+        let span = span_of_first_variant(src);
+        assert_eq!(discriminant_literal_text(src, span).unwrap(), "0x10");
+    }
+
+    #[test]
+    fn integer_underscore_separator() {
+        let src = "enum X: i64 { foo = 1_000 }";
+        let span = span_of_first_variant(src);
+        assert_eq!(discriminant_literal_text(src, span).unwrap(), "1_000");
+    }
+
+    #[test]
+    fn negative_integer() {
+        let src = "enum X: i32 { foo = -1 }";
+        let span = span_of_first_variant(src);
+        assert_eq!(discriminant_literal_text(src, span).unwrap(), "-1");
+    }
+
+    #[test]
+    fn string_literal() {
+        let src = "enum X: string { foo = \"SDL_HINT_AUDIO\" }";
+        let span = span_of_first_variant(src);
+        assert_eq!(
+            discriminant_literal_text(src, span).unwrap(),
+            "\"SDL_HINT_AUDIO\""
+        );
+    }
+
+    #[test]
+    fn string_literal_with_long_alignment_spaces() {
+        let src = "enum X: string {\n    audioResamplingMode               = \"SDL_AUDIO_RESAMPLING_MODE\"\n}\n";
+        let span = span_of_first_variant(src);
+        assert_eq!(
+            discriminant_literal_text(src, span).unwrap(),
+            "\"SDL_AUDIO_RESAMPLING_MODE\""
+        );
+    }
+
+    #[test]
+    fn no_explicit_discriminant() {
+        let src = "enum X { foo, bar }";
+        let span = span_of_first_variant(src);
+        assert_eq!(discriminant_literal_text(src, span), None);
     }
 }
 
