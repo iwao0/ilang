@@ -301,7 +301,7 @@ pub struct UseDecl {
     /// `None` for whole-module import (`use utils`); `Some(names)`
     /// for selective import (`use utils { foo, bar }`).
     pub selective: Option<Box<[Symbol]>>,
-    /// `@export use mod` — re-export `mod`'s items under the current
+    /// `pub use mod` — re-export `mod`'s items under the current
     /// module's namespace. Inside the entrypoint program this flag
     /// has no effect (no parent prefix to re-export under).
     pub re_export: bool,

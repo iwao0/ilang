@@ -14,7 +14,7 @@ pub enum ParseError {
     InvalidAssignTarget { span: Span },
     /// `new module.Class(...)` or `let x: module.Class` referencing
     /// a module that this file didn't `use`. Allowing the reference
-    /// would let an umbrella's `@export use` chain leak items into
+    /// would let an umbrella's `pub use` chain leak items into
     /// every module merged under the same prefix, even ones that
     /// never opted in.
     #[error("{span}: cannot reference {module:?}.{item:?} — this file does not `use {module:?}`")]

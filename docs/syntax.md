@@ -1283,11 +1283,12 @@ utils.double(c.get())            // → 22
   - `use module` — namespaced reference (`module.foo()`,
     `new module.Class()`, `module.Enum.variant`).
   - `use module { name1, name2 }` — selective import (used by
-    bare name). Selective import follows `@export use` chains, so
+    bare name). Selective import follows `pub use` chains, so
     `use sdl { InitFlag }` resolves `InitFlag` even when it's
     declared in `sdl_core` and re-exported by the umbrella `sdl`
     module.
-- All top-level items are **public** (no visibility keywords).
+- All top-level items are **public** by default. `pub` is
+  currently only meaningful on `use` (see `pub use` below).
 - Circular imports (`A → B → A`) are rejected as a DAG cycle.
 - Loading the same module multiple times is a no-op (deduped by
   file path).
@@ -1300,18 +1301,18 @@ utils.double(c.get())            // → 22
   and are preferred over disk lookup. Today these are `math`,
   `os`, `test`.
 
-### `@export use` (re-export, umbrella modules)
+### `pub use` (re-export, umbrella modules)
 
-`@export use other_module` inside a module re-exposes
+`pub use other_module` inside a module re-exposes
 `other_module`'s items under the *current* module's namespace.
 Useful for umbrella files that bundle several small modules:
 
 ```ilang
 // sdl.il (umbrella)
-@export use sdl_core
-@export use sdl_window
-@export use sdl_renderer
-@export use sdl_audio
+pub use sdl_core
+pub use sdl_window
+pub use sdl_renderer
+pub use sdl_audio
 
 // main.il
 use sdl
@@ -1320,11 +1321,15 @@ new sdl.Window(...)             // from sdl_window
 ren.fillRect(...)               // method from sdl_renderer
 ```
 
-Without `@export`, a nested `use sdl_window` inside `sdl.il` would
+Without `pub`, a nested `use sdl_window` inside `sdl.il` would
 expose those items as `sdl_window.*` even when callers say
-`use sdl`. The `@export` form re-prefixes them under `sdl.*`. At
-the entry point (no parent module) `@export use` is a regular
+`use sdl`. The `pub use` form re-prefixes them under `sdl.*`. At
+the entry point (no parent module) `pub use` is a regular
 nested `use`.
+
+`pub` is currently only valid before `use`. It may extend to
+`fn`/`class` later for finer-grained visibility, but today every
+top-level item is public by default.
 
 ### `ilang.toml` project file
 

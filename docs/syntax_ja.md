@@ -1021,13 +1021,33 @@ utils.double(c.get())            // → 22
 
 - **2 形式**:
   - `use module` — 名前空間越し参照 (`module.foo()`, `new module.Class()`, `module.Enum.variant`)
-  - `use module { name1, name2 }` — 個別取り込み (ベアネームで使う)。`@export use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
-- すべての top-level item は **public** (可視性キーワードなし)
+  - `use module { name1, name2 }` — 個別取り込み (ベアネームで使う)。`pub use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
+- すべての top-level item はデフォルトで **public**。`pub` キーワードは現状 `use` の前にだけ書けて、再エクスポート (`pub use`) を意味する
 - 循環インポート (`A → B → A`) は **DAG 検出してエラー**
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
 - 全モジュールが 1 つの Program にマージされる (ファイル境界は型チェッカ以降は意識されない)
 - 名前空間越し import の中身は `module.X` プレフィクスで内部識別されるため、`use module` した時に親プログラムの bare 名と衝突しない
 - **同梱モジュール**: 一部のモジュールはコンパイラに埋め込まれており、ディスクの探索より優先される。現状は `math` のみ。
+
+#### `pub use` (再エクスポート / umbrella モジュール)
+
+`pub use other_module` をモジュール内に書くと、`other_module` の item を **現在のモジュールの名前空間** で再公開する。複数の小さなモジュールを束ねる umbrella ファイル用:
+
+```rust
+// sdl.il (umbrella)
+pub use sdl_core
+pub use sdl_window
+pub use sdl_renderer
+
+// main.il
+use sdl
+sdl.init(sdl.INIT_VIDEO)        // sdl_core 由来
+new sdl.Window(...)             // sdl_window 由来
+```
+
+`pub` を付けずに `use sdl_window` を `sdl.il` 内に書くと、呼び出し側が `use sdl` していても `sdl_window.*` のままになる。`pub use` は `sdl.*` 配下に再プレフィクスする。エントリポイント (親モジュールがない) では `pub use` は普通の入れ子 `use` と同じ。
+
+`pub` は今のところ `use` の前にしか書けない。将来 `fn`/`class` などへの拡張は未定。
 
 ### `@extern(C) { ... }` — FFI ブロック
 

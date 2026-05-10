@@ -48,6 +48,7 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
             | TokenKind::Class
             | TokenKind::Enum
             | TokenKind::Use
+            | TokenKind::Pub
             | TokenKind::Const => {
                 let item = p.parse_item()?;
                 items.push(item);

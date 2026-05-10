@@ -174,10 +174,10 @@ pub fn load_program_with_overlay(
     // exactly once; `apply_use` enforces the once-only via `applied`.
     merged.stmts.extend(entry_stmts);
     // Apply rename rules accumulated from selective imports that
-    // resolved through `@export use` chains. Each rule maps a bare
+    // resolved through `pub use` chains. Each rule maps a bare
     // imported name (e.g. `InitFlag` from `use sdl { InitFlag }`)
     // to its umbrella-qualified form (`sdl.InitFlag`), which the
-    // umbrella's nested `@export use` already merged into the
+    // umbrella's nested `pub use` already merged into the
     // program. Without the rewrite, bare refs in the entry would
     // resolve to a separate enum / class declaration that the type
     // checker treats as distinct.
@@ -290,7 +290,7 @@ fn parse_file(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program
 fn apply_use(
     u: UseDecl,
     // When `Some(p)`, items from `u`'s module merge under prefix `p`
-    // instead of `u.module`. Used by `@export use M` so M's items
+    // instead of `u.module`. Used by `pub use M` so M's items
     // appear under the re-exporting module's namespace. `None` at
     // the entry-point and on regular nested uses.
     prefix_override: Option<&str>,
@@ -301,7 +301,7 @@ fn apply_use(
     _whole_imports: &mut HashSet<Symbol>,
     applied: &mut HashSet<(PathBuf, String)>,
     // Per-name rewrite rules accumulated by selective imports that
-    // resolve through `@export use` chains. Bare-name `X` refs in
+    // resolve through `pub use` chains. Bare-name `X` refs in
     // the entry's items / stmts / tail get rewritten to the prefixed
     // form `umbrella.X` after all imports are merged, so the bare
     // and prefixed views of the same enum / class / fn line up at
@@ -314,7 +314,7 @@ fn apply_use(
         .to_path_buf();
     let canon = resolve_module(u.module.as_str(), &importer_dir, extra_paths)?;
     // Clone instead of remove — the same module may legitimately be
-    // applied multiple times (e.g. once via @export to publish under
+    // applied multiple times (e.g. once via pub use to publish under
     // an umbrella prefix, and once directly so a sibling module that
     // `use`s it sees the items under the original prefix). Each
     // application targets a distinct effective prefix, so the
@@ -327,7 +327,7 @@ fn apply_use(
         .map(str::to_string)
         .unwrap_or_else(|| u.module.as_str().to_string());
     // If this module's canon is already prefix-merged under some
-    // other prefix (e.g. an umbrella's `@export use` ran first and
+    // other prefix (e.g. an umbrella's `pub use` ran first and
     // exposed the items under `sdl.X`), reuse that prefix for our
     // rename rules instead of producing a parallel `M.X` copy. The
     // umbrella's view and the explicit `use M { X }` view should
@@ -365,7 +365,7 @@ fn apply_use(
     }
 
     // Recursively expand the module's own use items first, into the
-    // module_prog's namespace. `@export use N` propagates the
+    // module_prog's namespace. `pub use N` propagates the
     // current module's effective prefix to N so its items also land
     // under the re-exporting namespace.
     let mut nested_uses = Vec::new();
@@ -377,7 +377,7 @@ fn apply_use(
         }
     }
     module_prog.items = local_items.into();
-    // Keep a copy for the selective branch's `@export use` chain
+    // Keep a copy for the selective branch's `pub use` chain
     // existence check — selective imports may resolve names declared
     // in chained modules rather than this module's own items.
     let nested_uses_for_search: Vec<UseDecl> = nested_uses.clone();
@@ -496,7 +496,7 @@ fn apply_use(
     // to make `effective_prefix.name` actually present in `merged`.
     if let Some(names) = u.selective {
         // Whether the requested names are visible in this module's
-        // local items or any of its `@export use` chains. We need an
+        // local items or any of its `pub use` chains. We need an
         // existence check to surface a load error for typos —
         // skipping the check would silently accept any bare name.
         let mut local_names: HashSet<&str> = HashSet::new();
@@ -803,14 +803,14 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
     }
 }
 
-/// Walk `@export use` chains starting at `module` (resolved relative
+/// Walk `pub use` chains starting at `module` (resolved relative
 /// to `importer_dir`) and return the first item whose bare name
 /// matches `name`. Used by selective import (`use M { X }`) so X can
-/// be a name declared in a module that M re-exports via `@export use`
+/// be a name declared in a module that M re-exports via `pub use`
 /// instead of being declared in M directly.
 ///
 /// `visited` is shared across the walk to avoid revisiting modules in
-/// diamond `@export use` graphs. The returned `Item` is cloned and
+/// diamond `pub use` graphs. The returned `Item` is cloned and
 /// keeps its bare name (the caller pushes it under that name).
 fn find_in_export_chain(
     module: &str,
@@ -851,7 +851,7 @@ fn find_in_export_chain(
             }
         }
     }
-    // Then follow `@export use` re-exports.
+    // Then follow `pub use` re-exports.
     let module_dir = canon
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -2041,12 +2041,12 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
 
 // ─── selective-import rename pass ──────────────────────────────────
 //
-// Selective imports that resolve through `@export use` chains record
+// Selective imports that resolve through `pub use` chains record
 // a `bare → umbrella.bare` rename rule (see `apply_use`). After the
 // loader has merged every imported module, this pass walks the
 // Program and rewrites bare references in the entry's items / stmts
 // / tail to the umbrella-qualified form that the umbrella's nested
-// `@export use` already merged. The rewrite is name-keyed (not
+// `pub use` already merged. The rewrite is name-keyed (not
 // prefix-keyed like `prefix_expr`), so it only fires on the specific
 // names the user imported.
 //

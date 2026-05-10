@@ -48,7 +48,7 @@ pub fn normalize(prog: Program) -> Result<Program, ParseError> {
     let ctx = build_ctx(&prog);
     // Reject `new module.Class()` / `let x: module.Class` whose
     // module prefix this file didn't `use`. Without the check, a
-    // sibling module's `@export use` chain could leak every merged
+    // sibling module's `pub use` chain could leak every merged
     // submodule into a file that never opted in (silent leakage
     // through the umbrella prefix).
     validate_program(&prog, &ctx.modules)?;

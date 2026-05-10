@@ -15,6 +15,30 @@ use crate::stmt::parse_block;
 impl<'a> Parser<'a> {
     pub(crate) fn parse_item(&mut self) -> Result<Item, ParseError> {
         let attrs = self.parse_attributes()?;
+        // `pub use module` — re-export. Today `pub` is only accepted
+        // before `use`; `fn`/`class` may follow later.
+        if matches!(self.peek().kind, TokenKind::Pub) {
+            if !attrs.is_empty() {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: "no attributes are supported on `pub use`".into(),
+                    span: t.span,
+                });
+            }
+            self.bump();
+            let t = self.peek();
+            if !matches!(t.kind, TokenKind::Use) {
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: "'use' (only `pub use module` is supported)".into(),
+                    span: t.span,
+                });
+            }
+            let mut u = self.parse_use_decl()?;
+            u.re_export = true;
+            return Ok(Item::Use(u));
+        }
         match self.peek().kind {
             TokenKind::Fn => {
                 let fn_decl = self.parse_fn_decl(attrs)?;
@@ -60,27 +84,17 @@ impl<'a> Parser<'a> {
                 Ok(Item::Enum(e))
             }
             TokenKind::Use => {
-                // `@export use module` — re-export the module's items
-                // under the current module's namespace. No other
-                // attribute is accepted on `use`.
-                let mut re_export = false;
-                for a in &attrs {
-                    match a.name.as_str() {
-                        "export" if a.args.is_empty() => {
-                            re_export = true;
-                        }
-                        _ => {
-                            let t = self.peek();
-                            return Err(ParseError::Unexpected {
-                                found: t.kind.clone(),
-                                expected: "@export (no other attributes are supported on `use`)".into(),
-                                span: t.span,
-                            });
-                        }
-                    }
+                // Plain `use module`. The re-export form (`pub use ...`)
+                // is handled above before this match.
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "no attributes are supported on `use` (use `pub use` to re-export)".into(),
+                        span: t.span,
+                    });
                 }
-                let mut u = self.parse_use_decl()?;
-                u.re_export = re_export;
+                let u = self.parse_use_decl()?;
                 Ok(Item::Use(u))
             }
             TokenKind::Const => {

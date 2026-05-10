@@ -90,7 +90,7 @@
 
 ### モジュール / プロジェクトファイル
 - `use module` (whole) / `use module { foo, bar }` (selective)
-- **`@export use module`** — re-export(umbrella module を作る用)
+- **`pub use module`** — re-export(umbrella module を作る用)
 - **`ilang.toml`** プロジェクトファイル: `[deps] sdl2 = "path"` で `use` の探索パスを追加。CLI が entry file から上に辿って自動発見
 - `const NAME: T = const_expr` — 算術 / ビット / 比較 / 論理 / `as` キャスト / 他の const 参照を**コンパイル時に折りたたみ**。型注釈付き const は substitute 時に Cast で wrap されて、参照箇所すべてに自動的に型が伝わる
 - 同梱モジュール: `math` (sqrt/sin/cos/pi/e ほか) / `test` (expect/...)、`os` (errno / libLoaded / 定数群)
@@ -149,7 +149,7 @@ interpreter のみ未対応:
 crates/
 ├── ilang-ast/       # AST 定義 (Span 含む)
 ├── ilang-lexer/     # 字句解析 (Token, leading_newline, numeric_suffix)
-├── ilang-parser/    # Pratt 構文解析 + loader (use 解決 / @export use / ilang.toml dep paths) + normalize + const 折りたたみ
+├── ilang-parser/    # Pratt 構文解析 + loader (use 解決 / pub use / ilang.toml dep paths) + normalize + const 折りたたみ
 ├── ilang-types/     # 型チェッカー (overload resolution / mangle / inheritance / closures / @extern(C) コンテキスト)
 ├── ilang-mir/       # AST→MIR (SSA + block-args)、モノモーフィゼーション、validator/printer
 ├── ilang-mir-codegen/ # MIR→Cranelift JIT (デフォルト経路、ARC + FFI + REPL slot)

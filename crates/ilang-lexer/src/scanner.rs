@@ -672,6 +672,7 @@ impl<'a> Lexer<'a> {
             "extends" => TokenKind::Extends,
             "override" => TokenKind::Override,
             "super" => TokenKind::Super,
+            "pub" => TokenKind::Pub,
             _ => TokenKind::Ident(buf),
         }
     }

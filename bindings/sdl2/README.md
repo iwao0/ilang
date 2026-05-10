@@ -7,7 +7,7 @@ ilang interpreter has no dlsym path.
 
 | File | Provides |
 | --- | --- |
-| `sdl.il` | umbrella — `@export use`s every other file under the `sdl.*` namespace |
+| `sdl.il` | umbrella — `pub use`s every other file under the `sdl.*` namespace |
 | `sdl_core.il` | `init` / `quit` / `getError`, `INIT_*` flags |
 | `sdl_window.il` | `class Window` (ARC-managed handle, opens / destroys) |
 | `sdl_renderer.il` | `class Renderer` — `setColor` / `clear` / `fillRect` / `present` |
