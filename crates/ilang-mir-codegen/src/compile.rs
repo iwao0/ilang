@@ -1481,7 +1481,13 @@ extern "C" fn host_release_closure(closure_ptr: i64) {
     if let Some(entries) = entries {
         for (off, kind) in entries.iter() {
             let raw = unsafe { *((closure_ptr + *off) as *const i64) };
-            release_value_by_kind(raw, kind);
+            // Use the rc-aware path so a captured Array / Map /
+            // String / etc. actually decrements its refcount and
+            // frees its backing buffer when this closure was the
+            // last holder. The older `release_value_by_kind` only
+            // walked nested heap elements without dropping the
+            // outer container.
+            release_print_kind(raw, kind);
         }
     }
     // Free the closure cell. Size is keyed off fn_addr — registered

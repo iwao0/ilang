@@ -4923,11 +4923,14 @@ impl<'a> BodyCx<'a> {
             }
             other => other,
         };
-        // Retain every Object capture — the closure shares ownership
-        // with the outer scope, so its captures must outlive any
-        // scope-exit release of the source binding.
+        // Retain every heap-typed capture — the closure shares
+        // ownership with the outer scope, so its captures must
+        // outlive any scope-exit release of the source binding.
+        // Cell captures hold a shared cell pointer (the cell itself
+        // is a heap array allocated for the FnExpr) and are
+        // refcounted at the cell layer separately.
         for (cv, c) in capture_vals.iter().zip(captures.iter()) {
-            if matches!(c.ty, MirTy::Object(_)) && !c.is_cell {
+            if c.ty.is_heap() && !c.is_cell {
                 self.fb.push_inst(Inst::Retain { value: *cv });
             }
         }
