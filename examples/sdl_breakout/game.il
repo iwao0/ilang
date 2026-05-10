@@ -641,7 +641,7 @@ pub class Game {
                         let alpha = (pulse * 220.0) as u8
                         if alpha > 0 as u8 {
                             this.assets.glowTex.setColorMod(br.r, br.g, br.b)
-                            this.assets.glowTex.setAlphaMod(alpha)
+                            this.assets.glowTex.alphaMod = alpha
                             this.renderer.drawTexture(this.assets.glowTex,
                                             br.x - glowPadX + shakeOffX,
                                             br.y - glowPadY + shakeOffY,
@@ -664,7 +664,7 @@ pub class Game {
                     let alpha = (t * 220.0) as u8
                     // Soft bloom (radial gradient) — biggest, dimmest.
                     this.assets.glowTex.setColorMod(br.r, br.g, br.b)
-                    this.assets.glowTex.setAlphaMod((t * 180.0) as u8)
+                    this.assets.glowTex.alphaMod = (t * 180.0) as u8
                     let bw = ((consts.brickW + 2 * glowPadX) as f64) * scale
                     let bh = ((consts.brickH + 2 * glowPadY) as f64) * scale
                     this.renderer.drawTexture(this.assets.glowTex,
@@ -698,14 +698,14 @@ pub class Game {
                 // Outer halo: bigger, lower alpha. Drawn first so the
                 // crisp star sits on top of its glow.
                 let haloA = ((a as i32) / 3) as u8
-                this.assets.starTex.setAlphaMod(haloA)
+                this.assets.starTex.alphaMod = haloA
                 let haloSize: i32 = 56
                 this.renderer.drawTextureRot(this.assets.starTex,
                                    (p.x as i32) - haloSize / 2 + shakeOffX,
                                    (p.y as i32) - haloSize / 2 + shakeOffY,
                                    haloSize, haloSize, p.angle)
                 // Sharp star body (2× the previous 16px).
-                this.assets.starTex.setAlphaMod(a)
+                this.assets.starTex.alphaMod = a
                 let size: i32 = 32
                 this.renderer.drawTextureRot(this.assets.starTex,
                                    (p.x as i32) - size / 2 + shakeOffX,
@@ -903,7 +903,7 @@ pub class Game {
             // channel and offset slightly. Pixel overlap reproduces the
             // original colour; high-contrast edges (including text)
             // show RGB fringing.
-            this.assets.sceneTex.setBlendMode(2)   // SDL_BLENDMODE_ADD
+            this.assets.sceneTex.blendMode = 2     // SDL_BLENDMODE_ADD
             let chroma: i32 = 3
             this.assets.sceneTex.setColorMod(255 as u8, 0 as u8, 0 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, -chroma, 0, consts.winW, consts.winH)
@@ -912,7 +912,7 @@ pub class Game {
             this.assets.sceneTex.setColorMod(0 as u8, 0 as u8, 255 as u8)
             this.renderer.drawTexture(this.assets.sceneTex, chroma, 0, consts.winW, consts.winH)
             // Restore for next frame's setTarget pass.
-            this.assets.sceneTex.setBlendMode(1)   // SDL_BLENDMODE_BLEND
+            this.assets.sceneTex.blendMode = 1     // SDL_BLENDMODE_BLEND
             this.assets.sceneTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // ─── bloom: additively overlay the upscaled blurred
@@ -921,11 +921,11 @@ pub class Game {
             // whole bloom contribution via colour-mod so mid-brightness
             // pixels don't push the composite to white. The result is
             // a soft glow only on the hottest parts of the scene.
-            this.assets.bloomTex.setBlendMode(2)
+            this.assets.bloomTex.blendMode = 2
             this.assets.bloomTex.setColorMod(60 as u8, 60 as u8, 60 as u8)
-            this.assets.bloomTex.setAlphaMod(255 as u8)
+            this.assets.bloomTex.alphaMod = 255 as u8
             this.renderer.drawTexture(this.assets.bloomTex, 0, 0, consts.winW, consts.winH)
-            this.assets.bloomTex.setBlendMode(1)
+            this.assets.bloomTex.blendMode = 1
             this.assets.bloomTex.setColorMod(255 as u8, 255 as u8, 255 as u8)
 
             // CRT overlay (scanlines + vignette).

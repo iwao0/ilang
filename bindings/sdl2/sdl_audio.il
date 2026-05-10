@@ -228,7 +228,7 @@ pub enum AudioFormat: u16 {
         ///
         /// Returns:
         ///   queued byte count.
-        pub queuedBytes(): u32 {
+        pub get queuedBytes(): u32 {
             SDL_GetQueuedAudioSize(this.id)
         }
 
@@ -240,7 +240,7 @@ pub enum AudioFormat: u16 {
 
         /// Returns:
         ///   `0` stopped, `1` playing, `2` paused.
-        pub status(): i32 {
+        pub get status(): i32 {
             SDL_GetAudioDeviceStatus(this.id)
         }
 
@@ -393,7 +393,7 @@ pub enum AudioFormat: u16 {
 
         /// Returns:
         ///   bytes of converted output ready to be pulled.
-        pub available(): i32 {
+        pub get available(): i32 {
             if this.handle == 0 { return 0 }
             SDL_AudioStreamAvailable(this.handle as *SDL_AudioStream)
         }

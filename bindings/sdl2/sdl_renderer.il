@@ -453,7 +453,7 @@ pub enum RendererFlip: i32 {
         // ─── info ─────────────────────────────────────────────────
 
         /// Driver / capability info for *this* renderer.
-        pub info(): RendererInfo {
+        pub get info(): RendererInfo {
             let raw = new SDL_RendererInfo()
             SDL_GetRendererInfo(this.handle as *SDL_Renderer, raw)
             let info = new RendererInfo()
@@ -474,7 +474,7 @@ pub enum RendererFlip: i32 {
 
         /// Drawable output size in pixels (may differ from window
         /// size on HiDPI / logical-size setups).
-        pub outputSize(): Size {
+        pub get outputSize(): Size {
             let w: i32[] = [0]
             let h: i32[] = [0]
             SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, w, h)
@@ -497,9 +497,10 @@ pub enum RendererFlip: i32 {
             SDL_SetRenderDrawColor(this.handle as *SDL_Renderer, r, g, b, a)
         }
 
-        /// Returns:
-        ///   the current draw colour as an `Color`.
-        pub getColor(): Color {
+        /// The current draw colour as a `Color`. Read-only — use
+        /// `setColor(r, g, b, a)` (which keeps the multi-arg
+        /// signature for ergonomic literal calls) to write.
+        pub get color(): Color {
             let c = new Color()
             let r: u8[] = [0]
             let g: u8[] = [0]
@@ -513,19 +514,19 @@ pub enum RendererFlip: i32 {
             c
         }
 
-        /// Args:
-        ///   mode — `SDL_BlendMode`: `0` = NONE, `1` = BLEND,
-        ///          `2` = ADD, `4` = MOD, `8` = MUL.
-        pub setBlendMode(mode: i32): i32 {
-            SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode)
-        }
-
-        /// Returns:
-        ///   the current `SDL_BlendMode`.
-        pub getBlendMode(): i32 {
+        /// `SDL_BlendMode` for draw calls: `0` = NONE, `1` = BLEND,
+        /// `2` = ADD, `4` = MOD, `8` = MUL. The setter discards
+        /// the error code SDL would return; if you need to react
+        /// to a failed mode change, call `SDL_SetRenderDrawBlendMode`
+        /// directly.
+        pub get blendMode(): i32 {
             let m: i32[] = [0]
             SDL_GetRenderDrawBlendMode(this.handle as *SDL_Renderer, m)
             m[0]
+        }
+        pub set blendMode(mode: i32) {
+            SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode)
+            return
         }
 
         // ─── logical / viewport / clip / scale ────────────────────
@@ -543,9 +544,10 @@ pub enum RendererFlip: i32 {
             SDL_RenderSetLogicalSize(this.handle as *SDL_Renderer, w, h)
         }
 
-        /// Returns:
-        ///   the current logical size, or `(0, 0)` if not set.
-        pub getLogicalSize(): Size {
+        /// The current logical size, or `(0, 0)` if not set.
+        /// Read-only — `setLogicalSize(w, h)` keeps the multi-arg
+        /// signature for the writer.
+        pub get logicalSize(): Size {
             let w: i32[] = [0]
             let h: i32[] = [0]
             SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, w, h)
@@ -556,57 +558,65 @@ pub enum RendererFlip: i32 {
         }
 
         /// Snap stretched logical coords to whole pixels.
-        pub setIntegerScale(enable: bool): i32 {
-            let v: i32 = if enable { 1 } else { 0 }
-            SDL_RenderSetIntegerScale(this.handle as *SDL_Renderer, v)
-        }
-
-        pub getIntegerScale(): bool {
+        pub get isIntegerScale(): bool {
             SDL_RenderGetIntegerScale(this.handle as *SDL_Renderer) != 0
         }
-
-        /// Pass `0 as *Rect` (or `null`-equivalent) to clear.
-        pub setViewport(rect: Rect): i32 {
-            SDL_RenderSetViewport(this.handle as *SDL_Renderer, rect)
+        pub set isIntegerScale(enable: bool) {
+            let v: i32 = if enable { 1 } else { 0 }
+            SDL_RenderSetIntegerScale(this.handle as *SDL_Renderer, v)
+            return
         }
 
+        /// Active drawing viewport (window-relative pixels). Set
+        /// to a fresh `Rect` to confine drawing; call
+        /// `clearViewport()` to remove the constraint.
+        pub get viewport(): Rect {
+            let r = new Rect()
+            SDL_RenderGetViewport(this.handle as *SDL_Renderer, r)
+            r
+        }
+        pub set viewport(rect: Rect) {
+            SDL_RenderSetViewport(this.handle as *SDL_Renderer, rect)
+            return
+        }
+
+        /// Drop any viewport constraint set via `viewport = ...`.
         pub clearViewport(): i32 {
             SDL_RenderSetViewport(
                 this.handle as *SDL_Renderer, 0 as *Rect
             )
         }
 
-        pub getViewport(): Rect {
+        /// Active clip rectangle (drawing outside is suppressed).
+        pub get clipRect(): Rect {
             let r = new Rect()
-            SDL_RenderGetViewport(this.handle as *SDL_Renderer, r)
+            SDL_RenderGetClipRect(this.handle as *SDL_Renderer, r)
             r
         }
-
-        pub setClipRect(rect: Rect): i32 {
+        pub set clipRect(rect: Rect) {
             SDL_RenderSetClipRect(this.handle as *SDL_Renderer, rect)
+            return
         }
 
+        /// Drop any clip rectangle set via `clipRect = ...`.
         pub clearClipRect(): i32 {
             SDL_RenderSetClipRect(
                 this.handle as *SDL_Renderer, 0 as *Rect
             )
         }
 
-        pub getClipRect(): Rect {
-            let r = new Rect()
-            SDL_RenderGetClipRect(this.handle as *SDL_Renderer, r)
-            r
-        }
-
-        pub isClipEnabled(): bool {
+        pub get isClipEnabled(): bool {
             SDL_RenderIsClipEnabled(this.handle as *SDL_Renderer) != 0
         }
 
+        /// Render scale factor as an `FPoint(x, y)`. The setter
+        /// keeps the explicit two-arg form (`setScale(x, y)`)
+        /// since callers usually pass scalar literals.
         pub setScale(x: f32, y: f32): i32 {
             SDL_RenderSetScale(this.handle as *SDL_Renderer, x, y)
         }
 
-        pub getScale(): FPoint {
+        pub get scale(): FPoint {
             let x: f32[] = [0.0 as f32]
             let y: f32[] = [0.0 as f32]
             SDL_RenderGetScale(this.handle as *SDL_Renderer, x, y)
@@ -1113,7 +1123,7 @@ pub enum RendererFlip: i32 {
         }
 
         /// SDL_QueryTexture in one shot — format / access / w / h.
-        pub query(): TextureInfo {
+        pub get info(): TextureInfo {
             let fmt: u32[] = [0 as u32]
             let access: i32[] = [0]
             let w: i32[] = [0]
@@ -1164,9 +1174,11 @@ pub enum RendererFlip: i32 {
             SDL_SetTextureColorMod(this.handle as *SDL_Texture, r, g, b)
         }
 
-        /// Returns:
-        ///   the current colour-mod (alpha is reported as `255`).
-        pub getColorMod(): Color {
+        /// The current colour-mod (alpha reads as `255`). The
+        /// setter keeps the three-arg method form so call sites
+        /// can pass scalar literals without constructing a
+        /// `Color` first.
+        pub get colorMod(): Color {
             let c = new Color()
             let r: u8[] = [0]
             let g: u8[] = [0]
@@ -1179,47 +1191,40 @@ pub enum RendererFlip: i32 {
             c
         }
 
-        /// Per-draw alpha multiplier (fade-out).
-        pub setAlphaMod(a: u8): i32 {
-            SDL_SetTextureAlphaMod(this.handle as *SDL_Texture, a)
-        }
-
-        /// Returns:
-        ///   the current alpha-mod (`255` = opaque).
-        pub getAlphaMod(): u8 {
+        /// Per-draw alpha multiplier (fade-out). `255` = opaque.
+        /// The setter discards the SDL error code.
+        pub get alphaMod(): u8 {
             let a: u8[] = [0]
             SDL_GetTextureAlphaMod(this.handle as *SDL_Texture, a)
             a[0]
         }
-
-        /// Args:
-        ///   mode — `SDL_BlendMode`: `0` = NONE, `1` = BLEND,
-        ///          `2` = ADD, `4` = MOD, `8` = MUL.
-        pub setBlendMode(mode: i32): i32 {
-            SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
+        pub set alphaMod(a: u8) {
+            SDL_SetTextureAlphaMod(this.handle as *SDL_Texture, a)
+            return
         }
 
-        /// Returns:
-        ///   the current `SDL_BlendMode`.
-        pub getBlendMode(): i32 {
+        /// `SDL_BlendMode`: `0` = NONE, `1` = BLEND, `2` = ADD,
+        /// `4` = MOD, `8` = MUL. Setter discards the error code.
+        pub get blendMode(): i32 {
             let m: i32[] = [0]
             SDL_GetTextureBlendMode(this.handle as *SDL_Texture, m)
             m[0]
         }
-
-        /// Args:
-        ///   mode — `ScaleMode` value: `0` = Nearest, `1` = Linear,
-        ///          `2` = Best.
-        pub setScaleMode(mode: i32): i32 {
-            SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode)
+        pub set blendMode(mode: i32) {
+            SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode)
+            return
         }
 
-        /// Returns:
-        ///   the current `ScaleMode`.
-        pub getScaleMode(): i32 {
+        /// `ScaleMode`: `0` = Nearest, `1` = Linear, `2` = Best.
+        /// Setter discards the error code.
+        pub get scaleMode(): i32 {
             let m: i32[] = [0]
             SDL_GetTextureScaleMode(this.handle as *SDL_Texture, m)
             m[0]
+        }
+        pub set scaleMode(mode: i32) {
+            SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode)
+            return
         }
     }
 

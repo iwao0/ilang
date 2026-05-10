@@ -287,7 +287,7 @@ pub enum ControllerType: i32 {
         ///   the controller name SDL has for this device (e.g.
         ///   `"Xbox 360 Controller"`), or empty when no device is
         ///   open.
-        pub name(): string {
+        pub get name(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(SDL_GameControllerName(
                 this.handle as *SDL_GameController
@@ -299,7 +299,7 @@ pub enum ControllerType: i32 {
         ///   the user unplugs the controller (the open handle becomes
         ///   stale, but `pump()` keeps returning zeros so it's safe
         ///   to keep calling).
-        pub isAttached(): bool {
+        pub get isAttached(): bool {
             if this.handle == 0 { return false }
             SDL_GameControllerGetAttached(
                 this.handle as *SDL_GameController
@@ -387,7 +387,7 @@ pub enum ControllerType: i32 {
         /// Returns:
         ///   the SDL-identified hardware family. `unknown` when the
         ///   pad isn't in SDL's database.
-        pub controllerType(): ControllerType {
+        pub get controllerType(): ControllerType {
             if this.handle == 0 { return ControllerType.unknown }
             let raw = SDL_GameControllerGetType(
                 this.handle as *SDL_GameController
@@ -398,7 +398,7 @@ pub enum ControllerType: i32 {
         /// Returns:
         ///   the device's serial number (typically empty unless the
         ///   pad reports one — DualSense / Switch Pro do).
-        pub serial(): string {
+        pub get serial(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(SDL_GameControllerGetSerial(
                 this.handle as *SDL_GameController
@@ -410,7 +410,7 @@ pub enum ControllerType: i32 {
         ///   open device, or empty when no controller is attached.
         ///   The caller never frees — we copy through ilang and
         ///   `SDL_free` the source string.
-        pub mapping(): string {
+        pub get mapping(): string {
             if this.handle == 0 { return "" }
             let raw = SDL_GameControllerMapping(
                 this.handle as *SDL_GameController

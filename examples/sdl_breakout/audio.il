@@ -153,7 +153,7 @@ pub class AudioSession {
     /// queued bytes have drained below one full loop. Call once
     /// per frame.
     pub refillBgm() {
-        if this.bgm.id != 0 && this.bgm.queuedBytes() < this.bgmBytes {
+        if this.bgm.id != 0 && this.bgm.queuedBytes < this.bgmBytes {
             let _ = this.bgm.queue(this.bgmLoop)
         }
     }

@@ -84,7 +84,7 @@
 
         /// Returns:
         ///   true while the device is still plugged in.
-        pub isAttached(): bool {
+        pub get isAttached(): bool {
             if this.handle == 0 { return false }
             SDL_JoystickGetAttached(this.handle as *SDL_Joystick) != 0 as u8
         }
@@ -92,28 +92,28 @@
         /// Returns:
         ///   the device's reported name, or empty when no device is
         ///   open.
-        pub name(): string {
+        pub get name(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(SDL_JoystickName(this.handle as *SDL_Joystick))
         }
 
         /// Returns:
         ///   number of analog axes the device exposes.
-        pub numAxes(): i32 {
+        pub get numAxes(): i32 {
             if this.handle == 0 { return 0 }
             SDL_JoystickNumAxes(this.handle as *SDL_Joystick)
         }
 
         /// Returns:
         ///   number of digital buttons the device exposes.
-        pub numButtons(): i32 {
+        pub get numButtons(): i32 {
             if this.handle == 0 { return 0 }
             SDL_JoystickNumButtons(this.handle as *SDL_Joystick)
         }
 
         /// Returns:
         ///   number of D-pad / POV hats the device exposes.
-        pub numHats(): i32 {
+        pub get numHats(): i32 {
             if this.handle == 0 { return 0 }
             SDL_JoystickNumHats(this.handle as *SDL_Joystick)
         }
@@ -165,7 +165,7 @@
         ///   the device's stable 16-byte GUID, or all-zero when no
         ///   device is open. Use `Joystick.guidToString(...)` to
         ///   serialise.
-        pub guid(): JoystickGUID {
+        pub get guid(): JoystickGUID {
             if this.handle == 0 {
                 return new JoystickGUID()
             }

@@ -79,7 +79,7 @@ pub class Font {
         r: u8, g: u8, b: u8, a: u8
     ) {
         this.atlas.setColorMod(r, g, b)
-        this.atlas.setAlphaMod(a)
+        this.atlas.alphaMod = a
         let cursor: i32 = x
         let i: i64 = 0
         let n: i64 = text.length
