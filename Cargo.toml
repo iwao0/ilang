@@ -8,6 +8,7 @@ members = [
     "crates/ilang-mir",
     "crates/ilang-mir-codegen",
     "crates/ilang-codegen",
+    "crates/ilang-runtime",
     "crates/ilang-cli",
     "crates/ilang-lsp",
 ]
@@ -26,6 +27,7 @@ ilang-types = { path = "crates/ilang-types" }
 ilang-mir = { path = "crates/ilang-mir" }
 ilang-mir-codegen = { path = "crates/ilang-mir-codegen" }
 ilang-codegen = { path = "crates/ilang-codegen" }
+ilang-runtime = { path = "crates/ilang-runtime" }
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
 rustyline = "14"

@@ -63,8 +63,8 @@ struct StrIds {
     fixed_to_dyn: cranelift_module::FuncId,
 }
 
-fn declare_unary_i64(
-    module: &mut JITModule,
+fn declare_unary_i64<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let mut sig = module.make_signature();
@@ -73,8 +73,8 @@ fn declare_unary_i64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
-fn declare_binary_i64(
-    module: &mut JITModule,
+fn declare_binary_i64<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let mut sig = module.make_signature();
@@ -84,8 +84,8 @@ fn declare_binary_i64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
-fn declare_ternary_i64(
-    module: &mut JITModule,
+fn declare_ternary_i64<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let mut sig = module.make_signature();
@@ -96,8 +96,8 @@ fn declare_ternary_i64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
-fn declare_unit_i64(
-    module: &mut JITModule,
+fn declare_unit_i64<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let mut sig = module.make_signature();
@@ -105,8 +105,8 @@ fn declare_unit_i64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
-fn declare_unit_f64(
-    module: &mut JITModule,
+fn declare_unit_f64<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let mut sig = module.make_signature();
@@ -114,8 +114,8 @@ fn declare_unit_f64(
     Ok(module.declare_function(name, Linkage::Import, &sig)?)
 }
 
-fn declare_unit_void(
-    module: &mut JITModule,
+fn declare_unit_void<M: Module>(
+    module: &mut M,
     name: &str,
 ) -> Result<cranelift_module::FuncId, CompileError> {
     let sig = module.make_signature();
