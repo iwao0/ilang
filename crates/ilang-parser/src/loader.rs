@@ -1479,6 +1479,14 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                         // resolve to this top-level binding the normal
                         // way (no inline substitution).
                         let span = c.value.span;
+                        // Top-level `const NAME = …` in a sub-
+                        // module gets prefixed by the loader, so
+                        // the source module shows up in the name.
+                        let const_mod = c
+                            .name
+                            .as_str()
+                            .rfind('.')
+                            .map(|i| Symbol::intern(&c.name.as_str()[..i]));
                         runtime_consts.push(ilang_ast::Stmt {
                             kind: ilang_ast::StmtKind::Let {
                                 is_pub: c.is_pub,
@@ -1487,7 +1495,9 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                                 ty: c.ty.clone(),
                                 value: c.value,
                             },
-                            span, source_module: None });
+                            span,
+                            source_module: const_mod,
+                        });
                         continue;
                     }
                 };
@@ -1553,6 +1563,16 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                         let span = sf.value.span;
                         let value_expr =
                             std::mem::replace(&mut sf.value, zero_default_for(&sf.ty, span));
+                        // Tag the synthetic init with the class's
+                        // own module so the type checker judges
+                        // the AssignField (and any non-pub fns the
+                        // RHS calls) from inside that module — not
+                        // from the entry, which would falsely
+                        // report Class.field as module-private.
+                        let class_mod = class_name
+                            .as_str()
+                            .rfind('.')
+                            .map(|i| Symbol::intern(&class_name.as_str()[..i]));
                         runtime_consts.push(ilang_ast::Stmt {
                             kind: ilang_ast::StmtKind::Expr(Expr::new(
                                 ExprKind::AssignField {
@@ -1566,7 +1586,9 @@ fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                                 },
                                 span,
                             )),
-                            span, source_module: None });
+                            span,
+                            source_module: class_mod,
+                        });
                     }
                 }
             }
