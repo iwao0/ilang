@@ -6,8 +6,8 @@
 use sdl_core { SDL_free }
 
 @extern(C) {
-    @lib("SDL2") fn SDL_GetBasePath(): *const char
-    @lib("SDL2") fn SDL_GetPrefPath(org: *const char, app: *const char): *const char
+    @lib("SDL2") pub fn SDL_GetBasePath(): *const char
+    @lib("SDL2") pub fn SDL_GetPrefPath(org: *const char, app: *const char): *const char
 
     /// Read-only directory the program was launched from. Trails a
     /// platform-specific separator (`"/"` on Unix, `"\\"` on
@@ -16,7 +16,7 @@ use sdl_core { SDL_free }
     /// Returns:
     ///   absolute base path, or empty when the platform doesn't
     ///   support the lookup.
-    fn getBasePath(): string {
+    pub fn getBasePath(): string {
         let raw = SDL_GetBasePath()
         if raw as i64 == 0 { return "" }
         let copy = stringFromCstr(raw)
@@ -38,7 +38,7 @@ use sdl_core { SDL_free }
     /// Returns:
     ///   absolute pref path with a trailing separator. Empty on
     ///   error (call `sdl.getError()`).
-    fn getPrefPath(org: string, app: string): string {
+    pub fn getPrefPath(org: string, app: string): string {
         let raw = SDL_GetPrefPath(cstrFromString(org), cstrFromString(app))
         if raw as i64 == 0 { return "" }
         let copy = stringFromCstr(raw)

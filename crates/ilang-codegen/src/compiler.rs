@@ -371,7 +371,7 @@ fn init_top_level_let_storage(
         }
     }
     for s in &prog.stmts {
-        if let StmtKind::Let { name, ty, value } = &s.kind {
+        if let StmtKind::Let { name, ty, value, .. } = &s.kind {
             let t = ty.clone().or_else(|| infer_literal_type(value));
             let Some(t) = t else { continue };
             let bits: i64 = match (&value.kind, &t) {
@@ -773,9 +773,10 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
         for inner in &block.items {
             match inner {
                 ilang_ast::ExternCItem::Struct {
-                    name, fields, is_packed, span,
+                    name, fields, is_packed, span, ..
                 } => {
                     out.push(ClassDecl {
+                        is_pub: false,
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
@@ -791,8 +792,9 @@ pub(crate) fn synthesize_extern_c_classes(prog: &Program) -> Vec<ClassDecl> {
                         span: *span,
                     });
                 }
-                ilang_ast::ExternCItem::Union { name, fields, span } => {
+                ilang_ast::ExternCItem::Union { name, fields, span, .. } => {
                     out.push(ClassDecl {
+                        is_pub: false,
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
@@ -835,7 +837,7 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
         for inner in &block.items {
             match inner {
                 ilang_ast::ExternCItem::FnDecl {
-                    name, params, ret, libs, optional, variadic, c_symbol, span,
+                    name, params, ret, libs, optional, variadic, c_symbol, span, ..
                 } => {
                     // `@extern("libname", ...)` for the dlsym path;
                     // bare `@extern` for host-side. `@optional` maps
@@ -868,6 +870,7 @@ pub(crate) fn synthesize_extern_c_fns(prog: &Program) -> Vec<ilang_ast::FnDecl> 
                         });
                     }
                     out.push(ilang_ast::FnDecl {
+                        is_pub: false,
                         attrs: attrs.into(),
                         name: name.clone(),
                         type_params: Box::new([]),

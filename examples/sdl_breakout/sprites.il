@@ -15,7 +15,7 @@ use consts
 // coverage-fraction (the closer the centre, the brighter), giving
 // a soft glow that drops to transparent at the edge. Color
 // modulation at draw time tints it.
-fn makeStarSprite(): u8[] {
+pub fn makeStarSprite(): u8[] {
     let size: i32 = consts.starTexSize
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
@@ -66,7 +66,7 @@ fn makeStarSprite(): u8[] {
 // centre to edge). Tinted at draw time and stretched to whatever
 // size is needed for a blurry bloom — used for the brick wave
 // highlight so the glow doesn't look rectangular.
-fn makeGlowSprite(): u8[] {
+pub fn makeGlowSprite(): u8[] {
     let size: i32 = consts.glowTexSize
     let buf: u8[] = []
     let cx = (size as f64) / 2.0
@@ -102,7 +102,7 @@ fn makeGlowSprite(): u8[] {
 //   • vignette  — soft radial darken toward the corners
 // Drawn over everything (including HUD) at draw-time. Built once
 // at startup so the per-frame cost is just one drawTexture call.
-fn makeCrtOverlay(w: i32, h: i32): u8[] {
+pub fn makeCrtOverlay(w: i32, h: i32): u8[] {
     let buf: u8[] = []
     let cx = (w as f64) / 2.0
     let cy = (h as f64) / 2.0

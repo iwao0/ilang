@@ -9,7 +9,7 @@
 /// with `showSimpleMessageBox`. SDL ignores the flag on platforms
 /// whose native dialog has no equivalent (e.g. KDE simple
 /// message box).
-enum MessageBoxFlag: u32 {
+pub enum MessageBoxFlag: u32 {
     error              = 0x00000010
     warning            = 0x00000020
     information        = 0x00000040
@@ -29,14 +29,14 @@ enum MessageBoxFlag: u32 {
     ///   windowHandle  — `*SDL_Window` cast to i64 to make the box
     ///                   modal to that window. Pass `0` for a
     ///                   detached system-modal dialog.
-    @lib("SDL2") fn SDL_ShowSimpleMessageBox(
+    @lib("SDL2") pub fn SDL_ShowSimpleMessageBox(
         flags: u32, title: *const char, message: *const char,
         window: *void
     ): i32
 
     /// Returns:
     ///   `0` on success, `< 0` on failure (call `sdl.getError()`).
-    fn showSimpleMessageBox(
+    pub fn showSimpleMessageBox(
         flags: MessageBoxFlag, title: string, message: string,
         windowHandle: i64
     ): i32 {
@@ -49,7 +49,7 @@ enum MessageBoxFlag: u32 {
     }
 
     /// Convenience: error-icon dialog (no parent window).
-    fn showError(title: string, message: string): i32 {
+    pub fn showError(title: string, message: string): i32 {
         SDL_ShowSimpleMessageBox(
             MessageBoxFlag.error as u32,
             cstrFromString(title),
@@ -59,7 +59,7 @@ enum MessageBoxFlag: u32 {
     }
 
     /// Convenience: warning-icon dialog (no parent window).
-    fn showWarning(title: string, message: string): i32 {
+    pub fn showWarning(title: string, message: string): i32 {
         SDL_ShowSimpleMessageBox(
             MessageBoxFlag.warning as u32,
             cstrFromString(title),
@@ -69,7 +69,7 @@ enum MessageBoxFlag: u32 {
     }
 
     /// Convenience: info-icon dialog (no parent window).
-    fn showInfo(title: string, message: string): i32 {
+    pub fn showInfo(title: string, message: string): i32 {
         SDL_ShowSimpleMessageBox(
             MessageBoxFlag.information as u32,
             cstrFromString(title),

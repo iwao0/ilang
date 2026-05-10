@@ -18,6 +18,11 @@ pub struct Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     Let {
+        /// `pub let X = ...` at top level — exposes the binding as
+        /// `module.X` to other modules. Only meaningful at top level;
+        /// the parser rejects `pub let` inside fn/class bodies.
+        /// `false` for nested lets and for unmarked top-level lets.
+        is_pub: bool,
         name: Symbol,
         ty: Option<Type>,
         value: Expr,

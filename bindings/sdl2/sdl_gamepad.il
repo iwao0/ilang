@@ -7,7 +7,7 @@ use sdl_core { SDL_free }
 
 /// `SDL_GameControllerButton` — face / shoulder / d-pad / stick-press
 /// buttons that follow the standard layout.
-enum Button: i32 {
+pub enum Button: i32 {
     a              = 0
     b              = 1
     x              = 2
@@ -27,7 +27,7 @@ enum Button: i32 {
 
 /// `SDL_GameControllerAxis`. Stick axes range `[-32768, 32767]`;
 /// trigger axes range `[0, 32767]`.
-enum Axis: i32 {
+pub enum Axis: i32 {
     leftX        = 0
     leftY        = 1
     rightX       = 2
@@ -38,7 +38,7 @@ enum Axis: i32 {
 
 /// `SDL_GameControllerType` — what kind of pad SDL identified the
 /// device as. Returned by `Gamepad.controllerType()`.
-enum ControllerType: i32 {
+pub enum ControllerType: i32 {
     unknown                = 0
     xbox360                = 1
     xboxOne                = 2
@@ -57,38 +57,38 @@ enum ControllerType: i32 {
 
 @extern(C) {
     /// Opaque SDL handle.
-    struct SDL_GameController {}
+    pub struct SDL_GameController {}
 
-    @lib("SDL2") fn SDL_NumJoysticks(): i32
-    @lib("SDL2") fn SDL_IsGameController(joystick_index: i32): i32
-    @lib("SDL2") fn SDL_GameControllerOpen(joystick_index: i32): *SDL_GameController
-    @lib("SDL2") fn SDL_GameControllerClose(controller: *SDL_GameController)
-    @lib("SDL2") fn SDL_GameControllerGetAxis(
+    @lib("SDL2") pub fn SDL_NumJoysticks(): i32
+    @lib("SDL2") pub fn SDL_IsGameController(joystick_index: i32): i32
+    @lib("SDL2") pub fn SDL_GameControllerOpen(joystick_index: i32): *SDL_GameController
+    @lib("SDL2") pub fn SDL_GameControllerClose(controller: *SDL_GameController)
+    @lib("SDL2") pub fn SDL_GameControllerGetAxis(
         controller: *SDL_GameController, axis: i32
     ): i16
-    @lib("SDL2") fn SDL_GameControllerGetButton(
+    @lib("SDL2") pub fn SDL_GameControllerGetButton(
         controller: *SDL_GameController, button: i32
     ): u8
     // ─── identification ──────────────────────────────────────────
-    @lib("SDL2") fn SDL_GameControllerName(
+    @lib("SDL2") pub fn SDL_GameControllerName(
         controller: *SDL_GameController
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerNameForIndex(
+    @lib("SDL2") pub fn SDL_GameControllerNameForIndex(
         joystick_index: i32
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerGetAttached(
+    @lib("SDL2") pub fn SDL_GameControllerGetAttached(
         controller: *SDL_GameController
     ): u8
     /// Returns the underlying `SDL_Joystick *` as an opaque
     /// pointer — callers that need the raw joystick API cast it to
     /// `*sdl_joystick.SDL_Joystick`.
-    @lib("SDL2") fn SDL_GameControllerGetJoystick(
+    @lib("SDL2") pub fn SDL_GameControllerGetJoystick(
         controller: *SDL_GameController
     ): *void
-    @lib("SDL2") fn SDL_GameControllerGetType(
+    @lib("SDL2") pub fn SDL_GameControllerGetType(
         controller: *SDL_GameController
     ): i32
-    @lib("SDL2") fn SDL_GameControllerGetSerial(
+    @lib("SDL2") pub fn SDL_GameControllerGetSerial(
         controller: *SDL_GameController
     ): *const char
 
@@ -96,56 +96,56 @@ enum ControllerType: i32 {
     // The two `Mapping*` getters return malloc'd strings the caller
     // must `SDL_free` — wrappers below copy through `stringFromCstr`
     // and free the source so callers see plain ilang strings.
-    @lib("SDL2") fn SDL_GameControllerMapping(
+    @lib("SDL2") pub fn SDL_GameControllerMapping(
         controller: *SDL_GameController
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerMappingForIndex(
+    @lib("SDL2") pub fn SDL_GameControllerMappingForIndex(
         joystick_index: i32
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerAddMapping(mapping: *const char): i32
-    @lib("SDL2") fn SDL_GameControllerNumMappings(): i32
+    @lib("SDL2") pub fn SDL_GameControllerAddMapping(mapping: *const char): i32
+    @lib("SDL2") pub fn SDL_GameControllerNumMappings(): i32
 
     // ─── capability probes ───────────────────────────────────────
-    @lib("SDL2") fn SDL_GameControllerHasButton(
+    @lib("SDL2") pub fn SDL_GameControllerHasButton(
         controller: *SDL_GameController, button: i32
     ): u8
-    @lib("SDL2") fn SDL_GameControllerHasAxis(
+    @lib("SDL2") pub fn SDL_GameControllerHasAxis(
         controller: *SDL_GameController, axis: i32
     ): u8
-    @lib("SDL2") fn SDL_GameControllerHasRumble(
+    @lib("SDL2") pub fn SDL_GameControllerHasRumble(
         controller: *SDL_GameController
     ): u8
 
     // ─── event delivery + manual update ──────────────────────────
-    @lib("SDL2") fn SDL_GameControllerEventState(state: i32): i32
-    @lib("SDL2") fn SDL_GameControllerUpdate()
+    @lib("SDL2") pub fn SDL_GameControllerEventState(state: i32): i32
+    @lib("SDL2") pub fn SDL_GameControllerUpdate()
 
     // ─── rumble / LED ────────────────────────────────────────────
-    @lib("SDL2") fn SDL_GameControllerRumble(
+    @lib("SDL2") pub fn SDL_GameControllerRumble(
         controller: *SDL_GameController,
         low_frequency_rumble: u16, high_frequency_rumble: u16,
         duration_ms: u32
     ): i32
-    @lib("SDL2") fn SDL_GameControllerRumbleTriggers(
+    @lib("SDL2") pub fn SDL_GameControllerRumbleTriggers(
         controller: *SDL_GameController,
         left_rumble: u16, right_rumble: u16,
         duration_ms: u32
     ): i32
-    @lib("SDL2") fn SDL_GameControllerSetLED(
+    @lib("SDL2") pub fn SDL_GameControllerSetLED(
         controller: *SDL_GameController, red: u8, green: u8, blue: u8
     ): i32
 
     // ─── enum ↔ string helpers ───────────────────────────────────
-    @lib("SDL2") fn SDL_GameControllerGetStringForAxis(
+    @lib("SDL2") pub fn SDL_GameControllerGetStringForAxis(
         axis: i32
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerGetStringForButton(
+    @lib("SDL2") pub fn SDL_GameControllerGetStringForButton(
         button: i32
     ): *const char
-    @lib("SDL2") fn SDL_GameControllerGetAxisFromString(
+    @lib("SDL2") pub fn SDL_GameControllerGetAxisFromString(
         s: *const char
     ): i32
-    @lib("SDL2") fn SDL_GameControllerGetButtonFromString(
+    @lib("SDL2") pub fn SDL_GameControllerGetButtonFromString(
         s: *const char
     ): i32
 
@@ -157,24 +157,24 @@ enum ControllerType: i32 {
     /// Edge detection (`isPressed` / `isReleased`) requires
     /// `pump()` to be called once per frame before the polling
     /// methods, so the previous-frame snapshot is up to date.
-    class Gamepad {
+    pub class Gamepad {
         /// Pointer to the underlying `SDL_GameController`, cast to
         /// `i64`. `0` when no device is open.
-        handle: i64
+        pub handle: i64
         /// Snapshot of every button's held / not-held state at the
         /// previous `pump()`. 15 slots — one per `Button` variant.
-        prev: u8[]
+        pub prev: u8[]
         /// Snapshot at the most recent `pump()`. `isHeld` /
         /// `isPressed` / `isReleased` read this — never the live
         /// SDL state — so unrelated SDL calls between frames can't
         /// race with edge detection.
-        curr: u8[]
+        pub curr: u8[]
 
         /// Open the first attached controller. Sets `handle` to `0`
         /// if none of the connected joysticks are recognised as game
         /// controllers (e.g. a steering wheel or a HID device with
         /// no SDL mapping).
-        init() {
+        pub init() {
             this.handle = 0
             // SDL_CONTROLLER_BUTTON_MAX = 15 (matches the `Button`
             // enum, `a` … `dpadRight`).
@@ -200,7 +200,7 @@ enum ControllerType: i32 {
             }
         }
 
-        deinit() {
+        pub deinit() {
             if this.handle != 0 {
                 SDL_GameControllerClose(this.handle as *SDL_GameController)
             }
@@ -211,7 +211,7 @@ enum ControllerType: i32 {
         /// (which keeps SDL's joystick state fresh); subsequent
         /// `isHeld` / `isPressed` / `isReleased` queries this
         /// snapshot, not SDL's live state.
-        pump() {
+        pub pump() {
             let i: i32 = 0
             while i < 15 {
                 this.prev[i as i64] = this.curr[i as i64]
@@ -242,7 +242,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   stick axes in `[-32768, 32767]`; trigger axes in
         ///   `[0, 32767]`. `0` when no controller is open.
-        getAxis(axis: Axis): i16 {
+        pub getAxis(axis: Axis): i16 {
             if this.handle == 0 { return 0 as i16 }
             SDL_GameControllerGetAxis(
                 this.handle as *SDL_GameController, axis as i32
@@ -253,7 +253,7 @@ enum ControllerType: i32 {
         ///   true while the button was held at the most recent
         ///   `pump()`. `false` before the first `pump()` or when
         ///   `button` is out of range.
-        isHeld(button: Button): bool {
+        pub isHeld(button: Button): bool {
             let b: i32 = button as i32
             if b < 0 || b >= 15 {
                 return false
@@ -264,7 +264,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   true on the single frame the button transitions from
         ///   "up" to "down" — rising edge.
-        isPressed(button: Button): bool {
+        pub isPressed(button: Button): bool {
             let b: i32 = button as i32
             if b < 0 || b >= 15 {
                 return false
@@ -275,7 +275,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   true on the single frame the button transitions from
         ///   "down" to "up" — falling edge.
-        isReleased(button: Button): bool {
+        pub isReleased(button: Button): bool {
             let b: i32 = button as i32
             if b < 0 || b >= 15 {
                 return false
@@ -287,7 +287,7 @@ enum ControllerType: i32 {
         ///   the controller name SDL has for this device (e.g.
         ///   `"Xbox 360 Controller"`), or empty when no device is
         ///   open.
-        name(): string {
+        pub name(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(SDL_GameControllerName(
                 this.handle as *SDL_GameController
@@ -299,7 +299,7 @@ enum ControllerType: i32 {
         ///   the user unplugs the controller (the open handle becomes
         ///   stale, but `pump()` keeps returning zeros so it's safe
         ///   to keep calling).
-        isAttached(): bool {
+        pub isAttached(): bool {
             if this.handle == 0 { return false }
             SDL_GameControllerGetAttached(
                 this.handle as *SDL_GameController
@@ -311,7 +311,7 @@ enum ControllerType: i32 {
         ///   this controller. Some pads (e.g. PS3 with no `guide`)
         ///   miss specific buttons — callers should gate visual
         ///   prompts on this.
-        hasButton(button: Button): bool {
+        pub hasButton(button: Button): bool {
             if this.handle == 0 { return false }
             SDL_GameControllerHasButton(
                 this.handle as *SDL_GameController, button as i32
@@ -320,7 +320,7 @@ enum ControllerType: i32 {
 
         /// Returns:
         ///   true if SDL has a hardware mapping for this `axis`.
-        hasAxis(axis: Axis): bool {
+        pub hasAxis(axis: Axis): bool {
             if this.handle == 0 { return false }
             SDL_GameControllerHasAxis(
                 this.handle as *SDL_GameController, axis as i32
@@ -330,7 +330,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   true if the device supports rumble. Required for
         ///   `rumble()` to do anything visible.
-        hasRumble(): bool {
+        pub hasRumble(): bool {
             if this.handle == 0 { return false }
             SDL_GameControllerHasRumble(
                 this.handle as *SDL_GameController
@@ -348,7 +348,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   `0` on success, `< 0` if the device doesn't support
         ///   rumble or no controller is open.
-        rumble(lowFreq: u16, highFreq: u16, durationMs: u32): i32 {
+        pub rumble(lowFreq: u16, highFreq: u16, durationMs: u32): i32 {
             if this.handle == 0 { return -1 }
             SDL_GameControllerRumble(
                 this.handle as *SDL_GameController,
@@ -360,7 +360,7 @@ enum ControllerType: i32 {
         /// this — Xbox Series, DualSense, etc.).
         ///
         /// Args / Returns: same shape as `rumble`.
-        rumbleTriggers(left: u16, right: u16, durationMs: u32): i32 {
+        pub rumbleTriggers(left: u16, right: u16, durationMs: u32): i32 {
             if this.handle == 0 { return -1 }
             SDL_GameControllerRumbleTriggers(
                 this.handle as *SDL_GameController,
@@ -377,7 +377,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   `0` on success, `< 0` if the device has no LED or no
         ///   controller is open.
-        setLED(r: u8, g: u8, b: u8): i32 {
+        pub setLED(r: u8, g: u8, b: u8): i32 {
             if this.handle == 0 { return -1 }
             SDL_GameControllerSetLED(
                 this.handle as *SDL_GameController, r, g, b
@@ -387,7 +387,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   the SDL-identified hardware family. `unknown` when the
         ///   pad isn't in SDL's database.
-        controllerType(): ControllerType {
+        pub controllerType(): ControllerType {
             if this.handle == 0 { return ControllerType.unknown }
             let raw = SDL_GameControllerGetType(
                 this.handle as *SDL_GameController
@@ -398,7 +398,7 @@ enum ControllerType: i32 {
         /// Returns:
         ///   the device's serial number (typically empty unless the
         ///   pad reports one — DualSense / Switch Pro do).
-        serial(): string {
+        pub serial(): string {
             if this.handle == 0 { return "" }
             stringFromCstr(SDL_GameControllerGetSerial(
                 this.handle as *SDL_GameController
@@ -410,7 +410,7 @@ enum ControllerType: i32 {
         ///   open device, or empty when no controller is attached.
         ///   The caller never frees — we copy through ilang and
         ///   `SDL_free` the source string.
-        mapping(): string {
+        pub mapping(): string {
             if this.handle == 0 { return "" }
             let raw = SDL_GameControllerMapping(
                 this.handle as *SDL_GameController
@@ -428,7 +428,7 @@ enum ControllerType: i32 {
     /// Returns:
     ///   the controller name SDL would report for that index, or
     ///   empty when the index is out of range.
-    fn nameForIndex(joystickIndex: i32): string {
+    pub fn nameForIndex(joystickIndex: i32): string {
         stringFromCstr(SDL_GameControllerNameForIndex(joystickIndex))
     }
 
@@ -444,14 +444,14 @@ enum ControllerType: i32 {
     /// Returns:
     ///   `1` if a new mapping was added, `0` if an existing mapping
     ///   was replaced, `-1` on error.
-    fn addMapping(mapping: string): i32 {
+    pub fn addMapping(mapping: string): i32 {
         SDL_GameControllerAddMapping(cstrFromString(mapping))
     }
 
     /// Returns:
     ///   how many controller mappings are currently loaded
     ///   (built-in + any added via `addMapping`).
-    fn numMappings(): i32 {
+    pub fn numMappings(): i32 {
         SDL_GameControllerNumMappings()
     }
 
@@ -464,7 +464,7 @@ enum ControllerType: i32 {
     ///   mapping string, or empty when the index doesn't match a
     ///   game controller. Internally `SDL_free`'s the malloc'd
     ///   buffer SDL hands us.
-    fn mappingForIndex(joystickIndex: i32): string {
+    pub fn mappingForIndex(joystickIndex: i32): string {
         let raw = SDL_GameControllerMappingForIndex(joystickIndex)
         if raw as i64 == 0 { return "" }
         let copy = stringFromCstr(raw)
@@ -481,7 +481,7 @@ enum ControllerType: i32 {
     ///
     /// Returns:
     ///   the state in effect after the call.
-    fn controllerEventState(state: i32): i32 {
+    pub fn controllerEventState(state: i32): i32 {
         SDL_GameControllerEventState(state)
     }
 
@@ -489,7 +489,7 @@ enum ControllerType: i32 {
     /// view of every controller. Normally `pumpEvents()` does
     /// this — only call it when running with controller events
     /// disabled.
-    fn updateControllers() {
+    pub fn updateControllers() {
         SDL_GameControllerUpdate()
     }
 
@@ -498,7 +498,7 @@ enum ControllerType: i32 {
     ///
     /// Returns:
     ///   SDL's canonical name for `axis` (`"leftx"`, `"righty"`, …).
-    fn stringForAxis(axis: Axis): string {
+    pub fn stringForAxis(axis: Axis): string {
         stringFromCstr(SDL_GameControllerGetStringForAxis(axis as i32))
     }
 
@@ -507,19 +507,19 @@ enum ControllerType: i32 {
     ///
     /// Returns:
     ///   SDL's canonical name for `button` (`"a"`, `"dpup"`, …).
-    fn stringForButton(button: Button): string {
+    pub fn stringForButton(button: Button): string {
         stringFromCstr(SDL_GameControllerGetStringForButton(button as i32))
     }
 
     /// Inverse of `stringForAxis`. Returns `-1` when `s` doesn't
     /// match any known axis.
-    fn axisFromString(s: string): i32 {
+    pub fn axisFromString(s: string): i32 {
         SDL_GameControllerGetAxisFromString(cstrFromString(s))
     }
 
     /// Inverse of `stringForButton`. Returns `-1` when `s` doesn't
     /// match any known button.
-    fn buttonFromString(s: string): i32 {
+    pub fn buttonFromString(s: string): i32 {
         SDL_GameControllerGetButtonFromString(cstrFromString(s))
     }
 }

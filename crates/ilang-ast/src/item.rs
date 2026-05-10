@@ -39,6 +39,11 @@ pub enum AttrArg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDecl {
     pub attrs: Box<[Attribute]>,
+    /// `pub` keyword on the declaration. For top-level fns it makes
+    /// the fn callable as `module.fn_name` from other modules.
+    /// For class methods it makes the method callable from outside
+    /// the declaring module. Default `false` = module-private.
+    pub is_pub: bool,
     pub name: Symbol,
     /// Generic type parameters declared on the fn (e.g. `<T, U>`).
     /// Empty for non-generic fns. Inside the body, references to
@@ -59,6 +64,9 @@ pub struct FnDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
+    /// `pub` on a class field allows outside-module reads/writes
+    /// of the field. Default `false` = module-private.
+    pub is_pub: bool,
     pub name: Symbol,
     pub ty: Type,
     pub span: Span,
@@ -93,6 +101,11 @@ pub struct ClassDecl {
     /// and the struct size is the maximum field size. C union
     /// semantics: writing one field overwrites the others.
     pub is_union: bool,
+    /// `pub class` — the class is referenceable as `module.ClassName`
+    /// from other modules. Default `false` = module-private; the
+    /// class still exists in the merged Program but cross-module
+    /// references are rejected.
+    pub is_pub: bool,
     pub name: Symbol,
     /// `class Child extends Parent { ... }` — single-inheritance
     /// parent. `None` for root classes. The parent class must be
@@ -128,6 +141,7 @@ pub struct ClassDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticFieldDecl {
+    pub is_pub: bool,
     pub name: Symbol,
     pub ty: crate::types::Type,
     /// Compile-time-evaluable initializer. After the loader's
@@ -142,6 +156,7 @@ pub struct StaticFieldDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyDecl {
+    pub is_pub: bool,
     pub name: Symbol,
     /// The property's value type. For getters it's the return type; for
     /// setters it's the (single) parameter type. The type checker
@@ -181,6 +196,7 @@ pub enum VariantPayload {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
+    pub is_pub: bool,
     pub name: Symbol,
     /// Generic type parameters declared on the enum (e.g. `<T, E>`).
     /// Empty for non-generic enums. Variant payload types reference
@@ -239,6 +255,7 @@ pub enum ExternCItem {
     /// Methods / properties are not allowed; only fields. `packed`
     /// and `@bits(N)` are still supported.
     Struct {
+        is_pub: bool,
         name: Symbol,
         fields: Box<[FieldDecl]>,
         is_packed: bool,
@@ -246,6 +263,7 @@ pub enum ExternCItem {
     },
     /// C union — every field at offset 0, size = max field size.
     Union {
+        is_pub: bool,
         name: Symbol,
         fields: Box<[FieldDecl]>,
         span: Span,
@@ -257,6 +275,7 @@ pub enum ExternCItem {
     /// `optional = true` (`@optional`) lets the JIT keep going when
     /// the library can't be loaded.
     FnDecl {
+        is_pub: bool,
         name: Symbol,
         params: Box<[Param]>,
         ret: Option<crate::types::Type>,
@@ -287,6 +306,7 @@ pub enum ExternCItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstDecl {
+    pub is_pub: bool,
     pub name: Symbol,
     pub ty: Option<crate::types::Type>,
     pub value: crate::expr::Expr,

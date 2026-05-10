@@ -6,7 +6,7 @@
 
 /// SDL_EventType — subset covering the common cases. Stored in
 /// `Event.eventType` so callers can dispatch on `pollEvent`.
-enum EventType: u32 {
+pub enum EventType: u32 {
     firstEvent              = 0
     quit                    = 0x100
     appTerminating          = 0x101
@@ -67,7 +67,7 @@ enum EventType: u32 {
 
 /// State value passed to / returned from `eventState`.
 /// `disable` is an alias for `ignore` (both mean 0, matching SDL).
-enum EventState: i32 {
+pub enum EventState: i32 {
     query   = -1
     ignore  = 0
     disable = 0   // alias for ignore
@@ -75,7 +75,7 @@ enum EventState: i32 {
 }
 
 /// `SDL_eventaction` — what `peepEvents` does with the matched events.
-enum PeepAction: i32 {
+pub enum PeepAction: i32 {
     add  = 0   // append to the queue
     peek = 1   // copy without removing
     get  = 2   // copy and remove
@@ -83,15 +83,15 @@ enum PeepAction: i32 {
 
 @extern(C) {
     // ─── timer ───────────────────────────────────────────────────
-    @lib("SDL2") fn SDL_Delay(ms: u32)
-    @lib("SDL2") fn SDL_GetTicks(): u32
-    @lib("SDL2") fn SDL_GetTicks64(): u64
-    @lib("SDL2") fn SDL_GetPerformanceCounter(): u64
-    @lib("SDL2") fn SDL_GetPerformanceFrequency(): u64
-    @lib("SDL2") fn SDL_AddTimer(
+    @lib("SDL2") pub fn SDL_Delay(ms: u32)
+    @lib("SDL2") pub fn SDL_GetTicks(): u32
+    @lib("SDL2") pub fn SDL_GetTicks64(): u64
+    @lib("SDL2") pub fn SDL_GetPerformanceCounter(): u64
+    @lib("SDL2") pub fn SDL_GetPerformanceFrequency(): u64
+    @lib("SDL2") pub fn SDL_AddTimer(
         interval: u32, callback: *const void, param: *const void
     ): i32
-    @lib("SDL2") fn SDL_RemoveTimer(id: i32): i32
+    @lib("SDL2") pub fn SDL_RemoveTimer(id: i32): i32
 
     // ─── event queue ─────────────────────────────────────────────
     /// `Event` is a union spanning every event type. The actual
@@ -99,27 +99,27 @@ enum PeepAction: i32 {
     /// newer releases). We pad to 88 bytes so SDL never writes past
     /// the end. Every sub-event lays its `Uint32 type` at offset 0,
     /// so reading `eventType` is enough for "what kind of event".
-    struct Event {
+    pub struct Event {
         /// Discriminant — matches an `EventType` variant.
         eventType: u32
         _pad: u8[84]
     }
 
-    @lib("SDL2") fn SDL_PumpEvents()
-    @lib("SDL2") fn SDL_PollEvent(event: *Event): i32
-    @lib("SDL2") fn SDL_WaitEvent(event: *Event): i32
-    @lib("SDL2") fn SDL_WaitEventTimeout(event: *Event, timeout: i32): i32
-    @lib("SDL2") fn SDL_PeepEvents(
+    @lib("SDL2") pub fn SDL_PumpEvents()
+    @lib("SDL2") pub fn SDL_PollEvent(event: *Event): i32
+    @lib("SDL2") pub fn SDL_WaitEvent(event: *Event): i32
+    @lib("SDL2") pub fn SDL_WaitEventTimeout(event: *Event, timeout: i32): i32
+    @lib("SDL2") pub fn SDL_PeepEvents(
         events: *Event, numevents: i32, action: i32,
         minType: u32, maxType: u32
     ): i32
-    @lib("SDL2") fn SDL_RegisterEvents(numevents: i32): u32
-    @lib("SDL2") fn SDL_PushEvent(event: *Event): i32
-    @lib("SDL2") fn SDL_HasEvent(eventType: u32): i32
-    @lib("SDL2") fn SDL_HasEvents(min_type: u32, max_type: u32): i32
-    @lib("SDL2") fn SDL_FlushEvent(eventType: u32)
-    @lib("SDL2") fn SDL_FlushEvents(min_type: u32, max_type: u32)
-    @lib("SDL2") fn SDL_EventState(eventType: u32, state: i32): u8
+    @lib("SDL2") pub fn SDL_RegisterEvents(numevents: i32): u32
+    @lib("SDL2") pub fn SDL_PushEvent(event: *Event): i32
+    @lib("SDL2") pub fn SDL_HasEvent(eventType: u32): i32
+    @lib("SDL2") pub fn SDL_HasEvents(min_type: u32, max_type: u32): i32
+    @lib("SDL2") pub fn SDL_FlushEvent(eventType: u32)
+    @lib("SDL2") pub fn SDL_FlushEvents(min_type: u32, max_type: u32)
+    @lib("SDL2") pub fn SDL_EventState(eventType: u32, state: i32): u8
     // SDL_GetEventState is a macro in SDL_events.h
     // (`#define SDL_GetEventState(t) SDL_EventState(t, SDL_QUERY)`),
     // not a real symbol — wrap via SDL_EventState below.
@@ -131,7 +131,7 @@ enum PeepAction: i32 {
     ///
     /// Args:
     ///   ms — wait duration in milliseconds.
-    fn delay(ms: u32) {
+    pub fn delay(ms: u32) {
         SDL_Delay(ms)
     }
 
@@ -140,7 +140,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   ticks since init. Wraps after ~49 days — use `getTicks64()`
     ///   for monotonic playtime longer than that.
-    fn getTicks(): u32 {
+    pub fn getTicks(): u32 {
         SDL_GetTicks()
     }
 
@@ -149,7 +149,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   ms since init.
-    fn getTicks64(): u64 {
+    pub fn getTicks64(): u64 {
         SDL_GetTicks64()
     }
 
@@ -160,13 +160,13 @@ enum PeepAction: i32 {
     ///   monotonic counter value. Combine with
     ///   `getPerformanceFrequency()` to convert deltas into seconds:
     ///   `(b - a) as f64 / getPerformanceFrequency() as f64`.
-    fn getPerformanceCounter(): u64 {
+    pub fn getPerformanceCounter(): u64 {
         SDL_GetPerformanceCounter()
     }
 
     /// Returns:
     ///   ticks per second of the high-resolution counter.
-    fn getPerformanceFrequency(): u64 {
+    pub fn getPerformanceFrequency(): u64 {
         SDL_GetPerformanceFrequency()
     }
 
@@ -187,7 +187,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   timer id (`> 0` on success, `0` on failure). Pass to
     ///   `removeTimer` to cancel.
-    fn addTimer(interval: u32, callback: i64, param: i64): i32 {
+    pub fn addTimer(interval: u32, callback: i64, param: i64): i32 {
         SDL_AddTimer(
             interval,
             callback as *const void,
@@ -202,7 +202,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   `1` if the timer was found and removed, `0` otherwise.
-    fn removeTimer(id: i32): i32 {
+    pub fn removeTimer(id: i32): i32 {
         SDL_RemoveTimer(id)
     }
 
@@ -216,7 +216,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   true if `a >= b` modulo wrap.
-    fn ticksPassed(a: u32, b: u32): bool {
+    pub fn ticksPassed(a: u32, b: u32): bool {
         // Signed comparison after subtraction handles wrap.
         ((b as i32) - (a as i32)) <= 0
     }
@@ -224,7 +224,7 @@ enum PeepAction: i32 {
     /// Drain the OS event queue into SDL's internal queue. Required
     /// on macOS Cocoa for window composition; harmless elsewhere.
     /// Call once per frame before reading events.
-    fn pumpEvents() {
+    pub fn pumpEvents() {
         SDL_PumpEvents()
     }
 
@@ -234,7 +234,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   true iff at least one event of that type is pending.
     ///   Doesn't remove it from the queue.
-    fn hasEvent(eventType: EventType): bool {
+    pub fn hasEvent(eventType: EventType): bool {
         SDL_HasEvent(eventType as u32) != 0
     }
 
@@ -243,17 +243,17 @@ enum PeepAction: i32 {
     /// Args:
     ///   minType — lower bound (inclusive).
     ///   maxType — upper bound (inclusive).
-    fn hasEvents(minType: EventType, maxType: EventType): bool {
+    pub fn hasEvents(minType: EventType, maxType: EventType): bool {
         SDL_HasEvents(minType as u32, maxType as u32) != 0
     }
 
     /// Discard every queued event of the given type.
-    fn flushEvent(eventType: EventType) {
+    pub fn flushEvent(eventType: EventType) {
         SDL_FlushEvent(eventType as u32)
     }
 
     /// Range version of `flushEvent`.
-    fn flushEvents(minType: EventType, maxType: EventType) {
+    pub fn flushEvents(minType: EventType, maxType: EventType) {
         SDL_FlushEvents(minType as u32, maxType as u32)
     }
 
@@ -265,7 +265,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   true if `event` was populated, false if the queue was
     ///   empty. Caller looks at `event.eventType` to dispatch.
-    fn pollEvent(event: Event): bool {
+    pub fn pollEvent(event: Event): bool {
         SDL_PollEvent(event) != 0
     }
 
@@ -277,7 +277,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   `1` on success, `0` if the event was filtered, `< 0` on
     ///   error.
-    fn pushEvent(event: Event): i32 {
+    pub fn pushEvent(event: Event): i32 {
         SDL_PushEvent(event)
     }
 
@@ -289,7 +289,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   previous state for that class.
-    fn eventState(eventType: EventType, state: EventState): u8 {
+    pub fn eventState(eventType: EventType, state: EventState): u8 {
         SDL_EventState(eventType as u32, state as i32)
     }
 
@@ -300,7 +300,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   current state (`0` = ignored, `1` = enabled).
-    fn getEventState(eventType: EventType): u8 {
+    pub fn getEventState(eventType: EventType): u8 {
         SDL_EventState(eventType as u32, EventState.query as i32)
     }
 
@@ -308,7 +308,7 @@ enum PeepAction: i32 {
     /// the OS to terminate the process). Internally pumps events
     /// and peeks for `SDL_QUIT`. Caller normally responds by
     /// exiting their main loop.
-    fn quitRequested(): bool {
+    pub fn quitRequested(): bool {
         SDL_PumpEvents()
         if SDL_HasEvent(EventType.quit as u32) != 0 {
             SDL_FlushEvent(EventType.quit as u32)
@@ -324,7 +324,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   true on success, false on internal SDL error.
-    fn waitEvent(event: Event): bool {
+    pub fn waitEvent(event: Event): bool {
         SDL_WaitEvent(event) != 0
     }
 
@@ -337,7 +337,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   true if `event` was populated, false on timeout / error.
-    fn waitEventTimeout(event: Event, timeoutMs: i32): bool {
+    pub fn waitEventTimeout(event: Event, timeoutMs: i32): bool {
         SDL_WaitEventTimeout(event, timeoutMs) != 0
     }
 
@@ -354,7 +354,7 @@ enum PeepAction: i32 {
     ///
     /// Returns:
     ///   number of events actually copied / added, `< 0` on error.
-    fn peepEvents(
+    pub fn peepEvents(
         events: Event[], numEvents: i32, action: PeepAction,
         minType: EventType, maxType: EventType
     ): i32 {
@@ -375,7 +375,7 @@ enum PeepAction: i32 {
     /// Returns:
     ///   the first id of the range, or `0xFFFFFFFF` if SDL has run
     ///   out of user event slots.
-    fn registerEvents(numEvents: i32): u32 {
+    pub fn registerEvents(numEvents: i32): u32 {
         SDL_RegisterEvents(numEvents)
     }
 }

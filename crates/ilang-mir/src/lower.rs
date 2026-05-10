@@ -3421,7 +3421,7 @@ impl<'a> BodyCx<'a> {
 
     fn lower_stmt(&mut self, stmt: &Stmt) -> Result<(), LowerError> {
         match &stmt.kind {
-            StmtKind::Let { name, ty, value } => {
+            StmtKind::Let { name, ty, value, .. } => {
                 // `let _ = expr` discards the result. Lower the
                 // expression for its side effects, then drop a
                 // fresh heap result so deinit / registry release

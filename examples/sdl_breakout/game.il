@@ -24,7 +24,7 @@ use assets { Assets }
 // 5×7 with 1 px between glyphs, so `n` chars = `n * 6 - 1` px at
 // scale 1. Lifted to a top-level fn so the loader doesn't try to
 // rewrite a per-frame `let` binding.
-fn textPxW(s: string, scale: i32): i32 {
+pub fn textPxW(s: string, scale: i32): i32 {
     let nch = s.length as i32
     if nch == 0 { return 0 }
     (nch * 6 - 1) * scale
@@ -33,7 +33,7 @@ fn textPxW(s: string, scale: i32): i32 {
 // ilang's `as` cast is numeric-only; this stringifies a counter
 // for the on-screen text. Lives here because `run()` is its only
 // caller.
-fn intToStr(n: i32): string {
+pub fn intToStr(n: i32): string {
     if n == 0 { return "0" }
     let neg = n < 0
     let v: i32 = if neg { -n } else { n }
@@ -50,47 +50,47 @@ fn intToStr(n: i32): string {
     result
 }
 
-class Game {
-    window: sdl.Window
-    renderer: sdl.Renderer
-    neonRenderer: NeonRenderer
-    font: sdl.Font
+pub class Game {
+    pub window: sdl.Window
+    pub renderer: sdl.Renderer
+    pub neonRenderer: NeonRenderer
+    pub font: sdl.Font
     /// SFX + BGM device pair plus the pre-rendered beep buffers.
-    audioSession: AudioSession
+    pub audioSession: AudioSession
     /// Keyboard / gamepad bundle.
-    input: Input
-    assets: Assets
-    bgStars: BgStars
-    brickGrid: BrickGrid
-    paddle: Paddle
-    particleSystem: ParticleSystem
-    balls: Ball[]
-    powerups: PowerUp[]
-    score: i32
-    lives: i32
-    started: bool
-    gameOver: bool
-    won: bool
-    combo: i32
-    shake: f64
-    playTime: i32
-    introPhase: i32
-    wonCelebrated: bool
-    slowTimer: i32
-    wavePhase: f64
-    fullscreen: bool
-    fps: i32
-    fpsFrames: i32
-    fpsLastMs: u32
-    nextFrameMs: f64
-    framePeriodMs: f64
+    pub input: Input
+    pub assets: Assets
+    pub bgStars: BgStars
+    pub brickGrid: BrickGrid
+    pub paddle: Paddle
+    pub particleSystem: ParticleSystem
+    pub balls: Ball[]
+    pub powerups: PowerUp[]
+    pub score: i32
+    pub lives: i32
+    pub started: bool
+    pub gameOver: bool
+    pub won: bool
+    pub combo: i32
+    pub shake: f64
+    pub playTime: i32
+    pub introPhase: i32
+    pub wonCelebrated: bool
+    pub slowTimer: i32
+    pub wavePhase: f64
+    pub fullscreen: bool
+    pub fps: i32
+    pub fpsFrames: i32
+    pub fpsLastMs: u32
+    pub nextFrameMs: f64
+    pub framePeriodMs: f64
 
     /// Build the SDL resources and prime every piece of game
     /// state. The matching `run()` then drives the main loop.
     /// Failure paths log to console.log and return early; the
     /// caller checks `this.renderer.handle != 0` style on individual
     /// fields if it cares.
-    init() {
+    pub init() {
         this.window = new sdl.Window("ilang × SDL2 — NEON BREAKOUT", consts.winW, consts.winH)
         if this.window.handle == 0 {
             console.log("SDL_CreateWindow failed: " + sdl.getError())
@@ -206,7 +206,7 @@ class Game {
     /// Main loop. Polls input, advances the world, renders one
     /// frame, and waits out the rest of the 16.6 ms budget. Exits
     /// when the user quits via ESC / window close / gamepad BACK.
-    run() {
+    pub run() {
         let running = true
         while running {
             // `Input.poll()` (called below) drains the event queue

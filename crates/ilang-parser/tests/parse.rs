@@ -60,7 +60,7 @@ fn let_stmt_then_tail() {
 fn let_with_type() {
     let p = parse_str("let x: i64 = 7;");
     match &p.stmts[0].kind {
-        StmtKind::Let { name, ty, value } => {
+        StmtKind::Let { name, ty, value, .. } => {
             assert_eq!(name, "x");
             assert_eq!(*ty, Some(Type::I64));
             assert_eq!(*value, e(ExprKind::Int(7)));

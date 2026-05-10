@@ -983,6 +983,11 @@ fn needs_space(
     if matches!(prev, Bang | Tilde) {
         return false;
     }
+    // Attribute prefix `@` binds tight to the following ident
+    // (`@flags`, `@extern`, `@lib`).
+    if matches!(prev, At) {
+        return false;
+    }
     if matches!(prev, Minus | Plus)
         && prev_prev.map(|p| !is_expression_end(p)).unwrap_or(true)
     {
@@ -1191,20 +1196,35 @@ fn emit_broken(
     let close_char = bytes[close_idx] as char;
     let tail = &line[close_idx + 1..];
 
+    // Preserve the source's trailing-comma choice — both forms
+    // (`f(a, b, c)` and `f(a, b, c,)`) are valid ilang, and the
+    // formatter shouldn't add or drop one. The trailing slot is
+    // empty exactly when the source had a trailing comma, so the
+    // last element is "real" if the trimmed last range is non-empty.
+    let had_trailing_comma = elem_ranges
+        .last()
+        .map(|&(s, e)| line[s..e].trim().is_empty())
+        .unwrap_or(false);
+
     let inner_indent = INDENT.repeat((base_depth + 1).max(0) as usize);
     let close_indent = INDENT.repeat(base_depth.max(0) as usize);
     let mut out = String::new();
     out.push_str(head);
     out.push('\n');
-    for (s, e) in elem_ranges {
-        let elem = line[s..e].trim();
-        if elem.is_empty() {
-            // Trailing comma / empty element — skip to keep output clean.
-            continue;
-        }
+    let real_elems: Vec<(usize, usize)> = elem_ranges
+        .into_iter()
+        .filter(|(s, e)| !line[*s..*e].trim().is_empty())
+        .collect();
+    let last_idx = real_elems.len().saturating_sub(1);
+    for (i, (s, e)) in real_elems.iter().enumerate() {
+        let elem = line[*s..*e].trim();
         out.push_str(&inner_indent);
         out.push_str(elem);
-        out.push(',');
+        // Inner separators always get a `,`; the trailing one is
+        // emitted only if the source had one.
+        if i != last_idx || had_trailing_comma {
+            out.push(',');
+        }
         out.push('\n');
     }
     out.push_str(&close_indent);
@@ -1411,9 +1431,11 @@ mod tests {
         // Head line ends with `(`.
         let lines: Vec<&str> = out.split('\n').collect();
         assert!(lines[0].ends_with('('), "head: {:?}", lines[0]);
-        // Each arg on its own line with a trailing comma, indented one level.
+        // Each arg on its own line, indented one level. The source
+        // had no trailing comma, so the last element doesn't get one
+        // (formatter preserves the source's trailing-comma choice).
         assert!(lines.iter().any(|l| l == &"    alpha_value,"), "lines: {lines:#?}");
-        assert!(lines.iter().any(|l| l == &"    zeta_value,"), "lines: {lines:#?}");
+        assert!(lines.iter().any(|l| l == &"    zeta_value"), "lines: {lines:#?}");
         // Closing paren back at base indent.
         assert!(lines.iter().any(|l| l == &")"), "lines: {lines:#?}");
     }

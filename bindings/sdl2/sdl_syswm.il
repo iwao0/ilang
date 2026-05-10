@@ -20,7 +20,7 @@ use sdl_window { SDL_Window }
 /// `SDL_SYSWM_TYPE` — which platform / windowing system the
 /// `info` payload was filled in for. Read back from
 /// `SDL_SysWMinfo.subsystem` after `getWindowWMInfo`.
-enum SubSystem: u32 {
+pub enum SubSystem: u32 {
     unknown   = 0
     windows   = 1
     x11       = 2
@@ -54,7 +54,7 @@ enum SubSystem: u32 {
     ///       40   216  tail padding (forward-compat for new SDL
     ///                 union variants — Wayland xdg_surface,
     ///                 xdg_toplevel, etc.)
-    struct SDL_SysWMinfo {
+    pub struct SDL_SysWMinfo {
         versionMajor: u8
         versionMinor: u8
         versionPatch: u8
@@ -67,7 +67,7 @@ enum SubSystem: u32 {
         _padTail: u8[216]
     }
 
-    @lib("SDL2") fn SDL_GetWindowWMInfo(
+    @lib("SDL2") pub fn SDL_GetWindowWMInfo(
         window: *SDL_Window, info: *SDL_SysWMinfo
     ): u8
 
@@ -85,7 +85,7 @@ enum SubSystem: u32 {
     ///   `subsystem == SubSystem.unknown` if the call failed
     ///   (typically because `windowHandle` is `0` or SDL's
     ///   binary-compat check rejected our version).
-    fn getWindowWMInfo(windowHandle: i64): SDL_SysWMinfo {
+    pub fn getWindowWMInfo(windowHandle: i64): SDL_SysWMinfo {
         let info = new SDL_SysWMinfo()
         if windowHandle == 0 {
             return info
@@ -107,49 +107,49 @@ enum SubSystem: u32 {
 
     /// macOS Cocoa: return the underlying `NSWindow *` cast to
     /// i64. `0` when `info` isn't a Cocoa window.
-    fn getCocoaWindow(info: SDL_SysWMinfo): i64 {
+    pub fn getCocoaWindow(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.cocoa as u32 { return 0 }
         info.handle1
     }
 
     /// Windows: native `HWND` cast to i64.
-    fn getWin32Hwnd(info: SDL_SysWMinfo): i64 {
+    pub fn getWin32Hwnd(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.windows as u32 { return 0 }
         info.handle1
     }
 
     /// Windows: `HDC` cast to i64.
-    fn getWin32Hdc(info: SDL_SysWMinfo): i64 {
+    pub fn getWin32Hdc(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.windows as u32 { return 0 }
         info.handle2
     }
 
     /// Windows: `HINSTANCE` cast to i64.
-    fn getWin32Hinstance(info: SDL_SysWMinfo): i64 {
+    pub fn getWin32Hinstance(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.windows as u32 { return 0 }
         info.handle3
     }
 
     /// X11: `Display *` cast to i64.
-    fn getX11Display(info: SDL_SysWMinfo): i64 {
+    pub fn getX11Display(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.x11 as u32 { return 0 }
         info.handle1
     }
 
     /// X11: `Window` (an unsigned long ID) cast to i64.
-    fn getX11Window(info: SDL_SysWMinfo): i64 {
+    pub fn getX11Window(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.x11 as u32 { return 0 }
         info.handle2
     }
 
     /// Wayland: `wl_display *` cast to i64.
-    fn getWaylandDisplay(info: SDL_SysWMinfo): i64 {
+    pub fn getWaylandDisplay(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.wayland as u32 { return 0 }
         info.handle1
     }
 
     /// Wayland: `wl_surface *` cast to i64.
-    fn getWaylandSurface(info: SDL_SysWMinfo): i64 {
+    pub fn getWaylandSurface(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.wayland as u32 { return 0 }
         info.handle2
     }
@@ -158,19 +158,19 @@ enum SubSystem: u32 {
     /// compositors use xdg_surface / xdg_toplevel which live in
     /// the tail padding — extract them with `readU64` against the
     /// raw struct address if needed.
-    fn getWaylandShellSurface(info: SDL_SysWMinfo): i64 {
+    pub fn getWaylandShellSurface(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.wayland as u32 { return 0 }
         info.handle3
     }
 
     /// UIKit (iOS / tvOS): `UIWindow *` cast to i64.
-    fn getUIKitWindow(info: SDL_SysWMinfo): i64 {
+    pub fn getUIKitWindow(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.uikit as u32 { return 0 }
         info.handle1
     }
 
     /// Android: native `ANativeWindow *` cast to i64.
-    fn getAndroidWindow(info: SDL_SysWMinfo): i64 {
+    pub fn getAndroidWindow(info: SDL_SysWMinfo): i64 {
         if info.subsystem != SubSystem.android as u32 { return 0 }
         info.handle1
     }

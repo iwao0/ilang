@@ -15,9 +15,20 @@ use crate::stmt::parse_block;
 impl<'a> Parser<'a> {
     pub(crate) fn parse_item(&mut self) -> Result<Item, ParseError> {
         let attrs = self.parse_attributes()?;
-        // `pub use module` — re-export. Today `pub` is only accepted
-        // before `use`; `fn`/`class` may follow later.
-        if matches!(self.peek().kind, TokenKind::Pub) {
+        // `pub` modifier — accepted before `use`/`fn`/`class`/`enum`/
+        // `const`, and after any leading attributes (`@flags pub enum`,
+        // `@extern("...") pub fn`, etc.). Without `pub`, the item is
+        // module-private and only visible within its declaring file.
+        // `pub use M` is the only form where `pub` toggles re-export
+        // instead of visibility.
+        let is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
+            self.bump();
+            true
+        } else {
+            false
+        };
+        // `pub use M` short-circuits — re-export and we're done.
+        if is_pub && matches!(self.peek().kind, TokenKind::Use) {
             if !attrs.is_empty() {
                 let t = self.peek();
                 return Err(ParseError::Unexpected {
@@ -26,20 +37,7 @@ impl<'a> Parser<'a> {
                     span: t.span,
                 });
             }
-            self.bump();
-            let t = self.peek();
-            if !matches!(t.kind, TokenKind::Use) {
-                return Err(ParseError::Unexpected {
-                    found: t.kind.clone(),
-                    expected: "'use' (only `pub use module` is supported)".into(),
-                    span: t.span,
-                });
-            }
             let mut u = self.parse_use_decl()?;
-            // `pub use M as foo` / `pub use M as _` are not allowed —
-            // the umbrella's job is to publish the inner module under
-            // its own canonical name, and aliases would muddle that
-            // contract.
             if !matches!(u.alias, ilang_ast::UseAlias::Default) {
                 return Err(ParseError::Unexpected {
                     found: TokenKind::As,
@@ -52,7 +50,8 @@ impl<'a> Parser<'a> {
         }
         match self.peek().kind {
             TokenKind::Fn => {
-                let fn_decl = self.parse_fn_decl(attrs)?;
+                let mut fn_decl = self.parse_fn_decl(attrs)?;
+                fn_decl.is_pub = is_pub;
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
@@ -64,7 +63,8 @@ impl<'a> Parser<'a> {
                         span: t.span,
                     });
                 }
-                let c = self.parse_class_decl()?;
+                let mut c = self.parse_class_decl()?;
+                c.is_pub = is_pub;
                 Ok(Item::Class(c))
             }
             TokenKind::Enum => {
@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
                 }
                 let mut e = self.parse_enum_decl()?;
                 e.flags = flags;
+                e.is_pub = is_pub;
                 // `@flags` defaults to `u64` repr when no explicit
                 // `: <type>` is given — matches the language's default
                 // integer literal type.
@@ -97,6 +98,14 @@ impl<'a> Parser<'a> {
             TokenKind::Use => {
                 // Plain `use module`. The re-export form (`pub use ...`)
                 // is handled above before this match.
+                if is_pub {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "`pub use` is the re-export form (handled above) — bare `use` cannot be `pub`".into(),
+                        span: t.span,
+                    });
+                }
                 if !attrs.is_empty() {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
@@ -117,7 +126,8 @@ impl<'a> Parser<'a> {
                         span: t.span,
                     });
                 }
-                let c = self.parse_const_decl()?;
+                let mut c = self.parse_const_decl()?;
+                c.is_pub = is_pub;
                 Ok(Item::Const(c))
             }
             TokenKind::LBrace
@@ -133,6 +143,14 @@ impl<'a> Parser<'a> {
                 // `@extern(C) { ... }` — C ABI block. Validate that
                 // no other attributes were stacked, then parse the
                 // block body.
+                if is_pub {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Pub,
+                        expected: "`pub` on the block as a whole isn't supported — mark individual items inside `@extern(C) { ... }` instead".into(),
+                        span: t.span,
+                    });
+                }
                 if attrs.len() != 1 {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
@@ -176,6 +194,7 @@ impl<'a> Parser<'a> {
         // The parser accepts any expression here; the loader's
         // `inline_constants` pass folds it to a literal (or errors).
         Ok(ilang_ast::ConstDecl {
+            is_pub: false,
             name,
             ty,
             value,
@@ -276,8 +295,26 @@ impl<'a> Parser<'a> {
         let mut static_fields: Vec<StaticFieldDecl> = Vec::new();
         let mut properties: Vec<PropertyDecl> = Vec::new();
         loop {
+            // Optional `pub` modifier on the next member. Without it
+            // the member is private to the declaring module.
+            let member_is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
+                self.bump();
+                true
+            } else {
+                false
+            };
             match self.peek().kind {
-                TokenKind::RBrace => break,
+                TokenKind::RBrace => {
+                    if member_is_pub {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::RBrace,
+                            expected: "member declaration after `pub`".into(),
+                            span: t.span,
+                        });
+                    }
+                    break;
+                }
                 TokenKind::At => {
                     let attrs = self.parse_attributes()?;
                     // Attributes can apply to either a method or a
@@ -314,9 +351,11 @@ impl<'a> Parser<'a> {
                                 });
                             }
                         }
+                        f.is_pub = member_is_pub;
                         fields.push(f);
                     } else {
-                        let m = self.parse_method(attrs)?;
+                        let mut m = self.parse_method(attrs)?;
+                        m.is_pub = member_is_pub;
                         methods.push(m);
                     }
                 }
@@ -324,6 +363,7 @@ impl<'a> Parser<'a> {
                     self.bump(); // consume `override`
                     let mut m = self.parse_method(Vec::new())?;
                     m.is_override = true;
+                    m.is_pub = member_is_pub;
                     methods.push(m);
                 }
                 TokenKind::Const => {
@@ -332,7 +372,8 @@ impl<'a> Parser<'a> {
                     // checker. Reads are `ClassName.name` (same path
                     // as `static`).
                     self.bump(); // consume `const`
-                    let f = self.parse_static_field(true)?;
+                    let mut f = self.parse_static_field(true)?;
+                    f.is_pub = member_is_pub;
                     static_fields.push(f);
                 }
                 TokenKind::Ident(ref name) => {
@@ -354,7 +395,7 @@ impl<'a> Parser<'a> {
                             Some(TokenKind::LParen)
                         );
                     if is_accessor {
-                        self.parse_property_accessor(&mut properties)?;
+                        self.parse_property_accessor_pub(&mut properties, member_is_pub)?;
                         continue;
                     }
                     // `static <ident> (` → class-level method.
@@ -368,13 +409,15 @@ impl<'a> Parser<'a> {
                         match self.tokens.get(self.pos + 2).map(|t| &t.kind) {
                             Some(TokenKind::LParen) => {
                                 self.bump(); // consume `static`
-                                let m = self.parse_method(Vec::new())?;
+                                let mut m = self.parse_method(Vec::new())?;
+                                m.is_pub = member_is_pub;
                                 static_methods.push(m);
                                 continue;
                             }
                             Some(TokenKind::Colon) => {
                                 self.bump(); // consume `static`
-                                let f = self.parse_static_field(false)?;
+                                let mut f = self.parse_static_field(false)?;
+                                f.is_pub = member_is_pub;
                                 static_fields.push(f);
                                 continue;
                             }
@@ -386,11 +429,13 @@ impl<'a> Parser<'a> {
                         .clone();
                     match next_kind {
                         TokenKind::Colon => {
-                            let f = self.parse_field()?;
+                            let mut f = self.parse_field()?;
+                            f.is_pub = member_is_pub;
                             fields.push(f);
                         }
                         TokenKind::LParen => {
-                            let m = self.parse_method(Vec::new())?;
+                            let mut m = self.parse_method(Vec::new())?;
+                            m.is_pub = member_is_pub;
                             methods.push(m);
                         }
                         other => {
@@ -415,6 +460,7 @@ impl<'a> Parser<'a> {
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ClassDecl {
+            is_pub: false,
             extern_lib: None,
             is_repr_c: false,
             is_packed: false,
@@ -442,16 +488,17 @@ impl<'a> Parser<'a> {
         let ty = self.parse_type()?;
         self.expect(&TokenKind::Equals, "'='")?;
         let value = self.parse_expr(0)?;
-        Ok(StaticFieldDecl { name, ty, value, is_const, span })
+        Ok(StaticFieldDecl { is_pub: false, name, ty, value, is_const, span })
     }
 
     /// Parse one `get name(): T { body }` or `set name(v: T) { body }`
     /// accessor and merge it into the running properties list. Two
     /// accessors with the same name share a single PropertyDecl. The
     /// type checker validates getter ret == setter param later.
-    fn parse_property_accessor(
+    fn parse_property_accessor_pub(
         &mut self,
         properties: &mut Vec<PropertyDecl>,
+        is_pub: bool,
     ) -> Result<(), ParseError> {
         let kw_span = self.peek().span;
         let kw = match &self.peek().kind {
@@ -504,8 +551,12 @@ impl<'a> Parser<'a> {
         } else {
             fn_decl.params[0].ty.clone()
         };
-        // Find existing entry, or create a new one.
+        // Find existing entry, or create a new one. Once one accessor
+        // sets `is_pub`, the merged property is `pub`.
         if let Some(existing) = properties.iter_mut().find(|p| p.name == prop_name) {
+            if is_pub {
+                existing.is_pub = true;
+            }
             if kw == "get" {
                 if existing.getter.is_some() {
                     return Err(ParseError::Unexpected {
@@ -532,6 +583,7 @@ impl<'a> Parser<'a> {
                 (None, Some(fn_decl))
             };
             properties.push(PropertyDecl {
+                is_pub,
                 name: prop_name,
                 ty: prop_ty,
                 getter,
@@ -598,6 +650,7 @@ impl<'a> Parser<'a> {
                             self.expect(&TokenKind::Colon, "':'")?;
                             let f_ty = self.parse_type()?;
                             fields.push(FieldDecl {
+                                is_pub: false,
                                 name: f_name,
                                 ty: f_ty,
                                 span: f_span,
@@ -692,6 +745,7 @@ impl<'a> Parser<'a> {
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(EnumDecl {
+            is_pub: false,
             name,
             type_params: type_params.into(),
             repr_ty,
@@ -720,12 +774,29 @@ impl<'a> Parser<'a> {
                 break;
             }
             let inner_attrs = self.parse_attributes()?;
+            // Optional `pub` modifier on the next item inside the block.
+            let item_is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
+                self.bump();
+                true
+            } else {
+                false
+            };
             let item = match &self.peek().kind {
                 TokenKind::Fn => {
-                    self.parse_extern_c_fn(inner_attrs)?
+                    let mut it = self.parse_extern_c_fn(inner_attrs)?;
+                    match &mut it {
+                        ilang_ast::ExternCItem::FnDecl { is_pub, .. } => *is_pub = item_is_pub,
+                        ilang_ast::ExternCItem::FnDef(f) => f.is_pub = item_is_pub,
+                        _ => {}
+                    }
+                    it
                 }
                 TokenKind::Ident(n) if n == "struct" => {
-                    self.parse_extern_c_struct(inner_attrs)?
+                    let mut it = self.parse_extern_c_struct(inner_attrs)?;
+                    if let ilang_ast::ExternCItem::Struct { is_pub, .. } = &mut it {
+                        *is_pub = item_is_pub;
+                    }
+                    it
                 }
                 TokenKind::Ident(n) if n == "union" => {
                     if !inner_attrs.is_empty() {
@@ -738,7 +809,11 @@ impl<'a> Parser<'a> {
                             span: t.span,
                         });
                     }
-                    self.parse_extern_c_union()?
+                    let mut it = self.parse_extern_c_union()?;
+                    if let ilang_ast::ExternCItem::Union { is_pub, .. } = &mut it {
+                        *is_pub = item_is_pub;
+                    }
+                    it
                 }
                 TokenKind::Class => {
                     if !inner_attrs.is_empty() {
@@ -751,7 +826,8 @@ impl<'a> Parser<'a> {
                             span: t.span,
                         });
                     }
-                    let c = self.parse_class_decl()?;
+                    let mut c = self.parse_class_decl()?;
+                    c.is_pub = item_is_pub;
                     ilang_ast::ExternCItem::Class(c)
                 }
                 _ => {
@@ -869,6 +945,7 @@ impl<'a> Parser<'a> {
             // Definition: ilang body, C ABI.
             let body = parse_block(self)?;
             let fn_decl = FnDecl {
+                is_pub: false,
                 attrs: Box::new([]),
                 name,
                 type_params: Box::new([]),
@@ -883,6 +960,7 @@ impl<'a> Parser<'a> {
             // Declaration: terminator and we're done.
             self.consume_stmt_terminator()?;
             Ok(ilang_ast::ExternCItem::FnDecl {
+                is_pub: false,
                 name,
                 params: params.into(),
                 ret,
@@ -947,10 +1025,10 @@ impl<'a> Parser<'a> {
             self.expect(&TokenKind::Colon, "':'")?;
             let f_ty = self.parse_type()?;
             self.consume_stmt_terminator()?;
-            fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits });
+            fields.push(FieldDecl { is_pub: false, name: f_name, ty: f_ty, span: f_span, bits });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Struct { name, fields: fields.into(), is_packed, span })
+        Ok(ilang_ast::ExternCItem::Struct { is_pub: false, name, fields: fields.into(), is_packed, span })
     }
 
     fn parse_extern_c_union(
@@ -967,10 +1045,10 @@ impl<'a> Parser<'a> {
             self.expect(&TokenKind::Colon, "':'")?;
             let f_ty = self.parse_type()?;
             self.consume_stmt_terminator()?;
-            fields.push(FieldDecl { name: f_name, ty: f_ty, span: f_span, bits: None });
+            fields.push(FieldDecl { is_pub: false, name: f_name, ty: f_ty, span: f_span, bits: None });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Union { name, fields: fields.into(), span })
+        Ok(ilang_ast::ExternCItem::Union { is_pub: false, name, fields: fields.into(), span })
     }
 
     fn parse_field(&mut self) -> Result<FieldDecl, ParseError> {
@@ -979,7 +1057,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::Colon, "':'")?;
         let ty = self.parse_type()?;
         self.consume_stmt_terminator()?;
-        Ok(FieldDecl { name, ty, span, bits: None })
+        Ok(FieldDecl { is_pub: false, name, ty, span, bits: None })
     }
 
     fn parse_method(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {
@@ -1019,6 +1097,7 @@ impl<'a> Parser<'a> {
         };
         let body = parse_block(self)?;
         Ok(FnDecl {
+            is_pub: false,
             attrs: attrs.into(),
             name,
             type_params: type_params.into(),
@@ -1107,6 +1186,7 @@ impl<'a> Parser<'a> {
         };
         let body = parse_block(self)?;
         Ok(FnDecl {
+            is_pub: false,
             attrs: attrs.into(),
             name,
             type_params: type_params.into(),

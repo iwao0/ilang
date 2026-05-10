@@ -17,7 +17,7 @@
 /// from `mixInit` reports which actually loaded; missing bits
 /// mean an optional dependency wasn't bundled.
 @flags
-enum MixInitFlag: i32 {
+pub enum MixInitFlag: i32 {
     flac    = 0x01
     mod     = 0x02
     mp3     = 0x08
@@ -28,79 +28,79 @@ enum MixInitFlag: i32 {
 }
 
 /// Default `freq` argument for `mixOpenAudio` — 44.1 kHz.
-const MIX_DEFAULT_FREQUENCY: i32 = 44100
+pub const MIX_DEFAULT_FREQUENCY: i32 = 44100
 /// Default `format` for `mixOpenAudio` — signed 16-bit LE
 /// (matches `AUDIO_S16LSB` in `sdl_audio.il`).
-const MIX_DEFAULT_FORMAT:    u16 = 0x8010
+pub const MIX_DEFAULT_FORMAT:    u16 = 0x8010
 /// Default channel count — stereo.
-const MIX_DEFAULT_CHANNELS:  i32 = 2
+pub const MIX_DEFAULT_CHANNELS:  i32 = 2
 /// Default mixer sample buffer (in samples per channel).
-const MIX_DEFAULT_CHUNKSIZE: i32 = 2048
+pub const MIX_DEFAULT_CHUNKSIZE: i32 = 2048
 /// Volume range: 0 = silent, 128 = full.
-const MIX_MAX_VOLUME:        i32 = 128
+pub const MIX_MAX_VOLUME:        i32 = 128
 
 @extern(C) {
     /// Opaque `Mix_Chunk *` — short PCM buffer (sound effects).
-    struct Mix_Chunk {}
+    pub struct Mix_Chunk {}
     /// Opaque `Mix_Music *` — streaming track (BGM).
-    struct Mix_Music {}
+    pub struct Mix_Music {}
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2_mixer") fn Mix_Init(flags: i32): i32
-    @lib("SDL2_mixer") fn Mix_Quit()
-    @lib("SDL2_mixer") fn Mix_OpenAudio(
+    @lib("SDL2_mixer") pub fn Mix_Init(flags: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_Quit()
+    @lib("SDL2_mixer") pub fn Mix_OpenAudio(
         frequency: i32, format: u16, channels: i32, chunksize: i32
     ): i32
-    @lib("SDL2_mixer") fn Mix_CloseAudio()
-    @lib("SDL2_mixer") fn Mix_AllocateChannels(numchans: i32): i32
-    @lib("SDL2_mixer") fn Mix_QuerySpec(
+    @lib("SDL2_mixer") pub fn Mix_CloseAudio()
+    @lib("SDL2_mixer") pub fn Mix_AllocateChannels(numchans: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_QuerySpec(
         frequency: *i32, format: *u16, channels: *i32
     ): i32
 
     // ─── chunk (sound-effect) lifecycle + playback ───────────────
-    @lib("SDL2_mixer") fn Mix_LoadWAV(file: *const char): *Mix_Chunk
-    @lib("SDL2_mixer") fn Mix_FreeChunk(chunk: *Mix_Chunk)
-    @lib("SDL2_mixer") fn Mix_PlayChannelTimed(
+    @lib("SDL2_mixer") pub fn Mix_LoadWAV(file: *const char): *Mix_Chunk
+    @lib("SDL2_mixer") pub fn Mix_FreeChunk(chunk: *Mix_Chunk)
+    @lib("SDL2_mixer") pub fn Mix_PlayChannelTimed(
         channel: i32, chunk: *Mix_Chunk, loops: i32, ticks: i32
     ): i32
-    @lib("SDL2_mixer") fn Mix_FadeInChannelTimed(
+    @lib("SDL2_mixer") pub fn Mix_FadeInChannelTimed(
         channel: i32, chunk: *Mix_Chunk, loops: i32,
         ms: i32, ticks: i32
     ): i32
-    @lib("SDL2_mixer") fn Mix_VolumeChunk(
+    @lib("SDL2_mixer") pub fn Mix_VolumeChunk(
         chunk: *Mix_Chunk, volume: i32
     ): i32
 
     // ─── per-channel control ─────────────────────────────────────
-    @lib("SDL2_mixer") fn Mix_Volume(channel: i32, volume: i32): i32
-    @lib("SDL2_mixer") fn Mix_Pause(channel: i32)
-    @lib("SDL2_mixer") fn Mix_Resume(channel: i32)
-    @lib("SDL2_mixer") fn Mix_HaltChannel(channel: i32): i32
-    @lib("SDL2_mixer") fn Mix_FadeOutChannel(channel: i32, ms: i32): i32
-    @lib("SDL2_mixer") fn Mix_Playing(channel: i32): i32
-    @lib("SDL2_mixer") fn Mix_Paused(channel: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_Volume(channel: i32, volume: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_Pause(channel: i32)
+    @lib("SDL2_mixer") pub fn Mix_Resume(channel: i32)
+    @lib("SDL2_mixer") pub fn Mix_HaltChannel(channel: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_FadeOutChannel(channel: i32, ms: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_Playing(channel: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_Paused(channel: i32): i32
 
     // ─── music (streaming) lifecycle + playback ──────────────────
-    @lib("SDL2_mixer") fn Mix_LoadMUS(file: *const char): *Mix_Music
-    @lib("SDL2_mixer") fn Mix_FreeMusic(music: *Mix_Music)
-    @lib("SDL2_mixer") fn Mix_PlayMusic(music: *Mix_Music, loops: i32): i32
-    @lib("SDL2_mixer") fn Mix_FadeInMusic(
+    @lib("SDL2_mixer") pub fn Mix_LoadMUS(file: *const char): *Mix_Music
+    @lib("SDL2_mixer") pub fn Mix_FreeMusic(music: *Mix_Music)
+    @lib("SDL2_mixer") pub fn Mix_PlayMusic(music: *Mix_Music, loops: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_FadeInMusic(
         music: *Mix_Music, loops: i32, ms: i32
     ): i32
-    @lib("SDL2_mixer") fn Mix_FadeOutMusic(ms: i32): i32
-    @lib("SDL2_mixer") fn Mix_VolumeMusic(volume: i32): i32
-    @lib("SDL2_mixer") fn Mix_PauseMusic()
-    @lib("SDL2_mixer") fn Mix_ResumeMusic()
-    @lib("SDL2_mixer") fn Mix_RewindMusic()
-    @lib("SDL2_mixer") fn Mix_HaltMusic(): i32
-    @lib("SDL2_mixer") fn Mix_PlayingMusic(): i32
-    @lib("SDL2_mixer") fn Mix_PausedMusic(): i32
+    @lib("SDL2_mixer") pub fn Mix_FadeOutMusic(ms: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_VolumeMusic(volume: i32): i32
+    @lib("SDL2_mixer") pub fn Mix_PauseMusic()
+    @lib("SDL2_mixer") pub fn Mix_ResumeMusic()
+    @lib("SDL2_mixer") pub fn Mix_RewindMusic()
+    @lib("SDL2_mixer") pub fn Mix_HaltMusic(): i32
+    @lib("SDL2_mixer") pub fn Mix_PlayingMusic(): i32
+    @lib("SDL2_mixer") pub fn Mix_PausedMusic(): i32
 
     // ─── error reporting ─────────────────────────────────────────
     // SDL2_mixer's Mix_GetError macro calls SDL_GetError; declare
     // our own thin wrapper so the namespaced form stays available
     // alongside the existing `sdl.getError()`.
-    @lib("SDL2_mixer") @symbol("SDL_GetError") fn Mix_GetError(): *const char
+    @lib("SDL2_mixer") @symbol("SDL_GetError") pub fn Mix_GetError(): *const char
 
     // ─── friendlier ilang wrappers ───────────────────────────────
 
@@ -113,13 +113,13 @@ const MIX_MAX_VOLUME:        i32 = 128
     ///   bitmask of decoders that actually loaded. Mismatched bits
     ///   indicate missing optional dependencies (call
     ///   `mixGetError()`).
-    fn mixInit(flags: MixInitFlag): i32 {
+    pub fn mixInit(flags: MixInitFlag): i32 {
         Mix_Init(flags as i32)
     }
 
     /// Tear down SDL2_mixer. Call after `mixCloseAudio()` and
     /// before `sdl.quit()`.
-    fn mixQuit() {
+    pub fn mixQuit() {
         Mix_Quit()
     }
 
@@ -135,13 +135,13 @@ const MIX_MAX_VOLUME:        i32 = 128
     ///
     /// Returns:
     ///   `0` on success, `< 0` on failure.
-    fn mixOpenAudio(
+    pub fn mixOpenAudio(
         frequency: i32, format: u16, channels: i32, chunksize: i32
     ): i32 {
         Mix_OpenAudio(frequency, format, channels, chunksize)
     }
 
-    fn mixCloseAudio() {
+    pub fn mixCloseAudio() {
         Mix_CloseAudio()
     }
 
@@ -150,7 +150,7 @@ const MIX_MAX_VOLUME:        i32 = 128
     ///
     /// Returns:
     ///   the resulting channel count.
-    fn mixAllocateChannels(numchans: i32): i32 {
+    pub fn mixAllocateChannels(numchans: i32): i32 {
         Mix_AllocateChannels(numchans)
     }
 
@@ -160,7 +160,7 @@ const MIX_MAX_VOLUME:        i32 = 128
     ///   middle 16 / upper 16 bits as needed. Mostly useful for
     ///   debug prints; for game logic the values are usually
     ///   whatever the caller passed to `mixOpenAudio`.
-    fn mixQuerySpec(): i32 {
+    pub fn mixQuerySpec(): i32 {
         let f: i32[] = [0]
         let fmt: u16[] = [0 as u16]
         let ch: i32[] = [0]
@@ -170,24 +170,24 @@ const MIX_MAX_VOLUME:        i32 = 128
         Mix_QuerySpec(pf, pfmt, pch)
     }
 
-    fn mixGetError(): string {
+    pub fn mixGetError(): string {
         stringFromCstr(Mix_GetError())
     }
 
     /// ARC-managed `Mix_Chunk`. Construct via `new Chunk(path)`;
     /// `deinit` calls `Mix_FreeChunk`.
-    class Chunk {
+    pub class Chunk {
         /// Raw `Mix_Chunk *` cast to i64. `0` when loading failed.
-        handle: i64
+        pub handle: i64
 
         /// Load a short audio file (WAV / AIFF / OGG / VOC) as a
         /// `Mix_Chunk`. Loaded fully into memory — meant for SE,
         /// not BGM.
-        init(path: string) {
+        pub init(path: string) {
             this.handle = Mix_LoadWAV(cstrFromString(path)) as i64
         }
 
-        deinit() {
+        pub deinit() {
             if this.handle != 0 {
                 Mix_FreeChunk(this.handle as *Mix_Chunk)
             }
@@ -200,14 +200,14 @@ const MIX_MAX_VOLUME:        i32 = 128
         /// Returns:
         ///   the channel actually used (`>= 0`), or `-1` on
         ///   failure.
-        play(channel: i32, loops: i32): i32 {
+        pub play(channel: i32, loops: i32): i32 {
             if this.handle == 0 { return -1 }
             Mix_PlayChannelTimed(channel, this.handle as *Mix_Chunk, loops, -1)
         }
 
         /// Variant of `play` that auto-stops after `durationMs`
         /// milliseconds, regardless of `loops`.
-        playTimed(channel: i32, loops: i32, durationMs: i32): i32 {
+        pub playTimed(channel: i32, loops: i32, durationMs: i32): i32 {
             if this.handle == 0 { return -1 }
             Mix_PlayChannelTimed(channel, this.handle as *Mix_Chunk, loops, durationMs)
         }
@@ -216,7 +216,7 @@ const MIX_MAX_VOLUME:        i32 = 128
         ///
         /// Returns:
         ///   chosen channel, or `-1` on failure.
-        fadeIn(channel: i32, loops: i32, ms: i32): i32 {
+        pub fadeIn(channel: i32, loops: i32, ms: i32): i32 {
             if this.handle == 0 { return -1 }
             Mix_FadeInChannelTimed(
                 channel, this.handle as *Mix_Chunk, loops, ms, -1
@@ -231,7 +231,7 @@ const MIX_MAX_VOLUME:        i32 = 128
         ///
         /// Returns:
         ///   the volume in effect after the call.
-        volume(volume: i32): i32 {
+        pub volume(volume: i32): i32 {
             if this.handle == 0 { return 0 }
             Mix_VolumeChunk(this.handle as *Mix_Chunk, volume)
         }
@@ -240,17 +240,17 @@ const MIX_MAX_VOLUME:        i32 = 128
     /// ARC-managed `Mix_Music`. Construct via `new Music(path)`;
     /// `deinit` calls `Mix_FreeMusic`. Only one music track plays
     /// at a time (SDL2_mixer limitation).
-    class Music {
+    pub class Music {
         /// Raw `Mix_Music *` cast to i64. `0` when loading failed.
-        handle: i64
+        pub handle: i64
 
         /// Load a music file (OGG / MP3 / FLAC / MOD / etc. —
         /// formats compiled into your SDL2_mixer build).
-        init(path: string) {
+        pub init(path: string) {
             this.handle = Mix_LoadMUS(cstrFromString(path)) as i64
         }
 
-        deinit() {
+        pub deinit() {
             if this.handle != 0 {
                 Mix_FreeMusic(this.handle as *Mix_Music)
             }
@@ -263,13 +263,13 @@ const MIX_MAX_VOLUME:        i32 = 128
         ///
         /// Returns:
         ///   `0` on success, `< 0` on failure.
-        play(loops: i32): i32 {
+        pub play(loops: i32): i32 {
             if this.handle == 0 { return -1 }
             Mix_PlayMusic(this.handle as *Mix_Music, loops)
         }
 
         /// Fade-in over `ms` milliseconds.
-        fadeIn(loops: i32, ms: i32): i32 {
+        pub fadeIn(loops: i32, ms: i32): i32 {
             if this.handle == 0 { return -1 }
             Mix_FadeInMusic(this.handle as *Mix_Music, loops, ms)
         }
@@ -279,37 +279,37 @@ const MIX_MAX_VOLUME:        i32 = 128
 
     /// Set the global music volume (`0..MIX_MAX_VOLUME`). Passing
     /// `-1` queries without changing.
-    fn setMusicVolume(volume: i32): i32 {
+    pub fn setMusicVolume(volume: i32): i32 {
         Mix_VolumeMusic(volume)
     }
 
-    fn pauseMusic() {
+    pub fn pauseMusic() {
         Mix_PauseMusic()
     }
 
-    fn resumeMusic() {
+    pub fn resumeMusic() {
         Mix_ResumeMusic()
     }
 
-    fn rewindMusic() {
+    pub fn rewindMusic() {
         Mix_RewindMusic()
     }
 
     /// Stop music playback immediately.
-    fn haltMusic(): i32 {
+    pub fn haltMusic(): i32 {
         Mix_HaltMusic()
     }
 
     /// Fade out the currently-playing music over `ms` ms.
-    fn fadeOutMusic(ms: i32): i32 {
+    pub fn fadeOutMusic(ms: i32): i32 {
         Mix_FadeOutMusic(ms)
     }
 
-    fn isMusicPlaying(): bool {
+    pub fn isMusicPlaying(): bool {
         Mix_PlayingMusic() != 0
     }
 
-    fn isMusicPaused(): bool {
+    pub fn isMusicPaused(): bool {
         Mix_PausedMusic() != 0
     }
 
@@ -321,32 +321,32 @@ const MIX_MAX_VOLUME:        i32 = 128
     /// Returns:
     ///   the volume in effect after the call (or the average when
     ///   querying with `channel = -1`).
-    fn setChannelVolume(channel: i32, volume: i32): i32 {
+    pub fn setChannelVolume(channel: i32, volume: i32): i32 {
         Mix_Volume(channel, volume)
     }
 
-    fn pauseChannel(channel: i32) {
+    pub fn pauseChannel(channel: i32) {
         Mix_Pause(channel)
     }
 
-    fn resumeChannel(channel: i32) {
+    pub fn resumeChannel(channel: i32) {
         Mix_Resume(channel)
     }
 
     /// Stop playback on `channel` (`-1` = all channels).
-    fn haltChannel(channel: i32): i32 {
+    pub fn haltChannel(channel: i32): i32 {
         Mix_HaltChannel(channel)
     }
 
-    fn fadeOutChannel(channel: i32, ms: i32): i32 {
+    pub fn fadeOutChannel(channel: i32, ms: i32): i32 {
         Mix_FadeOutChannel(channel, ms)
     }
 
-    fn isChannelPlaying(channel: i32): bool {
+    pub fn isChannelPlaying(channel: i32): bool {
         Mix_Playing(channel) != 0
     }
 
-    fn isChannelPaused(channel: i32): bool {
+    pub fn isChannelPaused(channel: i32): bool {
         Mix_Paused(channel) != 0
     }
 }
