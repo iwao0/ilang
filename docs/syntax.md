@@ -22,8 +22,8 @@ separators (JS-style ASI).
 ```
 as       break    class    const    continue elif     else     enum
 extends  false    fn       for      if       in       is       let
-loop     match    new      none     override return   some     super
-this     true     use      while
+loop     match    new      none     override pub      return   some
+super    this     true     use      while
 ```
 
 These tokens are reserved and cannot be used as variable / parameter
@@ -1272,21 +1272,31 @@ class Counter {
 
 // main.il
 use utils                       // namespaced
-use math { sqrt, pi }           // selective
+use math { sqrt, pi }           // selective + namespace
+use math as m { e }             // alias + selective
+use math as _ { ln }            // selective only (no namespace)
 
 let c = new utils.Counter(10)
 c.bump()
 utils.double(c.get())            // → 22
+sqrt(2.0)                        // bare (from selective)
+math.sqrt(2.0)                   // namespaced (still available)
+m.cos(0.0)                       // via alias `m`
+ln(2.0)                          // bare only — `math.ln` rejected after `as _`
 ```
 
 - **Two forms**:
   - `use module` — namespaced reference (`module.foo()`,
     `new module.Class()`, `module.Enum.variant`).
   - `use module { name1, name2 }` — selective import (used by
-    bare name). Selective import follows `pub use` chains, so
-    `use sdl { InitFlag }` resolves `InitFlag` even when it's
-    declared in `sdl_core` and re-exported by the umbrella `sdl`
-    module.
+    bare name). The namespace is *also* exposed, so both
+    `name1` and `module.name1` are valid in the same file. To
+    suppress the namespace, use `as _` (see below). Selective
+    import follows `pub use` chains, so `use sdl { InitFlag }`
+    resolves `InitFlag` even when it's declared in `sdl_core` and
+    re-exported by the umbrella `sdl` module.
+  - Either form accepts an optional `as <alias>` / `as _`
+    suffix — see `use ... as` below.
 - All top-level items are **public** by default. `pub` is
   currently only meaningful on `use` (see `pub use` below).
 - Circular imports (`A → B → A`) are rejected as a DAG cycle.
@@ -1300,6 +1310,40 @@ utils.double(c.get())            // → 22
 - **Built-in modules**: a few modules ship inside the compiler
   and are preferred over disk lookup. Today these are `math`,
   `os`, `test`.
+
+### `use ... as` (alias, namespace suppression)
+
+`use module as <alias>` renames the user-facing namespace. Inside
+the importing file, refer to the items as `<alias>.X` instead of
+`module.X`; the loader still merges items under the original
+module name, and the per-file normalizer rewrites `<alias>.X`
+references back to the canonical form before merging.
+
+```ilang
+use sdl_renderer as r
+let win: r.Window = ...           // → sdl_renderer.Window internally
+new r.Texture(win, ...)
+```
+
+`use module as _ { ... }` *suppresses* the namespace entirely —
+the namespace name (neither `module.` nor an alias) is registered,
+so only the selectively-imported bare names are visible:
+
+```ilang
+use sdl { Renderer, Window }      // both `Renderer` and `sdl.Renderer` work
+use sdl as _ { Texture }          // only bare `Texture`; `sdl.Texture` not allowed
+```
+
+Restrictions:
+
+- `use module as _` requires a `{ ... }` selective list (a
+  namespace-suppressed import with no bare names would have no
+  observable effect).
+- `pub use module as <alias>` / `pub use module as _` are
+  rejected — the umbrella's contract is to publish the inner
+  module under its canonical name, and an alias would muddle that.
+- Alias names follow the regular identifier rules; `_` is the
+  reserved discard form.
 
 ### `pub use` (re-export, umbrella modules)
 

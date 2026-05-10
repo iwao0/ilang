@@ -36,6 +36,17 @@ impl<'a> Parser<'a> {
                 });
             }
             let mut u = self.parse_use_decl()?;
+            // `pub use M as foo` / `pub use M as _` are not allowed —
+            // the umbrella's job is to publish the inner module under
+            // its own canonical name, and aliases would muddle that
+            // contract.
+            if !matches!(u.alias, ilang_ast::UseAlias::Default) {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::As,
+                    expected: "`pub use` does not support `as <alias>`".into(),
+                    span: u.span,
+                });
+            }
             u.re_export = true;
             return Ok(Item::Use(u));
         }
@@ -178,6 +189,30 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Use, "'use'")?;
         let module = self.expect_ident("module name")?;
+        // Optional `as <ident>` / `as _` alias.
+        let alias = if matches!(self.peek().kind, TokenKind::As) {
+            self.bump();
+            let t = self.peek().clone();
+            match t.kind {
+                TokenKind::Ident(name) => {
+                    self.bump();
+                    if name == "_" {
+                        ilang_ast::UseAlias::Discard
+                    } else {
+                        ilang_ast::UseAlias::Named(ilang_ast::Symbol::intern(&name))
+                    }
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: t.kind,
+                        expected: "alias name or `_`".into(),
+                        span: t.span,
+                    });
+                }
+            }
+        } else {
+            ilang_ast::UseAlias::Default
+        };
         let selective = if matches!(self.peek().kind, TokenKind::LBrace) {
             self.bump();
             let mut names = Vec::new();
@@ -196,8 +231,20 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // `use M as _` without a selective list has no observable
+        // effect (the namespace is suppressed and no bare names are
+        // imported). Reject it so the user catches the typo at parse
+        // time.
+        if matches!(alias, ilang_ast::UseAlias::Discard) && selective.is_none() {
+            return Err(ParseError::Unexpected {
+                found: TokenKind::Use,
+                expected: "`use M as _` requires a `{ ... }` selective list".into(),
+                span,
+            });
+        }
         Ok(ilang_ast::UseDecl {
             module,
+            alias,
             selective: selective.map(Into::into),
             re_export: false,
             span,

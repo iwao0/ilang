@@ -13,8 +13,8 @@
 ```
 as       break    class    const    continue elif     else     enum
 extends  false    fn       for      if       in       is       let
-loop     match    new      none     override return   some     super
-this     true     use      while
+loop     match    new      none     override pub      return   some
+super    this     true     use      while
 ```
 
 これらは予約語で、変数 / 引数 / フィールド / 関数 / クラス名には使えません。
@@ -1012,22 +1012,52 @@ class Counter {
 
 // main.il
 use utils                       // 名前空間越しに使う
-use math { sqrt, pi }           // 選択的に取り込む
+use math { sqrt, pi }           // 選択取り込み + 名前空間
+use math as m { e }             // 別名 + 選択取り込み
+use math as _ { ln }            // 選択取り込みのみ（名前空間抑止）
 
 let c = new utils.Counter(10)
 c.bump()
 utils.double(c.get())            // → 22
+sqrt(2.0)                        // bare（選択取り込み由来）
+math.sqrt(2.0)                   // 名前空間越しも引き続き使える
+m.cos(0.0)                       // 別名 `m` 経由
+ln(2.0)                          // bare のみ。`as _` を付けたので `math.ln` は不可
 ```
 
 - **2 形式**:
   - `use module` — 名前空間越し参照 (`module.foo()`, `new module.Class()`, `module.Enum.variant`)
-  - `use module { name1, name2 }` — 個別取り込み (ベアネームで使う)。`pub use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
+  - `use module { name1, name2 }` — 個別取り込み (ベアネームで使う)。**名前空間も同時に登録される**ので、`name1` と `module.name1` の両方が同じファイル内で使える。名前空間を抑止したい場合は `as _`（後述）を使う。`pub use` チェインを辿るので、`use sdl { InitFlag }` は umbrella `sdl` が再エクスポートしている `sdl_core` の `InitFlag` も解決できる
+  - どちらの形式も `as <別名>` / `as _` を後置できる（後述 `use ... as`）
 - すべての top-level item はデフォルトで **public**。`pub` キーワードは現状 `use` の前にだけ書けて、再エクスポート (`pub use`) を意味する
 - 循環インポート (`A → B → A`) は **DAG 検出してエラー**
 - 同じモジュールを複数回 `use` しても一度しかロードされない (ファイルパスで dedupe)
 - 全モジュールが 1 つの Program にマージされる (ファイル境界は型チェッカ以降は意識されない)
 - 名前空間越し import の中身は `module.X` プレフィクスで内部識別されるため、`use module` した時に親プログラムの bare 名と衝突しない
 - **同梱モジュール**: 一部のモジュールはコンパイラに埋め込まれており、ディスクの探索より優先される。現状は `math` のみ。
+
+#### `use ... as` (別名 / 名前空間抑止)
+
+`use module as <別名>` は、import 元の名前空間名をリネームする。ファイル内では `<別名>.X` で参照する。loader はモジュール本来の名前で item をマージするが、ファイル単位の normalize 処理が `<別名>.X` を canonical な `module.X` に書き戻すため、merge 後の view と齟齬は出ない。
+
+```rust
+use sdl_renderer as r
+let win: r.Window = ...           // 内部的には sdl_renderer.Window
+new r.Texture(win, ...)
+```
+
+`use module as _ { ... }` は **名前空間を完全に抑止する**。`module.` も別名も登録されず、selective list で取り込んだ bare name のみが見える:
+
+```rust
+use sdl { Renderer, Window }      // `Renderer` も `sdl.Renderer` も両方使える
+use sdl as _ { Texture }          // bare `Texture` のみ。`sdl.Texture` は使えない
+```
+
+制限:
+
+- `use module as _` は `{ ... }` 必須（名前空間を抑止しつつ bare 名も取り込まないと観測可能な効果が無いため）
+- `pub use module as <別名>` / `pub use module as _` はエラー — umbrella の責務は内部モジュールを **元の名前** で公開することなので、別名で混乱させない
+- 別名は通常の identifier ルールに従う。`_` は予約された discard 形式
 
 #### `pub use` (再エクスポート / umbrella モジュール)
 

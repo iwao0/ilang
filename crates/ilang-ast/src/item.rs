@@ -294,10 +294,27 @@ pub struct ConstDecl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum UseAlias {
+    /// `use M` — `M.X` is the user-facing namespace.
+    Default,
+    /// `use M as foo` — `foo.X` is the user-facing namespace; the
+    /// loader still merges items under the original module name and
+    /// the per-file normalizer rewrites `foo.X` → `M.X`.
+    Named(Symbol),
+    /// `use M as _ { ... }` — namespace is suppressed; only the
+    /// selectively-imported names are visible in the importing file.
+    Discard,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
     /// The module identifier (`utils` resolves to `utils.il` next to
     /// the importing file).
     pub module: Symbol,
+    /// User-facing namespace controller — `Default` uses the module
+    /// name, `Named(foo)` aliases it as `foo`, `Discard` suppresses
+    /// the namespace entirely (only valid with selective imports).
+    pub alias: UseAlias,
     /// `None` for whole-module import (`use utils`); `Some(names)`
     /// for selective import (`use utils { foo, bar }`).
     pub selective: Option<Box<[Symbol]>>,

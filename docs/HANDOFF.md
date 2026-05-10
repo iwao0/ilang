@@ -89,8 +89,10 @@
 - struct 値渡し(< 16 B = chunks / HFA / > 16 B = sret)を自動で適用(旧 `byValue` フラグ相当)
 
 ### モジュール / プロジェクトファイル
-- `use module` (whole) / `use module { foo, bar }` (selective)
-- **`pub use module`** — re-export(umbrella module を作る用)
+- `use module` (whole) / `use module { foo, bar }` (selective: bare 名 + 名前空間の両方が使える)
+- **`use module as foo`** — 別名で名前空間を import (`foo.X` で参照、内部的には `module.X` に書き戻される)
+- **`use module as _ { ... }`** — 名前空間を抑止し、selective 名のみ公開
+- **`pub use module`** — re-export(umbrella module を作る用)。`as` の併用は不可
 - **`ilang.toml`** プロジェクトファイル: `[deps] sdl2 = "path"` で `use` の探索パスを追加。CLI が entry file から上に辿って自動発見
 - `const NAME: T = const_expr` — 算術 / ビット / 比較 / 論理 / `as` キャスト / 他の const 参照を**コンパイル時に折りたたみ**。型注釈付き const は substitute 時に Cast で wrap されて、参照箇所すべてに自動的に型が伝わる
 - 同梱モジュール: `math` (sqrt/sin/cos/pi/e ほか) / `test` (expect/...)、`os` (errno / libLoaded / 定数群)

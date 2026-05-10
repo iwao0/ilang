@@ -1260,10 +1260,35 @@ fn organize_imports(
 /// emitted with the `pub ` prefix.
 fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
     use std::collections::{BTreeMap, BTreeSet};
-    let mut groups: BTreeMap<(String, bool), (bool, BTreeSet<String>)> = BTreeMap::new();
+    // alias_key: 0 = Default, 1 = Named(foo) (with `foo` in second
+    // String), 2 = Discard. Sorts Default-first so plain `use M`
+    // appears before any aliased forms in the canonical output.
+    type AliasKey = (u8, String);
+    fn alias_key(a: &ilang_ast::UseAlias) -> AliasKey {
+        match a {
+            ilang_ast::UseAlias::Default => (0, String::new()),
+            ilang_ast::UseAlias::Named(n) => (1, n.as_str().to_string()),
+            ilang_ast::UseAlias::Discard => (2, String::new()),
+        }
+    }
+    fn alias_suffix(a: &ilang_ast::UseAlias) -> String {
+        match a {
+            ilang_ast::UseAlias::Default => String::new(),
+            ilang_ast::UseAlias::Named(n) => format!(" as {}", n.as_str()),
+            ilang_ast::UseAlias::Discard => " as _".to_string(),
+        }
+    }
+    let mut groups: BTreeMap<(String, AliasKey, bool), (bool, BTreeSet<String>, ilang_ast::UseAlias)> =
+        BTreeMap::new();
     for u in uses {
-        let key = (u.module.as_str().to_string(), u.re_export);
-        let entry = groups.entry(key).or_insert_with(|| (false, BTreeSet::new()));
+        let key = (
+            u.module.as_str().to_string(),
+            alias_key(&u.alias),
+            u.re_export,
+        );
+        let entry = groups
+            .entry(key)
+            .or_insert_with(|| (false, BTreeSet::new(), u.alias.clone()));
         match &u.selective {
             None => entry.0 = true,
             Some(names) => {
@@ -1274,16 +1299,19 @@ fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
         }
     }
     let mut out = String::new();
-    for ((module, re_export), (has_whole, names)) in groups.iter() {
+    for ((module, _, re_export), (has_whole, names, alias)) in groups.iter() {
         let prefix = if *re_export { "pub use " } else { "use " };
+        let suffix = alias_suffix(alias);
         if *has_whole {
             out.push_str(prefix);
             out.push_str(module);
+            out.push_str(&suffix);
             out.push('\n');
         }
         if !names.is_empty() {
             out.push_str(prefix);
             out.push_str(module);
+            out.push_str(&suffix);
             out.push_str(" { ");
             let joined: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
             out.push_str(&joined.join(", "));
