@@ -63,6 +63,28 @@ fn emits_object_for_while_loop() {
 }
 
 #[test]
+fn emits_object_for_user_fn_call() {
+    expect_object(
+        r#"
+        fn add(a: i64, b: i64): i64 { a + b }
+        add(20, 22)
+    "#,
+    );
+}
+
+#[test]
+fn emits_object_for_recursive_fn() {
+    expect_object(
+        r#"
+        fn fact(n: i64): i64 {
+          if n <= 1 { 1 } else { n * fact(n - 1) }
+        }
+        fact(5)
+    "#,
+    );
+}
+
+#[test]
 fn rejects_classes_in_subset() {
     let src = r#"
         class P { x: i64 }

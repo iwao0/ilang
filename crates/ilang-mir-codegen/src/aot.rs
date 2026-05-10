@@ -19,7 +19,10 @@ use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, FunctionBuilderContex
 use cranelift_module::{Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 
-use ilang_mir::{Inst, MirConst, MirTy, Program, Terminator, UnOp, ValueId};
+use ilang_mir::{
+    FuncId as MirFuncId, FuncRef, FunctionKind, Inst, MirConst, MirTy, Program, Terminator,
+    UnOp, ValueId,
+};
 
 use crate::compile::lower_binop;
 use crate::ty::mir_to_clif;
@@ -43,7 +46,10 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     let entry = &prog.functions[prog.entry.0 as usize];
     validate_subset(prog, entry)?;
 
-    let entry_clif_ret = mir_to_clif(&entry.ret).ok_or_else(|| {
+    // Surface a clean error if the entry's return type can't fold to
+    // an exit code. `build_signature` would catch this later anyway,
+    // but throwing here produces a more pointed message.
+    mir_to_clif(&entry.ret).ok_or_else(|| {
         AotError::Unsupported(format!("entry return type {:?}", entry.ret))
     })?;
 
@@ -66,26 +72,51 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     .map_err(|e| AotError::Other(format!("ObjectBuilder: {e}")))?;
     let mut module = ObjectModule::new(builder);
 
-    // Declare and define `__ilang_main` (`() -> entry.ret`).
-    let mut entry_sig = module.make_signature();
-    entry_sig.returns.push(AbiParam::new(entry_clif_ret));
-    let entry_id = module.declare_function("__ilang_main", Linkage::Local, &entry_sig)?;
+    // Declare every Local function up front so call sites resolve in
+    // any order. The entry fn is exported under the stable internal
+    // name `__ilang_main`; other fns keep their MIR-level mangled name
+    // (already monomorphised).
+    let mut fn_ids: HashMap<MirFuncId, cranelift_module::FuncId> =
+        HashMap::with_capacity(prog.functions.len());
+    let mut fn_sigs: HashMap<MirFuncId, cranelift_codegen::ir::Signature> =
+        HashMap::with_capacity(prog.functions.len());
+    for (idx, func) in prog.functions.iter().enumerate() {
+        let mid = MirFuncId(idx as u32);
+        let sig = build_signature(&module, func)?;
+        let symbol_name = if mid == prog.entry {
+            "__ilang_main"
+        } else {
+            func.name.as_str()
+        };
+        let cid = module.declare_function(symbol_name, Linkage::Local, &sig)?;
+        fn_ids.insert(mid, cid);
+        fn_sigs.insert(mid, sig);
+    }
 
     let mut ctx = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
-    ctx.func = ClifFunc::with_name_signature(
-        UserFuncName::user(0, entry_id.as_u32()),
-        entry_sig.clone(),
-    );
-    {
-        let mut fb = ClifFnBuilder::new(&mut ctx.func, &mut fb_ctx);
-        lower_entry(entry, &mut fb)?;
-        fb.finalize();
+    for (idx, func) in prog.functions.iter().enumerate() {
+        let mid = MirFuncId(idx as u32);
+        let cid = fn_ids[&mid];
+        let sig = fn_sigs[&mid].clone();
+        ctx.func = ClifFunc::with_name_signature(
+            UserFuncName::user(0, cid.as_u32()),
+            sig,
+        );
+        {
+            let mut fb = ClifFnBuilder::new(&mut ctx.func, &mut fb_ctx);
+            lower_function_body(func, &mut fb, &mut module, &fn_ids)?;
+            fb.finalize();
+        }
+        module.define_function(cid, &mut ctx).map_err(|e| {
+            AotError::Other(format!(
+                "define_function {}: {e:?}",
+                func.name
+            ))
+        })?;
+        module.clear_context(&mut ctx);
     }
-    module.define_function(entry_id, &mut ctx).map_err(|e| {
-        AotError::Other(format!("define_function __ilang_main: {e:?}"))
-    })?;
-    module.clear_context(&mut ctx);
+    let entry_id = fn_ids[&prog.entry];
 
     // Emit the C ABI `main` wrapper. Cranelift names it via Linkage::Export
     // so the linker resolves the platform startup file's call to `_main`
@@ -126,17 +157,51 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         .map_err(|e| AotError::Other(format!("emit object: {e}")))
 }
 
-fn lower_entry(
+fn build_signature(
+    module: &ObjectModule,
+    func: &ilang_mir::Function,
+) -> Result<cranelift_codegen::ir::Signature, AotError> {
+    let mut sig = module.make_signature();
+    for p in func.params.iter() {
+        let ct = mir_to_clif(&p.ty).ok_or_else(|| {
+            AotError::Unsupported(format!(
+                "fn {} param {} type {:?}",
+                func.name, p.name, p.ty
+            ))
+        })?;
+        sig.params.push(AbiParam::new(ct));
+    }
+    if !matches!(func.ret, MirTy::Unit) {
+        let ct = mir_to_clif(&func.ret).ok_or_else(|| {
+            AotError::Unsupported(format!(
+                "fn {} return type {:?}",
+                func.name, func.ret
+            ))
+        })?;
+        sig.returns.push(AbiParam::new(ct));
+    }
+    Ok(sig)
+}
+
+fn lower_function_body(
     entry: &ilang_mir::Function,
     fb: &mut ClifFnBuilder,
+    module: &mut ObjectModule,
+    fn_ids: &HashMap<MirFuncId, cranelift_module::FuncId>,
 ) -> Result<(), AotError> {
-    // Allocate a clif Block per MIR block. Block params for non-entry
-    // blocks (the entry block has no MIR params at this layer) get
-    // appended in MIR order; we propagate them through Br / CondBr.
+    // Allocate a clif Block per MIR block. The entry block carries the
+    // function's params (matching `build_signature`); non-entry blocks
+    // get their MIR-declared params, dropped if Unit-typed.
     let mut blocks: Vec<cranelift::prelude::Block> = Vec::with_capacity(entry.blocks.len());
     for (i, blk) in entry.blocks.iter().enumerate() {
         let b = fb.create_block();
-        if i != entry.entry.0 as usize {
+        if i == entry.entry.0 as usize {
+            for p in entry.params.iter() {
+                if let Some(ct) = mir_to_clif(&p.ty) {
+                    fb.append_block_param(b, ct);
+                }
+            }
+        } else {
             for &p in &blk.params {
                 let pty = entry.ty_of(p);
                 if let Some(ct) = mir_to_clif(pty) {
@@ -175,9 +240,16 @@ fn lower_entry(
     for (i, blk) in entry.blocks.iter().enumerate() {
         let cb = blocks[i];
         fb.switch_to_block(cb);
-        if i != entry.entry.0 as usize {
-            let cps = fb.block_params(cb).to_vec();
-            let mut k = 0usize;
+        let cps = fb.block_params(cb).to_vec();
+        let mut k = 0usize;
+        if i == entry.entry.0 as usize {
+            for p in entry.params.iter() {
+                if mir_to_clif(&p.ty).is_some() {
+                    vmap.insert(p.value, cps[k]);
+                    k += 1;
+                }
+            }
+        } else {
             for &p in &blk.params {
                 let pty = entry.ty_of(p);
                 if mir_to_clif(pty).is_some() {
@@ -187,7 +259,7 @@ fn lower_entry(
             }
         }
         for inst in &blk.insts {
-            lower_inst_minimal(fb, inst, &mut vmap, &locals, &local_has_clif, entry)?;
+            lower_inst_minimal(fb, inst, &mut vmap, &locals, &local_has_clif, entry, module, fn_ids)?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks)?;
     }
@@ -206,6 +278,8 @@ fn lower_inst_minimal(
     locals: &[Variable],
     local_has_clif: &[bool],
     func: &ilang_mir::Function,
+    module: &mut ObjectModule,
+    fn_ids: &HashMap<MirFuncId, cranelift_module::FuncId>,
 ) -> Result<(), AotError> {
     match inst {
         Inst::Const { dst, value } => {
@@ -278,6 +352,38 @@ fn lower_inst_minimal(
             let var = locals[local.0 as usize];
             let v = fb.use_var(var);
             vmap.insert(*dst, v);
+        }
+        Inst::Call { dst, callee, args } => {
+            let mid = match callee {
+                FuncRef::Local(id) => *id,
+                FuncRef::Builtin(sym) => {
+                    return Err(AotError::Unsupported(format!(
+                        "builtin call `{}` (no AOT runtime symbols yet)",
+                        sym
+                    )));
+                }
+                FuncRef::Extern { sym, .. } => {
+                    return Err(AotError::Unsupported(format!(
+                        "@extern call `{}` (AOT extern dlopen is a follow-up)",
+                        sym
+                    )));
+                }
+            };
+            let cid = *fn_ids.get(&mid).ok_or_else(|| {
+                AotError::Other(format!("unknown callee FuncId({})", mid.0))
+            })?;
+            let fr = module.declare_func_in_func(cid, fb.func);
+            let cargs: Vec<Value> = args
+                .iter()
+                .filter_map(|a| vmap.get(a).copied())
+                .collect();
+            let call = fb.ins().call(fr, &cargs);
+            if let Some(d) = dst {
+                let results = fb.inst_results(call);
+                if let Some(r) = results.first().copied() {
+                    vmap.insert(*d, r);
+                }
+            }
         }
         other => {
             return Err(AotError::Unsupported(format!(
@@ -393,20 +499,23 @@ fn validate_subset(
             "static slots — not yet wired into AOT".into(),
         ));
     }
-    if prog.functions.len() != 1 {
-        return Err(AotError::Unsupported(format!(
-            "multi-function programs ({} fns; AOT only links the entry today)",
-            prog.functions.len()
-        )));
+    for f in prog.functions.iter() {
+        if !matches!(f.kind, FunctionKind::Local) {
+            return Err(AotError::Unsupported(format!(
+                "fn {} kind {:?} — only Local functions are supported",
+                f.name, f.kind
+            )));
+        }
+        if f.closure_env.is_some() {
+            return Err(AotError::Unsupported(format!(
+                "closure capture in fn {} — not yet supported",
+                f.name
+            )));
+        }
     }
     if !entry.params.is_empty() {
         return Err(AotError::Unsupported(
             "entry function with parameters (expected `() -> T`)".into(),
-        ));
-    }
-    if entry.closure_env.is_some() {
-        return Err(AotError::Unsupported(
-            "closure entry function".into(),
         ));
     }
     Ok(())
