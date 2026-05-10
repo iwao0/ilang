@@ -35,6 +35,7 @@ pub enum TokenKind {
     Extends,
     Override,
     Super,
+    Pub,
     FatArrow,
     // punctuation
     Plus,

@@ -1257,7 +1257,7 @@ fn organize_imports(
 /// `UseDecl`s. Whole-module and selective imports of the same
 /// module coexist on separate lines; selective names are sorted
 /// alphabetically; re-exports group with the same module but are
-/// emitted with the `@export ` prefix.
+/// emitted with the `pub ` prefix.
 fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
     use std::collections::{BTreeMap, BTreeSet};
     let mut groups: BTreeMap<(String, bool), (bool, BTreeSet<String>)> = BTreeMap::new();
@@ -1275,7 +1275,7 @@ fn render_uses(uses: &[&ilang_ast::UseDecl]) -> String {
     }
     let mut out = String::new();
     for ((module, re_export), (has_whole, names)) in groups.iter() {
-        let prefix = if *re_export { "@export use " } else { "use " };
+        let prefix = if *re_export { "pub use " } else { "use " };
         if *has_whole {
             out.push_str(prefix);
             out.push_str(module);
@@ -2007,7 +2007,7 @@ fn harvest_from_program(
         let Item::Use(u) = item else { continue };
         if let Some(names) = &u.selective {
             // `use M { X1, X2 }` — pull X1/X2's hover info from M
-            // (or its `@export use` chain) and key them under their
+            // (or its `pub use` chain) and key them under their
             // bare name so the buffer-side walker can resolve a
             // bare `Var("X1")` reference.
             harvest_selective_names(
@@ -2026,7 +2026,7 @@ fn harvest_from_program(
 }
 
 /// Resolve each `name` in `names` against `module` (which may be an
-/// umbrella that re-exports its members via `@export use`) and
+/// umbrella that re-exports its members via `pub use`) and
 /// register a bare-keyed entry under `name` in `out` / `sources` /
 /// `docs`. This lets the buffer-side walker treat a bare `Var("X")`
 /// from `use M { X }` exactly like a dotted `Var("M.X")`.
@@ -2270,7 +2270,7 @@ fn walk_module(
                     }
                 }
             }
-            // Follow `@export use` chains so umbrella modules
+            // Follow `pub use` chains so umbrella modules
             // (e.g. `sdl.il` re-exporting `sdl_renderer.il`) flow the
             // prefix through to the file that actually declares the
             // class.
@@ -5187,7 +5187,6 @@ fn attribute_completions() -> Vec<CompletionItem> {
         ("packed", None, "@packed"),
         ("bits", Some("bits($1)"), "@bits(N)"),
         ("flags", None, "@flags"),
-        ("export", None, "@export"),
         ("override", None, "@override"),
         ("requires", Some("requires($1)"), "@requires(cap)"),
         ("deprecated", Some("deprecated($1)"), "@deprecated(reason)"),
@@ -5538,9 +5537,9 @@ mod organize_imports_tests {
 
     #[test]
     fn re_export_grouped_separately() {
-        let src = "@export use beta\nuse alpha\n";
+        let src = "pub use beta\nuse alpha\n";
         // Non-export comes first (re_export = false sorts before true).
-        let want = "use alpha\n@export use beta\n";
+        let want = "use alpha\npub use beta\n";
         assert_eq!(run(src).unwrap(), want);
     }
 

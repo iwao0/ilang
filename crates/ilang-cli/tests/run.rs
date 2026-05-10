@@ -78,7 +78,7 @@ fn use_selective_import() {
 
 #[test]
 fn use_selective_through_export_chain() {
-    // Selective import (`use M { X }`) walks `@export use` chains so
+    // Selective import (`use M { X }`) walks `pub use` chains so
     // an umbrella module that re-exports an inner module's names can
     // still be selectively imported. The bare `Color` and the
     // umbrella-prefixed `umbrella.Color` reference the same enum, so
@@ -93,7 +93,7 @@ fn use_selective_through_export_chain() {
     write_module(
         &dir,
         "umbrella",
-        "@export use lib_inner\n\
+        "pub use lib_inner\n\
          fn paint(c: Color): i32 { c as i32 }",
     );
     let main = write_module(

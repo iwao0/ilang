@@ -63,7 +63,7 @@ pub(crate) fn collect_dep_paths(entry: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 /// If `path` is a sub-module re-exported from an umbrella file in the
-/// same directory (i.e. some sibling has `@export use <basename>`),
+/// same directory (i.e. some sibling has `pub use <basename>`),
 /// return the umbrella's path. Used by the LSP so opening a sub-module
 /// alone still type-checks under its umbrella's namespace.
 pub(crate) fn find_umbrella(path: &Path) -> Option<PathBuf> {
