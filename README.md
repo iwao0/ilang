@@ -9,6 +9,13 @@ under active design. Tree-walking interpreter for fast feedback,
 Cranelift JIT for performance, and a Rust-flavoured surface syntax
 that talks to C libraries when you need to.
 
+<p align="center">
+  <img src="https://github.com/iwao0/ilang/releases/download/demo-assets/breakout.gif" alt="Breakout written in ilang, running on the Cranelift JIT with SDL2" width="600">
+</p>
+
+> Breakout in ilang — classes, ARC, closures and SDL2 bindings, JIT-compiled.
+> Source under [`examples/sdl_breakout/`](examples/sdl_breakout/).
+
 ```rust
 fn fib(n: i64): i64 {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }

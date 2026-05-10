@@ -8,6 +8,13 @@
 インタプリタで素早いフィードバック、Cranelift JIT で高速実行、
 Rust 風の文法で C ライブラリとも連携できます。
 
+<p align="center">
+  <img src="https://github.com/iwao0/ilang/releases/download/demo-assets/breakout.gif" alt="ilang で書いた Breakout — Cranelift JIT + SDL2 で動作" width="600">
+</p>
+
+> ilang で書いた Breakout — クラス・ARC・クロージャ・SDL2 バインディング、JIT コンパイル実行。
+> ソース: [`examples/sdl_breakout/`](../examples/sdl_breakout/)
+
 ```rust
 fn fib(n: i64): i64 {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
