@@ -56,6 +56,23 @@ fn main() -> ExitCode {
     }
 }
 
+/// Find `libilang_runtime.a` next to the running `ilang` executable.
+/// Cargo lays both into the same `target/<profile>/` directory, so we
+/// can resolve via `current_exe()`. Returns `None` if the file isn't
+/// there (e.g. the user copied just the `ilang` binary somewhere) so
+/// the linker step still runs — programs that don't pull in any
+/// runtime symbol will link fine without it.
+fn locate_runtime_lib() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let candidate = dir.join("libilang_runtime.a");
+    if candidate.exists() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
 fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let extra_paths = match collect_dep_paths(path) {
         Ok(p) => p,
@@ -117,11 +134,15 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     // Xcode Command Line Tools; we don't bundle a linker yet (LLD
     // shipped as a library is a follow-up).
     let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let status = std::process::Command::new(&cc)
-        .arg(&object_path)
-        .arg("-o")
-        .arg(output)
-        .status();
+    let mut cmd = std::process::Command::new(&cc);
+    cmd.arg(&object_path).arg("-o").arg(output);
+    // `console.log` and other AOT runtime symbols live in
+    // `libilang_runtime.a`. Locate it next to the running `ilang`
+    // binary (cargo lays both into the same `target/<profile>/` dir).
+    if let Some(rt) = locate_runtime_lib() {
+        cmd.arg(&rt);
+    }
+    let status = cmd.status();
     match status {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         Ok(s) => {

@@ -16,6 +16,10 @@ ilang-types = { workspace = true }
 ilang-codegen = { workspace = true }
 ilang-mir = { workspace = true }
 ilang-mir-codegen = { workspace = true }
+# Pulled in so cargo emits the static-library facet
+# (`libilang_runtime.a`) into the same target/ profile directory the
+# `ilang build` subcommand picks up when invoking `cc`.
+ilang-runtime = { workspace = true }
 clap = { workspace = true }
 rustyline = { workspace = true }
 toml = { workspace = true }

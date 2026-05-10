@@ -72,6 +72,23 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     .map_err(|e| AotError::Other(format!("ObjectBuilder: {e}")))?;
     let mut module = ObjectModule::new(builder);
 
+    // Pre-declare runtime print helpers as imports. The linker
+    // resolves these against `ilang-runtime`'s static library at
+    // `ilang build` time. We declare the full set up front so any call
+    // site can reach for them via `declare_func_in_func`.
+    let print_int = declare_print_unary_i64(&mut module, "__print_int")?;
+    let print_bool = declare_print_unary_i64(&mut module, "__print_bool")?;
+    let print_f64 = declare_print_unary_f64(&mut module, "__print_f64")?;
+    let print_space = declare_print_void(&mut module, "__print_space")?;
+    let print_newline = declare_print_void(&mut module, "__print_newline")?;
+    let runtime = RuntimeIds {
+        print_int,
+        print_bool,
+        print_f64,
+        print_space,
+        print_newline,
+    };
+
     // Declare every Local function up front so call sites resolve in
     // any order. The entry fn is exported under the stable internal
     // name `__ilang_main`; other fns keep their MIR-level mangled name
@@ -105,7 +122,7 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         );
         {
             let mut fb = ClifFnBuilder::new(&mut ctx.func, &mut fb_ctx);
-            lower_function_body(func, &mut fb, &mut module, &fn_ids)?;
+            lower_function_body(func, &mut fb, &mut module, &fn_ids, &runtime)?;
             fb.finalize();
         }
         module.define_function(cid, &mut ctx).map_err(|e| {
@@ -183,11 +200,50 @@ fn build_signature(
     Ok(sig)
 }
 
+/// IDs of the host-runtime imports the AOT pipeline always declares.
+/// Lower-instruction sites pluck the relevant one when emitting print
+/// or runtime calls.
+#[derive(Clone, Copy)]
+struct RuntimeIds {
+    print_int: cranelift_module::FuncId,
+    print_bool: cranelift_module::FuncId,
+    print_f64: cranelift_module::FuncId,
+    print_space: cranelift_module::FuncId,
+    print_newline: cranelift_module::FuncId,
+}
+
+fn declare_print_unary_i64(
+    module: &mut ObjectModule,
+    name: &str,
+) -> Result<cranelift_module::FuncId, AotError> {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::I64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
+fn declare_print_unary_f64(
+    module: &mut ObjectModule,
+    name: &str,
+) -> Result<cranelift_module::FuncId, AotError> {
+    let mut sig = module.make_signature();
+    sig.params.push(AbiParam::new(types::F64));
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
+fn declare_print_void(
+    module: &mut ObjectModule,
+    name: &str,
+) -> Result<cranelift_module::FuncId, AotError> {
+    let sig = module.make_signature();
+    Ok(module.declare_function(name, Linkage::Import, &sig)?)
+}
+
 fn lower_function_body(
     entry: &ilang_mir::Function,
     fb: &mut ClifFnBuilder,
     module: &mut ObjectModule,
     fn_ids: &HashMap<MirFuncId, cranelift_module::FuncId>,
+    runtime: &RuntimeIds,
 ) -> Result<(), AotError> {
     // Allocate a clif Block per MIR block. The entry block carries the
     // function's params (matching `build_signature`); non-entry blocks
@@ -259,7 +315,7 @@ fn lower_function_body(
             }
         }
         for inst in &blk.insts {
-            lower_inst_minimal(fb, inst, &mut vmap, &locals, &local_has_clif, entry, module, fn_ids)?;
+            lower_inst_minimal(fb, inst, &mut vmap, &locals, &local_has_clif, entry, module, fn_ids, runtime)?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks)?;
     }
@@ -280,6 +336,7 @@ fn lower_inst_minimal(
     func: &ilang_mir::Function,
     module: &mut ObjectModule,
     fn_ids: &HashMap<MirFuncId, cranelift_module::FuncId>,
+    runtime: &RuntimeIds,
 ) -> Result<(), AotError> {
     match inst {
         Inst::Const { dst, value } => {
@@ -354,14 +411,23 @@ fn lower_inst_minimal(
             vmap.insert(*dst, v);
         }
         Inst::Call { dst, callee, args } => {
+            // `console.log(...)` desugars to a Builtin("console_log")
+            // call. Lower per-arg type-aware: each printable value
+            // gets the matching `__print_*` runtime symbol, separated
+            // by spaces and terminated with a newline.
+            if let FuncRef::Builtin(sym) = callee {
+                if sym.as_str() == "console_log" {
+                    lower_console_log(fb, args, vmap, func, module, runtime)?;
+                    return Ok(());
+                }
+                return Err(AotError::Unsupported(format!(
+                    "builtin call `{}` (no AOT runtime symbol yet)",
+                    sym
+                )));
+            }
             let mid = match callee {
                 FuncRef::Local(id) => *id,
-                FuncRef::Builtin(sym) => {
-                    return Err(AotError::Unsupported(format!(
-                        "builtin call `{}` (no AOT runtime symbols yet)",
-                        sym
-                    )));
-                }
+                FuncRef::Builtin(_) => unreachable!("handled above"),
                 FuncRef::Extern { sym, .. } => {
                     return Err(AotError::Unsupported(format!(
                         "@extern call `{}` (AOT extern dlopen is a follow-up)",
@@ -438,6 +504,64 @@ fn lower_term(
             "Switch terminator (use if/else for now)".into(),
         )),
     }
+}
+
+/// Lower a `console.log(<a>, <b>, …)` call. Each printable arg goes
+/// through its type-specific runtime helper (`__print_int` etc.),
+/// separated by single spaces and terminated by a newline. Strings,
+/// arrays, objects, etc. are not yet supported in AOT — they need
+/// runtime helpers that haven't been ported over.
+fn lower_console_log(
+    fb: &mut ClifFnBuilder,
+    args: &[ValueId],
+    vmap: &HashMap<ValueId, Value>,
+    func: &ilang_mir::Function,
+    module: &mut ObjectModule,
+    runtime: &RuntimeIds,
+) -> Result<(), AotError> {
+    let mut printed = 0usize;
+    for a in args.iter() {
+        let aty = func.ty_of(*a);
+        if matches!(aty, MirTy::Unit) {
+            continue;
+        }
+        if printed > 0 {
+            let r = module.declare_func_in_func(runtime.print_space, fb.func);
+            fb.ins().call(r, &[]);
+        }
+        let av = *vmap
+            .get(a)
+            .ok_or_else(|| AotError::Other(format!("console.log arg {a:?} not in vmap")))?;
+        let helper = match aty {
+            MirTy::I8 | MirTy::I16 | MirTy::I32 | MirTy::I64
+            | MirTy::U8 | MirTy::U16 | MirTy::U32 | MirTy::U64 => runtime.print_int,
+            MirTy::Bool => runtime.print_bool,
+            MirTy::F64 | MirTy::F32 => runtime.print_f64,
+            other => {
+                return Err(AotError::Unsupported(format!(
+                    "console.log arg type {other:?} (only primitives supported in AOT)"
+                )));
+            }
+        };
+        // Sub-i64 ints widen to i64 to match the runtime's signature.
+        // Booleans (i8) and i16/i32 sext/uext correctly via Cranelift's
+        // helpers; we pick by signedness from the MirTy.
+        let av_widened = match aty {
+            MirTy::I8 | MirTy::I16 | MirTy::I32 => fb.ins().sextend(types::I64, av),
+            MirTy::U8 | MirTy::U16 | MirTy::U32 => fb.ins().uextend(types::I64, av),
+            MirTy::Bool => fb.ins().uextend(types::I64, av),
+            MirTy::F32 => fb.ins().fpromote(types::F64, av),
+            _ => av,
+        };
+        let r = module.declare_func_in_func(helper, fb.func);
+        fb.ins().call(r, &[av_widened]);
+        printed += 1;
+    }
+    if printed > 0 {
+        let r = module.declare_func_in_func(runtime.print_newline, fb.func);
+        fb.ins().call(r, &[]);
+    }
+    Ok(())
 }
 
 /// Turn MIR block arguments into Cranelift `BlockArg`s, dropping any

@@ -85,6 +85,21 @@ fn emits_object_for_recursive_fn() {
 }
 
 #[test]
+fn emits_object_for_console_log() {
+    expect_object("console.log(42)");
+}
+
+#[test]
+fn emits_object_for_console_log_multi_arg() {
+    expect_object(
+        r#"
+        console.log(1, 2, 3)
+        console.log(true, false)
+    "#,
+    );
+}
+
+#[test]
 fn rejects_classes_in_subset() {
     let src = r#"
         class P { x: i64 }

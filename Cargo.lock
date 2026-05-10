@@ -723,6 +723,7 @@ dependencies = [
  "ilang-mir",
  "ilang-mir-codegen",
  "ilang-parser",
+ "ilang-runtime",
  "ilang-types",
  "rustyline",
  "serde",
