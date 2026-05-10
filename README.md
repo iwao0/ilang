@@ -2,12 +2,13 @@
 
 English | [日本語](docs/README_ja.md)
 
-> 🦀 **ARC** memory safety · ⚡ **Cranelift JIT** · 🔗 **C FFI** · 🎮 ships with an **SDL2 game demo**
+> 🦀 **ARC** memory safety · ⚡ **MIR → Cranelift JIT** · 🔬 **leak checks built in** · 🔗 **C FFI** · 🎮 ships with an **SDL2 game demo**
 
 A compiler/runtime for **ilang**, a young programming language
-under active design. Tree-walking interpreter for fast feedback,
-Cranelift JIT for performance, and a Rust-flavoured surface syntax
-that talks to C libraries when you need to.
+under active design. MIR-based Cranelift JIT for fast cold-start
+*and* fast steady-state, ARC for deterministic destruction (no
+GC pauses), and a Rust-flavoured surface syntax that talks to C
+libraries when you need to.
 
 <p align="center">
   <img src="https://github.com/iwao0/ilang/releases/download/demo-assets/breakout.gif" alt="Breakout written in ilang, running on the Cranelift JIT with SDL2" width="600">
@@ -96,7 +97,8 @@ The implemented syntax / types / built-ins are catalogued in
 | Function overloading | ✅ |
 | ARC-based memory management | ✅ |
 | Type checking | ✅ |
-| Cranelift JIT (`ilang run --jit`) | ✅ |
+| MIR → Cranelift JIT (`ilang run`, default) | ✅ |
+| Built-in leak helpers (`test.liveAllocBytes` / `liveAllocCount` / `liveStringCount`) | ✅ |
 | FFI (`@extern(C) {}` blocks calling C libraries) | ✅ |
 | Capability annotations | 🚧 parse-only |
 
@@ -125,22 +127,20 @@ cargo build           # first run resolves deps + compiles (~1 minute)
 ## 🚀 Usage
 
 ```sh
-# 💬 REPL — let / fn persist across lines, interpreter mode
+# 💬 REPL — let / fn persist across lines, JIT-backed
 cargo run -p ilang-cli
 
 # 📄 Run a file (`;` is optional, newlines act as statement separators
-#    JS-ASI style)
+#    JS-ASI style). Defaults to the MIR → Cranelift JIT pipeline.
 cargo run -p ilang-cli -- run path/to/script.il
 
-# ⚡ Run via the JIT (Cranelift native code — tens to hundreds of times
-#    faster than the interpreter)
+# 🪦 Legacy Cranelift codegen (pre-MIR), retained only as a parity
+#    reference for the test harness — deprecated for new use.
 cargo run -p ilang-cli -- run --jit path/to/script.il
 ```
 
-Code that calls into a C library through `@extern(C) {}` (the SDL2
-sample below, for example) is **JIT-only**. Symbols are resolved
-through dlsym at JIT-build time, so the interpreter has no path to
-those functions.
+Both backends resolve `@extern(C) {}` C symbols through dlsym at
+JIT-build time, so the SDL2 sample below works under either flag.
 
 ### 🧮 Sample: count multiples of 3 or 5 from 1 to 100
 
@@ -263,8 +263,9 @@ configuration (`ilang.serverPath`) and current limitations.
 Run the whole test suite — Rust unit tests across every crate plus
 the language-level fixtures under
 `crates/ilang-cli/tests/programs/` (each `.il` fixture is executed
-in both the interpreter and the JIT, with `expect:` / `expect-error:`
-magic comments asserting the outcome):
+through both the default MIR → Cranelift JIT and the legacy `--jit`
+backend, with `expect:` / `expect-error:` magic comments asserting
+the outcome):
 
 ```sh
 cargo test --workspace
