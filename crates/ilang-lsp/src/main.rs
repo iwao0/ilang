@@ -395,7 +395,23 @@ impl LanguageServer for Backend {
                     return;
                 }
             }
-            refresh_impl(&client, &docs, uri, text).await;
+            refresh_impl(&client, &docs, uri.clone(), text).await;
+            // Refresh every other open .il document too — a
+            // change in module M (e.g. adding `pub` to one of
+            // its members) silently invalidates diagnostics in
+            // every file that imports M. Without this re-run,
+            // the dependents keep stale red squiggles until the
+            // user touches each file.
+            let other_docs: Vec<(Url, String)> = {
+                let lock = docs.lock().unwrap();
+                lock.iter()
+                    .filter(|(u, _)| **u != uri)
+                    .map(|(u, d)| (u.clone(), d.text.clone()))
+                    .collect()
+            };
+            for (other_uri, other_text) in other_docs {
+                refresh_impl(&client, &docs, other_uri, other_text).await;
+            }
         });
     }
 
