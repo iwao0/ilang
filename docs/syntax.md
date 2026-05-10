@@ -22,8 +22,8 @@ separators (JS-style ASI).
 ```
 as       break    class    const    continue elif     else     enum
 extends  false    fn       for      if       in       is       let
-loop     match    new      none     override return   some     super
-this     true     use      while
+loop     match    new      none     override pub      return   some
+super    this     true     use      while
 ```
 
 These tokens are reserved and cannot be used as variable / parameter
@@ -1272,11 +1272,17 @@ class Counter {
 
 // main.il
 use utils                       // namespaced
-use math { sqrt, pi }           // selective
+use math { sqrt, pi }           // selective + namespace
+use math as m { e }             // alias + selective
+use math as _ { ln }            // selective only (no namespace)
 
 let c = new utils.Counter(10)
 c.bump()
 utils.double(c.get())            // → 22
+sqrt(2.0)                        // bare (from selective)
+math.sqrt(2.0)                   // namespaced (still available)
+m.cos(0.0)                       // via alias `m`
+ln(2.0)                          // bare only — `math.ln` rejected after `as _`
 ```
 
 - **Two forms**:

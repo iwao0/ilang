@@ -13,8 +13,8 @@
 ```
 as       break    class    const    continue elif     else     enum
 extends  false    fn       for      if       in       is       let
-loop     match    new      none     override return   some     super
-this     true     use      while
+loop     match    new      none     override pub      return   some
+super    this     true     use      while
 ```
 
 これらは予約語で、変数 / 引数 / フィールド / 関数 / クラス名には使えません。
@@ -1012,11 +1012,17 @@ class Counter {
 
 // main.il
 use utils                       // 名前空間越しに使う
-use math { sqrt, pi }           // 選択的に取り込む
+use math { sqrt, pi }           // 選択取り込み + 名前空間
+use math as m { e }             // 別名 + 選択取り込み
+use math as _ { ln }            // 選択取り込みのみ（名前空間抑止）
 
 let c = new utils.Counter(10)
 c.bump()
 utils.double(c.get())            // → 22
+sqrt(2.0)                        // bare（選択取り込み由来）
+math.sqrt(2.0)                   // 名前空間越しも引き続き使える
+m.cos(0.0)                       // 別名 `m` 経由
+ln(2.0)                          // bare のみ。`as _` を付けたので `math.ln` は不可
 ```
 
 - **2 形式**:
