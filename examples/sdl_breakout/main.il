@@ -7,8 +7,8 @@
 //   R · START                          — restart after game over
 //   ESC · BACK                         — quit
 //
-// Run (JIT only — `@lib(...)` extern fns need dlsym):
-//   ilang run --jit examples/sdl_breakout/main.il
+// Run (`@lib(...)` extern fns need dlsym, so a JIT backend):
+//   ilang run examples/sdl_breakout/main.il        # mir-jit (default)
 //
 // The SDL2 bindings live under bindings/sdl2/; the `ilang.toml` in
 // this directory points at them so `use sdl` resolves automatically.

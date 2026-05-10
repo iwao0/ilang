@@ -420,106 +420,110 @@ pub enum ControllerType: i32 {
             SDL_free(raw as *const void)
             copy
         }
-    }
 
-    /// Args:
-    ///   joystickIndex — `[0, sdl.numJoysticks())` index.
-    ///
-    /// Returns:
-    ///   the controller name SDL would report for that index, or
-    ///   empty when the index is out of range.
-    pub fn nameForIndex(joystickIndex: i32): string {
-        stringFromCstr(SDL_GameControllerNameForIndex(joystickIndex))
-    }
+        // ─── static helpers ──────────────────────────────────────
 
-    /// Add a SDL2 controller mapping string. Format is described in
-    /// the SDL_GameControllerDB project. Use it to inject custom
-    /// pads at runtime when SDL's bundled database doesn't cover
-    /// them.
-    ///
-    /// Args:
-    ///   mapping — full mapping line, e.g.
-    ///             `"<guid>,<name>,a:b0,b:b1,..."`.
-    ///
-    /// Returns:
-    ///   `1` if a new mapping was added, `0` if an existing mapping
-    ///   was replaced, `-1` on error.
-    pub fn addMapping(mapping: string): i32 {
-        SDL_GameControllerAddMapping(cstrFromString(mapping))
-    }
+        /// Args:
+        ///   joystickIndex — `[0, sdl.numJoysticks())` index.
+        ///
+        /// Returns:
+        ///   the controller name SDL would report for that index,
+        ///   or empty when the index is out of range.
+        pub static nameForIndex(joystickIndex: i32): string {
+            stringFromCstr(SDL_GameControllerNameForIndex(joystickIndex))
+        }
 
-    /// Returns:
-    ///   how many controller mappings are currently loaded
-    ///   (built-in + any added via `addMapping`).
-    pub fn numMappings(): i32 {
-        SDL_GameControllerNumMappings()
-    }
+        /// Add a SDL2 controller mapping string. Format is
+        /// described in the SDL_GameControllerDB project. Use it
+        /// to inject custom pads at runtime when SDL's bundled
+        /// database doesn't cover them.
+        ///
+        /// Args:
+        ///   mapping — full mapping line, e.g.
+        ///             `"<guid>,<name>,a:b0,b:b1,..."`.
+        ///
+        /// Returns:
+        ///   `1` if a new mapping was added, `0` if an existing
+        ///   mapping was replaced, `-1` on error.
+        pub static addMapping(mapping: string): i32 {
+            SDL_GameControllerAddMapping(cstrFromString(mapping))
+        }
 
-    /// Read the mapping line SDL would use for the device at
-    /// `joystickIndex` *without* opening it. Useful for picking a
-    /// specific pad out of the attached set (`numJoysticks()` →
-    /// inspect each → open the one you want).
-    ///
-    /// Returns:
-    ///   mapping string, or empty when the index doesn't match a
-    ///   game controller. Internally `SDL_free`'s the malloc'd
-    ///   buffer SDL hands us.
-    pub fn mappingForIndex(joystickIndex: i32): string {
-        let raw = SDL_GameControllerMappingForIndex(joystickIndex)
-        if raw as i64 == 0 { return "" }
-        let copy = stringFromCstr(raw)
-        SDL_free(raw as *const void)
-        copy
-    }
+        /// Returns:
+        ///   how many controller mappings are currently loaded
+        ///   (built-in + any added via `addMapping`).
+        pub static numMappings(): i32 {
+            SDL_GameControllerNumMappings()
+        }
 
-    /// Toggle whether SDL_PollEvent / WaitEvent deliver controller
-    /// events, or query the current state.
-    ///
-    /// Args:
-    ///   state — `enable`, `ignore`, or `query` (use the
-    ///           `EventState` enum from `sdl_time.il`).
-    ///
-    /// Returns:
-    ///   the state in effect after the call.
-    pub fn controllerEventState(state: i32): i32 {
-        SDL_GameControllerEventState(state)
-    }
+        /// Read the mapping line SDL would use for the device at
+        /// `joystickIndex` *without* opening it. Useful for
+        /// picking a specific pad out of the attached set
+        /// (`numJoysticks()` → inspect each → open the one you
+        /// want).
+        ///
+        /// Returns:
+        ///   mapping string, or empty when the index doesn't
+        ///   match a game controller. Internally `SDL_free`'s the
+        ///   malloc'd buffer SDL hands us.
+        pub static mappingForIndex(joystickIndex: i32): string {
+            let raw = SDL_GameControllerMappingForIndex(joystickIndex)
+            if raw as i64 == 0 { return "" }
+            let copy = stringFromCstr(raw)
+            SDL_free(raw as *const void)
+            copy
+        }
 
-    /// Force SDL to poll the joystick subsystem and refresh its
-    /// view of every controller. Normally `pumpEvents()` does
-    /// this — only call it when running with controller events
-    /// disabled.
-    pub fn updateControllers() {
-        SDL_GameControllerUpdate()
-    }
+        /// Toggle whether `SDL_PollEvent` / `WaitEvent` deliver
+        /// controller events, or query the current state.
+        ///
+        /// Args:
+        ///   state — `enable`, `ignore`, or `query` (use the
+        ///           `EventState` enum from `sdl_time.il`).
+        ///
+        /// Returns:
+        ///   the state in effect after the call.
+        pub static eventState(state: i32): i32 {
+            SDL_GameControllerEventState(state)
+        }
 
-    /// Args:
-    ///   axis — Axis variant.
-    ///
-    /// Returns:
-    ///   SDL's canonical name for `axis` (`"leftx"`, `"righty"`, …).
-    pub fn stringForAxis(axis: Axis): string {
-        stringFromCstr(SDL_GameControllerGetStringForAxis(axis as i32))
-    }
+        /// Force SDL to poll the joystick subsystem and refresh
+        /// its view of every controller. Normally `pumpEvents()`
+        /// does this — only call it when running with controller
+        /// events disabled.
+        pub static updateAll() {
+            SDL_GameControllerUpdate()
+        }
 
-    /// Args:
-    ///   button — Button variant.
-    ///
-    /// Returns:
-    ///   SDL's canonical name for `button` (`"a"`, `"dpup"`, …).
-    pub fn stringForButton(button: Button): string {
-        stringFromCstr(SDL_GameControllerGetStringForButton(button as i32))
-    }
+        /// Args:
+        ///   axis — Axis variant.
+        ///
+        /// Returns:
+        ///   SDL's canonical name for `axis` (`"leftx"`,
+        ///   `"righty"`, …).
+        pub static stringForAxis(axis: Axis): string {
+            stringFromCstr(SDL_GameControllerGetStringForAxis(axis as i32))
+        }
 
-    /// Inverse of `stringForAxis`. Returns `-1` when `s` doesn't
-    /// match any known axis.
-    pub fn axisFromString(s: string): i32 {
-        SDL_GameControllerGetAxisFromString(cstrFromString(s))
-    }
+        /// Args:
+        ///   button — Button variant.
+        ///
+        /// Returns:
+        ///   SDL's canonical name for `button` (`"a"`, `"dpup"`, …).
+        pub static stringForButton(button: Button): string {
+            stringFromCstr(SDL_GameControllerGetStringForButton(button as i32))
+        }
 
-    /// Inverse of `stringForButton`. Returns `-1` when `s` doesn't
-    /// match any known button.
-    pub fn buttonFromString(s: string): i32 {
-        SDL_GameControllerGetButtonFromString(cstrFromString(s))
+        /// Inverse of `stringForAxis`. Returns `-1` when `s`
+        /// doesn't match any known axis.
+        pub static axisFromString(s: string): i32 {
+            SDL_GameControllerGetAxisFromString(cstrFromString(s))
+        }
+
+        /// Inverse of `stringForButton`. Returns `-1` when `s`
+        /// doesn't match any known button.
+        pub static buttonFromString(s: string): i32 {
+            SDL_GameControllerGetButtonFromString(cstrFromString(s))
+        }
     }
 }

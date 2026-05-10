@@ -25,8 +25,6 @@ pub use sdl_joystick
 pub use sdl_filesystem
 pub use sdl_rwops
 pub use sdl_messagebox
-pub use sdl_shape
-pub use sdl_syswm
 // `sdl_ttf` is intentionally NOT re-exported here — SDL2_ttf is a
 // separate library (`libSDL2_ttf`) that may not be installed on
 // every system. Including it in the umbrella would force the JIT

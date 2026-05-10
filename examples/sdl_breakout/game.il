@@ -272,7 +272,7 @@ pub class Game {
             // F: toggle this.fullscreen on key-down (rising edge).
             if in_.keyFDown {
                 this.fullscreen = !this.fullscreen
-                this.window.fullscreen = this.fullscreen
+                this.window.isFullscreen = this.fullscreen
             }
 
             // Restart after game over.

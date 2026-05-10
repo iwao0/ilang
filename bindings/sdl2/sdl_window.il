@@ -13,8 +13,8 @@
 //   SDL_GetWindowGammaRamp / SDL_SetWindowGammaRamp,
 //   SDL_GL_GetProcAddress.
 
-use sdl_core { Rect, Point, Size }
-use sdl_surface { SDL_Surface }
+use sdl_core { Rect, Point, Size, Color }
+use sdl_surface { Surface, SDL_Surface }
 
 /// `SDL_WindowFlags` — bitflags passed to `SDL_CreateWindow` / read
 /// back via `Window.flags`.
@@ -137,6 +137,42 @@ pub enum GLProfile: i32 {
     core          = 0x0001
     compatibility = 0x0002
     es            = 0x0004
+}
+
+/// `WindowShapeModeKind` — how a shape surface's pixels translate
+/// to opaque vs. cut-out regions for `Window.setShape`. Mirror of
+/// C's `WindowShapeMode` enum (SDL_shape.h).
+pub enum WindowShapeModeKind: i32 {
+    /// Binarise the surface's alpha channel at cutoff = 1
+    /// (default).
+    default               = 0
+    /// Binarise the alpha channel at the user-supplied cutoff.
+    binarizeAlpha         = 1
+    /// Same as `binarizeAlpha` but the test is inverted.
+    reverseBinarizeAlpha  = 2
+    /// Treat pixels matching `colorKey` as transparent.
+    colorKey              = 3
+}
+
+/// `SDL_SYSWM_TYPE` — which platform / windowing system a
+/// `SysWMinfo` payload was filled in for. Read back from
+/// `SysWMinfo.subsystem` after `Window.wmInfo()`.
+pub enum SubSystem: u32 {
+    unknown   = 0
+    windows   = 1
+    x11       = 2
+    directfb  = 3
+    cocoa     = 4
+    uikit     = 5
+    wayland   = 6
+    mir       = 7
+    winrt     = 8
+    android   = 9
+    vivante   = 10
+    os2       = 11
+    haiku     = 12
+    kmsdrm    = 13
+    riscos    = 14
 }
 
 @extern(C) {
@@ -293,6 +329,85 @@ pub enum GLProfile: i32 {
     @lib("SDL2") pub fn SDL_GL_GetSwapInterval(): i32
     @lib("SDL2") pub fn SDL_GL_SwapWindow(window: *SDL_Window)
     @lib("SDL2") pub fn SDL_GL_DeleteContext(context: *SDL_GLContext)
+
+    // ─── shaped windows (SDL_shape.h) ────────────────────────────
+    //
+    // Shaped windows hold a non-rectangular silhouette: the
+    // shape mask is a `Surface` whose alpha (or colour-key)
+    // selects which window pixels stay visible. Built via
+    // `Window.createShaped(...)`; the shape is applied with
+    // `win.setShape(surface, mode)`.
+
+    /// Mirror of C `SDL_WindowShapeMode`. `mode` picks one of the
+    /// `WindowShapeModeKind` values; `params0`..`params3` are the
+    /// 4-byte union: either `binarizationCutoff` (in `params0`)
+    /// or `colorKey` r/g/b/a in params0/1/2/3. Use the helper
+    /// constructors `binarizeMode` / `reverseBinarizeMode` /
+    /// `colorKeyMode` rather than building one by hand.
+    pub struct WindowShapeMode {
+        mode: WindowShapeModeKind
+        params0: u8
+        params1: u8
+        params2: u8
+        params3: u8
+    }
+
+    @lib("SDL2") pub fn SDL_CreateShapedWindow(
+        title: *const char,
+        x: u32, y: u32, w: u32, h: u32,
+        flags: u32
+    ): *SDL_Window
+    @lib("SDL2") pub fn SDL_IsShapedWindow(window: *SDL_Window): u8
+    @lib("SDL2") pub fn SDL_SetWindowShape(
+        window: *SDL_Window, shape: *SDL_Surface,
+        shape_mode: *WindowShapeMode
+    ): i32
+    @lib("SDL2") pub fn SDL_GetShapedWindowMode(
+        window: *SDL_Window, shape_mode: *WindowShapeMode
+    ): i32
+
+    // ─── system window manager info (SDL_syswm.h) ────────────────
+    //
+    // Pulls native handles (`HWND`, `NSWindow*`, `wl_surface*`,
+    // …) for interop with non-SDL toolkits (Vulkan surface
+    // creation, dear-imgui platform backends, native menus, …).
+    // SDL's `SysWMinfo` is a tagged union whose layout differs
+    // per build platform; we model it as a fixed-size struct
+    // (8-byte header + 4 i64 handle slots + 216-byte tail) and
+    // read individual handles through the per-platform helpers
+    // below. They guard each read on the recorded `subsystem`.
+
+    /// 256-byte buffer matching the layout C's `SDL_SysWMinfo`
+    /// uses on every supported platform:
+    ///
+    ///   offset  size  meaning
+    ///   ──────  ────  ─────────────────────────────────────────
+    ///        0     3  SDL_version (major, minor, patch as Uint8)
+    ///        3     1  ABI padding to align `subsystem`
+    ///        4     4  subsystem (matches `SubSystem.*`)
+    ///        8     8  handle1 — primary native handle
+    ///       16     8  handle2 — secondary handle
+    ///       24     8  handle3 — tertiary handle
+    ///       32     8  handle4 — quaternary (Wayland egl_window etc.)
+    ///       40   216  tail padding (forward-compat for new SDL
+    ///                 union variants — Wayland xdg_surface,
+    ///                 xdg_toplevel, etc.)
+    pub struct SysWMinfo {
+        versionMajor: u8
+        versionMinor: u8
+        versionPatch: u8
+        _pad0: u8
+        subsystem: u32
+        handle1: i64
+        handle2: i64
+        handle3: i64
+        handle4: i64
+        _padTail: u8[216]
+    }
+
+    @lib("SDL2") pub fn SDL_GetWindowWMInfo(
+        window: *SDL_Window, info: *SysWMinfo
+    ): u8
 
     // ─── public ilang return types (no `init`) ───────────────────
 
@@ -507,24 +622,47 @@ pub enum GLProfile: i32 {
             wb
         }
 
-        // ─── decorations (write-only properties) ─────────────────
+        // ─── decorations ─────────────────────────────────────────
+        //
+        // SDL2 only exposes setters for these — the read side is
+        // recovered by bit-testing `SDL_GetWindowFlags()` against
+        // the corresponding `WindowFlag.*` so the property always
+        // reflects SDL's current state (including changes made
+        // outside our setter, e.g. WM keyboard shortcut, OS
+        // fullscreen toggle).
 
-        /// Show or hide the window border / title bar.
-        pub set bordered(on: bool) {
+        /// Whether the window has a border / title bar.
+        pub get isBordered(): bool {
+            if this.handle == 0 { return false }
+            let flags = SDL_GetWindowFlags(this.handle as *SDL_Window)
+            (flags & WindowFlag.borderless as u32) == 0 as u32
+        }
+        pub set isBordered(on: bool) {
             SDL_SetWindowBordered(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
 
-        /// Allow / forbid the user resizing the window.
-        pub set resizable(on: bool) {
+        /// Whether the user can resize the window by dragging an
+        /// edge.
+        pub get isResizable(): bool {
+            if this.handle == 0 { return false }
+            let flags = SDL_GetWindowFlags(this.handle as *SDL_Window)
+            (flags & WindowFlag.resizable as u32) != 0 as u32
+        }
+        pub set isResizable(on: bool) {
             SDL_SetWindowResizable(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
 
-        /// Pin the window above all others (or release).
-        pub set alwaysOnTop(on: bool) {
+        /// Whether the window is pinned above all others.
+        pub get isAlwaysOnTop(): bool {
+            if this.handle == 0 { return false }
+            let flags = SDL_GetWindowFlags(this.handle as *SDL_Window)
+            (flags & WindowFlag.alwaysOnTop as u32) != 0 as u32
+        }
+        pub set isAlwaysOnTop(on: bool) {
             SDL_SetWindowAlwaysOnTop(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
@@ -532,12 +670,21 @@ pub enum GLProfile: i32 {
 
         // ─── fullscreen / opacity ────────────────────────────────
 
-        /// Toggle borderless-fullscreen mode (`fullscreenDesktop`).
+        /// Whether the window is in fullscreen mode (either
+        /// exclusive `fullscreen` or borderless `fullscreenDesktop`
+        /// — both report true). The setter switches to / from
+        /// borderless-fullscreen specifically; for exclusive mode
+        /// use `fullscreenFlag = WindowFlag.fullscreen`.
         ///
-        /// Setters drop SDL's `i32` status. Call
-        /// `SDL_SetWindowFullscreen` directly through its `@lib`
-        /// decl if you need to inspect it.
-        pub set fullscreen(on: bool) {
+        /// SDL2 has no dedicated `Get` for the fullscreen state;
+        /// we bit-test `SDL_GetWindowFlags()` instead so the
+        /// property reflects external changes (OS hotkeys, etc.).
+        pub get isFullscreen(): bool {
+            if this.handle == 0 { return false }
+            let flags = SDL_GetWindowFlags(this.handle as *SDL_Window)
+            (flags & WindowFlag.fullscreen as u32) != 0 as u32
+        }
+        pub set isFullscreen(on: bool) {
             let flag: u32 = if on { 0x1001 as u32 } else { 0 as u32 }
             SDL_SetWindowFullscreen(this.handle as *SDL_Window, flag)
             return
@@ -601,30 +748,30 @@ pub enum GLProfile: i32 {
 
         /// Whether either keyboard or mouse is grabbed by this
         /// window.
-        pub get grab(): bool {
+        pub get isGrabbed(): bool {
             SDL_GetWindowGrab(this.handle as *SDL_Window) != 0
         }
-        pub set grab(on: bool) {
+        pub set isGrabbed(on: bool) {
             SDL_SetWindowGrab(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
 
         /// Keyboard-only grab.
-        pub get keyboardGrab(): bool {
+        pub get isKeyboardGrabbed(): bool {
             SDL_GetWindowKeyboardGrab(this.handle as *SDL_Window) != 0
         }
-        pub set keyboardGrab(on: bool) {
+        pub set isKeyboardGrabbed(on: bool) {
             SDL_SetWindowKeyboardGrab(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
         }
 
         /// Mouse-only grab.
-        pub get mouseGrab(): bool {
+        pub get isMouseGrabbed(): bool {
             SDL_GetWindowMouseGrab(this.handle as *SDL_Window) != 0
         }
-        pub set mouseGrab(on: bool) {
+        pub set isMouseGrabbed(on: bool) {
             SDL_SetWindowMouseGrab(
                 this.handle as *SDL_Window, if on { 1 } else { 0 }
             )
@@ -656,6 +803,216 @@ pub enum GLProfile: i32 {
             m.refreshRate = raw.refreshRate
             m
         }
+
+        // ─── shape (SDL_shape.h) ─────────────────────────────────
+
+        /// Create a shaped window. Same as `new Window(...)` except
+        /// the resulting window can hold a non-rectangular
+        /// silhouette once `setShape(...)` is called.
+        ///
+        /// Args:
+        ///   title — window title.
+        ///   x, y  — top-left corner. `0x1FFF0000` =
+        ///           `SDL_WINDOWPOS_CENTERED`.
+        ///   w, h  — initial dimensions.
+        ///   flags — `WindowFlag.*` mask.
+        ///
+        /// Returns:
+        ///   a `Window` whose `handle` is `0` if creation failed.
+        ///   ARC frees it with `SDL_DestroyWindow`.
+        pub static createShaped(
+            title: string, x: u32, y: u32, w: u32, h: u32, flags: u32
+        ): Window {
+            let raw = SDL_CreateShapedWindow(
+                cstrFromString(title), x, y, w, h, flags
+            ) as i64
+            Window.fromHandle(raw)
+        }
+
+        /// Returns:
+        ///   true if this window was created via
+        ///   `Window.createShaped(...)`. Plain `new Window(...)`
+        ///   results are *not* shapeable.
+        pub isShaped(): bool {
+            if this.handle == 0 { return false }
+            SDL_IsShapedWindow(this.handle as *SDL_Window) != 0 as u8
+        }
+
+        /// Apply a shape mask.
+        ///
+        /// Args:
+        ///   shape — surface whose pixels (filtered through
+        ///           `mode`) define which window pixels stay
+        ///           visible.
+        ///   mode  — see `binarizeMode` / `reverseBinarizeMode` /
+        ///           `colorKeyMode`.
+        ///
+        /// Returns:
+        ///   `0` on success, `< 0` on failure (call
+        ///   `sdl.getError()`).
+        pub setShape(shape: Surface, mode: WindowShapeMode): i32 {
+            if this.handle == 0 || shape.handle == 0 { return -1 }
+            SDL_SetWindowShape(
+                this.handle as *SDL_Window,
+                shape.handle as *SDL_Surface,
+                mode
+            )
+        }
+
+        /// Read back the shape mode in effect for this window.
+        /// Writes into `out` (caller-allocated). Returns `0` on
+        /// success, `< 0` if this window isn't shaped or hasn't
+        /// had a shape set yet.
+        pub shapedMode(out: WindowShapeMode): i32 {
+            if this.handle == 0 { return -1 }
+            SDL_GetShapedWindowMode(this.handle as *SDL_Window, out)
+        }
+
+        // ─── system window manager (SDL_syswm.h) ─────────────────
+
+        /// Pull the native window-manager info for this window.
+        /// Initialises the `version` field with `2.0.0` so SDL
+        /// agrees to populate the rest.
+        ///
+        /// Returns:
+        ///   a freshly populated `SysWMinfo`, or one with
+        ///   `subsystem == SubSystem.unknown` if the call failed
+        ///   (typically because the window's handle is `0` or
+        ///   SDL's binary-compat check rejected our version).
+        pub wmInfo(): SysWMinfo {
+            let info = new SysWMinfo()
+            if this.handle == 0 {
+                return info
+            }
+            // SDL's compat gate accepts any major == 2 build; the
+            // minor / patch are informational. Use 2.0.0 as a
+            // stable floor that every SDL2 release honours.
+            info.versionMajor = 2 as u8
+            info.versionMinor = 0 as u8
+            info.versionPatch = 0 as u8
+            let ok = SDL_GetWindowWMInfo(this.handle as *SDL_Window, info)
+            if ok == 0 as u8 {
+                // Reset subsystem so callers see `unknown` rather
+                // than whatever stale bytes happened to be in
+                // `info`.
+                info.subsystem = SubSystem.unknown as u32
+            }
+            info
+        }
+    }
+
+    // ─── shape mode helpers (SDL_shape.h) ────────────────────────
+    //
+    // Construct the `WindowShapeMode` to hand to
+    // `Window.setShape(...)`. The mode picks how the shape
+    // surface's pixels translate to opaque vs. cut-out regions.
+
+    /// Build a `WindowShapeMode` for "binarize the alpha channel
+    /// at `cutoff`". Pixels with α ≥ cutoff are window; the rest
+    /// are cut-out.
+    pub fn binarizeMode(cutoff: u8): WindowShapeMode {
+        let m = new WindowShapeMode()
+        m.mode = WindowShapeModeKind.binarizeAlpha
+        m.params0 = cutoff
+        m
+    }
+
+    /// Inverse of `binarizeMode` — pixels with α < cutoff are
+    /// window.
+    pub fn reverseBinarizeMode(cutoff: u8): WindowShapeMode {
+        let m = new WindowShapeMode()
+        m.mode = WindowShapeModeKind.reverseBinarizeAlpha
+        m.params0 = cutoff
+        m
+    }
+
+    /// Build a `WindowShapeMode` for "treat `colorKey` pixels as
+    /// transparent". Useful for paletted / indexed shape masks
+    /// where alpha isn't the right discriminator.
+    pub fn colorKeyMode(colorKey: Color): WindowShapeMode {
+        let m = new WindowShapeMode()
+        m.mode = WindowShapeModeKind.colorKey
+        m.params0 = colorKey.r
+        m.params1 = colorKey.g
+        m.params2 = colorKey.b
+        m.params3 = colorKey.a
+        m
+    }
+
+    // ─── platform-handle accessors (SDL_syswm.h) ─────────────────
+    //
+    // Read individual native handles from a `SysWMinfo` populated
+    // by `Window.wmInfo()`. Each accessor gates on the recorded
+    // `subsystem`, returning `0` when the platform doesn't match.
+
+    /// macOS Cocoa: return the underlying `NSWindow *` cast to
+    /// i64. `0` when `info` isn't a Cocoa window.
+    pub fn getCocoaWindow(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.cocoa as u32 { return 0 }
+        info.handle1
+    }
+
+    /// Windows: native `HWND` cast to i64.
+    pub fn getWin32Hwnd(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.windows as u32 { return 0 }
+        info.handle1
+    }
+
+    /// Windows: `HDC` cast to i64.
+    pub fn getWin32Hdc(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.windows as u32 { return 0 }
+        info.handle2
+    }
+
+    /// Windows: `HINSTANCE` cast to i64.
+    pub fn getWin32Hinstance(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.windows as u32 { return 0 }
+        info.handle3
+    }
+
+    /// X11: `Display *` cast to i64.
+    pub fn getX11Display(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.x11 as u32 { return 0 }
+        info.handle1
+    }
+
+    /// X11: `Window` (an unsigned long ID) cast to i64.
+    pub fn getX11Window(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.x11 as u32 { return 0 }
+        info.handle2
+    }
+
+    /// Wayland: `wl_display *` cast to i64.
+    pub fn getWaylandDisplay(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.wayland as u32 { return 0 }
+        info.handle1
+    }
+
+    /// Wayland: `wl_surface *` cast to i64.
+    pub fn getWaylandSurface(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.wayland as u32 { return 0 }
+        info.handle2
+    }
+
+    /// Wayland: legacy `wl_shell_surface *` cast to i64. Newer
+    /// compositors use xdg_surface / xdg_toplevel which live in
+    /// the tail padding — extract them with `readU64` against the
+    /// raw struct address if needed.
+    pub fn getWaylandShellSurface(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.wayland as u32 { return 0 }
+        info.handle3
+    }
+
+    /// UIKit (iOS / tvOS): `UIWindow *` cast to i64.
+    pub fn getUIKitWindow(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.uikit as u32 { return 0 }
+        info.handle1
+    }
+
+    /// Android: native `ANativeWindow *` cast to i64.
+    pub fn getAndroidWindow(info: SysWMinfo): i64 {
+        if info.subsystem != SubSystem.android as u32 { return 0 }
+        info.handle1
     }
 
     // ─── module-level video / display fns ────────────────────────
