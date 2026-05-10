@@ -368,19 +368,14 @@ fn apply_use(
     // record below is gated by its own dedup key.
     let merge_key = (canon.clone(), effective_prefix.clone());
     let needs_merge = applied.insert(merge_key);
-    let sel_key: Option<(PathBuf, String)> = u.selective.as_ref().map(|names| {
-        let mut sorted: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-        sorted.sort();
-        sorted.dedup();
-        // `@sel:` prefix can't collide with a real module prefix
-        // (identifiers don't start with `@`).
-        (canon.clone(), format!("@sel:{}", sorted.join(",")))
-    });
-    let needs_selective_record = sel_key
-        .as_ref()
-        .map(|k| applied.insert(k.clone()))
-        .unwrap_or(false);
-    if !needs_merge && !needs_selective_record {
+    // The selective branch (line ~517) writes rename rules into the
+    // *caller's* `rename_rules` map, which is per-importer. Each
+    // importer that does `use M { X }` needs that mapping recorded
+    // into its own map, so this branch must run regardless of whether
+    // some other importer already did the same selective import. If
+    // there's nothing selective and no merge to do, only then can we
+    // skip.
+    if !needs_merge && u.selective.is_none() {
         return Ok(());
     }
 
