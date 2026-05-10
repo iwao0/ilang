@@ -2177,9 +2177,21 @@ fn rename_in_class(c: &mut ClassDecl, rules: &HashMap<Symbol, Symbol>) {
     for prop in c.properties.iter_mut() {
         rename_in_type(&mut prop.ty, rules);
         if let Some(g) = prop.getter.as_mut() {
+            for p in g.params.iter_mut() {
+                rename_in_type(&mut p.ty, rules);
+            }
+            if let Some(t) = g.ret.as_mut() {
+                rename_in_type(t, rules);
+            }
             rename_in_block(&mut g.body, rules);
         }
         if let Some(s) = prop.setter.as_mut() {
+            for p in s.params.iter_mut() {
+                rename_in_type(&mut p.ty, rules);
+            }
+            if let Some(t) = s.ret.as_mut() {
+                rename_in_type(t, rules);
+            }
             rename_in_block(&mut s.body, rules);
         }
     }
