@@ -97,3 +97,14 @@ test.expect(snapshot[4] as i64, 0x78)   // Tag16.b low byte
 test.expect(snapshot[5] as i64, 0x56)   // Tag16.b high byte
 test.expect(snapshot[6] as i64, 0xCD)   // tail unchanged
 test.expect(snapshot[7] as i64, 0xAB)   // tail unchanged
+
+// LoadField round-trip: read the enum field back into ilang's
+// SSA shape (heap-box pointer) and exercise it via `match` /
+// `as u16`. The CRepr load path validates the discriminant
+// against declared variants before handing back the box.
+match f.tag {
+    a { test.expectTrue(false) }
+    b { test.expectTrue(true) }
+}
+test.expect((f.tag as u16) as i64, 0x5678)
+test.expectTrue(f.tag == Tag16.b)

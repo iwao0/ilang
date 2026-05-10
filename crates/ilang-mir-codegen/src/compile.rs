@@ -166,6 +166,7 @@ struct PanicAux {
     release_string: cranelift_module::FuncId,
     retain_string: cranelift_module::FuncId,
     enum_unit_get: cranelift_module::FuncId,
+    enum_unit_get_checked: cranelift_module::FuncId,
     enum_alloc: cranelift_module::FuncId,
     release_enum: cranelift_module::FuncId,
     retain_enum: cranelift_module::FuncId,
@@ -372,6 +373,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__release_enum", host_release_enum as *const u8);
     jit_builder.symbol("__retain_enum", host_retain_enum as *const u8);
     jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
+    jit_builder.symbol(
+        "__enum_unit_get_checked",
+        host_enum_unit_get_checked as *const u8,
+    );
     jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
@@ -733,6 +738,13 @@ pub fn compile_with_builtins(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__enum_unit_get", Linkage::Import, &sig)?
     };
+    let enum_unit_get_checked_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__enum_unit_get_checked", Linkage::Import, &sig)?
+    };
     let enum_alloc_id = declare_ternary_i64(&mut module, "__enum_alloc")?;
     let release_enum_id = declare_unit_i64(&mut module, "__release_enum")?;
     let retain_enum_id = declare_unit_i64(&mut module, "__retain_enum")?;
@@ -969,6 +981,7 @@ pub fn compile_with_builtins(
                 release_string: release_string_id,
                 retain_string: retain_string_id,
                 enum_unit_get: enum_unit_get_id,
+                enum_unit_get_checked: enum_unit_get_checked_id,
                 enum_alloc: enum_alloc_id,
                 release_enum: release_enum_id,
                 retain_enum: retain_enum_id,
@@ -3159,6 +3172,35 @@ extern "C" fn host_enum_unit_get(global_eid: i64, disc: i64) -> i64 {
     unsafe { *(p as *mut i64) = disc; }
     let mut m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
     *m.entry(key).or_insert(p)
+}
+
+/// Validating variant of `host_enum_unit_get`. Looks `disc` up in
+/// the enum's declared variants (via `enum_info_lock`) before
+/// returning the cached cell — if the discriminant doesn't match
+/// any declared variant, abort with a diagnostic. Used by the
+/// CRepr-struct field load path: a C library may have written a
+/// stale or out-of-range value into the field, and silently
+/// minting a "ghost variant" cell would let downstream `match`
+/// arms read garbage. Aborting matches the contract for
+/// `repr(C)` enums in Rust and gives a localised crash instead
+/// of a delayed memory bug.
+extern "C" fn host_enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
+    let (valid, name) = {
+        let m = enum_info_lock().lock().expect("enum info poisoned");
+        match m.get(&(global_eid as u32)) {
+            Some(info) => (info.variants.contains_key(&disc), info.name.clone()),
+            None => (false, format!("<enum#{global_eid}>")),
+        }
+    };
+    if !valid {
+        eprintln!(
+            "ilang: read CRepr struct field of enum `{name}` with \
+             unknown discriminant {disc} (0x{disc:X}) — declared variants \
+             do not include this value",
+        );
+        std::process::abort();
+    }
+    host_enum_unit_get(global_eid, disc)
 }
 
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
@@ -5615,17 +5657,44 @@ fn lower_inst(
                         }
                     }
                 }
+                // Unit-only enum field: read the discriminant at the
+                // repr's natural width, then look up the cached unit
+                // cell so downstream `EnumTag` / `match` see a
+                // proper heap-box pointer. The lookup aborts if the
+                // value the C side wrote isn't a declared variant —
+                // matches the `repr(C)` panic-on-unknown contract
+                // discussed in the language design notes.
+                if let MirTy::Enum(eid) = &dst_ty_mir {
+                    let layout = &prog.enums[eid.0 as usize];
+                    let unit_only = layout
+                        .variants
+                        .iter()
+                        .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
+                    if unit_only {
+                        let repr_ct = elem_clif_type(&layout.repr).unwrap_or(types::I64);
+                        let raw = fb.ins().load(repr_ct, MemFlags::trusted(), obj_v, c_off as i32);
+                        let disc_i64 = if repr_ct == types::I64 {
+                            raw
+                        } else if layout.repr.is_signed_int() {
+                            fb.ins().sextend(types::I64, raw)
+                        } else {
+                            fb.ins().uextend(types::I64, raw)
+                        };
+                        let global = enum_global[eid.0 as usize] as i64;
+                        let global_v = fb.ins().iconst(types::I64, global);
+                        let f = module.declare_func_in_func(
+                            panic_aux.enum_unit_get_checked,
+                            fb.func,
+                        );
+                        let call = fb.ins().call(f, &[global_v, disc_i64]);
+                        let v = fb.inst_results(call)[0];
+                        vmap.insert(*dst, v);
+                        return Ok(());
+                    }
+                }
                 // CRepr: load with the field's natural type at the
                 // computed byte offset. Nested CRepr struct fields
                 // return the inline address.
-                //
-                // Enum-typed fields keep the i64 catch-all here on
-                // purpose — downstream `EnumTag` lowers as a load
-                // from the SSA value treated as a heap-box pointer,
-                // so narrowing to the enum's underlying repr would
-                // produce a mis-shaped SSA value. Stores still
-                // narrow correctly via `celem_clif_type_with_enum`
-                // below so the C ABI sees the right field width.
                 let v = match elem_clif_type(&dst_ty_mir) {
                     Some(elem_ct) if elem_ct == types::I8 => {
                         fb.ins().load(types::I8, MemFlags::trusted(), obj_v, c_off as i32)
