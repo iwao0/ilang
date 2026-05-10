@@ -813,6 +813,13 @@ pub fn compile_with_builtins(
                         bytes.extend_from_slice(body);
                         bytes.push(0);
                         let mut desc = DataDescription::new();
+                        // Align=8 — the `[ i64 len | bytes | \0 ]`
+                        // layout reads `*((ptr - 8) as *const i64)`
+                        // for the length. Without explicit alignment
+                        // Cranelift packs data segments at byte
+                        // alignment, so the length read trips Rust's
+                        // misaligned-pointer check at runtime.
+                        desc.set_align(8);
                         desc.define(bytes.into_boxed_slice());
                         let name = format!("__str_{}", next_str_id);
                         next_str_id += 1;
@@ -839,6 +846,7 @@ pub fn compile_with_builtins(
         bytes.extend_from_slice(body);
         bytes.push(0);
         let mut desc = DataDescription::new();
+        desc.set_align(8);
         desc.define(bytes.into_boxed_slice());
         let did = module.declare_data(name, Linkage::Local, false, false)?;
         module.define_data(did, &desc).map_err(CompileError::Module)?;
@@ -2595,12 +2603,37 @@ extern "C" fn host_str_length(p: i64) -> i64 {
 /// the release becomes a no-op — the same conservative direction
 /// every other heap-typed Release takes.
 struct StringEntry {
-    /// Owns the underlying buffer; dropped (and freed) when the entry
-    /// is removed from the registry. Never read directly — the JIT
-    /// reaches the bytes via the `body_ptr` map key.
+    /// Owns the underlying allocation. The buffer is freed in `Drop`
+    /// using the same Layout that `leak_cstring` allocated with.
+    /// The JIT reaches the bytes via the `body_ptr` map key, so
+    /// this field is only ever read indirectly via Drop.
     #[allow(dead_code)]
-    backing: Box<[u8]>,
+    backing: StringBacking,
     rc: i64,
+}
+
+/// Owned heap allocation for a `[ i64 len | bytes | \0 ]` string.
+/// Allocated with align=8 so the leading length prefix is reachable
+/// via `*((body_ptr - 8) as *const i64)` without violating Rust's
+/// pointer-alignment checks (`Box<[u8]>` is byte-aligned and would
+/// trip `misaligned pointer dereference` in debug builds).
+struct StringBacking {
+    base: *mut u8,
+    total: usize,
+}
+// SAFETY: the pointer is owned solely by this struct + the global
+// registry (which is mutex-guarded). No interior mutability beyond
+// what the registry already serializes.
+unsafe impl Send for StringBacking {}
+
+impl Drop for StringBacking {
+    fn drop(&mut self) {
+        if self.base.is_null() {
+            return;
+        }
+        let layout = std::alloc::Layout::from_size_align(self.total, 8).unwrap();
+        unsafe { std::alloc::dealloc(self.base, layout) };
+    }
 }
 static STRING_REGISTRY: OnceLock<Mutex<HashMap<i64, StringEntry>>> = OnceLock::new();
 
@@ -2616,17 +2649,44 @@ fn string_registry_lock() -> &'static Mutex<HashMap<i64, StringEntry>> {
 fn leak_cstring(s: String) -> i64 {
     let body = s.into_bytes();
     let len = body.len() as i64;
-    let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
-    bytes.extend_from_slice(&len.to_le_bytes());
-    bytes.extend_from_slice(&body);
-    bytes.push(0);
-    let boxed = bytes.into_boxed_slice();
-    let body_ptr = unsafe { boxed.as_ptr().add(8) } as i64;
+    // Total = 8 (length prefix) + body + 1 (trailing NUL).
+    let total = 8 + body.len() + 1;
+    // Align=8 so reads of the i64 length prefix at `body_ptr - 8`
+    // satisfy Rust's pointer-alignment requirement. (Box<[u8]> is
+    // byte-aligned and trips `misaligned pointer dereference` in
+    // debug builds, breaking every code path that flows through
+    // `cstr_bytes` on a freshly-built string.)
+    let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
+    let base = unsafe { std::alloc::alloc(layout) };
+    if base.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    unsafe {
+        // Write `len` at offset 0 (i64 LE).
+        std::ptr::copy_nonoverlapping(
+            len.to_le_bytes().as_ptr(),
+            base,
+            8,
+        );
+        // Body bytes.
+        if !body.is_empty() {
+            std::ptr::copy_nonoverlapping(body.as_ptr(), base.add(8), body.len());
+        }
+        // Trailing NUL.
+        *base.add(8 + body.len()) = 0;
+    }
+    let body_ptr = unsafe { base.add(8) } as i64;
     {
         let mut reg = string_registry_lock()
             .lock()
             .expect("string registry poisoned");
-        reg.insert(body_ptr, StringEntry { backing: boxed, rc: 1 });
+        reg.insert(
+            body_ptr,
+            StringEntry {
+                backing: StringBacking { base, total },
+                rc: 1,
+            },
+        );
     }
     body_ptr
 }
