@@ -211,9 +211,26 @@ async fn refresh_impl(
                 let extra = collect_dep_paths(p).unwrap_or_default();
                 // Use the buffer's text for the entry file so
                 // diagnostics reflect unsaved edits immediately.
+                // Also seed the overlay with every other open
+                // buffer — without this, a sub-module's
+                // unsaved edits aren't visible while checking
+                // the entry, so e.g. adding `pub` to a member
+                // in `sample2.il` wouldn't clear the entry's
+                // red squiggle until `sample2.il` is saved
+                // AND the entry buffer is touched.
                 let mut overlay: HashMap<PathBuf, String> = HashMap::new();
                 if let Ok(canon) = p.canonicalize() {
                     overlay.insert(canon, text.clone());
+                }
+                {
+                    let lock = docs.lock().unwrap();
+                    for (other_uri, doc) in lock.iter() {
+                        if let Ok(other_path) = other_uri.to_file_path() {
+                            if let Ok(canon) = other_path.canonicalize() {
+                                overlay.entry(canon).or_insert_with(|| doc.text.clone());
+                            }
+                        }
+                    }
                 }
                 ilang_parser::loader::load_program_with_overlay(p, &extra, &overlay).ok()
             })
