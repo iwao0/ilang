@@ -36,6 +36,15 @@ enum Cmd {
         #[arg(long = "mir-jit")]
         mir_jit: bool,
     },
+    /// Compile an .il source file to a native executable. M0 scope
+    /// only handles programs whose tail expression is an integer
+    /// literal (the i64 return becomes the process exit code).
+    Build {
+        path: PathBuf,
+        /// Output path for the executable.
+        #[arg(short = 'o', long = "output")]
+        output: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -43,6 +52,92 @@ fn main() -> ExitCode {
     match cli.command {
         None => run_repl(),
         Some(Cmd::Run { path, jit, mir_jit }) => run_file(&path, jit, mir_jit),
+        Some(Cmd::Build { path, output }) => build_file(&path, &output),
+    }
+}
+
+fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
+    let extra_paths = match collect_dep_paths(path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let prog = match ilang_parser::loader::load_program_with_paths(path, &extra_paths) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}: {e}", path.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let display_path = path.display().to_string();
+    let mut tc = TypeChecker::new();
+    if let Err(e) = tc.check(&prog) {
+        eprintln!("{display_path} {e}");
+        return ExitCode::FAILURE;
+    }
+    let prog = ilang_types::mangle::mangle_overloads(
+        prog,
+        &tc.fn_overload_picks(),
+        &tc.method_overload_picks(),
+        &tc.call_default_fills(),
+    );
+    let prog = ilang_mir::monomorphize::monomorphize(&prog);
+    let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
+    let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
+    let mut mir = match ilang_mir::lower_program(&prog) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("{display_path}: mir lower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    ilang_mir::passes::arc_peephole::run_program(&mut mir);
+
+    let object_bytes = match ilang_mir_codegen::compile_program_to_object(&mir) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("{display_path}: aot: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Drop the `.o` next to the eventual executable so users can
+    // inspect or rerun the link manually if needed. Naming it
+    // `<output>.o` keeps the intermediate artifact under their chosen
+    // path rather than littering /tmp.
+    let object_path = output.with_extension("o");
+    if let Err(e) = std::fs::write(&object_path, &object_bytes) {
+        eprintln!("{display_path}: write {}: {e}", object_path.display());
+        return ExitCode::FAILURE;
+    }
+
+    // Link via the system C compiler. macOS ships `ld`/`cc` with the
+    // Xcode Command Line Tools; we don't bundle a linker yet (LLD
+    // shipped as a library is a follow-up).
+    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+    let status = std::process::Command::new(&cc)
+        .arg(&object_path)
+        .arg("-o")
+        .arg(output)
+        .status();
+    match status {
+        Ok(s) if s.success() => ExitCode::SUCCESS,
+        Ok(s) => {
+            eprintln!(
+                "{display_path}: linker exited with status {:?}",
+                s.code()
+            );
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!(
+                "{display_path}: failed to spawn linker `{}`: {e}",
+                std::path::Path::new(&cc).display()
+            );
+            ExitCode::FAILURE
+        }
     }
 }
 
