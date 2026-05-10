@@ -3422,6 +3422,21 @@ impl<'a> BodyCx<'a> {
     fn lower_stmt(&mut self, stmt: &Stmt) -> Result<(), LowerError> {
         match &stmt.kind {
             StmtKind::Let { name, ty, value } => {
+                // `let _ = expr` discards the result. Lower the
+                // expression for its side effects, then drop a
+                // fresh heap result so deinit / registry release
+                // fires immediately instead of being deferred to
+                // the enclosing scope's exit. A borrowed result
+                // (non-fresh) needs no release — the source slot
+                // still owns its +1.
+                if name.as_str() == "_" {
+                    let value_is_fresh = self.is_fresh_object_expr(value);
+                    let (v, vty) = self.lower_expr(value)?;
+                    if value_is_fresh && vty.is_heap() {
+                        self.fb.push_inst(Inst::Release { value: v });
+                    }
+                    return Ok(());
+                }
                 // Empty-array literal uses the binding's annotated
                 // element type so `let xs: string[] = []` typechecks
                 // without a needs-coerce step that doesn't exist.
