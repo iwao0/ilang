@@ -341,15 +341,53 @@ pub enum SubSystem: u32 {
     /// Mirror of C `SDL_WindowShapeMode`. `mode` picks one of the
     /// `WindowShapeModeKind` values; `params0`..`params3` are the
     /// 4-byte union: either `binarizationCutoff` (in `params0`)
-    /// or `colorKey` r/g/b/a in params0/1/2/3. Use the helper
-    /// constructors `binarizeMode` / `reverseBinarizeMode` /
-    /// `colorKeyMode` rather than building one by hand.
+    /// or `colorKey` r/g/b/a in params0/1/2/3. Use the
+    /// `WindowShape.binarize(...)` / `.reverseBinarize(...)` /
+    /// `.colorKey(...)` constructors rather than building one by
+    /// hand.
     pub struct WindowShapeMode {
         mode: WindowShapeModeKind
         params0: u8
         params1: u8
         params2: u8
         params3: u8
+    }
+
+    /// Namespace class for the `WindowShapeMode` constructors.
+    /// All methods are `static` — they return a freshly-built
+    /// `WindowShapeMode` to hand to `Window.setShape(...)`.
+    pub class WindowShape {
+        /// `WindowShapeMode` for "binarize the alpha channel at
+        /// `cutoff`". Pixels with α ≥ cutoff are window; the rest
+        /// are cut-out.
+        pub static binarize(cutoff: u8): WindowShapeMode {
+            let m = new WindowShapeMode()
+            m.mode = WindowShapeModeKind.binarizeAlpha
+            m.params0 = cutoff
+            m
+        }
+
+        /// Inverse of `binarize` — pixels with α < cutoff are
+        /// window.
+        pub static reverseBinarize(cutoff: u8): WindowShapeMode {
+            let m = new WindowShapeMode()
+            m.mode = WindowShapeModeKind.reverseBinarizeAlpha
+            m.params0 = cutoff
+            m
+        }
+
+        /// `WindowShapeMode` for "treat `colorKey` pixels as
+        /// transparent". Useful for paletted / indexed shape
+        /// masks where alpha isn't the right discriminator.
+        pub static colorKey(colorKey: Color): WindowShapeMode {
+            let m = new WindowShapeMode()
+            m.mode = WindowShapeModeKind.colorKey
+            m.params0 = colorKey.r
+            m.params1 = colorKey.g
+            m.params2 = colorKey.b
+            m.params3 = colorKey.a
+            m
+        }
     }
 
     @lib("SDL2") pub fn SDL_CreateShapedWindow(
@@ -844,8 +882,8 @@ pub enum SubSystem: u32 {
         ///   shape — surface whose pixels (filtered through
         ///           `mode`) define which window pixels stay
         ///           visible.
-        ///   mode  — see `binarizeMode` / `reverseBinarizeMode` /
-        ///           `colorKeyMode`.
+        ///   mode  — see `WindowShape.binarize(...)` /
+        ///           `.reverseBinarize(...)` / `.colorKey(...)`.
         ///
         /// Returns:
         ///   `0` on success, `< 0` on failure (call
@@ -991,44 +1029,6 @@ pub enum SubSystem: u32 {
             if info.subsystem != SubSystem.android as u32 { return 0 }
             info.handle1
         }
-    }
-
-    // ─── shape mode helpers (SDL_shape.h) ────────────────────────
-    //
-    // Construct the `WindowShapeMode` to hand to
-    // `Window.setShape(...)`. The mode picks how the shape
-    // surface's pixels translate to opaque vs. cut-out regions.
-
-    /// Build a `WindowShapeMode` for "binarize the alpha channel
-    /// at `cutoff`". Pixels with α ≥ cutoff are window; the rest
-    /// are cut-out.
-    pub fn binarizeMode(cutoff: u8): WindowShapeMode {
-        let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.binarizeAlpha
-        m.params0 = cutoff
-        m
-    }
-
-    /// Inverse of `binarizeMode` — pixels with α < cutoff are
-    /// window.
-    pub fn reverseBinarizeMode(cutoff: u8): WindowShapeMode {
-        let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.reverseBinarizeAlpha
-        m.params0 = cutoff
-        m
-    }
-
-    /// Build a `WindowShapeMode` for "treat `colorKey` pixels as
-    /// transparent". Useful for paletted / indexed shape masks
-    /// where alpha isn't the right discriminator.
-    pub fn colorKeyMode(colorKey: Color): WindowShapeMode {
-        let m = new WindowShapeMode()
-        m.mode = WindowShapeModeKind.colorKey
-        m.params0 = colorKey.r
-        m.params1 = colorKey.g
-        m.params2 = colorKey.b
-        m.params3 = colorKey.a
-        m
     }
 
     /// Reference to a single display (monitor) by its `0`-based
