@@ -5026,8 +5026,25 @@ fn render_const_value_with_src(e: &Expr, src: Option<&str>) -> Option<String> {
             };
             Some(format!("{sym}{inner}"))
         }
-        _ => None,
+        // Non-literal initializers (`const c: i64 = tt()`):
+        // copy the source text out of the user's file via the
+        // expression's span so hover shows `= tt()` rather
+        // than nothing.
+        _ => src.and_then(|s| expr_source_text(s, e.span)),
     }
+}
+
+/// Read the textual span [span.col, span.end_col) from `src`
+/// at `span.line` — works for any expression, not just literals.
+/// Used as the fallback for hover rendering of non-foldable
+/// const initializers.
+fn expr_source_text(src: &str, span: Span) -> Option<String> {
+    let start = text::line_col_to_offset(src, span.line, span.col)?;
+    let end = text::line_col_to_offset(src, span.end_line, span.end_col)?;
+    if end <= start {
+        return None;
+    }
+    src.get(start..end).map(|s| s.to_string())
 }
 
 /// Read the literal token at `span` from `src` — captures hex /
