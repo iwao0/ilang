@@ -1134,7 +1134,9 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
 const KIND_OBJECT: i64 = 1;
 const KIND_ARRAY_INNER: i64 = 2;
 const KIND_OPTIONAL: i64 = 3;
+const KIND_TUPLE_FIELD: i64 = 4;
 const KIND_MAP_INNER: i64 = 5;
+const KIND_CLOSURE_FIELD: i64 = 6;
 const KIND_STR_INNER: i64 = 7;
 
 #[unsafe(no_mangle)]
@@ -1163,14 +1165,15 @@ fn release_field_by_kind(ptr: i64, kind: i64) {
         KIND_OBJECT => __release_object(ptr),
         KIND_ARRAY_INNER => __release_array(ptr),
         KIND_OPTIONAL => __release_optional(ptr),
+        KIND_TUPLE_FIELD => __release_tuple(ptr),
         KIND_MAP_INNER => __release_map(ptr),
+        KIND_CLOSURE_FIELD => __release_closure(ptr),
         KIND_STR_INNER => __release_string(ptr),
         _ => {
-            // Tuple / closure / enum / unknown — full cascade for
-            // those still lives in `compile.rs::release_value_by_kind`.
-            // JIT-run programs see the richer cascade through
-            // `host_release_object_fields`; AOT programs whose object
-            // fields are tuple / closure / enum leak the inner.
+            // Enum / unknown — enum release needs the per-enum
+            // payload-kind table that hasn't moved here yet. AOT
+            // programs whose object fields hold enums leak the
+            // payload until that table migrates.
         }
     }
 }
@@ -1201,6 +1204,141 @@ pub extern "C" fn __release_optional(opt_ptr: i64) {
     let inner = unsafe { *(opt_ptr as *const i64) };
     release_field_by_kind(inner, tag);
     __mir_free(opt_ptr, 24);
+}
+
+/// Release a tuple cell. Tuple layout per the codegen:
+/// `[ rc | packed | e0 | e1 | … ]` with `tup_ptr` pointing at the
+/// first element (i.e. `base = tup_ptr - 16`). `packed` encodes
+/// `arity` in the low 16 bits plus a 4-bit `KIND_*` tag per element
+/// for the first 12 slots; elements at index 12+ leak heap content
+/// (the cell itself still frees).
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_tuple(tup_ptr: i64) {
+    if tup_ptr == 0 {
+        return;
+    }
+    let base = tup_ptr - 16;
+    let rc_ptr = base as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    let new_rc = rc - 1;
+    unsafe {
+        *rc_ptr = new_rc;
+    }
+    if new_rc != 0 {
+        return;
+    }
+    let packed = unsafe { *((base + 8) as *const i64) } as u64;
+    let arity = (packed & 0xFFFF) as i64;
+    for i in 0..arity.min(12) {
+        let kind = ((packed >> (16 + (i as u64) * 4)) & 0xF) as i64;
+        if kind != 0 {
+            let elem = unsafe { *((tup_ptr + i * 8) as *const i64) };
+            release_field_by_kind(elem, kind);
+        }
+    }
+    __mir_free(base, 16 + arity.max(1) * 8);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_tuple(tup_ptr: i64) {
+    if tup_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (tup_ptr - 16) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    unsafe {
+        *rc_ptr = rc + 1;
+    }
+}
+
+// Closure cell layout per `MakeClosure` codegen:
+//   [ fn_addr @ 0 | rc @ 8 | capture_0 @ 16 | capture_1 @ 24 | ... ]
+//
+// Per-fn-addr capture metadata: list of (offset, KIND_*) for heap-
+// shaped captures. JIT registers post-finalize via
+// `__register_closure_capture`; AOT registers in `__ilang_aot_init`
+// using `func_addr` to materialise the same runtime address.
+static CLOSURE_CAPTURE_TABLE: OnceLock<Mutex<HashMap<i64, Vec<(i64, i64)>>>> =
+    OnceLock::new();
+
+fn closure_capture_table() -> &'static Mutex<HashMap<i64, Vec<(i64, i64)>>> {
+    CLOSURE_CAPTURE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_closure_capture(fn_addr: i64, offset: i64, kind: i64) {
+    let mut t = closure_capture_table().lock().expect("closure capture table poisoned");
+    t.entry(fn_addr).or_default().push((offset, kind));
+}
+
+static CLOSURE_SIZE_TABLE: OnceLock<Mutex<HashMap<i64, i64>>> = OnceLock::new();
+
+fn closure_size_table() -> &'static Mutex<HashMap<i64, i64>> {
+    CLOSURE_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_closure_size(fn_addr: i64, size: i64) {
+    let mut t = closure_size_table().lock().expect("closure size table poisoned");
+    t.insert(fn_addr, size);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_closure(closure_ptr: i64) {
+    if closure_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (closure_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    let new_rc = rc - 1;
+    unsafe {
+        *rc_ptr = new_rc;
+    }
+    if new_rc != 0 {
+        return;
+    }
+    let fn_addr = unsafe { *(closure_ptr as *const i64) };
+    let entries = {
+        let t = closure_capture_table().lock().expect("closure capture table poisoned");
+        t.get(&fn_addr).cloned()
+    };
+    if let Some(entries) = entries {
+        for (off, kind) in entries.iter() {
+            let raw = unsafe { *((closure_ptr + *off) as *const i64) };
+            release_field_by_kind(raw, *kind);
+        }
+    }
+    let size = {
+        let t = closure_size_table().lock().expect("closure size table poisoned");
+        t.get(&fn_addr).copied()
+    };
+    if let Some(size) = size {
+        __mir_free(closure_ptr, size);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_closure(closure_ptr: i64) {
+    if closure_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (closure_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    unsafe {
+        *rc_ptr = rc + 1;
+    }
 }
 
 #[unsafe(no_mangle)]

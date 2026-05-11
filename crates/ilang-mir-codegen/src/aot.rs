@@ -229,6 +229,19 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_object_field", Linkage::Import, &s)?
     };
+    let reg_closure_capture = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_closure_capture", Linkage::Import, &s)?
+    };
+    let reg_closure_size = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_closure_size", Linkage::Import, &s)?
+    };
 
     let init_sig = module.make_signature();
     let init_id =
@@ -248,6 +261,10 @@ fn emit_aot_init(
         let reg_class_size_ref = module.declare_func_in_func(reg_class_size, fb.func);
         let reg_object_field_ref =
             module.declare_func_in_func(reg_object_field, fb.func);
+        let reg_closure_capture_ref =
+            module.declare_func_in_func(reg_closure_capture, fb.func);
+        let reg_closure_size_ref =
+            module.declare_func_in_func(reg_closure_size, fb.func);
 
         for class in &prog.classes {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -307,6 +324,39 @@ fn emit_aot_init(
                     fb.ins().call(reg_drop_ref, &[cid_v, addr]);
                 }
             }
+        }
+
+        // Closure capture / size tables — keyed by fn_addr at runtime
+        // so `__release_closure` can walk the cell's heap-shaped
+        // captures and free the right block size.
+        for (idx, func) in prog.functions.iter().enumerate() {
+            let env = match &func.closure_env {
+                Some(e) => e,
+                None => continue,
+            };
+            let mid = FuncId(idx as u32);
+            let cl_id = match fn_ids.get(&mid) {
+                Some(c) => *c,
+                None => continue,
+            };
+            let fr = module.declare_func_in_func(cl_id, fb.func);
+            let fn_addr = fb.ins().func_addr(types::I64, fr);
+            for (i, cap) in env.captures.iter().enumerate() {
+                if cap.is_cell {
+                    continue; // cells stay outside the registry
+                }
+                let tag = field_kind_tag(&cap.ty);
+                if tag == 0 {
+                    continue;
+                }
+                let off = 16 + (i as i64) * 8;
+                let off_v = fb.ins().iconst(types::I64, off);
+                let tag_v = fb.ins().iconst(types::I64, tag);
+                fb.ins().call(reg_closure_capture_ref, &[fn_addr, off_v, tag_v]);
+            }
+            let total_size = (2 + env.captures.len() as i64) * 8;
+            let size_v = fb.ins().iconst(types::I64, total_size);
+            fb.ins().call(reg_closure_size_ref, &[fn_addr, size_v]);
         }
 
         fb.ins().return_(&[]);

@@ -352,14 +352,14 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__print_fn", host_print_fn as *const u8);
     jit_builder.symbol("__release_object", host_release_object as *const u8);
     jit_builder.symbol("__retain_object", host_retain_object as *const u8);
-    jit_builder.symbol("__release_closure", host_release_closure as *const u8);
-    jit_builder.symbol("__retain_closure", host_retain_closure as *const u8);
+    jit_builder.symbol("__release_closure", ilang_runtime::__release_closure as *const u8);
+    jit_builder.symbol("__retain_closure", ilang_runtime::__retain_closure as *const u8);
     jit_builder.symbol("__release_array", host_release_array as *const u8);
     jit_builder.symbol("__retain_array", host_retain_array as *const u8);
     jit_builder.symbol("__release_optional", host_release_optional as *const u8);
     jit_builder.symbol("__retain_optional", host_retain_optional as *const u8);
-    jit_builder.symbol("__release_tuple", host_release_tuple as *const u8);
-    jit_builder.symbol("__retain_tuple", host_retain_tuple as *const u8);
+    jit_builder.symbol("__release_tuple", ilang_runtime::__release_tuple as *const u8);
+    jit_builder.symbol("__retain_tuple", ilang_runtime::__retain_tuple as *const u8);
     jit_builder.symbol("__release_map", host_release_map as *const u8);
     jit_builder.symbol("__retain_map", host_retain_map as *const u8);
     jit_builder.symbol("__release_string", ilang_runtime::__release_string as *const u8);
@@ -669,57 +669,38 @@ pub fn compile_with_builtins(
             );
         }
     }
-    // Populate closure capture-info registry — host_release_closure
-    // walks heap-shaped captures so they release on closure drop.
-    {
-        let mut t = closure_capture_table_lock()
-            .lock()
-            .expect("closure capture table poisoned");
-        let mut sizes = closure_size_table_lock()
-            .lock()
-            .expect("closure size table poisoned");
-        // Don't clear — entries are keyed by fn_addr (globally
-        // unique runtime address) and accumulate so parallel
-        // modules coexist.
-        for (idx, func) in prog.functions.iter().enumerate() {
-            if extern_fn_ids.contains(&FuncId(idx as u32)) {
+    // Populate closure capture / size tables in the runtime crate —
+    // `ilang_runtime::__release_closure` walks the captures table at
+    // rc-zero. AOT mirrors these registrations from
+    // `__ilang_aot_init`; both backends share one map.
+    for (idx, func) in prog.functions.iter().enumerate() {
+        if extern_fn_ids.contains(&FuncId(idx as u32)) {
+            continue;
+        }
+        let env = match &func.closure_env {
+            Some(e) => e,
+            None => continue,
+        };
+        let mid = FuncId(idx as u32);
+        let cl_id = match fn_ids.get(&mid) {
+            Some(c) => *c,
+            None => continue,
+        };
+        let addr = module.get_finalized_function(cl_id) as i64;
+        for (i, cap) in env.captures.iter().enumerate() {
+            if cap.is_cell {
+                // Cells are 1-element arrays — leak for now.
                 continue;
             }
-            let env = match &func.closure_env {
-                Some(e) => e,
-                None => continue,
-            };
-            let mid = FuncId(idx as u32);
-            let cl_id = match fn_ids.get(&mid) {
-                Some(c) => *c,
-                None => continue,
-            };
-            let addr = module.get_finalized_function(cl_id) as i64;
-            let mut entries: Vec<(i64, PrintKind)> = Vec::new();
-            for (i, cap) in env.captures.iter().enumerate() {
-                if cap.is_cell {
-                    // Cells are 1-element arrays — leak for now.
-                    continue;
-                }
-                let kind = print_kind_of(&cap.ty);
-                let needs = matches!(
-                    kind,
-                    PrintKind::Object
-                        | PrintKind::Optional(_)
-                        | PrintKind::Array(_)
-                        | PrintKind::Tuple(_)
-                );
-                if needs {
-                    let off = 16 + (i as i64) * 8;
-                    entries.push((off, kind));
-                }
+            let tag = kind_tag_of(&cap.ty);
+            if tag == KIND_NONE {
+                continue;
             }
-            t.insert(addr, entries);
-            // Mirror the MakeClosure codegen layout:
-            // [fn_addr @ 0 | rc @ 8 | capture_0 @ 16 | …] = (2 + n_caps)*8.
-            let total_size = (2 + env.captures.len() as i64) * 8;
-            sizes.insert(addr, total_size);
+            let off = 16 + (i as i64) * 8;
+            ilang_runtime::__register_closure_capture(addr, off, tag);
         }
+        let total_size = (2 + env.captures.len() as i64) * 8;
+        ilang_runtime::__register_closure_size(addr, total_size);
     }
     // Populate fn-name registry — host_print_fn looks up the fn
     // address (closure[0]) and prints "<fn NAME>" / "<fn>". Skip
@@ -1478,133 +1459,13 @@ extern "C" fn host_release_object(obj_ptr: i64) {
 
 /// fn_addr → list of (capture_offset, kind) for heap-shaped captures
 /// that need release on closure drop.
-static CLOSURE_CAPTURE_TABLE: OnceLock<Mutex<HashMap<i64, Vec<(i64, PrintKind)>>>> =
-    OnceLock::new();
-
-fn closure_capture_table_lock() -> &'static Mutex<HashMap<i64, Vec<(i64, PrintKind)>>> {
-    CLOSURE_CAPTURE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// fn_addr → total byte size of the closure heap cell. Used by
-/// `host_release_closure` to free the block once rc reaches 0.
-static CLOSURE_SIZE_TABLE: OnceLock<Mutex<HashMap<i64, i64>>> = OnceLock::new();
-
-fn closure_size_table_lock() -> &'static Mutex<HashMap<i64, i64>> {
-    CLOSURE_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-extern "C" fn host_release_closure(closure_ptr: i64) {
-    if closure_ptr == 0 {
-        return;
-    }
-    let rc_ptr = (closure_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
-    }
-    let fn_addr = unsafe { *(closure_ptr as *const i64) };
-    let entries = {
-        let m = closure_capture_table_lock()
-            .lock()
-            .expect("closure capture table poisoned");
-        m.get(&fn_addr).cloned()
-    };
-    if let Some(entries) = entries {
-        for (off, kind) in entries.iter() {
-            let raw = unsafe { *((closure_ptr + *off) as *const i64) };
-            // Use the rc-aware path so a captured Array / Map /
-            // String / etc. actually decrements its refcount and
-            // frees its backing buffer when this closure was the
-            // last holder. The older `release_value_by_kind` only
-            // walked nested heap elements without dropping the
-            // outer container.
-            release_print_kind(raw, kind);
-        }
-    }
-    // Free the closure cell. Size is keyed off fn_addr — registered
-    // at compile time alongside the capture table.
-    let size = {
-        let m = closure_size_table_lock()
-            .lock()
-            .expect("closure size table poisoned");
-        m.get(&fn_addr).copied()
-    };
-    if let Some(size) = size {
-        ilang_runtime::__mir_free(closure_ptr, size);
-    }
-}
-
-extern "C" fn host_retain_closure(closure_ptr: i64) {
-    if closure_ptr == 0 {
-        return;
-    }
-    let rc_ptr = (closure_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
-}
-
-extern "C" fn host_release_tuple(tup_ptr: i64) {
-    if tup_ptr == 0 {
-        return;
-    }
-    let base = tup_ptr - 16;
-    let rc_ptr = base as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
-    }
-    let packed = unsafe { *((base + 8) as *const i64) } as u64;
-    // packed layout (set by NewTuple codegen):
-    //   bits  0-15 : arity (max 65535 elements)
-    //   bits 16-63 : 4-bit KIND_* tag per element, up to 12
-    //                elements (12 × 4 = 48 bits). Tuples > 12
-    //                elements have their kinds 12+ implicitly
-    //                KIND_NONE — those slots leak heap content
-    //                but the cell itself is still freed.
-    let arity = (packed & 0xFFFF) as i64;
-    for i in 0..arity.min(12) {
-        let kind = ((packed >> (16 + (i as u64) * 4)) & 0xF) as i64;
-        if kind != KIND_NONE {
-            let elem = unsafe { *((tup_ptr + i * 8) as *const i64) };
-            release_by_kind(elem, kind);
-        }
-    }
-    // Free the tuple cell. base = tup_ptr - 16; total = 16 + arity*8.
-    ilang_runtime::__mir_free(base, 16 + arity.max(1) * 8);
-}
-
-extern "C" fn host_retain_tuple(tup_ptr: i64) {
-    if tup_ptr == 0 {
-        return;
-    }
-    let rc_ptr = (tup_ptr - 16) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
-}
+// Closure capture / size tables and `__release_closure` /
+// `__retain_closure` live in `ilang-runtime`. JIT and AOT both
+// register through `__register_closure_capture` /
+// `__register_closure_size` from their respective populate paths.
+//
+// Tuple release / retain also live in `ilang-runtime` (no auxiliary
+// table — the kind tags pack into the cell header).
 
 extern "C" fn host_release_optional(opt_ptr: i64) {
     if opt_ptr == 0 {
@@ -1823,9 +1684,9 @@ fn release_by_kind(ptr: i64, kind: i64) {
         KIND_OBJECT => release_object(ptr),
         KIND_ARRAY => host_release_array(ptr),
         KIND_OPTIONAL => host_release_optional(ptr),
-        KIND_TUPLE => host_release_tuple(ptr),
+        KIND_TUPLE => ilang_runtime::__release_tuple(ptr),
         KIND_MAP => host_release_map(ptr),
-        KIND_CLOSURE => host_release_closure(ptr),
+        KIND_CLOSURE => ilang_runtime::__release_closure(ptr),
         KIND_STR => ilang_runtime::__release_string(ptr),
         KIND_ENUM => host_release_enum(ptr),
         _ => {} // KIND_NONE / unknown — primitive, no cascade.
@@ -1861,9 +1722,9 @@ fn retain_by_kind(ptr: i64, kind: i64) {
         KIND_OBJECT => host_retain_object(ptr),
         KIND_ARRAY => host_retain_array(ptr),
         KIND_OPTIONAL => host_retain_optional(ptr),
-        KIND_TUPLE => host_retain_tuple(ptr),
+        KIND_TUPLE => ilang_runtime::__retain_tuple(ptr),
         KIND_MAP => host_retain_map(ptr),
-        KIND_CLOSURE => host_retain_closure(ptr),
+        KIND_CLOSURE => ilang_runtime::__retain_closure(ptr),
         KIND_STR => ilang_runtime::__retain_string(ptr),
         KIND_ENUM => host_retain_enum(ptr),
         _ => {}
