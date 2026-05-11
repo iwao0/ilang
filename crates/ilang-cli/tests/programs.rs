@@ -39,6 +39,7 @@ struct Spec {
     expect_error: Option<String>,
     skip_jit: bool,
     skip_interp: bool,
+    skip_aot: bool,
 }
 
 fn parse_spec(src: &str) -> Spec {
@@ -55,6 +56,8 @@ fn parse_spec(src: &str) -> Spec {
             spec.skip_jit = true;
         } else if body == "interp: skip" {
             spec.skip_interp = true;
+        } else if body == "aot: skip" {
+            spec.skip_aot = true;
         } else if body.is_empty() {
             // Blank comment line — keep scanning, the spec block can be
             // separated from the program by blank `//` lines.
@@ -81,6 +84,39 @@ fn run(jit: bool, path: &Path) -> Output {
     }
     cmd.arg(path);
     cmd.output().expect("failed to spawn ilang")
+}
+
+/// Compile via `ilang build` to a native executable in a temp dir,
+/// then run the executable. Combines the two stages so the harness
+/// can compare AOT stdout / stderr / exit-status against the other
+/// backends. Returns an `Output` whose status / stderr reflects the
+/// build step if it failed, or the program's run otherwise.
+fn run_aot(path: &Path) -> Output {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static AOT_CTR: AtomicU64 = AtomicU64::new(0);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("ilang_fixture");
+    let id = AOT_CTR.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let out_path = std::env::temp_dir()
+        .join(format!("ilang_aot_test_{pid}_{id}_{stem}"));
+    // Build stage. On failure, surface its Output as-is.
+    let mut build = Command::new(ilang_bin());
+    build.arg("build").arg(path).arg("-o").arg(&out_path);
+    let build_out = build.output().expect("failed to spawn ilang build");
+    if !build_out.status.success() {
+        return build_out;
+    }
+    // Run the produced binary.
+    let run_out = Command::new(&out_path)
+        .output()
+        .expect("failed to spawn AOT binary");
+    // Best-effort cleanup; the linker drops a `<stem>.o` alongside.
+    let _ = std::fs::remove_file(&out_path);
+    let _ = std::fs::remove_file(out_path.with_extension("o"));
+    run_out
 }
 
 fn check(spec: &Spec, out: &Output) -> Result<String, String> {
@@ -141,46 +177,92 @@ fn run_all_program_fixtures() {
         return;
     }
 
-    let mut failures: Vec<String> = Vec::new();
-    let total = paths.len();
-    for path in &paths {
-        let src = fs::read_to_string(path).unwrap();
-        let spec = parse_spec(&src);
-        let rel = path
-            .strip_prefix(&dir)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| path.to_string_lossy().to_string());
+    // AOT is gated behind `ILANG_TEST_AOT=1` — the per-fixture
+    // build + link + run round-trip is ~50ms each, so leaving it on
+    // by default adds tens of seconds to the harness. CI flips the
+    // env var on; local runs stay snappy.
+    let run_aot_arm = std::env::var_os("ILANG_TEST_AOT").is_some();
 
-        // Default arm — mir-jit. (The harness directive
-        // `// interp: skip` historically guarded the interpreter
-        // arm; now it gates the default mir-jit run too.)
-        let mut mir_stdout: Option<String> = None;
-        if !spec.skip_interp {
-            match check(&spec, &run(false, path)) {
-                Ok(s) => mir_stdout = Some(s),
-                Err(msg) => failures.push(format!("{rel} [mir-jit]: {msg}")),
-            }
+    let total = paths.len();
+    let n_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let next_idx = std::sync::atomic::AtomicUsize::new(0);
+    let failures: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    std::thread::scope(|s| {
+        for _ in 0..n_threads {
+            let paths = &paths;
+            let dir = &dir;
+            let failures = &failures;
+            let next_idx = &next_idx;
+            s.spawn(move || {
+                loop {
+                    let i = next_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if i >= paths.len() {
+                        break;
+                    }
+                    let path = &paths[i];
+                    let src = match fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    let spec = parse_spec(&src);
+                    let rel = path
+                        .strip_prefix(dir)
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+
+                    let mut local_failures: Vec<String> = Vec::new();
+                    let mut mir_stdout: Option<String> = None;
+                    if !spec.skip_interp {
+                        match check(&spec, &run(false, path)) {
+                            Ok(out) => mir_stdout = Some(out),
+                            Err(msg) => local_failures.push(format!("{rel} [mir-jit]: {msg}")),
+                        }
+                    }
+                    let mut jit_stdout: Option<String> = None;
+                    if !spec.skip_jit {
+                        match check(&spec, &run(true, path)) {
+                            Ok(out) => jit_stdout = Some(out),
+                            Err(msg) => local_failures.push(format!("{rel} [jit]: {msg}")),
+                        }
+                    }
+                    let mut aot_stdout: Option<String> = None;
+                    if run_aot_arm && !spec.skip_aot {
+                        match check(&spec, &run_aot(path)) {
+                            Ok(out) => aot_stdout = Some(out),
+                            Err(msg) => local_failures.push(format!("{rel} [aot]: {msg}")),
+                        }
+                    }
+                    if let (Some(i), Some(j)) = (&mir_stdout, &jit_stdout) {
+                        if i != j {
+                            local_failures.push(format!(
+                                "{rel} [parity]: mir-jit and legacy JIT diverge\n  mir-jit:\n{}\n  jit:\n{}",
+                                i.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
+                                j.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
+                            ));
+                        }
+                    }
+                    if let (Some(i), Some(a)) = (&mir_stdout, &aot_stdout) {
+                        if i != a {
+                            local_failures.push(format!(
+                                "{rel} [parity]: mir-jit and AOT diverge\n  mir-jit:\n{}\n  aot:\n{}",
+                                i.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
+                                a.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
+                            ));
+                        }
+                    }
+                    if !local_failures.is_empty() {
+                        let mut g = failures.lock().expect("failures poisoned");
+                        g.extend(local_failures);
+                    }
+                }
+            });
         }
-        let mut jit_stdout: Option<String> = None;
-        if !spec.skip_jit {
-            match check(&spec, &run(true, path)) {
-                Ok(s) => jit_stdout = Some(s),
-                Err(msg) => failures.push(format!("{rel} [jit]: {msg}")),
-            }
-        }
-        // Cross-check: when both backends ran successfully, their
-        // stdouts must agree. Catches divergence even if both
-        // happen to satisfy the spec individually.
-        if let (Some(i), Some(j)) = (&mir_stdout, &jit_stdout) {
-            if i != j {
-                failures.push(format!(
-                    "{rel} [parity]: mir-jit and legacy JIT diverge\n  mir-jit:\n{}\n  jit:\n{}",
-                    i.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
-                    j.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n"),
-                ));
-            }
-        }
-    }
+    });
+
+    let failures = failures.into_inner().expect("failures poisoned");
 
     if !failures.is_empty() {
         panic!(
