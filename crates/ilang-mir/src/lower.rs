@@ -4323,7 +4323,39 @@ impl<'a> BodyCx<'a> {
                 let (iv, _) = self.lower_expr(index)?;
                 let (vv, vty) = self.lower_expr(value)?;
                 match aty {
-                    MirTy::Array { .. } => {
+                    MirTy::Array { ref elem, .. } => {
+                        let elem_ty = (**elem).clone();
+                        // Same shape as `StoreField` for heap elements:
+                        // retain the incoming value (unless it owns its
+                        // +1) and release whatever currently sits in the
+                        // slot, since `__release_array`'s cascade
+                        // already accounts for every stored element on
+                        // drop. Without this, `arr[i] = borrowed` would
+                        // share rc with the source slot (UAF) and
+                        // `arr[i] = fresh` would leak the old occupant.
+                        let elem_is_heap = matches!(
+                            elem_ty,
+                            MirTy::Object(_)
+                                | MirTy::Array { .. }
+                                | MirTy::Tuple(_)
+                                | MirTy::Map { .. }
+                                | MirTy::Optional(_)
+                                | MirTy::Fn(_)
+                                | MirTy::Str
+                                | MirTy::Enum(_)
+                        );
+                        if elem_is_heap {
+                            if !value_is_fresh {
+                                self.fb.push_inst(Inst::Retain { value: vv });
+                            }
+                            let old = self.fb.new_value(elem_ty.clone());
+                            self.fb.push_inst(Inst::ArrayLoad {
+                                dst: old,
+                                arr: av,
+                                idx: iv,
+                            });
+                            self.fb.push_inst(Inst::Release { value: old });
+                        }
                         self.fb.push_inst(Inst::ArrayStore { arr: av, idx: iv, value: vv });
                     }
                     MirTy::Map { .. } => {
