@@ -150,6 +150,12 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     if std::env::var_os("ILANG_NO_INLINE").is_none() {
         ilang_mir::passes::inline::run_program(&mut mir);
     }
+    // Fold compile-time constants after inlining — params bound to
+    // literal args fold all the way through their inlined bodies.
+    // `ILANG_NO_CONST_FOLD=1` disables for A/B.
+    if std::env::var_os("ILANG_NO_CONST_FOLD").is_none() {
+        ilang_mir::passes::const_fold::run_program(&mut mir);
+    }
     ilang_mir::passes::arc_peephole::run_program(&mut mir);
 
     let object_bytes = match ilang_mir_codegen::compile_program_to_object(&mir) {
@@ -342,6 +348,7 @@ impl ReplSession {
         let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
         ilang_mir::passes::inline::run_program(&mut mir);
+        ilang_mir::passes::const_fold::run_program(&mut mir);
         ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
@@ -935,11 +942,16 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         } else {
             ilang_mir::passes::inline::run_program(&mut mir)
         };
+        let const_fold_stats = if std::env::var_os("ILANG_NO_CONST_FOLD").is_some() {
+            ilang_mir::passes::const_fold::Stats::default()
+        } else {
+            ilang_mir::passes::const_fold::run_program(&mut mir)
+        };
         let arc_stats = ilang_mir::passes::arc_peephole::run_program(&mut mir);
         if dump_stats {
             eprintln!(
-                "{display_path}: inline calls_inlined={}",
-                inline_stats.calls_inlined,
+                "{display_path}: inline calls_inlined={} const_fold folds_applied={}",
+                inline_stats.calls_inlined, const_fold_stats.folds_applied,
             );
         }
         if dump_stats {
