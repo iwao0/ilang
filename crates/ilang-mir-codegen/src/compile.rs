@@ -274,8 +274,8 @@ pub fn compile_with_builtins(
     // via Rust's `Vec<u8>` and leaks the pointer. The MIR codegen's
     // ARC step is what eventually frees it; until then it's a small
     // intentional leak that's fine for short-running test programs.
-    jit_builder.symbol("__mir_alloc", host_mir_alloc as *const u8);
-    jit_builder.symbol("__mir_free", host_mir_free as *const u8);
+    jit_builder.symbol("__mir_alloc", ilang_runtime::__mir_alloc as *const u8);
+    jit_builder.symbol("__mir_free", ilang_runtime::__mir_free as *const u8);
     // Map runtime backed by Rust's HashMap<i64, i64> (one box per
     // map). Keys / values flow through as i64 cells (heap pointers
     // share identity when interned).
@@ -1558,7 +1558,7 @@ extern "C" fn host_release_closure(closure_ptr: i64) {
         m.get(&fn_addr).copied()
     };
     if let Some(size) = size {
-        host_mir_free(closure_ptr, size);
+        ilang_runtime::__mir_free(closure_ptr, size);
     }
 }
 
@@ -1610,7 +1610,7 @@ extern "C" fn host_release_tuple(tup_ptr: i64) {
         }
     }
     // Free the tuple cell. base = tup_ptr - 16; total = 16 + arity*8.
-    host_mir_free(base, 16 + arity.max(1) * 8);
+    ilang_runtime::__mir_free(base, 16 + arity.max(1) * 8);
 }
 
 extern "C" fn host_retain_tuple(tup_ptr: i64) {
@@ -1653,7 +1653,7 @@ extern "C" fn host_release_optional(opt_ptr: i64) {
     // retain on aliased heap inner) so freeing the cell on rc=0
     // is now safe — fresh `some(new T())` transfers the inner's
     // +1 to the Optional, aliased `some(x)` bumps rc on the inner.
-    host_mir_free(opt_ptr, 24);
+    ilang_runtime::__mir_free(opt_ptr, 24);
 }
 
 extern "C" fn host_retain_optional(opt_ptr: i64) {
@@ -1707,9 +1707,9 @@ extern "C" fn host_release_array(arr_ptr: i64) {
     // host_array_push grow path, so reconstructing the same byte
     // counts via host_mir_free drops the underlying Vec.
     if data_ptr != 0 {
-        host_mir_free(data_ptr, cap.max(1) * stride);
+        ilang_runtime::__mir_free(data_ptr, cap.max(1) * stride);
     }
-    host_mir_free(arr_ptr, 48);
+    ilang_runtime::__mir_free(arr_ptr, 48);
 }
 
 extern "C" fn host_retain_array(arr_ptr: i64) {
@@ -2252,56 +2252,14 @@ extern "C" fn host_print_object(obj_ptr: i64) {
 // Strings (Box::leak) and ManagedMap (Rust HashMap) are tracked
 // separately — see STRING_REGISTRY and the test.liveStringCount
 // helper.
-static ALLOC_BYTES: std::sync::atomic::AtomicI64 =
-    std::sync::atomic::AtomicI64::new(0);
-static FREE_BYTES: std::sync::atomic::AtomicI64 =
-    std::sync::atomic::AtomicI64::new(0);
-static ALLOC_COUNT: std::sync::atomic::AtomicI64 =
-    std::sync::atomic::AtomicI64::new(0);
-static FREE_COUNT: std::sync::atomic::AtomicI64 =
-    std::sync::atomic::AtomicI64::new(0);
-
-extern "C" fn host_mir_alloc(size: i64) -> i64 {
-    let n = size as usize;
-    let mut v: Vec<u8> = vec![0; n];
-    let ptr = v.as_mut_ptr() as i64;
-    std::mem::forget(v);
-    ALLOC_BYTES.fetch_add(size, AtomicOrdering::Relaxed);
-    ALLOC_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
-    ptr
-}
-
-/// Free a previously `host_mir_alloc`'d block. The caller must
-/// know the exact `size` it was originally allocated with —
-/// `host_mir_alloc` is just a leaked `Vec<u8>` and we reconstruct
-/// the same vec to drop it. Used by the codegen's CRepr-struct
-/// scope-exit release path so transient stack-replacement structs
-/// (e.g. an SDL `Rect` built per draw call) actually free.
-extern "C" fn host_mir_free(ptr: i64, size: i64) {
-    if ptr == 0 || size <= 0 {
-        return;
-    }
-    unsafe {
-        let _ = Vec::from_raw_parts(ptr as *mut u8, size as usize, size as usize);
-    }
-    FREE_BYTES.fetch_add(size, AtomicOrdering::Relaxed);
-    FREE_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
-}
-
-/// `test.liveAllocBytes(): i64` — currently-held bytes through the
-/// host_mir_alloc tracker. Leaks of Object / Array / Optional / etc.
-/// show up as a steady delta after a release sweep.
+/// The alloc trackers feeding `test.liveAlloc*()` introspection live
+/// inside `ilang-runtime`; the test helpers below just forward.
 extern "C" fn host_test_live_alloc_bytes() -> i64 {
-    ALLOC_BYTES.load(AtomicOrdering::Relaxed)
-        - FREE_BYTES.load(AtomicOrdering::Relaxed)
+    ilang_runtime::live_alloc_bytes()
 }
 
-/// `test.liveAllocCount(): i64` — currently-held alloc count. Useful
-/// for catching per-call cell allocations that should be cached or
-/// released (e.g. unit-variant enum cells).
 extern "C" fn host_test_live_alloc_count() -> i64 {
-    ALLOC_COUNT.load(AtomicOrdering::Relaxed)
-        - FREE_COUNT.load(AtomicOrdering::Relaxed)
+    ilang_runtime::live_alloc_count()
 }
 
 /// `test.liveStringCount(): i64` — number of entries currently in
@@ -2517,7 +2475,7 @@ extern "C" fn host_map_get_optional(map: i64, key: i64) -> i64 {
     let mk = raw_to_map_key(key, m.key_print_kind);
     match m.inner.get(&mk) {
         Some(&v) => {
-            let cell = host_mir_alloc(24) as *mut i64;
+            let cell = ilang_runtime::__mir_alloc(24) as *mut i64;
             unsafe {
                 *cell = v;
                 *cell.add(1) = 1;
@@ -2690,7 +2648,7 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
             *h = len + 1;
         } else {
             let new_cap = (cap * 2).max(4);
-            let new_data = host_mir_alloc(new_cap * stride);
+            let new_data = ilang_runtime::__mir_alloc(new_cap * stride);
             std::ptr::copy_nonoverlapping(
                 data as *const u8,
                 new_data as *mut u8,
@@ -2702,7 +2660,7 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
             // N pushes, so a long loop accumulates ~2*N*stride
             // unreachable bytes.
             if data != 0 && cap > 0 {
-                host_mir_free(data, cap * stride);
+                ilang_runtime::__mir_free(data, cap * stride);
             }
             *h = len + 1;
             *h.add(1) = new_cap;
@@ -2719,8 +2677,8 @@ extern "C" fn host_array_push(arr: i64, value: i64) {
 /// Map<_, ClassT>.values()).
 fn build_array(items: &[i64], elem_kind: i64) -> i64 {
     let cap = items.len().max(4);
-    let header = host_mir_alloc(48);
-    let data = host_mir_alloc((cap * 8) as i64);
+    let header = ilang_runtime::__mir_alloc(48);
+    let data = ilang_runtime::__mir_alloc((cap * 8) as i64);
     unsafe {
         let h = header as *mut i64;
         *h = items.len() as i64;
@@ -2752,8 +2710,8 @@ unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 { unsafe {
 extern "C" fn host_c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64) -> i64 {
     let n_safe = if n < 0 { 0 } else { n };
     let bytes = n_safe * stride;
-    let header = host_mir_alloc(48);
-    let data = host_mir_alloc(bytes.max(stride));
+    let header = ilang_runtime::__mir_alloc(48);
+    let data = ilang_runtime::__mir_alloc(bytes.max(stride));
     unsafe {
         if bytes > 0 && src != 0 {
             std::ptr::copy_nonoverlapping(src as *const u8, data as *mut u8, bytes as usize);
@@ -2878,7 +2836,7 @@ pub fn reset_repl_slots() {
 }
 
 extern "C" fn host_enum_box(disc: i64) -> i64 {
-    let p = host_mir_alloc(8);
+    let p = ilang_runtime::__mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
     p
 }
@@ -2911,7 +2869,7 @@ fn enum_registry_lock() -> &'static Mutex<HashMap<i64, EnumEntry>> {
 /// instead of the bare alloc + tag-write for `n_payload > 0`.
 extern "C" fn host_enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
     let total = (1 + n_payload) * 8;
-    let ptr = host_mir_alloc(total);
+    let ptr = ilang_runtime::__mir_alloc(total);
     unsafe { *(ptr as *mut i64) = disc; }
     let mut reg = enum_registry_lock()
         .lock()
@@ -2975,7 +2933,7 @@ extern "C" fn host_release_enum(p: i64) {
                 release_print_kind(raw, kind);
             }
         }
-        host_mir_free(p, total);
+        ilang_runtime::__mir_free(p, total);
     }
 }
 
@@ -3043,7 +3001,7 @@ extern "C" fn host_enum_unit_get(global_eid: i64, disc: i64) -> i64 {
     // Race-permissive: if two threads insert concurrently the second
     // overwrites with a fresh leaked cell of the same value — harmless
     // since the cells are immutable singletons and both leak.
-    let p = host_mir_alloc(8);
+    let p = ilang_runtime::__mir_alloc(8);
     unsafe { *(p as *mut i64) = disc; }
     let mut m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
     *m.entry(key).or_insert(p)
@@ -3086,7 +3044,7 @@ extern "C" fn host_enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
 /// allocated and considered owned by the caller (release rules apply
 /// as for any other freshly-built array).
 extern "C" fn host_fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) -> i64 {
-    let header = host_mir_alloc(48);
+    let header = ilang_runtime::__mir_alloc(48);
     unsafe {
         let h = header as *mut i64;
         *h = len;            // len
@@ -3212,7 +3170,7 @@ extern "C" fn host_array_pop(arr: i64) -> i64 {
         };
         *h = len - 1;
         let elem_tag = *h.add(4);
-        let cell = host_mir_alloc(24) as *mut i64;
+        let cell = ilang_runtime::__mir_alloc(24) as *mut i64;
         *cell = v;
         *cell.add(1) = 1;
         *cell.add(2) = elem_tag;
@@ -3362,8 +3320,8 @@ extern "C" fn host_cstr_array_to_strings(ptrs: i64) -> i64 {
         }
     }
     let n = elems.len() as i64;
-    let header = host_mir_alloc(48);
-    let data = host_mir_alloc(n.max(1) * 8);
+    let header = ilang_runtime::__mir_alloc(48);
+    let data = ilang_runtime::__mir_alloc(n.max(1) * 8);
     unsafe {
         let h = header as *mut i64;
         *h = n;
@@ -3385,7 +3343,7 @@ extern "C" fn host_errno_check_i32(rc: i32) -> i64 {
     if rc < 0 {
         return 0;
     }
-    let cell = host_mir_alloc(8) as *mut i32;
+    let cell = ilang_runtime::__mir_alloc(8) as *mut i32;
     unsafe {
         *cell = rc;
     }
@@ -3396,7 +3354,7 @@ extern "C" fn host_errno_check_i64(rc: i64) -> i64 {
     if rc < 0 {
         return 0;
     }
-    let cell = host_mir_alloc(8) as *mut i64;
+    let cell = ilang_runtime::__mir_alloc(8) as *mut i64;
     unsafe {
         *cell = rc;
     }
