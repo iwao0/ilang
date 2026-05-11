@@ -5,6 +5,7 @@
 
 pub mod arc_peephole;
 pub mod const_fold;
+pub mod dce;
 pub mod inline;
 pub mod promote_locals;
 pub mod util;
