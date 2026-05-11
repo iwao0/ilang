@@ -343,8 +343,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
     jit_builder.symbol("__array_slice", host_array_slice as *const u8);
     jit_builder.symbol("__str_split", host_str_split as *const u8);
-    jit_builder.symbol("__virt_dispatch", host_virt_dispatch as *const u8);
-    jit_builder.symbol("__drop_dispatch", host_drop_dispatch as *const u8);
+    jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
+    jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
     jit_builder.symbol("__print_object", host_print_object as *const u8);
     jit_builder.symbol("__class_name", host_class_name as *const u8);
     jit_builder.symbol("__print_weak", host_print_weak as *const u8);
@@ -516,11 +516,10 @@ pub fn compile_with_builtins(
     // Don't clear — entries are keyed by GLOBAL (class_id, slot) and
     // accumulate so parallel modules coexist without trampling.
     {
-        let mut vt = vtable_lock().lock().expect("vtable poisoned");
         for ((cid, slot), fid) in &vtable_entries {
             if let Some(cl_id) = fn_ids.get(fid) {
                 let addr = module.get_finalized_function(*cl_id) as i64;
-                vt.insert((*cid, *slot), addr);
+                ilang_runtime::__register_vtable_entry(*cid as i64, *slot as i64, addr);
             }
         }
     }
@@ -736,15 +735,11 @@ pub fn compile_with_builtins(
     // the lowering whenever a class declares `deinit`. Subclasses
     // that don't redefine deinit inherit the parent's via the
     // method table — read it back from the lowered class.
-    {
-        let mut dt = drop_table_lock().lock().expect("drop table poisoned");
-        // Don't clear — keyed by GLOBAL class id, accumulates.
-        for class in &prog.classes {
-            if class.drop_fn.0 != u32::MAX {
-                if let Some(cl_id) = fn_ids.get(&class.drop_fn) {
-                    let addr = module.get_finalized_function(*cl_id) as i64;
-                    dt.insert(global_cid(class.id.0), addr);
-                }
+    for class in &prog.classes {
+        if class.drop_fn.0 != u32::MAX {
+            if let Some(cl_id) = fn_ids.get(&class.drop_fn) {
+                let addr = module.get_finalized_function(*cl_id) as i64;
+                ilang_runtime::__register_drop(global_cid(class.id.0) as i64, addr);
             }
         }
     }
@@ -1418,30 +1413,9 @@ pub(crate) fn alloc_global_enum_id() -> u32 {
     NEXT_GLOBAL_ENUM_ID.fetch_add(1, AtomicOrdering::Relaxed)
 }
 
-/// Runtime vtable: (global_class_id, slot) → fn pointer (i64).
-/// Persistent across compiles — entries accumulate so multiple
-/// independently-compiled modules can coexist without trampling.
-static VTABLE: OnceLock<Mutex<HashMap<(u32, u32), i64>>> = OnceLock::new();
-
-fn vtable_lock() -> &'static Mutex<HashMap<(u32, u32), i64>> {
-    VTABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-extern "C" fn host_virt_dispatch(class_id: i64, slot: i64) -> i64 {
-    let m = vtable_lock().lock().expect("vtable poisoned");
-    *m.get(&(class_id as u32, slot as u32)).unwrap_or(&0)
-}
-
-static DROP_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
-
-fn drop_table_lock() -> &'static Mutex<HashMap<u32, i64>> {
-    DROP_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-extern "C" fn host_drop_dispatch(class_id: i64) -> i64 {
-    let m = drop_table_lock().lock().expect("drop table poisoned");
-    *m.get(&(class_id as u32)).unwrap_or(&0)
-}
+// VTABLE / DROP_TABLE moved to `ilang-runtime` (`__register_vtable_entry`
+// / `__register_drop` populate; `__virt_dispatch` / `__drop_dispatch`
+// read). Both backends now funnel through that single in-process map.
 
 /// Per-class registry: list of (field_offset, FieldKind) for fields
 /// whose static type is heap-shaped (Object / Array / Optional / etc).
@@ -1909,10 +1883,7 @@ fn release_object(obj_ptr: i64) {
     }
     let class_id = unsafe { *(obj_ptr as *const i64) };
     // Call user deinit if registered.
-    let user_drop = {
-        let m = drop_table_lock().lock().expect("drop table poisoned");
-        m.get(&(class_id as u32)).copied().unwrap_or(0)
-    };
+    let user_drop = ilang_runtime::__drop_dispatch(class_id);
     if user_drop != 0 {
         let f: extern "C" fn(i64, i64) = unsafe { std::mem::transmute(user_drop) };
         f(obj_ptr, 0);

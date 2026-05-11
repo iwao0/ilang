@@ -1009,6 +1009,127 @@ pub extern "C" fn __release_map(map: i64) {
 }
 
 // --------------------------------------------------------------------
+// Class objects (minimal)
+// --------------------------------------------------------------------
+//
+// Object header: 16 bytes
+//   +0  i64 class_id
+//   +8  i64 refcount
+//   +16 fields...
+//
+// The JIT side keeps a richer implementation that consults per-class
+// drop / size / field tables for user `deinit` + cascade release. AOT
+// links the simpler versions below: `__retain_object` bumps the rc
+// inline; `__release_object` decrements it and leaks the buffer when
+// rc reaches 0 (the OS reaps everything on process exit, which is
+// fine for one-shot `ilang build` programs). Programs that need
+// deinit / inheritance / virtual dispatch in AOT will eventually
+// require the init-emit work that populates the JIT-side tables at
+// process startup.
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_object(obj_ptr: i64) {
+    if obj_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (obj_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    unsafe {
+        *rc_ptr = rc + 1;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_object(obj_ptr: i64) {
+    if obj_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (obj_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    let new_rc = rc - 1;
+    unsafe {
+        *rc_ptr = new_rc;
+    }
+    // Buffer / cascade-release of heap fields stays as a leak in this
+    // minimal runtime. Full lifecycle support arrives with the AOT
+    // init-emit work.
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_object_fields(_class_id: i64, _obj_ptr: i64) {
+    // Stub: full implementation needs the per-class field-offset table
+    // that the JIT populates at codegen time. Until AOT learns to emit
+    // that table at startup, programs with heap-typed object fields
+    // leak the inner values.
+}
+
+/// Per-class virtual dispatch table. Keyed by `(global_class_id,
+/// slot)`. Populated either by the JIT after `finalize_definitions`
+/// or by the AOT-emitted `__ilang_aot_init` running at process
+/// startup; both routes funnel through `__register_vtable_entry`.
+static VTABLE: OnceLock<Mutex<HashMap<(u32, u32), i64>>> = OnceLock::new();
+
+fn vtable() -> &'static Mutex<HashMap<(u32, u32), i64>> {
+    VTABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_vtable_entry(class_id: i64, slot: i64, fn_addr: i64) {
+    let mut t = vtable().lock().expect("vtable poisoned");
+    t.insert((class_id as u32, slot as u32), fn_addr);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __virt_dispatch(class_id: i64, slot: i64) -> i64 {
+    let t = vtable().lock().expect("vtable poisoned");
+    *t.get(&(class_id as u32, slot as u32)).unwrap_or(&0)
+}
+
+/// Per-class user-defined `deinit` dispatch table. AOT keeps it empty
+/// for now; JIT populates via `__register_drop`.
+static DROP_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+
+fn drop_table() -> &'static Mutex<HashMap<u32, i64>> {
+    DROP_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_drop(class_id: i64, fn_addr: i64) {
+    let mut t = drop_table().lock().expect("drop table poisoned");
+    t.insert(class_id as u32, fn_addr);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __drop_dispatch(class_id: i64) -> i64 {
+    let t = drop_table().lock().expect("drop table poisoned");
+    *t.get(&(class_id as u32)).unwrap_or(&0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __class_name(_class_id: i64) -> i64 {
+    leak_cstring("<class>".to_string())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __print_object(obj_ptr: i64) {
+    let mut out = std::io::stdout().lock();
+    let _ = if obj_ptr == 0 {
+        out.write_all(b"<null>")
+    } else {
+        // Placeholder shape until the AOT side learns the per-class
+        // field tables. JIT prints e.g. `Point { x: 1, y: 2 }`.
+        let class_id = unsafe { *(obj_ptr as *const i64) };
+        out.write_all(format!("<object class_id={class_id} @{obj_ptr:#x}>").as_bytes())
+    };
+}
+
+// --------------------------------------------------------------------
 // Raw memory FFI read / write helpers
 // --------------------------------------------------------------------
 

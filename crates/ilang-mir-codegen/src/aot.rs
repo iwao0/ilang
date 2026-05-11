@@ -127,10 +127,27 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         module.declare_function(symbol_name, Linkage::Export, &entry_sig)?;
     }
 
-    // Emit the C ABI `main` wrapper. `Linkage::Export` exposes it so
-    // the platform's startup code resolves `_main` / `main` here.
     let mut ctx = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
+
+    // Emit `__ilang_aot_init()` — runs at process startup (via `main`
+    // below) and populates the runtime dispatch tables that the JIT
+    // backfills after `finalize_definitions`. AOT can't do the same
+    // at codegen time because the addresses don't exist until the OS
+    // dynamic linker maps the executable, so we generate IR that calls
+    // `__register_vtable_entry` / `__register_drop` with `func_addr`
+    // values resolved at load time.
+    let aot_init_id = emit_aot_init(
+        &mut module,
+        &mut ctx,
+        &mut fb_ctx,
+        prog,
+        &class_global,
+        &outputs.fn_ids,
+    )?;
+
+    // Emit the C ABI `main` wrapper. `Linkage::Export` exposes it so
+    // the platform's startup code resolves `_main` / `main` here.
     let mut main_sig = module.make_signature();
     main_sig.returns.push(AbiParam::new(types::I32));
     let main_id = module.declare_function("main", Linkage::Export, &main_sig)?;
@@ -143,6 +160,10 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         let block = fb.create_block();
         fb.switch_to_block(block);
         fb.seal_block(block);
+        // Call the AOT init first so vtable / drop lookups succeed
+        // by the time `__ilang_main` runs.
+        let init_ref = module.declare_func_in_func(aot_init_id, fb.func);
+        fb.ins().call(init_ref, &[]);
         let entry_ref = module.declare_func_in_func(entry_id, fb.func);
         // The shared lowering signs every user fn with a trailing
         // hidden `env: i64` slot (so closures and free fns share one
@@ -167,6 +188,85 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     product
         .emit()
         .map_err(|e| AotError::Other(format!("emit object: {e}")))
+}
+
+/// Emit a private `__ilang_aot_init()` function that fills the
+/// runtime's vtable / drop tables from the program's class metadata
+/// at process startup. The C `main` wrapper calls this before
+/// `__ilang_main`.
+fn emit_aot_init(
+    module: &mut ObjectModule,
+    ctx: &mut cranelift_codegen::Context,
+    fb_ctx: &mut FunctionBuilderContext,
+    prog: &Program,
+    class_global: &[u32],
+    fn_ids: &std::collections::HashMap<FuncId, cranelift_module::FuncId>,
+) -> Result<cranelift_module::FuncId, AotError> {
+    // Imports.
+    let reg_vtable = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_vtable_entry", Linkage::Import, &s)?
+    };
+    let reg_drop = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_drop", Linkage::Import, &s)?
+    };
+
+    let init_sig = module.make_signature();
+    let init_id =
+        module.declare_function("__ilang_aot_init", Linkage::Local, &init_sig)?;
+    ctx.func = ClifFunc::with_name_signature(
+        UserFuncName::user(0, init_id.as_u32()),
+        init_sig,
+    );
+    {
+        let mut fb = ClifFnBuilder::new(&mut ctx.func, fb_ctx);
+        let block = fb.create_block();
+        fb.switch_to_block(block);
+        fb.seal_block(block);
+
+        let reg_vtable_ref = module.declare_func_in_func(reg_vtable, fb.func);
+        let reg_drop_ref = module.declare_func_in_func(reg_drop, fb.func);
+
+        for class in &prog.classes {
+            let global_cid = class_global[class.id.0 as usize] as i64;
+            // Vtable entries: every method with a slot maps to its fn
+            // address at the global (class_id, slot) key.
+            for m in &class.methods {
+                if let Some(slot) = m.slot {
+                    if let Some(&cl_id) = fn_ids.get(&m.func) {
+                        let fr = module.declare_func_in_func(cl_id, fb.func);
+                        let addr = fb.ins().func_addr(types::I64, fr);
+                        let cid_v = fb.ins().iconst(types::I64, global_cid);
+                        let slot_v = fb.ins().iconst(types::I64, slot.0 as i64);
+                        fb.ins().call(reg_vtable_ref, &[cid_v, slot_v, addr]);
+                    }
+                }
+            }
+            // Drop entry, if the class has a deinit lowered to a fn.
+            if class.drop_fn.0 != u32::MAX {
+                if let Some(&cl_id) = fn_ids.get(&class.drop_fn) {
+                    let fr = module.declare_func_in_func(cl_id, fb.func);
+                    let addr = fb.ins().func_addr(types::I64, fr);
+                    let cid_v = fb.ins().iconst(types::I64, global_cid);
+                    fb.ins().call(reg_drop_ref, &[cid_v, addr]);
+                }
+            }
+        }
+
+        fb.ins().return_(&[]);
+        fb.finalize();
+    }
+    module
+        .define_function(init_id, ctx)
+        .map_err(|e| AotError::Other(format!("define_function __ilang_aot_init: {e:?}")))?;
+    module.clear_context(ctx);
+    Ok(init_id)
 }
 
 /// Fold the entry's return value into a process exit code (i32). Bool
@@ -206,11 +306,11 @@ fn validate_subset(
     prog: &Program,
     entry: &ilang_mir::Function,
 ) -> Result<(), AotError> {
-    if !prog.classes.is_empty() {
-        return Err(AotError::Unsupported(
-            "classes — runtime dispatch tables aren't populated at AOT time".into(),
-        ));
-    }
+    // Classes lower through the same NewObject / LoadField paths the
+    // JIT uses. Programs that rely on `__virt_dispatch` / `__drop_dispatch`
+    // or other runtime-dispatch tables fail at the linker — the runtime
+    // crate ships no-op `__retain_object` / `__release_object` until the
+    // table-population init-emit lands.
     if !prog.statics.is_empty() {
         return Err(AotError::Unsupported(
             "static slots — not yet wired into AOT".into(),

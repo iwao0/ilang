@@ -167,12 +167,38 @@ fn emits_object_for_integer_division() {
 }
 
 #[test]
-fn rejects_classes_in_subset() {
-    let src = r#"
-        class P { x: i64 }
-        let p = P { x: 1 }
-        p.x
-    "#;
-    let err = compile_program_to_object(&mir(src)).unwrap_err();
-    assert!(matches!(err, AotError::Unsupported(_)), "got {err:?}");
+fn emits_object_for_class_with_method() {
+    expect_object(
+        r#"
+        class Rect {
+          w: i64
+          h: i64
+          init(w: i64, h: i64) { this.w = w; this.h = h }
+          area(): i64 { this.w * this.h }
+        }
+        let r = new Rect(3, 4)
+        console.log(r.area())
+        console.log(r.w, r.h)
+    "#,
+    );
+}
+
+#[test]
+fn emits_object_for_virtual_dispatch() {
+    expect_object(
+        r#"
+        class Shape {
+          area(): i64 { 0 }
+        }
+        class Box extends Shape {
+          w: i64
+          h: i64
+          init(w: i64, h: i64) { this.w = w; this.h = h }
+          override area(): i64 { this.w * this.h }
+        }
+        let b = new Box(5, 6)
+        let s: Shape = b
+        console.log(s.area())
+    "#,
+    );
 }
