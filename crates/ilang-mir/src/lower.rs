@@ -2953,6 +2953,34 @@ impl<'a> BodyCx<'a> {
                     self.coerce(v, &ty, &slot_ty, Span::dummy()).unwrap_or(v)
                 };
                 let zero = self.const_int(MirTy::I64, 0);
+                // For heap-typed cells the cell owns the slot's rc:
+                // release the previous occupant and retain the new
+                // one. Without these, the old value's share leaks
+                // (or worse, double-frees on later cell release) and
+                // the new value's share goes unaccounted. Caught by
+                // ASan as a UAF in `host_retain_object` while
+                // re-assigning closure-captured Box instances.
+                let heap_slot = matches!(
+                    slot_ty,
+                    MirTy::Object(_)
+                        | MirTy::Fn(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Optional(_)
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Str
+                        | MirTy::Enum(_)
+                );
+                if heap_slot {
+                    let old = self.fb.new_value(slot_ty.clone());
+                    self.fb.push_inst(Inst::ArrayLoad {
+                        dst: old,
+                        arr: cell_v,
+                        idx: zero,
+                    });
+                    self.fb.push_inst(Inst::Release { value: old });
+                    self.fb.push_inst(Inst::Retain { value: coerced });
+                }
                 self.fb.push_inst(Inst::ArrayStore {
                     arr: cell_v,
                     idx: zero,
@@ -2966,6 +2994,26 @@ impl<'a> BodyCx<'a> {
             }
             None => false,
         }
+    }
+}
+
+/// Emit `Inst::Retain` on `v` when `ty` is a heap-tracked MirTy.
+/// Used by paths that store a value into a container the runtime
+/// will later release on cascade (cell captures, etc.).
+fn retain_if_heap(fb: &mut FunctionBuilder, v: ValueId, ty: &MirTy) {
+    let heap = matches!(
+        ty,
+        MirTy::Object(_)
+            | MirTy::Fn(_)
+            | MirTy::Array { .. }
+            | MirTy::Optional(_)
+            | MirTy::Tuple(_)
+            | MirTy::Map { .. }
+            | MirTy::Str
+            | MirTy::Enum(_)
+    );
+    if heap {
+        fb.push_inst(Inst::Retain { value: v });
     }
 }
 
@@ -4043,7 +4091,7 @@ impl<'a> BodyCx<'a> {
                 // Closure capture assign: cell capture stores via
                 // the loaded cell pointer.
                 if let Some(caps) = self.captures_in_scope {
-                    if let Some((idx, _cty)) = caps.get(target).cloned() {
+                    if let Some((idx, cty)) = caps.get(target).cloned() {
                         let is_cell = self
                             .cell_captures
                             .map(|s| s.contains(target))
@@ -4052,6 +4100,36 @@ impl<'a> BodyCx<'a> {
                             let cell_v = self.fb.new_value(MirTy::I64);
                             self.fb.push_inst(Inst::LoadCapture { dst: cell_v, idx });
                             let zero = self.const_int(MirTy::I64, 0);
+                            // Heap-typed cell: the cell owns the slot's
+                            // share, so swap rc accounts before storing
+                            // — release the previous occupant, retain
+                            // the incoming. Without this the prior
+                            // value's rc leaks (or, if the cell is
+                            // re-overwritten later, the surviving
+                            // alias double-frees). ASan caught the UAF
+                            // in `host_retain_object` on the
+                            // closure_swap_heap_capture fixture.
+                            let heap_slot = matches!(
+                                cty,
+                                MirTy::Object(_)
+                                    | MirTy::Fn(_)
+                                    | MirTy::Array { .. }
+                                    | MirTy::Optional(_)
+                                    | MirTy::Tuple(_)
+                                    | MirTy::Map { .. }
+                                    | MirTy::Str
+                                    | MirTy::Enum(_)
+                            );
+                            if heap_slot {
+                                let old = self.fb.new_value(cty.clone());
+                                self.fb.push_inst(Inst::ArrayLoad {
+                                    dst: old,
+                                    arr: cell_v,
+                                    idx: zero,
+                                });
+                                self.fb.push_inst(Inst::Release { value: old });
+                                self.fb.push_inst(Inst::Retain { value: v });
+                            }
                             self.fb.push_inst(Inst::ArrayStore {
                                 arr: cell_v,
                                 idx: zero,
@@ -4820,7 +4898,12 @@ impl<'a> BodyCx<'a> {
                     self.fb.push_inst(Inst::LoadCapture { dst: v, idx });
                     if needs_cell {
                         // Allocate a fresh private cell initialised
-                        // from the snapshot.
+                        // from the snapshot. The cell owns its share
+                        // of `v`, so retain heap-typed inners before
+                        // the store — otherwise the outer scope's
+                        // eventual release frees the cell's only
+                        // backing object.
+                        retain_if_heap(&mut self.fb, v, &cty);
                         let cell_ty = MirTy::Array {
                             elem: Box::new(cty.clone()),
                             len: None,
@@ -4854,6 +4937,7 @@ impl<'a> BodyCx<'a> {
                     // Allocate a private cell initialised from the
                     // snapshot of the current value. The outer scope
                     // does NOT see writes (sibling-closure isolation).
+                    retain_if_heap(&mut self.fb, v, &ty);
                     let cell_ty = MirTy::Array {
                         elem: Box::new(ty.clone()),
                         len: None,

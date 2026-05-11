@@ -1894,13 +1894,8 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // Object buffer free stays gated in the JIT: a few patterns
-    // (closure heap captures escaping the maker fn, recursive
-    // Optional<Object>-via-field structures) still mis-account
-    // refcounts on the cascade path and would UAF if we reclaimed
-    // the cell here. AOT's `ilang_runtime::__release_object` does the
-    // matching `__mir_free`; until those patterns are fixed in the
-    // shared lowering we keep this side leaky for safety.
+    // TEMP: still gated while linked-list / recursive-tree fixtures
+    // are diagnosed under ASan.
     let _ = ilang_runtime::class_size_for(class_id);
 }
 
