@@ -142,6 +142,13 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Promote single-def primitive locals into SSA so `let a = 2*3`
+    // surfaces as a regular ValueId chain. Inline + const_fold both
+    // gate on "no Local references" and "operand is Const" so this
+    // pass widens their reach. `ILANG_NO_PROMOTE_LOCALS=1` disables.
+    if std::env::var_os("ILANG_NO_PROMOTE_LOCALS").is_none() {
+        ilang_mir::passes::promote_locals::run_program(&mut mir);
+    }
     // Inline small leaf fns first so the ARC peephole sees the
     // post-inline shape (a call that turns into BinOp + Const lets
     // the peephole cancel matched retain/release pairs the call
@@ -347,6 +354,7 @@ impl ReplSession {
             ilang_mir::monomorphize::monomorphize_fns(&prog, &self.tc.fn_call_type_args());
         let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
+        ilang_mir::passes::promote_locals::run_program(&mut mir);
         ilang_mir::passes::inline::run_program(&mut mir);
         ilang_mir::passes::const_fold::run_program(&mut mir);
         ilang_mir::passes::arc_peephole::run_program(&mut mir);
@@ -937,6 +945,11 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         } else {
             (0, 0)
         };
+        let promote_stats = if std::env::var_os("ILANG_NO_PROMOTE_LOCALS").is_some() {
+            ilang_mir::passes::promote_locals::Stats::default()
+        } else {
+            ilang_mir::passes::promote_locals::run_program(&mut mir)
+        };
         let inline_stats = if std::env::var_os("ILANG_NO_INLINE").is_some() {
             ilang_mir::passes::inline::Stats::default()
         } else {
@@ -950,8 +963,11 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         let arc_stats = ilang_mir::passes::arc_peephole::run_program(&mut mir);
         if dump_stats {
             eprintln!(
-                "{display_path}: inline calls_inlined={} const_fold folds_applied={}",
-                inline_stats.calls_inlined, const_fold_stats.folds_applied,
+                "{display_path}: promote_locals locals={} uses={} inline calls_inlined={} const_fold folds_applied={}",
+                promote_stats.locals_promoted,
+                promote_stats.uses_rewritten,
+                inline_stats.calls_inlined,
+                const_fold_stats.folds_applied,
             );
         }
         if dump_stats {
