@@ -100,6 +100,7 @@ The implemented syntax / types / built-ins are catalogued in
 | ARC-based memory management | ✅ |
 | Type checking | ✅ |
 | MIR → Cranelift JIT (`ilang run`, default) | ✅ |
+| MIR → Cranelift AOT (`ilang build foo.il -o foo`, macOS) | ✅ |
 | Built-in leak helpers (`test.liveAllocBytes` / `liveAllocCount` / `liveStringCount`) | ✅ |
 | FFI (`@extern(C) {}` blocks calling C libraries) | ✅ |
 | Capability annotations | 🚧 parse-only |
@@ -139,6 +140,13 @@ cargo run -p ilang-cli -- run path/to/script.il
 # 🪦 Legacy Cranelift codegen (pre-MIR), retained only as a parity
 #    reference for the test harness — deprecated for new use.
 cargo run -p ilang-cli -- run --jit path/to/script.il
+
+# 📦 Build a native executable (macOS, Cranelift AOT). The system
+#    `cc` links the emitted object against `libilang_runtime.a` plus
+#    any `@lib("X")` the program references; the output runs without
+#    a Rust toolchain installed.
+cargo run -p ilang-cli -- build path/to/script.il -o path/to/script
+./path/to/script
 ```
 
 Both backends resolve `@extern(C) {}` C symbols through dlsym at
@@ -214,7 +222,13 @@ sudo apt install libsdl2-dev libsdl2-2.0-0
 Run:
 
 ```sh
-cargo run -p ilang-cli -- run --jit examples/sdl_breakout/main.il
+# JIT
+cargo run -p ilang-cli -- run examples/sdl_breakout/main.il
+
+# AOT — produces a standalone ~735 KB Mach-O binary that links
+# against SDL2 at load time.
+cargo run -p ilang-cli -- build examples/sdl_breakout/main.il -o breakout
+./breakout
 ```
 
 The sample pulls in the SDL2 bindings under `bindings/sdl2/` via a
