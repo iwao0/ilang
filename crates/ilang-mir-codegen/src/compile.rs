@@ -1894,8 +1894,14 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // TEMP: still gated while linked-list / recursive-tree fixtures
-    // are diagnosed under ASan.
+    // JIT object-buffer free remains gated: closure_swap_heap_capture
+    // / linked_list_via_optional_field are fixed (see `lower.rs`
+    // changes for cell-capture retain and if-let scope-exit release),
+    // but `recursive_method_optional_tree` still trips an intermittent
+    // host_release_object UAF whose source hasn't been isolated. AOT
+    // (which goes through `ilang_runtime::__release_object`) does free
+    // the buffer; flipping JIT to match needs that last cascade bug
+    // diagnosed first.
     let _ = ilang_runtime::class_size_for(class_id);
 }
 

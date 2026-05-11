@@ -6515,6 +6515,7 @@ impl<'a> BodyCx<'a> {
         then_branch: &AstBlock,
         else_branch: Option<&Expr>,
     ) -> Result<(ValueId, MirTy), LowerError> {
+        let scrut_is_fresh = self.is_fresh_object_expr(scrut);
         let (sv, sty) = self.lower_expr(scrut)?;
         let inner_ty = match &sty {
             MirTy::Optional(t) => (**t).clone(),
@@ -6538,25 +6539,26 @@ impl<'a> BodyCx<'a> {
             else_args: Box::new([]),
         });
 
-        // Some branch: unwrap and bind.
+        // Some branch: unwrap and bind. The unwrapped value aliases
+        // the Optional cell's slot — the cell already owns the
+        // inner's +1. For a borrowed scrutinee (param / field load),
+        // the caller will release the cell later and the cascade
+        // will reclaim the inner; we mustn't release the inner here
+        // or it would double-drop and UAF (`linked_list_via_optional_field`
+        // / `recursive_method_optional_tree`). For a *fresh*
+        // scrutinee (the value came from `make(...)` etc. and has
+        // no other owner), no later release happens — we have to
+        // release the scrutinee opt at the some-branch exit so the
+        // cell's cascade fires and reclaims the inner ourselves
+        // (`iflet_heap_release`).
         self.fb.switch_to(some_blk);
         let unwrapped = self.fb.new_value(inner_ty.clone());
         self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
         self.env.enter_scope();
         self.env.bind(name, unwrapped, inner_ty.clone());
         let then_tail = self.lower_block(then_branch)?;
-        // Release the unwrapped Object — the Optional cell still
-        // counts as the +1 owner conceptually, but in our model the
-        // cell isn't tracked, so this is the only release the
-        // payload sees from a fresh scrutinee.
-        if matches!(inner_ty, MirTy::Object(_)) {
-            // Don't release if the then-branch tail aliases the
-            // unwrapped value (it would Use it after Release).
-            let tail_aliases =
-                matches!(&then_tail, Some((v, _)) if *v == unwrapped);
-            if !tail_aliases {
-                self.fb.push_inst(Inst::Release { value: unwrapped });
-            }
+        if scrut_is_fresh {
+            self.fb.push_inst(Inst::Release { value: sv });
         }
         self.env.exit_scope();
 
