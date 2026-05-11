@@ -19,8 +19,10 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::{AbiParam, Function as ClifFunc, InstBuilder, UserFuncName};
 use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder as ClifFnBuilder, FunctionBuilderContext};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{DataDescription, DataId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
+
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ilang_mir::{FuncId, MirTy, Program};
 
@@ -191,6 +193,45 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         .map_err(|e| AotError::Other(format!("emit object: {e}")))
 }
 
+static AOT_STR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Emit a `[ i64 length | bytes | \0 ]` data symbol so init code can
+/// hand its body pointer to runtime `__register_*_print_*` calls.
+/// Names are uniqued via a process-wide counter so parallel compiles
+/// (incremental rebuilds, parallel tests) don't trample each other.
+fn declare_ilang_string_data(
+    module: &mut ObjectModule,
+    text: &str,
+) -> Result<DataId, AotError> {
+    let n = AOT_STR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let sym = format!("__aot_str_{n}");
+    let body = text.as_bytes();
+    let mut bytes: Vec<u8> = Vec::with_capacity(8 + body.len() + 1);
+    bytes.extend_from_slice(&(body.len() as i64).to_le_bytes());
+    bytes.extend_from_slice(body);
+    bytes.push(0);
+    let mut desc = DataDescription::new();
+    desc.set_align(8);
+    desc.define(bytes.into_boxed_slice());
+    let did = module.declare_data(&sym, Linkage::Local, false, false)?;
+    module.define_data(did, &desc).map_err(AotError::Module)?;
+    Ok(did)
+}
+
+/// Emit IR to load the body-pointer of the data symbol (address + 8
+/// bytes past the length prefix). Mirrors the codegen's string
+/// literal pointer convention.
+fn ilang_string_body(
+    module: &mut ObjectModule,
+    fb: &mut ClifFnBuilder,
+    did: DataId,
+) -> Value {
+    let gv = module.declare_data_in_func(did, fb.func);
+    let base = fb.ins().symbol_value(types::I64, gv);
+    let off8 = fb.ins().iconst(types::I64, 8);
+    fb.ins().iadd(base, off8)
+}
+
 /// Emit a private `__ilang_aot_init()` function that fills the
 /// runtime's vtable / drop tables from the program's class metadata
 /// at process startup. The C `main` wrapper calls this before
@@ -252,6 +293,77 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_enum_payload_kind", Linkage::Import, &s)?
     };
+    let reg_class_print_name = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_class_print_name", Linkage::Import, &s)?
+    };
+    let reg_class_print_field = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_class_print_field", Linkage::Import, &s)?
+    };
+    let reg_enum_print_name = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_enum_print_name", Linkage::Import, &s)?
+    };
+    let reg_enum_print_variant_name = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function(
+            "__register_enum_print_variant_name",
+            Linkage::Import,
+            &s,
+        )?
+    };
+    let reg_enum_print_variant_payload_pk = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function(
+            "__register_enum_print_variant_payload_pk",
+            Linkage::Import,
+            &s,
+        )?
+    };
+
+    // Pre-allocate data symbols for every class / field / enum /
+    // variant name so init-body IR can hand body pointers to the
+    // runtime registrations. Done before the function-body block so
+    // module-level declarations don't fight the FunctionBuilder for
+    // module access.
+    let mut class_name_data: Vec<DataId> = Vec::with_capacity(prog.classes.len());
+    let mut class_field_name_data: Vec<Vec<DataId>> =
+        Vec::with_capacity(prog.classes.len());
+    for class in &prog.classes {
+        class_name_data.push(declare_ilang_string_data(module, class.name.as_str())?);
+        let mut per_class = Vec::with_capacity(class.fields.len());
+        for f in &class.fields {
+            per_class.push(declare_ilang_string_data(module, f.name.as_str())?);
+        }
+        class_field_name_data.push(per_class);
+    }
+    let mut enum_name_data: Vec<DataId> = Vec::with_capacity(prog.enums.len());
+    let mut enum_variant_name_data: Vec<Vec<DataId>> =
+        Vec::with_capacity(prog.enums.len());
+    for e in &prog.enums {
+        enum_name_data.push(declare_ilang_string_data(module, e.name.as_str())?);
+        let mut per_enum = Vec::with_capacity(e.variants.len());
+        for v in &e.variants {
+            per_enum.push(declare_ilang_string_data(module, v.name.as_str())?);
+        }
+        enum_variant_name_data.push(per_enum);
+    }
 
     let init_sig = module.make_signature();
     let init_id =
@@ -277,9 +389,35 @@ fn emit_aot_init(
             module.declare_func_in_func(reg_closure_size, fb.func);
         let reg_enum_payload_kind_ref =
             module.declare_func_in_func(reg_enum_payload_kind, fb.func);
+        let reg_class_print_name_ref =
+            module.declare_func_in_func(reg_class_print_name, fb.func);
+        let reg_class_print_field_ref =
+            module.declare_func_in_func(reg_class_print_field, fb.func);
+        let reg_enum_print_name_ref =
+            module.declare_func_in_func(reg_enum_print_name, fb.func);
+        let reg_enum_print_variant_name_ref =
+            module.declare_func_in_func(reg_enum_print_variant_name, fb.func);
+        let reg_enum_print_variant_payload_pk_ref =
+            module.declare_func_in_func(reg_enum_print_variant_payload_pk, fb.func);
 
-        for class in &prog.classes {
+        for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
+            // Print info: class name + per-field (name, PK_*).
+            let cid_v = fb.ins().iconst(types::I64, global_cid);
+            let name_did = class_name_data[cls_idx];
+            let name_body = ilang_string_body(module, &mut fb, name_did);
+            fb.ins().call(reg_class_print_name_ref, &[cid_v, name_body]);
+            for (fi, f) in class.fields.iter().enumerate() {
+                let pk = print_kind_id_for_ty(&f.ty);
+                let fname_did = class_field_name_data[cls_idx][fi];
+                let fname_body = ilang_string_body(module, &mut fb, fname_did);
+                let idx_v = fb.ins().iconst(types::I64, fi as i64);
+                let pk_v = fb.ins().iconst(types::I64, pk);
+                fb.ins().call(
+                    reg_class_print_field_ref,
+                    &[cid_v, idx_v, fname_body, pk_v],
+                );
+            }
             // Heap-typed fields go into the runtime's
             // `OBJECT_FIELD_TABLE` so `__release_object_fields`
             // cascades through them at rc=0. Each entry is the byte
@@ -371,10 +509,26 @@ fn emit_aot_init(
             fb.ins().call(reg_closure_size_ref, &[fn_addr, size_v]);
         }
 
-        // Enum payload kinds — drives `__release_enum`'s cascade.
+        // Enum payload kinds (cascade) + enum print info (name +
+        // per-variant name + per-payload PK_*).
         for (idx, e) in prog.enums.iter().enumerate() {
             let global_id = enum_global[idx] as i64;
-            for v in &e.variants {
+            let eid_v = fb.ins().iconst(types::I64, global_id);
+            // Print: enum name.
+            let ename_body = ilang_string_body(module, &mut fb, enum_name_data[idx]);
+            fb.ins().call(reg_enum_print_name_ref, &[eid_v, ename_body]);
+            for (vi, v) in e.variants.iter().enumerate() {
+                let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+                // Print: variant name.
+                let vname_body = ilang_string_body(
+                    module,
+                    &mut fb,
+                    enum_variant_name_data[idx][vi],
+                );
+                fb.ins().call(
+                    reg_enum_print_variant_name_ref,
+                    &[eid_v, disc_v, vname_body],
+                );
                 let payload_tys: Vec<&MirTy> = match &v.payload {
                     ilang_mir::VariantPayload::Unit => Vec::new(),
                     ilang_mir::VariantPayload::Tuple(tys) => tys.iter().collect(),
@@ -383,17 +537,23 @@ fn emit_aot_init(
                     }
                 };
                 for (i, ty) in payload_tys.iter().enumerate() {
+                    // Cascade tag.
                     let tag = field_kind_tag(ty);
-                    if tag == 0 {
-                        continue;
+                    if tag != 0 {
+                        let slot_v = fb.ins().iconst(types::I64, i as i64);
+                        let tag_v = fb.ins().iconst(types::I64, tag);
+                        fb.ins().call(
+                            reg_enum_payload_kind_ref,
+                            &[eid_v, disc_v, slot_v, tag_v],
+                        );
                     }
-                    let eid_v = fb.ins().iconst(types::I64, global_id);
-                    let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+                    // Print tag (PK_*).
+                    let pk = print_kind_id_for_ty(ty);
                     let slot_v = fb.ins().iconst(types::I64, i as i64);
-                    let tag_v = fb.ins().iconst(types::I64, tag);
+                    let pk_v = fb.ins().iconst(types::I64, pk);
                     fb.ins().call(
-                        reg_enum_payload_kind_ref,
-                        &[eid_v, disc_v, slot_v, tag_v],
+                        reg_enum_print_variant_payload_pk_ref,
+                        &[eid_v, disc_v, slot_v, pk_v],
                     );
                 }
             }
@@ -407,6 +567,28 @@ fn emit_aot_init(
         .map_err(|e| AotError::Other(format!("define_function __ilang_aot_init: {e:?}")))?;
     module.clear_context(ctx);
     Ok(init_id)
+}
+
+/// Map a MIR type to the runtime's `PK_*` print tag. Mirrors
+/// `compile::print_kind_id`.
+fn print_kind_id_for_ty(ty: &MirTy) -> i64 {
+    match ty {
+        MirTy::I64 | MirTy::Size | MirTy::SSize => 0,  // PK_I64_SIG
+        MirTy::U64 => 1,                               // PK_I64_UNS
+        MirTy::I32 => 2,                               // PK_I32_SIG
+        MirTy::U32 => 3,                               // PK_I32_UNS
+        MirTy::I16 => 4,                               // PK_I16_SIG
+        MirTy::U16 => 5,                               // PK_I16_UNS
+        MirTy::I8 | MirTy::CChar => 6,                 // PK_I8_SIG
+        MirTy::U8 => 7,                                // PK_I8_UNS
+        MirTy::Bool => 8,                              // PK_BOOL
+        MirTy::F64 => 9,                               // PK_F64
+        MirTy::F32 => 10,                              // PK_F32
+        MirTy::Str => 11,                              // PK_STR
+        MirTy::Object(_) => 12,                        // PK_OBJECT
+        MirTy::Array { elem, .. } if matches!(**elem, MirTy::I64) => 100, // PK_ARRAY_I64_SIG
+        _ => -1,                                       // PK_OTHER
+    }
 }
 
 /// Map a MIR field type to the runtime's `KIND_*` cascade tag.

@@ -727,9 +727,11 @@ fn format_kind_id(out: &mut String, kind: i64, raw: i64) {
             }
         }
         PK_OBJECT => {
-            // Full object formatting needs per-class field tables
-            // that haven't moved here yet; fall back to a placeholder.
-            let _ = write!(out, "<object#{}>", raw);
+            if raw == 0 {
+                out.push_str("<null>");
+            } else {
+                format_object_into(out, raw);
+            }
         }
         PK_ARRAY_I64_SIG => {
             out.push('[');
@@ -1507,22 +1509,226 @@ pub extern "C" fn __drop_dispatch(class_id: i64) -> i64 {
     *t.get(&(class_id as u32)).unwrap_or(&0)
 }
 
+/// Per-enum print metadata: `name` plus a map from discriminant to
+/// `(variant_name, payload PK_* list)`. JIT and AOT both populate
+/// via `__register_enum_print_name` / `__register_enum_print_variant`.
+struct EnumPrintInfo {
+    name: String,
+    variants: HashMap<i64, (String, Vec<i64>)>,
+}
+
+static ENUM_PRINT_INFO: OnceLock<Mutex<HashMap<u32, EnumPrintInfo>>> = OnceLock::new();
+
+fn enum_print_info() -> &'static Mutex<HashMap<u32, EnumPrintInfo>> {
+    ENUM_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[unsafe(no_mangle)]
-pub extern "C" fn __class_name(_class_id: i64) -> i64 {
-    leak_cstring("<class>".to_string())
+pub extern "C" fn __register_enum_print_name(eid: i64, name_str_ptr: i64) {
+    let name = cstr_to_str(name_str_ptr).to_string();
+    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
+        name: String::new(),
+        variants: HashMap::new(),
+    });
+    entry.name = name;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_enum_print_variant_name(
+    eid: i64,
+    disc: i64,
+    name_str_ptr: i64,
+) {
+    let name = cstr_to_str(name_str_ptr).to_string();
+    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
+        name: String::new(),
+        variants: HashMap::new(),
+    });
+    entry.variants.entry(disc).or_insert_with(|| (String::new(), Vec::new())).0 = name;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_enum_print_variant_payload_pk(
+    eid: i64,
+    disc: i64,
+    slot_idx: i64,
+    pk: i64,
+) {
+    let mut t = enum_print_info().lock().expect("enum print info poisoned");
+    let entry = t.entry(eid as u32).or_insert_with(|| EnumPrintInfo {
+        name: String::new(),
+        variants: HashMap::new(),
+    });
+    let v = entry.variants.entry(disc).or_insert_with(|| (String::new(), Vec::new()));
+    let i = slot_idx as usize;
+    while v.1.len() <= i {
+        v.1.push(0);
+    }
+    v.1[i] = pk;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __print_enum(enum_id: i64, ptr: i64) {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let info = {
+        let t = enum_print_info().lock().expect("enum print info poisoned");
+        t.get(&(enum_id as u32))
+            .map(|i| (i.name.clone(), i.variants.clone()))
+    };
+    let (name, variants) = match info {
+        Some(x) => x,
+        None => {
+            let _ = write!(out, "<enum#{enum_id}>");
+            let mut o = std::io::stdout().lock();
+            let _ = o.write_all(out.as_bytes());
+            return;
+        }
+    };
+    if ptr == 0 {
+        let _ = write!(out, "{name}::<null>");
+        let mut o = std::io::stdout().lock();
+        let _ = o.write_all(out.as_bytes());
+        return;
+    }
+    let tag = unsafe { *(ptr as *const i64) };
+    let (vname, pkinds) = match variants.get(&tag) {
+        Some(v) => v.clone(),
+        None => {
+            let _ = write!(out, "{name}::<tag#{tag}>");
+            let mut o = std::io::stdout().lock();
+            let _ = o.write_all(out.as_bytes());
+            return;
+        }
+    };
+    let base = name.split('<').next().unwrap_or(name.as_str());
+    out.push_str(base);
+    out.push_str("::");
+    out.push_str(&vname);
+    if !pkinds.is_empty() {
+        out.push('(');
+        for (i, pk) in pkinds.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            let raw = unsafe { *((ptr + 8 + (i as i64) * 8) as *const i64) };
+            format_kind_id(&mut out, *pk, raw);
+        }
+        out.push(')');
+    }
+    let mut o = std::io::stdout().lock();
+    let _ = o.write_all(out.as_bytes());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __class_name(class_id: i64) -> i64 {
+    let name = {
+        let t = class_print_info().lock().expect("class print info poisoned");
+        t.get(&(class_id as u32)).map(|i| i.name.clone())
+    };
+    let name = name.unwrap_or_else(|| format!("<obj#{class_id}>"));
+    // Strip monomorphisation suffix to match source identifier.
+    let base = name.split('<').next().unwrap_or(name.as_str()).to_string();
+    leak_cstring(base)
+}
+
+/// Per-class print metadata: `name` plus a list of `(field_name,
+/// PK_*)` covering every field (heap and primitive). Both JIT and
+/// AOT populate via `__register_class_print_name` /
+/// `__register_class_print_field`; `__print_object` walks the entry
+/// in field order, formatting each via `format_kind_id`.
+struct ClassPrintInfo {
+    name: String,
+    fields: Vec<(String, i64)>,
+}
+
+static CLASS_PRINT_INFO: OnceLock<Mutex<HashMap<u32, ClassPrintInfo>>> = OnceLock::new();
+
+fn class_print_info() -> &'static Mutex<HashMap<u32, ClassPrintInfo>> {
+    CLASS_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// `name_str_ptr` is an ilang string body pointer (`[i64 len | bytes
+/// | \0]`); the length sits at `name_str_ptr - 8`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_class_print_name(class_id: i64, name_str_ptr: i64) {
+    let name = cstr_to_str(name_str_ptr).to_string();
+    let mut t = class_print_info().lock().expect("class print info poisoned");
+    let entry = t
+        .entry(class_id as u32)
+        .or_insert_with(|| ClassPrintInfo { name: String::new(), fields: Vec::new() });
+    entry.name = name;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_class_print_field(
+    class_id: i64,
+    idx: i64,
+    name_str_ptr: i64,
+    pk: i64,
+) {
+    let name = cstr_to_str(name_str_ptr).to_string();
+    let mut t = class_print_info().lock().expect("class print info poisoned");
+    let entry = t
+        .entry(class_id as u32)
+        .or_insert_with(|| ClassPrintInfo { name: String::new(), fields: Vec::new() });
+    let i = idx as usize;
+    while entry.fields.len() <= i {
+        entry.fields.push((String::new(), 0));
+    }
+    entry.fields[i] = (name, pk);
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __print_object(obj_ptr: i64) {
     let mut out = std::io::stdout().lock();
-    let _ = if obj_ptr == 0 {
-        out.write_all(b"<null>")
-    } else {
-        // Placeholder shape until the AOT side learns the per-class
-        // field tables. JIT prints e.g. `Point { x: 1, y: 2 }`.
-        let class_id = unsafe { *(obj_ptr as *const i64) };
-        out.write_all(format!("<object class_id={class_id} @{obj_ptr:#x}>").as_bytes())
+    if obj_ptr == 0 {
+        let _ = out.write_all(b"<null>");
+        return;
+    }
+    let mut s = String::new();
+    format_object_into(&mut s, obj_ptr);
+    let _ = out.write_all(s.as_bytes());
+}
+
+pub fn format_object_into(out: &mut String, obj_ptr: i64) {
+    use std::fmt::Write;
+    if obj_ptr == 0 {
+        out.push_str("<null>");
+        return;
+    }
+    let class_id = unsafe { *(obj_ptr as *const i64) } as u32;
+    let info = {
+        let t = class_print_info().lock().expect("class print info poisoned");
+        t.get(&class_id).map(|i| (i.name.clone(), i.fields.clone()))
     };
+    let (name, fields) = match info {
+        Some(x) => x,
+        None => {
+            let _ = write!(out, "<obj#{class_id}>");
+            return;
+        }
+    };
+    // Strip monomorphisation suffix (`Box<i64>` → `Box`).
+    let base = name.split('<').next().unwrap_or(name.as_str());
+    out.push_str(base);
+    out.push_str(" {");
+    if !fields.is_empty() {
+        out.push(' ');
+        for (i, (fname, pk)) in fields.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(fname);
+            out.push_str(": ");
+            let raw = unsafe { *((obj_ptr + 16 + (i as i64) * 8) as *const i64) };
+            format_kind_id(out, *pk, raw);
+        }
+        out.push(' ');
+    }
+    out.push('}');
 }
 
 // --------------------------------------------------------------------

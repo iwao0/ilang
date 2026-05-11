@@ -345,10 +345,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__str_split", host_str_split as *const u8);
     jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
     jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
-    jit_builder.symbol("__print_object", host_print_object as *const u8);
-    jit_builder.symbol("__class_name", host_class_name as *const u8);
+    jit_builder.symbol("__print_object", ilang_runtime::__print_object as *const u8);
+    jit_builder.symbol("__class_name", ilang_runtime::__class_name as *const u8);
     jit_builder.symbol("__print_weak", host_print_weak as *const u8);
-    jit_builder.symbol("__print_enum", host_print_enum as *const u8);
+    jit_builder.symbol("__print_enum", ilang_runtime::__print_enum as *const u8);
     jit_builder.symbol("__print_fn", host_print_fn as *const u8);
     jit_builder.symbol("__release_object", host_release_object as *const u8);
     jit_builder.symbol("__retain_object", host_retain_object as *const u8);
@@ -613,24 +613,18 @@ pub fn compile_with_builtins(
             }
         }
     }
-    // Populate the class-print-info registry — host_print_object
-    // walks an object's fields by class id.
-    {
-        let mut info_map = class_info_lock().lock().expect("class info poisoned");
-        // Don't clear — keyed by GLOBAL class id, accumulates.
-        for class in &prog.classes {
-            let fields: Vec<(String, PrintKind)> = class
-                .fields
-                .iter()
-                .map(|f| (f.name.as_str().to_string(), print_kind_of(&f.ty)))
-                .collect();
-            info_map.insert(
-                global_cid(class.id.0),
-                ClassPrintInfo {
-                    name: class.name.as_str().to_string(),
-                    fields,
-                },
-            );
+    // Populate the class-print-info registry in `ilang-runtime` —
+    // `__print_object` walks an object's fields via the runtime's
+    // copy. AOT mirrors the same registrations from
+    // `__ilang_aot_init` using data-symbol-backed strings.
+    for class in &prog.classes {
+        let gcid = global_cid(class.id.0) as i64;
+        let name_ptr = ilang_runtime::leak_cstring(class.name.as_str().to_string());
+        ilang_runtime::__register_class_print_name(gcid, name_ptr);
+        for (i, f) in class.fields.iter().enumerate() {
+            let pk = print_kind_id(&f.ty);
+            let fname_ptr = ilang_runtime::leak_cstring(f.name.as_str().to_string());
+            ilang_runtime::__register_class_print_field(gcid, i as i64, fname_ptr, pk);
         }
     }
     // Populate enum-print-info registry — host_print_enum walks
@@ -640,11 +634,16 @@ pub fn compile_with_builtins(
     // cascade (so AOT-built programs see the same release cascade
     // through `__register_enum_payload_kind` calls from
     // `__ilang_aot_init`).
+    // Enum print + cascade registries both live in `ilang-runtime`;
+    // mirror the JIT-side computed `(name, variants, payload kinds)`
+    // into both at once. The JIT-local `ENUM_INFO` keeps the
+    // string-repr lookup it still needs for `enum-as-string` casts.
     {
         let mut t = enum_info_lock().lock().expect("enum info poisoned");
-        // Don't clear — keyed by GLOBAL enum id, accumulates.
         for e in &prog.enums {
             let global_id = global_eid(e.id.0);
+            let name_ptr = ilang_runtime::leak_cstring(e.name.as_str().to_string());
+            ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
             let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
             let is_str_repr = matches!(e.repr, MirTy::Str);
             let mut str_repr: HashMap<i64, String> = HashMap::new();
@@ -658,17 +657,31 @@ pub fn compile_with_builtins(
                         fs.iter().map(|(_, t)| print_kind_of(t)).collect()
                     }
                 };
-                // Runtime cascade registry — KIND_* per payload slot.
+                let vname_ptr = ilang_runtime::leak_cstring(v.name.as_str().to_string());
+                ilang_runtime::__register_enum_print_variant_name(
+                    global_id as i64,
+                    v.discriminant,
+                    vname_ptr,
+                );
                 for (i, k) in kinds.iter().enumerate() {
-                    let tag = kind_tag_of_print_kind(k);
-                    if tag != KIND_NONE {
+                    // Cascade tag (KIND_*) for release cascade.
+                    let cascade_tag = kind_tag_of_print_kind(k);
+                    if cascade_tag != KIND_NONE {
                         ilang_runtime::__register_enum_payload_kind(
                             global_id as i64,
                             v.discriminant,
                             i as i64,
-                            tag,
+                            cascade_tag,
                         );
                     }
+                    // Print tag (PK_*) for `__print_enum`.
+                    let pk = print_kind_id_for_print_kind(k);
+                    ilang_runtime::__register_enum_print_variant_payload_pk(
+                        global_id as i64,
+                        v.discriminant,
+                        i as i64,
+                        pk,
+                    );
                 }
                 variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
                 if is_str_repr {
@@ -1924,44 +1937,12 @@ fn format_f64(f: f64) -> String {
 }
 
 fn format_object(out: &mut String, obj_ptr: i64) {
-    let class_id = unsafe { *(obj_ptr as *const i64) } as u32;
-    let info = {
-        let m = class_info_lock().lock().expect("class info poisoned");
-        m.get(&class_id).cloned()
-    };
-    let info = match info {
-        Some(i) => i,
-        None => {
-            use std::fmt::Write;
-            let _ = write!(out, "<obj#{class_id}>");
-            return;
-        }
-    };
-    // Strip the monomorphisation suffix (`Box<i64>` → `Box`) so the
-    // printed name matches the source-level identifier.
-    let base = info
-        .name
-        .split('<')
-        .next()
-        .unwrap_or(info.name.as_str());
-    out.push_str(base);
-    out.push_str(" {");
-    if !info.fields.is_empty() {
-        out.push(' ');
-        for (i, (fname, fkind)) in info.fields.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(fname);
-            out.push_str(": ");
-            let raw = unsafe {
-                *((obj_ptr + 16 + (i as i64) * 8) as *const i64)
-            };
-            format_value(out, fkind, raw);
-        }
-        out.push(' ');
-    }
-    out.push('}');
+    // The JIT-local registry was never populated after the print
+    // metadata moved into `ilang-runtime`; delegate to the runtime's
+    // shared `CLASS_PRINT_INFO`-backed formatter so map/array values
+    // and other secondary print paths see the same class layout that
+    // `__print_object` does.
+    ilang_runtime::format_object_into(out, obj_ptr);
 }
 
 static FN_NAME_TABLE: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
@@ -2005,49 +1986,9 @@ fn enum_info_lock() -> &'static Mutex<HashMap<u32, EnumPrintInfo>> {
     ENUM_INFO.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-extern "C" fn host_print_enum(enum_id: i64, ptr: i64) {
-    let mut out = String::new();
-    let info = {
-        let m = enum_info_lock().lock().expect("enum info poisoned");
-        m.get(&(enum_id as u32)).cloned()
-    };
-    let info = match info {
-        Some(i) => i,
-        None => {
-            print!("<enum#{enum_id}>");
-            return;
-        }
-    };
-    if ptr == 0 {
-        print!("{}::<null>", info.name);
-        return;
-    }
-    let tag = unsafe { *(ptr as *const i64) };
-    let (vname, pkinds) = match info.variants.get(&tag) {
-        Some(v) => v.clone(),
-        None => {
-            print!("{}::<tag#{tag}>", info.name);
-            return;
-        }
-    };
-    // Strip generic suffix from enum name (Result<i64,string> → Result).
-    let base = info.name.split('<').next().unwrap_or(info.name.as_str());
-    out.push_str(base);
-    out.push_str("::");
-    out.push_str(&vname);
-    if !pkinds.is_empty() {
-        out.push('(');
-        for (i, k) in pkinds.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            let raw = unsafe { *((ptr + 8 + (i as i64) * 8) as *const i64) };
-            format_value(&mut out, k, raw);
-        }
-        out.push(')');
-    }
-    print!("{out}");
-}
+// `__print_enum` / `__print_object` / `__class_name` live in
+// `ilang-runtime`; both backends share the registry it owns
+// (`CLASS_PRINT_INFO` / `ENUM_PRINT_INFO`).
 
 extern "C" fn host_print_weak(weak_ptr: i64) {
     if weak_ptr == 0 {
@@ -2062,28 +2003,6 @@ extern "C" fn host_print_weak(weak_ptr: i64) {
     }
 }
 
-extern "C" fn host_class_name(class_id: i64) -> i64 {
-    let info = {
-        let m = class_info_lock().lock().expect("class info poisoned");
-        m.get(&(class_id as u32)).cloned()
-    };
-    let name = match info {
-        Some(i) => i.name,
-        None => format!("<obj#{class_id}>"),
-    };
-    let base = name.split('<').next().unwrap_or(&name).to_string();
-    leak_cstring(base)
-}
-
-extern "C" fn host_print_object(obj_ptr: i64) {
-    let mut s = String::new();
-    if obj_ptr == 0 {
-        s.push_str("<null>");
-    } else {
-        format_object(&mut s, obj_ptr);
-    }
-    print!("{s}");
-}
 
 // Always-on counters for the host_mir_alloc / host_mir_free pair.
 // Two atomic ops per alloc/free is a noise-floor cost for the JIT
@@ -2172,6 +2091,31 @@ const PK_STR: i64 = 11;
 const PK_OBJECT: i64 = 12;
 const PK_ARRAY_I64_SIG: i64 = 100;
 const PK_OTHER: i64 = -1;
+
+/// Map a JIT-side `PrintKind` (rich, recursive) to the runtime's
+/// flat `PK_*` cascade tag. Used when mirroring `EnumPrintInfo` into
+/// `ilang-runtime`'s `__register_enum_print_variant_payload_pk`.
+fn print_kind_id_for_print_kind(k: &PrintKind) -> i64 {
+    match k {
+        PrintKind::I64Sig => PK_I64_SIG,
+        PrintKind::I64Uns => PK_I64_UNS,
+        PrintKind::I32Sig => PK_I32_SIG,
+        PrintKind::I32Uns => PK_I32_UNS,
+        PrintKind::I16Sig => PK_I16_SIG,
+        PrintKind::I16Uns => PK_I16_UNS,
+        PrintKind::I8Sig => PK_I8_SIG,
+        PrintKind::I8Uns => PK_I8_UNS,
+        PrintKind::Bool => PK_BOOL,
+        PrintKind::F64 => PK_F64,
+        PrintKind::F32 => PK_F32,
+        PrintKind::Str => PK_STR,
+        PrintKind::Object => PK_OBJECT,
+        PrintKind::Array(inner) if matches!(**inner, PrintKind::I64Sig) => {
+            PK_ARRAY_I64_SIG
+        }
+        _ => PK_OTHER,
+    }
+}
 
 fn print_kind_id(ty: &MirTy) -> i64 {
     match ty {
