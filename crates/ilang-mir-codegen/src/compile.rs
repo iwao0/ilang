@@ -752,12 +752,12 @@ pub fn compile_with_builtins(
 
     Ok(Compiled { module, entry, entry_ret })
 }
-struct LoweringOutputs {
-    fn_ids: HashMap<FuncId, cranelift_module::FuncId>,
-    extern_fn_ids: std::collections::HashSet<FuncId>,
+pub(crate) struct LoweringOutputs {
+    pub fn_ids: HashMap<FuncId, cranelift_module::FuncId>,
+    pub extern_fn_ids: std::collections::HashSet<FuncId>,
 }
 
-fn lower_program_into<M: Module>(
+pub(crate) fn lower_program_into<M: Module>(
     module: &mut M,
     prog: &Program,
     builtins: &[BuiltinDecl],
@@ -1407,11 +1407,11 @@ use std::sync::OnceLock;
 static NEXT_GLOBAL_CLASS_ID: AtomicU32 = AtomicU32::new(1);
 static NEXT_GLOBAL_ENUM_ID: AtomicU32 = AtomicU32::new(1);
 
-fn alloc_global_class_id() -> u32 {
+pub(crate) fn alloc_global_class_id() -> u32 {
     NEXT_GLOBAL_CLASS_ID.fetch_add(1, AtomicOrdering::Relaxed)
 }
 
-fn alloc_global_enum_id() -> u32 {
+pub(crate) fn alloc_global_enum_id() -> u32 {
     NEXT_GLOBAL_ENUM_ID.fetch_add(1, AtomicOrdering::Relaxed)
 }
 
