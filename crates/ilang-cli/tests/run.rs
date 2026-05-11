@@ -222,7 +222,7 @@ fn use_builtin_math_jit() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&main)
         .output()
         .unwrap();
@@ -319,7 +319,7 @@ fn generic_fn_jit_identity() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -337,7 +337,7 @@ fn generic_fn_jit_two_instantiations() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -357,7 +357,7 @@ fn generic_fn_jit_nested_generic_call() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -375,7 +375,7 @@ fn jit_let_unit_loop() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -393,7 +393,7 @@ fn jit_let_unit_call_and_chain() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -412,7 +412,7 @@ fn jit_let_unit_if_for_while() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -428,7 +428,7 @@ fn jit_map_basic_string_int() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -444,7 +444,7 @@ fn jit_map_index_assign_and_overwrite() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -460,7 +460,7 @@ fn jit_map_has_and_delete() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -479,7 +479,7 @@ fn jit_map_string_value_arc() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -495,7 +495,7 @@ fn jit_map_object_value() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -511,7 +511,7 @@ fn jit_map_get_primitive_v_present() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -527,7 +527,7 @@ fn jit_map_get_primitive_v_missing() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -543,7 +543,7 @@ fn jit_map_get_heap_v_present() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -559,7 +559,7 @@ fn jit_map_get_heap_v_missing() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -575,7 +575,7 @@ fn jit_map_keys_length() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -591,7 +591,7 @@ fn jit_map_values_sum_i64() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -609,7 +609,7 @@ fn jit_map_values_heap_v_length() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -625,7 +625,7 @@ fn jit_map_literal() {
     );
     let out = Command::new(ilang_bin())
         .arg("run")
-        .arg("--jit")
+        .arg("--mir-jit")
         .arg(&p)
         .output()
         .unwrap();
@@ -640,7 +640,7 @@ fn jit_optional_primitive_i64_some() {
         "let x: i64? = some(42)\nif x.isSome { x.unwrap() } else { -1 }",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
 }
@@ -652,7 +652,7 @@ fn jit_optional_primitive_i64_none() {
         "let x: i64? = none\nif x.isNone { 99 } else { x.unwrap() }",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "99");
 }
@@ -664,7 +664,7 @@ fn jit_optional_primitive_bool() {
         "let x: bool? = some(true)\nif x.isSome { x.unwrap() } else { false }",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "true");
 }
@@ -676,7 +676,7 @@ fn jit_optional_primitive_f64() {
         "let x: f64? = some(3.14)\nif x.isSome { x.unwrap() } else { 0.0 }",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3.14");
 }
@@ -690,7 +690,7 @@ fn jit_optional_primitive_aliased_let() {
         "let x: i64? = some(7)\nlet y = x\nif y.isSome { y.unwrap() } else { 0 }",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "7");
 }
@@ -702,7 +702,7 @@ fn jit_generic_enum_user_defined() {
         "enum Box<T> {\n  full: (T)\n  empty\n}\nlet b: Box<i64> = Box.full(42)\nmatch b {\n  full(v) { v }\n  empty { 0 }\n}",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
 }
@@ -714,7 +714,7 @@ fn jit_result_ok() {
         "let r: Result<i64, string> = Result.ok(42)\nmatch r {\n  ok(v) { v }\n  err(_) { -1 }\n}",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
 }
@@ -726,7 +726,7 @@ fn jit_result_err() {
         "let r: Result<i64, string> = Result.err(\"boom\")\nmatch r {\n  ok(v) { v }\n  err(_) { -1 }\n}",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
 }
@@ -740,7 +740,7 @@ fn jit_result_via_function() {
         "fn parse(s: string): Result<i64, string> {\n    if s == \"42\" { Result.ok(42) } else { Result.err(\"nope\") }\n}\nmatch parse(\"42\") {\n  ok(v) { v }\n  err(_) { -1 }\n}",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "42");
 }
@@ -752,7 +752,7 @@ fn jit_generic_enum_heap_payload() {
         "enum Either<L, R> {\n  left: (L)\n  right: (R)\n}\nlet e: Either<i64, string> = Either.right(\"hi\")\nmatch e {\n  left(_) { \"L\" }\n  right(s) { s }\n}",
     );
     let out = Command::new(ilang_bin())
-        .arg("run").arg("--jit").arg(&p).output().unwrap();
+        .arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi");
 }
@@ -763,7 +763,7 @@ fn jit_array_pop_primitive() {
         "pop_prim.il",
         "let xs: i64[] = [1, 2, 3]\nlet r = xs.pop()\nif r.isSome { r.unwrap() } else { -1 }",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3");
 }
@@ -774,7 +774,7 @@ fn jit_array_pop_string() {
         "pop_str.il",
         "let xs: string[] = [\"a\", \"b\"]\nlet r = xs.pop()\nif r.isSome { r.unwrap() } else { \"?\" }",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "b");
 }
@@ -785,7 +785,7 @@ fn jit_array_pop_empty_returns_none() {
         "pop_empty.il",
         "let xs: i64[] = []\nlet r = xs.pop()\nif r.isNone { -1 } else { r.unwrap() }",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "-1");
 }
@@ -796,7 +796,7 @@ fn jit_array_indexof_string() {
         "indexof_str.il",
         "let xs: string[] = [\"a\", \"b\", \"c\"]\nxs.indexOf(\"b\")",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "1");
 }
@@ -807,7 +807,7 @@ fn jit_array_includes_string_missing() {
         "incl_str.il",
         "let xs: string[] = [\"a\", \"b\"]\nif xs.includes(\"z\") { 1 } else { 0 }",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
 }
@@ -818,7 +818,7 @@ fn jit_for_in_string_array() {
         "forin_str.il",
         "let xs: string[] = [\"a\", \"b\", \"c\"]\nfor x in xs { console.log(x) }\n0",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let s = String::from_utf8_lossy(&out.stdout);
     assert!(s.contains("a") && s.contains("b") && s.contains("c"), "stdout: {s}");
@@ -830,7 +830,7 @@ fn jit_for_in_object_array() {
         "forin_obj.il",
         "class C {\n  n: i64\n  init(v: i64) { this.n = v }\n}\nlet xs: C[] = [new C(10), new C(20), new C(30)]\nlet total = 0\nfor c in xs { total = total + c.n }\ntotal",
     );
-    let out = Command::new(ilang_bin()).arg("run").arg("--jit").arg(&p).output().unwrap();
+    let out = Command::new(ilang_bin()).arg("run").arg("--mir-jit").arg(&p).output().unwrap();
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "60");
 }
@@ -843,7 +843,7 @@ fn array_map_filter_slice_interp_and_jit() {
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
         if jit {
-            cmd.arg("--jit");
+            cmd.arg("--mir-jit");
         }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -864,7 +864,7 @@ fn array_foreach_runs_callback() {
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
         if jit {
-            cmd.arg("--jit");
+            cmd.arg("--mir-jit");
         }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -880,7 +880,7 @@ fn array_string_map_filter_chain() {
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
         if jit {
-            cmd.arg("--jit");
+            cmd.arg("--mir-jit");
         }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
@@ -894,7 +894,7 @@ fn string_replace_all() {
         let p = write_tmp(&format!("rep_{jit}.il"), "\"hello hello\".replace(\"hello\", \"HI\")");
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
-        if jit { cmd.arg("--jit"); }
+        if jit { cmd.arg("--mir-jit"); }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "HI HI", "jit={jit}");
@@ -908,7 +908,7 @@ fn string_split_then_index() {
         let p = write_tmp(&format!("spl_{jit}.il"), src);
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
-        if jit { cmd.arg("--jit"); }
+        if jit { cmd.arg("--mir-jit"); }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "c", "jit={jit}");
@@ -922,7 +922,7 @@ fn string_split_empty_separator() {
         let p = write_tmp(&format!("spe_{jit}.il"), src);
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
-        if jit { cmd.arg("--jit"); }
+        if jit { cmd.arg("--mir-jit"); }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "3", "jit={jit}");
@@ -936,7 +936,7 @@ fn string_slice_basic() {
         let p = write_tmp(&format!("ssl_{jit}.il"), src);
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
-        if jit { cmd.arg("--jit"); }
+        if jit { cmd.arg("--mir-jit"); }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "world", "jit={jit}");
@@ -950,7 +950,7 @@ fn string_slice_out_of_range_clamps() {
         let p = write_tmp(&format!("ssc_{jit}.il"), src);
         let mut cmd = Command::new(ilang_bin());
         cmd.arg("run");
-        if jit { cmd.arg("--jit"); }
+        if jit { cmd.arg("--mir-jit"); }
         let out = cmd.arg(&p).output().unwrap();
         assert!(out.status.success(), "jit={jit} stderr: {}", String::from_utf8_lossy(&out.stderr));
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "hi", "jit={jit}");

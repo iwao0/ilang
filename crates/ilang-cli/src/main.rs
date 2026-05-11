@@ -22,17 +22,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Evaluate an .il source file.
+    /// Evaluate an .il source file via the MIR → Cranelift JIT.
     Run {
         path: PathBuf,
-        /// Compile via the legacy `ilang-codegen` pipeline (the
-        /// pre-MIR Cranelift JIT). Retained for parity testing
-        /// against the new mir-jit; deprecated for new use.
-        #[arg(long)]
-        jit: bool,
-        /// Compile via the new MIR → Cranelift pipeline. This is
-        /// now the default; the flag stays for explicit selection
-        /// and back-compat with existing test commands.
+        /// Compatibility flag — selecting the mir-jit pipeline is the
+        /// default and only behaviour now.
         #[arg(long = "mir-jit")]
         mir_jit: bool,
     },
@@ -51,7 +45,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         None => run_repl(),
-        Some(Cmd::Run { path, jit, mir_jit }) => run_file(&path, jit, mir_jit),
+        Some(Cmd::Run { path, mir_jit }) => run_file(&path, mir_jit),
         Some(Cmd::Build { path, output }) => build_file(&path, &output),
     }
 }
@@ -853,11 +847,7 @@ fn wrap_trailing_print(mut prog: AstProgram) -> AstProgram {
     prog
 }
 
-fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
-    // Backend selection: explicit `--jit` selects the legacy
-    // ilang-codegen pipeline; everything else (no flag, or
-    // `--mir-jit`) routes through the new mir-jit backend.
-    let use_mir_jit = !jit;
+fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
     let _ = mir_jit;
     // Resolve any `ilang.toml` next to (or above) the entry file
     // and turn its `[deps]` table into extra `use`-resolution paths.
@@ -882,7 +872,7 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         eprintln!("[timing] parse+load: {:?}", _t0.elapsed());
     }
     let display_path = path.display().to_string();
-    if use_mir_jit {
+    {
         // Auto-print the trailing expression — matches what the
         // tree-walking interpreter does with the value of
         // `Interpreter::run`. Wrapping at the AST level routes
@@ -1025,51 +1015,8 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    if jit {
-        let _t1 = std::time::Instant::now();
-        let mut tc = TypeChecker::new();
-        if let Err(e) = tc.check(&prog) {
-            eprintln!("{display_path} {e}");
-            return ExitCode::FAILURE;
-        }
-        if std::env::var("ILANG_TIMING").is_ok() {
-            eprintln!("[timing] typecheck: {:?}", _t1.elapsed());
-        }
-        let _t2 = std::time::Instant::now();
-        // Mangle overloaded fn names (no-op when no name is overloaded).
-        let prog = ilang_types::mangle::mangle_overloads(prog, &tc.fn_overload_picks(), &tc.method_overload_picks(), &tc.call_default_fills());
-        if std::env::var("ILANG_TIMING").is_ok() {
-            eprintln!("[timing] mangle: {:?}", _t2.elapsed());
-        }
-        if std::env::var("ILANG_TIMING_QUIT_BEFORE_JIT").is_ok() {
-            return ExitCode::SUCCESS;
-        }
-        return match ilang_codegen::jit_run_with(
-            &prog,
-            &tc.fn_call_type_args(),
-            &tc.enum_ctor_type_args(),
-            &tc.loop_break_types(),
-            &tc.class_method_slots(),
-            &tc.class_vtable_lens(),
-            &tc.fn_expr_captures(),
-            &tc.fn_expr_this_class(),
-        ) {
-            Ok(v) => {
-                let s = format!("{v}");
-                if !s.is_empty() {
-                    println!("{s}");
-                }
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("{display_path}: jit error: {e}");
-                ExitCode::FAILURE
-            }
-        };
-    }
-    // Unreachable: every path above returns. The legacy interpreter
-    // fallback was removed in M1 Step 6 part 5.
-    unreachable!("backend selection above always returns")
+    // The mir-jit arm above always returns; this is unreachable.
+    unreachable!("mir-jit arm always returns")
 }
 
 

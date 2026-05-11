@@ -13,7 +13,6 @@ ilang-ast = { workspace = true }
 ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
 ilang-types = { workspace = true }
-ilang-codegen = { workspace = true }
 ilang-mir = { workspace = true }
 ilang-mir-codegen = { workspace = true }
 # Pulled in so cargo emits the static-library facet
