@@ -355,6 +355,17 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_enum_disc_str", Linkage::Import, &s)?
     };
+    let reg_lib_group_begin = {
+        let mut s = module.make_signature();
+        s.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__register_lib_group_begin", Linkage::Import, &s)?
+    };
+    let reg_lib_group_member = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_lib_group_member", Linkage::Import, &s)?
+    };
 
     // Pre-allocate data symbols for every class / field / enum /
     // variant name so init-body IR can hand body pointers to the
@@ -421,6 +432,21 @@ fn emit_aot_init(
         enum_variant_disc_str_data.push(per_enum_disc);
     }
 
+    // Pre-allocate one data symbol per name inside every `@lib(a, b,
+    // ...)` fallback group so `os.libLoaded` can be queried at
+    // runtime. Stored as `Vec<Vec<DataId>>` matching the `(group,
+    // member)` indices used in the init body below.
+    let mut lib_group_data: Vec<Vec<DataId>> = Vec::new();
+    for f in prog.functions.iter() {
+        if matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) && f.libs.len() > 1 {
+            let mut members = Vec::with_capacity(f.libs.len());
+            for sym in f.libs.iter() {
+                members.push(declare_ilang_string_data(module, sym.as_str())?);
+            }
+            lib_group_data.push(members);
+        }
+    }
+
     let init_sig = module.make_signature();
     let init_id =
         module.declare_function("__ilang_aot_init", Linkage::Local, &init_sig)?;
@@ -459,6 +485,10 @@ fn emit_aot_init(
             module.declare_func_in_func(reg_fn_name, fb.func);
         let reg_enum_disc_str_ref =
             module.declare_func_in_func(reg_enum_disc_str, fb.func);
+        let reg_lib_group_begin_ref =
+            module.declare_func_in_func(reg_lib_group_begin, fb.func);
+        let reg_lib_group_member_ref =
+            module.declare_func_in_func(reg_lib_group_member, fb.func);
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -652,6 +682,17 @@ fn emit_aot_init(
                 let s_body = ilang_string_body(module, &mut fb, did);
                 let disc_v = fb.ins().iconst(types::I64, v.discriminant);
                 fb.ins().call(reg_enum_disc_str_ref, &[eid_v, disc_v, s_body]);
+            }
+        }
+
+        // Register every `@lib(...)` fallback group so the runtime's
+        // `os.libLoaded(name)` can fall through to alternates.
+        for members in &lib_group_data {
+            let begin_call = fb.ins().call(reg_lib_group_begin_ref, &[]);
+            let g = fb.inst_results(begin_call)[0];
+            for did in members {
+                let body = ilang_string_body(module, &mut fb, *did);
+                fb.ins().call(reg_lib_group_member_ref, &[g, body]);
             }
         }
 

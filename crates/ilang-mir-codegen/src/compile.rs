@@ -367,9 +367,9 @@ pub fn compile_with_builtins(
     // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
     // / `test.liveStringCount`. Used by the leak-detection fixtures
     // under tests/programs/.
-    jit_builder.symbol("test.liveAllocBytes", host_test_live_alloc_bytes as *const u8);
-    jit_builder.symbol("test.liveAllocCount", host_test_live_alloc_count as *const u8);
-    jit_builder.symbol("test.liveStringCount", host_test_live_string_count as *const u8);
+    jit_builder.symbol("test.liveAllocBytes", ilang_runtime::test_live_alloc_bytes as *const u8);
+    jit_builder.symbol("test.liveAllocCount", ilang_runtime::test_live_alloc_count as *const u8);
+    jit_builder.symbol("test.liveStringCount", ilang_runtime::test_live_string_count as *const u8);
     jit_builder.symbol("__enum_alloc", ilang_runtime::__enum_alloc as *const u8);
     jit_builder.symbol("__release_enum", ilang_runtime::__release_enum as *const u8);
     jit_builder.symbol("__retain_enum", ilang_runtime::__retain_enum as *const u8);
@@ -387,32 +387,34 @@ pub fn compile_with_builtins(
     // are NUL-terminated `*const u8` already, so most "C-string"
     // helpers are identity at the bit level.
     jit_builder.symbol("__array_data_ptr", host_array_data_ptr as *const u8);
-    jit_builder.symbol("cstrFromString", host_identity as *const u8);
-    jit_builder.symbol("stringFromCstr", host_string_from_cstr as *const u8);
-    jit_builder.symbol("cstrArrayToStrings", host_cstr_array_to_strings as *const u8);
-    jit_builder.symbol("freeCstr", host_noop as *const u8);
-    jit_builder.symbol("errnoCheck", host_errno_check_i32 as *const u8);
-    jit_builder.symbol("errnoCheckI64", host_errno_check_i64 as *const u8);
-    jit_builder.symbol("os.errno", host_os_errno as *const u8);
-    jit_builder.symbol("os.setErrno", host_os_set_errno as *const u8);
-    jit_builder.symbol("os.libLoaded", host_os_lib_loaded as *const u8);
-    jit_builder.symbol("os.libLoadError", host_os_lib_load_error as *const u8);
+    jit_builder.symbol("cstrFromString", ilang_runtime::cstr_from_string as *const u8);
+    jit_builder.symbol("stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
+    jit_builder.symbol("cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);
+    jit_builder.symbol("freeCstr", ilang_runtime::free_cstr as *const u8);
+    jit_builder.symbol("errnoCheck", ilang_runtime::errno_check_i32 as *const u8);
+    jit_builder.symbol("errnoCheckI64", ilang_runtime::errno_check_i64 as *const u8);
+    jit_builder.symbol("os.errno", ilang_runtime::os_errno as *const u8);
+    jit_builder.symbol("os.setErrno", ilang_runtime::os_set_errno as *const u8);
+    jit_builder.symbol("os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
+    jit_builder.symbol("os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,
     // by-value structs, sret returns, errno helpers, etc), then
     // override the closure-callback shim with our mir-aware one
-    // since the legacy version expects a raw fn pointer and would
-    // jump to a heap-data address otherwise.
-    ilang_codegen::test_externs::register_test_symbols(&mut jit_builder);
-    jit_builder.symbol("test.applyI32Cb", host_test_apply_i32_cb as *const u8);
-    jit_builder.symbol("test.expect", host_test_expect as *const u8);
-    jit_builder.symbol("test.expectStr", host_test_expect_str as *const u8);
-    jit_builder.symbol("test.expectBool", host_test_expect_bool as *const u8);
-    jit_builder.symbol("test.expectF64", host_test_expect_f64 as *const u8);
-    jit_builder.symbol("test.expectTrue", host_test_expect_true as *const u8);
-    jit_builder.symbol("test.expectFalse", host_test_expect_false as *const u8);
-    jit_builder.symbol("test.fail", host_test_fail as *const u8);
+    // `test.*` symbols (incl. test.countedFree*) live in
+    // `ilang-runtime` now; the explicit `jit_builder.symbol(...)`
+    // bindings below pick them up.
+    jit_builder.symbol("test.applyI32Cb", ilang_runtime::test_apply_i32_cb as *const u8);
+    jit_builder.symbol("test.expect", ilang_runtime::test_expect as *const u8);
+    jit_builder.symbol("test.expectStr", ilang_runtime::test_expect_str as *const u8);
+    jit_builder.symbol("test.expectBool", ilang_runtime::test_expect_bool as *const u8);
+    jit_builder.symbol("test.expectF64", ilang_runtime::test_expect_f64 as *const u8);
+    jit_builder.symbol("test.expectTrue", ilang_runtime::test_expect_true as *const u8);
+    jit_builder.symbol("test.expectFalse", ilang_runtime::test_expect_false as *const u8);
+    jit_builder.symbol("test.fail", ilang_runtime::test_fail as *const u8);
+    jit_builder.symbol("test.countedFree", ilang_runtime::test_counted_free as *const u8);
+    jit_builder.symbol("test.countedFreeCount", ilang_runtime::test_counted_free_count as *const u8);
     // Built-in `math.*` runtime — wraps `f64::*` Rust intrinsics.
     jit_builder.symbol("math.sin", host_sin as *const u8);
     jit_builder.symbol("math.cos", host_cos as *const u8);
@@ -472,15 +474,16 @@ pub fn compile_with_builtins(
     // when actually invoked — callers are expected to gate via
     // `os.libLoaded(...)` first.
     // Collect `@lib(...)` groups so `os.libLoaded(name)` can fall
-    // through to alternates declared on the same fn.
-    {
-        let mut groups = lib_groups_lock().lock().expect("lib groups poisoned");
-        groups.clear();
-        for f in &prog.functions {
-            if matches!(f.kind, ilang_mir::FunctionKind::Extern { .. })
-                && f.libs.len() > 1
-            {
-                groups.push(f.libs.clone());
+    // through to alternates declared on the same fn. Lives in
+    // `ilang-runtime` now so both backends share the registry.
+    for f in &prog.functions {
+        if matches!(f.kind, ilang_mir::FunctionKind::Extern { .. })
+            && f.libs.len() > 1
+        {
+            let g = ilang_runtime::__register_lib_group_begin();
+            for sym in f.libs.iter() {
+                let p = ilang_runtime::leak_cstring(sym.as_str().to_string());
+                ilang_runtime::__register_lib_group_member(g, p);
             }
         }
     }

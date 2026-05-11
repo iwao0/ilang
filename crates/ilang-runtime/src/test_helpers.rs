@@ -80,6 +80,34 @@ pub extern "C" fn test_live_string_count() -> i64 {
     live_string_count()
 }
 
+// --------------------------------------------------------------------
+// `test.countedFree` — libc::free wrapped with a counter so fixtures
+// can assert how many times a custom deallocator ran. Used by FFI
+// tests that ship their own `extern free_with(...)`-style helpers.
+// --------------------------------------------------------------------
+
+static COUNTED_FREE_COUNT: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+
+unsafe extern "C" {
+    #[link_name = "free"]
+    fn libc_free_for_test(ptr: i64);
+}
+
+#[unsafe(export_name = "test.countedFree")]
+pub extern "C" fn test_counted_free(ptr: i64) {
+    if ptr == 0 {
+        return;
+    }
+    COUNTED_FREE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    unsafe { libc_free_for_test(ptr) };
+}
+
+#[unsafe(export_name = "test.countedFreeCount")]
+pub extern "C" fn test_counted_free_count() -> i32 {
+    COUNTED_FREE_COUNT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// `test.applyI32Cb(cb, a, b): i32` — invoke an ilang closure
 /// pointer as a 2-arg i32 callback.
 #[unsafe(export_name = "test.applyI32Cb")]
