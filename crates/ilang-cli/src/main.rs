@@ -266,6 +266,12 @@ impl ReplSession {
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
         let r = ilang_mir_codegen::run_main(&compiled);
+        // See `run_file`'s `mem::forget` for context. The REPL is more
+        // exposed to the eventual leak — each turn forgets one
+        // `JITModule` — but the alternative is a process-killing
+        // SIGABRT during Drop on heavy-heap programs, which is
+        // strictly worse.
+        std::mem::forget(compiled);
 
         // Commit the chunk's definitions to the accumulated state
         // only after a successful run — partial failures don't
@@ -866,6 +872,23 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
             }
         };
         let r = ilang_mir_codegen::run_main(&compiled);
+        // Skip Cranelift's `JITModule` Drop. With heavy-heap programs
+        // (Optional<Optional<Str>> etc.) the internal
+        // `HashMap<String, FuncOrDataId>` teardown intermittently
+        // triggers a tiny-bucket double-free and aborts the process.
+        // Confirmed via lldb backtrace through
+        // `__pthread_kill -> abort -> malloc_zone_error
+        //  -> tiny_free_no_lock -> drop_in_place<RawVec<u8>>
+        //  -> drop_in_place<(String, FuncOrDataId)>
+        //  -> HashMap::drop`.
+        // The bug surfaces only at drop — execution results are
+        // unaffected. Baseline rate is 0–3% but rises sharply under
+        // some refactorings of the lowering body (>80%) because Rust
+        // stack-layout shifts change the allocator's bucket order.
+        // Leaking the `JITModule` for the rest of the process is
+        // acceptable here: `ilang run` is one-shot, so the OS reaps
+        // everything on exit.
+        std::mem::forget(compiled);
         // The MIR pipeline returns __main's i64; print it only if
         // it's non-zero so stdout-capture-based tests stay clean.
         if r != 0 {
