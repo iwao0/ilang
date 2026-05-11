@@ -142,6 +142,14 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Inline small leaf fns first so the ARC peephole sees the
+    // post-inline shape (a call that turns into BinOp + Const lets
+    // the peephole cancel matched retain/release pairs the call
+    // hid behind a function boundary). `ILANG_NO_INLINE=1` disables
+    // the pass for A/B benchmarking and bug isolation.
+    if std::env::var_os("ILANG_NO_INLINE").is_none() {
+        ilang_mir::passes::inline::run_program(&mut mir);
+    }
     ilang_mir::passes::arc_peephole::run_program(&mut mir);
 
     let object_bytes = match ilang_mir_codegen::compile_program_to_object(&mir) {
@@ -333,6 +341,7 @@ impl ReplSession {
             ilang_mir::monomorphize::monomorphize_fns(&prog, &self.tc.fn_call_type_args());
         let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
+        ilang_mir::passes::inline::run_program(&mut mir);
         ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = ilang_mir_codegen::compile_program(&mir)
             .map_err(|e| format!("<repl> mir-codegen: {e}"))?;
@@ -921,7 +930,18 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         } else {
             (0, 0)
         };
+        let inline_stats = if std::env::var_os("ILANG_NO_INLINE").is_some() {
+            ilang_mir::passes::inline::Stats::default()
+        } else {
+            ilang_mir::passes::inline::run_program(&mut mir)
+        };
         let arc_stats = ilang_mir::passes::arc_peephole::run_program(&mut mir);
+        if dump_stats {
+            eprintln!(
+                "{display_path}: inline calls_inlined={}",
+                inline_stats.calls_inlined,
+            );
+        }
         if dump_stats {
             let (retains_after, releases_after) = count_retain_release(&mir);
             eprintln!(

@@ -4,3 +4,4 @@
 //! monomorphisation and AST→MIR lowering, **before** MIR→clif.
 
 pub mod arc_peephole;
+pub mod inline;
