@@ -110,6 +110,28 @@ fn emits_object_for_console_log_with_string() {
 }
 
 #[test]
+fn emits_object_for_dynamic_array() {
+    expect_object(
+        r#"
+        let xs: i64[] = [10, 20, 30]
+        xs.push(40)
+        console.log(xs.length)
+        console.log(xs[3])
+    "#,
+    );
+}
+
+#[test]
+fn emits_object_for_string_array() {
+    expect_object(
+        r#"
+        let names: string[] = ["alice", "bob"]
+        console.log(names[0], names[1])
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_string_operations() {
     expect_object(
         r#"

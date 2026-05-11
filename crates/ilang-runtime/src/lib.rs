@@ -375,3 +375,307 @@ pub extern "C" fn __str_replace(p: i64, from: i64, to: i64) -> i64 {
     let t = cstr_to_str(to);
     leak_cstring(s.replace(f, t))
 }
+
+// --------------------------------------------------------------------
+// Array layout + leaf operations
+// --------------------------------------------------------------------
+//
+// Array header (48 bytes):
+//   offset  field          notes
+//   ------  -----          -----
+//   +0      length (i64)
+//   +8      capacity (i64)
+//   +16     data pointer
+//   +24     refcount
+//   +32     element KIND_* tag (for `__release_array` cascade)
+//   +40     stride bytes per cell
+
+/// Element-type tags stored at header +32 so `__release_array` can
+/// decide whether to cascade-release the cells. The JIT side mirrors
+/// these constants in `compile.rs` and uses them for the broader
+/// `release_by_kind` dispatcher.
+pub const KIND_NONE: i64 = 0;
+pub const KIND_STR: i64 = 7;
+
+#[inline]
+unsafe fn array_header(arr: i64) -> (i64, i64, i64) {
+    unsafe {
+        let p = arr as *const i64;
+        (*p, *p.add(1), *p.add(2))
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_index_of(arr: i64, value: i64) -> i64 {
+    if arr == 0 {
+        return -1;
+    }
+    let (len, _cap, data) = unsafe { array_header(arr) };
+    for i in 0..len {
+        let cell = unsafe { *((data + i * 8) as *const i64) };
+        if cell == value {
+            return i;
+        }
+    }
+    -1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_includes(arr: i64, value: i64) -> i64 {
+    if __array_index_of(arr, value) >= 0 { 1 } else { 0 }
+}
+
+#[inline]
+unsafe fn store_packed(data: i64, idx: i64, stride: i64, value: i64) {
+    unsafe {
+        let addr = (data + idx * stride) as *mut u8;
+        match stride {
+            1 => *(addr as *mut u8) = value as u8,
+            2 => *(addr as *mut u16) = value as u16,
+            4 => *(addr as *mut u32) = value as u32,
+            _ => *(addr as *mut i64) = value,
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_push(arr: i64, value: i64) {
+    if arr == 0 {
+        return;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        let cap = *h.add(1);
+        let data = *h.add(2);
+        let stride = *h.add(5);
+        if len < cap {
+            store_packed(data, len, stride, value);
+            *h = len + 1;
+        } else {
+            let new_cap = (cap * 2).max(4);
+            let new_data = __mir_alloc(new_cap * stride);
+            std::ptr::copy_nonoverlapping(
+                data as *const u8,
+                new_data as *mut u8,
+                (len * stride) as usize,
+            );
+            store_packed(new_data, len, stride, value);
+            if data != 0 && cap > 0 {
+                __mir_free(data, cap * stride);
+            }
+            *h = len + 1;
+            *h.add(1) = new_cap;
+            *h.add(2) = new_data;
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_pop(arr: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe {
+        let h = arr as *mut i64;
+        let len = *h;
+        if len <= 0 {
+            return 0;
+        }
+        let data = *h.add(2);
+        let stride = *h.add(5);
+        let idx = len - 1;
+        let addr = (data + idx * stride) as *const u8;
+        let value = match stride {
+            1 => *(addr as *const u8) as i64,
+            2 => *(addr as *const u16) as i64,
+            4 => *(addr as *const u32) as i64,
+            _ => *(addr as *const i64),
+        };
+        *h = idx;
+        value
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __array_data_ptr(arr: i64) -> i64 {
+    if arr == 0 {
+        return 0;
+    }
+    unsafe { *((arr + 16) as *const i64) }
+}
+
+/// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
+/// bytes from a C-side array into a fresh ilang dyn-array.
+#[unsafe(no_mangle)]
+pub extern "C" fn __c_array_to_array(src: i64, n: i64, stride: i64, kind_tag: i64) -> i64 {
+    let n_safe = if n < 0 { 0 } else { n };
+    let bytes = n_safe * stride;
+    let header = __mir_alloc(48);
+    let data = __mir_alloc(bytes.max(stride));
+    unsafe {
+        if bytes > 0 && src != 0 {
+            std::ptr::copy_nonoverlapping(src as *const u8, data as *mut u8, bytes as usize);
+        }
+        let h = header as *mut i64;
+        *h = n_safe;
+        *h.add(1) = n_safe;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = kind_tag;
+        *h.add(5) = stride;
+    }
+    header
+}
+
+/// Retain an array (`++rc`). No-op on null or rc <= 0 entries.
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_array(arr_ptr: i64) {
+    if arr_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (arr_ptr + 24) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    unsafe {
+        *rc_ptr = rc + 1;
+    }
+}
+
+/// Release an array (`--rc`); free header + data buffer at rc 0.
+/// Cell cascade is limited to `KIND_NONE` (no-op) and `KIND_STR`
+/// (release each cell via `__release_string`). Arrays of objects /
+/// closures / etc. leak their inner items until the process exits —
+/// the full cascade machinery lives in the JIT-side `compile.rs`
+/// because its dependencies (per-class field tables, vtable
+/// dispatch, etc.) haven't moved here yet.
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_array(arr_ptr: i64) {
+    if arr_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (arr_ptr + 24) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    let new_rc = rc - 1;
+    unsafe {
+        *rc_ptr = new_rc;
+    }
+    if new_rc != 0 {
+        return;
+    }
+    let tag = unsafe { *((arr_ptr + 32) as *const i64) };
+    let len = unsafe { *(arr_ptr as *const i64) };
+    let cap = unsafe { *((arr_ptr + 8) as *const i64) };
+    let data_ptr = unsafe { *((arr_ptr + 16) as *const i64) };
+    let stride = unsafe { *((arr_ptr + 40) as *const i64) };
+    match tag {
+        KIND_NONE => {}
+        KIND_STR => {
+            for i in 0..len {
+                let cell = unsafe { *((data_ptr + i * 8) as *const i64) };
+                __release_string(cell);
+            }
+        }
+        _ => {
+            // Other cascade kinds aren't supported in this layer yet;
+            // inner cells leak. The JIT side overrides this symbol via
+            // `JITBuilder::symbol("__release_array", host_release_array)`
+            // so JIT-run programs still get the full cascade.
+        }
+    }
+    if data_ptr != 0 {
+        __mir_free(data_ptr, cap.max(1) * stride);
+    }
+    __mir_free(arr_ptr, 48);
+}
+
+// --------------------------------------------------------------------
+// Raw memory FFI read / write helpers
+// --------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_i8(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i8) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_i16(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i16) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_i32(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i32) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_i64(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const i64) }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_u8(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const u8) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_u16(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const u16) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_u32(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const u32) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_u64(p: i64, off: i64) -> i64 {
+    unsafe { *((p + off) as *const u64) as i64 }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_f32(p: i64, off: i64) -> f32 {
+    unsafe { *((p + off) as *const f32) }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __read_f64(p: i64, off: i64) -> f64 {
+    unsafe { *((p + off) as *const f64) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_i8(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i8) = v as i8; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_i16(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i16) = v as i16; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_i32(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i32) = v as i32; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_i64(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut i64) = v; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_u8(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u8) = v as u8; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_u16(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u16) = v as u16; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_u32(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u32) = v as u32; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_u64(p: i64, off: i64, v: i64) {
+    unsafe { *((p + off) as *mut u64) = v as u64; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_f32(p: i64, off: i64, v: f32) {
+    unsafe { *((p + off) as *mut f32) = v; }
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn __write_f64(p: i64, off: i64, v: f64) {
+    unsafe { *((p + off) as *mut f64) = v; }
+}
