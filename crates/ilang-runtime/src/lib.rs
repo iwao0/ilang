@@ -1138,6 +1138,7 @@ const KIND_TUPLE_FIELD: i64 = 4;
 const KIND_MAP_INNER: i64 = 5;
 const KIND_CLOSURE_FIELD: i64 = 6;
 const KIND_STR_INNER: i64 = 7;
+const KIND_ENUM_FIELD: i64 = 8;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
@@ -1169,11 +1170,11 @@ fn release_field_by_kind(ptr: i64, kind: i64) {
         KIND_MAP_INNER => __release_map(ptr),
         KIND_CLOSURE_FIELD => __release_closure(ptr),
         KIND_STR_INNER => __release_string(ptr),
+        KIND_ENUM_FIELD => __release_enum(ptr),
         _ => {
-            // Enum / unknown — enum release needs the per-enum
-            // payload-kind table that hasn't moved here yet. AOT
-            // programs whose object fields hold enums leak the
-            // payload until that table migrates.
+            // Unknown kind. Heap-shaped values that don't carry a
+            // registered runtime release (e.g. user-defined extern
+            // types) silently leak.
         }
     }
 }
@@ -1338,6 +1339,114 @@ pub extern "C" fn __retain_closure(closure_ptr: i64) {
     }
     unsafe {
         *rc_ptr = rc + 1;
+    }
+}
+
+// Enum cell layout per `Inst::NewEnum` codegen:
+//   [ tag @ 0 | payload_0 @ 8 | payload_1 @ 16 | ... ]
+//
+// Cells with payloads live in ENUM_REGISTRY (rc-tracked); unit-variant
+// cells are interned by the codegen via `__enum_unit_get` and bypass
+// the registry. Per-variant payload kinds register through
+// `__register_enum_payload_kind` (one call per heap-typed slot).
+struct EnumEntry {
+    rc: i64,
+    total_bytes: i64,
+    global_eid: u32,
+}
+
+static ENUM_REGISTRY: OnceLock<Mutex<HashMap<i64, EnumEntry>>> = OnceLock::new();
+
+fn enum_registry() -> &'static Mutex<HashMap<i64, EnumEntry>> {
+    ENUM_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Per-variant payload kinds, keyed by `(global_eid, tag)`. The Vec
+/// holds the `KIND_*` tag for every slot; primitives miss this map
+/// entirely (skip the cascade).
+static ENUM_PAYLOAD_KINDS: OnceLock<Mutex<HashMap<(u32, i64), Vec<i64>>>> =
+    OnceLock::new();
+
+fn enum_payload_kinds() -> &'static Mutex<HashMap<(u32, i64), Vec<i64>>> {
+    ENUM_PAYLOAD_KINDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_enum_payload_kind(
+    global_eid: i64,
+    tag: i64,
+    slot_idx: i64,
+    kind: i64,
+) {
+    let mut t = enum_payload_kinds().lock().expect("enum payload kinds poisoned");
+    let entry = t.entry((global_eid as u32, tag)).or_default();
+    let idx = slot_idx as usize;
+    while entry.len() <= idx {
+        entry.push(0);
+    }
+    entry[idx] = kind;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
+    let total = (1 + n_payload) * 8;
+    let ptr = __mir_alloc(total);
+    unsafe {
+        *(ptr as *mut i64) = disc;
+    }
+    let mut reg = enum_registry().lock().expect("enum registry poisoned");
+    reg.insert(
+        ptr,
+        EnumEntry { rc: 1, total_bytes: total, global_eid: global_eid as u32 },
+    );
+    ptr
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_enum(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = enum_registry().lock().expect("enum registry poisoned");
+    if let Some(e) = reg.get_mut(&p) {
+        e.rc += 1;
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_enum(p: i64) {
+    if p == 0 {
+        return;
+    }
+    let mut reg = enum_registry().lock().expect("enum registry poisoned");
+    let to_free = if let Some(e) = reg.get_mut(&p) {
+        e.rc -= 1;
+        if e.rc <= 0 {
+            Some((e.total_bytes, e.global_eid))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some((total, global_eid)) = to_free {
+        reg.remove(&p);
+        drop(reg);
+        let tag = unsafe { *(p as *const i64) };
+        let kinds = {
+            let t = enum_payload_kinds().lock().expect("enum payload kinds poisoned");
+            t.get(&(global_eid, tag)).cloned()
+        };
+        if let Some(kinds) = kinds {
+            for (i, kind) in kinds.iter().enumerate() {
+                if *kind == 0 {
+                    continue;
+                }
+                let raw = unsafe { *((p + 8 + (i as i64) * 8) as *const i64) };
+                release_field_by_kind(raw, *kind);
+            }
+        }
+        __mir_free(p, total);
     }
 }
 

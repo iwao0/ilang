@@ -370,9 +370,9 @@ pub fn compile_with_builtins(
     jit_builder.symbol("test.liveAllocBytes", host_test_live_alloc_bytes as *const u8);
     jit_builder.symbol("test.liveAllocCount", host_test_live_alloc_count as *const u8);
     jit_builder.symbol("test.liveStringCount", host_test_live_string_count as *const u8);
-    jit_builder.symbol("__enum_alloc", host_enum_alloc as *const u8);
-    jit_builder.symbol("__release_enum", host_release_enum as *const u8);
-    jit_builder.symbol("__retain_enum", host_retain_enum as *const u8);
+    jit_builder.symbol("__enum_alloc", ilang_runtime::__enum_alloc as *const u8);
+    jit_builder.symbol("__release_enum", ilang_runtime::__release_enum as *const u8);
+    jit_builder.symbol("__retain_enum", ilang_runtime::__retain_enum as *const u8);
     jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
     jit_builder.symbol(
         "__enum_unit_get_checked",
@@ -634,11 +634,17 @@ pub fn compile_with_builtins(
         }
     }
     // Populate enum-print-info registry — host_print_enum walks
-    // enum tag → variant name + payload kinds.
+    // enum tag → variant name + payload kinds. Also mirror per-
+    // variant payload kinds into the runtime's smaller
+    // `ENUM_PAYLOAD_KINDS` registry that drives `__release_enum`'s
+    // cascade (so AOT-built programs see the same release cascade
+    // through `__register_enum_payload_kind` calls from
+    // `__ilang_aot_init`).
     {
         let mut t = enum_info_lock().lock().expect("enum info poisoned");
         // Don't clear — keyed by GLOBAL enum id, accumulates.
         for e in &prog.enums {
+            let global_id = global_eid(e.id.0);
             let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
             let is_str_repr = matches!(e.repr, MirTy::Str);
             let mut str_repr: HashMap<i64, String> = HashMap::new();
@@ -652,6 +658,18 @@ pub fn compile_with_builtins(
                         fs.iter().map(|(_, t)| print_kind_of(t)).collect()
                     }
                 };
+                // Runtime cascade registry — KIND_* per payload slot.
+                for (i, k) in kinds.iter().enumerate() {
+                    let tag = kind_tag_of_print_kind(k);
+                    if tag != KIND_NONE {
+                        ilang_runtime::__register_enum_payload_kind(
+                            global_id as i64,
+                            v.discriminant,
+                            i as i64,
+                            tag,
+                        );
+                    }
+                }
                 variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
                 if is_str_repr {
                     if let Some(s) = v.discriminant_str.as_ref() {
@@ -660,7 +678,7 @@ pub fn compile_with_builtins(
                 }
             }
             t.insert(
-                global_eid(e.id.0),
+                global_id,
                 EnumPrintInfo {
                     name: e.name.as_str().to_string(),
                     variants,
@@ -1688,26 +1706,9 @@ fn release_by_kind(ptr: i64, kind: i64) {
         KIND_MAP => host_release_map(ptr),
         KIND_CLOSURE => ilang_runtime::__release_closure(ptr),
         KIND_STR => ilang_runtime::__release_string(ptr),
-        KIND_ENUM => host_release_enum(ptr),
+        KIND_ENUM => ilang_runtime::__release_enum(ptr),
         _ => {} // KIND_NONE / unknown — primitive, no cascade.
     }
-}
-
-/// Translate a `PrintKind` (used by enum_info / object_field_table)
-/// to the runtime KIND_* tag, then dispatch through
-/// `release_by_kind`. Lets enum-payload cascade reuse the new
-/// rc-aware release path instead of the older in-line walker
-/// that didn't decrement intermediate cells' rc.
-fn release_print_kind(raw: i64, kind: &PrintKind) {
-    let tag = match kind {
-        PrintKind::Object => KIND_OBJECT,
-        PrintKind::Array(_) => KIND_ARRAY,
-        PrintKind::Optional(_) => KIND_OPTIONAL,
-        PrintKind::Tuple(_) => KIND_TUPLE,
-        PrintKind::Str => KIND_STR,
-        _ => KIND_NONE,
-    };
-    release_by_kind(raw, tag);
 }
 
 /// Mirror of `release_by_kind` for retain. Used when one container
@@ -1726,7 +1727,7 @@ fn retain_by_kind(ptr: i64, kind: i64) {
         KIND_MAP => host_retain_map(ptr),
         KIND_CLOSURE => ilang_runtime::__retain_closure(ptr),
         KIND_STR => ilang_runtime::__retain_string(ptr),
-        KIND_ENUM => host_retain_enum(ptr),
+        KIND_ENUM => ilang_runtime::__retain_enum(ptr),
         _ => {}
     }
 }
@@ -2681,101 +2682,10 @@ extern "C" fn host_enum_box(disc: i64) -> i64 {
     p
 }
 
-/// rc-tracked registry for enum payload-variant cells. Unit-variant
-/// cells go through `__enum_unit_get` instead (interned) and are
-/// NOT tracked here. Cells in this registry are freed when their
-/// rc reaches 0 — the cascade-on-cell-drop for any heap payload
-/// content is not yet implemented (conservative: cell is freed,
-/// heap payload leaks until match-time extraction retain + cell
-/// release cascade are wired together).
-struct EnumEntry {
-    rc: i64,
-    total_bytes: i64,
-    /// Global enum id — used by `host_release_enum`'s cascade
-    /// path to look up the variant's payload kinds via
-    /// `enum_info_lock` and recursively release each heap field.
-    global_eid: u32,
-}
-static ENUM_REGISTRY: OnceLock<Mutex<HashMap<i64, EnumEntry>>> = OnceLock::new();
-
-fn enum_registry_lock() -> &'static Mutex<HashMap<i64, EnumEntry>> {
-    ENUM_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// `__enum_alloc(global_eid, n_payload, disc)` — allocate an enum
-/// payload-variant cell, register with rc=1, write the discriminant
-/// at offset 0. Returns the ptr the lower side then writes payload
-/// fields into (offsets 8 + i*8). NewEnum codegen invokes this
-/// instead of the bare alloc + tag-write for `n_payload > 0`.
-extern "C" fn host_enum_alloc(global_eid: i64, n_payload: i64, disc: i64) -> i64 {
-    let total = (1 + n_payload) * 8;
-    let ptr = ilang_runtime::__mir_alloc(total);
-    unsafe { *(ptr as *mut i64) = disc; }
-    let mut reg = enum_registry_lock()
-        .lock()
-        .expect("enum registry poisoned");
-    reg.insert(ptr, EnumEntry { rc: 1, total_bytes: total, global_eid: global_eid as u32 });
-    ptr
-}
-
-extern "C" fn host_retain_enum(p: i64) {
-    if p == 0 {
-        return;
-    }
-    let mut reg = enum_registry_lock()
-        .lock()
-        .expect("enum registry poisoned");
-    if let Some(e) = reg.get_mut(&p) {
-        e.rc += 1;
-    }
-    // Unit-variant cells (interned via __enum_unit_get) miss the
-    // registry — the retain becomes a no-op, which is what we want.
-}
-
-extern "C" fn host_release_enum(p: i64) {
-    if p == 0 {
-        return;
-    }
-    let mut reg = enum_registry_lock()
-        .lock()
-        .expect("enum registry poisoned");
-    let to_free = if let Some(e) = reg.get_mut(&p) {
-        e.rc -= 1;
-        if e.rc <= 0 {
-            Some((e.total_bytes, e.global_eid))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    if let Some((total, global_eid)) = to_free {
-        reg.remove(&p);
-        drop(reg);
-        // Cascade-release any heap-typed payload before freeing the
-        // cell. Look up the variant's payload kinds via the global
-        // enum-info table, walk each payload slot, dispatch
-        // release_value_by_kind. Pairs with the EnumPayload
-        // codegen's extraction-side retain so the rc bookkeeping
-        // stays balanced when the user pattern-matched the variant.
-        let tag = unsafe { *(p as *const i64) };
-        let kinds = {
-            let info = enum_info_lock()
-                .lock()
-                .expect("enum info poisoned");
-            info.get(&global_eid)
-                .and_then(|ei| ei.variants.get(&tag))
-                .map(|(_name, k)| k.clone())
-        };
-        if let Some(kinds) = kinds {
-            for (i, kind) in kinds.iter().enumerate() {
-                let raw = unsafe { *((p + 8 + (i as i64) * 8) as *const i64) };
-                release_print_kind(raw, kind);
-            }
-        }
-        ilang_runtime::__mir_free(p, total);
-    }
-}
+// Enum cell registry, `__enum_alloc`, `__retain_enum`, `__release_enum`
+// all live in `ilang-runtime` (`ENUM_REGISTRY` / `ENUM_PAYLOAD_KINDS`).
+// JIT and AOT both feed `__register_enum_payload_kind` from their
+// populate steps so the cascade walks the same kind tags either way.
 
 /// Cached unit-variant enum cell. Same `(global_enum_id, disc)`
 /// always returns the same pointer, so per-frame `sdl.Axis.leftX`

@@ -143,6 +143,7 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         &mut fb_ctx,
         prog,
         &class_global,
+        &enum_global,
         &outputs.fn_ids,
     )?;
 
@@ -200,6 +201,7 @@ fn emit_aot_init(
     fb_ctx: &mut FunctionBuilderContext,
     prog: &Program,
     class_global: &[u32],
+    enum_global: &[u32],
     fn_ids: &std::collections::HashMap<FuncId, cranelift_module::FuncId>,
 ) -> Result<cranelift_module::FuncId, AotError> {
     // Imports.
@@ -242,6 +244,14 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_closure_size", Linkage::Import, &s)?
     };
+    let reg_enum_payload_kind = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_enum_payload_kind", Linkage::Import, &s)?
+    };
 
     let init_sig = module.make_signature();
     let init_id =
@@ -265,6 +275,8 @@ fn emit_aot_init(
             module.declare_func_in_func(reg_closure_capture, fb.func);
         let reg_closure_size_ref =
             module.declare_func_in_func(reg_closure_size, fb.func);
+        let reg_enum_payload_kind_ref =
+            module.declare_func_in_func(reg_enum_payload_kind, fb.func);
 
         for class in &prog.classes {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -357,6 +369,34 @@ fn emit_aot_init(
             let total_size = (2 + env.captures.len() as i64) * 8;
             let size_v = fb.ins().iconst(types::I64, total_size);
             fb.ins().call(reg_closure_size_ref, &[fn_addr, size_v]);
+        }
+
+        // Enum payload kinds — drives `__release_enum`'s cascade.
+        for (idx, e) in prog.enums.iter().enumerate() {
+            let global_id = enum_global[idx] as i64;
+            for v in &e.variants {
+                let payload_tys: Vec<&MirTy> = match &v.payload {
+                    ilang_mir::VariantPayload::Unit => Vec::new(),
+                    ilang_mir::VariantPayload::Tuple(tys) => tys.iter().collect(),
+                    ilang_mir::VariantPayload::Struct(fs) => {
+                        fs.iter().map(|(_, t)| t).collect()
+                    }
+                };
+                for (i, ty) in payload_tys.iter().enumerate() {
+                    let tag = field_kind_tag(ty);
+                    if tag == 0 {
+                        continue;
+                    }
+                    let eid_v = fb.ins().iconst(types::I64, global_id);
+                    let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+                    let slot_v = fb.ins().iconst(types::I64, i as i64);
+                    let tag_v = fb.ins().iconst(types::I64, tag);
+                    fb.ins().call(
+                        reg_enum_payload_kind_ref,
+                        &[eid_v, disc_v, slot_v, tag_v],
+                    );
+                }
+            }
         }
 
         fb.ins().return_(&[]);
