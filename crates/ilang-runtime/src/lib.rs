@@ -10,6 +10,151 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 // --------------------------------------------------------------------
+// C-string interop helpers
+// --------------------------------------------------------------------
+//
+// ilang strings carry an `[ i64 len | bytes | \0 ]` body pointer; C
+// strings are bare NUL-terminated buffers. The helpers below bridge
+// the two formats so `@extern(C)` calls can pass / receive C strings
+// without forcing every binding site to peek at the layout.
+
+/// Read a NUL-terminated C string into a byte slice. Used by the
+/// `stringFromCstr` / `cstrArrayToStrings` helpers to copy from a
+/// caller-owned buffer (typically returned by an `@extern(C)` fn)
+/// into an ilang-managed string.
+unsafe fn raw_cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
+    if p == 0 {
+        return &[];
+    }
+    let mut len = 0;
+    let q = p as *const u8;
+    while *q.add(len) != 0 {
+        len += 1;
+    }
+    std::slice::from_raw_parts(q, len)
+}}
+
+/// `cstrFromString(s: string): *char` — ilang strings are already
+/// NUL-terminated under the body pointer, so the conversion is the
+/// identity. Lives behind `extern "C"` so the bindings can call it
+/// like any other helper.
+#[unsafe(export_name = "cstrFromString")]
+pub extern "C" fn cstr_from_string(p: i64) -> i64 { p }
+
+/// `stringFromCstr(p: *const char): string` — copy the bytes
+/// pointed to by `p` into a fresh, registry-tracked ilang string
+/// so `free(p)` afterwards doesn't invalidate the result.
+#[unsafe(export_name = "stringFromCstr")]
+pub extern "C" fn string_from_cstr(p: i64) -> i64 {
+    if p == 0 {
+        return leak_cstring(String::new());
+    }
+    let bytes = unsafe { raw_cstr_bytes(p) };
+    leak_cstring(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// `cstrArrayToStrings(p: *const *const char): string[]` — walk a
+/// NULL-terminated `char**` and copy each entry into a fresh ilang
+/// string, packed into a 48-byte-header dynamic array with
+/// `KIND_STR` cells so `__release_array` releases each element when
+/// the array drops.
+#[unsafe(export_name = "cstrArrayToStrings")]
+pub extern "C" fn cstr_array_to_strings(ptrs: i64) -> i64 {
+    let mut elems: Vec<i64> = Vec::new();
+    if ptrs != 0 {
+        unsafe {
+            let mut p = ptrs as *const *const u8;
+            while !(*p).is_null() {
+                let raw = (*p) as i64;
+                let bytes = raw_cstr_bytes(raw);
+                let s = String::from_utf8_lossy(bytes).into_owned();
+                elems.push(leak_cstring(s));
+                p = p.add(1);
+            }
+        }
+    }
+    build_i64_array(&elems, KIND_STR)
+}
+
+// --------------------------------------------------------------------
+// `math.*` stdlib bindings
+// --------------------------------------------------------------------
+//
+// Symbol names use `export_name = "math.X"` so they match the JIT-
+// emitted symbol the codegen looks up via the `use math` form. AOT
+// links against these the same way it links any other runtime
+// helper, so calling `math.sin(...)` in ilang works in both
+// backends without per-call dispatch logic.
+
+macro_rules! math_unary {
+    ($name:ident, $sym:expr, $body:expr) => {
+        #[unsafe(export_name = $sym)]
+        pub extern "C" fn $name(x: f64) -> f64 { $body(x) }
+    };
+}
+math_unary!(math_sin,   "math.sin",   f64::sin);
+math_unary!(math_cos,   "math.cos",   f64::cos);
+math_unary!(math_tan,   "math.tan",   f64::tan);
+math_unary!(math_asin,  "math.asin",  f64::asin);
+math_unary!(math_acos,  "math.acos",  f64::acos);
+math_unary!(math_atan,  "math.atan",  f64::atan);
+math_unary!(math_sqrt,  "math.sqrt",  f64::sqrt);
+math_unary!(math_exp,   "math.exp",   f64::exp);
+math_unary!(math_ln,    "math.ln",    f64::ln);
+math_unary!(math_log10, "math.log10", f64::log10);
+math_unary!(math_log2,  "math.log2",  f64::log2);
+math_unary!(math_floor, "math.floor", f64::floor);
+math_unary!(math_ceil,  "math.ceil",  f64::ceil);
+math_unary!(math_round, "math.round", f64::round);
+math_unary!(math_abs,   "math.abs",   f64::abs);
+
+#[unsafe(export_name = "math.atan2")]
+pub extern "C" fn math_atan2(y: f64, x: f64) -> f64 { y.atan2(x) }
+
+#[unsafe(export_name = "math.pow")]
+pub extern "C" fn math_pow(x: f64, y: f64) -> f64 { x.powf(y) }
+
+// --------------------------------------------------------------------
+// Top-level `let` slot storage
+// --------------------------------------------------------------------
+//
+// Used by both the REPL (cross-chunk persistence) and the AOT entry
+// (in-process persistence of top-level mutable lets referenced by
+// named functions). Lower emits `__repl_store_slot(idx, value)` after
+// each top-level let's initialiser and `__repl_load_slot(idx)`
+// wherever a fn body references the binding. Lives outside any
+// JITModule so freeing & recompiling per chunk is safe.
+
+fn repl_slot_storage() -> &'static Mutex<Vec<i64>> {
+    static SLOTS: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
+    SLOTS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __repl_load_slot(idx: i64) -> i64 {
+    let g = repl_slot_storage().lock().expect("repl slots poisoned");
+    g.get(idx as usize).copied().unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __repl_store_slot(idx: i64, value: i64) {
+    let mut g = repl_slot_storage().lock().expect("repl slots poisoned");
+    let need = (idx as usize) + 1;
+    if g.len() < need {
+        g.resize(need, 0);
+    }
+    g[idx as usize] = value;
+}
+
+/// Public reset hook so REPL sessions starting fresh don't carry
+/// over slots from a previous in-process run (mostly useful for
+/// tests).
+pub fn reset_repl_slots() {
+    let mut g = repl_slot_storage().lock().expect("repl slots poisoned");
+    g.clear();
+}
+
+// --------------------------------------------------------------------
 // Heap allocator + introspection
 // --------------------------------------------------------------------
 
@@ -1383,6 +1528,73 @@ pub extern "C" fn __register_enum_payload_kind(
         entry.push(0);
     }
     entry[idx] = kind;
+}
+
+/// Box a unit (no-payload) enum variant into a fresh 8-byte cell
+/// holding just the discriminant. Used at `EnumCtor` sites where the
+/// variant has no payload data and the cell goes through the same
+/// release path as a payloaded one. The cell leaks intentionally —
+/// the codegen treats these as program-lifetime constants, but the
+/// helper exists for the rare path that wants a fresh box per call.
+#[unsafe(no_mangle)]
+pub extern "C" fn __enum_box(disc: i64) -> i64 {
+    let p = __mir_alloc(8);
+    unsafe { *(p as *mut i64) = disc; }
+    p
+}
+
+/// Cached unit-variant enum cell. Same `(global_enum_id, disc)`
+/// always returns the same pointer, so per-frame `sdl.Axis.leftX`
+/// style enum-ctors don't keep allocating fresh 8-byte cells. The
+/// cells leak on purpose — they're program-lifetime constants.
+static ENUM_UNIT_CACHE: OnceLock<Mutex<HashMap<(u32, i64), i64>>> = OnceLock::new();
+
+fn enum_unit_cache() -> &'static Mutex<HashMap<(u32, i64), i64>> {
+    ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __enum_unit_get(global_eid: i64, disc: i64) -> i64 {
+    let key = (global_eid as u32, disc);
+    {
+        let m = enum_unit_cache().lock().expect("enum unit cache poisoned");
+        if let Some(&p) = m.get(&key) {
+            return p;
+        }
+    }
+    // Race-permissive: if two threads insert concurrently the second
+    // overwrites with a fresh leaked cell of the same value — harmless
+    // since the cells are immutable singletons and both leak.
+    let p = __mir_alloc(8);
+    unsafe { *(p as *mut i64) = disc; }
+    let mut m = enum_unit_cache().lock().expect("enum unit cache poisoned");
+    *m.entry(key).or_insert(p)
+}
+
+/// Validating variant of `__enum_unit_get`. Looks `disc` up in the
+/// enum's declared variants (via `ENUM_PRINT_INFO`, populated by
+/// both backends from the registration pass) before returning the
+/// cached cell — aborts when the discriminant doesn't match any
+/// declared variant, matching repr(C) Rust enum semantics so a stale
+/// C-side value can't materialise a ghost variant cell.
+#[unsafe(no_mangle)]
+pub extern "C" fn __enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
+    let (valid, name) = {
+        let t = enum_print_info().lock().expect("enum print info poisoned");
+        match t.get(&(global_eid as u32)) {
+            Some(info) => (info.variants.contains_key(&disc), info.name.clone()),
+            None => (false, format!("<enum#{global_eid}>")),
+        }
+    };
+    if !valid {
+        eprintln!(
+            "ilang: read CRepr struct field of enum `{name}` with \
+             unknown discriminant {disc} (0x{disc:X}) — declared variants \
+             do not include this value",
+        );
+        std::process::abort();
+    }
+    __enum_unit_get(global_eid, disc)
 }
 
 #[unsafe(no_mangle)]

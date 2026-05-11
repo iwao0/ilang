@@ -310,10 +310,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_push", host_array_push as *const u8);
     jit_builder.symbol("__array_pop", host_array_pop as *const u8);
     jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
-    jit_builder.symbol("__enum_box", host_enum_box as *const u8);
+    jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
     jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
-    jit_builder.symbol("__repl_load_slot", host_repl_load_slot as *const u8);
-    jit_builder.symbol("__repl_store_slot", host_repl_store_slot as *const u8);
+    jit_builder.symbol("__repl_load_slot", ilang_runtime::__repl_load_slot as *const u8);
+    jit_builder.symbol("__repl_store_slot", ilang_runtime::__repl_store_slot as *const u8);
     // Raw-memory FFI marshalling: `readT(p, off): T` / `writeT(p,
     // off, v)`. The `read*` family folds the loaded primitive to
     // i64 (or f32/f64) for the cross-FFI return; callers reinterpret
@@ -373,10 +373,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__enum_alloc", ilang_runtime::__enum_alloc as *const u8);
     jit_builder.symbol("__release_enum", ilang_runtime::__release_enum as *const u8);
     jit_builder.symbol("__retain_enum", ilang_runtime::__retain_enum as *const u8);
-    jit_builder.symbol("__enum_unit_get", host_enum_unit_get as *const u8);
+    jit_builder.symbol("__enum_unit_get", ilang_runtime::__enum_unit_get as *const u8);
     jit_builder.symbol(
         "__enum_unit_get_checked",
-        host_enum_unit_get_checked as *const u8,
+        ilang_runtime::__enum_unit_get_checked as *const u8,
     );
     jit_builder.symbol("__enum_disc_str", host_enum_disc_str as *const u8);
     jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
@@ -2487,60 +2487,19 @@ extern "C" fn host_write_f64(p: i64, off: i64, v: f64) {
 /// Box a raw discriminant value into a unit-variant enum heap cell.
 /// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
 /// the tag at offset 0, no payload. Used by the integer→enum
-/// coerce path.
-/// REPL host-slot storage for cross-chunk top-level `let` values.
-/// The REPL session assigns each top-level binding a stable slot
-/// index; the JIT-compiled chunk reads / writes through these
-/// helpers so values survive across module rebuilds. Lives outside
-/// any JITModule so freeing & recompiling per chunk is safe.
-fn repl_slots() -> &'static std::sync::Mutex<Vec<i64>> {
-    use std::sync::OnceLock;
-    static SLOTS: OnceLock<std::sync::Mutex<Vec<i64>>> = OnceLock::new();
-    SLOTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
-}
+/// REPL host-slot storage moved to `ilang-runtime`
+/// (`__repl_load_slot` / `__repl_store_slot`); both backends share
+/// the same in-process Vec via the JIT symbol map and the AOT
+/// import. `reset_repl_slots` re-exports the runtime hook for the
+/// REPL session bootstrap.
+pub use ilang_runtime::reset_repl_slots;
 
-extern "C" fn host_repl_load_slot(idx: i64) -> i64 {
-    let g = repl_slots().lock().expect("repl slots poisoned");
-    g.get(idx as usize).copied().unwrap_or(0)
-}
-
-extern "C" fn host_repl_store_slot(idx: i64, value: i64) {
-    let mut g = repl_slots().lock().expect("repl slots poisoned");
-    let need = (idx as usize) + 1;
-    if g.len() < need {
-        g.resize(need, 0);
-    }
-    g[idx as usize] = value;
-}
-
-/// Public reset hook so REPL sessions starting fresh don't carry
-/// over slots from a previous in-process run (mostly useful for
-/// tests).
-pub fn reset_repl_slots() {
-    let mut g = repl_slots().lock().expect("repl slots poisoned");
-    g.clear();
-}
-
-extern "C" fn host_enum_box(disc: i64) -> i64 {
-    let p = ilang_runtime::__mir_alloc(8);
-    unsafe { *(p as *mut i64) = disc; }
-    p
-}
-
-// Enum cell registry, `__enum_alloc`, `__retain_enum`, `__release_enum`
-// all live in `ilang-runtime` (`ENUM_REGISTRY` / `ENUM_PAYLOAD_KINDS`).
-// JIT and AOT both feed `__register_enum_payload_kind` from their
-// populate steps so the cascade walks the same kind tags either way.
-
-/// Cached unit-variant enum cell. Same `(global_enum_id, disc)`
-/// always returns the same pointer, so per-frame `sdl.Axis.leftX`
-/// style enum-ctors don't keep allocating fresh 8-byte cells. The
-/// cells are leaked on purpose — they're program-lifetime constants.
-static ENUM_UNIT_CACHE: OnceLock<Mutex<HashMap<(u32, i64), i64>>> = OnceLock::new();
-
-fn enum_unit_cache_lock() -> &'static Mutex<HashMap<(u32, i64), i64>> {
-    ENUM_UNIT_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
+// `__enum_box`, `__enum_unit_get`, `__enum_unit_get_checked`,
+// `__enum_alloc`, `__retain_enum`, `__release_enum` all live in
+// `ilang-runtime` (along with `ENUM_REGISTRY` / `ENUM_PAYLOAD_KINDS`
+// / `ENUM_UNIT_CACHE`). Both backends feed
+// `__register_enum_payload_kind` from their populate steps so the
+// cascade walks the same kind tags either way.
 
 /// Cast helper for `enum-value as string` on `: string`-repr
 /// enums. Look the enum up by global id, find the variant whose
@@ -2583,52 +2542,6 @@ extern "C" fn host_enum_disc_str(global_eid: i64, disc: i64) -> i64 {
             std::process::abort();
         }
     }
-}
-
-extern "C" fn host_enum_unit_get(global_eid: i64, disc: i64) -> i64 {
-    let key = (global_eid as u32, disc);
-    {
-        let m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
-        if let Some(&p) = m.get(&key) {
-            return p;
-        }
-    }
-    // Race-permissive: if two threads insert concurrently the second
-    // overwrites with a fresh leaked cell of the same value — harmless
-    // since the cells are immutable singletons and both leak.
-    let p = ilang_runtime::__mir_alloc(8);
-    unsafe { *(p as *mut i64) = disc; }
-    let mut m = enum_unit_cache_lock().lock().expect("enum unit cache poisoned");
-    *m.entry(key).or_insert(p)
-}
-
-/// Validating variant of `host_enum_unit_get`. Looks `disc` up in
-/// the enum's declared variants (via `enum_info_lock`) before
-/// returning the cached cell — if the discriminant doesn't match
-/// any declared variant, abort with a diagnostic. Used by the
-/// CRepr-struct field load path: a C library may have written a
-/// stale or out-of-range value into the field, and silently
-/// minting a "ghost variant" cell would let downstream `match`
-/// arms read garbage. Aborting matches the contract for
-/// `repr(C)` enums in Rust and gives a localised crash instead
-/// of a delayed memory bug.
-extern "C" fn host_enum_unit_get_checked(global_eid: i64, disc: i64) -> i64 {
-    let (valid, name) = {
-        let m = enum_info_lock().lock().expect("enum info poisoned");
-        match m.get(&(global_eid as u32)) {
-            Some(info) => (info.variants.contains_key(&disc), info.name.clone()),
-            None => (false, format!("<enum#{global_eid}>")),
-        }
-    };
-    if !valid {
-        eprintln!(
-            "ilang: read CRepr struct field of enum `{name}` with \
-             unknown discriminant {disc} (0x{disc:X}) — declared variants \
-             do not include this value",
-        );
-        std::process::abort();
-    }
-    host_enum_unit_get(global_eid, disc)
 }
 
 /// Wrap an inline fixed-length array (a bare `ptr` to `len` elements

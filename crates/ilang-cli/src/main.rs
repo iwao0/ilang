@@ -100,10 +100,42 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         &tc.method_overload_picks(),
         &tc.call_default_fills(),
     );
+    // Mirror run_file's top-level-let-to-slot promotion: any module-
+    // level mutable `let` referenced from a free fn / method body
+    // becomes a host-slot binding so `lower_program_with_slots` can
+    // emit `__repl_load_slot` / `__repl_store_slot` instead of an
+    // unbound-variable error. The runtime ships these in both the JIT
+    // and AOT paths now.
+    let mut slot_table: HashMap<Symbol, (u32, ilang_ast::Type)> = HashMap::new();
+    {
+        let mut top_let_names: std::collections::HashSet<Symbol> =
+            std::collections::HashSet::new();
+        for stmt in &prog.stmts {
+            if let StmtKind::Let { name, .. } = &stmt.kind {
+                top_let_names.insert(*name);
+            }
+        }
+        let mut referenced: std::collections::HashSet<Symbol> =
+            std::collections::HashSet::new();
+        collect_fn_free_var_refs(&prog, &top_let_names, &mut referenced);
+        let mut next_slot: u32 = 0;
+        for stmt in &prog.stmts {
+            if let StmtKind::Let { name, .. } = &stmt.kind {
+                if !referenced.contains(name) {
+                    continue;
+                }
+                if let Some(ty) = tc.lookup_global(*name) {
+                    slot_table.insert(*name, (next_slot, ty));
+                    next_slot += 1;
+                }
+            }
+        }
+        ilang_mir_codegen::reset_repl_slots();
+    }
     let prog = ilang_mir::monomorphize::monomorphize(&prog);
     let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
     let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
-    let mut mir = match ilang_mir::lower_program(&prog) {
+    let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("{display_path}: mir lower: {e}");
@@ -147,6 +179,33 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     // binary (cargo lays both into the same `target/<profile>/` dir).
     if let Some(rt) = locate_runtime_lib() {
         cmd.arg(&rt);
+    }
+    // Every `@lib("X")`-annotated extern fn body resolves through the
+    // system loader at runtime in the JIT, but the AOT linker needs
+    // an explicit `-lX`. Walk the MIR for unique lib names, picking
+    // the first entry of each fn's `libs` list as the canonical link
+    // target (the rest are JIT-side fallbacks for `os.libLoaded`).
+    let mut seen_libs: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
+    for f in mir.functions.iter() {
+        if let Some(primary) = f.libs.first() {
+            seen_libs.insert(primary.as_str().to_string());
+        }
+    }
+    if !seen_libs.is_empty() {
+        // Standard macOS install paths. Homebrew on Apple Silicon
+        // lives under /opt/homebrew; Intel Macs keep /usr/local. Pass
+        // both as search paths and as rpath entries so the linker
+        // resolves now and the loader finds the dylib at runtime.
+        for p in ["/opt/homebrew/lib", "/usr/local/lib"] {
+            if std::path::Path::new(p).is_dir() {
+                cmd.arg(format!("-L{p}"));
+                cmd.arg(format!("-Wl,-rpath,{p}"));
+            }
+        }
+    }
+    for lib in &seen_libs {
+        cmd.arg(format!("-l{lib}"));
     }
     let status = cmd.status();
     match status {
