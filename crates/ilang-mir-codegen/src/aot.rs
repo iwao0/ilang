@@ -485,6 +485,16 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_class_print_field", Linkage::Import, &s)?
     };
+    let reg_struct_print_field = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_struct_print_field", Linkage::Import, &s)?
+    };
     let reg_enum_print_name = {
         let mut s = module.make_signature();
         s.params.push(AbiParam::new(types::I64));
@@ -698,6 +708,8 @@ fn emit_aot_init(
             module.declare_func_in_func(reg_class_print_name, fb.func);
         let reg_class_print_field_ref =
             module.declare_func_in_func(reg_class_print_field, fb.func);
+        let reg_struct_print_field_ref =
+            module.declare_func_in_func(reg_struct_print_field, fb.func);
         let reg_enum_print_name_ref =
             module.declare_func_in_func(reg_enum_print_name, fb.func);
         let reg_enum_print_variant_name_ref =
@@ -720,6 +732,12 @@ fn emit_aot_init(
             let name_did = class_name_data[cls_idx];
             let name_body = ilang_string_body(module, &mut fb, name_did);
             fb.ins().call(reg_class_print_name_ref, &[cid_v, name_body]);
+            let is_struct = matches!(
+                class.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            );
             for (fi, f) in class.fields.iter().enumerate() {
                 let pk = print_kind_id_for_ty(&f.ty);
                 let fname_did = class_field_name_data[cls_idx][fi];
@@ -730,6 +748,33 @@ fn emit_aot_init(
                     reg_class_print_field_ref,
                     &[cid_v, idx_v, fname_body, pk_v],
                 );
+                if is_struct && f.bit_field.is_none() {
+                    let off = class.c_field_offsets.get(fi).copied().unwrap_or(0);
+                    let nested_cid: i64 = if let MirTy::Object(nc) = &f.ty {
+                        let nested = &prog.classes[nc.0 as usize];
+                        if matches!(
+                            nested.repr,
+                            ilang_mir::ClassRepr::CRepr
+                                | ilang_mir::ClassRepr::CPacked
+                                | ilang_mir::ClassRepr::CUnion
+                        ) {
+                            class_global[nc.0 as usize] as i64
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    };
+                    let fname_body2 = ilang_string_body(module, &mut fb, fname_did);
+                    let idx_v2 = fb.ins().iconst(types::I64, fi as i64);
+                    let pk_v2 = fb.ins().iconst(types::I64, pk);
+                    let off_v = fb.ins().iconst(types::I64, off);
+                    let nested_v = fb.ins().iconst(types::I64, nested_cid);
+                    fb.ins().call(
+                        reg_struct_print_field_ref,
+                        &[cid_v, idx_v2, fname_body2, pk_v2, off_v, nested_v],
+                    );
+                }
             }
             // Heap-typed fields go into the runtime's
             // `OBJECT_FIELD_TABLE` so `__release_object_fields`

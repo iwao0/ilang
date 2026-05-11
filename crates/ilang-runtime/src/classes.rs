@@ -264,3 +264,140 @@ pub fn format_object_into(out: &mut String, obj_ptr: i64) {
     }
     out.push('}');
 }
+
+// --------------------------------------------------------------------
+// `@extern(C)` struct print info
+//
+// CRepr / CPacked / CUnion structs have no class_id header and use C
+// natural alignment, so the class-print path above can't read them.
+// Each field is registered with its byte offset and a PK_* print kind;
+// `__print_struct(class_id, ptr)` walks the registry and reads each
+// field at its declared offset with the size implied by its PK_*.
+// --------------------------------------------------------------------
+
+pub(crate) struct StructPrintField {
+    pub(crate) name: String,
+    pub(crate) pk: i64,
+    pub(crate) offset: i64,
+    /// Non-zero when the field is itself a CRepr struct inlined into
+    /// the parent's bytes. The formatter recurses with this class id
+    /// and the address `parent_ptr + offset` (no pointer load). Zero
+    /// for primitive / `string` / heap-pointer fields.
+    pub(crate) nested_cid: u32,
+}
+
+static STRUCT_PRINT_INFO: OnceLock<Mutex<HashMap<u32, Vec<StructPrintField>>>> = OnceLock::new();
+
+fn struct_print_info() -> &'static Mutex<HashMap<u32, Vec<StructPrintField>>> {
+    STRUCT_PRINT_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_struct_print_field(
+    class_id: i64,
+    idx: i64,
+    name_str_ptr: i64,
+    pk: i64,
+    offset: i64,
+    nested_cid: i64,
+) {
+    let name = cstr_to_str(name_str_ptr).to_string();
+    let mut t = struct_print_info().lock().expect("struct print info poisoned");
+    let entry = t.entry(class_id as u32).or_default();
+    let i = idx as usize;
+    while entry.len() <= i {
+        entry.push(StructPrintField {
+            name: String::new(),
+            pk: 0,
+            offset: 0,
+            nested_cid: 0,
+        });
+    }
+    entry[i] = StructPrintField {
+        name,
+        pk,
+        offset,
+        nested_cid: nested_cid as u32,
+    };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __print_struct(class_id: i64, ptr: i64) {
+    let mut out = std::io::stdout().lock();
+    if ptr == 0 {
+        let _ = out.write_all(b"<null>");
+        return;
+    }
+    let mut s = String::new();
+    format_struct_into(&mut s, class_id, ptr);
+    let _ = out.write_all(s.as_bytes());
+}
+
+pub fn format_struct_into(out: &mut String, class_id: i64, ptr: i64) {
+    use std::fmt::Write;
+    if ptr == 0 {
+        out.push_str("<null>");
+        return;
+    }
+    let cid = class_id as u32;
+    let name = {
+        let t = class_print_info().lock().expect("class print info poisoned");
+        t.get(&cid).map(|i| i.name.clone())
+    };
+    let fields = {
+        let t = struct_print_info().lock().expect("struct print info poisoned");
+        t.get(&cid).map(|fs| {
+            fs.iter()
+                .map(|f| (f.name.clone(), f.pk, f.offset, f.nested_cid))
+                .collect::<Vec<_>>()
+        })
+    };
+    let name = name.unwrap_or_else(|| format!("struct#{cid}"));
+    let base = name.split('<').next().unwrap_or(name.as_str());
+    out.push_str(base);
+    out.push_str(" {");
+    let fields = fields.unwrap_or_default();
+    if !fields.is_empty() {
+        out.push(' ');
+        for (i, (fname, pk, offset, nested_cid)) in fields.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(fname);
+            out.push_str(": ");
+            if *nested_cid != 0 {
+                // Inline struct field — recurse with the address of
+                // the inlined bytes rather than treating it as a heap
+                // pointer.
+                format_struct_into(out, *nested_cid as i64, ptr + *offset);
+            } else {
+                let raw = read_field_raw(ptr, *offset, *pk);
+                crate::print_dispatch::format_kind_id(out, *pk, raw);
+            }
+        }
+        out.push(' ');
+    }
+    out.push('}');
+    let _ = write!(out, "");
+}
+
+/// Read a field of a CRepr struct at byte `offset`, sized according
+/// to its PK_*. The result is widened to i64 so it can flow into the
+/// shared `format_kind_id` dispatcher.
+fn read_field_raw(base: i64, offset: i64, pk: i64) -> i64 {
+    use crate::kind::*;
+    let addr = (base + offset) as *const u8;
+    unsafe {
+        match pk {
+            x if x == PK_I8_SIG => *(addr as *const i8) as i64,
+            x if x == PK_I8_UNS || x == PK_BOOL => *(addr as *const u8) as i64,
+            x if x == PK_I16_SIG => *(addr as *const i16) as i64,
+            x if x == PK_I16_UNS => *(addr as *const u16) as i64,
+            x if x == PK_I32_SIG => *(addr as *const i32) as i64,
+            x if x == PK_I32_UNS => *(addr as *const u32) as i64,
+            x if x == PK_F32 => *(addr as *const i32) as i64,
+            // 8-byte slots: i64/u64, f64, pointers (string/object).
+            _ => *(addr as *const i64),
+        }
+    }
+}

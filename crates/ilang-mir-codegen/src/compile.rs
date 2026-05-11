@@ -131,6 +131,7 @@ struct PrintIds {
     space: cranelift_module::FuncId,
     newline: cranelift_module::FuncId,
     object: cranelift_module::FuncId,
+    struct_: cranelift_module::FuncId,
     fn_: cranelift_module::FuncId,
     map: cranelift_module::FuncId,
     weak: cranelift_module::FuncId,
@@ -346,6 +347,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
     jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
     jit_builder.symbol("__print_object", ilang_runtime::__print_object as *const u8);
+    jit_builder.symbol("__print_struct", ilang_runtime::__print_struct as *const u8);
     jit_builder.symbol("__class_name", ilang_runtime::__class_name as *const u8);
     jit_builder.symbol("__print_weak", ilang_runtime::__print_weak as *const u8);
     jit_builder.symbol("__print_enum", ilang_runtime::__print_enum as *const u8);
@@ -624,10 +626,53 @@ pub fn compile_with_builtins(
         let gcid = global_cid(class.id.0) as i64;
         let name_ptr = ilang_runtime::leak_cstring(class.name.as_str().to_string());
         ilang_runtime::__register_class_print_name(gcid, name_ptr);
+        let is_struct = matches!(
+            class.repr,
+            ilang_mir::ClassRepr::CRepr
+                | ilang_mir::ClassRepr::CPacked
+                | ilang_mir::ClassRepr::CUnion
+        );
         for (i, f) in class.fields.iter().enumerate() {
             let pk = print_kind_id(&f.ty);
             let fname_ptr = ilang_runtime::leak_cstring(f.name.as_str().to_string());
             ilang_runtime::__register_class_print_field(gcid, i as i64, fname_ptr, pk);
+            if is_struct {
+                // CRepr / CPacked / CUnion: also populate the struct
+                // print registry with each field's natural byte
+                // offset so `__print_struct` can read with C layout.
+                // Bit-field fields don't have a byte slot of their
+                // own — skip them rather than report a fake offset.
+                if f.bit_field.is_some() {
+                    continue;
+                }
+                let off = class
+                    .c_field_offsets
+                    .get(i)
+                    .copied()
+                    .unwrap_or(0);
+                // Inline nested struct: pass the nested global cid so
+                // the formatter recurses on its inlined bytes rather
+                // than misreading the cell as a heap pointer.
+                let nested_cid: i64 = if let MirTy::Object(nc) = &f.ty {
+                    let nested = &prog.classes[nc.0 as usize];
+                    if matches!(
+                        nested.repr,
+                        ilang_mir::ClassRepr::CRepr
+                            | ilang_mir::ClassRepr::CPacked
+                            | ilang_mir::ClassRepr::CUnion
+                    ) {
+                        global_cid(nc.0) as i64
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                let fname_ptr = ilang_runtime::leak_cstring(f.name.as_str().to_string());
+                ilang_runtime::__register_struct_print_field(
+                    gcid, i as i64, fname_ptr, pk, off, nested_cid,
+                );
+            }
         }
     }
     // Populate enum-print-info registry — host_print_enum walks
@@ -817,6 +862,29 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     enum_global: &[u32],
     missing_optional_syms: &std::collections::HashSet<String>,
 ) -> Result<LoweringOutputs, CompileError> {
+    // For each local class id, its GLOBAL class id if the class is a
+    // CRepr / CPacked / CUnion struct (`@extern(C)` block, no rc
+    // header, C-natural alignment) — `-1` otherwise. The print path
+    // routes struct-typed `MirTy::Object` to `__print_struct(global,
+    // ptr)` instead of `__print_object(ptr)`, which would misread the
+    // first field as a class_id header.
+    let class_struct_global: Vec<i64> = prog
+        .classes
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if matches!(
+                c.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            ) {
+                class_global[i] as i64
+            } else {
+                -1
+            }
+        })
+        .collect();
     let alloc_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -1032,6 +1100,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let panic_fn_id = declare_unit_i64(module, "__ilang_panic")?;
     let drop_dispatch_id = declare_unary_i64(module, "__drop_dispatch")?;
     let print_object_id = declare_unit_i64(module, "__print_object")?;
+    let print_struct_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__print_struct", Linkage::Import, &sig)?
+    };
     let print_fn_id = declare_unit_i64(module, "__print_fn")?;
     let release_obj_id = declare_unit_i64(module, "__release_object")?;
     let retain_obj_id = declare_unit_i64(module, "__retain_object")?;
@@ -1101,6 +1175,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         space: declare_unit_void(module, "__print_space")?,
         newline: declare_unit_void(module, "__print_newline")?,
         object: print_object_id,
+        struct_: print_struct_id,
         fn_: print_fn_id,
         map: print_map_id,
         weak: print_weak_id,
@@ -1366,6 +1441,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 prog,
                 &class_global,
                 &enum_global,
+                &class_struct_global,
                 &stack_local,
             )?;
             fb.finalize();
@@ -3412,6 +3488,7 @@ fn lower_function<M: Module>(
     prog: &Program,
     class_global: &[u32],
     enum_global: &[u32],
+    class_struct_global: &[i64],
     stack_local: &std::collections::HashSet<ValueId>,
 ) -> Result<(), CompileError> {
     // Allocate clif blocks 1:1 with MIR blocks. Skip Unit-typed
@@ -3501,6 +3578,7 @@ fn lower_function<M: Module>(
                 env_value,
                 class_global,
                 enum_global,
+                class_struct_global,
                 stack_local,
             )?;
         }
@@ -3537,6 +3615,7 @@ fn lower_inst<M: Module>(
     env_value: Value,
     class_global: &[u32],
     enum_global: &[u32],
+    class_struct_global: &[i64],
     stack_local: &std::collections::HashSet<ValueId>,
 ) -> Result<(), CompileError> {
     match inst {
@@ -3648,7 +3727,7 @@ fn lower_inst<M: Module>(
                             fb.ins().call(r, &[]);
                         }
                         let av = vmap[a];
-                        emit_print_value(fb, module, print_ids, print_lits, &aty, av, enum_global);
+                        emit_print_value(fb, module, print_ids, print_lits, &aty, av, enum_global, class_struct_global);
                         printed += 1;
                     }
                     if printed > 0 {
@@ -5519,6 +5598,7 @@ fn emit_print_value<M: Module>(
     ty: &MirTy,
     av: Value,
     enum_global: &[u32],
+    class_struct_global: &[i64],
 ) {
     match ty {
         MirTy::Bool => {
@@ -5574,7 +5654,7 @@ fn emit_print_value<M: Module>(
             // Load the boxed inner value (the some payload is a 1-cell heap).
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, 0);
             let inner_v = reduce_from_i64(fb, inner, raw);
-            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v, enum_global);
+            emit_print_value(fb, module, print_ids, print_lits, inner, inner_v, enum_global, class_struct_global);
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
             fb.ins().jump(cont_blk, [].iter());
 
@@ -5590,7 +5670,7 @@ fn emit_print_value<M: Module>(
                 let off = (i as i32) * 8;
                 let raw = fb.ins().load(types::I64, MemFlags::trusted(), av, off);
                 let elem_v = reduce_from_i64(fb, ity, raw);
-                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v, enum_global);
+                emit_print_value(fb, module, print_ids, print_lits, ity, elem_v, enum_global, class_struct_global);
             }
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_paren);
         }
@@ -5635,7 +5715,7 @@ fn emit_print_value<M: Module>(
             let addr = fb.ins().iadd(data_ptr, off);
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
             let elem_v = reduce_from_i64(fb, elem, raw);
-            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global);
+            emit_print_value(fb, module, print_ids, print_lits, elem, elem_v, enum_global, class_struct_global);
             // i = i + 1
             let one = fb.ins().iconst(types::I64, 1);
             let i_next = fb.ins().iadd(i_arg, one);
@@ -5646,9 +5726,19 @@ fn emit_print_value<M: Module>(
             fb.seal_block(exit_blk);
             emit_print_lit(fb, module, print_ids.str_, print_lits.close_bracket);
         }
-        MirTy::Object(_) => {
-            let r = module.declare_func_in_func(print_ids.object, fb.func);
-            fb.ins().call(r, &[av]);
+        MirTy::Object(cid) => {
+            let sg = class_struct_global
+                .get(cid.0 as usize)
+                .copied()
+                .unwrap_or(-1);
+            if sg >= 0 {
+                let cid_v = fb.ins().iconst(types::I64, sg);
+                let r = module.declare_func_in_func(print_ids.struct_, fb.func);
+                fb.ins().call(r, &[cid_v, av]);
+            } else {
+                let r = module.declare_func_in_func(print_ids.object, fb.func);
+                fb.ins().call(r, &[av]);
+            }
         }
         MirTy::Fn(_) => {
             let r = module.declare_func_in_func(print_ids.fn_, fb.func);
