@@ -20,9 +20,13 @@
 //! value. ARC bookkeeping is unchanged — the inlined body emits the
 //! same `Retain` / `Release` shape it would have had at call time.
 //!
-//! Cascading isn't supported in one pass: an inlined call's body
-//! may itself contain `Inst::Call`s but they're not re-considered.
-//! Run `run_program` twice if you want a second wave.
+//! Cascading is handled per-function: `run_function` iterates to a
+//! fixed point (capped at `MAX_FUNCTION_ITERS`) so a call that
+//! exposes another inline opportunity through its newly-spliced
+//! body gets picked up on the next round. Direct self-recursion is
+//! rejected; mutual recursion exits the cascade through the same
+//! self-rec check after the cycle's bodies fold back into one
+//! function.
 
 use std::collections::HashMap;
 
@@ -36,6 +40,13 @@ use crate::types::MirTy;
 /// leaving larger bodies alone. Tweak if compile time / code size
 /// regresses.
 const INLINE_BUDGET: usize = 8;
+
+/// Cap on the per-function fixed-point loop. Each iteration runs
+/// the splice pass once over every block. Five rounds covers
+/// reasonable cascade depth (a → b → c → d → e leaf chains) while
+/// guarding against exponential blow-up if a hypothetical mutually-
+/// recursive pair slips past the direct-self-rec check.
+const MAX_FUNCTION_ITERS: usize = 5;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
@@ -311,6 +322,23 @@ pub fn run_program(prog: &mut Program) -> Stats {
 }
 
 fn run_function(caller: &mut Function, candidates: &[Option<Candidate>]) -> Stats {
+    let mut total = Stats::default();
+    // Iterate to a fixed point so a Call that exposes another inline
+    // opportunity through its newly-spliced body gets caught on the
+    // next round (e.g. `outer` → `mid` → `leaf` chains). Hard cap on
+    // iterations as a guard against accidental mutual recursion
+    // sneaking past the direct-self-rec eligibility check.
+    for _ in 0..MAX_FUNCTION_ITERS {
+        let pass = run_function_once(caller, candidates);
+        total += pass;
+        if pass.calls_inlined == 0 {
+            break;
+        }
+    }
+    total
+}
+
+fn run_function_once(caller: &mut Function, candidates: &[Option<Candidate>]) -> Stats {
     let mut stats = Stats::default();
     // Function-wide rename map: original `Call.dst` → remapped
     // callee return value. Accumulated across every block so a call
@@ -323,11 +351,6 @@ fn run_function(caller: &mut Function, candidates: &[Option<Candidate>]) -> Stat
         stats += inline_in_block(caller, b, candidates, &mut post_rename);
     }
     if !post_rename.is_empty() {
-        // Apply accumulated renames to every block — both insts and
-        // terminator. The current block's insts already saw renames
-        // applied inline; reapplying is idempotent because the chain
-        // is non-cyclic (the inliner only ever adds rename entries
-        // whose target is a freshly-allocated, never-mapped ValueId).
         for block in caller.blocks.iter_mut() {
             for inst in block.insts.iter_mut() {
                 remap_inst(inst, |v| {
