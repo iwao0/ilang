@@ -291,20 +291,20 @@ pub fn compile_with_builtins(
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.
-    jit_builder.symbol("__str_length", host_str_length as *const u8);
-    jit_builder.symbol("__str_concat", host_str_concat as *const u8);
-    jit_builder.symbol("__str_eq", host_str_eq as *const u8);
-    jit_builder.symbol("__int_to_string", host_int_to_string as *const u8);
-    jit_builder.symbol("__bool_to_string", host_bool_to_string as *const u8);
-    jit_builder.symbol("__str_to_upper", host_str_to_upper as *const u8);
-    jit_builder.symbol("__str_to_lower", host_str_to_lower as *const u8);
-    jit_builder.symbol("__str_trim", host_str_trim as *const u8);
-    jit_builder.symbol("__str_includes", host_str_includes as *const u8);
-    jit_builder.symbol("__str_starts_with", host_str_starts_with as *const u8);
-    jit_builder.symbol("__str_ends_with", host_str_ends_with as *const u8);
-    jit_builder.symbol("__str_char_at", host_str_char_at as *const u8);
-    jit_builder.symbol("__str_slice", host_str_slice as *const u8);
-    jit_builder.symbol("__str_replace", host_str_replace as *const u8);
+    jit_builder.symbol("__str_length", ilang_runtime::__str_length as *const u8);
+    jit_builder.symbol("__str_concat", ilang_runtime::__str_concat as *const u8);
+    jit_builder.symbol("__str_eq", ilang_runtime::__str_eq as *const u8);
+    jit_builder.symbol("__int_to_string", ilang_runtime::__int_to_string as *const u8);
+    jit_builder.symbol("__bool_to_string", ilang_runtime::__bool_to_string as *const u8);
+    jit_builder.symbol("__str_to_upper", ilang_runtime::__str_to_upper as *const u8);
+    jit_builder.symbol("__str_to_lower", ilang_runtime::__str_to_lower as *const u8);
+    jit_builder.symbol("__str_trim", ilang_runtime::__str_trim as *const u8);
+    jit_builder.symbol("__str_includes", ilang_runtime::__str_includes as *const u8);
+    jit_builder.symbol("__str_starts_with", ilang_runtime::__str_starts_with as *const u8);
+    jit_builder.symbol("__str_ends_with", ilang_runtime::__str_ends_with as *const u8);
+    jit_builder.symbol("__str_char_at", ilang_runtime::__str_char_at as *const u8);
+    jit_builder.symbol("__str_slice", ilang_runtime::__str_slice as *const u8);
+    jit_builder.symbol("__str_replace", ilang_runtime::__str_replace as *const u8);
     jit_builder.symbol("__array_index_of", host_array_index_of as *const u8);
     jit_builder.symbol("__array_includes", host_array_includes as *const u8);
     jit_builder.symbol("__array_push", host_array_push as *const u8);
@@ -362,8 +362,8 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__retain_tuple", host_retain_tuple as *const u8);
     jit_builder.symbol("__release_map", host_release_map as *const u8);
     jit_builder.symbol("__retain_map", host_retain_map as *const u8);
-    jit_builder.symbol("__release_string", host_release_string as *const u8);
-    jit_builder.symbol("__retain_string", host_retain_string as *const u8);
+    jit_builder.symbol("__release_string", ilang_runtime::__release_string as *const u8);
+    jit_builder.symbol("__retain_string", ilang_runtime::__retain_string as *const u8);
     // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
     // / `test.liveStringCount`. Used by the leak-detection fixtures
     // under tests/programs/.
@@ -1847,7 +1847,7 @@ fn release_by_kind(ptr: i64, kind: i64) {
         KIND_TUPLE => host_release_tuple(ptr),
         KIND_MAP => host_release_map(ptr),
         KIND_CLOSURE => host_release_closure(ptr),
-        KIND_STR => host_release_string(ptr),
+        KIND_STR => ilang_runtime::__release_string(ptr),
         KIND_ENUM => host_release_enum(ptr),
         _ => {} // KIND_NONE / unknown — primitive, no cascade.
     }
@@ -1885,7 +1885,7 @@ fn retain_by_kind(ptr: i64, kind: i64) {
         KIND_TUPLE => host_retain_tuple(ptr),
         KIND_MAP => host_retain_map(ptr),
         KIND_CLOSURE => host_retain_closure(ptr),
-        KIND_STR => host_retain_string(ptr),
+        KIND_STR => ilang_runtime::__retain_string(ptr),
         KIND_ENUM => host_retain_enum(ptr),
         _ => {}
     }
@@ -2309,10 +2309,7 @@ extern "C" fn host_test_live_alloc_count() -> i64 {
 /// `intToStr` / `str_concat` / `getError` etc. temps that should
 /// have been released after their consumer ran.
 extern "C" fn host_test_live_string_count() -> i64 {
-    let reg = string_registry_lock()
-        .lock()
-        .expect("string registry poisoned");
-    reg.len() as i64
+    ilang_runtime::live_string_count()
 }
 
 /// Map runtime: a Rust HashMap<i64, i64> wrapped with rc + per-value
@@ -2615,16 +2612,7 @@ extern "C" fn host_retain_map(map: i64) {
 // length 3); the trailing NUL keeps cstr-style C interop working
 // (snprintf etc. read up to the first NUL, which is a documented
 // truncation if the user puts NULs inside the string).
-unsafe fn cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
-    if p == 0 {
-        return &[];
-    }
-    let len = *((p - 8) as *const i64);
-    if len <= 0 {
-        return &[];
-    }
-    std::slice::from_raw_parts(p as *const u8, len as usize)
-}}
+use ilang_runtime::{cstr_bytes, cstr_to_str, leak_cstring};
 
 /// Raw C-string scanner — for pointers crossing the FFI boundary
 /// from C land (e.g. `getenv()`, char** array elements). These have
@@ -2641,210 +2629,11 @@ unsafe fn raw_cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
     std::slice::from_raw_parts(q, len)
 }}
 
-extern "C" fn host_str_length(p: i64) -> i64 {
-    let bytes = unsafe { cstr_bytes(p) };
-    // Unicode code-point count to match `String.length` semantics.
-    std::str::from_utf8(bytes)
-        .map(|s| s.chars().count() as i64)
-        .unwrap_or(bytes.len() as i64)
-}
-
-/// Refcount-managed heap-string registry. Strings produced by
-/// `leak_cstring` (and therefore by `host_int_to_string`,
-/// `host_str_concat`, `host_string_from_cstr`, …) are tracked here
-/// so `host_release_string` can drop the underlying buffer once rc
-/// reaches 0. Pointers we don't own (`string_data` literal symbols
-/// baked into the JIT module, FFI-returned `*const char` that the
-/// program treats as `string`, etc.) simply miss the registry and
-/// the release becomes a no-op — the same conservative direction
-/// every other heap-typed Release takes.
-struct StringEntry {
-    /// Owns the underlying allocation. The buffer is freed in `Drop`
-    /// using the same Layout that `leak_cstring` allocated with.
-    /// The JIT reaches the bytes via the `body_ptr` map key, so
-    /// this field is only ever read indirectly via Drop.
-    #[allow(dead_code)]
-    backing: StringBacking,
-    rc: i64,
-}
-
-/// Owned heap allocation for a `[ i64 len | bytes | \0 ]` string.
-/// Allocated with align=8 so the leading length prefix is reachable
-/// via `*((body_ptr - 8) as *const i64)` without violating Rust's
-/// pointer-alignment checks (`Box<[u8]>` is byte-aligned and would
-/// trip `misaligned pointer dereference` in debug builds).
-struct StringBacking {
-    base: *mut u8,
-    total: usize,
-}
-// SAFETY: the pointer is owned solely by this struct + the global
-// registry (which is mutex-guarded). No interior mutability beyond
-// what the registry already serializes.
-unsafe impl Send for StringBacking {}
-
-impl Drop for StringBacking {
-    fn drop(&mut self) {
-        if self.base.is_null() {
-            return;
-        }
-        let layout = std::alloc::Layout::from_size_align(self.total, 8).unwrap();
-        unsafe { std::alloc::dealloc(self.base, layout) };
-    }
-}
-static STRING_REGISTRY: OnceLock<Mutex<HashMap<i64, StringEntry>>> = OnceLock::new();
-
-fn string_registry_lock() -> &'static Mutex<HashMap<i64, StringEntry>> {
-    STRING_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Build a heap string with the documented `[ i64 len | bytes | \0 ]`
-/// layout. The returned i64 is the user-visible pointer (points at
-/// the first UTF-8 byte). The backing buffer is registered with
-/// `STRING_REGISTRY` at rc=1; a matching `__release_string` call
-/// drops it.
-fn leak_cstring(s: String) -> i64 {
-    let body = s.into_bytes();
-    let len = body.len() as i64;
-    // Total = 8 (length prefix) + body + 1 (trailing NUL).
-    let total = 8 + body.len() + 1;
-    // Align=8 so reads of the i64 length prefix at `body_ptr - 8`
-    // satisfy Rust's pointer-alignment requirement. (Box<[u8]> is
-    // byte-aligned and trips `misaligned pointer dereference` in
-    // debug builds, breaking every code path that flows through
-    // `cstr_bytes` on a freshly-built string.)
-    let layout = std::alloc::Layout::from_size_align(total.max(8), 8).unwrap();
-    let base = unsafe { std::alloc::alloc(layout) };
-    if base.is_null() {
-        std::alloc::handle_alloc_error(layout);
-    }
-    unsafe {
-        // Write `len` at offset 0 (i64 LE).
-        std::ptr::copy_nonoverlapping(
-            len.to_le_bytes().as_ptr(),
-            base,
-            8,
-        );
-        // Body bytes.
-        if !body.is_empty() {
-            std::ptr::copy_nonoverlapping(body.as_ptr(), base.add(8), body.len());
-        }
-        // Trailing NUL.
-        *base.add(8 + body.len()) = 0;
-    }
-    let body_ptr = unsafe { base.add(8) } as i64;
-    {
-        let mut reg = string_registry_lock()
-            .lock()
-            .expect("string registry poisoned");
-        reg.insert(
-            body_ptr,
-            StringEntry {
-                backing: StringBacking { base, total },
-                rc: 1,
-            },
-        );
-    }
-    body_ptr
-}
-
-extern "C" fn host_retain_string(p: i64) {
-    if p == 0 {
-        return;
-    }
-    let mut reg = string_registry_lock()
-        .lock()
-        .expect("string registry poisoned");
-    if let Some(e) = reg.get_mut(&p) {
-        e.rc += 1;
-    }
-}
-
-extern "C" fn host_release_string(p: i64) {
-    if p == 0 {
-        return;
-    }
-    let mut reg = string_registry_lock()
-        .lock()
-        .expect("string registry poisoned");
-    let drop_it = if let Some(e) = reg.get_mut(&p) {
-        e.rc -= 1;
-        e.rc <= 0
-    } else {
-        false
-    };
-    if drop_it {
-        reg.remove(&p);
-    }
-}
-
-extern "C" fn host_str_concat(a: i64, b: i64) -> i64 {
-    let sa = unsafe { cstr_bytes(a) };
-    let sb = unsafe { cstr_bytes(b) };
-    let mut out = Vec::with_capacity(sa.len() + sb.len());
-    out.extend_from_slice(sa);
-    out.extend_from_slice(sb);
-    leak_cstring(String::from_utf8_lossy(&out).into_owned())
-}
-
-extern "C" fn host_str_eq(a: i64, b: i64) -> i64 {
-    if a == b {
-        return 1;
-    }
-    let sa = unsafe { cstr_bytes(a) };
-    let sb = unsafe { cstr_bytes(b) };
-    if sa == sb { 1 } else { 0 }
-}
-
-extern "C" fn host_int_to_string(n: i64) -> i64 {
-    leak_cstring(n.to_string())
-}
-
-extern "C" fn host_bool_to_string(b: i64) -> i64 {
-    leak_cstring(if b != 0 { "true".to_string() } else { "false".to_string() })
-}
-
-fn cstr_to_str<'a>(p: i64) -> &'a str {
-    let bytes = unsafe { cstr_bytes(p) };
-    std::str::from_utf8(bytes).unwrap_or("")
-}
-
-extern "C" fn host_str_to_upper(p: i64) -> i64 {
-    leak_cstring(cstr_to_str(p).to_uppercase())
-}
-extern "C" fn host_str_to_lower(p: i64) -> i64 {
-    leak_cstring(cstr_to_str(p).to_lowercase())
-}
-extern "C" fn host_str_trim(p: i64) -> i64 {
-    leak_cstring(cstr_to_str(p).trim().to_string())
-}
-extern "C" fn host_str_includes(p: i64, q: i64) -> i64 {
-    if cstr_to_str(p).contains(cstr_to_str(q)) { 1 } else { 0 }
-}
-extern "C" fn host_str_starts_with(p: i64, q: i64) -> i64 {
-    if cstr_to_str(p).starts_with(cstr_to_str(q)) { 1 } else { 0 }
-}
-extern "C" fn host_str_ends_with(p: i64, q: i64) -> i64 {
-    if cstr_to_str(p).ends_with(cstr_to_str(q)) { 1 } else { 0 }
-}
-extern "C" fn host_str_char_at(p: i64, idx: i64) -> i64 {
-    let s = cstr_to_str(p);
-    let c = s.chars().nth(idx as usize);
-    leak_cstring(c.map(|c| c.to_string()).unwrap_or_default())
-}
-extern "C" fn host_str_slice(p: i64, start: i64, end: i64) -> i64 {
-    let s = cstr_to_str(p);
-    let chars: Vec<char> = s.chars().collect();
-    let lo = (start.max(0) as usize).min(chars.len());
-    let hi = (end.max(0) as usize).min(chars.len());
-    let lo = lo.min(hi);
-    leak_cstring(chars[lo..hi].iter().collect::<String>())
-}
-extern "C" fn host_str_replace(p: i64, from: i64, to: i64) -> i64 {
-    let s = cstr_to_str(p);
-    let f = cstr_to_str(from);
-    let t = cstr_to_str(to);
-    leak_cstring(s.replace(f, t))
-}
+// String layout helpers (`cstr_bytes`, `cstr_to_str`, `leak_cstring`)
+// and every `__str_*` / `__int_to_string` / `__bool_to_string` /
+// `__retain_string` / `__release_string` runtime body live in
+// `ilang-runtime`. The JIT registers those entries directly with
+// `JITBuilder::symbol(name, ilang_runtime::__name as *const u8)`.
 
 // Array layout: 3-i64 header [length | capacity | data_ptr] where
 // data_ptr → i64×capacity. The host helpers below treat each data

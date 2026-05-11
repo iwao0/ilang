@@ -110,6 +110,21 @@ fn emits_object_for_console_log_with_string() {
 }
 
 #[test]
+fn emits_object_for_string_operations() {
+    expect_object(
+        r#"
+        let a = "hello"
+        let b = " world"
+        let c = a + b
+        console.log(c)
+        console.log(c.length)
+        console.log(c.toUpper())
+        console.log("foo,bar".replace(",", "-"))
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_integer_division() {
     // Division compiles even though div-by-zero panics at runtime —
     // we just verify the AOT pass emits something.
