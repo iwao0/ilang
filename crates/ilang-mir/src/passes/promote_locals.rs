@@ -51,30 +51,52 @@ pub fn run_program(prog: &mut Program) -> Stats {
 }
 
 pub fn run_function(func: &mut Function) -> Stats {
-    // Count `DefLocal`s per LocalId and remember the source value
-    // for the *first* (and only) def we see — multi-def locals get
-    // dropped from the candidate map.
+    // Count `DefLocal`s per LocalId and remember which block holds
+    // the def. Single-def locals are the candidates; we also need
+    // the def's block to enforce same-block usage.
     let mut def_count: HashMap<LocalId, u32> = HashMap::new();
     let mut def_value: HashMap<LocalId, ValueId> = HashMap::new();
-    for block in &func.blocks {
+    let mut def_block: HashMap<LocalId, usize> = HashMap::new();
+    for (bi, block) in func.blocks.iter().enumerate() {
         for inst in &block.insts {
             if let Inst::DefLocal { local, value } = inst {
                 *def_count.entry(*local).or_insert(0) += 1;
                 def_value.entry(*local).or_insert(*value);
+                def_block.entry(*local).or_insert(bi);
             }
         }
     }
-    // Keep only single-def, non-heap locals. Heap-typed promotion
-    // would change which value the ARC scope-exit Release operates
-    // on — out of scope here; the lowerer's local-slot bookkeeping
-    // stays authoritative for those.
+    // Keep only single-def, non-heap locals whose every UseLocal
+    // sits in the same block as the DefLocal. Cross-block
+    // promotion would substitute a ValueId defined in block A for
+    // a use in block B — if A doesn't dominate B, codegen blows
+    // up at `vmap[..]` lookup time. Same-block is a sufficient
+    // (conservative) dominance proof and avoids needing a full
+    // dominator analysis here.
     let mut promotable: HashMap<LocalId, ValueId> = HashMap::new();
+    let mut use_blocks: HashMap<LocalId, Vec<usize>> = HashMap::new();
+    for (bi, block) in func.blocks.iter().enumerate() {
+        for inst in &block.insts {
+            if let Inst::UseLocal { local, .. } = inst {
+                use_blocks.entry(*local).or_default().push(bi);
+            }
+        }
+    }
     for (loc, count) in &def_count {
         if *count != 1 {
             continue;
         }
         if let Some(ty) = func.local_tys.get(loc.0 as usize) {
             if ty.is_heap() {
+                continue;
+            }
+        }
+        let &db = match def_block.get(loc) {
+            Some(b) => b,
+            None => continue,
+        };
+        if let Some(usages) = use_blocks.get(loc) {
+            if usages.iter().any(|&ub| ub != db) {
                 continue;
             }
         }
