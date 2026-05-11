@@ -86,6 +86,9 @@ pub extern "C" fn __array_push(arr: i64, value: i64) {
     }
 }
 
+/// Returns the popped value as Optional<T>: a 3-cell heap
+/// `[value | rc | kind_tag]`, or 0 (none). Inherits the array's
+/// elem kind tag so the Optional's cascade drops the cell properly.
 #[unsafe(no_mangle)]
 pub extern "C" fn __array_pop(arr: i64) -> i64 {
     if arr == 0 {
@@ -101,14 +104,19 @@ pub extern "C" fn __array_pop(arr: i64) -> i64 {
         let stride = *h.add(5);
         let idx = len - 1;
         let addr = (data + idx * stride) as *const u8;
-        let value = match stride {
+        let value: i64 = match stride {
             1 => *(addr as *const u8) as i64,
             2 => *(addr as *const u16) as i64,
             4 => *(addr as *const u32) as i64,
             _ => *(addr as *const i64),
         };
         *h = idx;
-        value
+        let elem_tag = *h.add(4);
+        let cell = __mir_alloc(24) as *mut i64;
+        *cell = value;
+        *cell.add(1) = 1;
+        *cell.add(2) = elem_tag;
+        cell as i64
     }
 }
 
