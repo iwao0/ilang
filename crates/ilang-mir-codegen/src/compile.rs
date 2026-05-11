@@ -440,7 +440,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__print_int", ilang_runtime::__print_int as *const u8);
     jit_builder.symbol("__print_bool", ilang_runtime::__print_bool as *const u8);
     jit_builder.symbol("__print_f64", ilang_runtime::__print_f64 as *const u8);
-    jit_builder.symbol("__print_str", host_print_str as *const u8);
+    jit_builder.symbol("__print_str", ilang_runtime::__print_str as *const u8);
     jit_builder.symbol("__print_space", ilang_runtime::__print_space as *const u8);
     jit_builder.symbol("__print_newline", ilang_runtime::__print_newline as *const u8);
     for b in builtins {
@@ -3858,15 +3858,6 @@ extern "C" fn host_test_fail(msg: i64) {
 }
 
 
-// `host_print_str` stays here for now because the string ABI
-// (`[i64 len | bytes | \0]` and `cstr_bytes`) is intertwined with the
-// JIT's string lowering. Once strings move to `ilang-runtime`,
-// AOT can share the same body.
-extern "C" fn host_print_str(p: i64) {
-    let bytes = unsafe { cstr_bytes(p) };
-    let s = String::from_utf8_lossy(bytes);
-    print!("{}", s);
-}
 
 extern "C" fn host_map_has(map: i64, key: i64) -> i64 {
     if map == 0 {

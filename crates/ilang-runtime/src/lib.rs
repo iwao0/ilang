@@ -35,6 +35,29 @@ pub extern "C" fn __print_f64(x: f64) {
     }
 }
 
+/// Print an ilang string. `p` is the address of the first byte of the
+/// user-visible payload; the byte length sits as an `i64` 8 bytes
+/// *before* `p`, matching the codegen's `[ i64 length | bytes | \0 ]`
+/// data layout. A null `p` (or non-positive length) prints nothing.
+#[unsafe(no_mangle)]
+pub extern "C" fn __print_str(p: i64) {
+    let bytes: &[u8] = if p == 0 {
+        return;
+    } else {
+        // SAFETY: callers emit the [len | bytes | NUL] layout; `p`
+        // points at the first byte after the length prefix.
+        unsafe {
+            let len = *((p - 8) as *const i64);
+            if len <= 0 {
+                return;
+            }
+            std::slice::from_raw_parts(p as *const u8, len as usize)
+        }
+    };
+    let mut out = std::io::stdout().lock();
+    let _ = out.write_all(bytes);
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __print_space() {
     let mut out = std::io::stdout().lock();

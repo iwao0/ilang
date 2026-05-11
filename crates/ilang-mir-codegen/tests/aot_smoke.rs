@@ -100,6 +100,16 @@ fn emits_object_for_console_log_multi_arg() {
 }
 
 #[test]
+fn emits_object_for_console_log_with_string() {
+    expect_object(
+        r#"
+        console.log("hello")
+        console.log("answer:", 42)
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_integer_division() {
     // Division compiles even though div-by-zero panics at runtime —
     // we just verify the AOT pass emits something.
