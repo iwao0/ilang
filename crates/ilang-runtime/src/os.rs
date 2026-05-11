@@ -201,6 +201,22 @@ pub extern "C" fn os_lib_loaded(name: i64) -> i64 {
     0
 }
 
+/// Read a NUL-terminated C string into bytes — `dlerror` returns a
+/// libc-owned `*const u8` without the ilang `[i64 len | …]` prefix,
+/// so we walk for `\0` instead of peeking at offset -8.
+unsafe fn raw_c_str_bytes<'a>(p: *const u8) -> &'a [u8] {
+    if p.is_null() {
+        return &[];
+    }
+    unsafe {
+        let mut len = 0usize;
+        while *p.add(len) != 0 {
+            len += 1;
+        }
+        std::slice::from_raw_parts(p, len)
+    }
+}
+
 #[unsafe(export_name = "os.libLoadError")]
 pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
     let n = if name == 0 {
@@ -221,7 +237,7 @@ pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
         if p.is_null() {
             leak_cstring(format!("could not load `{n}`"))
         } else {
-            let bytes = cstr_bytes(p as i64);
+            let bytes = raw_c_str_bytes(p);
             leak_cstring(String::from_utf8_lossy(bytes).into_owned())
         }
     }

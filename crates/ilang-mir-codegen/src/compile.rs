@@ -509,7 +509,7 @@ pub fn compile_with_builtins(
     let mut module = JITModule::new(jit_builder);
 
     // Declare the alloc builtin so NewObject can call it.
-    let LoweringOutputs { fn_ids, extern_fn_ids } =
+    let LoweringOutputs { fn_ids, extern_fn_ids, missing_optional_fn_ids: _ } =
         lower_program_into(&mut module, prog, builtins, &class_global, &enum_global)?;
     module
         .finalize_definitions()
@@ -786,6 +786,10 @@ pub fn compile_with_builtins(
 pub(crate) struct LoweringOutputs {
     pub fn_ids: HashMap<FuncId, cranelift_module::FuncId>,
     pub extern_fn_ids: std::collections::HashSet<FuncId>,
+    /// `@optional` extern fns whose every `@lib(...)` failed to
+    /// probe — declared `Linkage::Local` so the caller can attach an
+    /// abort-stub body before `module.finalize`.
+    pub missing_optional_fn_ids: std::collections::HashSet<FuncId>,
 }
 
 pub(crate) fn lower_program_into<M: Module>(
@@ -794,6 +798,24 @@ pub(crate) fn lower_program_into<M: Module>(
     builtins: &[BuiltinDecl],
     class_global: &[u32],
     enum_global: &[u32],
+) -> Result<LoweringOutputs, CompileError> {
+    lower_program_into_with_missing(
+        module,
+        prog,
+        builtins,
+        class_global,
+        enum_global,
+        &std::collections::HashSet::new(),
+    )
+}
+
+pub(crate) fn lower_program_into_with_missing<M: Module>(
+    module: &mut M,
+    prog: &Program,
+    builtins: &[BuiltinDecl],
+    class_global: &[u32],
+    enum_global: &[u32],
+    missing_optional_syms: &std::collections::HashSet<String>,
 ) -> Result<LoweringOutputs, CompileError> {
     let alloc_id = {
         let mut sig = module.make_signature();
@@ -1208,15 +1230,11 @@ pub(crate) fn lower_program_into<M: Module>(
     let mut fn_sigs: HashMap<FuncId, Signature> = HashMap::new();
     let mut extern_fn_ids: std::collections::HashSet<FuncId> =
         std::collections::HashSet::new();
+    let mut missing_optional_fn_ids: std::collections::HashSet<FuncId> =
+        std::collections::HashSet::new();
     for (idx, func) in prog.functions.iter().enumerate() {
         let mid = FuncId(idx as u32);
         let sig = clif_signature_for(&*module, func, prog)?;
-        let linkage = if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
-            extern_fn_ids.insert(mid);
-            Linkage::Import
-        } else {
-            Linkage::Local
-        };
         // For `@extern(C) @symbol("foo") fn bar(...)`, declare under
         // the C-side name `foo` so dlsym resolves correctly while
         // ilang-side calls still go through this FuncId via `bar`.
@@ -1224,6 +1242,21 @@ pub(crate) fn lower_program_into<M: Module>(
             c.as_str()
         } else {
             func.name.as_str()
+        };
+        let linkage = if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            extern_fn_ids.insert(mid);
+            if missing_optional_syms.contains(symbol_name) {
+                // Optional extern whose libs all failed to probe at
+                // AOT build time. Caller will define a stub body
+                // before finalize so the link step doesn't see an
+                // unresolved Import.
+                missing_optional_fn_ids.insert(mid);
+                Linkage::Local
+            } else {
+                Linkage::Import
+            }
+        } else {
+            Linkage::Local
         };
         let cid = module.declare_function(symbol_name, linkage, &sig)?;
         fn_ids.insert(mid, cid);
@@ -1350,7 +1383,7 @@ pub(crate) fn lower_program_into<M: Module>(
         }
         module.clear_context(&mut ctx);
     }
-    Ok(LoweringOutputs { fn_ids, extern_fn_ids })
+    Ok(LoweringOutputs { fn_ids, extern_fn_ids, missing_optional_fn_ids })
 }
 
 

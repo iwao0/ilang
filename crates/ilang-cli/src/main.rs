@@ -216,14 +216,20 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     }
     // Every `@lib("X")`-annotated extern fn body resolves through the
     // system loader at runtime in the JIT, but the AOT linker needs
-    // an explicit `-lX`. Walk the MIR for unique lib names, picking
-    // the first entry of each fn's `libs` list as the canonical link
-    // target (the rest are JIT-side fallbacks for `os.libLoaded`).
+    // an explicit `-lX`. Pick the first lib name per fn that the AOT
+    // codegen probed as loadable — primary or fallback. Missing libs
+    // are skipped; if the fn was `@optional` it gets a local stub
+    // (emitted by aot.rs) so the link still succeeds.
+    let available_libs = ilang_mir_codegen::aot::probe_available_libs(&mir);
     let mut seen_libs: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
     for f in mir.functions.iter() {
-        if let Some(primary) = f.libs.first() {
-            seen_libs.insert(primary.as_str().to_string());
+        for sym in f.libs.iter() {
+            let name = sym.as_str().to_string();
+            if available_libs.contains(&name) {
+                seen_libs.insert(name);
+                break;
+            }
         }
     }
     if !seen_libs.is_empty() {

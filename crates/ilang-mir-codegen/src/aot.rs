@@ -27,7 +27,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ilang_mir::{FuncId, MirTy, Program};
 
 use crate::compile::{
-    alloc_global_class_id, alloc_global_enum_id, lower_program_into, CompileError,
+    alloc_global_class_id, alloc_global_enum_id, lower_program_into_with_missing,
+    CompileError,
 };
 use crate::ty::mir_to_clif;
 
@@ -47,6 +48,102 @@ impl From<CompileError> for AotError {
     fn from(e: CompileError) -> Self {
         AotError::Compile(e.to_string())
     }
+}
+
+unsafe extern "C" {
+    fn dlopen(path: *const u8, flags: i32) -> *mut u8;
+}
+
+const RTLD_LAZY: i32 = 1;
+
+fn lib_loadable(name: &str) -> bool {
+    let try_one = |n: &str| -> bool {
+        let mut nul = n.as_bytes().to_vec();
+        nul.push(0);
+        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        !h.is_null()
+    };
+    if try_one(name) {
+        return true;
+    }
+    if !name.contains('.') && !name.contains('/') {
+        let candidates: Vec<String> = if cfg!(target_os = "macos") {
+            vec![
+                format!("lib{name}.dylib"),
+                format!("{name}.dylib"),
+                format!("/opt/homebrew/lib/lib{name}.dylib"),
+                format!("/opt/homebrew/lib/{name}.dylib"),
+                format!("/usr/local/lib/lib{name}.dylib"),
+                format!("/usr/local/lib/{name}.dylib"),
+            ]
+        } else if cfg!(target_os = "windows") {
+            vec![format!("{name}.dll"), format!("lib{name}.dll")]
+        } else {
+            let mut out = vec![format!("lib{name}.so")];
+            for n in [6, 5, 4, 3, 2, 1, 0] {
+                out.push(format!("lib{name}.so.{n}"));
+            }
+            out
+        };
+        for cand in candidates {
+            if try_one(&cand) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Probe each `@lib(...)` name referenced by any extern fn and
+/// return the subset that loads via dlopen at build time. The CLI
+/// uses this to filter `-l<missing>` flags out of the link command,
+/// and aot codegen uses it to swap missing-optional fn declarations
+/// to local stubs.
+pub fn probe_available_libs(prog: &Program) -> std::collections::HashSet<String> {
+    let mut all = std::collections::HashSet::new();
+    for f in &prog.functions {
+        if !matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            continue;
+        }
+        for sym in f.libs.iter() {
+            all.insert(sym.as_str().to_string());
+        }
+    }
+    all.retain(|name| lib_loadable(name));
+    all
+}
+
+/// Walk `prog` and return the set of `@optional` extern fns whose
+/// every `@lib(...)` failed to probe. Those fns must be emitted as
+/// local abort-stubs so the link step doesn't complain about
+/// unresolved symbols.
+pub fn missing_optional_fn_names(
+    prog: &Program,
+    available: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for f in &prog.functions {
+        if !matches!(f.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            continue;
+        }
+        if !f.is_optional {
+            continue;
+        }
+        let any = f.libs.iter().any(|l| available.contains(l.as_str()));
+        if any {
+            continue;
+        }
+        // None of the fn's libs loaded — record by its C-side name
+        // so the codegen path can match against `Function.c_symbol`
+        // when picking Linkage::Local instead of Import.
+        let sym = f
+            .c_symbol
+            .as_ref()
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_else(|| f.name.as_str().to_string());
+        out.insert(sym);
+    }
+    out
 }
 
 /// Compile `prog` to a Mach-O / ELF / COFF object file (depending on
@@ -100,16 +197,24 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         .map(|_| alloc_global_enum_id())
         .collect();
 
+    // Probe `@lib(...)` names so we know which won't resolve at
+    // link time. `@optional` extern fns whose libs all fail get
+    // declared as local abort-stubs below; the CLI uses the same
+    // probe (via `probe_available_libs`) to filter `-l` flags.
+    let available_libs = probe_available_libs(prog);
+    let missing_optional = missing_optional_fn_names(prog, &available_libs);
+
     // Shared lowering pass: declares every user fn (and the full
     // runtime-symbol import set), pre-defines string-literal data,
     // and lowers every fn body to clif IR. Returns the FuncId map for
     // the entry-wrapping step below.
-    let outputs = lower_program_into(
+    let outputs = lower_program_into_with_missing(
         &mut module,
         prog,
         &[],
         &class_global,
         &enum_global,
+        &missing_optional,
     )?;
 
     let entry_id = *outputs.fn_ids.get(&prog.entry).ok_or_else(|| {
@@ -137,6 +242,73 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
 
     let mut ctx = module.make_context();
     let mut fb_ctx = FunctionBuilderContext::new();
+
+    // Emit abort-stub bodies for `@optional` extern fns whose
+    // `@lib(...)` libraries all failed to probe at build time. The
+    // stub calls `__ilang_panic` so any actual invocation aborts —
+    // user code is expected to gate via `os.libLoaded(...)` first,
+    // and the link step is happy because the symbol is now Local.
+    if !outputs.missing_optional_fn_ids.is_empty() {
+        let panic_sig = {
+            let mut s = module.make_signature();
+            s.params.push(AbiParam::new(types::I64));
+            s
+        };
+        let panic_fn = module
+            .declare_function("__ilang_panic", Linkage::Import, &panic_sig)?;
+        let msg_did = declare_ilang_string_data(
+            &mut module,
+            "@optional fn invoked but its lib failed to load",
+        )?;
+        for &mid in &outputs.missing_optional_fn_ids {
+            let cid = *outputs.fn_ids.get(&mid).expect("missing optional fn id");
+            let sig = module.declarations().get_function_decl(cid).signature.clone();
+            ctx.func = ClifFunc::with_name_signature(
+                UserFuncName::user(0, cid.as_u32()),
+                sig,
+            );
+            {
+                let mut fb = ClifFnBuilder::new(&mut ctx.func, &mut fb_ctx);
+                let block = fb.create_block();
+                // Mirror the actual signature so cranelift sees
+                // matching block params for indirect call edges.
+                let sig_clone = fb.func.signature.clone();
+                for p in &sig_clone.params {
+                    fb.append_block_param(block, p.value_type);
+                }
+                fb.switch_to_block(block);
+                fb.seal_block(block);
+                let pfn = module.declare_func_in_func(panic_fn, fb.func);
+                let body = ilang_string_body(&mut module, &mut fb, msg_did);
+                fb.ins().call(pfn, &[body]);
+                // After panic we need a terminator. Emit a Return with
+                // zero values for any expected return type.
+                let mut rets: Vec<cranelift::prelude::Value> = Vec::new();
+                let ret_types: Vec<_> =
+                    sig_clone.returns.iter().map(|p| p.value_type).collect();
+                for ty in ret_types {
+                    rets.push(if ty.is_int() {
+                        fb.ins().iconst(ty, 0)
+                    } else if ty == types::F32 {
+                        fb.ins().f32const(0.0)
+                    } else if ty == types::F64 {
+                        fb.ins().f64const(0.0)
+                    } else {
+                        fb.ins().iconst(types::I64, 0)
+                    });
+                }
+                fb.ins().return_(&rets);
+                fb.finalize();
+            }
+            module
+                .define_function(cid, &mut ctx)
+                .map_err(|e| AotError::Other(format!(
+                    "define_function optional-stub `{}`: {e:?}",
+                    prog.functions[mid.0 as usize].name.as_str()
+                )))?;
+            module.clear_context(&mut ctx);
+        }
+    }
 
     // Emit `__ilang_aot_init()` — runs at process startup (via `main`
     // below) and populates the runtime dispatch tables that the JIT
