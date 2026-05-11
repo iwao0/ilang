@@ -12,10 +12,11 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use super::{
-    host_release_map, host_retain_map, PrintKind, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP,
-    KIND_NONE, KIND_OBJECT, KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
+use super::print_kind::{
+    PrintKind, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE, KIND_OBJECT,
+    KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
 };
+use super::{host_release_map, host_retain_map};
 
 // Per-class table of object fields whose runtime values need a
 // cascade-release on object drop. Populated at compile time by the

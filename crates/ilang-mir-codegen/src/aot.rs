@@ -1046,7 +1046,7 @@ fn coerce_to_i32(fb: &mut ClifFnBuilder, v: Value, ty: &MirTy) -> Value {
 /// would silently dispatch through empty `VTABLE` / `DROP_TABLE`
 /// statics at runtime — better to fail at build time.
 fn validate_subset(
-    prog: &Program,
+    _prog: &Program,
     entry: &ilang_mir::Function,
 ) -> Result<(), AotError> {
     // Classes lower through the same NewObject / LoadField paths the

@@ -293,7 +293,7 @@ fn collect_term_uses(term: &Terminator, set: &mut HashSet<ValueId>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inst::{BinOp, BlockId, FuncId, MirConst};
+    use crate::inst::{BinOp, BlockId, MirConst};
     use crate::program::{Block, FuncParam, Function, FunctionKind};
     use crate::types::MirTy;
 

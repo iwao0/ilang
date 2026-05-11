@@ -6,10 +6,8 @@
 
 use ilang_runtime::{cstr_bytes, leak_cstring};
 
-use super::{
-    build_array, format_kind_id, release_by_kind, retain_by_kind, KIND_NONE, KIND_OBJECT,
-    PK_OTHER, PK_STR,
-};
+use super::print_kind::{format_kind_id, KIND_NONE, KIND_OBJECT, PK_OTHER, PK_STR};
+use super::{build_array, release_by_kind, retain_by_kind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum MapKey {

@@ -3,7 +3,7 @@
 
 use ilang_lexer::tokenize;
 use ilang_mir::lower_program;
-use ilang_mir_codegen::{compile_program_to_object, AotError};
+use ilang_mir_codegen::compile_program_to_object;
 use ilang_parser::parse;
 
 fn mir(src: &str) -> ilang_mir::Program {

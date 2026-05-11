@@ -112,7 +112,7 @@ fn try_fold_terminator(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inst::{BlockId, FuncId, Inst, MirConst, Terminator};
+    use crate::inst::{BlockId, Inst, MirConst, Terminator};
     use crate::program::{Block, FuncParam, Function, FunctionKind};
     use crate::types::MirTy;
 

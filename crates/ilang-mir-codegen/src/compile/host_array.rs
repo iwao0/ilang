@@ -1,43 +1,19 @@
-//! Array host runtime.
+//! Array host trampolines.
 //!
 //! ilang arrays use a 48-byte header (`[ len | cap | data_ptr | rc |
 //! elem_kind | stride ]`) followed by `cap × stride` bytes of packed
 //! element storage. The helpers here implement the user-callable
-//! operations (push / pop / map / filter / slice / split / indexOf /
-//! ...), the `build_array` constructor used by other host paths
-//! (split, map values), and the C-array / fixed-length-array bridge
-//! helpers used at FFI call sites.
-
-use ilang_runtime::{cstr_to_str, leak_cstring};
-
-use super::{retain_by_kind, KIND_NONE, KIND_STR};
-
-/// Raw C-string scanner — for pointers crossing the FFI boundary
-/// from C land (e.g. `getenv()`, char** array elements). These have
-/// no length prefix; we walk to the first NUL.
-pub(super) unsafe fn raw_cstr_bytes<'a>(p: i64) -> &'a [u8] { unsafe {
-    if p == 0 {
-        return &[];
-    }
-    let mut len = 0;
-    let q = p as *const u8;
-    while *q.add(len) != 0 {
-        len += 1;
-    }
-    std::slice::from_raw_parts(q, len)
-}}
-
-/// Read back the front of the dyn-array header.
-pub(super) unsafe fn array_header(arr: i64) -> (i64, i64, i64) { unsafe {
-    let p = arr as *const i64;
-    (*p, *p.add(1), *p.add(2))
-}}
+//! operations the JIT registers directly (`push` / `pop` / `indexOf`
+//! / `includes` / `dataPtr`), plus the `build_array` constructor used
+//! by `host_map_keys` / `host_map_values`, and the C-array bridge
+//! used at FFI call sites.
 
 pub(super) extern "C" fn host_array_index_of(arr: i64, value: i64) -> i64 {
     if arr == 0 {
         return -1;
     }
-    let (len, _cap, data) = unsafe { array_header(arr) };
+    let len = unsafe { *(arr as *const i64) };
+    let data = unsafe { *((arr + 16) as *const i64) };
     for i in 0..len {
         let cell = unsafe { *((data + i * 8) as *const i64) };
         if cell == value {
@@ -126,15 +102,6 @@ pub(super) fn build_array(items: &[i64], elem_kind: i64) -> i64 {
     header
 }
 
-/// Invoke a closure (`[fn_ptr | captures...]` block pointer) with one
-/// arg and the trailing env pointer. The fn signature follows the
-/// unified ABI: `extern "C" fn(arg, env_ptr) -> i64`.
-unsafe fn call_closure_1(closure: i64, arg: i64) -> i64 { unsafe {
-    let fn_ptr = *(closure as *const i64);
-    let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
-    f(arg, closure)
-}}
-
 /// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
 /// bytes from a C-side array into a fresh ilang dyn-array `T[]`.
 /// The lower side picks `stride` from T's MirTy so the host doesn't
@@ -157,116 +124,6 @@ pub(super) extern "C" fn host_c_array_to_array(src: i64, n: i64, stride: i64, ki
         *h.add(5) = stride;
     }
     header
-}
-
-/// Wrap an inline fixed-length array (a bare `ptr` to `len` elements
-/// of `stride` bytes each) into a dynamic-array header that the
-/// host_array_* helpers expect. Used at builtin call sites where the
-/// MIR arg type is `Array { len: Some(n), .. }` — those have no
-/// header, just the raw element block. The wrapper is freshly heap-
-/// allocated and considered owned by the caller (release rules apply
-/// as for any other freshly-built array).
-pub(super) extern "C" fn host_fixed_to_dyn(ptr: i64, len: i64, stride: i64, kind_tag: i64) -> i64 {
-    let header = ilang_runtime::__mir_alloc(48);
-    unsafe {
-        let h = header as *mut i64;
-        *h = len;            // len
-        *h.add(1) = len;     // cap
-        *h.add(2) = ptr;     // data_ptr (alias — no copy)
-        *h.add(3) = 1;       // rc
-        *h.add(4) = kind_tag;
-        *h.add(5) = stride;
-    }
-    header
-}
-
-pub(super) extern "C" fn host_array_map(arr: i64, closure: i64, result_kind: i64) -> i64 {
-    if arr == 0 || closure == 0 {
-        return build_array(&[], result_kind);
-    }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let mut out = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
-        let v = unsafe { call_closure_1(closure, cell) };
-        out.push(v);
-    }
-    // result_kind is the closure's return MirTy's KIND_* tag,
-    // threaded in by the lower side. Lets the result array's
-    // drop cascade-release each closure-produced value.
-    build_array(&out, result_kind)
-}
-
-pub(super) extern "C" fn host_array_filter(arr: i64, closure: i64) -> i64 {
-    if arr == 0 || closure == 0 {
-        return build_array(&[], KIND_NONE);
-    }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let elem_kind = unsafe { *((arr + 32) as *const i64) };
-    let mut out = Vec::new();
-    for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
-        let keep = unsafe { call_closure_1(closure, cell) };
-        if keep != 0 {
-            // Filter passes through source elements unchanged —
-            // share their +1 by retaining the kept ones so both
-            // the source array (when it drops) and the result
-            // array (when it drops) account for the reference.
-            if elem_kind != KIND_NONE {
-                retain_by_kind(cell, elem_kind);
-            }
-            out.push(cell);
-        }
-    }
-    build_array(&out, elem_kind)
-}
-
-pub(super) extern "C" fn host_array_slice(arr: i64, start: i64, end: i64) -> i64 {
-    if arr == 0 {
-        return build_array(&[], KIND_NONE);
-    }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    let elem_kind = unsafe { *((arr + 32) as *const i64) };
-    let lo = start.max(0).min(len) as usize;
-    let hi = end.max(0).min(len) as usize;
-    let lo = lo.min(hi);
-    let mut out: Vec<i64> = Vec::with_capacity(hi - lo);
-    for i in lo..hi {
-        let cell = unsafe { *((data + (i as i64) * 8) as *const i64) };
-        // Slice copies element references — retain so both arrays
-        // own the reference (mirrors filter).
-        if elem_kind != KIND_NONE {
-            retain_by_kind(cell, elem_kind);
-        }
-        out.push(cell);
-    }
-    build_array(&out, elem_kind)
-}
-
-pub(super) extern "C" fn host_array_for_each(arr: i64, closure: i64) {
-    if arr == 0 || closure == 0 {
-        return;
-    }
-    let (len, _cap, data) = unsafe { array_header(arr) };
-    for i in 0..len {
-        let cell = unsafe { *((data + i * 8) as *const i64) };
-        unsafe { call_closure_1(closure, cell) };
-    }
-}
-
-pub(super) extern "C" fn host_str_split(p: i64, sep: i64) -> i64 {
-    let s = cstr_to_str(p);
-    let sp = cstr_to_str(sep);
-    let parts: Vec<i64> = if sp.is_empty() {
-        // Empty separator → split per character (matching syntax.md).
-        s.chars().map(|c| leak_cstring(c.to_string())).collect()
-    } else {
-        s.split(sp).map(|t| leak_cstring(t.to_string())).collect()
-    };
-    // Each part is a fresh leak_cstring entry — tag the array as
-    // KIND_STR so dropping it cascades release_string and reclaims
-    // every part.
-    build_array(&parts, KIND_STR)
 }
 
 pub(super) extern "C" fn host_array_pop(arr: i64) -> i64 {

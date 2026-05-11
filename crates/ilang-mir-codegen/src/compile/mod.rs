@@ -14,31 +14,24 @@ mod host_math;
 mod host_misc;
 mod host_os;
 mod host_raw_mem;
-mod host_test;
 mod print_kind;
 
-use host_misc::{
-    enum_info_lock, fn_name_lock, host_cstr_array_to_strings, host_enum_disc_str, host_identity,
-    host_noop, host_optional_missing_stub, host_print_fn, host_print_weak,
-    host_string_from_cstr, host_test_live_alloc_bytes, host_test_live_alloc_count,
-    host_test_live_string_count, process_symbol_exists, EnumPrintInfo,
-};
+use host_misc::{host_optional_missing_stub, process_symbol_exists};
 
 use cascade::{
-    host_release_array, host_release_object, host_release_object_fields, host_release_optional,
-    host_retain_array, host_retain_object, host_retain_optional, object_field_table_lock,
-    release_by_kind, release_object, release_value_by_kind, retain_by_kind,
+    host_release_array, host_release_object, host_release_optional, host_retain_array,
+    host_retain_object, host_retain_optional, object_field_table_lock, release_by_kind,
+    release_object, retain_by_kind,
 };
 
 use host_array::{
-    array_header, build_array, host_array_data_ptr, host_array_filter, host_array_for_each,
-    host_array_includes, host_array_index_of, host_array_map, host_array_pop, host_array_push,
-    host_array_slice, host_c_array_to_array, host_fixed_to_dyn, host_str_split, raw_cstr_bytes,
+    build_array, host_array_data_ptr, host_array_includes, host_array_index_of, host_array_pop,
+    host_array_push, host_c_array_to_array,
 };
 use host_map::{
     host_map_delete, host_map_get, host_map_get_optional, host_map_has, host_map_keys, host_map_new,
     host_map_set, host_map_set_print_kinds, host_map_set_value_kind, host_map_size,
-    host_map_values, host_print_map, host_release_map, host_retain_map, ManagedMap,
+    host_map_values, host_print_map, host_release_map, host_retain_map,
 };
 
 use abi::{
@@ -46,11 +39,9 @@ use abi::{
     ireduce_or_pass, reduce_from_i64, struct_chunks, struct_hfa, struct_indirect,
 };
 use print_kind::{
-    format_f64, format_kind_id, kind_tag_of, kind_tag_of_print_kind, print_kind_id,
-    print_kind_id_for_print_kind, print_kind_of, PrintKind, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM,
-    KIND_MAP, KIND_NONE, KIND_OBJECT, KIND_OPTIONAL, KIND_STR, KIND_TUPLE, PK_ARRAY_I64_SIG,
-    PK_BOOL, PK_F32, PK_F64, PK_I16_SIG, PK_I16_UNS, PK_I32_SIG, PK_I32_UNS, PK_I64_SIG,
-    PK_I64_UNS, PK_I8_SIG, PK_I8_UNS, PK_OBJECT, PK_OTHER, PK_STR,
+    kind_tag_of, kind_tag_of_print_kind, print_kind_id, print_kind_id_for_print_kind,
+    print_kind_of, PrintKind, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE,
+    KIND_OBJECT, KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
 };
 
 use std::collections::HashMap;
@@ -722,86 +713,65 @@ pub fn compile_with_builtins(
             }
         }
     }
-    // Populate enum-print-info registry — host_print_enum walks
-    // enum tag → variant name + payload kinds. Also mirror per-
-    // variant payload kinds into the runtime's smaller
-    // `ENUM_PAYLOAD_KINDS` registry that drives `__release_enum`'s
-    // cascade (so AOT-built programs see the same release cascade
-    // through `__register_enum_payload_kind` calls from
-    // `__ilang_aot_init`).
-    // Enum print + cascade registries both live in `ilang-runtime`;
-    // mirror the JIT-side computed `(name, variants, payload kinds)`
-    // into both at once. The JIT-local `ENUM_INFO` keeps the
-    // string-repr lookup it still needs for `enum-as-string` casts.
-    {
-        let mut t = enum_info_lock().lock().expect("enum info poisoned");
-        for e in &prog.enums {
-            let global_id = global_eid(e.id.0);
-            let name_ptr = ilang_runtime::leak_cstring(e.name.as_str().to_string());
-            ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
-            let mut variants: HashMap<i64, (String, Vec<PrintKind>)> = HashMap::new();
-            let is_str_repr = matches!(e.repr, MirTy::Str);
-            let mut str_repr: HashMap<i64, String> = HashMap::new();
-            for v in &e.variants {
-                let kinds: Vec<PrintKind> = match &v.payload {
-                    ilang_mir::VariantPayload::Unit => Vec::new(),
-                    ilang_mir::VariantPayload::Tuple(tys) => {
-                        tys.iter().map(print_kind_of).collect()
-                    }
-                    ilang_mir::VariantPayload::Struct(fs) => {
-                        fs.iter().map(|(_, t)| print_kind_of(t)).collect()
-                    }
-                };
-                let vname_ptr = ilang_runtime::leak_cstring(v.name.as_str().to_string());
-                ilang_runtime::__register_enum_print_variant_name(
-                    global_id as i64,
-                    v.discriminant,
-                    vname_ptr,
-                );
-                for (i, k) in kinds.iter().enumerate() {
-                    // Cascade tag (KIND_*) for release cascade.
-                    let cascade_tag = kind_tag_of_print_kind(k);
-                    if cascade_tag != KIND_NONE {
-                        ilang_runtime::__register_enum_payload_kind(
-                            global_id as i64,
-                            v.discriminant,
-                            i as i64,
-                            cascade_tag,
-                        );
-                    }
-                    // Print tag (PK_*) for `__print_enum`.
-                    let pk = print_kind_id_for_print_kind(k);
-                    ilang_runtime::__register_enum_print_variant_payload_pk(
+    // Populate the enum print registry (`__register_enum_print_name`
+    // / variant names / payload kinds) and the per-variant cascade
+    // table in `ilang-runtime` so both backends see the same enum
+    // metadata. AOT mirrors these registrations from
+    // `__ilang_aot_init`.
+    for e in &prog.enums {
+        let global_id = global_eid(e.id.0);
+        let name_ptr = ilang_runtime::leak_cstring(e.name.as_str().to_string());
+        ilang_runtime::__register_enum_print_name(global_id as i64, name_ptr);
+        let is_str_repr = matches!(e.repr, MirTy::Str);
+        for v in &e.variants {
+            let kinds: Vec<PrintKind> = match &v.payload {
+                ilang_mir::VariantPayload::Unit => Vec::new(),
+                ilang_mir::VariantPayload::Tuple(tys) => {
+                    tys.iter().map(print_kind_of).collect()
+                }
+                ilang_mir::VariantPayload::Struct(fs) => {
+                    fs.iter().map(|(_, t)| print_kind_of(t)).collect()
+                }
+            };
+            let vname_ptr = ilang_runtime::leak_cstring(v.name.as_str().to_string());
+            ilang_runtime::__register_enum_print_variant_name(
+                global_id as i64,
+                v.discriminant,
+                vname_ptr,
+            );
+            for (i, k) in kinds.iter().enumerate() {
+                // Cascade tag (KIND_*) for release cascade.
+                let cascade_tag = kind_tag_of_print_kind(k);
+                if cascade_tag != KIND_NONE {
+                    ilang_runtime::__register_enum_payload_kind(
                         global_id as i64,
                         v.discriminant,
                         i as i64,
-                        pk,
+                        cascade_tag,
                     );
                 }
-                variants.insert(v.discriminant, (v.name.as_str().to_string(), kinds));
-                if is_str_repr {
-                    if let Some(s) = v.discriminant_str.as_ref() {
-                        str_repr.insert(v.discriminant, s.clone());
-                        // Mirror into the runtime registry that
-                        // `__enum_disc_str` reads so AOT-built
-                        // programs see the same mapping.
-                        let sp = ilang_runtime::leak_cstring(s.clone());
-                        ilang_runtime::__register_enum_disc_str(
-                            global_id as i64,
-                            v.discriminant,
-                            sp,
-                        );
-                    }
+                // Print tag (PK_*) for `__print_enum`.
+                let pk = print_kind_id_for_print_kind(k);
+                ilang_runtime::__register_enum_print_variant_payload_pk(
+                    global_id as i64,
+                    v.discriminant,
+                    i as i64,
+                    pk,
+                );
+            }
+            if is_str_repr {
+                if let Some(s) = v.discriminant_str.as_ref() {
+                    // Mirror into the runtime registry that
+                    // `__enum_disc_str` reads so AOT-built programs
+                    // see the same mapping.
+                    let sp = ilang_runtime::leak_cstring(s.clone());
+                    ilang_runtime::__register_enum_disc_str(
+                        global_id as i64,
+                        v.discriminant,
+                        sp,
+                    );
                 }
             }
-            t.insert(
-                global_id,
-                EnumPrintInfo {
-                    name: e.name.as_str().to_string(),
-                    variants,
-                    str_repr: if is_str_repr { Some(str_repr) } else { None },
-                },
-            );
         }
     }
     // Populate closure capture / size tables in the runtime crate —
@@ -1561,8 +1531,6 @@ fn emit_is_subclass(
 
 
 use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
-use std::sync::Mutex;
-use std::sync::OnceLock;
 
 /// Globally-unique class / enum id allocators. Each `compile_program`
 /// call carves out a fresh range so the per-program local id space
@@ -1632,9 +1600,6 @@ fn walk_mir_ty(ty: &MirTy, f: &mut impl FnMut(&MirTy)) {
 // length 3); the trailing NUL keeps cstr-style C interop working
 // (snprintf etc. read up to the first NUL, which is a documented
 // truncation if the user puts NULs inside the string).
-use ilang_runtime::{cstr_bytes, cstr_to_str, leak_cstring};
-
-
 use host_raw_mem::*;
 
 /// Box a raw discriminant value into a unit-variant enum heap cell.
@@ -1657,7 +1622,6 @@ pub use ilang_runtime::reset_repl_slots;
 
 use host_math::*;
 use host_os::*;
-use host_test::*;
 
 
 

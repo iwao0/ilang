@@ -1013,10 +1013,8 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         if r != 0 {
             println!("{r}");
         }
-        return ExitCode::SUCCESS;
+        ExitCode::SUCCESS
     }
-    // The mir-jit arm above always returns; this is unreachable.
-    unreachable!("mir-jit arm always returns")
 }
 
 

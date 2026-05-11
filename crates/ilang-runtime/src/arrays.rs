@@ -10,7 +10,7 @@
 
 use crate::alloc::{__mir_alloc, __mir_free};
 use crate::cascade::{release_field_by_kind, retain_field_by_kind};
-use crate::kind::{KIND_NONE, KIND_STR};
+use crate::kind::KIND_NONE;
 
 #[inline]
 pub(crate) unsafe fn array_header(arr: i64) -> (i64, i64, i64) {

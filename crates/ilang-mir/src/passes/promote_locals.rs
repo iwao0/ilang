@@ -159,8 +159,8 @@ pub fn run_function(func: &mut Function) -> Stats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inst::{BinOp, BlockId, FuncId, Inst, MirConst, Terminator};
-    use crate::program::{Block, FuncParam, Function, FunctionKind, Program};
+    use crate::inst::{BinOp, BlockId, Inst, MirConst, Terminator};
+    use crate::program::{Block, FuncParam, Function, FunctionKind};
     use crate::types::MirTy;
 
     fn intern(s: &str) -> ilang_ast::Symbol {
