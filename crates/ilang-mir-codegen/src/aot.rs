@@ -222,6 +222,13 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_class_size", Linkage::Import, &s)?
     };
+    let reg_object_field = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_object_field", Linkage::Import, &s)?
+    };
 
     let init_sig = module.make_signature();
     let init_id =
@@ -239,9 +246,27 @@ fn emit_aot_init(
         let reg_vtable_ref = module.declare_func_in_func(reg_vtable, fb.func);
         let reg_drop_ref = module.declare_func_in_func(reg_drop, fb.func);
         let reg_class_size_ref = module.declare_func_in_func(reg_class_size, fb.func);
+        let reg_object_field_ref =
+            module.declare_func_in_func(reg_object_field, fb.func);
 
         for class in &prog.classes {
             let global_cid = class_global[class.id.0 as usize] as i64;
+            // Heap-typed fields go into the runtime's
+            // `OBJECT_FIELD_TABLE` so `__release_object_fields`
+            // cascades through them at rc=0. Each entry is the byte
+            // offset within the cell (header 16 B + 8 B * idx) plus
+            // the `KIND_*` tag.
+            for (i, f) in class.fields.iter().enumerate() {
+                let tag = field_kind_tag(&f.ty);
+                if tag == 0 {
+                    continue; // KIND_NONE — primitive, no cascade.
+                }
+                let off = 16 + (i as i64) * 8;
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let off_v = fb.ins().iconst(types::I64, off);
+                let tag_v = fb.ins().iconst(types::I64, tag);
+                fb.ins().call(reg_object_field_ref, &[cid_v, off_v, tag_v]);
+            }
             // Register the byte size of this class's heap allocation
             // so `__release_object` can reclaim the buffer at rc=0.
             // Skip CRepr / packed / union classes — their lifetime is
@@ -292,6 +317,22 @@ fn emit_aot_init(
         .map_err(|e| AotError::Other(format!("define_function __ilang_aot_init: {e:?}")))?;
     module.clear_context(ctx);
     Ok(init_id)
+}
+
+/// Map a MIR field type to the runtime's `KIND_*` cascade tag.
+/// Returns 0 (`KIND_NONE`) for primitives that need no cascade.
+fn field_kind_tag(ty: &MirTy) -> i64 {
+    match ty {
+        MirTy::Object(_) => 1,    // KIND_OBJECT
+        MirTy::Array { .. } => 2, // KIND_ARRAY
+        MirTy::Optional(_) => 3,  // KIND_OPTIONAL
+        MirTy::Tuple(_) => 4,     // KIND_TUPLE
+        MirTy::Map { .. } => 5,   // KIND_MAP
+        MirTy::Fn(_) => 6,        // KIND_CLOSURE
+        MirTy::Str => 7,          // KIND_STR
+        MirTy::Enum(_) => 8,      // KIND_ENUM
+        _ => 0,                   // KIND_NONE
+    }
 }
 
 /// Fold the entry's return value into a process exit code (i32). Bool

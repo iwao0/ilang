@@ -184,6 +184,21 @@ fn emits_object_for_class_with_method() {
 }
 
 #[test]
+fn emits_object_for_class_with_string_field() {
+    expect_object(
+        r#"
+        class Bag {
+          s: string
+          init(s: string) { this.s = s }
+          deinit() { console.log("bag", this.s, "freed") }
+        }
+        let b = new Bag("alpha")
+        console.log(b.s)
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_class_deinit() {
     expect_object(
         r#"

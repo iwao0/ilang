@@ -1044,6 +1044,24 @@ pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
     t.insert(class_id as u32, size);
 }
 
+/// Per-class `[ (field_offset, KIND_*) ]` list of heap-typed fields.
+/// `__release_object_fields` walks the list and dispatches to the
+/// per-kind release function. AOT populates via
+/// `__register_object_field` in `__ilang_aot_init`; JIT populates
+/// the same map during its post-finalize step.
+static OBJECT_FIELD_TABLE: OnceLock<Mutex<HashMap<u32, Vec<(i64, i64)>>>> =
+    OnceLock::new();
+
+fn object_field_table() -> &'static Mutex<HashMap<u32, Vec<(i64, i64)>>> {
+    OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_object_field(class_id: i64, offset: i64, kind: i64) {
+    let mut t = object_field_table().lock().expect("field table poisoned");
+    t.entry(class_id as u32).or_default().push((offset, kind));
+}
+
 /// Look up the registered byte size for a class. Returns `None` when
 /// the class was deliberately left out of the table (CRepr / packed /
 /// union, weak-referenced, etc.). Used by the JIT-side host helpers
@@ -1108,12 +1126,96 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
     }
 }
 
+// KIND_* tags also used by the array header / optional cell tags.
+// Mirror the JIT's `release_by_kind` dispatch but limited to the
+// release functions that already live in this crate. Programs whose
+// objects carry Tuple / Closure / Enum heap fields leak those inners
+// for now — same conservative direction `__release_array` takes.
+const KIND_OBJECT: i64 = 1;
+const KIND_ARRAY_INNER: i64 = 2;
+const KIND_OPTIONAL: i64 = 3;
+const KIND_MAP_INNER: i64 = 5;
+const KIND_STR_INNER: i64 = 7;
+
 #[unsafe(no_mangle)]
-pub extern "C" fn __release_object_fields(_class_id: i64, _obj_ptr: i64) {
-    // Stub: full implementation needs the per-class field-offset table
-    // that the JIT populates at codegen time. Until AOT learns to emit
-    // that table at startup, programs with heap-typed object fields
-    // leak the inner values.
+pub extern "C" fn __release_object_fields(class_id: i64, obj_ptr: i64) {
+    if obj_ptr == 0 {
+        return;
+    }
+    let entries = {
+        let t = object_field_table().lock().expect("field table poisoned");
+        match t.get(&(class_id as u32)) {
+            Some(e) if !e.is_empty() => e.clone(),
+            _ => return,
+        }
+    };
+    for (off, kind) in entries.iter() {
+        let raw = unsafe { *((obj_ptr + *off) as *const i64) };
+        release_field_by_kind(raw, *kind);
+    }
+}
+
+fn release_field_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_OBJECT => __release_object(ptr),
+        KIND_ARRAY_INNER => __release_array(ptr),
+        KIND_OPTIONAL => __release_optional(ptr),
+        KIND_MAP_INNER => __release_map(ptr),
+        KIND_STR_INNER => __release_string(ptr),
+        _ => {
+            // Tuple / closure / enum / unknown — full cascade for
+            // those still lives in `compile.rs::release_value_by_kind`.
+            // JIT-run programs see the richer cascade through
+            // `host_release_object_fields`; AOT programs whose object
+            // fields are tuple / closure / enum leak the inner.
+        }
+    }
+}
+
+/// Release an Optional cell. Decrements the rc at offset +8, runs
+/// the inner-kind cascade based on the tag at +16 (matching the
+/// codegen layout `[ value | rc | kind ]`), then frees the 24-byte
+/// cell. Inner kinds that don't yet have a runtime release fn leak
+/// — same approach as `release_field_by_kind`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_optional(opt_ptr: i64) {
+    if opt_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (opt_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    let new_rc = rc - 1;
+    unsafe {
+        *rc_ptr = new_rc;
+    }
+    if new_rc != 0 {
+        return;
+    }
+    let tag = unsafe { *((opt_ptr + 16) as *const i64) };
+    let inner = unsafe { *(opt_ptr as *const i64) };
+    release_field_by_kind(inner, tag);
+    __mir_free(opt_ptr, 24);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_optional(opt_ptr: i64) {
+    if opt_ptr == 0 {
+        return;
+    }
+    let rc_ptr = (opt_ptr + 8) as *mut i64;
+    let rc = unsafe { *rc_ptr };
+    if rc <= 0 {
+        return;
+    }
+    unsafe {
+        *rc_ptr = rc + 1;
+    }
 }
 
 /// Per-class virtual dispatch table. Keyed by `(global_class_id,

@@ -579,6 +579,17 @@ pub fn compile_with_builtins(
                 );
                 if needs {
                     let off = OBJECT_HEADER_BYTES as i64 + (i as i64) * 8;
+                    // Mirror into the runtime registry too so AOT-emitted
+                    // programs that don't see this JIT process still get
+                    // the cascade entries from `__ilang_aot_init`. The
+                    // JIT path uses the richer `PrintKind` table above for
+                    // its in-process cascade; both backends populate, but
+                    // only the JIT host reads the local PrintKind copy.
+                    ilang_runtime::__register_object_field(
+                        global_cid(class.id.0) as i64,
+                        off,
+                        kind_tag_of_print_kind(&kind),
+                    );
                     entries.push((off, kind));
                 }
             }
@@ -1924,6 +1935,21 @@ static CLASS_INFO: OnceLock<Mutex<HashMap<u32, ClassPrintInfo>>> = OnceLock::new
 
 fn class_info_lock() -> &'static Mutex<HashMap<u32, ClassPrintInfo>> {
     CLASS_INFO.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Reduce a `PrintKind` to the runtime's `KIND_*` tag the field
+/// registry needs. The runtime cascade reads back the cell's own kind
+/// for Optional / Array / Map / Tuple, so the top-level tag is all
+/// we need to dispatch correctly.
+fn kind_tag_of_print_kind(k: &PrintKind) -> i64 {
+    match k {
+        PrintKind::Object => KIND_OBJECT,
+        PrintKind::Array(_) => KIND_ARRAY,
+        PrintKind::Optional(_) => KIND_OPTIONAL,
+        PrintKind::Tuple(_) => KIND_TUPLE,
+        PrintKind::Str => KIND_STR,
+        _ => KIND_NONE,
+    }
 }
 
 fn print_kind_of(ty: &MirTy) -> PrintKind {
