@@ -573,19 +573,15 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
     let cap = unsafe { *((arr_ptr + 8) as *const i64) };
     let data_ptr = unsafe { *((arr_ptr + 16) as *const i64) };
     let stride = unsafe { *((arr_ptr + 40) as *const i64) };
-    match tag {
-        KIND_NONE => {}
-        KIND_STR => {
-            for i in 0..len {
-                let cell = unsafe { *((data_ptr + i * 8) as *const i64) };
-                __release_string(cell);
-            }
-        }
-        _ => {
-            // Other cascade kinds aren't supported in this layer yet;
-            // inner cells leak. The JIT side overrides this symbol via
-            // `JITBuilder::symbol("__release_array", host_release_array)`
-            // so JIT-run programs still get the full cascade.
+    if tag != KIND_NONE {
+        // Dispatch to the per-kind release through
+        // `release_field_by_kind`, which covers every container shape
+        // the JIT emits (Object / Array / Optional / Tuple / Map /
+        // Closure / Str / Enum). Unknown kinds leak the inner cell —
+        // same conservative direction as `release_field_by_kind`.
+        for i in 0..len {
+            let cell = unsafe { *((data_ptr + i * 8) as *const i64) };
+            release_field_by_kind(cell, tag);
         }
     }
     if data_ptr != 0 {
@@ -602,11 +598,10 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
 // the per-value KIND_* tag (for cascade-release on drop), and per-
 // side print-kind tags (so `__print_map` can stringify the cells).
 //
-// Cascade support in `__release_map` / `__map_set` is limited to the
-// same kinds `__release_array` handles (`KIND_NONE`, `KIND_STR`,
-// `KIND_ARRAY`). Maps whose values are objects / closures / enums
-// leak their inner cells until process exit — the JIT side keeps its
-// fully-cascading `host_map_*` for now.
+// Cascade dispatch goes through `release_field_by_kind` /
+// `retain_field_by_kind`, so every container shape the JIT emits
+// (Object / Array / Optional / Tuple / Map / Closure / Str / Enum)
+// drops its inner cells when the map's refcount hits zero.
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum MapKey {
@@ -641,8 +636,6 @@ pub const PK_OBJECT: i64 = 12;
 pub const PK_ARRAY_I64_SIG: i64 = 100;
 pub const PK_OTHER: i64 = -1;
 
-const KIND_ARRAY: i64 = 2;
-
 fn raw_to_map_key(raw: i64, key_print_kind: i64) -> MapKey {
     if key_print_kind == PK_STR {
         if raw == 0 {
@@ -663,29 +656,15 @@ fn map_key_to_raw(k: &MapKey) -> i64 {
     }
 }
 
-/// Limited retain dispatcher for map values. Mirrors the JIT-side
-/// `retain_by_kind` for the kinds whose retain implementations live
-/// in this crate. Unknown kinds silently leak.
+/// Retain dispatcher for map values. Mirrors `release_field_by_kind`
+/// across every heap-shaped KIND_* the JIT emits. Unknown kinds
+/// silently no-op.
 fn map_retain_by_kind(ptr: i64, kind: i64) {
-    if ptr == 0 {
-        return;
-    }
-    match kind {
-        KIND_STR => __retain_string(ptr),
-        KIND_ARRAY => __retain_array(ptr),
-        _ => {}
-    }
+    retain_field_by_kind(ptr, kind);
 }
 
 fn map_release_by_kind(ptr: i64, kind: i64) {
-    if ptr == 0 {
-        return;
-    }
-    match kind {
-        KIND_STR => __release_string(ptr),
-        KIND_ARRAY => __release_array(ptr),
-        _ => {}
-    }
+    release_field_by_kind(ptr, kind);
 }
 
 fn format_f64_like_jit(f: f64) -> String {
@@ -1178,6 +1157,23 @@ fn release_field_by_kind(ptr: i64, kind: i64) {
             // registered runtime release (e.g. user-defined extern
             // types) silently leak.
         }
+    }
+}
+
+fn retain_field_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_OBJECT => __retain_object(ptr),
+        KIND_ARRAY_INNER => __retain_array(ptr),
+        KIND_OPTIONAL => __retain_optional(ptr),
+        KIND_TUPLE_FIELD => __retain_tuple(ptr),
+        KIND_MAP_INNER => __retain_map(ptr),
+        KIND_CLOSURE_FIELD => __retain_closure(ptr),
+        KIND_STR_INNER => __retain_string(ptr),
+        KIND_ENUM_FIELD => __retain_enum(ptr),
+        _ => {}
     }
 }
 
