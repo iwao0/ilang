@@ -433,13 +433,16 @@ pub fn compile_with_builtins(
     jit_builder.symbol("math.abs", host_abs as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.
-    jit_builder.symbol("__ilang_panic", host_ilang_panic as *const u8);
-    jit_builder.symbol("__print_int", host_print_int as *const u8);
-    jit_builder.symbol("__print_bool", host_print_bool as *const u8);
-    jit_builder.symbol("__print_f64", host_print_f64 as *const u8);
+    jit_builder.symbol("__ilang_panic", ilang_runtime::__ilang_panic as *const u8);
+    // Print helpers and `__ilang_panic` live in `ilang-runtime` so JIT
+    // and AOT share the same `extern "C"` bodies. We feed JIT the
+    // pointer; AOT links against the `.a` facet at build time.
+    jit_builder.symbol("__print_int", ilang_runtime::__print_int as *const u8);
+    jit_builder.symbol("__print_bool", ilang_runtime::__print_bool as *const u8);
+    jit_builder.symbol("__print_f64", ilang_runtime::__print_f64 as *const u8);
     jit_builder.symbol("__print_str", host_print_str as *const u8);
-    jit_builder.symbol("__print_space", host_print_space as *const u8);
-    jit_builder.symbol("__print_newline", host_print_newline as *const u8);
+    jit_builder.symbol("__print_space", ilang_runtime::__print_space as *const u8);
+    jit_builder.symbol("__print_newline", ilang_runtime::__print_newline as *const u8);
     for b in builtins {
         jit_builder.symbol(b.name, b.ptr);
     }
@@ -3854,34 +3857,15 @@ extern "C" fn host_test_fail(msg: i64) {
     std::process::exit(2);
 }
 
-extern "C" fn host_ilang_panic(msg: i64) -> ! {
-    eprintln!("{}", cstr_to_str(msg));
-    std::process::exit(1);
-}
 
-extern "C" fn host_print_int(n: i64) {
-    print!("{}", n);
-}
-extern "C" fn host_print_bool(b: i64) {
-    print!("{}", if b != 0 { "true" } else { "false" });
-}
-extern "C" fn host_print_f64(f: f64) {
-    if f.fract() == 0.0 && f.is_finite() {
-        print!("{:.1}", f);
-    } else {
-        print!("{}", f);
-    }
-}
+// `host_print_str` stays here for now because the string ABI
+// (`[i64 len | bytes | \0]` and `cstr_bytes`) is intertwined with the
+// JIT's string lowering. Once strings move to `ilang-runtime`,
+// AOT can share the same body.
 extern "C" fn host_print_str(p: i64) {
     let bytes = unsafe { cstr_bytes(p) };
     let s = String::from_utf8_lossy(bytes);
     print!("{}", s);
-}
-extern "C" fn host_print_space() {
-    print!(" ");
-}
-extern "C" fn host_print_newline() {
-    println!();
 }
 
 extern "C" fn host_map_has(map: i64, key: i64) -> i64 {

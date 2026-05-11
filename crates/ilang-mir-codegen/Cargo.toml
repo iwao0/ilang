@@ -8,6 +8,7 @@ license.workspace = true
 ilang-ast = { workspace = true }
 ilang-mir = { workspace = true }
 ilang-codegen = { workspace = true }
+ilang-runtime = { workspace = true }
 cranelift = "0.131"
 cranelift-jit = "0.131"
 cranelift-object = "0.131"
