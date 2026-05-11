@@ -309,7 +309,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__array_includes", host_array_includes as *const u8);
     jit_builder.symbol("__array_push", host_array_push as *const u8);
     jit_builder.symbol("__array_pop", host_array_pop as *const u8);
-    jit_builder.symbol("__fixed_to_dyn", host_fixed_to_dyn as *const u8);
+    jit_builder.symbol("__fixed_to_dyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
     jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
     jit_builder.symbol("__repl_load_slot", ilang_runtime::__repl_load_slot as *const u8);
@@ -338,18 +338,18 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__write_u64", host_write_u64 as *const u8);
     jit_builder.symbol("__write_f32", host_write_f32 as *const u8);
     jit_builder.symbol("__write_f64", host_write_f64 as *const u8);
-    jit_builder.symbol("__array_map", host_array_map as *const u8);
-    jit_builder.symbol("__array_filter", host_array_filter as *const u8);
-    jit_builder.symbol("__array_for_each", host_array_for_each as *const u8);
-    jit_builder.symbol("__array_slice", host_array_slice as *const u8);
-    jit_builder.symbol("__str_split", host_str_split as *const u8);
+    jit_builder.symbol("__array_map", ilang_runtime::__array_map as *const u8);
+    jit_builder.symbol("__array_filter", ilang_runtime::__array_filter as *const u8);
+    jit_builder.symbol("__array_for_each", ilang_runtime::__array_for_each as *const u8);
+    jit_builder.symbol("__array_slice", ilang_runtime::__array_slice as *const u8);
+    jit_builder.symbol("__str_split", ilang_runtime::__str_split as *const u8);
     jit_builder.symbol("__virt_dispatch", ilang_runtime::__virt_dispatch as *const u8);
     jit_builder.symbol("__drop_dispatch", ilang_runtime::__drop_dispatch as *const u8);
     jit_builder.symbol("__print_object", ilang_runtime::__print_object as *const u8);
     jit_builder.symbol("__class_name", ilang_runtime::__class_name as *const u8);
-    jit_builder.symbol("__print_weak", host_print_weak as *const u8);
+    jit_builder.symbol("__print_weak", ilang_runtime::__print_weak as *const u8);
     jit_builder.symbol("__print_enum", ilang_runtime::__print_enum as *const u8);
-    jit_builder.symbol("__print_fn", host_print_fn as *const u8);
+    jit_builder.symbol("__print_fn", ilang_runtime::__print_fn as *const u8);
     jit_builder.symbol("__release_object", host_release_object as *const u8);
     jit_builder.symbol("__retain_object", host_retain_object as *const u8);
     jit_builder.symbol("__release_closure", ilang_runtime::__release_closure as *const u8);
@@ -378,7 +378,7 @@ pub fn compile_with_builtins(
         "__enum_unit_get_checked",
         ilang_runtime::__enum_unit_get_checked as *const u8,
     );
-    jit_builder.symbol("__enum_disc_str", host_enum_disc_str as *const u8);
+    jit_builder.symbol("__enum_disc_str", ilang_runtime::__enum_disc_str as *const u8);
     jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
     jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
     jit_builder.symbol("__print_map", host_print_map as *const u8);
@@ -687,6 +687,15 @@ pub fn compile_with_builtins(
                 if is_str_repr {
                     if let Some(s) = v.discriminant_str.as_ref() {
                         str_repr.insert(v.discriminant, s.clone());
+                        // Mirror into the runtime registry that
+                        // `__enum_disc_str` reads so AOT-built
+                        // programs see the same mapping.
+                        let sp = ilang_runtime::leak_cstring(s.clone());
+                        ilang_runtime::__register_enum_disc_str(
+                            global_id as i64,
+                            v.discriminant,
+                            sp,
+                        );
                     }
                 }
             }
@@ -733,24 +742,22 @@ pub fn compile_with_builtins(
         let total_size = (2 + env.captures.len() as i64) * 8;
         ilang_runtime::__register_closure_size(addr, total_size);
     }
-    // Populate fn-name registry — host_print_fn looks up the fn
-    // address (closure[0]) and prints "<fn NAME>" / "<fn>". Skip
-    // extern fns (no compiled body) and synthetic names.
-    {
-        let mut m = fn_name_lock().lock().expect("fn name table poisoned");
-        m.clear();
-        for (idx, func) in prog.functions.iter().enumerate() {
-            if extern_fn_ids.contains(&FuncId(idx as u32)) {
-                continue;
-            }
-            let mid = FuncId(idx as u32);
-            if let Some(cl_id) = fn_ids.get(&mid) {
-                let addr = module.get_finalized_function(*cl_id) as i64;
-                let name = func.name.as_str();
-                if !name.starts_with("__anon_fn_") && !name.starts_with("__main") {
-                    let plain = name.split("__").next().unwrap_or(name);
-                    m.insert(addr, plain.to_string());
-                }
+    // Populate fn-name registry — `__print_fn` looks up the fn
+    // address (closure[0]) and prints "<fn NAME>" / "<fn>". Lives
+    // in `ilang-runtime` so AOT-built programs see the same table.
+    // Skip extern fns (no compiled body) and synthetic names.
+    for (idx, func) in prog.functions.iter().enumerate() {
+        if extern_fn_ids.contains(&FuncId(idx as u32)) {
+            continue;
+        }
+        let mid = FuncId(idx as u32);
+        if let Some(cl_id) = fn_ids.get(&mid) {
+            let addr = module.get_finalized_function(*cl_id) as i64;
+            let name = func.name.as_str();
+            if !name.starts_with("__anon_fn_") && !name.starts_with("__main") {
+                let plain = name.split("__").next().unwrap_or(name);
+                let name_ptr = ilang_runtime::leak_cstring(plain.to_string());
+                ilang_runtime::__register_fn_name(addr, name_ptr);
             }
         }
     }

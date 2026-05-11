@@ -342,6 +342,19 @@ fn emit_aot_init(
             &s,
         )?
     };
+    let reg_fn_name = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_fn_name", Linkage::Import, &s)?
+    };
+    let reg_enum_disc_str = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_enum_disc_str", Linkage::Import, &s)?
+    };
 
     // Pre-allocate data symbols for every class / field / enum /
     // variant name so init-body IR can hand body pointers to the
@@ -359,16 +372,53 @@ fn emit_aot_init(
         }
         class_field_name_data.push(per_class);
     }
+    // For `__register_fn_name`: data symbols holding the user-facing
+    // (un-mangled) name of every non-extern user fn, keyed by the
+    // same FuncId index used in `fn_ids`. `None` for synthetic /
+    // anon / `__main` / extern (those don't get a printable name or
+    // would force the linker to resolve a non-existent symbol).
+    let mut fn_display_name_data: Vec<Option<DataId>> =
+        Vec::with_capacity(prog.functions.len());
+    for func in prog.functions.iter() {
+        if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
+            fn_display_name_data.push(None);
+            continue;
+        }
+        let name = func.name.as_str();
+        if name.starts_with("__anon_fn_") || name.starts_with("__main") {
+            fn_display_name_data.push(None);
+            continue;
+        }
+        let plain = name.split("__").next().unwrap_or(name);
+        fn_display_name_data
+            .push(Some(declare_ilang_string_data(module, plain)?));
+    }
     let mut enum_name_data: Vec<DataId> = Vec::with_capacity(prog.enums.len());
     let mut enum_variant_name_data: Vec<Vec<DataId>> =
         Vec::with_capacity(prog.enums.len());
+    // For `: string`-repr enums: data symbol per (enum, variant) for
+    // the discriminant string used by `enum as string` casts.
+    let mut enum_variant_disc_str_data: Vec<Vec<Option<DataId>>> =
+        Vec::with_capacity(prog.enums.len());
     for e in &prog.enums {
         enum_name_data.push(declare_ilang_string_data(module, e.name.as_str())?);
+        let is_str_repr = matches!(e.repr, MirTy::Str);
         let mut per_enum = Vec::with_capacity(e.variants.len());
+        let mut per_enum_disc: Vec<Option<DataId>> = Vec::with_capacity(e.variants.len());
         for v in &e.variants {
             per_enum.push(declare_ilang_string_data(module, v.name.as_str())?);
+            if is_str_repr {
+                if let Some(s) = v.discriminant_str.as_ref() {
+                    per_enum_disc.push(Some(declare_ilang_string_data(module, s)?));
+                } else {
+                    per_enum_disc.push(None);
+                }
+            } else {
+                per_enum_disc.push(None);
+            }
         }
         enum_variant_name_data.push(per_enum);
+        enum_variant_disc_str_data.push(per_enum_disc);
     }
 
     let init_sig = module.make_signature();
@@ -405,6 +455,10 @@ fn emit_aot_init(
             module.declare_func_in_func(reg_enum_print_variant_name, fb.func);
         let reg_enum_print_variant_payload_pk_ref =
             module.declare_func_in_func(reg_enum_print_variant_payload_pk, fb.func);
+        let reg_fn_name_ref =
+            module.declare_func_in_func(reg_fn_name, fb.func);
+        let reg_enum_disc_str_ref =
+            module.declare_func_in_func(reg_enum_disc_str, fb.func);
 
         for (cls_idx, class) in prog.classes.iter().enumerate() {
             let global_cid = class_global[class.id.0 as usize] as i64;
@@ -562,6 +616,42 @@ fn emit_aot_init(
                         &[eid_v, disc_v, slot_v, pk_v],
                     );
                 }
+            }
+        }
+
+        // Register the user-facing name of every non-extern fn so
+        // `__print_fn` can spell out `<fn NAME>` on closure print.
+        for (idx, _func) in prog.functions.iter().enumerate() {
+            let did = match fn_display_name_data[idx] {
+                Some(d) => d,
+                None => continue,
+            };
+            let mid = FuncId(idx as u32);
+            let cl_id = match fn_ids.get(&mid) {
+                Some(c) => *c,
+                None => continue,
+            };
+            let fr = module.declare_func_in_func(cl_id, fb.func);
+            let fn_addr = fb.ins().func_addr(types::I64, fr);
+            let name_body = ilang_string_body(module, &mut fb, did);
+            fb.ins().call(reg_fn_name_ref, &[fn_addr, name_body]);
+        }
+        // Register discriminant strings for `: string`-repr enums so
+        // `enum as string` casts succeed at runtime.
+        for (idx, e) in prog.enums.iter().enumerate() {
+            if !matches!(e.repr, MirTy::Str) {
+                continue;
+            }
+            let global_id = enum_global[idx] as i64;
+            let eid_v = fb.ins().iconst(types::I64, global_id);
+            for (vi, v) in e.variants.iter().enumerate() {
+                let did = match enum_variant_disc_str_data[idx][vi] {
+                    Some(d) => d,
+                    None => continue,
+                };
+                let s_body = ilang_string_body(module, &mut fb, did);
+                let disc_v = fb.ins().iconst(types::I64, v.discriminant);
+                fb.ins().call(reg_enum_disc_str_ref, &[eid_v, disc_v, s_body]);
             }
         }
 
