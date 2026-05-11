@@ -16,7 +16,7 @@ C ライブラリとも連携できます。
 > ilang で書いた Breakout — クラス・ARC・クロージャ・SDL2 バインディング、JIT コンパイル実行。
 > ソース: [`examples/sdl_breakout/`](../examples/sdl_breakout/)
 
-## ✨ 構文をひと口
+## ✨ 構文サンプル: 再帰で書く Fibonacci
 
 ```rust
 fn fib(n: i64): i64 {
