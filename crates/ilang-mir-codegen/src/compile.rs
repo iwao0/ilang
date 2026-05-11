@@ -1795,18 +1795,6 @@ enum PrintKind {
     Other,
 }
 
-#[derive(Clone)]
-struct ClassPrintInfo {
-    name: String,
-    fields: Vec<(String, PrintKind)>,
-}
-
-static CLASS_INFO: OnceLock<Mutex<HashMap<u32, ClassPrintInfo>>> = OnceLock::new();
-
-fn class_info_lock() -> &'static Mutex<HashMap<u32, ClassPrintInfo>> {
-    CLASS_INFO.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Reduce a `PrintKind` to the runtime's `KIND_*` tag the field
 /// registry needs. The runtime cascade reads back the cell's own kind
 /// for Optional / Array / Map / Tuple, so the top-level tag is all
@@ -1846,84 +1834,6 @@ fn print_kind_of(ty: &MirTy) -> PrintKind {
     }
 }
 
-fn format_value(out: &mut String, kind: &PrintKind, raw: i64) {
-    use std::fmt::Write;
-    match kind {
-        PrintKind::I64Sig => { let _ = write!(out, "{}", raw); }
-        PrintKind::I64Uns => { let _ = write!(out, "{}", raw as u64); }
-        PrintKind::I32Sig => { let _ = write!(out, "{}", raw as i32); }
-        PrintKind::I32Uns => { let _ = write!(out, "{}", raw as u32); }
-        PrintKind::I16Sig => { let _ = write!(out, "{}", raw as i16); }
-        PrintKind::I16Uns => { let _ = write!(out, "{}", raw as u16); }
-        PrintKind::I8Sig => { let _ = write!(out, "{}", raw as i8); }
-        PrintKind::I8Uns => { let _ = write!(out, "{}", raw as u8); }
-        PrintKind::Bool => { let _ = write!(out, "{}", raw != 0); }
-        PrintKind::F64 => {
-            let f = f64::from_bits(raw as u64);
-            let _ = write!(out, "{}", format_f64(f));
-        }
-        PrintKind::F32 => {
-            let f = f32::from_bits((raw as i32) as u32);
-            let _ = write!(out, "{}", format_f64(f as f64));
-        }
-        PrintKind::Str => {
-            if raw == 0 {
-                let _ = write!(out, "");
-            } else {
-                let bytes = unsafe { cstr_bytes(raw) };
-                let _ = write!(out, "{}", String::from_utf8_lossy(bytes));
-            }
-        }
-        PrintKind::Object => {
-            if raw == 0 {
-                let _ = write!(out, "<null>");
-            } else {
-                format_object(out, raw);
-            }
-        }
-        PrintKind::Array(inner) => {
-            out.push('[');
-            if raw != 0 {
-                let len = unsafe { *(raw as *const i64) };
-                let data_ptr = unsafe { *((raw + 16) as *const i64) };
-                for i in 0..len {
-                    if i > 0 {
-                        out.push_str(", ");
-                    }
-                    let elem_raw =
-                        unsafe { *((data_ptr + (i * 8)) as *const i64) };
-                    format_value(out, inner, elem_raw);
-                }
-            }
-            out.push(']');
-        }
-        PrintKind::Optional(inner) => {
-            if raw == 0 {
-                out.push_str("none");
-            } else {
-                out.push_str("some(");
-                let payload = unsafe { *(raw as *const i64) };
-                format_value(out, inner, payload);
-                out.push(')');
-            }
-        }
-        PrintKind::Tuple(items) => {
-            out.push('(');
-            for (i, k) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(", ");
-                }
-                let elem_raw = unsafe { *((raw + (i as i64) * 8) as *const i64) };
-                format_value(out, k, elem_raw);
-            }
-            out.push(')');
-        }
-        PrintKind::Other => {
-            let _ = write!(out, "{}", raw);
-        }
-    }
-}
-
 fn format_f64(f: f64) -> String {
     if f.is_nan() {
         "NaN".to_string()
@@ -1934,15 +1844,6 @@ fn format_f64(f: f64) -> String {
     } else {
         format!("{}", f)
     }
-}
-
-fn format_object(out: &mut String, obj_ptr: i64) {
-    // The JIT-local registry was never populated after the print
-    // metadata moved into `ilang-runtime`; delegate to the runtime's
-    // shared `CLASS_PRINT_INFO`-backed formatter so map/array values
-    // and other secondary print paths see the same class layout that
-    // `__print_object` does.
-    ilang_runtime::format_object_into(out, obj_ptr);
 }
 
 static FN_NAME_TABLE: OnceLock<Mutex<HashMap<i64, String>>> = OnceLock::new();
@@ -2167,7 +2068,7 @@ fn format_kind_id(out: &mut String, kind: i64, raw: i64) {
             if raw == 0 {
                 out.push_str("<null>");
             } else {
-                format_object(out, raw);
+                ilang_runtime::format_object_into(out, raw);
             }
         }
         PK_ARRAY_I64_SIG => {
