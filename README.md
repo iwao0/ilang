@@ -11,7 +11,7 @@ GC pauses), and a Rust-flavoured surface syntax that talks to C
 libraries when you need to.
 
 <p align="center">
-  <img src="https://github.com/iwao0/ilang/releases/download/demo-assets/breakout.gif" alt="Breakout written in ilang, running on the Cranelift JIT with SDL2" width="600">
+  <a><img src="https://github.com/iwao0/ilang/releases/download/demo-assets/breakout.gif" alt="Breakout written in ilang, running on the Cranelift JIT with SDL2" width="600"></a>
 </p>
 
 > Breakout in ilang — classes, ARC, closures and SDL2 bindings, JIT-compiled.
