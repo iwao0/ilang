@@ -1291,6 +1291,20 @@ pub(crate) fn lower_program_into<M: Module>(
                 close_bracket: lit_close_bracket,
                 comma_sp: lit_comma_sp,
             };
+            let stack_local =
+                if std::env::var_os("ILANG_NO_STACK_PROMOTE").is_some() {
+                    std::collections::HashSet::new()
+                } else {
+                    let set = ilang_mir::passes::escape_object::analyze_function(prog, idx);
+                    if std::env::var_os("ILANG_DUMP_STACK_PROMOTE").is_some() && !set.is_empty() {
+                        eprintln!(
+                            "stack_promote fn={} values={:?}",
+                            func.name.as_str(),
+                            set.iter().map(|v| v.0).collect::<Vec<_>>()
+                        );
+                    }
+                    set
+                };
             lower_function(
                 &mut fb,
                 func,
@@ -1309,6 +1323,7 @@ pub(crate) fn lower_program_into<M: Module>(
                 prog,
                 &class_global,
                 &enum_global,
+                &stack_local,
             )?;
             fb.finalize();
         }
@@ -3354,6 +3369,7 @@ fn lower_function<M: Module>(
     prog: &Program,
     class_global: &[u32],
     enum_global: &[u32],
+    stack_local: &std::collections::HashSet<ValueId>,
 ) -> Result<(), CompileError> {
     // Allocate clif blocks 1:1 with MIR blocks. Skip Unit-typed
     // block params at the clif level since clif has no unit type;
@@ -3442,6 +3458,7 @@ fn lower_function<M: Module>(
                 env_value,
                 class_global,
                 enum_global,
+                stack_local,
             )?;
         }
         lower_term(fb, &blk.term, &vmap, &blocks)?;
@@ -3477,6 +3494,7 @@ fn lower_inst<M: Module>(
     env_value: Value,
     class_global: &[u32],
     enum_global: &[u32],
+    stack_local: &std::collections::HashSet<ValueId>,
 ) -> Result<(), CompileError> {
     match inst {
         Inst::Const { dst, value } => {
@@ -4126,6 +4144,13 @@ fn lower_inst<M: Module>(
         // means programs leak heap allocations until then, which is
         // acceptable for short-running test programs.
         Inst::Release { value } => {
+            // Stack-promoted objects live in the function frame; the
+            // stack unwinder reclaims them automatically at return.
+            // Calling __release_object on a stack pointer would
+            // attempt a heap free → crash. Just skip.
+            if stack_local.contains(value) {
+                return Ok(());
+            }
             let aty = func.ty_of(*value).clone();
             match &aty {
                 MirTy::Object(cid) => {
@@ -4197,6 +4222,11 @@ fn lower_inst<M: Module>(
             }
         }
         Inst::Retain { value } => {
+            // Same rationale as the matching `Release` branch: a
+            // stack-promoted object has no rc to bump.
+            if stack_local.contains(value) {
+                return Ok(());
+            }
             let aty = func.ty_of(*value).clone();
             match &aty {
                 MirTy::Object(cid) => {
@@ -4403,10 +4433,38 @@ fn lower_inst<M: Module>(
                 return Ok(());
             }
             let n_fields = layout.fields.len() as i64;
-            let size = fb.ins().iconst(types::I64, OBJECT_HEADER_BYTES as i64 + n_fields * 8);
-            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-            let alloc_call = fb.ins().call(alloc_ref, &[size]);
-            let ptr = fb.inst_results(alloc_call)[0];
+            let total_bytes = OBJECT_HEADER_BYTES as i64 + n_fields * 8;
+            // Stack-promotion fast path: escape analysis has cleared
+            // this `dst`, so allocate a cranelift StackSlot inside
+            // the current function frame instead of going through
+            // __mir_alloc. Field offsets and LoadField / StoreField
+            // / VirtCall layouts stay identical (header + n*8). The
+            // matching `Retain` / `Release` calls are no-op'd below
+            // so the stack memory's lifetime is the function frame's.
+            let ptr = if stack_local.contains(dst) {
+                let slot = fb.create_sized_stack_slot(StackSlotData::new(
+                    StackSlotKind::ExplicitSlot,
+                    total_bytes as u32,
+                    3,
+                ));
+                let p = fb.ins().stack_addr(types::I64, slot, 0);
+                // Zero the slot's bytes — heap alloc zeros via
+                // __mir_alloc; we keep the same invariant so any
+                // primitive field read before its first write sees
+                // 0 instead of stack garbage.
+                let zero = fb.ins().iconst(types::I64, 0);
+                let mut off = 0;
+                while off < total_bytes {
+                    fb.ins().store(MemFlags::trusted(), zero, p, off as i32);
+                    off += 8;
+                }
+                p
+            } else {
+                let size = fb.ins().iconst(types::I64, total_bytes);
+                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                let alloc_call = fb.ins().call(alloc_ref, &[size]);
+                fb.inst_results(alloc_call)[0]
+            };
             // Store the GLOBAL class id at obj+0 — release_object,
             // host_print_object and __virt_dispatch all key off this.
             let cid_v = fb.ins().iconst(types::I64, class_global[class.0 as usize] as i64);
