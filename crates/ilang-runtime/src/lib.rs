@@ -46,6 +46,7 @@ pub mod print_dispatch;
 pub mod raw_mem;
 pub mod slots;
 pub mod strings;
+pub mod test_externs;
 pub mod test_helpers;
 pub mod tuples;
 
