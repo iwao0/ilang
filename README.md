@@ -17,6 +17,8 @@ libraries when you need to.
 > Breakout in ilang — classes, ARC, closures and SDL2 bindings, JIT-compiled.
 > Source under [`examples/sdl_breakout/`](examples/sdl_breakout/).
 
+## ✨ A taste of the syntax
+
 ```rust
 fn fib(n: i64): i64 {
     if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
