@@ -1,7 +1,6 @@
 // `os.libLoadError` surfaces the dlopen failure message when an
 // `@lib(...) @optional` library couldn't be loaded. Used for
 // diagnostics; the gating logic still goes through libLoaded.
-// jit: skip
 use os
 use test
 

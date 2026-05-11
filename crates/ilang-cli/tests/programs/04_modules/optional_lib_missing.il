@@ -5,7 +5,6 @@
 //
 // This fixture targets a definitely-missing library; the stub must
 // NOT execute, so we pick the else branch.
-// jit: skip
 use os
 use test
 

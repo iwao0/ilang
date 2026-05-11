@@ -18,12 +18,6 @@
 // If the struct lays the enum field out as 8 bytes (the old
 // buggy width) instead of 2 bytes, the trailing `tail` field
 // shifts past offset 6 and the captured bytes don't match.
-//
-// Both `interp: skip` and `jit: skip` — the fix lives in the MIR
-// layout pass + mir-jit codegen; the legacy `--jit` backend
-// (deprecated) has its own struct-layout path that hasn't been
-// updated, and the interpreter doesn't honor the C ABI here.
-// jit: skip
 use test
 
 pub enum Tag16: u16 {

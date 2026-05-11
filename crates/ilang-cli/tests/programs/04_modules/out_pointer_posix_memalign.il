@@ -6,7 +6,6 @@
 // `posix_memalign(memptr, alignment, size)` — POSIX equivalent of
 // aligned malloc. Writes the allocation pointer into *memptr and
 // returns 0 on success or an errno code on failure.
-// jit: skip
 use test
 
 @extern(C) {

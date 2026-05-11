@@ -7,7 +7,6 @@
 // into a `struct timespec`. We allocate the struct in ilang, hand
 // it to libc, then read the fields back to confirm the C side
 // wrote real values.
-// jit: skip
 use test
 
 @extern(C) {

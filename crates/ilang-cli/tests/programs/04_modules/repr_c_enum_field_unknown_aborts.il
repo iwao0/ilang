@@ -6,7 +6,6 @@
 // `repr(C)` — reading an unknown discriminant is UB / crash —
 // and the localised abort beats a delayed memory bug surfacing
 // in a downstream `match`.
-// jit: skip
 // expect-error: unknown discriminant
 
 pub enum Tag16: u16 {

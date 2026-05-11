@@ -2,10 +2,6 @@
 // writing one overwrites the others. Useful for C union interop
 // (`siginfo_t`, `union sigval`, etc.) and for type punning between
 // integer and float bit patterns.
-//
-// JIT-only — the interpreter has no shared-storage representation
-// for fields (it uses a HashMap<name, Value>).
-// jit: skip
 use test
 
 @extern(C) {

@@ -2,7 +2,6 @@
 // additional names. Useful for soname differences (libssl.so.3 vs
 // libssl.so.1.1) and OS variants. We give a deliberately-missing
 // primary plus a real fallback (libc) and verify the call works.
-// jit: skip
 use os
 use test
 

@@ -4,7 +4,6 @@
 //   - You want a more descriptive ilang name without renaming
 //     the C source
 //   - Two fns wrap the same C symbol with different ilang shapes
-// jit: skip
 use test
 
 @extern(C) {

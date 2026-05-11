@@ -3,9 +3,6 @@
 // registers per AArch64 AAPCS64 HFA / x86_64 SysV SSE classification,
 // so silently using the GPR path would violate the ABI. Reject this
 // at registration.
-//
-// jit run only — interp doesn't see this validation step.
-// jit: skip
 // expect-error: supported shapes are integer/bool fields or homogeneous float aggregates
 
 @extern(C) {

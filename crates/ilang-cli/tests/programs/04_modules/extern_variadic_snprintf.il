@@ -9,7 +9,6 @@
 //
 // Raw `char *` / `*const char` stay inside the `@extern(C)` block;
 // callers see ordinary ilang types via per-shape wrappers.
-// jit: skip
 use test
 
 @extern(C) {
