@@ -134,12 +134,8 @@ cargo build           # first run resolves deps + compiles (~1 minute)
 cargo run -p ilang-cli
 
 # 📄 Run a file (`;` is optional, newlines act as statement separators
-#    JS-ASI style). Defaults to the MIR → Cranelift JIT pipeline.
+#    JS-ASI style). Routes through the MIR → Cranelift JIT pipeline.
 cargo run -p ilang-cli -- run path/to/script.il
-
-# 🪦 Legacy Cranelift codegen (pre-MIR), retained only as a parity
-#    reference for the test harness — deprecated for new use.
-cargo run -p ilang-cli -- run --jit path/to/script.il
 
 # 📦 Build a native executable (macOS, Cranelift AOT). The system
 #    `cc` links the emitted object against `libilang_runtime.a` plus
@@ -149,8 +145,9 @@ cargo run -p ilang-cli -- build path/to/script.il -o path/to/script
 ./path/to/script
 ```
 
-Both backends resolve `@extern(C) {}` C symbols through dlsym at
-JIT-build time, so the SDL2 sample below works under either flag.
+The JIT path resolves `@extern(C) {}` C symbols through dlsym at
+JIT-build time; the AOT path resolves them at link time and skips
+missing `@optional` libs.
 
 ### 🧮 Sample: count multiples of 3 or 5 from 1 to 100
 
@@ -278,13 +275,16 @@ configuration (`ilang.serverPath`) and current limitations.
 
 Run the whole test suite — Rust unit tests across every crate plus
 the language-level fixtures under
-`crates/ilang-cli/tests/programs/` (each `.il` fixture is executed
-through both the default MIR → Cranelift JIT and the legacy `--jit`
-backend, with `expect:` / `expect-error:` magic comments asserting
-the outcome):
+`crates/ilang-cli/tests/programs/` (each `.il` fixture runs through
+the MIR → Cranelift JIT, with `expect:` / `expect-error:` magic
+comments asserting the outcome):
 
 ```sh
 cargo test --workspace
+
+# also exercise the AOT path on every fixture (build + run + diff
+# stdout against the JIT output). Adds ~80 s to the run.
+ILANG_TEST_AOT=1 cargo test --workspace
 ```
 
 ## 📄 License

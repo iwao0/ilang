@@ -129,12 +129,8 @@ cargo build           # 初回のみ依存解決 + ビルド (~1 分)
 cargo run -p ilang-cli
 
 # 📄 ファイル実行 (`;` は省略可、改行が文の区切りになる JS 風 ASI)
-#    デフォルトで MIR → Cranelift JIT パイプラインを使う。
+#    MIR → Cranelift JIT パイプラインを使う。
 cargo run -p ilang-cli -- run path/to/script.il
-
-# 🪦 旧 Cranelift codegen (pre-MIR) — テスト harness の parity 用に
-#    残置されているが新規利用は非推奨。
-cargo run -p ilang-cli -- run --jit path/to/script.il
 
 # 📦 ネイティブ実行可能ファイルを生成 (macOS、Cranelift AOT)。
 #    システムの `cc` が `libilang_runtime.a` とプログラムが参照する
@@ -144,8 +140,9 @@ cargo run -p ilang-cli -- build path/to/script.il -o path/to/script
 ./path/to/script
 ```
 
-両バックエンドとも `@extern(C) {}` の C シンボルを JIT ビルド時に
-dlsym で解決するので、後述の SDL2 サンプルもどちらでも動きます。
+JIT は `@extern(C) {}` の C シンボルを起動時 dlsym で解決し、AOT は
+リンク時に解決します (見つからない `@optional` lib はスキップして
+abort stub に差し替え)。
 
 ### 🧮 サンプル: 1〜100 で 3 か 5 の倍数を数える
 
@@ -274,12 +271,16 @@ VSCode を再起動すれば反映されます。設定 (`ilang.serverPath`) や
 
 ワークスペース全体のテストを実行します。各 crate の Rust ユニット
 テストに加えて、`crates/ilang-cli/tests/programs/` 以下にある言語
-レベルの fixture(各 `.il` ファイルがデフォルトの MIR → Cranelift
-JIT と旧 `--jit` バックエンド両方で実行され、`expect:` /
-`expect-error:` のマジックコメントで結果を検証)も全部走ります:
+レベルの fixture (各 `.il` ファイルが MIR → Cranelift JIT で実行
+され、`expect:` / `expect-error:` のマジックコメントで結果を検証)
+も走ります:
 
 ```sh
 cargo test --workspace
+
+# AOT パスでも全 fixture を回す場合 (build + 実行 + stdout を JIT と
+# 比較)。所要時間 +80 秒程度。
+ILANG_TEST_AOT=1 cargo test --workspace
 ```
 
 ## 📄 ライセンス
