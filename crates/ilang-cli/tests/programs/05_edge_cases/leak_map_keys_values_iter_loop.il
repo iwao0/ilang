@@ -5,7 +5,6 @@
 // `map_keys_values_iteration.il` covers the functional behaviour;
 // this fixture pins down the no-leak loop.
 //
-// jit: skip
 
 use test
 

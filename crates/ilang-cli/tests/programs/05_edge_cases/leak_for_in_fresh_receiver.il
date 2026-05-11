@@ -8,7 +8,6 @@
 // via deinit traces; this fixture pins down the actual memory
 // reclaim using `liveAllocBytes`.
 //
-// jit: skip
 
 use test
 

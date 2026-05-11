@@ -8,7 +8,6 @@
 // path, where `host_release_map` has to walk values per kind
 // tag.
 //
-// jit: skip
 
 use test
 

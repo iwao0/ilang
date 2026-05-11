@@ -9,7 +9,6 @@
 // per-frame HUD strings (`"FPS: " + intToStr(fps)` etc.) drove
 // ~30 leaks/sec even with the rest of the pipeline correct.
 //
-// jit: skip
 
 use test
 

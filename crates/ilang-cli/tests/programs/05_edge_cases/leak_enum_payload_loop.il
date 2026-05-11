@@ -9,7 +9,6 @@
 // (e.g. `holds(arr)` where arr is an Array) is NOT cascaded
 // yet — see TODO in `host_release_enum`.
 //
-// jit: skip
 
 use test
 

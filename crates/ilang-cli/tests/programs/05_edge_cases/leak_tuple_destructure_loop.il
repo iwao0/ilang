@@ -8,7 +8,6 @@
 // covers the simple `let t = (...)` shape; this fixture pins down
 // the destructure-bind release.
 //
-// jit: skip
 
 use test
 

@@ -8,7 +8,6 @@
 // this fixture pins down the heap-result reclaim across both
 // return shapes.
 //
-// jit: skip
 
 use test
 

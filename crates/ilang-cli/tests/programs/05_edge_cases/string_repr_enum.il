@@ -3,7 +3,6 @@
 // via `enumValue as string`; `match` still dispatches on the
 // auto-assigned variant index. Useful for grouping SDL hint
 // names / driver names / other string-keyed constant sets.
-// jit: skip
 use test
 
 pub enum Hint: string {

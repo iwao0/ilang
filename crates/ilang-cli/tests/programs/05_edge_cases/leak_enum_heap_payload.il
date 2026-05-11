@@ -9,7 +9,6 @@
 // payload kinds, so `Box.holds(arr)` left the inner array
 // dangling forever even after the cell was reclaimed.
 //
-// jit: skip
 
 use test
 

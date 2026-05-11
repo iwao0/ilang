@@ -6,7 +6,6 @@
 // .il` exercises Optional<Array> through a different shape; this
 // fixture is the simple "fn returning T[]?, if-let extract" loop.
 //
-// jit: skip
 
 use test
 

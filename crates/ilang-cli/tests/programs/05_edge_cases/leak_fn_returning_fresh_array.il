@@ -7,7 +7,6 @@
 // from-fn path which goes through callee-retain and a separate
 // caller-side release.
 //
-// jit: skip
 
 use test
 

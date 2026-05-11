@@ -6,7 +6,6 @@
 // loop body. Combines with `leak_array_map_heap_result.il` which
 // covers the heap-element cascade for a single map call.
 //
-// jit: skip
 
 use test
 

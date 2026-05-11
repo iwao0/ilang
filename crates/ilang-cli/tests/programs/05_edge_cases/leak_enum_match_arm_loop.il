@@ -9,7 +9,6 @@
 // `leak_enum_payload_loop.il` covers the construct-then-discard
 // shape; this fixture adds the match-binding extraction shape.
 //
-// jit: skip
 
 use test
 

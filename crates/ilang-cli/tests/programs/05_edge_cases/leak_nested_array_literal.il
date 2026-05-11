@@ -7,7 +7,6 @@
 // the Optional<Array> cascade; this fixture pins down the plain
 // `T[][]` literal.
 //
-// jit: skip
 
 use test
 

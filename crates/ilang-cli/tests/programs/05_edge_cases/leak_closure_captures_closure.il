@@ -6,7 +6,6 @@
 // closure cells. `leak_closure_heap_capture.il` covers an Array
 // capture; this fixture adds the Closure-as-capture case.
 //
-// jit: skip
 
 use test
 

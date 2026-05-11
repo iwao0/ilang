@@ -10,7 +10,6 @@
 //
 // The legacy --jit backend (ilang-codegen) doesn't yet honour
 // this discard semantics; skip there.
-// jit: skip
 use test
 
 class T {

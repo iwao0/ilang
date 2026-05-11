@@ -10,7 +10,6 @@
 // separate fix; here we only check that the displaced rc reaches
 // zero and triggers deinit.
 //
-// jit: skip
 
 use test
 

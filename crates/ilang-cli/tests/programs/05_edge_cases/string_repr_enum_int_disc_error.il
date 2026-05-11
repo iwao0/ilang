@@ -2,7 +2,6 @@
 // discriminant as a string literal. Mixing in an integer
 // discriminant is a lower-time error.
 //
-// jit: skip
 // expect-error: integer discriminant used on a `: string` repr enum
 
 pub enum H: string {

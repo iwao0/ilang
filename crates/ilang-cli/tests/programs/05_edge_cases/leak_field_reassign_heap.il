@@ -5,7 +5,6 @@
 // shape applies to `o.s = "..."` for string fields and (covered
 // separately) to closure-typed fields.
 //
-// jit: skip
 
 use test
 

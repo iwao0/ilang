@@ -5,7 +5,6 @@
 // drops at the body's scope exit. Combines `leak_for_in_fresh
 // _receiver.il` (array reclaim) with the string-element cascade.
 //
-// jit: skip
 
 use test
 

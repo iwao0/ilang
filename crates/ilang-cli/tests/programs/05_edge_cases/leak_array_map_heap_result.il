@@ -7,7 +7,6 @@
 // KIND_NONE because the closure's return MirTy wasn't threaded
 // through. Map producing strings then leaked all entries.
 //
-// jit: skip
 
 use test
 

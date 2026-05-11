@@ -4,7 +4,6 @@
 // that, every call leaks one entry into `STRING_REGISTRY`
 // (per-frame HUD-style code paths in long-running programs).
 //
-// jit: skip
 
 use test
 

@@ -7,7 +7,6 @@
 // originally over a some(aliased) double-release concern, which
 // was resolved by the Some-retain change in 192b91d.
 //
-// jit: skip
 
 use test
 

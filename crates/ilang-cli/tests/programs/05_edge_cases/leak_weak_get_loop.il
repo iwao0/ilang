@@ -6,7 +6,6 @@
 // per call. `weak_basic.il` covers the functional behaviour; this
 // fixture pins down the alloc-tracker reclaim across many upgrades.
 //
-// jit: skip
 
 use test
 

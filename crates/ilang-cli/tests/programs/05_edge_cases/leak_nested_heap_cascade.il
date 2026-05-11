@@ -7,7 +7,6 @@
 // host_release_optional, etc.). NewArray / NewArrayEmpty set
 // the tag from the element MirTy via `kind_tag_of`.
 //
-// jit: skip
 
 use test
 

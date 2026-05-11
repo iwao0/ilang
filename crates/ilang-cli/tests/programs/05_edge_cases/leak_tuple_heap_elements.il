@@ -7,7 +7,6 @@
 // leaked their inner cells. Fix packs a 4-bit KIND_* tag per
 // element into the tuple header (bits 16-63 of the packed word).
 //
-// jit: skip
 
 use test
 

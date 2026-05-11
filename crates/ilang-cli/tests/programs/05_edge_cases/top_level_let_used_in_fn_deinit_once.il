@@ -12,7 +12,6 @@
 // long-running game loops (breakout's per-frame
 // `consts.*`-style reads) leaked silently per iteration.
 //
-// jit: skip
 //
 // expect: --- start ---
 // expect: --- end ---

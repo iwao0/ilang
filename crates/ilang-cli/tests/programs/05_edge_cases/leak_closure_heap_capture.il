@@ -8,7 +8,6 @@
 // captured class instance; this fixture pins down the actual
 // memory reclaim using `liveAllocBytes`.
 //
-// jit: skip
 
 use test
 

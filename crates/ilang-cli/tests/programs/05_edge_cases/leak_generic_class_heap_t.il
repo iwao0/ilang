@@ -7,7 +7,6 @@
 // `nested_generic.il` covers the functional Box<Box<...>> shape;
 // this fixture is the heap-T memory-reclaim variant.
 //
-// jit: skip
 
 use test
 

@@ -6,7 +6,6 @@
 // enum; this fixture exercises the stdlib Result type and its
 // per-arm cascade.
 //
-// jit: skip
 
 use test
 

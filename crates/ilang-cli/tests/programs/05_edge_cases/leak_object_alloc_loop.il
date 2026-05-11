@@ -11,7 +11,6 @@
 // free, tighten the threshold to detect any regression that
 // brings the leak back.
 //
-// jit: skip
 
 use test
 

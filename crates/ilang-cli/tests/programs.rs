@@ -7,8 +7,8 @@
 //! ```text
 //! // expect: 42
 //! // expect: hello
-//! // jit: skip          (optional — skip running through the JIT)
-//! // interp: skip       (optional — skip running through the interpreter)
+//! // interp: skip       (optional — skip running through mir-jit)
+//! // aot: skip          (optional — skip the AOT build / run arm)
 //! // expect-error: division by zero   (failure case)
 //! ```
 //!
@@ -16,9 +16,9 @@
 //!   match exactly, in order.
 //! - `expect-error:` declares that the run must FAIL and the substring
 //!   must appear somewhere in stderr.
-//! - When both interpreter and JIT run, their stdouts are also compared
-//!   to each other so divergence is caught even if both happen to pass
-//!   the `expect:` block.
+//! - When the AOT arm is enabled (`ILANG_TEST_AOT=1`) its stdout is
+//!   compared against the JIT stdout so divergence is caught even if
+//!   both happen to pass `expect:` individually.
 //!
 //! Adding a new test = dropping a new `.il` file in `tests/programs/`.
 
@@ -37,8 +37,6 @@ fn ilang_bin() -> PathBuf {
 struct Spec {
     expect_lines: Vec<String>,
     expect_error: Option<String>,
-    /// Historical directive for the JIT-only backend.
-    skip_jit: bool,
     skip_interp: bool,
     skip_aot: bool,
 }
@@ -53,8 +51,6 @@ fn parse_spec(src: &str) -> Spec {
             spec.expect_lines.push(rest.trim().to_string());
         } else if let Some(rest) = body.strip_prefix("expect-error:") {
             spec.expect_error = Some(rest.trim().to_string());
-        } else if body == "jit: skip" {
-            spec.skip_jit = true;
         } else if body == "interp: skip" {
             spec.skip_interp = true;
         } else if body == "aot: skip" {
@@ -255,15 +251,15 @@ fn parse_spec_collects_expect_lines() {
     let spec = parse_spec(src);
     assert_eq!(spec.expect_lines, vec!["foo".to_string(), "bar".to_string()]);
     assert_eq!(spec.expect_error, None);
-    assert!(!spec.skip_jit && !spec.skip_interp);
+    assert!(!spec.skip_interp && !spec.skip_aot);
 }
 
 #[test]
 fn parse_spec_recognizes_skip_directives() {
-    let src = "// jit: skip\n// interp: skip\n// expect: x\n";
+    let src = "// interp: skip\n// aot: skip\n// expect: x\n";
     let spec = parse_spec(src);
-    assert!(spec.skip_jit);
     assert!(spec.skip_interp);
+    assert!(spec.skip_aot);
     assert_eq!(spec.expect_lines, vec!["x".to_string()]);
 }
 

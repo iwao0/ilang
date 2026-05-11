@@ -3,7 +3,6 @@
 // every grow (~log2(N) leaks per N pushes), so a long
 // `xs.push(...)` loop accumulated ~2*N*stride unreachable bytes.
 //
-// jit: skip
 
 use test
 

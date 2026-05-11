@@ -7,7 +7,6 @@
 // enums per frame (`sdl.Axis.leftX`, `sdl.Button.dpadLeft`, …)
 // which leaked ~840 cells/sec into the host_mir_alloc tracker.
 //
-// jit: skip
 
 use test
 

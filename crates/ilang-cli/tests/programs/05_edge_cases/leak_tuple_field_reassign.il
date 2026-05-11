@@ -8,7 +8,6 @@
 // shape; `leak_field_reassign_heap.il` covers the array-field
 // case; this fixture is the tuple-field variant.
 //
-// jit: skip
 
 use test
 

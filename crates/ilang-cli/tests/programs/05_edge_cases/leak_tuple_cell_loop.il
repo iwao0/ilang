@@ -9,7 +9,6 @@
 // Fix packs `arity` into the upper 32 bits of the kind_mask
 // header word.
 //
-// jit: skip
 
 use test
 

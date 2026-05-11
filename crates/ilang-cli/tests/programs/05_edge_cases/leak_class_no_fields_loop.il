@@ -7,7 +7,6 @@
 // dropped that, so a regression that re-adds it would show up
 // here.
 //
-// jit: skip
 
 use test
 

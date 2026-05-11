@@ -7,7 +7,6 @@
 // release but never called `host_mir_free` on the cell itself
 // (closure_capture_table didn't carry the size).
 //
-// jit: skip
 
 use test
 

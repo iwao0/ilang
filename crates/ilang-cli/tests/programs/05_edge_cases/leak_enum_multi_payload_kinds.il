@@ -5,7 +5,6 @@
 // 2×i64 payload (no heap cascade), and the 2×f64 payload (no
 // heap cascade either, but distinct kind tag on the cell).
 //
-// jit: skip
 
 use test
 

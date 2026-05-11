@@ -8,7 +8,6 @@
 // the parts forever in `STRING_REGISTRY`. Fix: thread a kind
 // param through `build_array`, set KIND_STR for split's output.
 //
-// jit: skip
 
 use test
 

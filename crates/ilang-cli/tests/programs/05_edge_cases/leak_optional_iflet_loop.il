@@ -6,7 +6,6 @@
 // distinct retain/release shape (the inner is read out, the shell
 // is dropped).
 //
-// jit: skip
 
 use test
 

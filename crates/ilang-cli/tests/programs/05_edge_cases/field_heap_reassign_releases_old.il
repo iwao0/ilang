@@ -10,7 +10,6 @@
 // old field, so deinits piled up at program exit instead of firing
 // at the swap point.
 //
-// jit: skip
 //
 // expect: --- before swap ---
 // expect: deinit obj-1

@@ -6,7 +6,6 @@
 // retain-on-construct + release-on-drop the array would either
 // double-free or leak.
 //
-// jit: skip
 
 use test
 

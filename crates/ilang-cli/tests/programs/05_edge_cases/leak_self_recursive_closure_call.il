@@ -8,7 +8,6 @@
 // (functional behaviour); this fixture pins down the no-leak
 // guarantee for the common recursive shape.
 //
-// jit: skip
 
 use test
 

@@ -5,7 +5,6 @@
 // short-circuits (or vice versa) would grow the cell tracker per
 // iteration.
 //
-// jit: skip
 
 use test
 

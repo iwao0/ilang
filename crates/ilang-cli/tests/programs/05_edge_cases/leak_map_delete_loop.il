@@ -8,7 +8,6 @@
 // because the underlying object-cell memory free is gated on a
 // separate fix.
 //
-// jit: skip
 
 use test
 

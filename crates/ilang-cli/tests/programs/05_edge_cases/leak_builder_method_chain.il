@@ -6,7 +6,6 @@
 // A regression that treats the chained return as a fresh
 // allocation would leak 24 bytes + array storage per iteration.
 //
-// jit: skip
 
 use test
 

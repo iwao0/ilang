@@ -6,7 +6,6 @@
 // `01_basics/loop_break_value.il` (functional behaviour); this
 // fixture pins down the memory reclaim.
 //
-// jit: skip
 
 use test
 

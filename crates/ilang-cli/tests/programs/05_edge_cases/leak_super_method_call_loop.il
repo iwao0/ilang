@@ -7,7 +7,6 @@
 // (functional behaviour); this fixture pins down the no-leak per
 // call.
 //
-// jit: skip
 
 use test
 

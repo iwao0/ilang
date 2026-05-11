@@ -5,7 +5,6 @@
 // weak-release on the displaced Optional, leaving stale weak
 // counts that prevent eventual deallocation.
 //
-// jit: skip
 
 use test
 

@@ -4,7 +4,6 @@
 // .il` covers `Map<i64, T[]>`; this fixture is the bool-key
 // variant which exercises a different MapKey hashing path.
 //
-// jit: skip
 
 use test
 

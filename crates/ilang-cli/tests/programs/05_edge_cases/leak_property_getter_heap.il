@@ -8,7 +8,6 @@
 // this fixture pins down the heap-result reclaim across many
 // calls.
 //
-// jit: skip
 
 use test
 

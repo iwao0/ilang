@@ -5,7 +5,6 @@
 // scratch object regardless of iteration count would leak ~24
 // bytes per empty-range hit.
 //
-// jit: skip
 
 use test
 

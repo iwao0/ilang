@@ -2,7 +2,6 @@
 // Box<Option<...>>; the JIT's nullable-pointer Optional layout can't
 // distinguish Some(none) from none for the same inner pointer width,
 // so this fixture is interpreter-only for now.
-// jit: skip
 use test
 
 // Optional<Optional<string>> — both layers are heap (Str / Optional<Str>).

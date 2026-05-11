@@ -5,7 +5,6 @@
 // _fn_field.il` exercises the functional behaviour; this fixture
 // pins down the memory reclaim.
 //
-// jit: skip
 
 use test
 
