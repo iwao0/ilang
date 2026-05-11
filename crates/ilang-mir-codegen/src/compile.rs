@@ -564,9 +564,6 @@ pub fn compile_with_builtins(
         let mut t = object_field_table_lock()
             .lock()
             .expect("field table poisoned");
-        let mut sizes = class_size_table_lock()
-            .lock()
-            .expect("class size table poisoned");
         // Don't clear — entries are keyed by GLOBAL class id and
         // accumulate across compiles so parallel modules coexist.
         for class in &prog.classes {
@@ -598,7 +595,10 @@ pub fn compile_with_builtins(
             ) || weakable.contains(&class.id.0);
             if !skip_free {
                 let size = OBJECT_HEADER_BYTES as i64 + (class.fields.len() as i64) * 8;
-                sizes.insert(global_cid(class.id.0), size);
+                ilang_runtime::__register_class_size(
+                    global_cid(class.id.0) as i64,
+                    size,
+                );
             }
         }
     }
@@ -1429,15 +1429,9 @@ fn object_field_table_lock() -> &'static Mutex<HashMap<u32, Vec<(i64, PrintKind)
     OBJECT_FIELD_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// global_class_id → total byte size of the heap allocation. Used by
-/// `release_object` to free obj_ptr once rc reaches 0. CRepr classes
-/// stay out of this table — their lifetime is tracked through the
-/// codegen-side `__mir_free(ptr, c_size)` emit.
-static CLASS_SIZE_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
-
-fn class_size_table_lock() -> &'static Mutex<HashMap<u32, i64>> {
-    CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
-}
+// class size table now lives in `ilang-runtime`
+// (`__register_class_size`); JIT and AOT funnel through it via
+// `__release_object`.
 
 /// Visit every MirTy reachable from `ty` (recursing through Array
 /// element / Optional inner / Tuple components / Map key+value /
@@ -1889,21 +1883,14 @@ fn release_object(obj_ptr: i64) {
         f(obj_ptr, 0);
     }
     host_release_object_fields(class_id, obj_ptr);
-    // Object cell free is staged (class_size_table is populated)
-    // but currently gated. Even with the super-init retain fix,
-    // a few patterns still mis-account: closure-capture escape
-    // (a captured local releases at maker-fn scope exit before
-    // the closure escapes), and Optional<Object[]> sequences
-    // ordering that combines unwrap-extracted aliases with later
-    // reuse. Until those callees retain the borrow, leaving the
-    // free disabled trades extra residency for safety.
-    let size = {
-        let m = class_size_table_lock()
-            .lock()
-            .expect("class size table poisoned");
-        m.get(&(class_id as u32)).copied()
-    };
-    let _ = size;
+    // Object buffer free stays gated in the JIT: a few patterns
+    // (closure heap captures escaping the maker fn, recursive
+    // Optional<Object>-via-field structures) still mis-account
+    // refcounts on the cascade path and would UAF if we reclaimed
+    // the cell here. AOT's `ilang_runtime::__release_object` does the
+    // matching `__mir_free`; until those patterns are fixed in the
+    // shared lowering we keep this side leaky for safety.
+    let _ = ilang_runtime::class_size_for(class_id);
 }
 
 #[derive(Clone)]

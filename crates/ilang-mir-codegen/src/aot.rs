@@ -216,6 +216,12 @@ fn emit_aot_init(
         s.params.push(AbiParam::new(types::I64));
         module.declare_function("__register_drop", Linkage::Import, &s)?
     };
+    let reg_class_size = {
+        let mut s = module.make_signature();
+        s.params.push(AbiParam::new(types::I64));
+        s.params.push(AbiParam::new(types::I64));
+        module.declare_function("__register_class_size", Linkage::Import, &s)?
+    };
 
     let init_sig = module.make_signature();
     let init_id =
@@ -232,9 +238,28 @@ fn emit_aot_init(
 
         let reg_vtable_ref = module.declare_func_in_func(reg_vtable, fb.func);
         let reg_drop_ref = module.declare_func_in_func(reg_drop, fb.func);
+        let reg_class_size_ref = module.declare_func_in_func(reg_class_size, fb.func);
 
         for class in &prog.classes {
             let global_cid = class_global[class.id.0 as usize] as i64;
+            // Register the byte size of this class's heap allocation
+            // so `__release_object` can reclaim the buffer at rc=0.
+            // Skip CRepr / packed / union classes — their lifetime is
+            // already tracked at the codegen level via direct
+            // `__mir_free(ptr, c_size)` emits.
+            let skip_free = matches!(
+                class.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            );
+            if !skip_free {
+                // 16-byte header (class_id + rc) + 8 bytes per field.
+                let size = 16 + (class.fields.len() as i64) * 8;
+                let cid_v = fb.ins().iconst(types::I64, global_cid);
+                let size_v = fb.ins().iconst(types::I64, size);
+                fb.ins().call(reg_class_size_ref, &[cid_v, size_v]);
+            }
             // Vtable entries: every method with a slot maps to its fn
             // address at the global (class_id, slot) key.
             for m in &class.methods {

@@ -1027,6 +1027,33 @@ pub extern "C" fn __release_map(map: i64) {
 // require the init-emit work that populates the JIT-side tables at
 // process startup.
 
+/// Total byte size of the heap allocation for each class id. AOT
+/// populates via `__register_class_size` from `__ilang_aot_init`;
+/// JIT populates the same map during its post-finalize step. Classes
+/// whose memory is reclaimed via a different path (CRepr / packed /
+/// union / weak-referenced) stay out of the table.
+static CLASS_SIZE_TABLE: OnceLock<Mutex<HashMap<u32, i64>>> = OnceLock::new();
+
+fn class_size_table() -> &'static Mutex<HashMap<u32, i64>> {
+    CLASS_SIZE_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __register_class_size(class_id: i64, size: i64) {
+    let mut t = class_size_table().lock().expect("class size table poisoned");
+    t.insert(class_id as u32, size);
+}
+
+/// Look up the registered byte size for a class. Returns `None` when
+/// the class was deliberately left out of the table (CRepr / packed /
+/// union, weak-referenced, etc.). Used by the JIT-side host helpers
+/// that still own the field-cascade walk but need the runtime's size
+/// registry for the trailing `__mir_free`.
+pub fn class_size_for(class_id: i64) -> Option<i64> {
+    let t = class_size_table().lock().expect("class size table poisoned");
+    t.get(&(class_id as u32)).copied()
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __retain_object(obj_ptr: i64) {
     if obj_ptr == 0 {
@@ -1056,9 +1083,29 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
     unsafe {
         *rc_ptr = new_rc;
     }
-    // Buffer / cascade-release of heap fields stays as a leak in this
-    // minimal runtime. Full lifecycle support arrives with the AOT
-    // init-emit work.
+    if new_rc != 0 {
+        return;
+    }
+    let class_id = unsafe { *(obj_ptr as *const i64) };
+    // Run user deinit if registered.
+    let user_drop = __drop_dispatch(class_id);
+    if user_drop != 0 {
+        let f: extern "C" fn(i64, i64) = unsafe { std::mem::transmute(user_drop) };
+        f(obj_ptr, 0);
+    }
+    // Heap-typed field cascade — still stubbed; once
+    // OBJECT_FIELD_TABLE moves here the cascade walks the table and
+    // calls per-kind release. For now object fields of heap types
+    // leak their inner values.
+    __release_object_fields(class_id, obj_ptr);
+    // Free the backing buffer if a size was registered.
+    let size = {
+        let t = class_size_table().lock().expect("class size table poisoned");
+        t.get(&(class_id as u32)).copied()
+    };
+    if let Some(sz) = size {
+        __mir_free(obj_ptr, sz);
+    }
 }
 
 #[unsafe(no_mangle)]

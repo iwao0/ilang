@@ -184,6 +184,22 @@ fn emits_object_for_class_with_method() {
 }
 
 #[test]
+fn emits_object_for_class_deinit() {
+    expect_object(
+        r#"
+        class Counter {
+          n: i64
+          init(n: i64) { this.n = n }
+          deinit() { console.log("deinit", this.n) }
+        }
+        fn make(): Counter { new Counter(42) }
+        let c = make()
+        console.log(c.n)
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_virtual_dispatch() {
     expect_object(
         r#"
