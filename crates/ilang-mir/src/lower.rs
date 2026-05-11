@@ -4845,7 +4845,15 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::LoadField { dst: v, obj: ov, field: fid });
                 // Release a fresh-receiver Object after extracting a
                 // non-Object field — the receiver is otherwise leaked.
+                // Heap-typed fields need a retain first so the
+                // cascade triggered by `Release v` doesn't tear the
+                // field down: the receiver owned a +1 on the field
+                // (the array / map / etc.), and once the receiver's
+                // rc hits zero its `__release_object_fields` cascade
+                // releases that same +1. Without the retain, the
+                // caller gets a dangling pointer.
                 if obj_is_fresh && !matches!(fty, MirTy::Object(_)) {
+                    retain_if_heap(&mut self.fb, v, &fty);
                     self.fb.push_inst(Inst::Release { value: ov });
                 }
                 return Ok((v, fty));
