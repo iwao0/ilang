@@ -7548,6 +7548,17 @@ impl<'a> BodyCx<'a> {
         // would treat the literal `7` as a raw pointer.
         if let MirTy::Optional(inner) = to {
             if **inner == *from || matches!(**inner, MirTy::Unit) {
+                // For a heap-typed inner the new Optional cell owns a
+                // share of `v`; without bumping rc here, the source
+                // binding's eventual release would drop the only
+                // backing object before the Optional's cascade had a
+                // chance to. Matches the explicit `some(x)` path in
+                // `lower_expr`, which retains via `needs_retain`.
+                // Caught by ASan as a UAF in `host_release_object`
+                // during teardown of `recursive_method_optional_tree`,
+                // where calls like `new Tree(10, l, r)` rely on this
+                // coercion to wrap the local heap arguments.
+                retain_if_heap(&mut self.fb, v, inner);
                 let dst = self.fb.new_value(to.clone());
                 self.fb.push_inst(Inst::NewOptional { dst, value: v });
                 return Ok(dst);
