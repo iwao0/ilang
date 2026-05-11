@@ -4,7 +4,7 @@
 // pointer; x86_64 SysV copies onto the stack). The ilang side just
 // hands over the user pointer; Cranelift does the rest.
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

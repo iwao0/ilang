@@ -8,7 +8,7 @@
 //   - byte offsets of each field (verified via `pkt_byte_at` /
 //     `alg_byte_at` host externs that read raw bytes)
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

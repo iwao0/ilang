@@ -8,7 +8,7 @@
 // implicitly — no explicit flag needed.
 //
 // Interpreter has no native-extern marshalling, skip there.
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

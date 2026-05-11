@@ -1,7 +1,7 @@
 // libc is present everywhere — declaring it `@optional` should
 // produce the same behaviour as a regular `@lib("c") fn`,
 // with `os.libLoaded("c")` reporting true.
-// interp: skip
+// jit: skip
 use os
 use test
 

@@ -5,7 +5,7 @@
 // F64) so Cranelift's calling-conv assigner picks the right
 // register slot.
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

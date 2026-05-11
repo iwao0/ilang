@@ -5,7 +5,7 @@
 //
 // JIT-only — the interpreter has no shared-storage representation
 // for fields (it uses a HashMap<name, Value>).
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

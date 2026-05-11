@@ -7,7 +7,7 @@
 // code outside the @extern(C) block.
 //
 // JIT-only.
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

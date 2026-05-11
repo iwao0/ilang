@@ -8,7 +8,7 @@
 // We simulate the pattern with `test.countedFree`, a host-side
 // stub that calls libc::free *and* bumps a counter; the test
 // asserts the counter advances exactly once per `dupCounted`.
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

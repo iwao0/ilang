@@ -5,7 +5,7 @@
 // reads `os.errno()` (already TLS-correct via libc's
 // `__errno_location` / `__error`).
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

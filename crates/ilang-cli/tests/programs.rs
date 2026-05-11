@@ -7,7 +7,7 @@
 //! ```text
 //! // expect: 42
 //! // expect: hello
-//! // interp: skip       (optional — skip running through mir-jit)
+//! // jit: skip          (optional — skip running through mir-jit)
 //! // aot: skip          (optional — skip the AOT build / run arm)
 //! // expect-error: division by zero   (failure case)
 //! ```
@@ -37,7 +37,7 @@ fn ilang_bin() -> PathBuf {
 struct Spec {
     expect_lines: Vec<String>,
     expect_error: Option<String>,
-    skip_interp: bool,
+    skip_jit: bool,
     skip_aot: bool,
 }
 
@@ -51,8 +51,8 @@ fn parse_spec(src: &str) -> Spec {
             spec.expect_lines.push(rest.trim().to_string());
         } else if let Some(rest) = body.strip_prefix("expect-error:") {
             spec.expect_error = Some(rest.trim().to_string());
-        } else if body == "interp: skip" {
-            spec.skip_interp = true;
+        } else if body == "jit: skip" {
+            spec.skip_jit = true;
         } else if body == "aot: skip" {
             spec.skip_aot = true;
         } else if body.is_empty() {
@@ -200,7 +200,7 @@ fn run_all_program_fixtures() {
 
                     let mut local_failures: Vec<String> = Vec::new();
                     let mut mir_stdout: Option<String> = None;
-                    if !spec.skip_interp {
+                    if !spec.skip_jit {
                         match check(&spec, &run(path)) {
                             Ok(out) => mir_stdout = Some(out),
                             Err(msg) => local_failures.push(format!("{rel} [mir-jit]: {msg}")),
@@ -251,14 +251,14 @@ fn parse_spec_collects_expect_lines() {
     let spec = parse_spec(src);
     assert_eq!(spec.expect_lines, vec!["foo".to_string(), "bar".to_string()]);
     assert_eq!(spec.expect_error, None);
-    assert!(!spec.skip_interp && !spec.skip_aot);
+    assert!(!spec.skip_jit && !spec.skip_aot);
 }
 
 #[test]
 fn parse_spec_recognizes_skip_directives() {
-    let src = "// interp: skip\n// aot: skip\n// expect: x\n";
+    let src = "// jit: skip\n// aot: skip\n// expect: x\n";
     let spec = parse_spec(src);
-    assert!(spec.skip_interp);
+    assert!(spec.skip_jit);
     assert!(spec.skip_aot);
     assert_eq!(spec.expect_lines, vec!["x".to_string()]);
 }

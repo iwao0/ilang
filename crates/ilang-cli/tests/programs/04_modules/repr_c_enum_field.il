@@ -23,7 +23,7 @@
 // layout pass + mir-jit codegen; the legacy `--jit` backend
 // (deprecated) has its own struct-layout path that hasn't been
 // updated, and the interpreter doesn't honor the C ABI here.
-// interp: skip
+// jit: skip
 use test
 
 pub enum Tag16: u16 {

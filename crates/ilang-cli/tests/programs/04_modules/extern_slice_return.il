@@ -4,7 +4,7 @@
 // — the value flowing through ilang is a normal heap-allocated
 // `T[]`.
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

@@ -6,7 +6,7 @@
 // `@extern(C) {...}` is JIT-only, so the fixture declares the run
 // as JIT-only. The interpreter side of os.errno is exercised by
 // `os_errno_basic.il`.
-// interp: skip
+// jit: skip
 use os
 use test
 

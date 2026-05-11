@@ -5,7 +5,7 @@
 // back into its user area so the caller sees a normal heap
 // Object with rc=1.
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {

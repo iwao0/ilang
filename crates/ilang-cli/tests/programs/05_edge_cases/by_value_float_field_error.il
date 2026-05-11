@@ -5,7 +5,7 @@
 // at registration.
 //
 // jit run only — interp doesn't see this validation step.
-// interp: skip
+// jit: skip
 // expect-error: supported shapes are integer/bool fields or homogeneous float aggregates
 
 @extern(C) {

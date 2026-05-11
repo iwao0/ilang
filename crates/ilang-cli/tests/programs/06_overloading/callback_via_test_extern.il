@@ -4,7 +4,7 @@
 // on the Rust side. It calls the callback directly, so this test
 // actually exercises the cross-ABI invocation rather than just the
 // pointer marshalling.
-// interp: skip
+// jit: skip
 use test
 
 fn cmp(a: i64, b: i64): i32 {

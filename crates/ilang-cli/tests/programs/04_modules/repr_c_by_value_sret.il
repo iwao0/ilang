@@ -6,7 +6,7 @@
 // pointer over as the hidden first arg, and surfaces that same
 // pointer as the call's result (rc=1, ready to bind).
 //
-// interp: skip
+// jit: skip
 use test
 
 @extern(C) {
