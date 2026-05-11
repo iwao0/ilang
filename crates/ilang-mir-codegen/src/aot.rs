@@ -539,6 +539,57 @@ fn emit_aot_init(
         module.declare_function("__register_lib_group_member", Linkage::Import, &s)?
     };
 
+    // Scan the whole program for `MirTy::Weak(C)` references so the
+    // class-size registration below can skip those classes — `weak.get`
+    // peeks at the object header after the strong rc hits zero, so
+    // freeing the buffer there would dangle.
+    let weakable_classes: std::collections::HashSet<u32> = {
+        let mut set = std::collections::HashSet::new();
+        fn walk(ty: &MirTy, set: &mut std::collections::HashSet<u32>) {
+            if let MirTy::Weak(c) = ty {
+                set.insert(c.0);
+            }
+            match ty {
+                MirTy::Array { elem, .. } => walk(elem, set),
+                MirTy::Optional(inner) => walk(inner, set),
+                MirTy::Tuple(items) => {
+                    for t in items.iter() {
+                        walk(t, set);
+                    }
+                }
+                MirTy::Map { key, val } => {
+                    walk(key, set);
+                    walk(val, set);
+                }
+                MirTy::Fn(ft) => {
+                    for p in ft.params.iter() {
+                        walk(p, set);
+                    }
+                    walk(&ft.ret, set);
+                }
+                _ => {}
+            }
+        }
+        for class in &prog.classes {
+            for f in &class.fields {
+                walk(&f.ty, &mut set);
+            }
+        }
+        for f in &prog.functions {
+            for p in f.params.iter() {
+                walk(&p.ty, &mut set);
+            }
+            walk(&f.ret, &mut set);
+            for l in f.value_tys.iter() {
+                walk(l, &mut set);
+            }
+            for l in f.local_tys.iter() {
+                walk(l, &mut set);
+            }
+        }
+        set
+    };
+
     // Pre-allocate data symbols for every class / field / enum /
     // variant name so init-body IR can hand body pointers to the
     // runtime registrations. Done before the function-body block so
@@ -706,7 +757,7 @@ fn emit_aot_init(
                 ilang_mir::ClassRepr::CRepr
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
-            );
+            ) || weakable_classes.contains(&class.id.0);
             if !skip_free {
                 // 16-byte header (class_id + rc) + 8 bytes per field.
                 let size = 16 + (class.fields.len() as i64) * 8;
