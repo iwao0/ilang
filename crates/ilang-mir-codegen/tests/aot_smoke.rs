@@ -122,6 +122,19 @@ fn emits_object_for_dynamic_array() {
 }
 
 #[test]
+fn emits_object_for_string_keyed_map() {
+    expect_object(
+        r#"
+        let m = new Map<string, i64>()
+        m["a"] = 1
+        m["b"] = 2
+        console.log(m["a"], m["b"])
+        console.log(m.has("a"), m.has("zzz"))
+    "#,
+    );
+}
+
+#[test]
 fn emits_object_for_string_array() {
     expect_object(
         r#"

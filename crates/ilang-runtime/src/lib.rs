@@ -595,6 +595,420 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
 }
 
 // --------------------------------------------------------------------
+// Map runtime
+// --------------------------------------------------------------------
+//
+// `ManagedMap` wraps Rust's `HashMap<MapKey, i64>` with a refcount,
+// the per-value KIND_* tag (for cascade-release on drop), and per-
+// side print-kind tags (so `__print_map` can stringify the cells).
+//
+// Cascade support in `__release_map` / `__map_set` is limited to the
+// same kinds `__release_array` handles (`KIND_NONE`, `KIND_STR`,
+// `KIND_ARRAY`). Maps whose values are objects / closures / enums
+// leak their inner cells until process exit — the JIT side keeps its
+// fully-cascading `host_map_*` for now.
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum MapKey {
+    Int(i64),
+    Str(String),
+}
+
+struct ManagedMap {
+    rc: i64,
+    val_kind: i64,
+    key_print_kind: i64,
+    val_print_kind: i64,
+    inner: HashMap<MapKey, i64>,
+    /// For string-keyed maps: canonical key → original C-string ptr
+    /// the user inserted. Lets `keys()` return the original ptrs.
+    str_key_origs: HashMap<MapKey, i64>,
+}
+
+pub const PK_I64_SIG: i64 = 0;
+pub const PK_I64_UNS: i64 = 1;
+pub const PK_I32_SIG: i64 = 2;
+pub const PK_I32_UNS: i64 = 3;
+pub const PK_I16_SIG: i64 = 4;
+pub const PK_I16_UNS: i64 = 5;
+pub const PK_I8_SIG: i64 = 6;
+pub const PK_I8_UNS: i64 = 7;
+pub const PK_BOOL: i64 = 8;
+pub const PK_F64: i64 = 9;
+pub const PK_F32: i64 = 10;
+pub const PK_STR: i64 = 11;
+pub const PK_OBJECT: i64 = 12;
+pub const PK_ARRAY_I64_SIG: i64 = 100;
+pub const PK_OTHER: i64 = -1;
+
+const KIND_ARRAY: i64 = 2;
+
+fn raw_to_map_key(raw: i64, key_print_kind: i64) -> MapKey {
+    if key_print_kind == PK_STR {
+        if raw == 0 {
+            MapKey::Str(String::new())
+        } else {
+            let bytes = unsafe { cstr_bytes(raw) };
+            MapKey::Str(String::from_utf8_lossy(bytes).into_owned())
+        }
+    } else {
+        MapKey::Int(raw)
+    }
+}
+
+fn map_key_to_raw(k: &MapKey) -> i64 {
+    match k {
+        MapKey::Int(n) => *n,
+        MapKey::Str(s) => leak_cstring(s.clone()),
+    }
+}
+
+/// Limited retain dispatcher for map values. Mirrors the JIT-side
+/// `retain_by_kind` for the kinds whose retain implementations live
+/// in this crate. Unknown kinds silently leak.
+fn map_retain_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_STR => __retain_string(ptr),
+        KIND_ARRAY => __retain_array(ptr),
+        _ => {}
+    }
+}
+
+fn map_release_by_kind(ptr: i64, kind: i64) {
+    if ptr == 0 {
+        return;
+    }
+    match kind {
+        KIND_STR => __release_string(ptr),
+        KIND_ARRAY => __release_array(ptr),
+        _ => {}
+    }
+}
+
+fn format_f64_like_jit(f: f64) -> String {
+    if f.is_nan() {
+        "NaN".to_string()
+    } else if f.is_infinite() {
+        if f > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
+    } else if f == f.trunc() && f.abs() < 1e16 {
+        format!("{}.0", f as i64)
+    } else {
+        format!("{f}")
+    }
+}
+
+fn format_kind_id(out: &mut String, kind: i64, raw: i64) {
+    use std::fmt::Write;
+    match kind {
+        PK_I64_SIG => { let _ = write!(out, "{}", raw); }
+        PK_I64_UNS => { let _ = write!(out, "{}", raw as u64); }
+        PK_I32_SIG => { let _ = write!(out, "{}", raw as i32); }
+        PK_I32_UNS => { let _ = write!(out, "{}", raw as u32); }
+        PK_I16_SIG => { let _ = write!(out, "{}", raw as i16); }
+        PK_I16_UNS => { let _ = write!(out, "{}", raw as u16); }
+        PK_I8_SIG => { let _ = write!(out, "{}", raw as i8); }
+        PK_I8_UNS => { let _ = write!(out, "{}", raw as u8); }
+        PK_BOOL => { let _ = write!(out, "{}", raw != 0); }
+        PK_F64 => {
+            let f = f64::from_bits(raw as u64);
+            let _ = write!(out, "{}", format_f64_like_jit(f));
+        }
+        PK_F32 => {
+            let f = f32::from_bits((raw as i32) as u32);
+            let _ = write!(out, "{}", format_f64_like_jit(f as f64));
+        }
+        PK_STR => {
+            if raw != 0 {
+                let bytes = unsafe { cstr_bytes(raw) };
+                let _ = write!(out, "{}", String::from_utf8_lossy(bytes));
+            }
+        }
+        PK_OBJECT => {
+            // Full object formatting needs per-class field tables
+            // that haven't moved here yet; fall back to a placeholder.
+            let _ = write!(out, "<object#{}>", raw);
+        }
+        PK_ARRAY_I64_SIG => {
+            out.push('[');
+            if raw != 0 {
+                let len = unsafe { *(raw as *const i64) };
+                let data_ptr = unsafe { *((raw + 16) as *const i64) };
+                for i in 0..len {
+                    if i > 0 { out.push_str(", "); }
+                    let elem = unsafe { *((data_ptr + i * 8) as *const i64) };
+                    let _ = write!(out, "{}", elem);
+                }
+            }
+            out.push(']');
+        }
+        _ => { let _ = write!(out, "{}", raw); }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_new() -> i64 {
+    let m = Box::new(ManagedMap {
+        rc: 1,
+        val_kind: 0,
+        key_print_kind: PK_OTHER,
+        val_print_kind: PK_OTHER,
+        inner: HashMap::new(),
+        str_key_origs: HashMap::new(),
+    });
+    Box::into_raw(m) as i64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_set_print_kinds(map: i64, key_kind: i64, val_kind: i64) {
+    if map == 0 {
+        return;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    m.key_print_kind = key_kind;
+    m.val_print_kind = val_kind;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_set_value_kind(map: i64, kind: i64) {
+    if map == 0 {
+        return;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    m.val_kind = kind;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
+    if map == 0 {
+        return 0;
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    *m.inner.get(&mk).unwrap_or(&0)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
+    if map == 0 {
+        return 0;
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    match m.inner.get(&mk) {
+        Some(&v) => {
+            let cell = __mir_alloc(24) as *mut i64;
+            unsafe {
+                *cell = v;
+                *cell.add(1) = 1;
+                *cell.add(2) = m.val_kind;
+            }
+            cell as i64
+        }
+        None => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_set(map: i64, key: i64, value: i64) {
+    if map == 0 {
+        return;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    if m.key_print_kind == PK_STR && key != 0 {
+        m.str_key_origs.entry(mk.clone()).or_insert(key);
+    }
+    let val_kind = m.val_kind;
+    if val_kind != KIND_NONE {
+        map_retain_by_kind(value, val_kind);
+    }
+    let prev = m.inner.insert(mk, value);
+    if let Some(old) = prev {
+        if val_kind != KIND_NONE {
+            map_release_by_kind(old, val_kind);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_has(map: i64, key: i64) -> i64 {
+    if map == 0 {
+        return 0;
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    if m.inner.contains_key(&mk) { 1 } else { 0 }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_size(map: i64) -> i64 {
+    if map == 0 {
+        return 0;
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    m.inner.len() as i64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_delete(map: i64, key: i64) -> i64 {
+    if map == 0 {
+        return 0;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    let mk = raw_to_map_key(key, m.key_print_kind);
+    let val_kind = m.val_kind;
+    match m.inner.remove(&mk) {
+        Some(old) => {
+            if val_kind != KIND_NONE {
+                map_release_by_kind(old, val_kind);
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// Build an i64[] (KIND_STR-tagged for string keys, KIND_NONE
+/// otherwise) populated with every key in the map. Used by
+/// `Map.keys`. The order matches Rust's HashMap iteration (non-
+/// deterministic across runs) — same as the JIT.
+fn build_i64_array(items: &[i64], elem_kind: i64) -> i64 {
+    let cap = items.len().max(4);
+    let header = __mir_alloc(48);
+    let data = __mir_alloc((cap * 8) as i64);
+    unsafe {
+        let h = header as *mut i64;
+        *h = items.len() as i64;
+        *h.add(1) = cap as i64;
+        *h.add(2) = data;
+        *h.add(3) = 1;
+        *h.add(4) = elem_kind;
+        *h.add(5) = 8;
+        for (i, v) in items.iter().enumerate() {
+            *((data + (i as i64) * 8) as *mut i64) = *v;
+        }
+    }
+    header
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_keys(map: i64) -> i64 {
+    if map == 0 {
+        return build_i64_array(&[], KIND_NONE);
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let elem_kind = if m.key_print_kind == PK_STR { KIND_STR } else { KIND_NONE };
+    let keys: Vec<i64> = if m.key_print_kind == PK_STR {
+        // Prefer the original literal pointer so `keys().includes(orig)`
+        // works without a content compare.
+        m.inner
+            .keys()
+            .map(|k| m.str_key_origs.get(k).copied().unwrap_or_else(|| map_key_to_raw(k)))
+            .collect()
+    } else {
+        m.inner.keys().map(map_key_to_raw).collect()
+    };
+    if elem_kind == KIND_STR {
+        for k in &keys {
+            __retain_string(*k);
+        }
+    }
+    build_i64_array(&keys, elem_kind)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __map_values(map: i64) -> i64 {
+    if map == 0 {
+        return build_i64_array(&[], KIND_NONE);
+    }
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let val_kind = m.val_kind;
+    let values: Vec<i64> = m.inner.values().copied().collect();
+    if val_kind != KIND_NONE {
+        for v in &values {
+            map_retain_by_kind(*v, val_kind);
+        }
+    }
+    build_i64_array(&values, val_kind)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __print_map(map_ptr: i64) {
+    use std::io::Write;
+    let mut out = String::new();
+    if map_ptr == 0 {
+        out.push_str("{}");
+        let mut o = std::io::stdout().lock();
+        let _ = o.write_all(out.as_bytes());
+        return;
+    }
+    let m = unsafe { &*(map_ptr as *const ManagedMap) };
+    let mut entries: Vec<(i64, i64)> =
+        m.inner.iter().map(|(k, &v)| (map_key_to_raw(k), v)).collect();
+    let kk = m.key_print_kind;
+    let vk = m.val_print_kind;
+    entries.sort_by(|a, b| {
+        let mut sa = String::new();
+        let mut sb = String::new();
+        format_kind_id(&mut sa, kk, a.0);
+        format_kind_id(&mut sb, kk, b.0);
+        sa.cmp(&sb)
+    });
+    out.push('{');
+    for (i, (k, v)) in entries.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        format_kind_id(&mut out, kk, *k);
+        out.push_str(": ");
+        format_kind_id(&mut out, vk, *v);
+    }
+    out.push('}');
+    let mut o = std::io::stdout().lock();
+    let _ = o.write_all(out.as_bytes());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __retain_map(map: i64) {
+    if map == 0 {
+        return;
+    }
+    let m = unsafe { &mut *(map as *mut ManagedMap) };
+    if m.rc <= 0 {
+        return;
+    }
+    m.rc += 1;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __release_map(map: i64) {
+    if map == 0 {
+        return;
+    }
+    let m_mut = unsafe { &mut *(map as *mut ManagedMap) };
+    if m_mut.rc <= 0 {
+        return;
+    }
+    m_mut.rc -= 1;
+    if m_mut.rc != 0 {
+        return;
+    }
+    let val_kind = m_mut.val_kind;
+    if val_kind != KIND_NONE {
+        let values: Vec<i64> = m_mut.inner.values().copied().collect();
+        for v in values {
+            map_release_by_kind(v, val_kind);
+        }
+    }
+    unsafe {
+        let _ = Box::from_raw(map as *mut ManagedMap);
+    }
+}
+
+// --------------------------------------------------------------------
 // Raw memory FFI read / write helpers
 // --------------------------------------------------------------------
 
