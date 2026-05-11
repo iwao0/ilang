@@ -4,6 +4,7 @@
 //! monomorphisation and AST→MIR lowering, **before** MIR→clif.
 
 pub mod arc_peephole;
+pub mod branch_fold;
 pub mod const_fold;
 pub mod dce;
 pub mod inline;

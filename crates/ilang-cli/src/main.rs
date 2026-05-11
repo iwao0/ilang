@@ -163,6 +163,13 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     if std::env::var_os("ILANG_NO_CONST_FOLD").is_none() {
         ilang_mir::passes::const_fold::run_program(&mut mir);
     }
+    // Collapse `CondBr` / `Switch` whose condition / scrutinee is a
+    // known Const into an unconditional `Br`. Pairs with const_fold:
+    // a folded `1 < 2` exposes the taken branch. `ILANG_NO_BRANCH_FOLD=1`
+    // disables for A/B.
+    if std::env::var_os("ILANG_NO_BRANCH_FOLD").is_none() {
+        ilang_mir::passes::branch_fold::run_program(&mut mir);
+    }
     // Sweep unreferenced pure instructions (now-dead Consts that
     // fed folded BinOps, abandoned mid-chain values, etc.).
     // `ILANG_NO_DCE=1` disables for A/B.
@@ -363,6 +370,7 @@ impl ReplSession {
         ilang_mir::passes::promote_locals::run_program(&mut mir);
         ilang_mir::passes::inline::run_program(&mut mir);
         ilang_mir::passes::const_fold::run_program(&mut mir);
+        ilang_mir::passes::branch_fold::run_program(&mut mir);
         ilang_mir::passes::dce::run_program(&mut mir);
         ilang_mir::passes::arc_peephole::run_program(&mut mir);
         let compiled = ilang_mir_codegen::compile_program(&mir)
@@ -967,6 +975,11 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         } else {
             ilang_mir::passes::const_fold::run_program(&mut mir)
         };
+        let branch_fold_stats = if std::env::var_os("ILANG_NO_BRANCH_FOLD").is_some() {
+            ilang_mir::passes::branch_fold::Stats::default()
+        } else {
+            ilang_mir::passes::branch_fold::run_program(&mut mir)
+        };
         let dce_stats = if std::env::var_os("ILANG_NO_DCE").is_some() {
             ilang_mir::passes::dce::Stats::default()
         } else {
@@ -975,11 +988,12 @@ fn run_file(path: &PathBuf, jit: bool, mir_jit: bool) -> ExitCode {
         let arc_stats = ilang_mir::passes::arc_peephole::run_program(&mut mir);
         if dump_stats {
             eprintln!(
-                "{display_path}: promote_locals locals={} uses={} inline calls_inlined={} const_fold folds_applied={} dce removed={}",
+                "{display_path}: promote_locals locals={} uses={} inline calls_inlined={} const_fold folds_applied={} branch_fold branches={} dce removed={}",
                 promote_stats.locals_promoted,
                 promote_stats.uses_rewritten,
                 inline_stats.calls_inlined,
                 const_fold_stats.folds_applied,
+                branch_fold_stats.branches_folded,
                 dce_stats.insts_removed,
             );
         }
