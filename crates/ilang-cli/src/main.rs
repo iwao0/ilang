@@ -136,6 +136,12 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
     let mut cmd = std::process::Command::new(&cc);
     cmd.arg(&object_path).arg("-o").arg(output);
+    // Strip unreachable code / data. The runtime archive ships every
+    // helper the JIT and AOT paths between them might need; without
+    // dead-strip the linker pulls in unused __retain_*, __release_*,
+    // __print_* etc. for whichever shapes the user program never
+    // touches. macOS `ld` accepts `-dead_strip`; we route it via cc.
+    cmd.arg("-Wl,-dead_strip");
     // `console.log` and other AOT runtime symbols live in
     // `libilang_runtime.a`. Locate it next to the running `ilang`
     // binary (cargo lays both into the same `target/<profile>/` dir).
@@ -144,22 +150,28 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     }
     let status = cmd.status();
     match status {
-        Ok(s) if s.success() => ExitCode::SUCCESS,
+        Ok(s) if s.success() => {}
         Ok(s) => {
             eprintln!(
                 "{display_path}: linker exited with status {:?}",
                 s.code()
             );
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
         Err(e) => {
             eprintln!(
                 "{display_path}: failed to spawn linker `{}`: {e}",
                 std::path::Path::new(&cc).display()
             );
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
     }
+    // Strip the symbol table after linking. Reduces binary size with
+    // no effect on behaviour. macOS ships `strip` with the Command
+    // Line Tools alongside `cc`. Non-fatal on failure — the executable
+    // still runs without it.
+    let _ = std::process::Command::new("strip").arg(output).status();
+    ExitCode::SUCCESS
 }
 
 /// Persistent state for the JIT REPL. Each turn appends new

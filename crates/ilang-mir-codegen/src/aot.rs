@@ -72,6 +72,12 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
     flag_builder
         .set("is_pic", "true")
         .map_err(|e| AotError::Other(format!("set is_pic: {e}")))?;
+    // AOT output is a build artifact, so always run cranelift's
+    // optimizer. Codegen-time cost is one-shot vs. every-run-after,
+    // so prefer speed over compile latency unconditionally.
+    flag_builder
+        .set("opt_level", "speed")
+        .map_err(|e| AotError::Other(format!("set opt_level: {e}")))?;
     let isa = isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| AotError::Other(format!("isa: {e}")))?;
