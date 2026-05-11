@@ -5370,12 +5370,23 @@ impl<'a> BodyCx<'a> {
                     return Err(LowerError::Other("Array.push takes 1 arg".into()));
                 }
                 let elem_ty = (**elem).clone();
+                let value_is_fresh = self.is_fresh_object_expr(&args[0]);
                 let (av, aty) = self.lower_expr(&args[0])?;
                 let coerced = if aty == elem_ty {
                     av
                 } else {
                     self.coerce(av, &aty, &elem_ty, args[0].span)?
                 };
+                // Bump rc on borrowed heap values — `array_push` stores
+                // the cell verbatim, but `__release_array`'s cascade
+                // will eventually release every stored element. Without
+                // this retain, `surviving.push(b)` where `b = arr[i]`
+                // would share rc with the source slot, dropping the
+                // element to 0 when the source local exits and freeing
+                // it out from under the receiving array.
+                if !value_is_fresh {
+                    retain_if_heap(&mut self.fb, coerced, &elem_ty);
+                }
                 self.fb.push_inst(Inst::Call {
                     dst: None,
                     callee: FuncRef::Builtin(Symbol::intern("array_push")),
