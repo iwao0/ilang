@@ -5259,6 +5259,26 @@ impl<'a> BodyCx<'a> {
                 };
                 let v = self.fb.new_value(inner.clone());
                 self.fb.push_inst(Inst::OptionalUnwrap { dst: v, opt: ov });
+                // The unwrapped value aliases the Optional cell's
+                // `value` slot — same heap pointer. Without a retain,
+                // the receiver and the Optional cell's eventual
+                // cascade-release would both decrement the same rc,
+                // double-freeing the inner. Bump rc on heap-typed
+                // inners so the two release sites balance. (Caught by
+                // ASan as a UAF in `host_release_optional` while
+                // tearing down `Optional<Optional<Str>>`.)
+                if matches!(
+                    inner,
+                    MirTy::Object(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                        | MirTy::Fn(_)
+                        | MirTy::Str
+                ) {
+                    self.fb.push_inst(Inst::Retain { value: v });
+                }
                 Ok((v, inner))
             }
             (MirTy::Array { elem, .. }, "push") => {
