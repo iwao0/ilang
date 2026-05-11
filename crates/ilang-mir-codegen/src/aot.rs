@@ -958,11 +958,11 @@ fn validate_subset(
     // or other runtime-dispatch tables fail at the linker — the runtime
     // crate ships no-op `__retain_object` / `__release_object` until the
     // table-population init-emit lands.
-    if !prog.statics.is_empty() {
-        return Err(AotError::Unsupported(
-            "static slots — not yet wired into AOT".into(),
-        ));
-    }
+    // Static slots are emitted by the shared `lower_program_into`
+    // path (one `cranelift_module::DataId` per slot, initial value
+    // serialised from `MirConst`). `LoadStatic` / `StoreStatic`
+    // codegen already routes through that table for both backends,
+    // so AOT just needs to not reject the program here.
     if !entry.params.is_empty() {
         return Err(AotError::Unsupported(
             "entry function with parameters (expected `() -> T`)".into(),
