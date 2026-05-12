@@ -67,6 +67,9 @@ pub fn mangle_overloads(
         for (i, m) in c.methods.iter().enumerate() {
             method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
         }
+        for (i, m) in c.static_methods.iter().enumerate() {
+            method_indices.entry((c.name.clone(), m.name.clone())).or_default().push(i);
+        }
     };
     for item in &prog.items {
         match item {
@@ -124,6 +127,19 @@ pub fn mangle_overloads(
         if let Some(c) = class_decl {
             let mut sig_idx = 0;
             for m in &c.methods {
+                if m.name == *method_name {
+                    let mangled = mangled_name(*method_name, &param_types(m));
+                    new_method_names.insert(
+                        (class_name.clone(), method_name.clone(), sig_idx),
+                        mangled,
+                    );
+                    sig_idx += 1;
+                }
+            }
+            // Static method overloads share the same `overloaded_methods`
+            // key — sigs.rs forbids static/instance same-name collisions,
+            // so an overloaded name is either all-instance or all-static.
+            for m in &c.static_methods {
                 if m.name == *method_name {
                     let mangled = mangled_name(*method_name, &param_types(m));
                     new_method_names.insert(
@@ -249,15 +265,37 @@ fn rewrite_class_in_place(c: &mut ClassDecl, ctx: &Ctx) {
             *idx += 1;
         }
     }
-    // Static method bodies need rewriting (calls to overloaded
-    // fns) but the static methods themselves aren't currently
-    // overloadable — no name munging.
+    // Static methods: rewrite bodies AND rename overloaded ones in
+    // declaration order so sig_idx matches what the typechecker
+    // recorded (instance overloads come first, then static — see
+    // the new_method_names build loop in mangle_overloads).
+    let instance_count: HashMap<Symbol, usize> = {
+        let mut m: HashMap<Symbol, usize> = HashMap::new();
+        for im in &c.methods {
+            *m.entry(im.name.clone()).or_insert(0) += 1;
+        }
+        m
+    };
+    let mut static_sig_counter: HashMap<Symbol, usize> = HashMap::new();
     for m in &mut c.static_methods {
         let body = std::mem::replace(
             &mut m.body,
             Block { stmts: Vec::new(), tail: None },
         );
         m.body = rewrite_block(body, ctx);
+        let key = (class_name.clone(), m.name.clone());
+        if ctx.overloaded_methods.contains(&key) {
+            let local_idx = static_sig_counter.entry(m.name.clone()).or_insert(0);
+            let global_idx = instance_count.get(&m.name).copied().unwrap_or(0) + *local_idx;
+            let mangled = ctx
+                .new_method_names
+                .get(&(class_name.clone(), m.name.clone(), global_idx))
+                .cloned();
+            if let Some(new_name) = mangled {
+                m.name = new_name;
+            }
+            *local_idx += 1;
+        }
     }
     // Property accessor bodies need rewriting too (their bodies
     // can contain calls to overloaded fns/methods). Properties

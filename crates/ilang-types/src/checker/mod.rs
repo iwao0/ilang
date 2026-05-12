@@ -238,9 +238,10 @@ pub(super) struct ClassSig {
     /// `get` / `set` accessors. `obj.x` reads dispatch through the
     /// getter, `obj.x = v` writes through the setter (when present).
     pub(super) properties: HashMap<Symbol, PropertySig>,
-    /// `static` methods — single sig per name (no overloading yet).
-    /// Resolved at `ClassName.method(args)` call sites.
-    pub(super) static_methods: HashMap<Symbol, Signature>,
+    /// `static` methods — Vec per name to support overloading the
+    /// same way instance methods do. Resolved at `ClassName.method(args)`
+    /// call sites.
+    pub(super) static_methods: HashMap<Symbol, Vec<Signature>>,
     /// `static` fields — class-level mutable storage. Read/write
     /// dispatched at `ClassName.field` field expressions.
     pub(super) static_fields: HashMap<Symbol, Type>,

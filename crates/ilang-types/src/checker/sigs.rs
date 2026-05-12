@@ -629,7 +629,7 @@ pub(super) fn class_signature(
             },
         );
     }
-    let mut static_methods: HashMap<Symbol, Signature> = HashMap::new();
+    let mut static_methods: HashMap<Symbol, Vec<Signature>> = HashMap::new();
     if !c.type_params.is_empty()
         && (!c.static_methods.is_empty() || !c.static_fields.is_empty())
     {
@@ -642,16 +642,6 @@ pub(super) fn class_signature(
         });
     }
     for m in &c.static_methods {
-        if static_methods.contains_key(&m.name) {
-            return Err(TypeError::Unsupported {
-                what: format!(
-                    "static method {:?} in class {:?} is declared more than once \
-                     (static methods cannot be overloaded)",
-                    m.name, c.name
-                ),
-                span: m.span,
-            });
-        }
         // No name collisions with instance fields / methods / properties.
         if fields.contains_key(&m.name)
             || methods.contains_key(&m.name)
@@ -671,7 +661,7 @@ pub(super) fn class_signature(
             *p = rewrite_type_params(p, &c.type_params);
         }
         sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
-        static_methods.insert(m.name.clone(), sig);
+        static_methods.entry(m.name.clone()).or_default().push(sig);
     }
     let mut static_fields: HashMap<Symbol, Type> = HashMap::new();
     let mut static_field_pub: HashMap<Symbol, bool> = HashMap::new();

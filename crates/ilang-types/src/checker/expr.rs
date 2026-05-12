@@ -513,16 +513,22 @@ impl TypeChecker {
                     let is_local_shadow = env.contains_key(name) || self.vars.contains_key(name);
                     if !is_local_shadow {
                         if let Some(cls) = self.classes.get(&name) {
-                            if let Some(sig) = cls.static_methods.get(method).cloned() {
+                            if let Some(sigs) = cls.static_methods.get(method).cloned() {
                                 let cmod = cls.module.clone();
                                 let cn = name.as_str().to_string();
+                                // Visibility: if *any* overload is pub the
+                                // name is reachable cross-module; the
+                                // overload resolver then picks the one
+                                // that matches argument types.
+                                let any_pub = sigs.iter().any(|s| s.is_pub);
                                 self.require_visible(
-                                    &cn, &cmod, "static method", method.as_str(), sig.is_pub, span,
+                                    &cn, &cmod, "static method", method.as_str(), any_pub, span,
                                 )?;
-                                self.check_args(
-                                    *method, &sig, args, env, ret_ty, in_class, loop_depth, span,
+                                let chosen = self.resolve_method_call(
+                                    *name, *method, &sigs, args, env, ret_ty, in_class,
+                                    loop_depth, span,
                                 )?;
-                                return Ok(sig.ret);
+                                return Ok(chosen.ret);
                             }
                         }
                     }
