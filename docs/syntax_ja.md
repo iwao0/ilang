@@ -11,10 +11,10 @@
 ## 予約語
 
 ```
-as       break    class    const    continue elif     else     enum
-false    fn       for      if       in       is       let      loop
-match    new      none     override pub      return   some     super
-this     true     use      while
+as        break     class     const     continue  elif      else      enum
+false     fn        for       if        in        interface is        let
+loop      match     new       none      override  pub       return    some
+super     this      true      use       while
 ```
 
 これらは予約語で、変数 / 引数 / フィールド / 関数 / クラス名には使えません。
@@ -428,7 +428,7 @@ c.count                                 // フィールド読み取り
 - `init` は唯一のコンストラクタ (Swift 風)。`init() {}` を省略するとデフォルトで引数なし `new` 可。
 - `deinit` は引数なし・戻り値 () 限定。明示呼び出し不可 (`c.deinit()` はエラー)。
 - 暗黙 `this`: メソッド本体内で `this.` を省略可。ただしローカル変数や引数があればそちら優先。
-- 継承 (`class Child: Parent`) / `static` / `get`/`set` プロパティは下記の節で詳述。`private` 修飾子は未実装。
+- 継承 (`class Child: Parent`) / インタフェース (`class Foo: Iface1, Iface2`) / `static` / `get`/`set` プロパティは下記の節で詳述。`private` 修飾子は未実装。
 - 同一行に複数のクラスメンバーは書けない (ASI が効かないので `;` か改行必須)。
 
 #### フィールドのデフォルトと init 必須化
@@ -615,6 +615,49 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
 - ジェネリッククラスでの継承は未対応
 - サブタイプ: `Child` を `Parent` 型の binding / 引数 / 戻り値に渡せる
 - JIT: object header に vtable ポインタを足し (`[strong | weak | drop_fn | vtable | fields...]`、32 byte ヘッダ)、各クラスに `Box<[i64]>` vtable を確保。仮想呼び出しは `obj.vtable[slot]` の load → call_indirect。`super.method` は親の特定関数への直接呼び出し
+
+### インタフェース (`interface I { ... }`)
+
+`interface Name { fn method(p: T): R … }` でメソッドの契約を宣言します。クラスは継承と同じ `:` のリストで参加します。リストの最初は親クラス・インタフェース・省略のいずれでも構いません。2つ目以降のカンマ区切りエントリはインタフェースとして扱われます。
+
+```rust
+interface Drawable {
+    fn draw(): string
+}
+
+interface Speaks {
+    fn speak(): string
+}
+
+class Animal {
+    init() {}
+    kind(): string { "animal" }
+}
+
+class Cat: Animal, Drawable, Speaks {     // 親クラス + 2つのインタフェース
+    init() { super() }
+    draw(): string { "cat-shape" }
+    speak(): string { "meow" }
+}
+
+class Square: Drawable {                  // 親なし、インタフェースのみ
+    init() {}
+    draw(): string { "square" }
+}
+
+fn render(d: Drawable) {                  // インタフェースを引数型に
+    console.log(d.draw())
+}
+
+let c: Drawable = new Cat()
+render(c)                                  // "cat-shape"
+let s: Drawable = new Square()
+render(s)                                  // "square"
+```
+
+- インタフェースのメソッドはシグネチャのみ。v1 では本体 (デフォルト実装) は書けません。フィールド・プロパティ・`static` メソッド・ジェネリックパラメータも未対応です。
+- クラスがインタフェース型のスロットに代入できるのは、そのクラス (または祖先) が `:` のリストにインタフェースを記載し、全メソッドをシグネチャ一致で実装しているときだけ。欠落 / 不一致はコンパイル時にエラー。
+- インタフェース型レシーバへのメソッド呼び出しは実行時にレシーバの実クラスへ動的ディスパッチ (継承で使う `__virt_dispatch` パスを共有。インタフェースメソッドは衝突回避のため通常クラスのスロット範囲とは別の高位スロットを使用)。
 
 ---
 

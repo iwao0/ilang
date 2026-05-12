@@ -20,10 +20,10 @@ separators (JS-style ASI).
 ## Reserved words
 
 ```
-as       break    class    const    continue elif     else     enum
-false    fn       for      if       in       is       let      loop
-match    new      none     override pub      return   some     super
-this     true     use      while
+as        break     class     const     continue  elif      else      enum
+false     fn        for       if        in        interface is        let
+loop      match     new       none      override  pub       return    some
+super     this      true      use       while
 ```
 
 These tokens are reserved and cannot be used as variable / parameter
@@ -535,8 +535,9 @@ c.count                                 // field read
 - Implicit `this`: in method bodies you can drop `this.` for
   fields / methods. A local variable or parameter with the same
   name still wins.
-- Inheritance (`class Child: Parent`) / `static` / `get`-`set`
-  properties are detailed below. There's no `private` modifier.
+- Inheritance (`class Child: Parent`) / interfaces (`class Foo:
+  Iface1, Iface2`) / `static` / `get`-`set` properties are detailed
+  below. There's no `private` modifier.
 - Multiple class members on the same line aren't allowed (ASI
   doesn't fire — you need a newline or `;`).
 
@@ -780,6 +781,62 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
   calls become `obj.vtable[slot]` load → `call_indirect`;
   `super.method` is a direct call to the parent's specific
   function.
+
+### Interfaces (`interface I { ... }`)
+
+`interface Name { fn method(p: T): R … }` declares a method
+contract. Classes opt in via the same `:` base list they use for
+inheritance — the first entry may be the parent class, an
+interface, or omitted; everything after the first comma is an
+interface:
+
+```rust
+interface Drawable {
+    fn draw(): string
+}
+
+interface Speaks {
+    fn speak(): string
+}
+
+class Animal {
+    init() {}
+    kind(): string { "animal" }
+}
+
+class Cat: Animal, Drawable, Speaks {     // parent + 2 interfaces
+    init() { super() }
+    draw(): string { "cat-shape" }
+    speak(): string { "meow" }
+}
+
+class Square: Drawable {                  // no parent, just an interface
+    init() {}
+    draw(): string { "square" }
+}
+
+fn render(d: Drawable) {                  // interface as a parameter type
+    console.log(d.draw())
+}
+
+let c: Drawable = new Cat()
+render(c)                                  // "cat-shape"
+let s: Drawable = new Square()
+render(s)                                  // "square"
+```
+
+- Interface methods are signature-only — bodies aren't allowed in
+  v1 (no default implementations). Fields, properties, `static`
+  methods, and generic parameters on interfaces are also not yet
+  supported.
+- A class is assignable to an interface slot iff the class (or any
+  ancestor) declares that interface in its `:` base list AND
+  implements every method with a matching signature; missing or
+  mismatched methods are rejected at compile time.
+- Method calls on an interface-typed receiver virtual-dispatch to
+  the receiver's actual class (same `__virt_dispatch` path the
+  inheritance vtable uses; interface methods occupy a separate
+  slot range so they can't collide with class method slots).
 
 ---
 
