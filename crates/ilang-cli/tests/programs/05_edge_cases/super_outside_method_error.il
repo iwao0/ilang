@@ -8,7 +8,7 @@
 class Base {
     x(): i64 { 1 }
 }
-class Derived extends Base {
+class Derived: Base {
     override x(): i64 { super.x() + 1 }
 }
 

@@ -19,7 +19,7 @@ class Base {
     }
 }
 
-class Sub extends Base {
+class Sub: Base {
     init() { super() }
     override inc(): i64 { super.inc() + 10 }
 }

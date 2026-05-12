@@ -7,7 +7,7 @@ class Base {
     init() {}
     label(): string { "base" }
 }
-class Child extends Base {
+class Child: Base {
     init() { super() }
     override label(): string { "child" }
     parent_label(): fn(): string {

@@ -14,11 +14,11 @@ class Shape {
     init() {}
     area(): f64 { 0.0 }
 }
-class Circle extends Shape {
+class Circle: Shape {
     r: f64
     init(r: f64) { super(); this.r = r }
 }
-class Square extends Shape {
+class Square: Shape {
     s: f64
     init(s: f64) { super(); this.s = s }
 }

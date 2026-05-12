@@ -6,11 +6,11 @@ class Animal {
     init() {}
     sound(): string { "?" }
 }
-class Dog extends Animal {
+class Dog: Animal {
     init() { super() }
     override sound(): string { "woof" }
 }
-class Cat extends Animal {
+class Cat: Animal {
     init() { super() }
     override sound(): string { "meow" }
 }

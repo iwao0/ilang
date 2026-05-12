@@ -8,12 +8,12 @@ class Animal {
     describe(): string { this.name + " says " + this.speak() }
 }
 
-class Dog extends Animal {
+class Dog: Animal {
     init(n: string) { super(n) }
     override speak(): string { "woof" }
 }
 
-class Puppy extends Dog {
+class Puppy: Dog {
     init(n: string) { super(n) }
     override speak(): string { "yip!" }
     override describe(): string { "puppy: " + super.describe() }

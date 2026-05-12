@@ -10,11 +10,11 @@ class A {
     init() {}
     label(): string { "A" }
 }
-class B extends A {
+class B: A {
     init() { super() }
     override label(): string { "B" }
 }
-class C extends B {
+class C: B {
     init() { super() }
     override label(): string { "C" }
 }

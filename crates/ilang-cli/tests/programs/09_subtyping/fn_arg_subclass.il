@@ -6,7 +6,7 @@ class Animal {
     init() {}
     label(): string { "animal" }
 }
-class Dog extends Animal {
+class Dog: Animal {
     init() { super() }
     override label(): string { "dog" }
 }

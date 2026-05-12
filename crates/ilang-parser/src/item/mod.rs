@@ -292,8 +292,10 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        // `extends Parent` (single inheritance, optional).
-        let parent = if matches!(self.peek().kind, TokenKind::Extends) {
+        // `: Parent` (single inheritance, optional). Unambiguous in
+        // class-decl position — the only other thing that can follow
+        // the name (or its `<...>` type params) is `{`.
+        let parent = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
             Some(self.expect_ident("parent class name")?)
         } else {

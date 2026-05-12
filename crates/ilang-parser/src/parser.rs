@@ -98,7 +98,7 @@ impl<'a> Parser<'a> {
     /// The promoted set is the keywords most likely to appear as C
     /// enum members: `class`, `enum`, `fn`, `none`, `override`,
     /// `true`, `false`, `some`, `as`, `in`, `super`, `this`,
-    /// `extends`, `return`. (`static` already lexes as an ident.)
+    /// `return`. (`static` already lexes as an ident.)
     pub(crate) fn expect_member_name(
         &mut self,
         label: &str,
@@ -122,7 +122,6 @@ impl<'a> Parser<'a> {
             TokenKind::In => Some("in"),
             TokenKind::Super => Some("super"),
             TokenKind::This => Some("this"),
-            TokenKind::Extends => Some("extends"),
             TokenKind::Return => Some("return"),
             _ => None,
         };

@@ -18,7 +18,7 @@ class T {
     deinit() { this.log.push(99) }
 }
 
-class Sub extends T {
+class Sub: T {
     init(l: i64[]) { super(l) }
 }
 

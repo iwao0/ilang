@@ -15,7 +15,7 @@ class S {
     init() {}
     clone(): S { new S() }
 }
-class A extends S {
+class A: S {
     init() { super() }
     override clone(): A { new A() }
 }

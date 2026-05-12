@@ -5,7 +5,7 @@ class Animal {
     init() {}
     label(): string { "animal" }
 }
-class Dog extends Animal {
+class Dog: Animal {
     init() { super() }
     override label(): string { "dog" }
 }
@@ -14,7 +14,7 @@ class Factory {
     init() {}
     make(): Animal { new Animal() }
 }
-class DogFactory extends Factory {
+class DogFactory: Factory {
     init() { super() }
     override make(): Dog { new Dog() }
 }

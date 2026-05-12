@@ -7,9 +7,9 @@
 use test
 
 class A { v(): i64 { 1 } }
-class B extends A { override v(): i64 { 10 + super.v() } }
-class C extends B { override v(): i64 { 100 + super.v() } }
-class D extends C { override v(): i64 { 1000 + super.v() } }
+class B: A { override v(): i64 { 10 + super.v() } }
+class C: B { override v(): i64 { 100 + super.v() } }
+class D: C { override v(): i64 { 1000 + super.v() } }
 
 let d = new D()
 test.expect(d.v(), 1111)         // 1000 + 100 + 10 + 1

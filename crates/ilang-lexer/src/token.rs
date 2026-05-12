@@ -32,7 +32,6 @@ pub enum TokenKind {
     In,
     Use,
     Const,
-    Extends,
     Override,
     Super,
     Pub,

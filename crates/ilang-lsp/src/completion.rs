@@ -70,7 +70,6 @@ const KEYWORDS: &[(&str, KwScope)] = &[
     ("class", KwScope::TopLevel),
     ("enum", KwScope::TopLevel),
     ("use", KwScope::TopLevel),
-    ("extends", KwScope::TopLevel),
     ("override", KwScope::Block),
     ("init", KwScope::Block),
     ("deinit", KwScope::Block),

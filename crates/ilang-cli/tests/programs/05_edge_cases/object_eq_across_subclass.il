@@ -16,7 +16,7 @@
 // expect: true
 
 class P { init() {} }
-class Q extends P { init() { super() } }
+class Q: P { init() { super() } }
 
 let p1 = new P()
 let q1 = new Q()

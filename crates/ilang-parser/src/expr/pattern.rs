@@ -214,7 +214,6 @@ impl<'a> Parser<'a> {
                     | TokenKind::In
                     | TokenKind::Super
                     | TokenKind::This
-                    | TokenKind::Extends
                     | TokenKind::Return
             )
         };

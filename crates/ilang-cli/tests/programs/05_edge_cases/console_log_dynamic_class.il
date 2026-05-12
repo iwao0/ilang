@@ -18,7 +18,7 @@ class A {
     x: i64
     init() { this.x = 1 }
 }
-class B extends A {
+class B: A {
     y: i64
     init() { super(); this.y = 2 }
 }
@@ -29,7 +29,7 @@ console.log(a)
 class P {
     init() {}
 }
-class Q extends P {
+class Q: P {
     init() { super() }
 }
 

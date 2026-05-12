@@ -27,7 +27,7 @@ class Base {
     }
     setup() { this.val = 10 }
 }
-class Sub extends Base {
+class Sub: Base {
     init() { super() }
     override setup() { this.val = 100 }
 }
@@ -39,7 +39,7 @@ let s = new Sub()
 test.expect(s.val, 100)        // override fires from base's init
 
 // Sub's setup uses fields that base init has already set.
-class Doubler extends Base {
+class Doubler: Base {
     init() { super() }
     override setup() { this.val = (this.val + 1) * 2 }
 }

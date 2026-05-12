@@ -4,7 +4,7 @@ class A {
     init() {}
     foo(): i64 { 1 }
 }
-class B extends A {
+class B: A {
     init() { super() }
     foo(): i64 { 2 }
 }

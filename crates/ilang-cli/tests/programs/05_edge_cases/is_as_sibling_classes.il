@@ -6,9 +6,9 @@
 use test
 
 class A {}
-class B extends A {}
-class C extends A {}
-class D extends B {}
+class B: A {}
+class C: A {}
+class D: B {}
 
 let d: A = new D()
 test.expectBool(d is A, true)

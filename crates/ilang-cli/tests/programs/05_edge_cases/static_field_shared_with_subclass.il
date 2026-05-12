@@ -15,11 +15,11 @@ class Counter {
     static total: i64 = 0
 }
 
-class Sub extends Counter {
+class Sub: Counter {
     init() { super() }
 }
 
-class GrandSub extends Sub {
+class GrandSub: Sub {
     init() { super() }
 }
 

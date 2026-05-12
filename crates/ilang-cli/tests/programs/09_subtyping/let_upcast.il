@@ -7,7 +7,7 @@ class Animal {
     init() { this.n = 1 }
     label(): string { "animal" }
 }
-class Dog extends Animal {
+class Dog: Animal {
     init() { super() }
     override label(): string { "dog" }
 }

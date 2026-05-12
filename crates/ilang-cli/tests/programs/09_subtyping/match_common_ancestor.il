@@ -6,11 +6,11 @@ class Shape {
     init() {}
     name(): string { "shape" }
 }
-class Circle extends Shape {
+class Circle: Shape {
     init() { super() }
     override name(): string { "circle" }
 }
-class Square extends Shape {
+class Square: Shape {
     init() { super() }
     override name(): string { "square" }
 }
