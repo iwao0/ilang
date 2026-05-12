@@ -1,0 +1,357 @@
+//! Numeric / heap coercion + binary-operand unification on
+//! `BodyCx`.
+//!
+//! - `coerce(v, from, to)` materialises the right `Inst::Cast` /
+//!   `Retain` / etc. so a value typed `from` can flow into a slot
+//!   typed `to`. Integer widening / narrowing, float widening,
+//!   primitive→`Optional<T>` boxing, `Object`→`Weak` downgrade,
+//!   `Object`→subclass refinement, and `&self`-shaped no-ops all
+//!   route through here.
+//! - `unify_numeric(lv, lty, rv, rty)` is the binary-operand pre-pass
+//!   used by `lower_binary` / `lower_logical`: it promotes whichever
+//!   side is narrower so the resulting `Inst::BinOp` sees matching
+//!   operand widths.
+
+use ilang_ast::{Span, Symbol};
+
+use crate::inst::{FuncRef, Inst, ValueId};
+use crate::types::MirTy;
+
+use super::utils::retain_if_heap;
+use super::{BodyCx, LowerError};
+
+impl<'a> BodyCx<'a> {
+    pub(super) fn coerce(
+        &mut self,
+        v: ValueId,
+        from: &MirTy,
+        to: &MirTy,
+        _span: Span,
+    ) -> Result<ValueId, LowerError> {
+        if from == to {
+            return Ok(v);
+        }
+        use crate::inst::CastKind;
+        // Same-signed integer resize.
+        if (from.is_signed_int() && to.is_signed_int())
+            || (from.is_unsigned_int() && to.is_unsigned_int())
+        {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntResize, src: v });
+            return Ok(dst);
+        }
+        // Sign-cross.
+        if from.is_int() && to.is_int() {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntSignCross, src: v });
+            return Ok(dst);
+        }
+        // Integer → Enum: build a unit-variant heap enum [tag] from
+        // the integer (matches the heap layout `Inst::NewEnum` uses).
+        // Used by `value as EnumName` casts whose discriminant only
+        // becomes known at runtime.
+        if from.is_int() && matches!(to, MirTy::Enum(_)) {
+            // Widen to i64 first so the box always sees the canonical
+            // integer width.
+            let i64_v = if matches!(from, MirTy::I64 | MirTy::U64) {
+                v
+            } else {
+                let widened = self.fb.new_value(MirTy::I64);
+                let kind = if from.is_signed_int() {
+                    CastKind::IntResize
+                } else {
+                    CastKind::IntResize
+                };
+                self.fb.push_inst(Inst::Cast { dst: widened, kind, src: v });
+                widened
+            };
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("__enum_box")),
+                args: Box::new([i64_v]),
+            });
+            return Ok(dst);
+        }
+        // Enum → string: only valid when the enum's repr is `string`.
+        // `Inst::EnumDiscStr` carries the enum id so the codegen can
+        // call `__enum_disc_str(global, tag)` directly.
+        if let MirTy::Enum(eid) = &from {
+            if matches!(to, MirTy::Str)
+                && matches!(self.enums[eid.0 as usize].repr, MirTy::Str)
+            {
+                let dst = self.fb.new_value(MirTy::Str);
+                self.fb.push_inst(Inst::EnumDiscStr { dst, enum_id: *eid, value: v });
+                return Ok(dst);
+            }
+        }
+        // Enum → Integer: read the tag at offset 0, then resize to
+        // the requested int width.
+        if matches!(from, MirTy::Enum(_)) && to.is_int() {
+            let tag = self.fb.new_value(MirTy::I64);
+            self.fb.push_inst(Inst::EnumTag { dst: tag, value: v });
+            if matches!(to, MirTy::I64) {
+                return Ok(tag);
+            }
+            let dst = self.fb.new_value(to.clone());
+            let kind = if to.is_signed_int() {
+                CastKind::IntResize
+            } else {
+                CastKind::IntResize
+            };
+            self.fb.push_inst(Inst::Cast { dst, kind, src: tag });
+            return Ok(dst);
+        }
+        // `T → T?` Optional auto-wrap — must precede the i64-heap
+        // bit-erasure paths below; otherwise `let x: i64? = 7`
+        // would treat the literal `7` as a raw pointer.
+        if let MirTy::Optional(inner) = to {
+            if **inner == *from || matches!(**inner, MirTy::Unit) {
+                // For a heap-typed inner the new Optional cell owns a
+                // share of `v`; without bumping rc here, the source
+                // binding's eventual release would drop the only
+                // backing object before the Optional's cascade had a
+                // chance to. Matches the explicit `some(x)` path in
+                // `lower_expr`, which retains via `needs_retain`.
+                // Caught by ASan as a UAF in `host_release_object`
+                // during teardown of `recursive_method_optional_tree`,
+                // where calls like `new Tree(10, l, r)` rely on this
+                // coercion to wrap the local heap arguments.
+                retain_if_heap(&mut self.fb, v, inner);
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::NewOptional { dst, value: v });
+                return Ok(dst);
+            }
+        }
+        // Heap-typed value → `i64` cell. This shows up when a heap
+        // value flows into a slot whose declared MirTy is i64 (e.g.
+        // the built-in `Result<T, E>` payload, where T / E erase to
+        // i64 cells). The runtime layout of all heap pointers is i64.
+        if from.is_heap() && matches!(to, MirTy::I64 | MirTy::U64) {
+            return Ok(v);
+        }
+        // Same in reverse — sometimes a generic-erased i64 cell flows
+        // back out into a heap-typed slot. Let the consumer deal with
+        // the bit pattern.
+        if matches!(from, MirTy::I64 | MirTy::U64) && to.is_heap() {
+            return Ok(v);
+        }
+        // Subclass collections — `Child[]` / `Child?` / tuples-of-Child
+        // flow into a slot typed for the parent. Heap layout matches
+        // (objects are i64 pointers regardless of class), so this is
+        // identity at the value level.
+        if let (
+            MirTy::Array { elem: e1, .. },
+            MirTy::Array { elem: e2, .. },
+        ) = (from, to)
+        {
+            if matches!((&**e1, &**e2), (MirTy::Object(_), MirTy::Object(_))) {
+                return Ok(v);
+            }
+        }
+        if let (MirTy::Optional(i1), MirTy::Optional(i2)) = (from, to) {
+            // Both Optional<Object> and Optional<Array<Object>> share
+            // the same heap rep, so all object-shaped Optionals are
+            // bit-compatible.
+            let is_obj_shape = |t: &MirTy| -> bool {
+                matches!(
+                    t,
+                    MirTy::Object(_)
+                        | MirTy::Array { .. }
+                        | MirTy::Tuple(_)
+                        | MirTy::Map { .. }
+                        | MirTy::Optional(_)
+                )
+            };
+            if is_obj_shape(&**i1) && is_obj_shape(&**i2) {
+                return Ok(v);
+            }
+        }
+        if let (MirTy::Tuple(_), MirTy::Tuple(_)) = (from, to) {
+            return Ok(v);
+        }
+        // `none`-typed `Optional<Unit>` → `Optional<T>` for any T.
+        // The MIR's none literal is a null pointer; widening the
+        // declared inner type is a no-op at the bit level.
+        if let (MirTy::Optional(inner), MirTy::Optional(_)) = (from, to) {
+            if matches!(**inner, MirTy::Unit) {
+                return Ok(v);
+            }
+        }
+        // Dynamic array ↔ fixed-length array — same runtime layout
+        // (3-i64 header + data), so this is an identity coerce.
+        if let (
+            MirTy::Array { .. },
+            MirTy::Array { .. },
+        ) = (from, to)
+        {
+            // Same runtime layout — type checker has already vetted
+            // element compatibility (subtyping / variance).
+            return Ok(v);
+        }
+        // Object (incl. CRepr struct) → *T  — used when an
+        // @extern(C) fn takes a `*MyStruct` arg and the caller passes
+        // the ilang-side instance.
+        if matches!(from, MirTy::Object(_)) {
+            if let MirTy::RawPtr { .. } = to {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+                return Ok(dst);
+            }
+        }
+        // Array → *T (passes the array's data pointer, not the
+        // header). Reads `data_ptr` at offset 16 of the header.
+        if let (MirTy::Array { .. }, MirTy::RawPtr { .. }) = (from, to) {
+            let zero = self.const_int(MirTy::I64, 16 / 8);
+            let _ = zero;
+            let raw = self.fb.new_value(MirTy::I64);
+            // Treat the header as a 1-element array of i64 ptrs and
+            // load index 2 (= byte offset 16). Reuses ArrayLoad's
+            // emit path; the OOB check is benign — len is at offset
+            // 0 and is always > 2 for any valid header.
+            //
+            // ArrayLoad would do bounds-check; instead emit a raw
+            // memory load via a fresh Inst::LoadField on a synthetic
+            // class — but that's heavier than needed. Use a Cast +
+            // explicit pointer arithmetic via const-index ArrayLoad
+            // skip: simpler is to emit a bare load through a helper
+            // builtin so we avoid the bounds check.
+            let _ = raw;
+            // Fall back to a short builtin call: __array_data_ptr.
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Call {
+                dst: Some(dst),
+                callee: FuncRef::Builtin(Symbol::intern("__array_data_ptr")),
+                args: Box::new([v]),
+            });
+            return Ok(dst);
+        }
+        // *T → *const T (drop write capability).
+        if let (
+            MirTy::RawPtr { is_const: false, inner: i1 },
+            MirTy::RawPtr { is_const: true, inner: i2 },
+        ) = (from, to)
+        {
+            if i1 == i2 {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+                return Ok(dst);
+            }
+        }
+        // Raw pointer reinterprets (within @extern(C)).
+        if let (MirTy::RawPtr { .. }, MirTy::RawPtr { .. }) = (from, to) {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+            return Ok(dst);
+        }
+        // *T ↔ i64.
+        if matches!(from, MirTy::RawPtr { .. }) && matches!(to, MirTy::I64 | MirTy::U64) {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+            return Ok(dst);
+        }
+        if matches!(from, MirTy::I64 | MirTy::U64) && matches!(to, MirTy::RawPtr { .. }) {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+            return Ok(dst);
+        }
+        // Strong → weak (same class).
+        if let (MirTy::Object(c1), MirTy::Weak(c2)) = (from, to) {
+            if c1 == c2 {
+                let dst = self.fb.new_value(to.clone());
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::StrongToWeak, src: v });
+                return Ok(dst);
+            }
+        }
+        // Subclass → parent (Object subtype → Object supertype).
+        if let (MirTy::Object(_c1), MirTy::Object(_c2)) = (from, to) {
+            // Subtype check is the type checker's responsibility; we
+            // just propagate the value (the runtime layout is the same
+            // i64 pointer with a header).
+            return Ok(v);
+        }
+        if from.is_int() && to.is_float() {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntToFloat, src: v });
+            return Ok(dst);
+        }
+        if from.is_float() && to.is_int() {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::FloatToInt, src: v });
+            return Ok(dst);
+        }
+        if from.is_float() && to.is_float() {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::FloatResize, src: v });
+            return Ok(dst);
+        }
+        Err(LowerError::Other(format!("no coercion from {from} to {to}")))
+    }
+
+    pub(super) fn unify_numeric(
+        &mut self,
+        lv: ValueId,
+        lty: MirTy,
+        rv: ValueId,
+        rty: MirTy,
+    ) -> Result<(ValueId, ValueId, MirTy), LowerError> {
+        if lty == rty {
+            return Ok((lv, rv, lty));
+        }
+        // String concat with `+` is its own case in lower_binary.
+        if matches!((&lty, &rty), (MirTy::Str, MirTy::Str)) {
+            return Ok((lv, rv, MirTy::Str));
+        }
+        // Cross-class object comparison (Eq / Ne) — both pointers
+        // share the same i64 rep, so just pass through with the more
+        // specific class on the result side. The caller only uses
+        // the unified type to pick the BinOp; for objects we fall
+        // through to integer compare logic.
+        if matches!((&lty, &rty), (MirTy::Object(_), MirTy::Object(_))) {
+            return Ok((lv, rv, MirTy::I64));
+        }
+        if lty.is_numeric() && rty.is_numeric() {
+            // Promote to float if either side is float.
+            if lty.is_float() || rty.is_float() {
+                let target = if matches!(lty, MirTy::F64) || matches!(rty, MirTy::F64) {
+                    MirTy::F64
+                } else {
+                    MirTy::F32
+                };
+                let lv = self.coerce(lv, &lty, &target, Span::dummy())?;
+                let rv = self.coerce(rv, &rty, &target, Span::dummy())?;
+                return Ok((lv, rv, target));
+            }
+            // Two integers: pick the wider of the two same-signedness.
+            if lty.is_signed_int() == rty.is_signed_int() {
+                let target = if lty.int_width() >= rty.int_width() { lty.clone() } else { rty.clone() };
+                let lv = self.coerce(lv, &lty, &target, Span::dummy())?;
+                let rv = self.coerce(rv, &rty, &target, Span::dummy())?;
+                return Ok((lv, rv, target));
+            }
+            // Cross-sign integer arithmetic — common in FFI bindings
+            // where C `size_t` (unsigned) flows into ilang `i64`
+            // arithmetic, or vice-versa. Pick the wider type; on a
+            // tie prefer the signed side (closer to the conventional
+            // "promote-both-to-i64" C behaviour). Coerce both
+            // operands; the bit pattern survives because IntResize
+            // chooses uextend/sextend based on the source's
+            // signedness (per `lower_cast`).
+            let target = if lty.int_width() > rty.int_width() {
+                lty.clone()
+            } else if rty.int_width() > lty.int_width() {
+                rty.clone()
+            } else if lty.is_signed_int() {
+                lty.clone()
+            } else {
+                rty.clone()
+            };
+            let lv = self.coerce(lv, &lty, &target, Span::dummy())?;
+            let rv = self.coerce(rv, &rty, &target, Span::dummy())?;
+            return Ok((lv, rv, target));
+        }
+        Err(LowerError::Other(format!(
+            "cannot unify {lty} and {rty} in arithmetic context"
+        )))
+    }
+}
