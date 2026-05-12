@@ -120,21 +120,20 @@ dominated by the compile step. See [benchmarks/](benchmarks/) for the
 sources and `benchmarks/run.sh` for the runner.
 
 Author's machine (M-series Mac, macOS 15, `cc` from Xcode CLT 16,
-`rustc 1.x -O`, Node.js 22, Python 3.13):
+`rustc 1.x -O`, Node.js 22, Lua 5.5, Python 3.13):
 
-| Benchmark       | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua | Python |
-|-----------------|-------|-------|-----------|-----------|---------|-----|--------|
-| `fib(40)`       | 0.15s | 0.15s | 0.34s     | 0.34s     | 0.66s   | --  | 13.43s |
-| `mandelbrot`    | 0.45s | 0.52s | 0.68s     | 0.58s     | 0.61s   | --  | 62.38s |
-| `sort` (200 k)  | 0.01s | 0.01s | 0.02s     | 0.01s     | 0.05s   | --  | 0.22s  |
-| `linked_list`   | 0.03s | 0.02s | 0.03s     | 0.03s     | 0.05s   | --  | 0.42s  |
-| `string_concat` | 0.02s | 0.00s | 0.51s     | 0.47s     | 0.02s   | --  | 0.02s  |
-| `ffi`           | 0.01s | 0.01s | 0.03s     | 0.01s     | --      | --  | 2.08s  |
+| Benchmark       | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua   | Python |
+|-----------------|-------|-------|-----------|-----------|---------|-------|--------|
+| `fib(40)`       | 0.16s | 0.16s | 0.34s     | 0.34s     | 0.60s   | 3.42s | 13.47s |
+| `mandelbrot`    | 0.47s | 0.54s | 0.69s     | 0.59s     | 0.61s   | 8.68s | 65.87s |
+| `sort` (200 k)  | 0.02s | 0.01s | 0.02s     | 0.01s     | 0.05s   | 0.06s | 0.23s  |
+| `linked_list`   | 0.03s | 0.02s | 0.03s     | 0.03s     | 0.05s   | 0.11s | 0.42s  |
+| `string_concat` | 0.02s | 0.00s | 0.54s     | 0.48s     | 0.02s   | 0.04s | 0.02s  |
+| `ffi`           | 0.01s | 0.01s | 0.02s     | 0.01s     | --      | --    | 2.09s  |
 
 Reproduce on your own machine with `bash benchmarks/run.sh`. Tools
-that aren't installed render as `--` (Lua wasn't on the author's
-machine when the table above was generated; install `lua` and re-run
-to fill those cells).
+that aren't installed render as `--` (Node.js and stock Lua ship no
+built-in FFI, so the `ffi` row leaves their cells empty).
 
 The big takeaways:
 
