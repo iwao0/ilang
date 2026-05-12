@@ -64,5 +64,12 @@ fn main() {
         panic!("rustc failed building libilang_runtime.a (status: {status:?})");
     }
 
-    println!("cargo:rerun-if-changed={}", runtime_src.display());
+    // Watch the entire `ilang-runtime/src/` tree, not just `lib.rs` —
+    // helper files (`classes.rs`, `maps.rs`, …) all contribute symbols
+    // to the staticlib, and editing them must trigger a rebuild.
+    let runtime_src_dir = manifest_dir
+        .join("..")
+        .join("ilang-runtime")
+        .join("src");
+    println!("cargo:rerun-if-changed={}", runtime_src_dir.display());
 }
