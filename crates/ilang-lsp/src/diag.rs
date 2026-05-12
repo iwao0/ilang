@@ -1,0 +1,269 @@
+//! Extracted from `main.rs`.
+#![allow(unused_imports)]
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+
+
+use tower_lsp::jsonrpc::Result as LspResult;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer};
+
+use ilang_ast::{
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, Param, Pattern, PatternBindings,
+    PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
+};
+use ilang_parser::parse as parse_program;
+use ilang_types::{check, TypeError};
+
+use crate::*;
+
+pub(crate) fn diag(span: Span, msg: String) -> Diagnostic {
+    Diagnostic {
+        range: span_full_to_range(span),
+        severity: Some(DiagnosticSeverity::ERROR),
+        source: Some("ilang".into()),
+        message: msg,
+        ..Diagnostic::default()
+    }
+}
+
+pub(crate) fn build_doc(
+    text: String,
+    prog: &Program,
+    external_signatures: &HashMap<AstSymbol, String>,
+    external_returns: &HashMap<AstSymbol, Type>,
+    external_classes: &HashMap<AstSymbol, ClassInfo>,
+    external_sources: &ExternalSources,
+    external_docs: &HashMap<AstSymbol, String>,
+) -> Doc {
+    let symbols = collect_symbols(prog, &text);
+    let mut classes = collect_classes(prog, &text);
+    install_builtin_classes(&mut classes);
+    // Merge in classes the loader pulled in via `use module`. Buffer-
+    // local classes win on name collisions.
+    for (k, v) in external_classes {
+        classes.entry(k.clone()).or_insert_with(|| v.clone());
+    }
+    // Register `<Enum>.<Variant>` entries for buffer-local enums so
+    // `Enum.` completion (the `external_signatures`-prefix path)
+    // surfaces variants alongside cross-module enums. Sub-modules
+    // (`is_submodule = true`) get an empty `external_signatures`
+    // from the caller — without this, completion on a locally-
+    // declared enum would have nothing to enumerate.
+    let mut external_signatures = external_signatures.clone();
+    for item in &prog.items {
+        if let Item::Enum(e) = item {
+            register_enum_variants(e, e.name.as_str(), &mut external_signatures, Some(&text));
+        }
+    }
+    let external_signatures = &external_signatures;
+    let mut consts: HashMap<AstSymbol, Type> = HashMap::new();
+    for item in &prog.items {
+        if let Item::Const(c) = item {
+            if let Some(t) = c
+                .ty
+                .clone()
+                .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
+            {
+                consts.insert(c.name.clone(), t);
+            }
+        }
+    }
+    let mut fn_returns: HashMap<AstSymbol, Type> = HashMap::new();
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => {
+                if let Some(t) = &f.ret {
+                    fn_returns.insert(f.name.clone(), t.clone());
+                }
+            }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ilang_ast::ExternCItem::FnDecl { name, ret: Some(t), .. } => {
+                            fn_returns.insert(name.clone(), t.clone());
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            if let Some(t) = &f.ret {
+                                fn_returns.insert(f.name.clone(), t.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut refs = Vec::new();
+    let mut var_classes: HashMap<AstSymbol, String> = HashMap::new();
+    let mut var_types: HashMap<AstSymbol, Type> = HashMap::new();
+    {
+        let mut walker = Walker {
+            text: &text,
+            symbols: &symbols,
+            classes: &classes,
+            fn_returns: &fn_returns,
+            external_signatures,
+            external_docs,
+            external_returns,
+            external_sources,
+            refs: &mut refs,
+            var_classes: &mut var_classes,
+            var_types: &mut var_types,
+            consts: &consts,
+        };
+        for item in &prog.items {
+            match item {
+                Item::Fn(f) => walker.walk_fn(f, None),
+                Item::Class(c) => walker.walk_class(c),
+                Item::Use(u) => {
+                    // `use module` — push a hover entry on the module
+                    // identifier itself, with F12 navigating to the
+                    // module file's first line.
+                    if let Some(name_span) = locate_let_name_with_kw(
+                        &text,
+                        u.span,
+                        "use",
+                        u.module.as_str(),
+                    ) {
+                        let loc = walker.external_sources.get(&u.module);
+                        let target_uri = loc
+                            .and_then(|l| Url::from_file_path(&l.path).ok());
+                        let (target_span, target_name_len, no_def) = match &loc {
+                            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                            _ => (name_span, u.module.as_str().len() as u32, target_uri.is_none()),
+                        };
+                        walker.refs.push(RefEntry {
+                            line: name_span.line,
+                            start_col: name_span.col,
+                            end_col: name_span.col + u.module.as_str().len() as u32,
+                            target_span,
+                            target_name_len,
+                            signature: format!("(module) {}", u.module),
+                            no_definition: no_def,
+                            target_uri,
+                            doc: None,
+                        });
+                    }
+                    // `use module { name1, name2 }` — push a hover /
+                    // F12 entry on each selectively-imported name so
+                    // hovering or jumping from the import line itself
+                    // works the same as from a use site.
+                    if let Some(names) = &u.selective {
+                        for name in names.iter() {
+                            let Some((line, col)) =
+                                locate_selective_name(&text, u.span, name.as_str())
+                            else {
+                                continue;
+                            };
+                            let key = AstSymbol::intern(name.as_str());
+                            let sig = walker
+                                .external_signatures
+                                .get(&key)
+                                .cloned()
+                                .unwrap_or_else(|| format!("(import) {name}"));
+                            let loc = walker.external_sources.get(&key);
+                            let target_uri = loc
+                                .and_then(|l| Url::from_file_path(&l.path).ok());
+                            let (target_span, target_name_len, no_def) = match loc {
+                                Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+                                _ => (
+                                    Span::new(line, col),
+                                    name.as_str().len() as u32,
+                                    target_uri.is_none(),
+                                ),
+                            };
+                            walker.refs.push(RefEntry {
+                                line,
+                                start_col: col,
+                                end_col: col + name.as_str().len() as u32,
+                                target_span,
+                                target_name_len,
+                                signature: sig,
+                                no_definition: no_def,
+                                target_uri,
+                                doc: walker.external_docs.get(&key).cloned(),
+                            });
+                        }
+                    }
+                }
+                Item::ExternC(b) => {
+                    for inner in &b.items {
+                        match inner {
+                            ilang_ast::ExternCItem::FnDef(f) => walker.walk_fn(f, None),
+                            ilang_ast::ExternCItem::Class(c) => walker.walk_class(c),
+                            ilang_ast::ExternCItem::Struct {
+                                name, fields, ..
+                            }
+                            | ilang_ast::ExternCItem::Union {
+                                name, fields, ..
+                            } => {
+                                for f in fields {
+                                    walker.push_decl_with_doc(
+                                        f.name.as_str(),
+                                        f.span,
+                                        format!("(property) {}.{}: {}", name, f.name, f.ty),
+                                        text::extract_doc_above(walker.text, f.span.line),
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Item::Enum(e) => {
+                    // Push a hover / F12 entry on each variant name
+                    // at its declaration site. The signature reuses
+                    // `register_enum_variants` formatting (preserves
+                    // hex / underscore literals via the buffer text).
+                    let mut tmp: HashMap<AstSymbol, String> = HashMap::new();
+                    register_enum_variants(e, e.name.as_str(), &mut tmp, Some(walker.text));
+                    for v in e.variants.iter() {
+                        let key = AstSymbol::intern(&format!(
+                            "{}.{}", e.name, v.name
+                        ));
+                        let sig = tmp
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                format!("(variant) {}.{}", e.name, v.name)
+                            });
+                        walker.push_decl_with_doc(
+                            v.name.as_str(),
+                            v.span,
+                            sig,
+                            text::extract_doc_above(walker.text, v.span.line),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Top-level stmts/tail (script-style code outside any fn).
+        let mut top_scope: Vec<Binding> = Vec::new();
+        for s in &prog.stmts {
+            walker.walk_stmt(s, &mut top_scope, None);
+        }
+        if let Some(t) = &prog.tail {
+            walker.walk_expr(t, &mut top_scope, None);
+        }
+    }
+    refs.sort_by_key(|r| (r.line, r.start_col));
+    Doc {
+        text,
+        symbols,
+        classes,
+        refs,
+        var_classes,
+        var_types,
+        external_signatures: external_signatures.clone(),
+        external_docs: external_docs.clone(),
+        external_returns: external_returns.clone(),
+        external_sources: external_sources.clone(),
+    }
+}
+
