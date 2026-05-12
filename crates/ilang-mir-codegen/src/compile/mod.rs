@@ -7,32 +7,11 @@
 //! steps.
 
 mod abi;
-mod cascade;
-mod host_array;
-mod host_map;
-mod host_math;
 mod host_misc;
 mod host_os;
-mod host_raw_mem;
 mod print_kind;
 
 use host_misc::{host_optional_missing_stub, process_symbol_exists};
-
-use cascade::{
-    host_release_array, host_release_object, host_release_optional, host_retain_array,
-    host_retain_object, host_retain_optional, object_field_table_lock, release_by_kind,
-    release_object, retain_by_kind,
-};
-
-use host_array::{
-    build_array, host_array_data_ptr, host_array_includes, host_array_index_of, host_array_pop,
-    host_array_push, host_c_array_to_array,
-};
-use host_map::{
-    host_map_delete, host_map_get, host_map_get_optional, host_map_has, host_map_keys, host_map_new,
-    host_map_set, host_map_set_print_kinds, host_map_set_value_kind, host_map_size,
-    host_map_values, host_print_map, host_release_map, host_retain_map,
-};
 
 use abi::{
     celem_clif_type_with_enum, clif_signature_for, elem_byte_stride, elem_clif_type, extend_to_i64,
@@ -318,15 +297,15 @@ pub fn compile_with_builtins(
     // Map runtime backed by Rust's HashMap<i64, i64> (one box per
     // map). Keys / values flow through as i64 cells (heap pointers
     // share identity when interned).
-    jit_builder.symbol("__map_new", host_map_new as *const u8);
-    jit_builder.symbol("__map_get", host_map_get as *const u8);
-    jit_builder.symbol("__map_get_optional", host_map_get_optional as *const u8);
-    jit_builder.symbol("__map_set", host_map_set as *const u8);
-    jit_builder.symbol("__map_has", host_map_has as *const u8);
-    jit_builder.symbol("__map_size", host_map_size as *const u8);
-    jit_builder.symbol("__map_delete", host_map_delete as *const u8);
-    jit_builder.symbol("__map_keys", host_map_keys as *const u8);
-    jit_builder.symbol("__map_values", host_map_values as *const u8);
+    jit_builder.symbol("__map_new", ilang_runtime::__map_new as *const u8);
+    jit_builder.symbol("__map_get", ilang_runtime::__map_get as *const u8);
+    jit_builder.symbol("__map_get_optional", ilang_runtime::__map_get_optional as *const u8);
+    jit_builder.symbol("__map_set", ilang_runtime::__map_set as *const u8);
+    jit_builder.symbol("__map_has", ilang_runtime::__map_has as *const u8);
+    jit_builder.symbol("__map_size", ilang_runtime::__map_size as *const u8);
+    jit_builder.symbol("__map_delete", ilang_runtime::__map_delete as *const u8);
+    jit_builder.symbol("__map_keys", ilang_runtime::__map_keys as *const u8);
+    jit_builder.symbol("__map_values", ilang_runtime::__map_values as *const u8);
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.
@@ -344,39 +323,39 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__str_char_at", ilang_runtime::__str_char_at as *const u8);
     jit_builder.symbol("__str_slice", ilang_runtime::__str_slice as *const u8);
     jit_builder.symbol("__str_replace", ilang_runtime::__str_replace as *const u8);
-    jit_builder.symbol("__array_index_of", host_array_index_of as *const u8);
-    jit_builder.symbol("__array_includes", host_array_includes as *const u8);
-    jit_builder.symbol("__array_push", host_array_push as *const u8);
-    jit_builder.symbol("__array_pop", host_array_pop as *const u8);
+    jit_builder.symbol("__array_index_of", ilang_runtime::__array_index_of as *const u8);
+    jit_builder.symbol("__array_includes", ilang_runtime::__array_includes as *const u8);
+    jit_builder.symbol("__array_push", ilang_runtime::__array_push as *const u8);
+    jit_builder.symbol("__array_pop", ilang_runtime::__array_pop as *const u8);
     jit_builder.symbol("__fixed_to_dyn", ilang_runtime::__fixed_to_dyn as *const u8);
     jit_builder.symbol("__enum_box", ilang_runtime::__enum_box as *const u8);
-    jit_builder.symbol("__c_array_to_array", host_c_array_to_array as *const u8);
+    jit_builder.symbol("__c_array_to_array", ilang_runtime::__c_array_to_array as *const u8);
     jit_builder.symbol("__repl_load_slot", ilang_runtime::__repl_load_slot as *const u8);
     jit_builder.symbol("__repl_store_slot", ilang_runtime::__repl_store_slot as *const u8);
     // Raw-memory FFI marshalling: `readT(p, off): T` / `writeT(p,
     // off, v)`. The `read*` family folds the loaded primitive to
     // i64 (or f32/f64) for the cross-FFI return; callers reinterpret
     // via the slot-typing handled in `lower_call`.
-    jit_builder.symbol("__read_i8", host_read_i8 as *const u8);
-    jit_builder.symbol("__read_i16", host_read_i16 as *const u8);
-    jit_builder.symbol("__read_i32", host_read_i32 as *const u8);
-    jit_builder.symbol("__read_i64", host_read_i64 as *const u8);
-    jit_builder.symbol("__read_u8", host_read_u8 as *const u8);
-    jit_builder.symbol("__read_u16", host_read_u16 as *const u8);
-    jit_builder.symbol("__read_u32", host_read_u32 as *const u8);
-    jit_builder.symbol("__read_u64", host_read_u64 as *const u8);
-    jit_builder.symbol("__read_f32", host_read_f32 as *const u8);
-    jit_builder.symbol("__read_f64", host_read_f64 as *const u8);
-    jit_builder.symbol("__write_i8", host_write_i8 as *const u8);
-    jit_builder.symbol("__write_i16", host_write_i16 as *const u8);
-    jit_builder.symbol("__write_i32", host_write_i32 as *const u8);
-    jit_builder.symbol("__write_i64", host_write_i64 as *const u8);
-    jit_builder.symbol("__write_u8", host_write_u8 as *const u8);
-    jit_builder.symbol("__write_u16", host_write_u16 as *const u8);
-    jit_builder.symbol("__write_u32", host_write_u32 as *const u8);
-    jit_builder.symbol("__write_u64", host_write_u64 as *const u8);
-    jit_builder.symbol("__write_f32", host_write_f32 as *const u8);
-    jit_builder.symbol("__write_f64", host_write_f64 as *const u8);
+    jit_builder.symbol("__read_i8", ilang_runtime::__read_i8 as *const u8);
+    jit_builder.symbol("__read_i16", ilang_runtime::__read_i16 as *const u8);
+    jit_builder.symbol("__read_i32", ilang_runtime::__read_i32 as *const u8);
+    jit_builder.symbol("__read_i64", ilang_runtime::__read_i64 as *const u8);
+    jit_builder.symbol("__read_u8", ilang_runtime::__read_u8 as *const u8);
+    jit_builder.symbol("__read_u16", ilang_runtime::__read_u16 as *const u8);
+    jit_builder.symbol("__read_u32", ilang_runtime::__read_u32 as *const u8);
+    jit_builder.symbol("__read_u64", ilang_runtime::__read_u64 as *const u8);
+    jit_builder.symbol("__read_f32", ilang_runtime::__read_f32 as *const u8);
+    jit_builder.symbol("__read_f64", ilang_runtime::__read_f64 as *const u8);
+    jit_builder.symbol("__write_i8", ilang_runtime::__write_i8 as *const u8);
+    jit_builder.symbol("__write_i16", ilang_runtime::__write_i16 as *const u8);
+    jit_builder.symbol("__write_i32", ilang_runtime::__write_i32 as *const u8);
+    jit_builder.symbol("__write_i64", ilang_runtime::__write_i64 as *const u8);
+    jit_builder.symbol("__write_u8", ilang_runtime::__write_u8 as *const u8);
+    jit_builder.symbol("__write_u16", ilang_runtime::__write_u16 as *const u8);
+    jit_builder.symbol("__write_u32", ilang_runtime::__write_u32 as *const u8);
+    jit_builder.symbol("__write_u64", ilang_runtime::__write_u64 as *const u8);
+    jit_builder.symbol("__write_f32", ilang_runtime::__write_f32 as *const u8);
+    jit_builder.symbol("__write_f64", ilang_runtime::__write_f64 as *const u8);
     jit_builder.symbol("__array_map", ilang_runtime::__array_map as *const u8);
     jit_builder.symbol("__array_filter", ilang_runtime::__array_filter as *const u8);
     jit_builder.symbol("__array_for_each", ilang_runtime::__array_for_each as *const u8);
@@ -390,18 +369,18 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__print_weak", ilang_runtime::__print_weak as *const u8);
     jit_builder.symbol("__print_enum", ilang_runtime::__print_enum as *const u8);
     jit_builder.symbol("__print_fn", ilang_runtime::__print_fn as *const u8);
-    jit_builder.symbol("__release_object", host_release_object as *const u8);
-    jit_builder.symbol("__retain_object", host_retain_object as *const u8);
+    jit_builder.symbol("__release_object", ilang_runtime::__release_object as *const u8);
+    jit_builder.symbol("__retain_object", ilang_runtime::__retain_object as *const u8);
     jit_builder.symbol("__release_closure", ilang_runtime::__release_closure as *const u8);
     jit_builder.symbol("__retain_closure", ilang_runtime::__retain_closure as *const u8);
-    jit_builder.symbol("__release_array", host_release_array as *const u8);
-    jit_builder.symbol("__retain_array", host_retain_array as *const u8);
-    jit_builder.symbol("__release_optional", host_release_optional as *const u8);
-    jit_builder.symbol("__retain_optional", host_retain_optional as *const u8);
+    jit_builder.symbol("__release_array", ilang_runtime::__release_array as *const u8);
+    jit_builder.symbol("__retain_array", ilang_runtime::__retain_array as *const u8);
+    jit_builder.symbol("__release_optional", ilang_runtime::__release_optional as *const u8);
+    jit_builder.symbol("__retain_optional", ilang_runtime::__retain_optional as *const u8);
     jit_builder.symbol("__release_tuple", ilang_runtime::__release_tuple as *const u8);
     jit_builder.symbol("__retain_tuple", ilang_runtime::__retain_tuple as *const u8);
-    jit_builder.symbol("__release_map", host_release_map as *const u8);
-    jit_builder.symbol("__retain_map", host_retain_map as *const u8);
+    jit_builder.symbol("__release_map", ilang_runtime::__release_map as *const u8);
+    jit_builder.symbol("__retain_map", ilang_runtime::__retain_map as *const u8);
     jit_builder.symbol("__release_string", ilang_runtime::__release_string as *const u8);
     jit_builder.symbol("__retain_string", ilang_runtime::__retain_string as *const u8);
     // Always-on memory-tracking helpers exposed through `test.liveAlloc*`
@@ -419,14 +398,14 @@ pub fn compile_with_builtins(
         ilang_runtime::__enum_unit_get_checked as *const u8,
     );
     jit_builder.symbol("__enum_disc_str", ilang_runtime::__enum_disc_str as *const u8);
-    jit_builder.symbol("__map_set_value_kind", host_map_set_value_kind as *const u8);
-    jit_builder.symbol("__map_set_print_kinds", host_map_set_print_kinds as *const u8);
-    jit_builder.symbol("__print_map", host_print_map as *const u8);
+    jit_builder.symbol("__map_set_value_kind", ilang_runtime::__map_set_value_kind as *const u8);
+    jit_builder.symbol("__map_set_print_kinds", ilang_runtime::__map_set_print_kinds as *const u8);
+    jit_builder.symbol("__print_map", ilang_runtime::__print_map as *const u8);
     // FFI marshalling helpers — registered both with their bare names
     // (used inside `@extern(C)` blocks) and qualified names. Strings
     // are NUL-terminated `*const u8` already, so most "C-string"
     // helpers are identity at the bit level.
-    jit_builder.symbol("__array_data_ptr", host_array_data_ptr as *const u8);
+    jit_builder.symbol("__array_data_ptr", ilang_runtime::__array_data_ptr as *const u8);
     jit_builder.symbol("cstrFromString", ilang_runtime::cstr_from_string as *const u8);
     jit_builder.symbol("stringFromCstr", ilang_runtime::string_from_cstr as *const u8);
     jit_builder.symbol("cstrArrayToStrings", ilang_runtime::cstr_array_to_strings as *const u8);
@@ -456,23 +435,23 @@ pub fn compile_with_builtins(
     jit_builder.symbol("test.countedFree", ilang_runtime::test_counted_free as *const u8);
     jit_builder.symbol("test.countedFreeCount", ilang_runtime::test_counted_free_count as *const u8);
     // Built-in `math.*` runtime — wraps `f64::*` Rust intrinsics.
-    jit_builder.symbol("math.sin", host_sin as *const u8);
-    jit_builder.symbol("math.cos", host_cos as *const u8);
-    jit_builder.symbol("math.tan", host_tan as *const u8);
-    jit_builder.symbol("math.asin", host_asin as *const u8);
-    jit_builder.symbol("math.acos", host_acos as *const u8);
-    jit_builder.symbol("math.atan", host_atan as *const u8);
-    jit_builder.symbol("math.atan2", host_atan2 as *const u8);
-    jit_builder.symbol("math.sqrt", host_sqrt as *const u8);
-    jit_builder.symbol("math.pow", host_pow as *const u8);
-    jit_builder.symbol("math.exp", host_exp as *const u8);
-    jit_builder.symbol("math.ln", host_ln as *const u8);
-    jit_builder.symbol("math.log10", host_log10 as *const u8);
-    jit_builder.symbol("math.log2", host_log2 as *const u8);
-    jit_builder.symbol("math.floor", host_floor as *const u8);
-    jit_builder.symbol("math.ceil", host_ceil as *const u8);
-    jit_builder.symbol("math.round", host_round as *const u8);
-    jit_builder.symbol("math.abs", host_abs as *const u8);
+    jit_builder.symbol("math.sin", ilang_runtime::math_sin as *const u8);
+    jit_builder.symbol("math.cos", ilang_runtime::math_cos as *const u8);
+    jit_builder.symbol("math.tan", ilang_runtime::math_tan as *const u8);
+    jit_builder.symbol("math.asin", ilang_runtime::math_asin as *const u8);
+    jit_builder.symbol("math.acos", ilang_runtime::math_acos as *const u8);
+    jit_builder.symbol("math.atan", ilang_runtime::math_atan as *const u8);
+    jit_builder.symbol("math.atan2", ilang_runtime::math_atan2 as *const u8);
+    jit_builder.symbol("math.sqrt", ilang_runtime::math_sqrt as *const u8);
+    jit_builder.symbol("math.pow", ilang_runtime::math_pow as *const u8);
+    jit_builder.symbol("math.exp", ilang_runtime::math_exp as *const u8);
+    jit_builder.symbol("math.ln", ilang_runtime::math_ln as *const u8);
+    jit_builder.symbol("math.log10", ilang_runtime::math_log10 as *const u8);
+    jit_builder.symbol("math.log2", ilang_runtime::math_log2 as *const u8);
+    jit_builder.symbol("math.floor", ilang_runtime::math_floor as *const u8);
+    jit_builder.symbol("math.ceil", ilang_runtime::math_ceil as *const u8);
+    jit_builder.symbol("math.round", ilang_runtime::math_round as *const u8);
+    jit_builder.symbol("math.abs", ilang_runtime::math_abs as *const u8);
     // `console.log` is variadic at the language surface, so the
     // codegen splits each argument into a per-type print call.
     jit_builder.symbol("__ilang_panic", ilang_runtime::__ilang_panic as *const u8);
@@ -604,39 +583,22 @@ pub fn compile_with_builtins(
             }
         }
 
-        let mut t = object_field_table_lock()
-            .lock()
-            .expect("field table poisoned");
-        // Don't clear — entries are keyed by GLOBAL class id and
-        // accumulate across compiles so parallel modules coexist.
+        // Populate the runtime's per-class cascade table so
+        // `__release_object_fields` walks heap-shaped fields at
+        // rc = 0. Both backends populate the same `ilang-runtime`
+        // registry (AOT mirrors these calls from `__ilang_aot_init`).
         for class in &prog.classes {
-            let mut entries: Vec<(i64, PrintKind)> = Vec::new();
             for (i, f) in class.fields.iter().enumerate() {
-                let kind = print_kind_of(&f.ty);
-                let needs = matches!(
-                    kind,
-                    PrintKind::Object
-                        | PrintKind::Optional(_)
-                        | PrintKind::Array(_)
-                        | PrintKind::Tuple(_)
-                );
-                if needs {
+                let cascade_tag = kind_tag_of(&f.ty);
+                if cascade_tag != KIND_NONE {
                     let off = OBJECT_HEADER_BYTES as i64 + (i as i64) * 8;
-                    // Mirror into the runtime registry too so AOT-emitted
-                    // programs that don't see this JIT process still get
-                    // the cascade entries from `__ilang_aot_init`. The
-                    // JIT path uses the richer `PrintKind` table above for
-                    // its in-process cascade; both backends populate, but
-                    // only the JIT host reads the local PrintKind copy.
                     ilang_runtime::__register_object_field(
                         global_cid(class.id.0) as i64,
                         off,
-                        kind_tag_of_print_kind(&kind),
+                        cascade_tag,
                     );
-                    entries.push((off, kind));
                 }
             }
-            t.insert(global_cid(class.id.0), entries);
             // Mirror NewObject codegen: regular classes alloc
             // header + n_fields*8 bytes. Skip CRepr/packed/union
             // (different free path) and any class referenced via
@@ -1600,8 +1562,6 @@ fn walk_mir_ty(ty: &MirTy, f: &mut impl FnMut(&MirTy)) {
 // length 3); the trailing NUL keeps cstr-style C interop working
 // (snprintf etc. read up to the first NUL, which is a documented
 // truncation if the user puts NULs inside the string).
-use host_raw_mem::*;
-
 /// Box a raw discriminant value into a unit-variant enum heap cell.
 /// Layout matches `Inst::NewEnum` for unit variants: 8 B containing
 /// the tag at offset 0, no payload. Used by the integer→enum
@@ -1620,7 +1580,6 @@ pub use ilang_runtime::reset_repl_slots;
 // cascade walks the same kind tags either way.
 
 
-use host_math::*;
 use host_os::*;
 
 
