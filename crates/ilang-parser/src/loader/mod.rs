@@ -39,6 +39,7 @@ pub fn builtin_module_source(name: &str) -> Option<&'static str> {
         "math" => Some(include_str!("../stdlib/math.il")),
         "test" => Some(include_str!("../stdlib/test.il")),
         "os" => Some(include_str!("../stdlib/os.il")),
+        "fs" => Some(include_str!("../stdlib/fs.il")),
         _ => None,
     }
 }
@@ -1177,7 +1178,9 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             variant,
             args,
         } => ExprKind::EnumCtor {
-            enum_name: if enum_name.as_str().contains('.') {
+            enum_name: if enum_name.as_str().contains('.')
+                || is_builtin_type(enum_name.as_str())
+            {
                 enum_name
             } else {
                 format!("{prefix}.{}", enum_name).into()

@@ -36,6 +36,7 @@ pub mod cascade;
 pub mod classes;
 pub mod closures;
 pub mod enums;
+pub mod fs;
 pub mod kind;
 pub mod maps;
 pub mod math;

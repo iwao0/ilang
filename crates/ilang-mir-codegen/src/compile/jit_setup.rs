@@ -197,6 +197,24 @@ pub fn compile_with_builtins(
     jit_builder.symbol("os.setErrno", ilang_runtime::os_set_errno as *const u8);
     jit_builder.symbol("os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
     jit_builder.symbol("os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
+    // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
+    jit_builder.symbol("fs.__hasError", ilang_runtime::fs::fs_has_error as *const u8);
+    jit_builder.symbol("fs.__errorCode", ilang_runtime::fs::fs_error_code as *const u8);
+    jit_builder.symbol("fs.__errorMessage", ilang_runtime::fs::fs_error_message as *const u8);
+    jit_builder.symbol("fs.__readFile", ilang_runtime::fs::fs_read_file as *const u8);
+    jit_builder.symbol("fs.__readFileBytes", ilang_runtime::fs::fs_read_file_bytes as *const u8);
+    jit_builder.symbol("fs.__writeFile", ilang_runtime::fs::fs_write_file as *const u8);
+    jit_builder.symbol("fs.__writeFileBytes", ilang_runtime::fs::fs_write_file_bytes as *const u8);
+    jit_builder.symbol("fs.__appendFile", ilang_runtime::fs::fs_append_file as *const u8);
+    jit_builder.symbol("fs.__exists", ilang_runtime::fs::fs_exists as *const u8);
+    jit_builder.symbol("fs.__isFile", ilang_runtime::fs::fs_is_file as *const u8);
+    jit_builder.symbol("fs.__isDir", ilang_runtime::fs::fs_is_dir as *const u8);
+    jit_builder.symbol("fs.__mkdir", ilang_runtime::fs::fs_mkdir as *const u8);
+    jit_builder.symbol("fs.__rm", ilang_runtime::fs::fs_rm as *const u8);
+    jit_builder.symbol("fs.__rmdir", ilang_runtime::fs::fs_rmdir as *const u8);
+    jit_builder.symbol("fs.__rename", ilang_runtime::fs::fs_rename as *const u8);
+    jit_builder.symbol("fs.__readDir", ilang_runtime::fs::fs_read_dir as *const u8);
+    jit_builder.symbol("fs.__size", ilang_runtime::fs::fs_size as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,
