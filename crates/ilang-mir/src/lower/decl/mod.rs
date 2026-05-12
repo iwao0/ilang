@@ -3,3 +3,4 @@
 //! organised without forcing one giant impl in mod.rs.
 
 mod extern_c;
+mod decls;
