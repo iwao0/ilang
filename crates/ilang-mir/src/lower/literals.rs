@@ -1,0 +1,448 @@
+//! Array / tuple / map literal + `obj.field` / `obj[idx]`
+//! lowering on `BodyCx`.
+//!
+//! - `lower_array_literal` / `lower_array_literal_with_hint`:
+//!   `[a, b, c]`. The hint variant lets a callsite (e.g.
+//!   `let xs: u8[] = [1, 2, 3]`) widen / narrow each element to
+//!   the declared type during lowering.
+//! - `lower_tuple_literal`: `(a, b)`.
+//! - `lower_map_literal`: `{ "k": v, ... }` — emits `__map_new`
+//!   plus per-entry `__map_set` calls.
+//! - `lower_index` / `lower_field`: read paths for indexed and
+//!   field-access expressions. Bounds checks, weak-ptr peeks,
+//!   property getters, and module-namespace lookups all route
+//!   through here.
+
+use ilang_ast::{Expr, ExprKind, Span, Symbol};
+
+use crate::inst::{FuncRef, Inst, UnOp, ValueId};
+use crate::types::MirTy;
+
+use super::utils::retain_if_heap;
+use super::{BodyCx, LowerError};
+
+impl<'a> BodyCx<'a> {
+    pub(super) fn lower_map_literal(
+        &mut self,
+        entries: &[(Expr, Expr)],
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        if entries.is_empty() {
+            // Empty map literal isn't valid surface syntax (`{}`
+            // parses as a block); emit a fallback Map<string, i64>
+            // and let the binding annotation override.
+            let key = MirTy::Str;
+            let val = MirTy::I64;
+            let ty = MirTy::Map {
+                key: Box::new(key.clone()),
+                val: Box::new(val.clone()),
+            };
+            let v = self.fb.new_value(ty.clone());
+            self.fb.push_inst(Inst::NewMap {
+                dst: v,
+                key,
+                val,
+                entries: Box::new([]),
+            });
+            return Ok((v, ty));
+        }
+        let mut pairs = Vec::with_capacity(entries.len());
+        let mut key_ty: Option<MirTy> = None;
+        let mut val_ty: Option<MirTy> = None;
+        for (k, v) in entries {
+            let (kv, kty) = self.lower_expr(k)?;
+            let (vv, vty) = self.lower_expr(v)?;
+            let ek = key_ty.get_or_insert(kty.clone()).clone();
+            let ev = val_ty.get_or_insert(vty.clone()).clone();
+            let kv = if kty == ek {
+                kv
+            } else {
+                self.coerce(kv, &kty, &ek, k.span)?
+            };
+            let vv = if vty == ev {
+                vv
+            } else {
+                self.coerce(vv, &vty, &ev, v.span)?
+            };
+            pairs.push((kv, vv));
+        }
+        let key = key_ty.unwrap();
+        let val = val_ty.unwrap();
+        let ty = MirTy::Map {
+            key: Box::new(key.clone()),
+            val: Box::new(val.clone()),
+        };
+        let dst = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewMap {
+            dst,
+            key,
+            val,
+            entries: pairs.into_boxed_slice(),
+        });
+        Ok((dst, ty))
+    }
+
+    pub(super) fn lower_array_literal_with_hint(
+        &mut self,
+        items: &[Expr],
+        elem_hint: Option<MirTy>,
+        len_hint: Option<usize>,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        if items.is_empty() {
+            let elem = elem_hint.unwrap_or(MirTy::I64);
+            let ty = MirTy::Array { elem: Box::new(elem.clone()), len: len_hint };
+            let v = self.fb.new_value(ty.clone());
+            self.fb.push_inst(Inst::NewArrayEmpty {
+                dst: v,
+                elem,
+                fixed_len: len_hint,
+            });
+            return Ok((v, ty));
+        }
+        let mut elem_vals = Vec::with_capacity(items.len());
+        let mut elem_ty: Option<MirTy> = elem_hint.clone();
+        for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
+            let (vv, vty) = self.lower_expr(it)?;
+            let target = elem_ty.get_or_insert(vty.clone()).clone();
+            let coerced = if target == vty {
+                vv
+            } else {
+                self.coerce(vv, &vty, &target, it.span)?
+            };
+            // Mirror the no-hint path: aliased heap elements need
+            // a +1 because host_release_array cascade-releases each
+            // stored Object on drop.
+            let is_heap = matches!(
+                target,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: coerced });
+            }
+            elem_vals.push(coerced);
+        }
+        let elem = elem_ty.unwrap();
+        let ty = MirTy::Array { elem: Box::new(elem.clone()), len: len_hint };
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewArray {
+            dst: v,
+            elem,
+            items: elem_vals.into_boxed_slice(),
+        });
+        Ok((v, ty))
+    }
+
+    pub(super) fn lower_array_literal(&mut self, items: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {
+        if items.is_empty() {
+            // `[]` requires a type annotation; the let stmt's coerce
+            // step would correct the element type. Fall back to i64
+            // here; this is rare enough that letting it be obviously
+            // wrong is fine for now (the binding's type annotation
+            // path is the supported way).
+            let ty = MirTy::Array { elem: Box::new(MirTy::I64), len: None };
+            let v = self.fb.new_value(ty.clone());
+            self.fb.push_inst(Inst::NewArrayEmpty {
+                dst: v,
+                elem: MirTy::I64,
+                fixed_len: None,
+            });
+            return Ok((v, ty));
+        }
+        let mut elem_vals = Vec::with_capacity(items.len());
+        let mut elem_ty: Option<MirTy> = None;
+        for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
+            let (vv, vty) = self.lower_expr(it)?;
+            let ty = elem_ty.get_or_insert(vty.clone()).clone();
+            let coerced = if ty == vty {
+                vv
+            } else {
+                self.coerce(vv, &vty, &ty, it.span)?
+            };
+            // Array elements: each slot owns +1 because the array's
+            // host_release_array cascade calls release_object on
+            // every stored Object on drop. Fresh values already
+            // come with +1 (transfer); aliased Vars don't, so we
+            // bump rc here. Without this, `let xs = [a, a]` plus
+            // the eventual array drop double-frees `a`.
+            let is_heap = matches!(
+                ty,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: coerced });
+            }
+            elem_vals.push(coerced);
+        }
+        let elem = elem_ty.unwrap();
+        let ty = MirTy::Array { elem: Box::new(elem.clone()), len: None };
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewArray {
+            dst: v,
+            elem,
+            items: elem_vals.into_boxed_slice(),
+        });
+        Ok((v, ty))
+    }
+
+    pub(super) fn lower_tuple_literal(&mut self, items: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {
+        let mut vals = Vec::with_capacity(items.len());
+        let mut tys = Vec::with_capacity(items.len());
+        for it in items {
+            let elem_is_fresh = self.is_fresh_object_expr(it);
+            let (v, t) = self.lower_expr(it)?;
+            // Tuple slots own their stored heap value's +1, mirroring
+            // the array-literal element-retain rule. Without this,
+            // `(read, bump)` over locals like `let read = fn(){...}`
+            // would let the surrounding scope-exit release the
+            // closure to rc=0 and free it while the tuple still
+            // points there.
+            let is_heap = matches!(
+                t,
+                MirTy::Object(_)
+                    | MirTy::Array { .. }
+                    | MirTy::Tuple(_)
+                    | MirTy::Map { .. }
+                    | MirTy::Optional(_)
+                    | MirTy::Fn(_)
+                    | MirTy::Str
+            );
+            if is_heap && !elem_is_fresh {
+                self.fb.push_inst(Inst::Retain { value: v });
+            }
+            vals.push(v);
+            tys.push(t);
+        }
+        let ty = MirTy::Tuple(tys.into_boxed_slice());
+        let v = self.fb.new_value(ty.clone());
+        self.fb.push_inst(Inst::NewTuple {
+            dst: v,
+            items: vals.into_boxed_slice(),
+        });
+        Ok((v, ty))
+    }
+
+    pub(super) fn lower_index(&mut self, obj: &Expr, index: &Expr) -> Result<(ValueId, MirTy), LowerError> {
+        let obj_is_fresh = self.is_fresh_object_expr(obj);
+        let (av, aty) = self.lower_expr(obj)?;
+        match &aty {
+            MirTy::Array { elem, .. } => {
+                let elem_ty = (**elem).clone();
+                let (iv, _) = self.lower_expr(index)?;
+                let v = self.fb.new_value(elem_ty.clone());
+                self.fb.push_inst(Inst::ArrayLoad { dst: v, arr: av, idx: iv });
+                // Fresh-array index: retain the selected element so
+                // the array's own Release (cascading deinit on every
+                // stored Object) doesn't drop it. The unselected
+                // elements get their deinits via the cascade.
+                if obj_is_fresh && matches!(elem_ty, MirTy::Object(_)) {
+                    self.fb.push_inst(Inst::Retain { value: v });
+                    self.fb.push_inst(Inst::Release { value: av });
+                }
+                Ok((v, elem_ty))
+            }
+            MirTy::Map { val, .. } => {
+                let val_ty = (**val).clone();
+                let (kv, _) = self.lower_expr(index)?;
+                let v = self.fb.new_value(val_ty.clone());
+                self.fb.push_inst(Inst::MapGet { dst: v, map: av, key: kv });
+                if obj_is_fresh && matches!(val_ty, MirTy::Object(_)) {
+                    self.fb.push_inst(Inst::Retain { value: v });
+                    self.fb.push_inst(Inst::Release { value: av });
+                }
+                Ok((v, val_ty))
+            }
+            MirTy::Tuple(elems) => {
+                let idx = match &index.kind {
+                    ExprKind::Int(n) if *n >= 0 => *n as u32,
+                    _ => {
+                        return Err(LowerError::Other(
+                            "tuple index must be a non-negative integer literal".into(),
+                        ))
+                    }
+                };
+                let elem_ty = elems
+                    .get(idx as usize)
+                    .cloned()
+                    .ok_or_else(|| LowerError::Other(format!("tuple index {idx} out of range")))?;
+                let v = self.fb.new_value(elem_ty.clone());
+                self.fb.push_inst(Inst::TupleExtract { dst: v, tup: av, idx });
+                // Fresh-tuple-on-index cleanup: extract may keep one
+                // element alive (the selected one), but the others are
+                // about to leak. Retain the selected Object so it
+                // outlives the per-element release sweep, then release
+                // every Object element of the fresh tuple.
+                if obj_is_fresh {
+                    if matches!(elem_ty, MirTy::Object(_)) {
+                        self.fb.push_inst(Inst::Retain { value: v });
+                    }
+                    for (i, ety) in elems.iter().enumerate() {
+                        if matches!(ety, MirTy::Object(_)) {
+                            let ev = self.fb.new_value(ety.clone());
+                            self.fb.push_inst(Inst::TupleExtract {
+                                dst: ev,
+                                tup: av,
+                                idx: i as u32,
+                            });
+                            self.fb.push_inst(Inst::Release { value: ev });
+                        }
+                    }
+                }
+                Ok((v, elem_ty))
+            }
+            other => Err(LowerError::Other(format!("indexing non-indexable type {other}"))),
+        }
+    }
+
+    pub(super) fn lower_field(
+        &mut self,
+        obj: &Expr,
+        name: Symbol,
+        _span: Span,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        // `typeof(x).name` — pseudo-property on the Type handle that
+        // `typeof` returns. Lower obj (yields the dynamic class id),
+        // then call `class_name` builtin to get the class name.
+        if name.as_str() == "name" {
+            if let ExprKind::Call { callee, args } = &obj.kind {
+                if callee.as_str() == "typeof" && args.len() == 1 {
+                    let (cid, _) = self.lower_expr(obj)?;
+                    let v = self.fb.new_value(MirTy::Str);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("class_name")),
+                        args: Box::new([cid]),
+                    });
+                    return Ok((v, MirTy::Str));
+                }
+            }
+        }
+        // `ClassName.field` — static/const access. The receiver is
+        // a bare identifier that names a class, not an instance.
+        if let ExprKind::Var(maybe_class) = &obj.kind {
+            if self.lookup_var(*maybe_class).is_none() {
+                if let Some((cid, _)) = self
+                    .class_meta
+                    .iter()
+                    .find(|(cid, _)| self.classes[cid.0 as usize].name == *maybe_class)
+                {
+                    let meta = self.class_meta.get(cid).unwrap();
+                    if let Some(&slot) = meta.static_slots.get(&name) {
+                        let slot_owner = &self.classes[cid.0 as usize];
+                        let ty = self
+                            .classes[cid.0 as usize]
+                            .statics
+                            .iter()
+                            .find_map(|sid| {
+                                let s = &self.statics_by_id(*sid);
+                                if s.name == name {
+                                    Some(s.ty.clone())
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(MirTy::I64);
+                        let _ = slot_owner;
+                        let v = self.fb.new_value(ty.clone());
+                        self.fb.push_inst(Inst::LoadStatic { dst: v, slot });
+                        return Ok((v, ty));
+                    }
+                }
+            }
+        }
+        let obj_is_fresh = self.is_fresh_object_expr(obj);
+        let (ov, oty) = self.lower_expr(obj)?;
+        // Property getter on an instance.
+        if let MirTy::Object(cid) = &oty {
+            let meta = self.class_meta.get(cid).expect("class meta");
+            if let Some((mid, prop_ty)) = meta.property_getter.get(&name).cloned() {
+                let v = self.fb.new_value(prop_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(v),
+                    callee: FuncRef::Local(mid),
+                    args: Box::new([ov]),
+                });
+                return Ok((v, prop_ty));
+            }
+        }
+        // Built-in `.length` on arrays / strings.
+        if name == "length" {
+            match &oty {
+                MirTy::Array { .. } => {
+                    let v = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::ArrayLen { dst: v, arr: ov });
+                    return Ok((v, MirTy::I64));
+                }
+                MirTy::Str => {
+                    // String length is a runtime call (Unicode
+                    // code-point count). Lower as a builtin.
+                    let v = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(v),
+                        callee: FuncRef::Builtin(Symbol::intern("str_length")),
+                        args: Box::new([ov]),
+                    });
+                    return Ok((v, MirTy::I64));
+                }
+                _ => {}
+            }
+        }
+        // Optional accessors (.isSome / .isNone).
+        if let MirTy::Optional(_) = &oty {
+            if name == "isSome" {
+                let v = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::OptionalIsSome { dst: v, opt: ov });
+                return Ok((v, MirTy::Bool));
+            }
+            if name == "isNone" {
+                let s = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::OptionalIsSome { dst: s, opt: ov });
+                let v = self.fb.new_value(MirTy::Bool);
+                self.fb.push_inst(Inst::UnOp { dst: v, op: UnOp::BoolNot, src: s });
+                return Ok((v, MirTy::Bool));
+            }
+        }
+        // Class instance field.
+        if let MirTy::Object(cid) = &oty {
+            let meta = self.class_meta.get(cid).expect("class meta");
+            if let Some(&fid) = meta.field_ix.get(&name) {
+                let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                let v = self.fb.new_value(fty.clone());
+                self.fb.push_inst(Inst::LoadField { dst: v, obj: ov, field: fid });
+                // Release a fresh-receiver Object after extracting a
+                // non-Object field — the receiver is otherwise leaked.
+                // Heap-typed fields need a retain first so the
+                // cascade triggered by `Release v` doesn't tear the
+                // field down: the receiver owned a +1 on the field
+                // (the array / map / etc.), and once the receiver's
+                // rc hits zero its `__release_object_fields` cascade
+                // releases that same +1. Without the retain, the
+                // caller gets a dangling pointer.
+                if obj_is_fresh && !matches!(fty, MirTy::Object(_)) {
+                    retain_if_heap(&mut self.fb, v, &fty);
+                    self.fb.push_inst(Inst::Release { value: ov });
+                }
+                return Ok((v, fty));
+            }
+            return Err(LowerError::Other(format!(
+                "no field `{name}` on class id #{}",
+                cid.0
+            )));
+        }
+        Err(LowerError::Other(format!(
+            "field `{name}` on unsupported type {oty}"
+        )))
+    }
+}
