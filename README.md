@@ -124,12 +124,18 @@ Author's machine (M-series Mac, macOS 15, `cc` from Xcode CLT 16,
 
 | Benchmark       | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua   | Python |
 |-----------------|-------|-------|-----------|-----------|---------|-------|--------|
-| `fib(40)`       | 0.16s | 0.16s | 0.34s     | 0.34s     | 0.60s   | 3.42s | 13.47s |
-| `mandelbrot`    | 0.47s | 0.54s | 0.69s     | 0.59s     | 0.61s   | 8.68s | 65.87s |
-| `sort` (200 k)  | 0.02s | 0.01s | 0.02s     | 0.01s     | 0.05s   | 0.06s | 0.23s  |
-| `linked_list`   | 0.03s | 0.02s | 0.03s     | 0.03s     | 0.05s   | 0.11s | 0.42s  |
-| `string_concat` | 0.02s | 0.00s | 0.54s     | 0.48s     | 0.02s   | 0.04s | 0.02s  |
-| `ffi`           | 0.01s | 0.01s | 0.02s     | 0.01s     | --      | --    | 2.09s  |
+| `fib(40)`       | 0.15s | 0.16s | 0.34s     | 0.34s     | 0.65s   | 3.43s | 13.55s |
+| `mandelbrot`    | 0.46s | 0.52s | 0.67s     | 0.59s     | 0.59s   | 8.56s | 57.96s |
+| `sort` (200 k)  | 0.01s | 0.01s | 0.02s     | 0.01s     | 0.05s   | 0.06s | 0.22s  |
+| `linked_list`   | 0.03s | 0.02s | 0.04s     | 0.03s     | 0.05s   | 0.11s | 0.42s  |
+| `string_concat` | 0.02s | 0.00s | 0.00s¹    | 0.00s¹    | 0.02s   | 0.04s | 0.02s  |
+| `ffi`           | 0.01s | 0.01s | 0.01s     | 0.01s     | --      | --    | 2.14s  |
+
+¹ Below the 10 ms resolution of `time -p`. The `s = s + expr`
+shape is detected at MIR time and lowered to an in-place
+doubling-realloc helper so the total cost is O(n) instead of the
+naive O(n²) every other column except Python / Node.js / Lua here
+actually pays. Measured at ~3 ms wall clock for 50 k appends.
 
 Reproduce on your own machine with `bash benchmarks/run.sh`. Tools
 that aren't installed render as `--` (Node.js and stock Lua ship no
@@ -143,9 +149,11 @@ The big takeaways:
 - **Heap-allocation heavy** workloads (`linked_list`) match C
   because ilang's ARC overhead per node is small (no GC pauses
   either).
-- `string_concat` is the obvious weak spot — every iteration
-  allocates a fresh string through the ARC registry. Use array
-  builders or a future `StringBuilder` when this matters.
+- `string_concat`'s `s = s + expr` shape is rewritten at MIR time
+  to an in-place doubling-realloc, so the whole loop runs in
+  amortised O(n). Other ARC paths (e.g. building a string through
+  a closure-captured accumulator, or `t = s + u` with `s` aliased)
+  still allocate a fresh buffer and stay on the slow path.
 - `ilang JIT` ≈ `ilang AOT` on these benchmarks because the
   programs run long enough that compile cost is a small slice.
   Sub-second scripts will see JIT > AOT in wall-clock time.

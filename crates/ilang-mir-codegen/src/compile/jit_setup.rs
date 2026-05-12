@@ -92,6 +92,10 @@ pub fn compile_with_builtins(
     // ARC-backed StringRc runtime arrives.
     jit_builder.symbol("__str_length", ilang_runtime::__str_length as *const u8);
     jit_builder.symbol("__str_concat", ilang_runtime::__str_concat as *const u8);
+    jit_builder.symbol(
+        "__str_concat_inplace",
+        ilang_runtime::__str_concat_inplace as *const u8,
+    );
     jit_builder.symbol("__str_eq", ilang_runtime::__str_eq as *const u8);
     jit_builder.symbol("__int_to_string", ilang_runtime::__int_to_string as *const u8);
     jit_builder.symbol("__bool_to_string", ilang_runtime::__bool_to_string as *const u8);

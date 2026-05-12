@@ -407,6 +407,7 @@ fn fmt_binop(op: BinOp) -> &'static str {
         BinOp::StrEq => "str_eq",
         BinOp::StrNe => "str_ne",
         BinOp::StrConcat => "str_concat",
+        BinOp::StrConcatInplace => "str_concat_inplace",
     }
 }
 

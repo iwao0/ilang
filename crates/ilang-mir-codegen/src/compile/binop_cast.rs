@@ -83,7 +83,7 @@ pub(crate) fn lower_binop(fb: &mut ClifFnBuilder, op: BinOp, lhs: Value, rhs: Va
         BinOp::FLe => fb.ins().fcmp(FloatCC::LessThanOrEqual, lhs, rhs),
         BinOp::FGt => fb.ins().fcmp(FloatCC::GreaterThan, lhs, rhs),
         BinOp::FGe => fb.ins().fcmp(FloatCC::GreaterThanOrEqual, lhs, rhs),
-        BinOp::StrEq | BinOp::StrNe | BinOp::StrConcat => {
+        BinOp::StrEq | BinOp::StrNe | BinOp::StrConcat | BinOp::StrConcatInplace => {
             // String ops require a runtime call — wired alongside the
             // ARC runtime in a follow-up step.
             unimplemented!("string ops in mir-codegen")

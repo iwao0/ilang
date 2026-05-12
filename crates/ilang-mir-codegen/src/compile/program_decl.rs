@@ -230,6 +230,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let str_ids = StrIds {
         length: declare_unary_i64(module, "__str_length")?,
         concat: declare_binary_i64(module, "__str_concat")?,
+        concat_inplace: declare_binary_i64(module, "__str_concat_inplace")?,
         eq: declare_binary_i64(module, "__str_eq")?,
         int_to_string: declare_unary_i64(module, "__int_to_string")?,
         bool_to_string: declare_unary_i64(module, "__bool_to_string")?,

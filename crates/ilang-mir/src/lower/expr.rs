@@ -289,6 +289,40 @@ impl<'a> BodyCx<'a> {
             ExprKind::Continue => self.lower_continue(),
             ExprKind::Return(v) => self.lower_return(v.as_deref()),
             ExprKind::Assign { target, value } => {
+                // Pattern: `s = s + expr` with both sides typed as
+                // string. The MIR Local for `s` is provably the only
+                // holder of its buffer (assignment retires the
+                // previous pointer), so route the concat through the
+                // inplace runtime helper that grows `s`'s backing
+                // via doubling realloc instead of allocating a fresh
+                // buffer every iteration. Bypassed for closure
+                // captures (cell-backed bindings) where alias
+                // reasoning is harder.
+                if let ExprKind::Binary { op: ilang_ast::BinOp::Add, lhs, rhs } = &value.kind {
+                    if let ExprKind::Var(lname) = &lhs.kind {
+                        if lname == target
+                            && matches!(
+                                self.env.lookup_binding(*target),
+                                Some(Binding::Local(_, MirTy::Str))
+                            )
+                        {
+                            let (lv, lty) = self.lower_expr(lhs)?;
+                            let (rv, rty) = self.lower_expr(rhs)?;
+                            if matches!(lty, MirTy::Str) && matches!(rty, MirTy::Str) {
+                                let tmp = self.fb.new_value(MirTy::Str);
+                                self.fb.push_inst(Inst::BinOp {
+                                    dst: tmp,
+                                    op: crate::inst::BinOp::StrConcatInplace,
+                                    lhs: lv,
+                                    rhs: rv,
+                                });
+                                if self.assign_var(*target, tmp, MirTy::Str) {
+                                    return Ok((self.const_unit(), MirTy::Unit));
+                                }
+                            }
+                        }
+                    }
+                }
                 let value_is_fresh = self.is_fresh_object_expr(value);
                 // Snapshot the old value if the target binds an Object
                 // — we need to Release it after the new value lands.

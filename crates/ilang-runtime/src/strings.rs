@@ -156,6 +156,103 @@ pub extern "C" fn __str_concat(a: i64, b: i64) -> i64 {
     leak_cstring(String::from_utf8_lossy(&out).into_owned())
 }
 
+/// In-place variant of `__str_concat` used by the MIR for the
+/// `s = s + expr` pattern, where the LHS is provably the only
+/// holder of its string and is about to be reassigned. Grows the
+/// LHS buffer via doubling `realloc` so the amortised cost per
+/// append is O(1) instead of the O(n) the plain `__str_concat`
+/// pays when each step allocates a fresh buffer.
+///
+/// Contract: caller must guarantee `a.rc == 1` (no aliases) AND
+/// that the original `a` pointer will be retired immediately
+/// (replaced by the returned pointer). Both hold for the
+/// `s = s + expr` rewrite emitted by the MIR — never call this
+/// from user code or from contexts where another binding still
+/// reads `a`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __str_concat_inplace(a: i64, b: i64) -> i64 {
+    if a == 0 {
+        // No backing yet — fall back to the regular path.
+        return __str_concat(a, b);
+    }
+    let sb = unsafe { cstr_bytes(b) };
+    let a_len = unsafe { *((a - 8) as *const i64) } as usize;
+    let new_len = a_len + sb.len();
+    let needed_total = 8 + new_len + 1;
+    let mut reg = string_registry_lock().lock().expect("string registry poisoned");
+    // Snapshot the raw pointer + capacity without cloning the
+    // entry (StringBacking owns the buffer through Drop — copying
+    // it would dealloc twice). Defensive `rc == 1` re-check: the
+    // MIR pattern matcher only fires for Locals (closure-captured
+    // strings stay on the regular path), but a user-side
+    // `let t = s; s = s + "x"` keeps a's rc at 2 — falling back to
+    // the allocating `__str_concat` keeps the alias safe.
+    let (cur_base, cur_total) = match reg.get(&a) {
+        Some(e) if e.rc == 1 => (e.backing.base, e.backing.total),
+        Some(_) => {
+            drop(reg);
+            return __str_concat(a, b);
+        }
+        None => {
+            // Not in registry (e.g. a static literal pointer that
+            // the codegen handed us). Fall back to a fresh
+            // allocation.
+            drop(reg);
+            return __str_concat(a, b);
+        }
+    };
+    // Fast path: spare capacity already covers the result. Copy
+    // bytes in, bump the length prefix, leave the registry entry
+    // alone. Returned pointer is the same body_ptr.
+    if cur_total >= needed_total {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                sb.as_ptr(),
+                (a as *mut u8).add(a_len),
+                sb.len(),
+            );
+            *((a as *mut u8).add(a_len + sb.len())) = 0;
+            *(cur_base as *mut i64) = new_len as i64;
+        }
+        return a;
+    }
+    // Grow with doubling — guarantees amortised O(1) appends. The
+    // `realloc` may move the buffer; in that case the body pointer
+    // changes, so the registry key has to move too. We pull the
+    // entry out of the registry before reallocating so that
+    // StringBacking's Drop won't fire on the old base when we
+    // re-insert the new one.
+    let old_entry = reg.remove(&a).expect("entry presence checked above");
+    let new_total = needed_total.max(cur_total.saturating_mul(2));
+    let old_layout = std::alloc::Layout::from_size_align(cur_total.max(8), 8).unwrap();
+    // Forget the old StringBacking so its Drop doesn't deallocate
+    // the buffer realloc is about to consume.
+    std::mem::forget(old_entry.backing);
+    let new_base = unsafe { std::alloc::realloc(cur_base, old_layout, new_total) };
+    if new_base.is_null() {
+        let layout = std::alloc::Layout::from_size_align(new_total, 8).unwrap();
+        std::alloc::handle_alloc_error(layout);
+    }
+    let new_body = unsafe { new_base.add(8) } as i64;
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            sb.as_ptr(),
+            (new_body as *mut u8).add(a_len),
+            sb.len(),
+        );
+        *((new_body as *mut u8).add(a_len + sb.len())) = 0;
+        *(new_base as *mut i64) = new_len as i64;
+    }
+    reg.insert(
+        new_body,
+        StringEntry {
+            backing: StringBacking { base: new_base, total: new_total },
+            rc: 1,
+        },
+    );
+    new_body
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn __str_eq(a: i64, b: i64) -> i64 {
     if a == b {

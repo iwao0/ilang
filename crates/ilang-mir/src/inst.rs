@@ -97,6 +97,12 @@ pub enum BinOp {
     StrNe,
     /// String concatenation.
     StrConcat,
+    /// Like `StrConcat` but the MIR lowerer proved that the LHS is
+    /// the only holder of its buffer and is about to be reassigned
+    /// (the canonical `s = s + expr` shape). Lets the runtime grow
+    /// the LHS buffer in place via doubling realloc instead of
+    /// allocating a fresh buffer every iteration.
+    StrConcatInplace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

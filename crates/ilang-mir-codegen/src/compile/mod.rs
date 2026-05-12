@@ -49,6 +49,7 @@ pub(super) struct MapIds {
 pub(super) struct StrIds {
     pub(super) length: cranelift_module::FuncId,
     pub(super) concat: cranelift_module::FuncId,
+    pub(super) concat_inplace: cranelift_module::FuncId,
     pub(super) eq: cranelift_module::FuncId,
     pub(super) int_to_string: cranelift_module::FuncId,
     pub(super) bool_to_string: cranelift_module::FuncId,

@@ -106,6 +106,11 @@ pub(super) fn lower_inst<M: Module>(
                     let call = fb.ins().call(r, &[lv, rv]);
                     fb.inst_results(call)[0]
                 }
+                BinOp::StrConcatInplace => {
+                    let r = module.declare_func_in_func(str_ids.concat_inplace, fb.func);
+                    let call = fb.ins().call(r, &[lv, rv]);
+                    fb.inst_results(call)[0]
+                }
                 BinOp::StrEq => {
                     let r = module.declare_func_in_func(str_ids.eq, fb.func);
                     let call = fb.ins().call(r, &[lv, rv]);
