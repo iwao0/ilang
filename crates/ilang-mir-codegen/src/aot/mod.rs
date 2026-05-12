@@ -369,7 +369,22 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         .define_function(main_id, &mut ctx)
         .map_err(|e| AotError::Other(format!("define_function main: {e:?}")))?;
 
-    let product = module.finish();
+    let mut product = module.finish();
+    // Embed an `LC_BUILD_VERSION` load command in the Mach-O output
+    // when targeting macOS. Without it the system linker prints
+    // "no platform load command found ... assuming: macOS" at every
+    // link. The version encoding is nibble-packed `xxxx.yy.zz`; we
+    // emit `11.0.0` as a safe arm64-compatible floor.
+    #[cfg(target_os = "macos")]
+    {
+        use object::macho::PLATFORM_MACOS;
+        use object::write::MachOBuildVersion;
+        let mut bv = MachOBuildVersion::default();
+        bv.platform = PLATFORM_MACOS;
+        bv.minos = 11 << 16;
+        bv.sdk = 11 << 16;
+        product.object.set_macho_build_version(bv);
+    }
     product
         .emit()
         .map_err(|e| AotError::Other(format!("emit object: {e}")))

@@ -15,6 +15,7 @@ cranelift-module = "0.131"
 cranelift-frontend = "0.131"
 cranelift-codegen = "0.131"
 cranelift-native = "0.131"
+object = { version = "0.39", default-features = false, features = ["write", "macho"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
