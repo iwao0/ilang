@@ -47,6 +47,14 @@ struct Ctx {
     /// canonical module value, so the loader's prefix-merged top-
     /// level item with the exact name `M.name` is found.
     modules: HashMap<Symbol, Symbol>,
+    /// Set of every top-level item name in the merged Program. Only
+    /// populated by `renormalize_merged` (per-file normalize leaves
+    /// it empty since the file doesn't know what other modules
+    /// exported). Used to collapse multi-level dotted refs like
+    /// `umbrella.inner.fn(...)` into `Call("umbrella.inner.fn")`
+    /// after `pub use inner` namespaced re-exports — the per-file
+    /// pass can only collapse one level (the immediate module).
+    items: HashSet<Symbol>,
 }
 
 /// Per-file normalize entry point. Validates that every dotted
@@ -70,7 +78,19 @@ pub fn normalize(prog: Program) -> Result<Program, ParseError> {
 /// been verified at parse time; running `validate_program` here
 /// would falsely reject every legitimate cross-module reference.
 pub fn renormalize_merged(prog: Program) -> Program {
-    let ctx = build_ctx(&prog);
+    let mut ctx = build_ctx(&prog);
+    // Catalog every top-level item name in the merged Program. The
+    // rewrite pass uses this to identify multi-level dotted refs
+    // (`umbrella.inner.fn`) introduced by namespaced `pub use`.
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) => { ctx.items.insert(f.name.clone()); }
+            Item::Class(c) => { ctx.items.insert(c.name.clone()); }
+            Item::Enum(e) => { ctx.items.insert(e.name.clone()); }
+            Item::Const(c) => { ctx.items.insert(c.name.clone()); }
+            _ => {}
+        }
+    }
     rewrite_program(prog, &ctx)
 }
 
@@ -332,6 +352,20 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                         span,
                     );
                 }
+                // Namespaced re-export path: `umbrella.inner.X`. The
+                // first level (`umbrella.inner`) already collapsed
+                // via the rule above; this branch only fires in
+                // `renormalize_merged` (where `ctx.items` is
+                // populated). The disambiguator between
+                // "sub-module field" and "enum-variant access" is
+                // whether the fully-qualified name appears in the
+                // merged item set.
+                let qualified = format!("{}.{name}", receiver.as_str());
+                if !ctx.items.is_empty()
+                    && ctx.items.contains(&Symbol::intern(&qualified))
+                {
+                    return Expr::new(ExprKind::Var(Symbol::intern(&qualified)), span);
+                }
                 // Existing rule: enum unit ctor.
                 if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
                     return Expr::new(
@@ -365,6 +399,22 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                                 "{}.{method}",
                                 canonical.as_str()
                             )),
+                            args: new_args.into(),
+                        },
+                        span,
+                    );
+                }
+                // Namespaced re-export path: `umbrella.inner.fn(args)`.
+                // Only fires in `renormalize_merged` — disambiguated
+                // by checking the merged item set rather than the
+                // per-file module table.
+                let qualified = format!("{}.{method}", receiver.as_str());
+                if !ctx.items.is_empty()
+                    && ctx.items.contains(&Symbol::intern(&qualified))
+                {
+                    return Expr::new(
+                        ExprKind::Call {
+                            callee: Symbol::intern(&qualified),
                             args: new_args.into(),
                         },
                         span,

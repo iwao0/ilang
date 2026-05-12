@@ -349,9 +349,15 @@ pub struct UseDecl {
     /// `None` for whole-module import (`use utils`); `Some(names)`
     /// for selective import (`use utils { foo, bar }`).
     pub selective: Option<Box<[Symbol]>>,
-    /// `pub use mod` — re-export `mod`'s items under the current
-    /// module's namespace. Inside the entrypoint program this flag
-    /// has no effect (no parent prefix to re-export under).
+    /// `{ * }` wildcard. Only meaningful on `pub use M as _ { * }`,
+    /// where it flattens `M`'s public items into the importing
+    /// module's namespace. A plain `pub use M` (no wildcard) keeps
+    /// `M`'s items namespaced as `<umbrella>.M.X`.
+    pub wildcard: bool,
+    /// `pub use mod` — re-export `mod`'s items. Without `{ * }` the
+    /// items live at `<umbrella>.<mod>.X`; with `{ * }` they're
+    /// flattened to `<umbrella>.X`. Inside the entrypoint program this
+    /// flag has no effect (no parent prefix to re-export under).
     pub re_export: bool,
     pub span: Span,
 }

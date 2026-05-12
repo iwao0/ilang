@@ -12,19 +12,19 @@
 //   sdl_surface  ← sdl_core
 //   sdl_window   ← sdl_core, sdl_surface (SDL_Surface)
 //   sdl_renderer ← sdl_core, sdl_window  (Window)
-pub use sdl_core
-pub use sdl_surface
-pub use sdl_window
-pub use sdl_renderer
-pub use sdl_time
-pub use sdl_keyboard
-pub use sdl_audio
-pub use sdl_joystick
-pub use sdl_gamecontroller
-pub use sdl_mouse
-pub use sdl_filesystem
-pub use sdl_rwops
-pub use sdl_messagebox
+pub use sdl_core as _ { * }
+pub use sdl_surface as _ { * }
+pub use sdl_window as _ { * }
+pub use sdl_renderer as _ { * }
+pub use sdl_time as _ { * }
+pub use sdl_keyboard as _ { * }
+pub use sdl_audio as _ { * }
+pub use sdl_joystick as _ { * }
+pub use sdl_gamecontroller as _ { * }
+pub use sdl_mouse as _ { * }
+pub use sdl_filesystem as _ { * }
+pub use sdl_rwops as _ { * }
+pub use sdl_messagebox as _ { * }
 // `sdl_ttf` is intentionally NOT re-exported here — SDL2_ttf is a
 // separate library (`libSDL2_ttf`) that may not be installed on
 // every system. Including it in the umbrella would force the JIT

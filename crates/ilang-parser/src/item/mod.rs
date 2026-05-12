@@ -41,10 +41,25 @@ impl<'a> Parser<'a> {
                 });
             }
             let mut u = self.parse_use_decl()?;
-            if !matches!(u.alias, ilang_ast::UseAlias::Default) {
+            // Two re-export shapes:
+            //   `pub use M`              — namespaced; items live at
+            //                              `<umbrella>.M.X`.
+            //   `pub use M as _ { * }`   — flattened; items live at
+            //                              `<umbrella>.X`.
+            // Any other combination of alias / selective on `pub use`
+            // is intentionally rejected.
+            let is_namespaced = matches!(u.alias, ilang_ast::UseAlias::Default)
+                && u.selective.is_none()
+                && !u.wildcard;
+            let is_flattened = matches!(u.alias, ilang_ast::UseAlias::Discard)
+                && u.selective.is_none()
+                && u.wildcard;
+            if !is_namespaced && !is_flattened {
                 return Err(ParseError::Unexpected {
                     found: TokenKind::As,
-                    expected: "`pub use` does not support `as <alias>`".into(),
+                    expected:
+                        "`pub use M` (namespaced) or `pub use M as _ { * }` (flattened) only"
+                            .into(),
                     span: u.span,
                 });
             }
@@ -243,21 +258,29 @@ impl<'a> Parser<'a> {
         } else {
             ilang_ast::UseAlias::Default
         };
+        let mut wildcard = false;
         let selective = if matches!(self.peek().kind, TokenKind::LBrace) {
             self.bump();
             let mut names = Vec::new();
             if !matches!(self.peek().kind, TokenKind::RBrace) {
-                loop {
-                    names.push(self.expect_ident("imported name")?);
-                    if matches!(self.peek().kind, TokenKind::Comma) {
-                        self.bump();
-                    } else {
-                        break;
+                // `{ * }` wildcard — only legal on `pub use M as _ { * }`
+                // (re-export with flatten). Validated below.
+                if matches!(self.peek().kind, TokenKind::Star) {
+                    self.bump();
+                    wildcard = true;
+                } else {
+                    loop {
+                        names.push(self.expect_ident("imported name")?);
+                        if matches!(self.peek().kind, TokenKind::Comma) {
+                            self.bump();
+                        } else {
+                            break;
+                        }
                     }
                 }
             }
             self.expect(&TokenKind::RBrace, "'}'")?;
-            Some(names)
+            if wildcard { None } else { Some(names) }
         } else {
             None
         };
@@ -265,7 +288,7 @@ impl<'a> Parser<'a> {
         // effect (the namespace is suppressed and no bare names are
         // imported). Reject it so the user catches the typo at parse
         // time.
-        if matches!(alias, ilang_ast::UseAlias::Discard) && selective.is_none() {
+        if matches!(alias, ilang_ast::UseAlias::Discard) && selective.is_none() && !wildcard {
             return Err(ParseError::Unexpected {
                 found: TokenKind::Use,
                 expected: "`use M as _` requires a `{ ... }` selective list".into(),
@@ -276,6 +299,7 @@ impl<'a> Parser<'a> {
             module,
             alias,
             selective: selective.map(Into::into),
+            wildcard,
             re_export: false,
             span,
         })

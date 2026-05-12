@@ -411,11 +411,21 @@ fn apply_use(
         // bare `Y` references in M's body to `N.Y`.
         let mut module_rename_rules: HashMap<Symbol, Symbol> = HashMap::new();
         for nu in nested_uses {
-            let nested_override: Option<&str> = if nu.re_export {
-                Some(effective_prefix.as_str())
+            // `pub use M as _ { * }` (wildcard): flatten M's items
+            // into the umbrella's namespace — override = umbrella prefix.
+            // `pub use M` (no wildcard): namespace under the umbrella —
+            // override = `<umbrella>.<M>` so items land at
+            // `<umbrella>.M.X` and callers reach them via that path.
+            let nested_override_owned: Option<String> = if nu.re_export {
+                if nu.wildcard {
+                    Some(effective_prefix.clone())
+                } else {
+                    Some(format!("{}.{}", effective_prefix, nu.module.as_str()))
+                }
             } else {
                 None
             };
+            let nested_override: Option<&str> = nested_override_owned.as_deref();
             apply_use(
                 nu,
                 nested_override,

@@ -134,7 +134,17 @@ fn expand(
                         expand(&nested, loaded, name_to_path, direct, out, visiting);
                         if let Some(set) = out.get(&nested) {
                             for n in set {
-                                acc.insert(n.clone());
+                                if u.wildcard {
+                                    // `pub use M as _ { * }` — flatten:
+                                    // `<umbrella>.X` is reachable.
+                                    acc.insert(n.clone());
+                                } else {
+                                    // `pub use M` — namespaced:
+                                    // `<umbrella>.M.X` is reachable.
+                                    acc.insert(
+                                        Symbol::intern(&format!("{}.{}", nested, n.as_str())),
+                                    );
+                                }
                             }
                         }
                     }
@@ -269,19 +279,35 @@ fn check_dotted(
         if Some(prefix) == self_module {
             return Ok(());
         }
-        // Aliases would have been rewritten to canonical form by
-        // normalize, so `prefix` is always a real module name.
-        if !catalog
-            .get(prefix)
-            .map(|p| p.contains(&Symbol::intern(rest)))
-            .unwrap_or(false)
-        {
+        let Some(pubs) = catalog.get(prefix) else {
             return Err(LoadError::PrivateItemRef {
                 module: Symbol::intern(prefix),
                 name: Symbol::intern(rest),
                 span,
             });
+        };
+        if pubs.contains(&Symbol::intern(rest)) {
+            return Ok(());
         }
+        // Multi-level dotted refs: `M.X.Y` (enum-variant access on a
+        // pub enum, or `umbrella.sub.item` against a namespaced
+        // `pub use`). Accept the ref as long as the head of `rest`
+        // is pub, or there exists a deeper pub name under the
+        // `rest.` prefix.
+        if let Some((head, _)) = rest.split_once('.') {
+            if pubs.contains(&Symbol::intern(head)) {
+                return Ok(());
+            }
+        }
+        let rest_dot = format!("{rest}.");
+        if pubs.iter().any(|n| n.as_str().starts_with(&rest_dot)) {
+            return Ok(());
+        }
+        return Err(LoadError::PrivateItemRef {
+            module: Symbol::intern(prefix),
+            name: Symbol::intern(rest),
+            span,
+        });
     }
     Ok(())
 }
