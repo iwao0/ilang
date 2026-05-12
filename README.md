@@ -88,7 +88,8 @@ The implemented syntax / types / built-ins are catalogued in
 | Control flow (`if` / `else` / `while` / `loop` / `break` / `continue` / early `return`) | ✅ |
 | Strings / arrays (dynamic & fixed-length) | ✅ |
 | `class` / `new` / `init` / `this` / `deinit` (JS-style) | ✅ |
-| Inheritance (`extends` / `super`) + virtual dispatch | ✅ |
+| Inheritance (`class Sub: Parent` / `super`) + virtual dispatch | ✅ |
+| Interfaces (`interface I { ... }`) + dynamic dispatch | ✅ |
 | `console.log` | ✅ |
 | Optional (`T?` / `some` / `none` / `if let`) | ✅ |
 | Weak references (`T.weak` / `.get()`) | ✅ |
@@ -108,6 +109,47 @@ The implemented syntax / types / built-ins are catalogued in
 No ownership / `mut` / borrow checker — every variable is
 reassignable. Errors are emitted in the uniform
 `filename [row:col]: message` format.
+
+## ⏱️ Benchmarks
+
+Six micro-benchmarks comparing ilang against C, Rust, Node.js, Lua,
+and Python. Same algorithm in every implementation; numbers are the
+median of three runs. The `ilang JIT` column times `ilang run` end
+to end — parse + compile + execute — so short benchmarks are
+dominated by the compile step. See [benchmarks/](benchmarks/) for the
+sources and `benchmarks/run.sh` for the runner.
+
+Author's machine (M-series Mac, macOS 15, `cc` from Xcode CLT 16,
+`rustc 1.x -O`, Node.js 22, Python 3.13):
+
+| Benchmark       | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua | Python |
+|-----------------|-------|-------|-----------|-----------|---------|-----|--------|
+| `fib(40)`       | 0.15s | 0.15s | 0.34s     | 0.34s     | 0.66s   | --  | 13.43s |
+| `mandelbrot`    | 0.45s | 0.52s | 0.68s     | 0.58s     | 0.61s   | --  | 62.38s |
+| `sort` (200 k)  | 0.01s | 0.01s | 0.02s     | 0.01s     | 0.05s   | --  | 0.22s  |
+| `linked_list`   | 0.03s | 0.02s | 0.03s     | 0.03s     | 0.05s   | --  | 0.42s  |
+| `string_concat` | 0.02s | 0.00s | 0.51s     | 0.47s     | 0.02s   | --  | 0.02s  |
+| `ffi`           | 0.01s | 0.01s | 0.03s     | 0.01s     | --      | --  | 2.08s  |
+
+Reproduce on your own machine with `bash benchmarks/run.sh`. Tools
+that aren't installed render as `--` (Lua wasn't on the author's
+machine when the table above was generated; install `lua` and re-run
+to fill those cells).
+
+The big takeaways:
+
+- **Hot integer / floating-point loops** (`fib`, `mandelbrot`) land
+  in the 1.3–2.3× C range — Cranelift isn't LLVM, but it's in the
+  same neighbourhood.
+- **Heap-allocation heavy** workloads (`linked_list`) match C
+  because ilang's ARC overhead per node is small (no GC pauses
+  either).
+- `string_concat` is the obvious weak spot — every iteration
+  allocates a fresh string through the ARC registry. Use array
+  builders or a future `StringBuilder` when this matters.
+- `ilang JIT` ≈ `ilang AOT` on these benchmarks because the
+  programs run long enough that compile cost is a small slice.
+  Sub-second scripts will see JIT > AOT in wall-clock time.
 
 ## 🔧 Setup
 
