@@ -53,11 +53,11 @@
       }
     },
     "enum-variant-keyword": {
-      "comment": "Reserved words used as enum variant names — both in declarations (`return = 40`, `static = 0`) and at use sites via dotted access (`Scancode.return`, `TextureAccess.static`). Match before #keywords / #types so those scopes don't fire; no `name` is assigned so the token renders with the editor's default identifier colour. Covers all keywords (control / decl / other / bool / null) and primitive type names (i8..i64, u8..u64, f32/f64, bool, string, void).",
+      "comment": "Reserved words used as enum variant names — both in declarations (`return = 40`, `static = 0`) and at use sites via dotted access (`Scancode.return`, `TextureAccess.static`). Match before #keywords / #types so those scopes don't fire; no `name` is assigned so the token renders with the editor's default identifier colour. Primitive type names (`i8..i64`, `u8..u64`, `f32`/`f64`, `bool`, `string`, `void`) are intentionally excluded — including them mis-fires on common type annotations like `const m: string = \"...\"` where the `(?=\\s*=)` lookahead can't tell the type position from a variant-discriminant.",
       "patterns": [
         {
           "comment": "Variant declaration: `name = value` form.",
-          "match": "\\b(as|bool|break|class|const|continue|deinit|elif|else|enum|extends|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)(?=\\s*=)"
+          "match": "\\b(as|break|class|const|continue|deinit|elif|else|enum|extends|false|fn|for|get|if|in|init|let|loop|match|new|none|override|pub|return|set|some|static|struct|super|this|true|union|use|while)(?=\\s*=)"
         },
         {
           "comment": "Dotted access: `Enum.variant`. The reserved word follows a `.`.",
