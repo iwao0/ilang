@@ -1,7 +1,11 @@
-// Static field types are limited to i64 / f64 / bool for now.
+// Static field types are limited to numeric primitives, bool,
+// string, or dynamic arrays of numeric primitives. Object types
+// still need a slot-init phase the JIT doesn't ship yet.
 // expect-error: not yet supported
-class C {
+class Inner {
     init() {}
-    static name: string = "alice"
 }
-let _ = new C()
+class Outer {
+    static handle: Inner = new Inner()
+}
+let _ = new Outer()

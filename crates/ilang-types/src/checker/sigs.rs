@@ -692,7 +692,7 @@ pub(super) fn class_signature(
             sf.ty,
             Type::I8 | Type::I16 | Type::I32 | Type::I64
             | Type::U8 | Type::U16 | Type::U32 | Type::U64
-            | Type::F32 | Type::F64 | Type::Bool
+            | Type::F32 | Type::F64 | Type::Bool | Type::Str
         );
         let array_of_prim_ok = matches!(
             &sf.ty,
@@ -707,8 +707,8 @@ pub(super) fn class_signature(
             return Err(TypeError::Unsupported {
                 what: format!(
                     "static field {:?} in class {:?}: type {} not yet \
-                     supported (allowed: numeric primitives, bool, or \
-                     dynamic arrays of those)",
+                     supported (allowed: numeric primitives, bool, \
+                     string, or dynamic arrays of numeric primitives)",
                     sf.name, c.name, sf.ty
                 ),
                 span: sf.span,

@@ -123,7 +123,19 @@ pub(super) fn inline_constants(prog: Program) -> Result<Program, LoadError> {
                 if matches!(sf.value.kind, ExprKind::Array(_)) {
                     continue;
                 }
-                match fold_const_expr(&sf.value, &consts) {
+                // String-typed static fields always go through the
+                // runtime-init path: the slot's 8 bytes hold a heap
+                // pointer that gets filled in at program startup
+                // (the static-data section can't carry a literal
+                // string). Fall through to the demote branch even if
+                // the value is a literal.
+                let force_runtime = matches!(sf.ty, ilang_ast::Type::Str);
+                let fold_result = if force_runtime {
+                    Err(String::new())
+                } else {
+                    fold_const_expr(&sf.value, &consts)
+                };
+                match fold_result {
                     Ok(folded) => {
                         sf.value = folded;
                     }

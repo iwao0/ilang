@@ -253,6 +253,11 @@ impl Lower {
                 ExprKind::Int(n) => MirConst::Int(*n),
                 ExprKind::Float(f) => MirConst::F64(f.to_bits()),
                 ExprKind::Bool(b) => MirConst::Bool(*b),
+                // String slots can't carry a literal in the
+                // static-data section — the loader has emitted a
+                // synthetic startup `AssignField` that fills in
+                // the real heap pointer. Initial bytes = null.
+                ExprKind::Str(_) if matches!(ty, MirTy::Str) => MirConst::Int(0),
                 ExprKind::Str(s) => MirConst::Str(Symbol::intern(s)),
                 // Non-literal initializer — the loader has
                 // emitted a synthetic top-level
@@ -263,7 +268,11 @@ impl Lower {
                 _ => match &ty {
                     MirTy::F32 | MirTy::F64 => MirConst::F64(0u64),
                     MirTy::Bool => MirConst::Bool(false),
-                    MirTy::Str => MirConst::Str(Symbol::intern("")),
+                    // Strings live as heap pointers — the slot's
+                    // initial 8 bytes are a null pointer; the
+                    // runtime-init AssignField fills in the real
+                    // value at startup.
+                    MirTy::Str => MirConst::Int(0),
                     _ => MirConst::Int(0),
                 },
             };

@@ -1890,7 +1890,7 @@ pub(super) fn lower_inst<M: Module>(
             let s = &prog.statics[slot.0 as usize];
             let raw = fb.ins().load(types::I64, MemFlags::trusted(), addr, 0);
             let v = match &s.ty {
-                MirTy::I64 | MirTy::U64 | MirTy::Size | MirTy::SSize => raw,
+                MirTy::I64 | MirTy::U64 | MirTy::Size | MirTy::SSize | MirTy::Str => raw,
                 MirTy::I32 | MirTy::U32 => fb.ins().ireduce(types::I32, raw),
                 MirTy::I16 | MirTy::U16 => fb.ins().ireduce(types::I16, raw),
                 MirTy::I8 | MirTy::U8 | MirTy::Bool => fb.ins().ireduce(types::I8, raw),
@@ -1912,7 +1912,7 @@ pub(super) fn lower_inst<M: Module>(
             let v = vmap[value];
             let s = &prog.statics[slot.0 as usize];
             let store_v = match &s.ty {
-                MirTy::I64 | MirTy::U64 | MirTy::Size | MirTy::SSize => v,
+                MirTy::I64 | MirTy::U64 | MirTy::Size | MirTy::SSize | MirTy::Str => v,
                 MirTy::I32 | MirTy::U32 | MirTy::I16 | MirTy::U16 | MirTy::I8 | MirTy::U8
                 | MirTy::Bool => fb.ins().uextend(types::I64, v),
                 MirTy::F64 => fb.ins().bitcast(types::I64, MemFlags::new(), v),
