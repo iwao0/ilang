@@ -19,8 +19,8 @@ mod stmt;
 mod utils;
 mod walks;
 
-pub(super) use sigs::*;
 use free_vars::collect_fn_expr_free_vars;
+use sigs::*;
 use walks::{block_uses_this_directly, collect_this_field_assignments, refine_returns};
 
 /// Check whether a value expression can be assigned to a binding of type
