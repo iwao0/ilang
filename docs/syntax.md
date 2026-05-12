@@ -21,9 +21,9 @@ separators (JS-style ASI).
 
 ```
 as       break    class    const    continue elif     else     enum
-extends  false    fn       for      if       in       is       let
-loop     match    new      none     override pub      return   some
-super    this     true     use      while
+false    fn       for      if       in       is       let      loop
+match    new      none     override pub      return   some     super
+this     true     use      while
 ```
 
 These tokens are reserved and cannot be used as variable / parameter
@@ -34,8 +34,8 @@ variant names (declaration, `Enum.<name>` access, and short / qualified
 match patterns):
 
 ```
-as       class    enum     extends  false    fn       in       none
-override return   some     super    this     true
+as       class    enum     false    fn       in       none     override
+return   some     super    this     true
 ```
 
 This is a practical concession for binding to C enums whose members
@@ -535,8 +535,8 @@ c.count                                 // field read
 - Implicit `this`: in method bodies you can drop `this.` for
   fields / methods. A local variable or parameter with the same
   name still wins.
-- Inheritance (`extends`) / `static` / `get`-`set` properties are
-  detailed below. There's no `private` modifier.
+- Inheritance (`class Child: Parent`) / `static` / `get`-`set`
+  properties are detailed below. There's no `private` modifier.
 - Multiple class members on the same line aren't allowed (ASI
   doesn't fire — you need a newline or `;`).
 
@@ -727,11 +727,10 @@ Counter.max                // 1000
   slots; access is a load/store at an absolute address with
   bitcast/truncate for f64/bool.
 
-### Inheritance (`extends`)
+### Inheritance (`: Parent`)
 
-`class Child extends Parent { ... }` for single inheritance with
-virtual dispatch + `override` + `super`. Both interpreter and JIT
-support it.
+`class Child: Parent { ... }` for single inheritance with virtual
+dispatch + `override` + `super`. Both interpreter and JIT support it.
 
 ```rust
 class Animal {
@@ -741,7 +740,7 @@ class Animal {
     describe(): string { this.name + " says " + this.speak() }
 }
 
-class Dog extends Animal {
+class Dog: Animal {
     init(n: string) { super(n) }              // call parent init
     override speak(): string { "woof" }       // override required
 }
@@ -1165,7 +1164,7 @@ type (a `Parent`-typed slot holding a `Child` reports `Child`).
 
 ```rust
 class Animal { sound(): string { "?" } }
-class Dog extends Animal { override sound(): string { "woof" } }
+class Dog: Animal { override sound(): string { "woof" } }
 
 let a: Animal = new Dog()
 typeof(a).name         // "Dog" (dynamic — not "Animal")
@@ -1186,7 +1185,7 @@ typeof(r).name         // "Result"  (type args surfaced separately
 | --- | --- | --- |
 | `.name` | `string` | User-facing type name (e.g. `"Dog"`, `"i64"`, `"Result"`) |
 | `.kind` | `TypeKind` | One of `primitive`, `class`, `enum`, `optional`, `array`, `fn`, `tuple`, `string`, `unit` |
-| `.parent` | `Type?` | Direct parent class for `extends`; `none` for non-class types or root classes |
+| `.parent` | `Type?` | Direct parent class declared via `: Parent`; `none` for non-class types or root classes |
 | `.fields` | `string[]` | Names of declared fields (classes only; empty for other kinds). Inherited fields are NOT included — chase `.parent` for those |
 | `.methods` | `string[]` | Names of declared methods (classes only; empty for other kinds). `init` is included |
 | `.typeArgs` | `Type[]` | Generic-instance arguments (e.g. `[Type("i64"), Type("string")]` for `Result<i64, string>`). Empty for non-generic types. Interpreter and JIT both report the inferred args |
@@ -1219,7 +1218,7 @@ t.methodReturn("nope")          // none
 
 ```rust
 class Animal {}
-class Dog extends Animal {}
+class Dog: Animal {}
 let a: Animal = new Dog()    // (assuming subclass auto-coerces)
 
 a is Dog        // bool — true (parent chain walked)
