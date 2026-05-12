@@ -16,7 +16,6 @@
 //! the flat i64 tags the runtime registries expect.
 
 use ilang_mir::MirTy;
-use ilang_runtime::cstr_bytes;
 
 // `KIND_*` — heap cell tag stored in every heap container's header.
 // Used by the runtime cascade to know how to release each cell value
@@ -65,8 +64,8 @@ pub(super) enum PrintKind {
     Str,
     Object,
     Array(Box<PrintKind>),
-    Optional(Box<PrintKind>),
-    Tuple(Vec<PrintKind>),
+    Optional,
+    Tuple,
     Other,
 }
 
@@ -95,8 +94,8 @@ pub(super) fn kind_tag_of_print_kind(k: &PrintKind) -> i64 {
     match k {
         PrintKind::Object => KIND_OBJECT,
         PrintKind::Array(_) => KIND_ARRAY,
-        PrintKind::Optional(_) => KIND_OPTIONAL,
-        PrintKind::Tuple(_) => KIND_TUPLE,
+        PrintKind::Optional => KIND_OPTIONAL,
+        PrintKind::Tuple => KIND_TUPLE,
         PrintKind::Str => KIND_STR,
         _ => KIND_NONE,
     }
@@ -118,10 +117,8 @@ pub(super) fn print_kind_of(ty: &MirTy) -> PrintKind {
         MirTy::Str => PrintKind::Str,
         MirTy::Object(_) => PrintKind::Object,
         MirTy::Array { elem, .. } => PrintKind::Array(Box::new(print_kind_of(elem))),
-        MirTy::Optional(inner) => PrintKind::Optional(Box::new(print_kind_of(inner))),
-        MirTy::Tuple(items) => {
-            PrintKind::Tuple(items.iter().map(print_kind_of).collect())
-        }
+        MirTy::Optional(_) => PrintKind::Optional,
+        MirTy::Tuple(_) => PrintKind::Tuple,
         _ => PrintKind::Other,
     }
 }
@@ -171,64 +168,3 @@ pub(super) fn print_kind_id(ty: &MirTy) -> i64 {
     }
 }
 
-pub(super) fn format_f64(f: f64) -> String {
-    if f.is_nan() {
-        "NaN".to_string()
-    } else if f.is_infinite() {
-        if f > 0.0 { "Infinity".to_string() } else { "-Infinity".to_string() }
-    } else if f == f.trunc() && f.abs() < 1e16 {
-        format!("{}.0", f as i64)
-    } else {
-        format!("{}", f)
-    }
-}
-
-pub(super) fn format_kind_id(out: &mut String, kind: i64, raw: i64) {
-    use std::fmt::Write;
-    match kind {
-        PK_I64_SIG => { let _ = write!(out, "{}", raw); }
-        PK_I64_UNS => { let _ = write!(out, "{}", raw as u64); }
-        PK_I32_SIG => { let _ = write!(out, "{}", raw as i32); }
-        PK_I32_UNS => { let _ = write!(out, "{}", raw as u32); }
-        PK_I16_SIG => { let _ = write!(out, "{}", raw as i16); }
-        PK_I16_UNS => { let _ = write!(out, "{}", raw as u16); }
-        PK_I8_SIG => { let _ = write!(out, "{}", raw as i8); }
-        PK_I8_UNS => { let _ = write!(out, "{}", raw as u8); }
-        PK_BOOL => { let _ = write!(out, "{}", raw != 0); }
-        PK_F64 => {
-            let f = f64::from_bits(raw as u64);
-            let _ = write!(out, "{}", format_f64(f));
-        }
-        PK_F32 => {
-            let f = f32::from_bits((raw as i32) as u32);
-            let _ = write!(out, "{}", format_f64(f as f64));
-        }
-        PK_STR => {
-            if raw != 0 {
-                let bytes = unsafe { cstr_bytes(raw) };
-                let _ = write!(out, "{}", String::from_utf8_lossy(bytes));
-            }
-        }
-        PK_OBJECT => {
-            if raw == 0 {
-                out.push_str("<null>");
-            } else {
-                ilang_runtime::format_object_into(out, raw);
-            }
-        }
-        PK_ARRAY_I64_SIG => {
-            out.push('[');
-            if raw != 0 {
-                let len = unsafe { *(raw as *const i64) };
-                let data_ptr = unsafe { *((raw + 16) as *const i64) };
-                for i in 0..len {
-                    if i > 0 { out.push_str(", "); }
-                    let elem = unsafe { *((data_ptr + i * 8) as *const i64) };
-                    let _ = write!(out, "{}", elem);
-                }
-            }
-            out.push(']');
-        }
-        _ => { let _ = write!(out, "{}", raw); }
-    }
-}
