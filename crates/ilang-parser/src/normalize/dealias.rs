@@ -313,6 +313,7 @@ pub(super) fn dealias_program(prog: &mut Program, modules: &HashMap<Symbol, Symb
                     }
                 }
             }
+            Item::Interface(_) => {}
         }
     }
     for s in prog.stmts.iter_mut() {

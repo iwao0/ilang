@@ -56,6 +56,7 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
             TokenKind::At
             | TokenKind::Fn
             | TokenKind::Class
+            | TokenKind::Interface
             | TokenKind::Enum
             | TokenKind::Use
             | TokenKind::Pub

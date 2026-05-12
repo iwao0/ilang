@@ -92,6 +92,7 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                 }
             }
         }
+        Item::Interface(_) => {}
     }
 }
 

@@ -37,6 +37,37 @@ impl TypeChecker {
                 _ => {}
             }
         }
+        // Pre-pass: collect every interface signature so that the
+        // class-collection pass below can look them up when reclassifying
+        // `class C: Iface { ... }` (where the parser left the interface
+        // name in the `parent` slot).
+        for item in &prog.items {
+            if let Item::Interface(i) = item {
+                let mut methods = Vec::with_capacity(i.methods.len());
+                let mut seen: HashSet<Symbol> = HashSet::new();
+                for m in i.methods.iter() {
+                    if !seen.insert(m.name.clone()) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "interface {:?} declares method {:?} more than once",
+                                i.name, m.name
+                            ),
+                            span: m.span,
+                        });
+                    }
+                    methods.push(InterfaceMethodSig {
+                        name: m.name.clone(),
+                        params: m.params.iter().map(|p| p.ty.clone()).collect(),
+                        ret: m.ret.clone().unwrap_or(Type::Unit),
+                    });
+                }
+                let module = module_of_name(i.name.as_str()).to_string();
+                self.interfaces.insert(
+                    i.name.clone(),
+                    InterfaceSig { methods, is_pub: i.is_pub, module },
+                );
+            }
+        }
         for item in &prog.items {
             match item {
                 Item::Fn(f) => {
@@ -74,13 +105,22 @@ impl TypeChecker {
                 }
                 Item::Class(c) => {
                     // Resolve parent (must be already registered).
+                    // If the parser put an interface name in the
+                    // `parent` slot — the parser can't distinguish
+                    // class from interface — treat the class as
+                    // having no parent for signature purposes; the
+                    // class still implements the interface.
                     let parent_sig = if let Some(pname) = &c.parent {
-                        Some(self.classes.get(&pname).cloned().ok_or_else(|| {
-                            TypeError::UndefinedClass {
-                                name: pname.clone(),
-                                span: c.span,
-                            }
-                        })?)
+                        if self.interfaces.contains_key(pname) {
+                            None
+                        } else {
+                            Some(self.classes.get(&pname).cloned().ok_or_else(|| {
+                                TypeError::UndefinedClass {
+                                    name: pname.clone(),
+                                    span: c.span,
+                                }
+                            })?)
+                        }
                     } else {
                         None
                     };
@@ -139,6 +179,31 @@ impl TypeChecker {
                     *self.in_extern_c.borrow_mut() = false;
                     result?;
                 }
+                Item::Interface(i) => {
+                    let mut methods = Vec::with_capacity(i.methods.len());
+                    let mut seen: HashSet<Symbol> = HashSet::new();
+                    for m in i.methods.iter() {
+                        if !seen.insert(m.name.clone()) {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "interface {:?} declares method {:?} more than once",
+                                    i.name, m.name
+                                ),
+                                span: m.span,
+                            });
+                        }
+                        methods.push(InterfaceMethodSig {
+                            name: m.name.clone(),
+                            params: m.params.iter().map(|p| p.ty.clone()).collect(),
+                            ret: m.ret.clone().unwrap_or(Type::Unit),
+                        });
+                    }
+                    let module = module_of_name(i.name.as_str()).to_string();
+                    self.interfaces.insert(
+                        i.name.clone(),
+                        InterfaceSig { methods, is_pub: i.is_pub, module },
+                    );
+                }
             }
         }
         // Pre-register top-level `let X: T = expr` bindings as
@@ -191,6 +256,7 @@ impl TypeChecker {
                     *self.in_extern_c.borrow_mut() = false;
                     result?;
                 }
+                Item::Interface(_) => {}
             }
             *self.current_module.borrow_mut() = saved_module;
         }

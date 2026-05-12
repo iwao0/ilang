@@ -616,6 +616,7 @@ fn item_name_of_ref(item: &Item) -> Option<&str> {
         Item::Enum(e) => Some(e.name.as_str()),
         Item::Const(c) => Some(c.name.as_str()),
         Item::ExternC(_) | Item::Use(_) => None,
+        Item::Interface(i) => Some(i.name.as_str()),
     }
 }
 
@@ -923,6 +924,7 @@ fn item_name_of(item: &Item) -> Option<Symbol> {
         Item::Const(c) => Some(c.name.clone()),
         Item::ExternC(_) => None,
         Item::Use(_) => None,
+        Item::Interface(i) => Some(i.name.clone()),
     }
 }
 
@@ -1103,6 +1105,7 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             }
             Item::ExternC(b)
         }
+        Item::Interface(i) => Item::Interface(i),
     }
 }
 

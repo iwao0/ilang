@@ -143,6 +143,52 @@ impl TypeChecker {
     }
 
     pub(super) fn check_class(&self, c: &ClassDecl) -> Result<(), TypeError> {
+        // Reclassify the parsed `parent` slot if it actually names an
+        // interface (the parser can't tell which is which). Combined
+        // with the explicit `interfaces` list, validate that every
+        // interface entry exists and that the class implements every
+        // method the interface requires with a matching signature.
+        let mut declared_ifaces: Vec<Symbol> = Vec::new();
+        if let Some(p) = &c.parent {
+            if self.interfaces.contains_key(p) {
+                declared_ifaces.push(p.clone());
+            }
+        }
+        for ifn in c.interfaces.iter() {
+            declared_ifaces.push(ifn.clone());
+        }
+        for ifn in declared_ifaces.iter() {
+            let Some(isig) = self.interfaces.get(ifn) else {
+                return Err(TypeError::Unsupported {
+                    what: format!("class {:?}: `{ifn}` is not a known interface", c.name),
+                    span: c.span,
+                });
+            };
+            let cls_methods = self
+                .classes
+                .get(&c.name)
+                .map(|s| s.methods.clone())
+                .unwrap_or_default();
+            for im in isig.methods.iter() {
+                let sigs = cls_methods.get(&im.name).cloned().unwrap_or_default();
+                let mut matched = false;
+                for s in sigs.iter() {
+                    if s.params == im.params && s.ret == im.ret {
+                        matched = true;
+                        break;
+                    }
+                }
+                if !matched {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "class {:?} does not implement {:?}.{:?} (expected fn(...) matching the interface signature)",
+                            c.name, ifn, im.name
+                        ),
+                        span: c.span,
+                    });
+                }
+            }
+        }
         for FieldDecl { ty, span, .. } in &c.fields {
             self.validate_type(ty, *span, &c.type_params)?;
         }

@@ -38,6 +38,7 @@ impl TypeChecker {
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
+                        interfaces: Box::new([]),
                         fields: fields.clone(),
                         methods: Box::new([]),
                         static_methods: Box::new([]),
@@ -58,6 +59,7 @@ impl TypeChecker {
                         name: name.clone(),
                         type_params: Box::new([]),
                         parent: None,
+                        interfaces: Box::new([]),
                         fields: fields.clone(),
                         methods: Box::new([]),
                         static_methods: Box::new([]),
@@ -256,6 +258,7 @@ impl TypeChecker {
                 // unused — the parser produces `Object(name)` for both
                 // classes and enums).
                 if self.classes.contains_key(name)
+                    || self.interfaces.contains_key(name)
                     || self.enums.contains_key(name)
                     || type_params_in_scope.iter().any(|p| p == name)
                     // Fallback: when the caller passed an empty

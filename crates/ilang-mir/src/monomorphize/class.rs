@@ -67,6 +67,7 @@ pub fn monomorphize(prog: &Program) -> Program {
             }
             Item::Fn(f) => scan_fn(f, &mut needed, &mut worklist),
             Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
+            Item::Interface(_) => {}
         }
     }
     for s in &prog.stmts {
@@ -439,6 +440,7 @@ pub(super) fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> C
         name: mangled.into(),
         type_params: Box::new([]),
         parent: c.parent.clone(),
+        interfaces: c.interfaces.clone(),
         fields,
         properties,
         methods,
@@ -762,6 +764,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),
+            interfaces: c.interfaces.clone(),
             type_params: c.type_params.clone(),
             fields: c
                 .fields
@@ -796,6 +799,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
         
+        Item::Interface(i) => Item::Interface(i.clone()),
     }
 }
 

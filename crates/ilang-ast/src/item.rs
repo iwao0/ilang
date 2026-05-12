@@ -107,10 +107,18 @@ pub struct ClassDecl {
     /// references are rejected.
     pub is_pub: bool,
     pub name: Symbol,
-    /// `class Child extends Parent { ... }` — single-inheritance
-    /// parent. `None` for root classes. The parent class must be
-    /// declared before the child (no forward references for now).
+    /// `class Child: Parent { ... }` — single-inheritance parent.
+    /// `None` for root classes. Set from the FIRST entry in the
+    /// `: Base, Base, ...` list at parse time; the type checker may
+    /// move it to `interfaces` if the name turns out to be an
+    /// interface.
     pub parent: Option<Symbol>,
+    /// `class C: Parent, IFace1, IFace2 { ... }` — declared
+    /// interfaces. The parser puts every base after the first into
+    /// this list verbatim; the type checker validates each is in
+    /// fact an `interface` and that the class implements every
+    /// method.
+    pub interfaces: Box<[Symbol]>,
     /// Generic type parameters declared on the class (e.g. `<T, U>`).
     /// Empty for non-generic classes. Inside the class body, references
     /// to these names parse as `Type::TypeVar`.
@@ -228,10 +236,32 @@ pub struct EnumDecl {
     pub span: Span,
 }
 
+/// `interface Name { fn method(p: T): R ... }` — a contract of method
+/// signatures. Classes that name an interface in their `:` base list
+/// must implement every method; the type checker enforces this.
+/// Bodies are not allowed (no default impls in v1); statics, fields,
+/// and properties are also not supported on interfaces.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceDecl {
+    pub is_pub: bool,
+    pub name: Symbol,
+    pub methods: Box<[InterfaceMethod]>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterfaceMethod {
+    pub name: Symbol,
+    pub params: Box<[Param]>,
+    pub ret: Option<crate::types::Type>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Fn(FnDecl),
     Class(ClassDecl),
+    Interface(InterfaceDecl),
     Enum(EnumDecl),
     /// `use module` (whole-module namespace import) or
     /// `use module { name1, name2 }` (selective import).

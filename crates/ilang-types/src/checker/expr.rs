@@ -888,6 +888,32 @@ impl TypeChecker {
                     }
                 }
                 let class_name = expect_object(&ot, span)?;
+                // Receiver typed as an interface: look the method up
+                // on the interface itself; runtime resolves the
+                // implementing fn from the receiver's actual class.
+                if let Some(isig) = self.interfaces.get(&class_name).cloned() {
+                    if let Some(im) = isig.methods.iter().find(|m| m.name == *method) {
+                        let sig = Signature {
+                            params: im.params.clone(),
+                            ret: im.ret.clone(),
+                            variadic: false,
+                            type_params: Vec::new(),
+                            decl_span: span,
+                            defaults: vec![None; im.params.len()],
+                            is_pub: true,
+                        };
+                        let chosen = self.resolve_method_call(
+                            class_name.into(), *method, &[sig], args, env, ret_ty, in_class,
+                            loop_depth, span,
+                        )?;
+                        return Ok(chosen.ret);
+                    }
+                    return Err(TypeError::UnknownMethod {
+                        class: class_name.into(),
+                        method: method.clone(),
+                        span,
+                    });
+                }
                 let cls = self.classes.get(&class_name).ok_or_else(|| {
                     TypeError::UndefinedClass {
                         name: class_name.into(),

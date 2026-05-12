@@ -238,6 +238,7 @@ fn rewrite_item(item_pos: usize, item: Item, ctx: &Ctx) -> Item {
             }
             Item::ExternC(b)
         }
+        Item::Interface(i) => Item::Interface(i),
     }
 }
 

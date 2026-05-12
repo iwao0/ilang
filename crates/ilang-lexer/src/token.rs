@@ -20,6 +20,7 @@ pub enum TokenKind {
     True,
     False,
     Class,
+    Interface,
     New,
     This,
     As,

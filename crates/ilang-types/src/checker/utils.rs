@@ -101,13 +101,37 @@ impl TypeChecker {
 
     /// Object-aware extension of `assignable`: returns true if the
     /// plain assignable check passes OR `from` is an object whose
-    /// class is a (transitive) subclass of `to`'s class.
+    /// class is a (transitive) subclass of `to`'s class, OR `to`
+    /// is an interface that `from`'s class implements.
     pub(super) fn assignable_obj(&self, from: &Type, to: &Type) -> bool {
         if assignable(from, to) {
             return true;
         }
         if let (Type::Object(c), Type::Object(p)) = (from, to) {
-            return self.is_subclass(*c, *p);
+            if self.is_subclass(*c, *p) {
+                return true;
+            }
+            // Interface upcast: any class implementing `p` (or whose
+            // ancestor implements it) satisfies `Type::Object(p)`.
+            if self.interfaces.contains_key(p) && self.class_implements(*c, *p) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Walk the parent chain of `class_name` looking for a declared
+    /// implementation of `iface`.
+    pub(super) fn class_implements(&self, class_name: Symbol, iface: Symbol) -> bool {
+        let mut cur = Some(class_name);
+        while let Some(name) = cur {
+            let Some(cs) = self.classes.get(&name) else {
+                return false;
+            };
+            if cs.implements.contains(&iface) {
+                return true;
+            }
+            cur = cs.parent;
         }
         false
     }
@@ -120,7 +144,9 @@ impl TypeChecker {
     /// flowing into a `Parent[]` slot, `(new Child(),)` into
     /// `(Parent,)`, and `some(new Child())` into `Parent?`.
     pub(super) fn value_assignable(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
-        literal_assignable_with(value, vt, target, &|c, p| self.is_subclass(c, p))
+        literal_assignable_with(value, vt, target, &|c, p| {
+            self.is_subclass(c, p) || self.class_implements(c, p)
+        })
     }
 
     /// When an EnumCtor's inferred type-args contain `Type::Any` (because

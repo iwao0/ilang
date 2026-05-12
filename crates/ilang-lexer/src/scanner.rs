@@ -657,6 +657,7 @@ impl<'a> Lexer<'a> {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "class" => TokenKind::Class,
+            "interface" => TokenKind::Interface,
             "new" => TokenKind::New,
             "this" => TokenKind::This,
             "as" => TokenKind::As,

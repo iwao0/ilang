@@ -85,6 +85,19 @@ impl<'a> Parser<'a> {
                 c.is_pub = is_pub;
                 Ok(Item::Class(c))
             }
+            TokenKind::Interface => {
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "no attributes are supported on interfaces".into(),
+                        span: t.span,
+                    });
+                }
+                let mut i = self.parse_interface_decl()?;
+                i.is_pub = is_pub;
+                Ok(Item::Interface(i))
+            }
             TokenKind::Enum => {
                 let mut flags = false;
                 for a in &attrs {
@@ -316,14 +329,23 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        // `: Parent` (single inheritance, optional). Unambiguous in
-        // class-decl position — the only other thing that can follow
-        // the name (or its `<...>` type params) is `{`.
-        let parent = if matches!(self.peek().kind, TokenKind::Colon) {
+        // `: Parent, IFace1, IFace2 …`. Bases are comma-separated. We
+        // can't tell class from interface at parse time, so the first
+        // entry goes into `parent` and the rest into `interfaces`;
+        // the type checker reclassifies if `parent` turns out to name
+        // an interface (`parent` then becomes None and the name is
+        // moved to the head of `interfaces`).
+        let (parent, interfaces) = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
-            Some(self.expect_ident("parent class name")?)
+            let first = self.expect_ident("parent class or interface name")?;
+            let mut rest: Vec<ilang_ast::Symbol> = Vec::new();
+            while matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                rest.push(self.expect_ident("interface name")?);
+            }
+            (Some(first), rest.into_boxed_slice())
         } else {
-            None
+            (None, Box::new([]) as Box<[ilang_ast::Symbol]>)
         };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut fields = Vec::new();
@@ -504,12 +526,70 @@ impl<'a> Parser<'a> {
             is_union: false,
             name,
             parent,
+            interfaces,
             type_params: type_params.into(),
             fields: fields.into(),
             methods: methods.into(),
             static_methods: static_methods.into(),
             static_fields: static_fields.into(),
             properties: properties.into(),
+            span,
+        })
+    }
+
+    fn parse_interface_decl(&mut self) -> Result<ilang_ast::InterfaceDecl, ParseError> {
+        let span = self.peek().span;
+        self.expect(&TokenKind::Interface, "'interface'")?;
+        let name = self.expect_ident("interface name")?;
+        self.expect(&TokenKind::LBrace, "'{'")?;
+        let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
+        while !matches!(self.peek().kind, TokenKind::RBrace) {
+            let m_span = self.peek().span;
+            self.expect(&TokenKind::Fn, "'fn'")?;
+            let m_name = self.expect_ident("method name")?;
+            self.expect(&TokenKind::LParen, "'('")?;
+            let mut params: Vec<ilang_ast::Param> = Vec::new();
+            if !matches!(self.peek().kind, TokenKind::RParen) {
+                loop {
+                    let p_span = self.peek().span;
+                    let p_name = self.expect_ident("parameter name")?;
+                    self.expect(&TokenKind::Colon, "':'")?;
+                    let p_ty = self.parse_type()?;
+                    params.push(ilang_ast::Param {
+                        name: p_name,
+                        ty: p_ty,
+                        default: None,
+                        span: p_span,
+                    });
+                    if matches!(self.peek().kind, TokenKind::Comma) {
+                        self.bump();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            self.expect(&TokenKind::RParen, "')'")?;
+            let ret = if matches!(self.peek().kind, TokenKind::Colon) {
+                self.bump();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            // Interface methods have no body — they declare a contract
+            // implementing classes must satisfy.
+            self.consume_stmt_terminator()?;
+            methods.push(ilang_ast::InterfaceMethod {
+                name: m_name,
+                params: params.into(),
+                ret,
+                span: m_span,
+            });
+        }
+        self.expect(&TokenKind::RBrace, "'}'")?;
+        Ok(ilang_ast::InterfaceDecl {
+            is_pub: false,
+            name,
+            methods: methods.into(),
             span,
         })
     }

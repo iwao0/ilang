@@ -274,6 +274,7 @@ pub(super) fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type
             }
         }
         Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
+        Item::Interface(_) => {}
     }
 }
 
@@ -352,6 +353,7 @@ pub(super) fn seed_enum_ctors_in_item(
             }
         }
         Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
+        Item::Interface(_) => {}
     }
 }
 
@@ -449,6 +451,7 @@ pub(super) fn rewrite_enum_refs_in_item(
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),
+            interfaces: c.interfaces.clone(),
             type_params: c.type_params.clone(),
             fields: c
                 .fields
@@ -597,6 +600,7 @@ pub(super) fn rewrite_enum_refs_in_item(
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
         
+        Item::Interface(i) => Item::Interface(i.clone()),
     }
 }
 

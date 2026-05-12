@@ -326,6 +326,7 @@ pub(super) fn validate_program(prog: &Program, modules: &HashMap<Symbol, Symbol>
                     }
                 }
             }
+            Item::Interface(_) => {}
         }
     }
     for s in &prog.stmts {

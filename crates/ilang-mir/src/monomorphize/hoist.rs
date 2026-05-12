@@ -231,6 +231,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
             is_union: c.is_union,
             name: c.name.clone(),
             parent: c.parent.clone(),
+            interfaces: c.interfaces.clone(),
             type_params: c.type_params.clone(),
             fields: c.fields.clone(),
             methods: c
@@ -307,6 +308,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
         Item::Const(c) => Item::Const(c.clone()),
         Item::ExternC(b) => Item::ExternC(b.clone()),
         
+        Item::Interface(i) => Item::Interface(i.clone()),
     }
 }
 

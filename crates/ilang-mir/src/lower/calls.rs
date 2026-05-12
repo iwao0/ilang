@@ -557,6 +557,62 @@ impl<'a> BodyCx<'a> {
                 Ok((dst, opt_ty))
             }
             (MirTy::Object(class_id), _) => {
+                // Interface dispatch: when the static receiver type
+                // is an interface, look the method's slot up in the
+                // global iface table and emit a `VirtCall` against
+                // the receiver. The runtime reads the receiver's
+                // actual class id from the heap header and routes to
+                // the implementing class's fn registered at this
+                // slot during class lowering.
+                let iface_name = self
+                    .interface_ids
+                    .iter()
+                    .find_map(|(n, cid)| if cid == class_id { Some(*n) } else { None });
+                if let Some(ifn) = iface_name {
+                    let slot = self
+                        .iface_method_slots
+                        .get(&(ifn, method))
+                        .copied()
+                        .ok_or_else(|| {
+                            LowerError::Other(format!(
+                                "interface `{ifn}` has no method `{method}`"
+                            ))
+                        })?;
+                    let sig = self
+                        .iface_method_sigs
+                        .get(&(ifn, method))
+                        .cloned()
+                        .ok_or_else(|| {
+                            LowerError::Other(format!(
+                                "interface `{ifn}` method `{method}` has no recorded signature"
+                            ))
+                        })?;
+                    let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
+                    for (i, a) in args.iter().enumerate() {
+                        let (v, vty) = self.lower_expr(a)?;
+                        let target = sig.params.get(i);
+                        let coerced = match target {
+                            Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
+                            _ => v,
+                        };
+                        user_args.push(coerced);
+                    }
+                    let dst = if matches!(sig.ret, MirTy::Unit) {
+                        None
+                    } else {
+                        Some(self.fb.new_value(sig.ret.clone()))
+                    };
+                    self.fb.push_inst(Inst::VirtCall {
+                        dst,
+                        recv: ov,
+                        slot: crate::inst::VTableSlot(slot),
+                        args: user_args.into_boxed_slice(),
+                    });
+                    if obj_is_fresh && !matches!(sig.ret, MirTy::Object(_)) {
+                        self.fb.push_inst(Inst::Release { value: ov });
+                    }
+                    return Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret));
+                }
                 let meta = self.class_meta.get(class_id).expect("class meta");
                 let mid = *meta.method_ids.get(&method).ok_or_else(|| {
                     LowerError::Other(format!("no method `{method}` on class"))

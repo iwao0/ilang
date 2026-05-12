@@ -174,10 +174,13 @@ impl Lower {
         // Static methods, fields, const, and properties are wired
         // below in declare_class_methods / register_class.
 
+        // The parser puts the first `:` base into `cd.parent`. If the
+        // pre-pass didn't register it as a class, it's actually an
+        // interface — interfaces have no MIR layout, so treat the
+        // class as having no real parent here. The interface dispatch
+        // table is wired up separately below.
         let parent_id = if let Some(parent_name) = cd.parent {
-            Some(*self.class_ids.get(&parent_name).ok_or_else(|| {
-                LowerError::Other(format!("parent class {parent_name} not declared yet"))
-            })?)
+            self.class_ids.get(&parent_name).copied()
         } else {
             None
         };
@@ -530,6 +533,51 @@ impl Lower {
             };
             d.slot = Some(slot);
         }
+        // Interface dispatch: for every interface this class declares
+        // (including the parser's first base if it's actually an
+        // interface, plus the explicit `interfaces` list), append a
+        // synthetic MethodDecl per interface method pointing at the
+        // class's implementation. The slot comes from the global
+        // `iface_method_slots` table — by construction it sits above
+        // the class-method slot range, so `__virt_dispatch` can be
+        // shared.
+        let mut declared_ifaces: Vec<Symbol> = Vec::new();
+        if let Some(p) = cd.parent {
+            if self.interface_ids.contains_key(&p) {
+                declared_ifaces.push(p);
+            }
+        }
+        for ifn in cd.interfaces.iter() {
+            declared_ifaces.push(*ifn);
+        }
+        for ifn in declared_ifaces.iter() {
+            let methods = self
+                .iface_methods_by_name
+                .get(ifn)
+                .cloned()
+                .unwrap_or_default();
+            for m_name in methods.iter() {
+                let Some(slot) = self.iface_method_slots.get(&(*ifn, *m_name)).copied() else {
+                    continue;
+                };
+                // Find this class's MethodDecl with that name. The
+                // overload mangler renames methods to per-overload
+                // names, so look at the source-name list we just
+                // built and the parsed `methods` for the function id.
+                let func_id = method_decls
+                    .iter()
+                    .find(|d| d.name == *m_name)
+                    .map(|d| d.func);
+                let Some(func) = func_id else { continue };
+                method_decls.push(crate::program::MethodDecl {
+                    name: *m_name,
+                    is_override: false,
+                    is_static: false,
+                    func,
+                    slot: Some(crate::inst::VTableSlot(slot)),
+                });
+            }
+        }
         let layout = &mut self.classes[class_id.0 as usize];
         layout.methods = method_decls;
         Ok(())
@@ -608,6 +656,9 @@ impl Lower {
             this_class: pc.enclosing_this_class,
             classes: &self.classes,
             class_meta: &self.class_meta,
+            interface_ids: &self.interface_ids,
+            iface_method_slots: &self.iface_method_slots,
+            iface_method_sigs: &self.iface_method_sigs,
             enum_ids: &self.enum_ids,
             enum_meta: &self.enum_meta,
             enums: &self.enums,
@@ -701,6 +752,9 @@ impl Lower {
             this_class: None, // static — no `this`
             classes: &self.classes,
             class_meta: &self.class_meta,
+            interface_ids: &self.interface_ids,
+            iface_method_slots: &self.iface_method_slots,
+            iface_method_sigs: &self.iface_method_sigs,
             enum_ids: &self.enum_ids,
             enum_meta: &self.enum_meta,
             enums: &self.enums,
@@ -799,6 +853,9 @@ impl Lower {
             this_class: Some(class_id),
             classes: &self.classes,
             class_meta: &self.class_meta,
+            interface_ids: &self.interface_ids,
+            iface_method_slots: &self.iface_method_slots,
+            iface_method_sigs: &self.iface_method_sigs,
             enum_ids: &self.enum_ids,
             enum_meta: &self.enum_meta,
             enums: &self.enums,
@@ -901,6 +958,9 @@ impl Lower {
             this_class: None,
             classes: &self.classes,
             class_meta: &self.class_meta,
+            interface_ids: &self.interface_ids,
+            iface_method_slots: &self.iface_method_slots,
+            iface_method_sigs: &self.iface_method_sigs,
             enum_ids: &self.enum_ids,
             enum_meta: &self.enum_meta,
             enums: &self.enums,
@@ -960,6 +1020,9 @@ impl Lower {
             this_class: None,
             classes: &self.classes,
             class_meta: &self.class_meta,
+            interface_ids: &self.interface_ids,
+            iface_method_slots: &self.iface_method_slots,
+            iface_method_sigs: &self.iface_method_sigs,
             enum_ids: &self.enum_ids,
             enum_meta: &self.enum_meta,
             enums: &self.enums,

@@ -238,6 +238,10 @@ pub(super) struct ClassSig {
     /// `get` / `set` accessors. `obj.x` reads dispatch through the
     /// getter, `obj.x = v` writes through the setter (when present).
     pub(super) properties: HashMap<Symbol, PropertySig>,
+    /// Interfaces this class declares it implements. Includes only
+    /// the *direct* declarations — the `class_implements` helper
+    /// walks the parent chain to compose the full set.
+    pub(super) implements: Vec<Symbol>,
     /// `static` methods — Vec per name to support overloading the
     /// same way instance methods do. Resolved at `ClassName.method(args)`
     /// call sites.
@@ -280,6 +284,25 @@ pub(super) struct ClassSig {
     /// (`sdl.Window` ⇒ `"sdl"`, top-level entry items ⇒ `""`). Used
     /// to gate cross-module access on non-pub members.
     pub(super) module: String,
+}
+
+/// Type-checker view of an interface. Methods are stored in
+/// declaration order (= the canonical interface-slot index used at
+/// MIR / runtime dispatch sites). `is_pub` / `module` are kept for
+/// the visibility check the loader will hook into later.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(super) struct InterfaceSig {
+    pub(super) methods: Vec<InterfaceMethodSig>,
+    pub(super) is_pub: bool,
+    pub(super) module: String,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct InterfaceMethodSig {
+    pub(super) name: Symbol,
+    pub(super) params: Vec<Type>,
+    pub(super) ret: Type,
 }
 
 #[derive(Debug, Clone)]
@@ -331,6 +354,7 @@ pub struct TypeChecker {
     /// has just one entry we still go through the same path.
     pub(super) fns: HashMap<Symbol, Vec<Signature>>,
     pub(super) classes: HashMap<Symbol, ClassSig>,
+    pub(super) interfaces: HashMap<Symbol, InterfaceSig>,
     pub(super) enums: HashMap<Symbol, EnumSig>,
     pub(super) vars: HashMap<Symbol, Type>,
     /// Inferred type-argument vector for each generic-fn call site,

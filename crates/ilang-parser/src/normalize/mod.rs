@@ -298,6 +298,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
             }
             Item::ExternC(b)
         }
+        Item::Interface(i) => Item::Interface(i),
     }
 }
 

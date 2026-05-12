@@ -112,6 +112,52 @@ pub fn lower_program_with_slots(
             }
         }
     }
+    // 1a'. Interfaces share the `class_ids` namespace so type-name
+    //      resolution (`Type::Object("Drawable")`) finds them. They
+    //      get a `ClassLayout` shell with no fields / methods and
+    //      participate only as a type tag — instances are always
+    //      values of an implementing class.
+    // Interface method slots use a separate ID range, well above any
+    // normal class vtable slot, so the existing
+    // `__virt_dispatch(class_id, slot)` machinery can be reused
+    // without colliding with class-method slot ids.
+    const IFACE_SLOT_BASE: u32 = 1 << 20;
+    let mut next_iface_slot: u32 = IFACE_SLOT_BASE;
+    for item in &prog.items {
+        if let Item::Interface(i) = item {
+            if !lower.class_ids.contains_key(&i.name) {
+                let id = crate::types::ClassId(lower.classes.len() as u32);
+                lower.class_ids.insert(i.name, id);
+                lower.classes.push(crate::program::ClassLayout {
+                    id,
+                    name: i.name,
+                    parent: None,
+                    fields: Vec::new(),
+                    methods: Vec::new(),
+                    statics: Vec::new(),
+                    drop_fn: FuncId(u32::MAX),
+                    vtable: None,
+                    repr: crate::program::ClassRepr::ArcObject,
+                    c_field_offsets: Vec::new(),
+                    c_size: 0,
+                    flex_elem_size: 0,
+                });
+                lower.class_meta.insert(id, ClassMeta::default());
+                lower.interface_ids.insert(i.name, id);
+            }
+            // Allocate one global slot per interface-method-name —
+            // class implementations register their fn at this slot.
+            let mut names = Vec::with_capacity(i.methods.len());
+            for m in i.methods.iter() {
+                lower
+                    .iface_method_slots
+                    .insert((i.name, m.name), next_iface_slot);
+                next_iface_slot += 1;
+                names.push(m.name);
+            }
+            lower.iface_methods_by_name.insert(i.name, names);
+        }
+    }
 
     // 1. Register every class shell (id + field indices), enum
     //    layout, and @extern(C) struct shell before any type
@@ -123,6 +169,26 @@ pub fn lower_program_with_slots(
             Item::Enum(ed) => lower.register_enum(ed)?,
             Item::ExternC(blk) => lower.register_extern_c_shells(blk)?,
             _ => {}
+        }
+    }
+
+    // Resolve interface method signatures now that class / enum
+    // types they reference are registered.
+    for item in &prog.items {
+        if let Item::Interface(i) = item {
+            for m in i.methods.iter() {
+                let mut params: Vec<MirTy> = Vec::new();
+                for p in m.params.iter() {
+                    params.push(lower.resolve_ty(&p.ty)?);
+                }
+                let ret = match &m.ret {
+                    Some(t) => lower.resolve_ty(t)?,
+                    None => MirTy::Unit,
+                };
+                lower
+                    .iface_method_sigs
+                    .insert((i.name, m.name), FnSig { params, ret });
+            }
         }
     }
 
@@ -179,6 +245,7 @@ pub fn lower_program_with_slots(
                 return Err(LowerError::Other("unexpected Item::Use post-loader".into()));
             }
             Item::ExternC(blk) => lower.lower_extern_c(blk)?,
+            Item::Interface(_) => {}
         }
     }
 
@@ -209,6 +276,22 @@ struct Lower {
     classes: Vec<crate::program::ClassLayout>,
     /// Class name → ClassId.
     class_ids: HashMap<Symbol, crate::types::ClassId>,
+    /// Subset of `class_ids` that names interfaces. Lets the lowerer
+    /// distinguish "real class" from "interface marker" when emitting
+    /// method-call dispatch.
+    interface_ids: HashMap<Symbol, crate::types::ClassId>,
+    /// Per-(interface, method-name) global slot id, allocated in
+    /// declaration order. Method calls on interface-typed receivers
+    /// dispatch through `__virt_dispatch(receiver_class_id, slot)`,
+    /// where `slot` is shared between the interface call site and
+    /// every implementing class's vtable entry.
+    iface_method_slots: HashMap<(Symbol, Symbol), u32>,
+    /// Captures the per-interface method list so call sites can look
+    /// up the slot for a method name without re-scanning the AST.
+    iface_methods_by_name: HashMap<Symbol, Vec<Symbol>>,
+    /// Method signature per (interface, method) — call sites need
+    /// `params` for arg coercion and `ret` for the dst value type.
+    iface_method_sigs: HashMap<(Symbol, Symbol), FnSig>,
     /// Per-class metadata used during lowering: field name → FieldId,
     /// method name → FuncId for the (mangle-resolved) implementation.
     class_meta: HashMap<crate::types::ClassId, ClassMeta>,
@@ -377,6 +460,10 @@ impl Lower {
             fn_sigs: HashMap::new(),
             classes: Vec::new(),
             class_ids: HashMap::new(),
+            interface_ids: HashMap::new(),
+            iface_method_slots: HashMap::new(),
+            iface_methods_by_name: HashMap::new(),
+            iface_method_sigs: HashMap::new(),
             class_meta: HashMap::new(),
             enums: Vec::new(),
             enum_ids: HashMap::new(),
@@ -495,6 +582,9 @@ struct BodyCx<'a> {
     this_class: Option<crate::types::ClassId>,
     classes: &'a [crate::program::ClassLayout],
     class_meta: &'a HashMap<crate::types::ClassId, ClassMeta>,
+    interface_ids: &'a HashMap<Symbol, crate::types::ClassId>,
+    iface_method_slots: &'a HashMap<(Symbol, Symbol), u32>,
+    iface_method_sigs: &'a HashMap<(Symbol, Symbol), FnSig>,
     enum_ids: &'a HashMap<Symbol, crate::types::EnumId>,
     enum_meta: &'a HashMap<crate::types::EnumId, EnumMeta>,
     enums: &'a [crate::program::EnumLayout],

@@ -215,6 +215,7 @@ fn validate_program(
                     }
                 }
             }
+            Item::Interface(_) => {}
         }
     }
     for s in &prog.stmts {

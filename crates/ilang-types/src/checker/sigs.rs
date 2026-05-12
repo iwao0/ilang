@@ -331,6 +331,22 @@ pub(super) fn class_signature(
     parent: Option<&ClassSig>,
     is_subclass: &dyn Fn(Symbol, Symbol) -> bool,
 ) -> Result<ClassSig, TypeError> {
+    // The parser puts the first `:` base into `c.parent`. If our caller
+    // passed `parent: None` because that base is actually an interface,
+    // pull the interface name out of `c.parent` and join it with the
+    // explicit `c.interfaces` list. The resulting parent slot for the
+    // ClassSig is `None` in that case.
+    let parent_is_interface = c.parent.is_some() && parent.is_none();
+    let effective_parent: Option<Symbol> = if parent_is_interface {
+        None
+    } else {
+        c.parent.clone()
+    };
+    let extra_iface_from_parent: Option<Symbol> = if parent_is_interface {
+        c.parent.clone()
+    } else {
+        None
+    };
     // Inheritance restrictions: the parent must not be generic
     // (we don't substitute type params across the boundary), and
     // the child can't add type params either if it inherits.
@@ -721,6 +737,10 @@ pub(super) fn class_signature(
         }
     }
     let module = module_of_name(c.name.as_str()).to_string();
+    let mut implements: Vec<Symbol> = c.interfaces.iter().cloned().collect();
+    if let Some(p) = extra_iface_from_parent {
+        implements.insert(0, p);
+    }
     Ok(ClassSig {
         type_params: Vec::from(c.type_params.clone()),
         fields,
@@ -731,7 +751,8 @@ pub(super) fn class_signature(
         static_fields,
         static_field_pub,
         static_const_fields,
-        parent: c.parent.clone(),
+        implements,
+        parent: effective_parent,
         method_slots,
         vtable_len,
         extern_lib: c.extern_lib.clone(),
