@@ -459,17 +459,26 @@ impl TypeChecker {
         // non-literal narrowings (e.g. `let x: i64 = ...; x` into
         // an `i8` return) and Object-vs-Object upcasts where
         // there's no tail expr to inspect.
-        let tail_check = f
-            .body
-            .tail
-            .as_deref()
-            .map(|t| self.value_assignable(t, &body_ty, &expected));
-        let ok = match tail_check {
-            Some(true) => true,
-            Some(false) => false,
-            None => {
-                assignable(&body_ty, &expected)
-                    || self.assignable_obj(&body_ty, &expected)
+        // Unit-return fns silently discard any trailing expression
+        // value — same ergonomics as a top-level expression statement.
+        // The MIR `finalise_return` already drops the tail when the
+        // declared return is `Unit`, so the type checker just has to
+        // stop complaining.
+        let ok = if matches!(expected, Type::Unit) {
+            true
+        } else {
+            let tail_check = f
+                .body
+                .tail
+                .as_deref()
+                .map(|t| self.value_assignable(t, &body_ty, &expected));
+            match tail_check {
+                Some(true) => true,
+                Some(false) => false,
+                None => {
+                    assignable(&body_ty, &expected)
+                        || self.assignable_obj(&body_ty, &expected)
+                }
             }
         };
         if !ok {
