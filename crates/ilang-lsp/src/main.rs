@@ -38,14 +38,15 @@ use text_utils::{byte_range_to_lsp_range, byte_to_position};
 use std::collections::HashMap;
 use std::time::Duration;
 
-use ilang_ast::{
-    Block, Item, Span, StmtKind, Symbol as AstSymbol, Type, UnOp,
-};
+use ilang_ast::{Symbol as AstSymbol, UnOp};
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
-use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
+#[cfg(test)]
+use ilang_ast::{Block, Item, Span, StmtKind, Type};
+#[cfg(test)]
+use tower_lsp::lsp_types::Position;
 
 use builtins::{
     array_method_doc, array_method_names, array_method_sig, ffi_helper_signature,

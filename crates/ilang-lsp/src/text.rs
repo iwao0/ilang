@@ -337,6 +337,11 @@ pub(crate) fn word_at(src: &str, pos: Position) -> Option<(String, u32)> {
 /// Walk back from the cursor over whitespace and a leading `.` to find
 /// the receiver identifier — used by completion to figure out what
 /// class's members to list.
+/// Sentinel receiver returned by `receiver_before_dot` when the
+/// expression before `.` is a string literal (`"abc".`) — caller
+/// recognises this and surfaces the built-in string methods.
+pub(crate) const STR_LITERAL_RECEIVER: &str = "\"\"";
+
 pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
     let line = pos.line + 1;
     let col = pos.character + 1;
@@ -354,6 +359,30 @@ pub(crate) fn receiver_before_dot(text: &str, pos: Position) -> Option<String> {
     off -= 1;
     while off > 0 && matches!(bytes[off - 1], b' ' | b'\t') {
         off -= 1;
+    }
+    // String literal: receiver ends with a closing `"`. Walk back
+    // through the literal body to find the matching opening `"`
+    // (respecting `\"` escapes). Return a sentinel so the completion
+    // handler routes through the built-in string-method list.
+    if off > 0 && bytes[off - 1] == b'"' {
+        let mut i = off - 1;
+        loop {
+            if i == 0 {
+                return None;
+            }
+            i -= 1;
+            if bytes[i] == b'"' {
+                let mut bs = 0;
+                let mut k = i;
+                while k > 0 && bytes[k - 1] == b'\\' {
+                    bs += 1;
+                    k -= 1;
+                }
+                if bs % 2 == 0 {
+                    return Some(STR_LITERAL_RECEIVER.to_string());
+                }
+            }
+        }
     }
     let end = off;
     while off > 0 {

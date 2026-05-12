@@ -271,7 +271,14 @@ impl LanguageServer for Backend {
         if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
             // Built-in receiver: string / array. Their member sets are
             // hardcoded — list them from the same helpers used by hover.
-            if let Some(ty) = doc.var_types.get(&AstSymbol::intern(&receiver)) {
+            // String literal (`"abc".`) flows in via a sentinel
+            // receiver; treat it as `Type::Str` directly.
+            let inferred_ty: Option<Type> = if receiver == text::STR_LITERAL_RECEIVER {
+                Some(Type::Str)
+            } else {
+                doc.var_types.get(&AstSymbol::intern(&receiver)).cloned()
+            };
+            if let Some(ty) = inferred_ty.as_ref() {
                 let entries: Vec<(String, String, Option<&'static str>)> = match ty {
                     Type::Str => string_method_names()
                         .into_iter()
