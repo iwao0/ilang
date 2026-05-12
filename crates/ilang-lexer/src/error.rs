@@ -19,6 +19,16 @@ pub enum LexError {
     UnterminatedBlockComment { span: Span },
     #[error("{span}: invalid numeric suffix {name:?}")]
     InvalidNumericSuffix { name: String, span: Span },
+    #[error(
+        "{span}: source contains the {name} character (U+{cp:04X}); these invisible / bidi-control \
+         characters are rejected to prevent trojan-source attacks. If you need the code point in a \
+         string literal, use a `\\u{{{cp:04X}}}` escape."
+    )]
+    DisallowedInvisibleChar {
+        cp: u32,
+        name: &'static str,
+        span: Span,
+    },
 }
 
 impl LexError {
@@ -29,7 +39,8 @@ impl LexError {
             | LexError::UnterminatedString { span }
             | LexError::BadEscape { span, .. }
             | LexError::UnterminatedBlockComment { span }
-            | LexError::InvalidNumericSuffix { span, .. } => *span,
+            | LexError::InvalidNumericSuffix { span, .. }
+            | LexError::DisallowedInvisibleChar { span, .. } => *span,
         }
     }
 }

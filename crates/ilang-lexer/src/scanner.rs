@@ -2,6 +2,7 @@ use crate::error::LexError;
 use crate::token::{Span, Token, TokenKind};
 
 pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
+    reject_invisible(src)?;
     let mut lexer = Lexer::new(src);
     let mut tokens = Vec::new();
     loop {
@@ -13,6 +14,66 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
         }
     }
     Ok(tokens)
+}
+
+/// Look-up table for the invisible / bidi-control characters that
+/// `reject_invisible` bans. The set covers the bidi overrides /
+/// isolates / marks responsible for "trojan source" attacks
+/// (CVE-2021-42574), zero-width joiners that turn into invisible
+/// identifier glyphs, the alternate line / paragraph separators,
+/// and U+FEFF outside the file's leading byte (a leading BOM is
+/// silently allowed). String literals can still embed the code
+/// points via `\u{...}` escapes.
+fn invisible_name(c: char) -> Option<&'static str> {
+    Some(match c {
+        '\u{202A}' => "left-to-right embedding (LRE)",
+        '\u{202B}' => "right-to-left embedding (RLE)",
+        '\u{202C}' => "pop directional formatting (PDF)",
+        '\u{202D}' => "left-to-right override (LRO)",
+        '\u{202E}' => "right-to-left override (RLO)",
+        '\u{2066}' => "left-to-right isolate (LRI)",
+        '\u{2067}' => "right-to-left isolate (RLI)",
+        '\u{2068}' => "first strong isolate (FSI)",
+        '\u{2069}' => "pop directional isolate (PDI)",
+        '\u{200E}' => "left-to-right mark (LRM)",
+        '\u{200F}' => "right-to-left mark (RLM)",
+        '\u{061C}' => "Arabic letter mark (ALM)",
+        '\u{200B}' => "zero-width space (ZWSP)",
+        '\u{200C}' => "zero-width non-joiner (ZWNJ)",
+        '\u{200D}' => "zero-width joiner (ZWJ)",
+        '\u{2028}' => "line separator (LS)",
+        '\u{2029}' => "paragraph separator (PS)",
+        '\u{FEFF}' => "zero-width no-break space (BOM)",
+        _ => return None,
+    })
+}
+
+fn reject_invisible(src: &str) -> Result<(), LexError> {
+    let mut line: u32 = 1;
+    let mut col: u32 = 1;
+    let mut byte_off: usize = 0;
+    for c in src.chars() {
+        if let Some(name) = invisible_name(c) {
+            // A single leading BOM is the conventional UTF-8
+            // marker and is silently allowed at byte offset 0.
+            if !(byte_off == 0 && c == '\u{FEFF}') {
+                let span = Span::new(line, col);
+                return Err(LexError::DisallowedInvisibleChar {
+                    cp: c as u32,
+                    name,
+                    span,
+                });
+            }
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+        byte_off += c.len_utf8();
+    }
+    Ok(())
 }
 
 fn is_ident_start(c: char) -> bool {
