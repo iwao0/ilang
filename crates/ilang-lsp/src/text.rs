@@ -537,9 +537,36 @@ pub(crate) fn call_context_at(text: &str, pos: Position) -> Option<CallContext> 
             break;
         }
     }
-    let callee = std::str::from_utf8(&bytes[i..end]).ok()?.to_string();
+    let mut callee = std::str::from_utf8(&bytes[i..end]).ok()?.to_string();
     if callee.is_empty() {
         return None;
+    }
+    // String literal as the method receiver — `"abc".method(`. The
+    // identifier walker above kept the leading `.` but couldn't enter
+    // the string body. Rewrite the callee to start with the
+    // `STR_LITERAL_RECEIVER` sentinel so the signature-help handler
+    // routes through the built-in string-method table.
+    if callee.starts_with('.') && i > 0 && bytes[i - 1] == b'"' {
+        let mut k = i - 1;
+        let mut found = false;
+        while k > 0 {
+            k -= 1;
+            if bytes[k] == b'"' {
+                let mut bs = 0;
+                let mut q = k;
+                while q > 0 && bytes[q - 1] == b'\\' {
+                    bs += 1;
+                    q -= 1;
+                }
+                if bs % 2 == 0 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if found {
+            callee = format!("{}{}", STR_LITERAL_RECEIVER, callee);
+        }
     }
     let mut j = i;
     while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {

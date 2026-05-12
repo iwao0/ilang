@@ -515,7 +515,12 @@ impl LanguageServer for Backend {
                     }
                 }
                 if out.is_empty() {
-                    let builtin = match doc.var_types.get(&AstSymbol::intern(recv)) {
+                    let inferred_recv_ty: Option<Type> = if recv == text::STR_LITERAL_RECEIVER {
+                        Some(Type::Str)
+                    } else {
+                        doc.var_types.get(&AstSymbol::intern(recv)).cloned()
+                    };
+                    let builtin = match inferred_recv_ty.as_ref() {
                         Some(Type::Str) => string_method_sig(method)
                             .map(|s| (s, string_method_doc(method))),
                         Some(Type::Array { elem, .. }) => array_method_sig(method, elem)
