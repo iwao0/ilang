@@ -39,16 +39,17 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use ilang_ast::{
-    Symbol as AstSymbol, UnOp,
+    Block, Item, Span, StmtKind, Symbol as AstSymbol, Type, UnOp,
 };
 use ilang_lexer::tokenize;
 use ilang_parser::parse;
 use ilang_types::TypeChecker;
+use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
 use builtins::{
-    array_method_names, array_method_sig, ffi_helper_signature, string_method_names,
-    string_method_sig,
+    array_method_doc, array_method_names, array_method_sig, ffi_helper_signature,
+    string_method_doc, string_method_names, string_method_sig,
 };
 use project::{collect_dep_paths, find_project_file, find_umbrella};
 use text::{

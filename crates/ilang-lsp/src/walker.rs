@@ -487,12 +487,14 @@ impl<'a> Walker<'a> {
                     self.walk_expr(a, scope, this_class);
                 }
                 // Built-in string / array methods.
-                let builtin_sig = match self.infer_expr(obj, scope) {
-                    Some(Type::Str) => string_method_sig(method.as_str()),
-                    Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem),
+                let builtin = match self.infer_expr(obj, scope) {
+                    Some(Type::Str) => string_method_sig(method.as_str())
+                        .map(|s| (s, string_method_doc(method.as_str()))),
+                    Some(Type::Array { elem, .. }) => array_method_sig(method.as_str(), &elem)
+                        .map(|s| (s, array_method_doc(method.as_str()))),
                     _ => None,
                 };
-                if let Some(sig) = builtin_sig {
+                if let Some((sig, doc_text)) = builtin {
                     if let Some((line, col)) = locate_dot_name(self.text, obj.span, method.as_str()) {
                         self.refs.push(RefEntry {
                             line,
@@ -503,7 +505,7 @@ impl<'a> Walker<'a> {
                             signature: sig,
                             no_definition: true,
                             target_uri: None,
-                        doc: None,
+                            doc: doc_text.map(|s| s.to_string()),
                         });
                         return;
                     }

@@ -272,10 +272,13 @@ impl LanguageServer for Backend {
             // Built-in receiver: string / array. Their member sets are
             // hardcoded — list them from the same helpers used by hover.
             if let Some(ty) = doc.var_types.get(&AstSymbol::intern(&receiver)) {
-                let entries: Vec<(String, String)> = match ty {
+                let entries: Vec<(String, String, Option<&'static str>)> = match ty {
                     Type::Str => string_method_names()
                         .into_iter()
-                        .filter_map(|n| string_method_sig(n).map(|s| (n.to_string(), s)))
+                        .filter_map(|n| {
+                            string_method_sig(n)
+                                .map(|s| (n.to_string(), s, string_method_doc(n)))
+                        })
                         .collect(),
                     Type::Array { elem, fixed } => array_method_names()
                         .into_iter()
@@ -284,7 +287,8 @@ impl LanguageServer for Backend {
                             !(fixed.is_some() && matches!(**n, "push" | "pop"))
                         })
                         .filter_map(|n| {
-                            array_method_sig(n, elem).map(|s| (n.to_string(), s))
+                            array_method_sig(n, elem)
+                                .map(|s| (n.to_string(), s, array_method_doc(n)))
                         })
                         .collect(),
                     _ => Vec::new(),
@@ -292,7 +296,7 @@ impl LanguageServer for Backend {
                 if !entries.is_empty() {
                     let mut items: Vec<CompletionItem> = entries
                         .into_iter()
-                        .map(|(name, sig)| {
+                        .map(|(name, sig, doc_text)| {
                             let (insert_text, fmt) =
                                 call_snippet(name.as_str(), CompletionItemKind::METHOD);
                             let command =
@@ -301,6 +305,12 @@ impl LanguageServer for Backend {
                                 label: name.as_str().to_string(),
                                 kind: Some(CompletionItemKind::METHOD),
                                 detail: Some(sig.as_str().to_string()),
+                                documentation: doc_text.map(|d| {
+                                    Documentation::MarkupContent(MarkupContent {
+                                        kind: MarkupKind::Markdown,
+                                        value: d.to_string(),
+                                    })
+                                }),
                                 insert_text,
                                 insert_text_format: fmt,
                                 command,
@@ -499,19 +509,19 @@ impl LanguageServer for Backend {
                 }
                 if out.is_empty() {
                     let builtin = match doc.var_types.get(&AstSymbol::intern(recv)) {
-                        Some(Type::Str) => string_method_sig(method),
-                        Some(Type::Array { elem, .. }) => {
-                            array_method_sig(method, elem)
-                        }
+                        Some(Type::Str) => string_method_sig(method)
+                            .map(|s| (s, string_method_doc(method))),
+                        Some(Type::Array { elem, .. }) => array_method_sig(method, elem)
+                            .map(|s| (s, array_method_doc(method))),
                         _ => None,
                     };
-                    if let Some(sig) = builtin {
+                    if let Some((sig, doc_text)) = builtin {
                         out.push(MemberInfo {
                             span: Span::dummy(),
                             signature: sig,
                             ret_ty: None,
                             is_static: false,
-                doc: None,
+                            doc: doc_text.map(|s| s.to_string()),
                         });
                     }
                 }

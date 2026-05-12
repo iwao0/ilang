@@ -80,6 +80,25 @@ pub(crate) fn string_method_sig(method: &str) -> Option<String> {
     Some(format!("(method) string.{body}"))
 }
 
+/// Hover documentation for the built-in `string` methods. Keep
+/// each entry short and concrete — the hover popup is a few lines
+/// at most.
+pub(crate) fn string_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "charAt" => "Returns the 1-character substring at byte offset `i`. Out-of-range indices return an empty string.",
+        "includes" => "Returns `true` when `needle` occurs anywhere in this string.",
+        "startsWith" => "Returns `true` when this string begins with `prefix`.",
+        "endsWith" => "Returns `true` when this string ends with `suffix`.",
+        "toUpper" => "Returns a new string with every ASCII letter upper-cased. Non-ASCII bytes pass through unchanged.",
+        "toLower" => "Returns a new string with every ASCII letter lower-cased. Non-ASCII bytes pass through unchanged.",
+        "trim" => "Returns a new string with leading and trailing ASCII whitespace removed.",
+        "replace" => "Returns a new string with every occurrence of `from` replaced by `to`. Non-overlapping, left-to-right.",
+        "split" => "Splits this string on every occurrence of `sep`. Empty `sep` yields each byte as a 1-char element.",
+        "slice" => "Returns the substring covering byte offsets `[start, end)`. Indices are clamped to the string's length.",
+        _ => return None,
+    })
+}
+
 pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
     let body = match method {
         "push" => format!("push(v: {elem}): ()"),
@@ -93,4 +112,19 @@ pub(crate) fn array_method_sig(method: &str, elem: &Type) -> Option<String> {
         _ => return None,
     };
     Some(format!("(method) {elem}[].{body}"))
+}
+
+/// Hover documentation for the built-in array methods.
+pub(crate) fn array_method_doc(method: &str) -> Option<&'static str> {
+    Some(match method {
+        "push" => "Appends `v` to the end of the array. Mutates the receiver.",
+        "pop" => "Removes and returns the last element, or `none` when the array is empty.",
+        "indexOf" => "Returns the index of the first element equal to `v`, or `-1` when no element matches.",
+        "includes" => "Returns `true` when any element equals `v`.",
+        "slice" => "Returns a new array covering indices `[start, end)`. Indices are clamped to the array's length.",
+        "map" => "Returns a new array of `f(elem)` for each element, in order.",
+        "filter" => "Returns a new array of every element for which `pred(elem)` returns `true`.",
+        "forEach" => "Invokes `f` on each element in order. Returns nothing.",
+        _ => return None,
+    })
 }
