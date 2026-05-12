@@ -1,0 +1,227 @@
+//! Extracted from `checker/mod.rs`.
+
+#![allow(unused_imports)]
+
+use std::collections::{HashMap, HashSet};
+
+use ilang_ast::{
+    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, Type, UnOp,
+    VariantPayload,
+};
+
+use crate::error::TypeError;
+use crate::ops::{assignable, bin_result, int_literal_fits};
+
+use super::*;
+
+impl TypeChecker {
+    /// Cheap literal-only type guess for `let X = expr` cases that
+    /// omit the type annotation. Returns `None` for anything that
+    /// isn't a primitive literal or a unary on one — letting the
+    /// regular type-check path produce a normal error later.
+    pub(super) fn infer_literal_type(&self, e: &ilang_ast::Expr) -> Option<Type> {
+        use ilang_ast::ExprKind;
+        match &e.kind {
+            ExprKind::Int(_) => Some(Type::I64),
+            ExprKind::Float(_) => Some(Type::F64),
+            ExprKind::Bool(_) => Some(Type::Bool),
+            ExprKind::Str(_) => Some(Type::Str),
+            ExprKind::Unary { expr, .. } => self.infer_literal_type(expr),
+            _ => None,
+        }
+    }
+
+    /// True iff `child` is `parent` or transitively descends from
+    /// `parent` via `extends` chains. False if either name is
+    /// unknown.
+    pub(super) fn is_subclass(&self, child: Symbol, parent: Symbol) -> bool {
+        if child == parent {
+            return true;
+        }
+        let mut cur = self.classes.get(&child).and_then(|c| c.parent);
+        while let Some(name) = cur {
+            if name == parent {
+                return true;
+            }
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+        }
+        false
+    }
+
+    /// Like `is_subclass` but returns the inheritance distance
+    /// (0 for the same class, 1 for direct parent, etc.) when
+    /// the relation holds. Used by the overload resolver so
+    /// `f(B)` outranks `f(A)` when called with a `C: B: A`.
+    pub(super) fn subclass_distance(&self, child: Symbol, parent: Symbol) -> Option<u32> {
+        if child == parent {
+            return Some(0);
+        }
+        let mut cur = self.classes.get(&child).and_then(|c| c.parent);
+        let mut depth: u32 = 1;
+        while let Some(name) = cur {
+            if name == parent {
+                return Some(depth);
+            }
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+            depth += 1;
+        }
+        None
+    }
+
+    /// The nearest common ancestor of two classes — the type used
+    /// when joining branches (`if`/`else`, `match` arms) where each
+    /// arm produces a different subclass. Returns `None` when there
+    /// is no shared ancestor (independent class hierarchies). When
+    /// one is a subclass of the other, the result is the parent.
+    pub(super) fn common_ancestor(&self, a: Symbol, b: Symbol) -> Option<Symbol> {
+        if a == b {
+            return Some(a);
+        }
+        // Walk a's ancestor chain, collect into a set, then walk b's
+        // until we find a member.
+        let mut a_chain: Vec<Symbol> = vec![a];
+        let mut cur = self.classes.get(&a).and_then(|c| c.parent);
+        while let Some(name) = cur {
+            a_chain.push(name);
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+        }
+        if a_chain.contains(&b) {
+            return Some(b);
+        }
+        let mut cur = self.classes.get(&b).and_then(|c| c.parent);
+        while let Some(name) = cur {
+            if a_chain.contains(&name) {
+                return Some(name);
+            }
+            cur = self.classes.get(&name).and_then(|c| c.parent);
+        }
+        None
+    }
+
+    /// Object-aware extension of `assignable`: returns true if the
+    /// plain assignable check passes OR `from` is an object whose
+    /// class is a (transitive) subclass of `to`'s class.
+    pub(super) fn assignable_obj(&self, from: &Type, to: &Type) -> bool {
+        if assignable(from, to) {
+            return true;
+        }
+        if let (Type::Object(c), Type::Object(p)) = (from, to) {
+            return self.is_subclass(*c, *p);
+        }
+        false
+    }
+
+    /// `literal_assignable` with class-subtype awareness threaded
+    /// through the recursive composite (Array / Tuple / Optional)
+    /// cases. Used by call sites that previously paired the free
+    /// `literal_assignable` with `assignable_obj` at the top level —
+    /// this new helper additionally accepts e.g. `[new Child()]`
+    /// flowing into a `Parent[]` slot, `(new Child(),)` into
+    /// `(Parent,)`, and `some(new Child())` into `Parent?`.
+    pub(super) fn value_assignable(&self, value: &Expr, vt: &Type, target: &Type) -> bool {
+        literal_assignable_with(value, vt, target, &|c, p| self.is_subclass(c, p))
+    }
+
+    /// When an EnumCtor's inferred type-args contain `Type::Any` (because
+    /// only some of T/E were resolvable from the args alone), use the
+    /// surrounding context's expected type to fill in the holes. This
+    /// runs at let / return / tail positions so the JIT monomorphizer
+    /// sees a fully concrete instantiation.
+    pub(super) fn refine_enum_ctor_args(&self, expr: &Expr, target: &Type) {
+        let target_args = match target {
+            Type::Generic(g) => Some((g.base.clone(), g.args.to_vec())),
+            _ => None,
+        };
+        match &expr.kind {
+            ExprKind::EnumCtor { enum_name, .. } => {
+                if let Some((tbase, targs)) = &target_args {
+                    if tbase == enum_name {
+                        let mut tbl = self.enum_ctor_type_args.borrow_mut();
+                        if let Some((_, recorded)) = tbl.get_mut(&expr.span) {
+                            for (i, slot) in recorded.iter_mut().enumerate() {
+                                if matches!(slot, Type::Any) {
+                                    if let Some(t) = targs.get(i) {
+                                        *slot = t.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ExprKind::If { then_branch, else_branch, .. } => {
+                self.refine_enum_ctor_args_in_block(then_branch, target);
+                if let Some(e) = else_branch {
+                    self.refine_enum_ctor_args(e, target);
+                }
+            }
+            ExprKind::IfLet { then_branch, else_branch, .. } => {
+                self.refine_enum_ctor_args_in_block(then_branch, target);
+                if let Some(e) = else_branch {
+                    self.refine_enum_ctor_args(e, target);
+                }
+            }
+            ExprKind::Block(b) => self.refine_enum_ctor_args_in_block(b, target),
+            ExprKind::Match { arms, .. } => {
+                for arm in arms {
+                    self.refine_enum_ctor_args(&arm.body, target);
+                }
+            }
+            ExprKind::Return(Some(inner)) => self.refine_enum_ctor_args(inner, target),
+            _ => {}
+        }
+    }
+
+    pub(super) fn refine_enum_ctor_args_in_block(&self, b: &ilang_ast::Block, target: &Type) {
+        // Tail produces the block's value — refine against target.
+        if let Some(t) = &b.tail {
+            self.refine_enum_ctor_args(t, target);
+        }
+        // Return statements anywhere in the block also produce the
+        // function's return value — refine those too.
+        for s in &b.stmts {
+            if let StmtKind::Expr(e) = &s.kind {
+                refine_returns(self, e, target);
+            }
+        }
+    }
+
+    /// Join two branch result types. Equality / generic-hole merge
+    /// first, then `assignable` either way (numeric / nominal
+    /// covariance), then class-subtype upcast (so two arms
+    /// returning different subclasses of a common parent unify to
+    /// the parent). The subclass step is Object↔Object only —
+    /// numeric widening is intentionally NOT applied here so e.g.
+    /// `i64`-arm and `f64`-arm still reject like in `if/else`.
+    pub(super) fn unify_branch_obj(
+        &self,
+        a: Type,
+        b: Type,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        if a == b {
+            return Ok(a);
+        }
+        if let Some(merged) = merge_generic_with_holes(&a, &b) {
+            return Ok(merged);
+        }
+        if assignable(&a, &b) {
+            return Ok(b);
+        }
+        if assignable(&b, &a) {
+            return Ok(a);
+        }
+        if let (Type::Object(ca), Type::Object(cb)) = (&a, &b) {
+            if let Some(anc) = self.common_ancestor(*ca, *cb) {
+                return Ok(Type::Object(anc));
+            }
+        }
+        Err(TypeError::Mismatch {
+            expected: a,
+            got: b,
+            span,
+        })
+    }
+
+}
