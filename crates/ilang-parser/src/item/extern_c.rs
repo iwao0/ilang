@@ -272,6 +272,20 @@ impl<'a> Parser<'a> {
             }
             let f_span = self.peek().span;
             let f_name = self.expect_ident("field name")?;
+            // `name(...)` reads like a method declaration. `struct`
+            // inside `@extern(C) {}` is C-layout-only: methods belong
+            // on a `class`, so give a targeted error instead of the
+            // generic "expected ':'".
+            if matches!(self.peek().kind, TokenKind::LParen) {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: format!(
+                        "':' after field name — `struct {name}` cannot define methods (move `{f_name}` onto a `class` if you need a method)"
+                    ),
+                    span: t.span,
+                });
+            }
             self.expect(&TokenKind::Colon, "':'")?;
             let f_ty = self.parse_type()?;
             self.consume_stmt_terminator()?;
@@ -292,6 +306,16 @@ impl<'a> Parser<'a> {
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             let f_span = self.peek().span;
             let f_name = self.expect_ident("field name")?;
+            if matches!(self.peek().kind, TokenKind::LParen) {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: format!(
+                        "':' after field name — `union {name}` cannot define methods (move `{f_name}` onto a `class` if you need a method)"
+                    ),
+                    span: t.span,
+                });
+            }
             self.expect(&TokenKind::Colon, "':'")?;
             let f_ty = self.parse_type()?;
             self.consume_stmt_terminator()?;
