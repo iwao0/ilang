@@ -49,6 +49,18 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                     },
                 );
             }
+            Item::Interface(i) => {
+                let signature = format!("interface {}", i.name);
+                out.insert(
+                    i.name.into(),
+                    Symbol {
+                        name: i.name.as_str().to_string(),
+                        span: i.span,
+                        signature,
+                        doc: text::extract_doc_above(src, i.span.line),
+                    },
+                );
+            }
             Item::Enum(e) => {
                 let variants = e
                     .variants
@@ -415,4 +427,3 @@ pub(crate) fn fn_body(f: &FnDecl) -> String {
     };
     format!("{}({}){}", f.name, params, ret)
 }
-

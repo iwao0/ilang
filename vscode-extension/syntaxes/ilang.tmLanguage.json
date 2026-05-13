@@ -13,6 +13,7 @@
     { "include": "#numbers" },
     { "include": "#fn-decl" },
     { "include": "#class-decl" },
+    { "include": "#interface-decl" },
     { "include": "#enum-decl" },
     { "include": "#struct-decl" },
     { "include": "#union-decl" },
@@ -57,11 +58,11 @@
       "patterns": [
         {
           "comment": "Variant declaration: `name = value` form. Negative lookbehind for `:` + whitespace keeps type annotations like `const m: string = ...` routing to #types instead of being swallowed as a discriminant name.",
-          "match": "(?<!:\\s*)\\b(as|bool|break|class|const|continue|deinit|elif|else|enum|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)(?=\\s*=)"
+          "match": "(?<!:\\s*)\\b(as|bool|break|class|const|continue|deinit|elif|else|enum|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|interface|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)(?=\\s*=)"
         },
         {
           "comment": "Dotted access: `Enum.variant`. The reserved word follows a `.`.",
-          "match": "(?<=\\.)(as|bool|break|class|const|continue|deinit|elif|else|enum|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)\\b"
+          "match": "(?<=\\.)(as|bool|break|class|const|continue|deinit|elif|else|enum|f32|f64|false|fn|for|get|i16|i32|i64|i8|if|in|init|interface|let|loop|match|new|none|override|pub|return|set|some|static|string|struct|super|this|true|u16|u32|u64|u8|union|use|void|while)\\b"
         }
       ]
     },
@@ -73,7 +74,7 @@
         },
         {
           "name": "keyword.declaration.ilang",
-          "match": "\\b(let|const|fn|class|enum|struct|union|use|pub|override|init|deinit|static|get|set)\\b"
+          "match": "\\b(let|const|fn|class|interface|enum|struct|union|use|pub|override|init|deinit|static|get|set)\\b"
         },
         {
           "name": "keyword.other.ilang",
@@ -125,6 +126,13 @@
       "captures": {
         "1": { "name": "keyword.declaration.ilang" },
         "2": { "name": "entity.name.type.class.ilang" }
+      }
+    },
+    "interface-decl": {
+      "match": "\\b(interface)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.declaration.ilang" },
+        "2": { "name": "entity.name.type.interface.ilang" }
       }
     },
     "enum-decl": {

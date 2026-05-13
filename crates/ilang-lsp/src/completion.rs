@@ -68,6 +68,7 @@ const KEYWORDS: &[(&str, KwScope)] = &[
     // Item kw (top level) and class-body-only kw stay in their scope.
     ("fn", KwScope::TopLevel),
     ("class", KwScope::TopLevel),
+    ("interface", KwScope::TopLevel),
     ("enum", KwScope::TopLevel),
     ("use", KwScope::TopLevel),
     ("override", KwScope::Block),

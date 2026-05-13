@@ -12,8 +12,9 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use ilang_ast::{
-    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, Param, Pattern, PatternBindings,
-    PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, InterfaceDecl, Item, Param, Pattern,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type,
+    VariantPayload,
 };
 use ilang_parser::parse as parse_program;
 use ilang_types::{check, TypeError};
@@ -230,6 +231,35 @@ impl<'a> Walker<'a> {
             }
             if let Some(s) = &prop.setter {
                 self.walk_fn(s, Some(c.name.as_str()));
+            }
+        }
+    }
+
+    pub(crate) fn walk_interface(&mut self, i: &InterfaceDecl) {
+        for m in &i.methods {
+            let params = m
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ret = match &m.ret {
+                Some(t) => format!(": {t}"),
+                None => String::new(),
+            };
+            let sig = format!("(method) {}.{}({}){}", i.name, m.name, params, ret);
+            let name_span = locate_let_name_with_kw(self.text, m.span, "fn", m.name.as_str())
+                .unwrap_or(m.span);
+            self.push_decl_with_doc(
+                m.name.as_str(),
+                name_span,
+                sig,
+                text::extract_doc_above(self.text, m.span.line),
+            );
+            for p in &m.params {
+                if let Some(start) = locate_type_after_colon(self.text, p.span, p.name.as_str()) {
+                    self.walk_type_at(&p.ty, start);
+                }
             }
         }
     }
@@ -1146,4 +1176,3 @@ impl<'a> Walker<'a> {
         }
     }
 }
-

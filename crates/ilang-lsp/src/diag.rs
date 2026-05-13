@@ -120,6 +120,7 @@ pub(crate) fn build_doc(
             match item {
                 Item::Fn(f) => walker.walk_fn(f, None),
                 Item::Class(c) => walker.walk_class(c),
+                Item::Interface(i) => walker.walk_interface(i),
                 Item::Use(u) => {
                     // `use module` — push a hover entry on the module
                     // identifier itself, with F12 navigating to the
@@ -266,4 +267,3 @@ pub(crate) fn build_doc(
         external_sources: external_sources.clone(),
     }
 }
-
