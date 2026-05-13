@@ -17,7 +17,11 @@
         "id": "ilang",
         "aliases": ["ilang", "il"],
         "extensions": [".il"],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/ilang-light.svg",
+          "dark": "./icons/ilang-dark.svg"
+        }
       }
     ],
     "grammars": [

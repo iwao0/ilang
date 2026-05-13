@@ -33,6 +33,8 @@ The extension looks for the `ilang-lsp` binary in this order:
 ## Features
 
 - `.il` file association
+- Default language icon for `.il` files when the active VSCode file icon
+  theme allows language-provided icons
 - Highlighting for keywords, types, numeric literals, strings,
   comments, and attributes (`@flags`, `@extern`, ...)
 - Bracket auto-closing and comment toggling
