@@ -97,6 +97,16 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
 }
 
 fn rename_in_class(c: &mut ClassDecl, rules: &HashMap<Symbol, Symbol>) {
+    if let Some(parent) = c.parent.as_mut() {
+        if let Some(new_name) = rename_sym(parent, rules) {
+            *parent = new_name;
+        }
+    }
+    for ifn in c.interfaces.iter_mut() {
+        if let Some(new_name) = rename_sym(ifn, rules) {
+            *ifn = new_name;
+        }
+    }
     for f in c.fields.iter_mut() {
         rename_in_type(&mut f.ty, rules);
     }

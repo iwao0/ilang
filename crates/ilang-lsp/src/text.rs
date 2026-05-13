@@ -79,6 +79,55 @@ pub(crate) fn locate_type_after_colon(
     Some(Span::new(line, col))
 }
 
+/// Locate the Nth base name in a class declaration's `: Base1, Base2`
+/// list. `class_span` points at the `class` keyword.
+pub(crate) fn locate_class_base_name(
+    text: &str,
+    class_span: Span,
+    index: usize,
+) -> Option<Span> {
+    let off = line_col_to_offset(text, class_span.line, class_span.col)?;
+    let bytes = text.as_bytes();
+    let mut i = off;
+    while i < bytes.len() && bytes[i] != b'{' {
+        if bytes[i] == b':' {
+            i += 1;
+            break;
+        }
+        i += 1;
+    }
+    if i >= bytes.len() {
+        return None;
+    }
+    let mut found = 0usize;
+    while i < bytes.len() {
+        while i < bytes.len()
+            && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b',')
+        {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] == b'{' {
+            return None;
+        }
+        if found == index {
+            let b = bytes[i];
+            if !b.is_ascii_alphabetic() && b != b'_' {
+                return None;
+            }
+            let (line, col) = offset_to_line_col(text, i)?;
+            return Some(Span::new(line, col));
+        }
+        found += 1;
+        while i < bytes.len() && bytes[i] != b',' && bytes[i] != b'{' {
+            i += 1;
+        }
+        if i < bytes.len() && bytes[i] == b'{' {
+            return None;
+        }
+    }
+    None
+}
+
 /// Locate the property name after a `get` or `set` keyword.
 pub(crate) fn locate_property_name(text: &str, kw_span: Span, name: &str) -> Option<Span> {
     let off = line_col_to_offset(text, kw_span.line, kw_span.col)?;

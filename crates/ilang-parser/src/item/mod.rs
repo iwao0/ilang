@@ -337,11 +337,11 @@ impl<'a> Parser<'a> {
         // moved to the head of `interfaces`).
         let (parent, interfaces) = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
-            let first = self.expect_ident("parent class or interface name")?;
+            let first = self.parse_dotted_ident("parent class or interface name")?;
             let mut rest: Vec<ilang_ast::Symbol> = Vec::new();
             while matches!(self.peek().kind, TokenKind::Comma) {
                 self.bump();
-                rest.push(self.expect_ident("interface name")?);
+                rest.push(self.parse_dotted_ident("interface name")?);
             }
             (Some(first), rest.into_boxed_slice())
         } else {
@@ -823,6 +823,17 @@ impl<'a> Parser<'a> {
             parts.push(self.expect_ident("capability segment")?);
         }
         Ok(parts)
+    }
+
+    fn parse_dotted_ident(&mut self, expected: &str) -> Result<Symbol, ParseError> {
+        let mut name = self.expect_ident(expected)?.as_str().to_string();
+        while matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            let segment = self.expect_ident(expected)?;
+            name.push('.');
+            name.push_str(segment.as_str());
+        }
+        Ok(Symbol::intern(&name))
     }
 
     fn parse_fn_decl(&mut self, attrs: Vec<Attribute>) -> Result<FnDecl, ParseError> {

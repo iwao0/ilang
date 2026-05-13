@@ -226,6 +226,9 @@ fn dealias_class(c: &mut ClassDecl, modules: &HashMap<Symbol, Symbol>) {
     if let Some(parent) = c.parent.as_mut() {
         *parent = dealias_sym(parent, modules);
     }
+    for ifn in c.interfaces.iter_mut() {
+        *ifn = dealias_sym(ifn, modules);
+    }
     for f in c.fields.iter_mut() {
         dealias_type(&mut f.ty, modules);
     }
@@ -330,4 +333,3 @@ pub(super) fn dealias_program(prog: &mut Program, modules: &HashMap<Symbol, Symb
 // here. Field / MethodCall paths already require the receiver name
 // to be in `ctx.modules` before normalize collapses them to a
 // qualified `Var` / `Call`, so they're safely gated.
-

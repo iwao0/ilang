@@ -192,6 +192,13 @@ fn while_then_more_stmts() {
     assert_eq!(p.tail, Some(e(ExprKind::Var("n".into()))));
 }
 
+#[test]
+fn class_base_accepts_dotted_name() {
+    let p = parse_str("use lib\nclass Class4: lib.Class3 {}");
+    let Item::Class(c) = &p.items[1] else { panic!("expected class") };
+    assert_eq!(c.parent.as_ref().map(|s| s.as_str()), Some("lib.Class3"));
+}
+
 // Catch-all to keep the unused `Stmt` import alive; equivalent to using
 // the symbol directly elsewhere.
 #[allow(dead_code)]

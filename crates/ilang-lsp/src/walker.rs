@@ -107,6 +107,14 @@ impl<'a> Walker<'a> {
             Type::Object(name) => {
                 if name.as_str().contains('.') {
                     self.push_external_dotted_ref(name.as_str(), start_span);
+                } else if let Some(sym) = self.symbols.get(name) {
+                    self.push_ref(
+                        name.as_str(),
+                        start_span,
+                        sym.span,
+                        name.as_str().len() as u32,
+                        sym.signature.clone(),
+                    );
                 }
             }
             Type::Array { elem, .. } => self.walk_type_at(elem, start_span),
@@ -115,6 +123,14 @@ impl<'a> Walker<'a> {
             Type::Generic(g) => {
                 if g.base.as_str().contains('.') {
                     self.push_external_dotted_ref(g.base.as_str(), start_span);
+                } else if let Some(sym) = self.symbols.get(&g.base) {
+                    self.push_ref(
+                        g.base.as_str(),
+                        start_span,
+                        sym.span,
+                        g.base.as_str().len() as u32,
+                        sym.signature.clone(),
+                    );
                 }
             }
             _ => {}
@@ -147,6 +163,16 @@ impl<'a> Walker<'a> {
     }
 
     pub(crate) fn walk_class(&mut self, c: &ClassDecl) {
+        if let Some(parent) = &c.parent {
+            if let Some(start) = locate_class_base_name(self.text, c.span, 0) {
+                self.walk_type_at(&Type::Object(parent.clone()), start);
+            }
+        }
+        for (idx, ifn) in c.interfaces.iter().enumerate() {
+            if let Some(start) = locate_class_base_name(self.text, c.span, idx + 1) {
+                self.walk_type_at(&Type::Object(ifn.clone()), start);
+            }
+        }
         // Field declaration name: hover shows the field decl line.
         for f in &c.fields {
             self.push_decl_with_doc(

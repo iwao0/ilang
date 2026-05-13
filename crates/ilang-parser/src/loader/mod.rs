@@ -930,6 +930,12 @@ fn item_name_of(item: &Item) -> Option<Symbol> {
 
 fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
     c.name = format!("{prefix}.{}", c.name).into();
+    if let Some(parent) = c.parent.as_mut() {
+        *parent = prefix_type_name(parent, prefix);
+    }
+    for ifn in c.interfaces.iter_mut() {
+        *ifn = prefix_type_name(ifn, prefix);
+    }
     for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
         let body = std::mem::replace(
             &mut m.body,
@@ -986,6 +992,14 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
                 })
                 .collect();
         }
+    }
+}
+
+fn prefix_type_name(name: &Symbol, prefix: &str) -> Symbol {
+    if name.as_str().contains('.') {
+        name.clone()
+    } else {
+        Symbol::intern(&format!("{prefix}.{name}"))
     }
 }
 
@@ -1445,4 +1459,3 @@ fn is_builtin_type(name: &str) -> bool {
     // when referenced inside a module body.
     matches!(name, "Console" | "Map" | "Result")
 }
-

@@ -200,6 +200,21 @@ fn use_class_via_namespace() {
 }
 
 #[test]
+fn inherit_class_via_namespace() {
+    let dir = std::env::temp_dir().join(format!("ilang_inherit_ns_test_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    write_module(&dir, "lib", "pub class Class3 {}");
+    let main = write_module(
+        &dir,
+        "main",
+        "use lib\nclass Class4: lib.Class3 {}\n0",
+    );
+    let out = Command::new(ilang_bin()).arg("run").arg(&main).output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "0");
+}
+
+#[test]
 fn use_builtin_math_module() {
     // No `math.il` written to disk — the loader should pick up the
     // shipped stdlib version.
