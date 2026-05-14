@@ -263,6 +263,11 @@ brew install sdl2
 
 # 🐧 Debian/Ubuntu
 sudo apt install libsdl2-dev libsdl2-2.0-0
+
+# 🪟 Windows (vcpkg)
+vcpkg install sdl2:x64-windows
+# Then copy SDL2.dll next to the binary so the JIT can load it at runtime:
+copy "%VCPKG_ROOT%\installed\x64-windows\bin\SDL2.dll" target\release\
 ```
 
 Run:
