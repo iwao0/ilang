@@ -254,6 +254,17 @@ pub(super) fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type
             for m in &c.methods {
                 seed_enums_in_fn(m, visit);
             }
+            for m in &c.static_methods {
+                seed_enums_in_fn(m, visit);
+            }
+            for p in c.properties.iter() {
+                if let Some(g) = &p.getter {
+                    seed_enums_in_fn(g, visit);
+                }
+                if let Some(s) = &p.setter {
+                    seed_enums_in_fn(s, visit);
+                }
+            }
         }
         Item::Fn(f) => seed_enums_in_fn(f, visit),
         Item::Enum(e) => {
@@ -273,7 +284,46 @@ pub(super) fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type
                 }
             }
         }
-        Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
+        Item::Use(_) | Item::Const(_) => {}
+        Item::ExternC(b) => {
+            // Walk through `@extern(C) { ... }` so generic enum
+            // references inside FFI fn signatures / classes still
+            // get seeded for monomorphization. Without this,
+            // `Result<bool, _>` (and any other `Result<T, _>`
+            // mention) inside an extern block falls back to the
+            // built-in `Result<i64, i64>` shape and the coerce
+            // step rejects the actual payload type.
+            for inner in b.items.iter() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDecl { params, ret, .. } => {
+                        for p in params.iter() {
+                            seed_enums_in_type(&p.ty, visit);
+                        }
+                        if let Some(t) = ret {
+                            seed_enums_in_type(t, visit);
+                        }
+                    }
+                    ilang_ast::ExternCItem::FnDef(f) => seed_enums_in_fn(f, visit),
+                    ilang_ast::ExternCItem::Class(c) => {
+                        for f in c.fields.iter() {
+                            seed_enums_in_type(&f.ty, visit);
+                        }
+                        for m in c.methods.iter() {
+                            seed_enums_in_fn(m, visit);
+                        }
+                        for m in c.static_methods.iter() {
+                            seed_enums_in_fn(m, visit);
+                        }
+                    }
+                    ilang_ast::ExternCItem::Struct { fields, .. }
+                    | ilang_ast::ExternCItem::Union { fields, .. } => {
+                        for f in fields.iter() {
+                            seed_enums_in_type(&f.ty, visit);
+                        }
+                    }
+                }
+            }
+        }
         Item::Interface(_) => {}
     }
 }
@@ -351,8 +401,49 @@ pub(super) fn seed_enum_ctors_in_item(
             for m in &c.methods {
                 seed_enum_ctors_in_block(&m.body, table, outer_params, outer_args, visit);
             }
+            // Static methods were previously skipped here, so any
+            // `Result.ok(new Self(...))` inside a static factory
+            // was never seeded for monomorphization — the call site
+            // then hit "unknown type: Result<...>" at lowering.
+            for m in &c.static_methods {
+                seed_enum_ctors_in_block(&m.body, table, outer_params, outer_args, visit);
+            }
+            // Property accessors carry bodies too — sweep them for
+            // the same reason.
+            for p in c.properties.iter() {
+                if let Some(g) = &p.getter {
+                    seed_enum_ctors_in_block(&g.body, table, outer_params, outer_args, visit);
+                }
+                if let Some(s) = &p.setter {
+                    seed_enum_ctors_in_block(&s.body, table, outer_params, outer_args, visit);
+                }
+            }
         }
-        Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
+        Item::ExternC(b) => {
+            for inner in b.items.iter() {
+                match inner {
+                    ilang_ast::ExternCItem::FnDef(f) => {
+                        seed_enum_ctors_in_block(
+                            &f.body, table, outer_params, outer_args, visit,
+                        );
+                    }
+                    ilang_ast::ExternCItem::Class(c) => {
+                        for m in c.methods.iter() {
+                            seed_enum_ctors_in_block(
+                                &m.body, table, outer_params, outer_args, visit,
+                            );
+                        }
+                        for m in c.static_methods.iter() {
+                            seed_enum_ctors_in_block(
+                                &m.body, table, outer_params, outer_args, visit,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Item::Enum(_) | Item::Use(_) | Item::Const(_) => {}
         Item::Interface(_) => {}
     }
 }
@@ -598,9 +689,96 @@ pub(super) fn rewrite_enum_refs_in_item(
         }),
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),
-        Item::ExternC(b) => Item::ExternC(b.clone()),
+        Item::ExternC(b) => {
+            // Rewrite generic enum references inside `@extern(C)`
+            // bodies / signatures so e.g. `Result<bool, _>` inside
+            // an extern fn picks up the monomorphized variant
+            // instead of the built-in `Result<i64, i64>` shape.
+            let items: Vec<ilang_ast::ExternCItem> = b
+                .items
+                .iter()
+                .map(|inner| rewrite_enum_refs_in_extern_c_item(
+                    inner, generic_enums, table, outer_params, outer_args,
+                ))
+                .collect();
+            Item::ExternC(ilang_ast::ExternCBlock {
+                items: items.into_boxed_slice(),
+                span: b.span,
+            })
+        }
         
         Item::Interface(i) => Item::Interface(i.clone()),
+    }
+}
+
+/// Mirror of `rewrite_enum_refs_in_item` for the inner items of an
+/// `@extern(C) { ... }` block. Only `FnDecl` / `FnDef` / `Class`
+/// shapes carry signatures / bodies the rewriter needs to walk;
+/// `Struct` / `Union` field types pass through unchanged.
+fn rewrite_enum_refs_in_extern_c_item(
+    item: &ilang_ast::ExternCItem,
+    generic_enums: &HashMap<Symbol, EnumDecl>,
+    table: &HashMap<Span, (Symbol, Vec<Type>)>,
+    outer_params: &[Symbol],
+    outer_args: &[Type],
+) -> ilang_ast::ExternCItem {
+    use ilang_ast::ExternCItem;
+    match item {
+        ExternCItem::FnDecl {
+            is_pub, name, params, ret, libs, optional, variadic, c_symbol, span,
+        } => ExternCItem::FnDecl {
+            is_pub: *is_pub,
+            name: name.clone(),
+            params: params
+                .iter()
+                .map(|p| Param {
+                    name: p.name.clone(),
+                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
+                    span: p.span,
+                    default: p.default.clone(),
+                })
+                .collect(),
+            ret: ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+            libs: libs.clone(),
+            optional: *optional,
+            variadic: *variadic,
+            c_symbol: *c_symbol,
+            span: *span,
+        },
+        ExternCItem::FnDef(f) => ExternCItem::FnDef(FnDecl {
+            is_pub: f.is_pub,
+            attrs: f.attrs.clone(),
+            name: f.name.clone(),
+            type_params: f.type_params.clone(),
+            params: f
+                .params
+                .iter()
+                .map(|p| Param {
+                    name: p.name.clone(),
+                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
+                    span: p.span,
+                    default: p.default.clone(),
+                })
+                .collect(),
+            ret: f.ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+            body: rewrite_enum_refs_in_block(
+                &f.body, generic_enums, table, outer_params, outer_args,
+            ),
+            span: f.span,
+            is_override: f.is_override,
+        }),
+        ExternCItem::Class(c) => {
+            // Reuse the regular class path — wrapping classes
+            // inside `@extern(C)` share the same shape.
+            match rewrite_enum_refs_in_item(
+                &Item::Class(c.clone()),
+                generic_enums, table, outer_params, outer_args,
+            ) {
+                Item::Class(rewritten) => ExternCItem::Class(rewritten),
+                _ => unreachable!("rewrite_enum_refs_in_item on Class returns Class"),
+            }
+        }
+        ExternCItem::Struct { .. } | ExternCItem::Union { .. } => item.clone(),
     }
 }
 
