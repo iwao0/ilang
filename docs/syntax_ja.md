@@ -1581,6 +1581,45 @@ r.split("a foo b Foo c")        // ["a ", " b ", " c"]
 
 コンパイル済みパターンは不透明なハンドル経由で Rust ヒープ上に保持され、ラッパーの `deinit` で `Regex` オブジェクトの refcount が 0 になったタイミングで解放される。interpreter / JIT 両対応
 
+### 組み込み `path` モジュール
+
+Node.js 風のパス操作。**セパレータは常に `/` 固定** (ホスト OS によらない) — Windows 形式の `\\` パスを扱いたい場合は事前に `replace` で `/` に変換しておく。Pure ilang 実装、FFI なし、どこからでも安全に呼べる。
+
+```rust
+use path
+
+path.basename("/foo/bar/baz.txt")        // "baz.txt"
+path.basename("/foo/bar/baz.txt", ".txt") // "baz"
+path.dirname("/foo/bar/baz.txt")          // "/foo/bar"
+path.extname("a.tar.gz")                  // ".gz"
+path.isAbsolute("/x")                     // true
+path.join(["a", "..", "b"])               // "b"
+path.normalize("/a//b/c/../d")            // "/a/b/d"
+path.relative("/a/b/c", "/a/b/d")         // "../d"
+
+let p = path.parse("/foo/bar/baz.txt")
+// p.dir = "/foo/bar", p.root = "/", p.base = "baz.txt",
+// p.name = "baz",     p.ext  = ".txt"
+path.format(p)                            // "/foo/bar/baz.txt"
+```
+
+**定数:**
+- `path.sep: string` — `"/"`
+- `path.delimiter: string` — `":"` (PATH 環境変数の区切り文字)
+
+**関数:**
+- `basename(p)` / `basename(p, ext)` — 末尾セグメント。`ext` を渡すと末尾の拡張子を剥がす
+- `dirname(p)` — 末尾セグメントを除いた残り
+- `extname(p)` — 拡張子 (先頭ドット込み)。なければ `""`。先頭ドット + 名前 (`.bashrc`) はファイル名扱いで拡張子と見なさない (Node 互換)
+- `isAbsolute(p): bool` — `/` 始まりかどうか
+- `join(parts: string[]): string` — `/` で連結し normalize
+- `normalize(p): string` — `//` / `.` / `..` を畳み込む。先頭 `/` と末尾 `/` の有無は保つ
+- `relative(from, to): string` — 両側を normalize した上で相対パスを返す
+- `parse(p): PathParts` — `{ dir, root, base, name, ext }` に分解
+- `format(parts: PathParts): string` — `parse` の逆
+
+`PathParts` は public class。`format` に渡す独自の値を作りたい場合は `new PathParts(...)` で組み立てればよい。
+
 ### `const` (定数宣言)
 
 トップレベルで不変の定数を宣言できます。RHS には **コンパイル時に値が決まる式** が書けます。loader の inline pass で folding され、参照箇所はリテラルに置換されます。

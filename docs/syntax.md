@@ -2102,6 +2102,54 @@ The compiled pattern lives on the Rust heap behind an opaque
 handle; the wrapper's `deinit` frees it when the `Regex`
 object's refcount drops to zero. Both interpreter and JIT.
 
+### Built-in `path` module
+
+Node.js-style path manipulation. **Always uses `/` as the
+separator**, regardless of host OS — convert Windows `\\` paths
+yourself before feeding them in. Pure ilang implementation, no
+FFI, safe to call from anywhere.
+
+```rust
+use path
+
+path.basename("/foo/bar/baz.txt")        // "baz.txt"
+path.basename("/foo/bar/baz.txt", ".txt") // "baz"
+path.dirname("/foo/bar/baz.txt")          // "/foo/bar"
+path.extname("a.tar.gz")                  // ".gz"
+path.isAbsolute("/x")                     // true
+path.join(["a", "..", "b"])               // "b"
+path.normalize("/a//b/c/../d")            // "/a/b/d"
+path.relative("/a/b/c", "/a/b/d")         // "../d"
+
+let p = path.parse("/foo/bar/baz.txt")
+// p.dir = "/foo/bar", p.root = "/", p.base = "baz.txt",
+// p.name = "baz",     p.ext  = ".txt"
+path.format(p)                            // "/foo/bar/baz.txt"
+```
+
+**Constants:**
+- `path.sep: string` — `"/"`
+- `path.delimiter: string` — `":"` (PATH-list separator)
+
+**Functions:**
+- `basename(p)` / `basename(p, ext)` — last segment, optionally
+  with `ext` stripped
+- `dirname(p)` — everything except the last segment
+- `extname(p)` — extension including leading dot, `""` if none.
+  A leading dot without a name (`".bashrc"`) is treated as the
+  file name, not an extension (matches Node)
+- `isAbsolute(p): bool` — starts with `/`
+- `join(parts: string[]): string` — joins with `/`, normalises
+- `normalize(p): string` — collapses `//`, `.`, `..`; preserves
+  the leading `/` and trailing `/` when present
+- `relative(from, to): string` — relative path, both arguments
+  normalised first
+- `parse(p): PathParts` — splits into `{ dir, root, base, name, ext }`
+- `format(parts: PathParts): string` — inverse of `parse`
+
+`PathParts` is a public class — instantiate it directly to feed
+custom shapes into `format`.
+
 ### `const` (constant declaration)
 
 Top-level immutable constants. The RHS is restricted to
