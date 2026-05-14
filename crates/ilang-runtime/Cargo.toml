@@ -8,3 +8,4 @@ license.workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }

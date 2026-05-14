@@ -45,6 +45,7 @@ pub mod os;
 pub mod print;
 pub mod print_dispatch;
 pub mod raw_mem;
+pub mod regex;
 pub mod slots;
 pub mod strings;
 pub mod test_externs;

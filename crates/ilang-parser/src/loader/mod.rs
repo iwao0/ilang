@@ -40,6 +40,7 @@ pub fn builtin_module_source(name: &str) -> Option<&'static str> {
         "test" => Some(include_str!("../stdlib/test.il")),
         "os" => Some(include_str!("../stdlib/os.il")),
         "fs" => Some(include_str!("../stdlib/fs.il")),
+        "regex" => Some(include_str!("../stdlib/regex.il")),
         _ => None,
     }
 }

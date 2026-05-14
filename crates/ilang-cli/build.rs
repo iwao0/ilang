@@ -3,73 +3,73 @@
 //! against it without the user having to run `cargo build -p
 //! ilang-runtime` themselves.
 //!
-//! Cargo only emits a staticlib facet when something asks for it,
-//! and ordinary rlib deps (which is what `ilang-cli`'s
-//! `ilang-runtime` dependency resolves to) don't. We side-step the
-//! whole crate-type negotiation by invoking `rustc` directly on
-//! `ilang-runtime/src/lib.rs` here — the crate has no external deps
-//! beyond `std`, so a single rustc call covers it.
-//!
-//! The archive lands at `target/<profile>/libilang_runtime.a` so
-//! `locate_runtime_lib()` in `main.rs` (which looks next to
-//! `current_exe()`) finds it.
+//! Internally we invoke `cargo build -p ilang-runtime` into a
+//! private target directory under `OUT_DIR`, then copy the
+//! resulting staticlib next to `ilang`. The private target-dir
+//! avoids fighting the outer cargo invocation for the workspace
+//! lock and side-steps re-linking concerns. The runtime crate's
+//! `Cargo.toml` already declares `crate-type = ["rlib", "staticlib"]`,
+//! so cargo emits the archive directly.
 
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let runtime_src = manifest_dir
-        .join("..")
-        .join("ilang-runtime")
-        .join("src")
-        .join("lib.rs");
+    let runtime_dir = manifest_dir.join("..").join("ilang-runtime");
+    let runtime_manifest = runtime_dir.join("Cargo.toml");
 
-    // OUT_DIR sits under `target/<profile>/build/ilang-cli-<hash>/out`.
-    // Walk up to the `target/<profile>/` directory so the produced
-    // archive ends up next to the eventual `ilang` binary, matching
-    // what `locate_runtime_lib()` looks for.
+    // OUT_DIR is `target/<profile>/build/ilang-cli-<hash>/out`. Walk
+    // up three levels to get to `target/<profile>/`, where the
+    // eventual `ilang` binary will land and where
+    // `locate_runtime_lib()` looks for the archive.
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let profile_dir = out_dir
         .ancestors()
         .nth(3)
         .expect("OUT_DIR shape (target/<profile>/build/<crate>/out)")
         .to_path_buf();
-    let lib_path = profile_dir.join("libilang_runtime.a");
+    let dest = profile_dir.join("libilang_runtime.a");
 
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".into());
-    let edition = "2024";
 
-    let mut cmd = Command::new(env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()));
-    cmd.arg(&runtime_src)
-        .args(["--crate-name", "ilang_runtime"])
-        .args(["--crate-type", "staticlib"])
-        .args(["--edition", edition])
-        .args(["-o"])
-        .arg(&lib_path);
+    // Build into a sub-target dir so the recursive cargo invocation
+    // doesn't trip on the outer workspace's target-dir lock.
+    let sub_target = out_dir.join("runtime-target");
+
+    let mut cmd = Command::new(env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
+    cmd.arg("build")
+        .arg("--manifest-path")
+        .arg(&runtime_manifest)
+        .arg("--target-dir")
+        .arg(&sub_target)
+        .args(["-p", "ilang-runtime"]);
     if profile == "release" {
-        cmd.args(["-C", "opt-level=3"]);
-    } else {
-        cmd.args(["-C", "debuginfo=2"]);
+        cmd.arg("--release");
     }
-    // Suppress per-symbol warnings — the source already builds clean
-    // through the normal `cargo build -p ilang-runtime` path, so
-    // warnings here are noise.
-    cmd.args(["--cap-lints", "allow"]);
+    // Quiet the recursive cargo output so the outer build log stays
+    // readable; errors still surface via the non-zero status.
+    cmd.arg("--quiet");
     let status = cmd
         .status()
-        .expect("invoking rustc for ilang-runtime staticlib");
+        .expect("invoking cargo for ilang-runtime staticlib");
     if !status.success() {
-        panic!("rustc failed building libilang_runtime.a (status: {status:?})");
+        panic!("cargo build of ilang-runtime failed (status: {status:?})");
     }
 
-    // Watch the entire `ilang-runtime/src/` tree, not just `lib.rs` —
-    // helper files (`classes.rs`, `maps.rs`, …) all contribute symbols
-    // to the staticlib, and editing them must trigger a rebuild.
-    let runtime_src_dir = manifest_dir
-        .join("..")
-        .join("ilang-runtime")
-        .join("src");
+    let source = sub_target.join(&profile).join("libilang_runtime.a");
+    fs::copy(&source, &dest).unwrap_or_else(|e| {
+        panic!(
+            "copying {:?} → {:?} failed: {e}",
+            source, dest
+        )
+    });
+
+    // Watch the entire `ilang-runtime/src/` tree + its Cargo.toml so
+    // edits to helper files or deps trigger a rebuild.
+    let runtime_src_dir = runtime_dir.join("src");
     println!("cargo:rerun-if-changed={}", runtime_src_dir.display());
+    println!("cargo:rerun-if-changed={}", runtime_manifest.display());
 }

@@ -219,6 +219,17 @@ pub fn compile_with_builtins(
     jit_builder.symbol("fs.__rename", ilang_runtime::fs::fs_rename as *const u8);
     jit_builder.symbol("fs.__readDir", ilang_runtime::fs::fs_read_dir as *const u8);
     jit_builder.symbol("fs.__size", ilang_runtime::fs::fs_size as *const u8);
+    // regex.* — `stdlib/regex.il`'s `@extern(C)` block. The loader
+    // prefixes the @extern fn names with the module name, so the
+    // JIT looks them up as `regex.__regex_*`.
+    jit_builder.symbol("regex.__regex_compile", ilang_runtime::regex::__regex_compile as *const u8);
+    jit_builder.symbol("regex.__regex_destroy", ilang_runtime::regex::__regex_destroy as *const u8);
+    jit_builder.symbol("regex.__regex_test", ilang_runtime::regex::__regex_test as *const u8);
+    jit_builder.symbol("regex.__regex_has_match", ilang_runtime::regex::__regex_has_match as *const u8);
+    jit_builder.symbol("regex.__regex_first_match", ilang_runtime::regex::__regex_first_match as *const u8);
+    jit_builder.symbol("regex.__regex_replace_all", ilang_runtime::regex::__regex_replace_all as *const u8);
+    jit_builder.symbol("regex.__regex_find_all", ilang_runtime::regex::__regex_find_all as *const u8);
+    jit_builder.symbol("regex.__regex_split", ilang_runtime::regex::__regex_split as *const u8);
     // Built-in `test.*` runtime — fixture programs use these to
     // self-check. Failures abort the process with exit code 2.
     // Reuse the legacy JIT's full test-extern symbol set (callbacks,
