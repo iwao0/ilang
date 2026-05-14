@@ -1461,6 +1461,64 @@ becomes an extra directory the loader checks during `use module`
 resolution. Lookup order: importer's own directory, then each
 declared dep directory.
 
+### Top-level `struct` / `union` (value types)
+
+`struct` and `union` declarations are also accepted at module
+scope, **outside** any `@extern(C) { ... }` block. They share the
+**C-layout / value-type / by-value pass** semantics of the
+inside-block forms — fields only, no methods, no inheritance,
+copied on assignment and on argument passing — but their field
+types are restricted to **ilang-only types**. The validator walks
+field types transitively and rejects anything that mentions a
+C-only type:
+
+- `char`
+- `void`
+- `size_t` / `ssize_t`
+- raw pointers (`*T` / `*const T`)
+
+```rust
+// OK — every field is an ilang-side type.
+struct Point {
+    x: i32
+    y: i32
+}
+
+pub struct Rect {
+    width: i32
+    height: i32
+}
+
+union Value {
+    i: i64
+    f: f64
+}
+
+let p = new Point()
+p.x = 3
+p.y = 4
+```
+
+```rust
+// REJECTED at type-check time — `char` is C-only.
+pub struct Bad {
+    c: char
+}
+```
+
+The transitive check follows named struct / union references:
+declaring `struct Outer { inner: SomeCStruct }` is rejected if
+`SomeCStruct` contains any of the forbidden types anywhere
+inside.
+
+If you need `char` / `void` / `size_t` / pointer fields (e.g. to
+mirror a real C type for FFI), move the declaration into an
+`@extern(C) { ... }` block — the inside-block forms have no such
+restriction.
+
+Attributes (`@packed`, `@bits(N)`) are **not** accepted on the
+top-level form. Use the `@extern(C)` form when you need them.
+
 ### `@extern(C) { ... }` — FFI block
 
 Every C-ABI declaration — calling C functions, declaring

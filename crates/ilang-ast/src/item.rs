@@ -295,18 +295,28 @@ pub enum ExternCItem {
     /// C struct (= `@extern(C) struct` equivalent inside the block).
     /// Methods / properties are not allowed; only fields. `packed`
     /// and `@bits(N)` are still supported.
+    ///
+    /// `restrict_c_types` is set when the declaration is a top-level
+    /// `struct Name { ... }` written **outside** an `@extern(C)`
+    /// block. Such structs share the C layout / value-type semantics
+    /// but cannot mention C-specific types (`char`, `void`,
+    /// `size_t`, `ssize_t`, raw pointers) anywhere in their fields,
+    /// transitively.
     Struct {
         is_pub: bool,
         name: Symbol,
         fields: Box<[FieldDecl]>,
         is_packed: bool,
+        restrict_c_types: bool,
         span: Span,
     },
     /// C union — every field at offset 0, size = max field size.
+    /// `restrict_c_types` mirrors the meaning on `Struct`.
     Union {
         is_pub: bool,
         name: Symbol,
         fields: Box<[FieldDecl]>,
+        restrict_c_types: bool,
         span: Span,
     },
     /// `@lib("libname") fn name(...): T` — declaration only, dlsym'd

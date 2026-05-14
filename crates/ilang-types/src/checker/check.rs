@@ -206,6 +206,12 @@ impl TypeChecker {
                 }
             }
         }
+        // Now every struct / union (both `@extern(C)` and top-level)
+        // is registered in `self.classes`, so we can validate the
+        // top-level (`restrict_c_types: true`) ones — they must not
+        // mention any C-only type, transitively.
+        self.validate_restrict_c_structs(prog)?;
+
         // Pre-register top-level `let X: T = expr` bindings as
         // module-level globals so fn bodies can read / write them.
         // The script-stmts loop further down still type-checks each

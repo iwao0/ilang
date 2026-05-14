@@ -155,6 +155,112 @@ impl TypeChecker {
         Ok(())
     }
 
+    /// Walk every top-level `struct` / `union` declared **outside**
+    /// an `@extern(C) { ... }` block (the parser sets
+    /// `restrict_c_types: true` on those AST nodes) and reject any
+    /// field whose type is, or transitively contains, a C-only type:
+    /// `char`, `void`, `size_t`, `ssize_t`, or a raw pointer.
+    ///
+    /// References to other named structs / unions are followed via
+    /// `self.classes` (which already covers both `@extern(C)` and
+    /// top-level declarations because they share the same registration
+    /// path). A `visiting` set breaks cycles so mutually-recursive
+    /// declarations don't hang the validator.
+    pub(super) fn validate_restrict_c_structs(
+        &self,
+        prog: &ilang_ast::Program,
+    ) -> Result<(), TypeError> {
+        use ilang_ast::ExternCItem;
+        for item in &prog.items {
+            let Item::ExternC(block) = item else { continue };
+            for inner in block.items.iter() {
+                let (name, fields, restrict) = match inner {
+                    ExternCItem::Struct {
+                        name, fields, restrict_c_types, ..
+                    }
+                    | ExternCItem::Union {
+                        name, fields, restrict_c_types, ..
+                    } => (name, fields, *restrict_c_types),
+                    _ => continue,
+                };
+                if !restrict {
+                    continue;
+                }
+                let kind = if matches!(inner, ExternCItem::Struct { .. }) { "struct" } else { "union" };
+                for f in fields.iter() {
+                    let mut visiting: HashSet<Symbol> = HashSet::new();
+                    if let Some(reason) = self.find_c_only_type(&f.ty, &mut visiting) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "top-level `{kind} {name}` field `{fname}` has type `{fty}` which is, or contains, a C-only type ({reason}). \
+                                 Move the declaration into `@extern(C) {{ {kind} {name} {{ ... }} }}` if you need C interop, \
+                                 or replace the field with an ilang type.",
+                                fname = f.name,
+                                fty = f.ty,
+                            ),
+                            span: f.span,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// `Some(reason)` if `t` is — or transitively contains via named
+    /// struct / union references — one of the C-only types we forbid
+    /// in a top-level (non-`@extern(C)`) struct or union.
+    pub(super) fn find_c_only_type(
+        &self,
+        t: &Type,
+        visiting: &mut HashSet<Symbol>,
+    ) -> Option<String> {
+        match t {
+            Type::CChar | Type::CVoid | Type::Size | Type::SSize => {
+                Some(format!("`{t}`"))
+            }
+            Type::RawPtr { .. } => Some(format!("`{t}`")),
+            Type::Array { elem, .. } => self.find_c_only_type(elem, visiting),
+            Type::Optional(inner) | Type::Weak(inner) => {
+                self.find_c_only_type(inner, visiting)
+            }
+            Type::Tuple(items) => items
+                .iter()
+                .find_map(|x| self.find_c_only_type(x, visiting)),
+            Type::Generic(g) => g
+                .args
+                .iter()
+                .find_map(|a| self.find_c_only_type(a, visiting)),
+            Type::Fn(ft) => ft
+                .params
+                .iter()
+                .find_map(|p| self.find_c_only_type(p, visiting))
+                .or_else(|| self.find_c_only_type(&ft.ret, visiting)),
+            Type::Object(name) => {
+                if !visiting.insert(name.clone()) {
+                    return None;
+                }
+                let res = self.classes.get(&name).and_then(|cs| {
+                    // Only descend into C-layout structs / unions.
+                    // Plain ilang classes can hold runtime objects
+                    // freely; we don't want to forbid them just
+                    // because some method signature mentions a C type.
+                    if !cs.is_repr_c {
+                        return None;
+                    }
+                    cs.fields.iter().find_map(|(fname, fty)| {
+                        self.find_c_only_type(fty, visiting).map(|inner| {
+                            format!("{name}.{fname}: {inner}")
+                        })
+                    })
+                });
+                visiting.remove(name);
+                res
+            }
+            _ => None,
+        }
+    }
+
     /// Walks `params` + `ret` of an ilang-side fn declared inside an
     /// `@extern(C) { ... }` block (i.e. no `@lib(...)`) and rejects
     /// any raw-pointer type — directly or via a `@extern(C) struct`

@@ -1,11 +1,10 @@
-// `union` declarations are reserved for `@extern(C) {}` blocks —
-// they describe a C ABI layout (overlapping fields), and have no
-// meaning outside an FFI struct definition. Writing `pub union U
-// { … }` at module scope must surface as a parse error.
+// Top-level `union` (declared outside `@extern(C) { ... }`) inherits
+// the same field-type restriction as a top-level `struct`: no
+// `char`, `void`, `size_t`, `ssize_t`, or raw pointers, transitively.
 //
-// expect-error: expected 'fn', 'class', 'enum', or 'use' after attributes
+// expect-error: top-level `union Bad`
 
-pub union Bare {
-    x: i32
-    y: f32
+pub union Bad {
+    p: *const i32
+    n: i64
 }

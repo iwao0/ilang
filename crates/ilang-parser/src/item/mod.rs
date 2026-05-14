@@ -66,6 +66,42 @@ impl<'a> Parser<'a> {
             u.re_export = true;
             return Ok(Item::Use(u));
         }
+        // Top-level `struct` / `union` (`Ident` tokens, not keywords).
+        // They reuse the inside-`@extern(C)` parsing path but get
+        // wrapped into a single-item `ExternCBlock` for downstream
+        // pipelines, with `restrict_c_types: true` so the validator
+        // later rejects C-only field types.
+        if let TokenKind::Ident(ref n) = self.peek().kind {
+            if n == "struct" || n == "union" {
+                let is_struct = n == "struct";
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: format!(
+                            "no attributes are supported on top-level `{kw}` (use `@extern(C) {{ {kw} ... }}` if you need `@packed` / C interop)",
+                            kw = if is_struct { "struct" } else { "union" }
+                        ),
+                        span: t.span,
+                    });
+                }
+                let span = self.peek().span;
+                let mut item = if is_struct {
+                    self.parse_struct_decl(Vec::new(), true)?
+                } else {
+                    self.parse_union_decl(true)?
+                };
+                match &mut item {
+                    ilang_ast::ExternCItem::Struct { is_pub: p, .. }
+                    | ilang_ast::ExternCItem::Union { is_pub: p, .. } => *p = is_pub,
+                    _ => unreachable!(),
+                }
+                return Ok(Item::ExternC(ilang_ast::ExternCBlock {
+                    items: Box::new([item]),
+                    span,
+                }));
+            }
+        }
         match self.peek().kind {
             TokenKind::Fn => {
                 let mut fn_decl = self.parse_fn_decl(attrs)?;

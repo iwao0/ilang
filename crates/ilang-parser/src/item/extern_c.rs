@@ -42,7 +42,7 @@ impl<'a> Parser<'a> {
                     it
                 }
                 TokenKind::Ident(n) if n == "struct" => {
-                    let mut it = self.parse_extern_c_struct(inner_attrs)?;
+                    let mut it = self.parse_struct_decl(inner_attrs, false)?;
                     if let ilang_ast::ExternCItem::Struct { is_pub, .. } = &mut it {
                         *is_pub = item_is_pub;
                     }
@@ -59,7 +59,7 @@ impl<'a> Parser<'a> {
                             span: t.span,
                         });
                     }
-                    let mut it = self.parse_extern_c_union()?;
+                    let mut it = self.parse_union_decl(false)?;
                     if let ilang_ast::ExternCItem::Union { is_pub, .. } = &mut it {
                         *is_pub = item_is_pub;
                     }
@@ -223,9 +223,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_extern_c_struct(
+    /// Parse a `struct Name { fields }` declaration.
+    ///
+    /// `restrict_c_types` is set to `true` when the declaration sits at
+    /// the top level of a module (outside any `@extern(C) { ... }`
+    /// block). The flag is propagated into the AST node and consumed by
+    /// a later validation pass that rejects C-only field types
+    /// (`char`, `void`, `size_t`, `ssize_t`, raw pointers).
+    pub(super) fn parse_struct_decl(
         &mut self,
         attrs: Vec<Attribute>,
+        restrict_c_types: bool,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
         // Inside `@extern(C) {}` the C layout is implicit, so
         // `@extern(C) struct` is redundant (and rejected). Only `@packed` is
@@ -292,11 +300,21 @@ impl<'a> Parser<'a> {
             fields.push(FieldDecl { is_pub: false, name: f_name, ty: f_ty, span: f_span, bits });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Struct { is_pub: false, name, fields: fields.into(), is_packed, span })
+        Ok(ilang_ast::ExternCItem::Struct {
+            is_pub: false,
+            name,
+            fields: fields.into(),
+            is_packed,
+            restrict_c_types,
+            span,
+        })
     }
 
-    fn parse_extern_c_union(
+    /// Parse a `union Name { fields }` declaration. See
+    /// [`parse_struct_decl`] for the meaning of `restrict_c_types`.
+    pub(super) fn parse_union_decl(
         &mut self,
+        restrict_c_types: bool,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
         let span = self.peek().span;
         self.bump(); // consume `union`
@@ -322,6 +340,12 @@ impl<'a> Parser<'a> {
             fields.push(FieldDecl { is_pub: false, name: f_name, ty: f_ty, span: f_span, bits: None });
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCItem::Union { is_pub: false, name, fields: fields.into(), span })
+        Ok(ilang_ast::ExternCItem::Union {
+            is_pub: false,
+            name,
+            fields: fields.into(),
+            restrict_c_types,
+            span,
+        })
     }
 }

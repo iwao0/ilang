@@ -1,11 +1,10 @@
-// `struct` declarations are reserved for `@extern(C) {}` blocks —
-// they describe a C ABI layout, not a regular ilang heap class.
-// Writing `pub struct Foo { … }` at module scope must be a parse
-// error so users don't accidentally create a non-CRepr struct
-// (use `class` for that).
+// Top-level `struct` (declared outside `@extern(C) { ... }`) cannot
+// mention C-only types: `char`, `void`, `size_t`, `ssize_t`, or raw
+// pointers. The check is transitive — referencing another struct
+// that contains such a type is rejected too.
 //
-// expect-error: expected 'fn', 'class', 'enum', or 'use' after attributes
+// expect-error: top-level `struct Bad`
 
-pub struct Bare {
-    x: i32
+pub struct Bad {
+    c: char
 }

@@ -64,6 +64,15 @@ fn parse_program(p: &mut Parser) -> Result<Program, ParseError> {
                 let item = p.parse_item()?;
                 items.push(item);
             }
+            // Top-level `struct` / `union` (outside any `@extern(C) {}`
+            // block). They share the C-layout / value-type semantics
+            // of `@extern(C) struct`, but their fields are restricted
+            // by a later validation pass — no `char` / `void` /
+            // `size_t` / raw pointers.
+            TokenKind::Ident(n) if n == "struct" || n == "union" => {
+                let item = p.parse_item()?;
+                items.push(item);
+            }
             TokenKind::Let => {
                 let s = parse_let_stmt(p)?;
                 stmts.push(s);

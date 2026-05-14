@@ -1122,6 +1122,50 @@ new sdl.Window(...)             // sdl_window 由来
 
 `pub` は `fn` / `class` / `enum` / `const` / トップレベル `let` / `@extern(C){}` 内の宣言、およびクラスメンバ（`init` / メソッド / フィールド / プロパティ / `static`）に付けられる。`pub` がなければ module-private。属性の後ろにも書ける: `@flags pub enum Color { ... }`。
 
+### トップレベル `struct` / `union` (値型)
+
+`struct` / `union` 宣言は `@extern(C) { ... }` ブロックの **外** (モジュールのトップレベル) でも書ける。セマンティクスはブロック内版と同じ — **C レイアウト・値型・引数は値渡し**、フィールドのみでメソッド・継承なし、代入や引数渡しでコピーされる — ただしフィールドの型は **ilang 側の型** に限定される。バリデータは型を再帰的に追跡し、以下の C-only 型がどこかに登場すれば拒否する:
+
+- `char`
+- `void`
+- `size_t` / `ssize_t`
+- raw ポインタ (`*T` / `*const T`)
+
+```rust
+// OK — 全フィールドが ilang 側の型
+struct Point {
+    x: i32
+    y: i32
+}
+
+pub struct Rect {
+    width: i32
+    height: i32
+}
+
+union Value {
+    i: i64
+    f: f64
+}
+
+let p = new Point()
+p.x = 3
+p.y = 4
+```
+
+```rust
+// 型検査でエラー — `char` は C-only
+pub struct Bad {
+    c: char
+}
+```
+
+再帰的なチェックは名前付き struct / union の参照も追う。`struct Outer { inner: SomeCStruct }` は `SomeCStruct` の中のどこかに禁止型があれば拒否される。
+
+`char` / `void` / `size_t` / ポインタを含むフィールドが必要なら (例えば実在する C 型をミラーしたい場合)、その宣言は `@extern(C) { ... }` ブロックの中に置くこと。ブロック内版は型に関する制限を受けない。
+
+属性 (`@packed`, `@bits(N)`) はトップレベル形式では受け付けない。これらが必要なときは `@extern(C)` 形式を使う。
+
 ### `@extern(C) { ... }` — FFI ブロック
 
 C ABI で外部関数を呼び出す / C 互換の構造体を扱う / C グローバル変数にアクセスする全ての宣言は **`@extern(C) { ... }` ブロック** に閉じ込めます。raw ポインタ (`*T` / `*const T`) や C-only 型 (`char` / `void` / `size_t` / `ssize_t`) はブロック内でのみ書け、ブロックの外には漏れません。
