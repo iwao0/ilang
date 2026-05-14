@@ -28,13 +28,19 @@ unsafe extern "system" {
     ) -> i32;
 }
 
-pub(super) fn process_symbol_exists(name: &str) -> bool {
+/// Search for `name` in all loaded modules and return its address.
+/// On POSIX uses `dlsym(RTLD_DEFAULT)`. On Windows uses
+/// `EnumProcessModules` + `GetProcAddress` so symbols from DLLs
+/// loaded via `LoadLibraryA` (e.g. SDL2.dll) are found — Cranelift
+/// JIT's built-in Windows resolver only checks the main exe and
+/// ucrtbase.dll.
+pub(super) fn lookup_symbol_in_process(name: &str) -> Option<*const u8> {
     let mut nul = name.as_bytes().to_vec();
     nul.push(0);
     #[cfg(not(windows))]
     {
         let p = unsafe { dlsym(RTLD_DEFAULT, nul.as_ptr()) };
-        !p.is_null()
+        if p.is_null() { None } else { Some(p as *const u8) }
     }
     #[cfg(windows)]
     unsafe {
@@ -48,13 +54,20 @@ pub(super) fn process_symbol_exists(name: &str) -> bool {
             &mut needed,
         );
         if ok == 0 {
-            return false;
+            return None;
         }
         let count = (needed as usize) / std::mem::size_of::<*mut u8>();
-        modules[..count]
-            .iter()
-            .any(|&m| !m.is_null() && !GetProcAddress(m, nul.as_ptr()).is_null())
+        for &m in &modules[..count] {
+            if m.is_null() { continue; }
+            let p = GetProcAddress(m, nul.as_ptr());
+            if !p.is_null() { return Some(p as *const u8); }
+        }
+        None
     }
+}
+
+pub(super) fn process_symbol_exists(name: &str) -> bool {
+    lookup_symbol_in_process(name).is_some()
 }
 
 /// Stub for `@extern(C) @optional` fns whose lib / symbol couldn't

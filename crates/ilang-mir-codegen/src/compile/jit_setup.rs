@@ -13,7 +13,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 
 use ilang_mir::{FuncId, MirTy, Program};
 
-use super::host_misc::{host_optional_missing_stub, process_symbol_exists};
+use super::host_misc::{host_optional_missing_stub, lookup_symbol_in_process, process_symbol_exists};
 use super::host_os::try_open_lib;
 use super::print_kind::{
     kind_tag_of, kind_tag_of_print_kind, print_kind_id, print_kind_id_for_print_kind,
@@ -69,6 +69,11 @@ pub fn compile_with_builtins(
     }
 
     let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    // On Windows, Cranelift's built-in resolver only checks the main
+    // executable and ucrtbase.dll. Register a custom lookup that
+    // searches all loaded modules so DLLs opened via LoadLibraryA
+    // (e.g. SDL2.dll) are visible to the JIT.
+    jit_builder.symbol_lookup_fn(Box::new(|name| lookup_symbol_in_process(name)));
     // Always-available allocator. Allocates `size` bytes (zero-init)
     // via Rust's `Vec<u8>` and leaks the pointer. The MIR codegen's
     // ARC step is what eventually frees it; until then it's a small
