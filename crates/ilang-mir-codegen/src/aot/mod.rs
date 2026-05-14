@@ -369,7 +369,7 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
         .define_function(main_id, &mut ctx)
         .map_err(|e| AotError::Other(format!("define_function main: {e:?}")))?;
 
-    let mut product = module.finish();
+    let product = module.finish();
     // Embed an `LC_BUILD_VERSION` load command in the Mach-O output
     // when targeting macOS. Without it the system linker prints
     // "no platform load command found ... assuming: macOS" at every
