@@ -34,14 +34,7 @@ pub fn basename(p: string): string {
     // Walk back to the last non-empty segment to skip trailing /'s.
     let i = n - 1
     while i >= 0 && parts[i] == "" { i = i - 1 }
-    if i < 0 { "" } else {
-        // Bind to a local before returning — returning `parts[i]`
-        // directly hands back a pointer into the array, which the
-        // caller may read after `parts` is dropped (and its
-        // contained strings released along with it).
-        let s = parts[i]
-        s
-    }
+    if i < 0 { "" } else { parts[i] }
 }
 
 /// `basename(p)` with `ext` stripped from the result if it appears
@@ -221,26 +214,16 @@ pub class PathParts {
 
 /// Split a path into `{ dir, root, base, name, ext }`.
 pub fn parse(p: string): PathParts {
-    // The arguments below are passed *directly* to `new` (no
-    // intermediate `let s = ...; new PathParts(s, ...)` shape) —
-    // the compiler currently misses the retain in that pattern,
-    // so the field would end up dangling. Threading the call
-    // expressions straight in dodges the bug.
-    new PathParts(dirname(p), parseRoot(p), basename(p), parseName(p), extname(p))
-}
-
-fn parseRoot(p: string): string {
-    if isAbsolute(p) { "/" } else { "" }
-}
-
-fn parseName(p: string): string {
+    let root = if isAbsolute(p) { "/" } else { "" }
+    let dir = dirname(p)
     let base = basename(p)
     let ext = extname(p)
-    if ext.length > 0 {
+    let name = if ext.length > 0 {
         base.slice(0 as i64, base.length - ext.length)
     } else {
         base
     }
+    new PathParts(dir, root, base, name, ext)
 }
 
 /// Re-assemble a `PathParts`. `base` (when non-empty) wins over
