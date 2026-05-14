@@ -1965,6 +1965,54 @@ checking your platform's headers, or call libc directly through
 Both interpreter and JIT (the implementation reads / writes
 Rust's C-runtime errno directly).
 
+### Built-in `regex` module
+
+A regular-expression engine, exposed as a class. The runtime
+wraps Rust's [`regex`](https://docs.rs/regex) crate, so patterns
+are real regular languages — fast linear-time matching, **no
+backreferences, no lookaround**.
+
+```rust
+use regex
+
+let r = new regex.Regex("foo+", "i")
+
+r.test("Hello FOOO")            // true
+r.find("yes FOO no")            // some("FOO")
+r.findAll("foo Foo FOO")        // ["foo", "Foo", "FOO"]
+r.replace("foo and FOO", "X")   // "X and X"
+r.split("a foo b Foo c")        // ["a ", " b ", " c"]
+```
+
+**Construction:**
+- `new regex.Regex(pattern: string, flags: string)` — compile a
+  pattern. Aborts the process on a malformed pattern (same shape
+  as other "construction can't fail at runtime" builtins).
+
+**Methods:**
+- `test(s: string): bool` — does the pattern match anywhere in
+  `s`.
+- `find(s: string): string?` — the first match's substring, or
+  `none`.
+- `findAll(s: string): string[]` — every non-overlapping match,
+  left-to-right.
+- `replace(s: string, replacement: string): string` — replace
+  **all** matches with `replacement`. `$1`, `$2`, … reference
+  capture groups (regex-crate replacement syntax).
+- `split(s: string): string[]` — split `s` at every match.
+
+**Flags** (passed as a string; pass `""` for none):
+- `i` — case-insensitive
+- `m` — multi-line (`^`/`$` match line boundaries)
+- `s` — dot-matches-newline
+- `x` — extended / ignore whitespace inside the pattern
+
+Unknown flag characters abort with a diagnostic.
+
+The compiled pattern lives on the Rust heap behind an opaque
+handle; the wrapper's `deinit` frees it when the `Regex`
+object's refcount drops to zero. Both interpreter and JIT.
+
 ### `const` (constant declaration)
 
 Top-level immutable constants. The RHS is restricted to

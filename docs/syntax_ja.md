@@ -1479,6 +1479,42 @@ if tryOpen("/missing", "r") == 0 as i32 {
 
 interpreter / JIT 両対応 (Rust の C runtime の errno を直接読み書きする実装で共通)
 
+### 組み込み `regex` モジュール
+
+正規表現エンジン。クラスとして提供される。ランタイムは Rust の [`regex`](https://docs.rs/regex) crate を薄くラップしているため、パターンは真の正規言語に限られる — 線形時間で高速にマッチするかわりに、**後方参照 (backreference) と先読み / 後読み (lookaround) は使えない**。
+
+```rust
+use regex
+
+let r = new regex.Regex("foo+", "i")
+
+r.test("Hello FOOO")            // true
+r.find("yes FOO no")            // some("FOO")
+r.findAll("foo Foo FOO")        // ["foo", "Foo", "FOO"]
+r.replace("foo and FOO", "X")   // "X and X"
+r.split("a foo b Foo c")        // ["a ", " b ", " c"]
+```
+
+**構築:**
+- `new regex.Regex(pattern: string, flags: string)` — パターンをコンパイル。不正なパターンを与えるとプロセスを abort する (他の「実行時に失敗しない構築」系の組み込みと同じ挙動)
+
+**メソッド:**
+- `test(s: string): bool` — `s` のどこかにマッチするか
+- `find(s: string): string?` — 最初にマッチした部分文字列。なければ `none`
+- `findAll(s: string): string[]` — 重ならない全マッチを左から順に
+- `replace(s: string, replacement: string): string` — **すべての** マッチを `replacement` に置換。`$1`, `$2`, … でキャプチャグループを参照できる (regex crate の置換構文)
+- `split(s: string): string[]` — マッチ位置で分割
+
+**フラグ** (文字列で渡す。なしの場合は `""`):
+- `i` — 大文字小文字を区別しない
+- `m` — 複数行 (`^` / `$` が行境界にマッチ)
+- `s` — `.` が改行にもマッチ
+- `x` — 拡張モード / パターン中の空白を無視
+
+未知のフラグ文字を渡すと診断メッセージを出して abort する
+
+コンパイル済みパターンは不透明なハンドル経由で Rust ヒープ上に保持され、ラッパーの `deinit` で `Regex` オブジェクトの refcount が 0 になったタイミングで解放される。interpreter / JIT 両対応
+
 ### `const` (定数宣言)
 
 トップレベルで不変の定数を宣言できます。RHS には **コンパイル時に値が決まる式** が書けます。loader の inline pass で folding され、参照箇所はリテラルに置換されます。
