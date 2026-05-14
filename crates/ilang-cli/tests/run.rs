@@ -93,7 +93,12 @@ fn use_selective_through_export_chain() {
     write_module(
         &dir,
         "umbrella",
-        "pub use lib_inner\n\
+        // Flatten the re-export (`pub use M as _ { * }`) so the
+        // inner module's `Color` lives at `umbrella.Color` — the
+        // selective `use umbrella { Color }` below depends on that.
+        // The plain `pub use lib_inner` form is namespaced and would
+        // put `Color` at `umbrella.lib_inner.Color`.
+        "pub use lib_inner as _ { * }\n\
          pub fn paint(c: Color): i32 { c as i32 }",
     );
     let main = write_module(

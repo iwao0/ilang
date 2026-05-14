@@ -221,7 +221,7 @@ fn emits_object_for_virtual_dispatch() {
         class Shape {
           area(): i64 { 0 }
         }
-        class Box extends Shape {
+        class Box: Shape {
           w: i64
           h: i64
           init(w: i64, h: i64) { this.w = w; this.h = h }

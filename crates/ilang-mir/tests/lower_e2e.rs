@@ -367,7 +367,7 @@ fn class_inheritance_super() {
             speak(): string { "generic" }
             describe(): string { this.name + " says " + this.speak() }
         }
-        class Dog extends Animal {
+        class Dog: Animal {
             init(n: string) { super(n) }
             override speak(): string { "woof" }
         }
@@ -385,7 +385,7 @@ fn class_inheritance_super() {
 fn rtti_is_and_downcast() {
     let src = r#"
         class A { init() {} }
-        class B extends A { init() { super() } }
+        class B: A { init() { super() } }
         let b: A = new B()
         let is_b = b is B
         let opt: B? = b as? B

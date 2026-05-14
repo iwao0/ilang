@@ -266,7 +266,7 @@ fn fn_value_passed_as_arg() {
 fn rtti_is_instance_match() {
     let src = r#"
         class A { init() {} }
-        class B extends A { init() { super() } }
+        class B: A { init() { super() } }
         let b = new B()
         if b is B { 1 } else { 0 }
     "#;
@@ -277,7 +277,7 @@ fn rtti_is_instance_match() {
 fn rtti_is_instance_parent() {
     let src = r#"
         class A { init() {} }
-        class B extends A { init() { super() } }
+        class B: A { init() { super() } }
         let b = new B()
         if b is A { 1 } else { 0 }
     "#;
@@ -288,7 +288,7 @@ fn rtti_is_instance_parent() {
 fn rtti_downcast_some() {
     let src = r#"
         class A { init() {} }
-        class B extends A { init() { super() } }
+        class B: A { init() { super() } }
         let a: A = new B()
         if let some(_) = a as? B { 1 } else { 0 }
     "#;
@@ -472,7 +472,7 @@ fn virtual_dispatch_via_parent_ref() {
             init() {}
             value(): i64 { 1 }
         }
-        class Dog extends Animal {
+        class Dog: Animal {
             init() { super() }
             override value(): i64 { 42 }
         }
