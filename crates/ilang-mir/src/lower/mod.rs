@@ -896,6 +896,11 @@ impl<'a> BodyCx<'a> {
                 // already retains for the caller.
                 None => false,
             },
+            // `Index` / `Field` tails are borrow expressions that
+            // `lower_block` now retains BEFORE its scope-exit
+            // releases — emitting another retain here would
+            // double-count.
+            ExprKind::Index { .. } | ExprKind::Field { .. } => false,
             _ => true,
         }
     }
@@ -1000,8 +1005,23 @@ impl<'a> BodyCx<'a> {
             _ => None,
         });
         let tail_aliases_local = tail_alias_name.is_some();
+        // Heap-typed tails that **borrow** into a still-live owner
+        // (e.g. `arr[i]` reads from `arr`'s element area;
+        // `obj.field` reads from `obj`'s slot) need an extra +1
+        // here, BEFORE the scope-exit releases below — otherwise
+        // the borrowed pointer would dangle by the time the caller
+        // dereferences it. Restrict to the syntactic shapes we
+        // know are borrows (`Index` / `Field`); other non-`Var`
+        // shapes (calls, `super(...)`, literals) already manage
+        // their own ownership and would over-retain.
+        let tail_is_borrow = blk.tail.as_ref().is_some_and(|e| {
+            matches!(&e.kind, ExprKind::Index { .. } | ExprKind::Field { .. })
+        });
         let tail = match tail {
-            Some((v, ty)) if tail_needs_retain(&ty) && tail_aliases_local => {
+            Some((v, ty))
+                if tail_needs_retain(&ty)
+                    && (tail_aliases_local || tail_is_borrow) =>
+            {
                 self.fb.push_inst(Inst::Retain { value: v });
                 Some((v, ty))
             }

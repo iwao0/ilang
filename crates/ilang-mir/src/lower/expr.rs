@@ -257,18 +257,32 @@ impl<'a> BodyCx<'a> {
                         | MirTy::Map { .. }
                         | MirTy::Optional(_)
                         | MirTy::Fn(_)
+                        // Str was missing here: assigning a
+                        // function-local `let s = fnReturning(); ...
+                        // this.f = s` skipped the retain, so when `s`
+                        // released at scope exit the field's pointer
+                        // dangled. Treat string fields like every
+                        // other heap-typed field.
+                        | MirTy::Str
                 );
                 if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });
                     }
-                    let old = self.fb.new_value(fty.clone());
-                    self.fb.push_inst(Inst::LoadField {
-                        dst: old,
-                        obj: ov,
-                        field: fid,
-                    });
-                    self.fb.push_inst(Inst::Release { value: old });
+                    // For init-style writes (`this.f = v` from inside
+                    // `init`) the slot's previous content is the
+                    // freshly-allocated zeroed bytes, not a real heap
+                    // pointer — skip the load+release that would
+                    // otherwise free a NULL / garbage pointer.
+                    if !*is_init {
+                        let old = self.fb.new_value(fty.clone());
+                        self.fb.push_inst(Inst::LoadField {
+                            dst: old,
+                            obj: ov,
+                            field: fid,
+                        });
+                        self.fb.push_inst(Inst::Release { value: old });
+                    }
                 }
                 self.fb.push_inst(Inst::StoreField { obj: ov, field: fid, value: vv });
                 Ok((self.const_unit(), MirTy::Unit))
