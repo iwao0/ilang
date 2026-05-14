@@ -9,6 +9,16 @@ unsafe extern "C" {
 }
 #[cfg(not(windows))]
 const RTLD_LAZY: i32 = 1;
+// `RTLD_GLOBAL` differs per-platform. Required so the loaded library's
+// symbols enter the global lookup scope and `dlsym(RTLD_DEFAULT, …)`
+// — what `lookup_symbol_in_process` uses — can resolve them. Without
+// it the dlopen succeeds but JIT-side symbol resolution still misses.
+#[cfg(target_os = "linux")]
+const RTLD_GLOBAL: i32 = 0x100;
+#[cfg(target_os = "macos")]
+const RTLD_GLOBAL: i32 = 0x8;
+#[cfg(all(not(windows), not(target_os = "linux"), not(target_os = "macos")))]
+const RTLD_GLOBAL: i32 = 0x100;
 
 #[cfg(windows)]
 unsafe extern "system" {
@@ -20,7 +30,7 @@ pub(super) fn try_open_lib(name: &str) -> Option<*mut u8> {
         let mut nul = n.as_bytes().to_vec();
         nul.push(0);
         #[cfg(not(windows))]
-        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY | RTLD_GLOBAL) };
         #[cfg(windows)]
         let h = unsafe { LoadLibraryA(nul.as_ptr()) };
         if h.is_null() { None } else { Some(h) }
