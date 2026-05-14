@@ -29,48 +29,36 @@ Then:
 ```rust
 use sqlite3
 
-match sqlite3.Database.open(":memory:") {
-    ok(db) {
-        match db.exec("CREATE TABLE t (k INTEGER, v TEXT)") {
-            ok(_) { console.log("created") }
-            err(e) { console.log("create failed:", e.message) }
-        }
+// Result-returning helper — `?` short-circuits the first error
+// up to `run`'s caller, so the body reads top-to-bottom without
+// per-call match nesting.
+fn run(): Result<i32, sqlite3.SqliteError> {
+    let db = sqlite3.Database.open(":memory:")?
+    db.exec("CREATE TABLE t (k INTEGER, v TEXT)")?
 
-        match db.prepare("INSERT INTO t VALUES (?, ?)") {
-            ok(stmt) {
-                let _ = stmt.bindInt(1, 42)
-                let _ = stmt.bindText(2, "answer")
-                let _ = stmt.step()
-            }
-            err(e) { console.log("prep failed:", e.message) }
-        }
+    let insert = db.prepare("INSERT INTO t VALUES (?, ?)")?
+    insert.bindInt(1, 42)?
+    insert.bindText(2, "answer")?
+    insert.step()?
 
-        match db.prepare("SELECT k, v FROM t ORDER BY k") {
-            ok(stmt) {
-                let going = true
-                while going {
-                    match stmt.step() {
-                        ok(state) {
-                            match state {
-                                row {
-                                    console.log("row:",
-                                        stmt.columnInt(0),
-                                        stmt.columnText(1))
-                                }
-                                done { going = false }
-                            }
-                        }
-                        err(e) {
-                            console.log("step error:", e.message)
-                            going = false
-                        }
-                    }
-                }
+    let select = db.prepare("SELECT k, v FROM t ORDER BY k")?
+    let going = true
+    while going {
+        match select.step()? {
+            row {
+                console.log("row:",
+                    select.columnInt(0),
+                    select.columnText(1))
             }
-            err(e) { console.log("query failed:", e.message) }
+            done { going = false }
         }
     }
-    err(e) { console.log("open failed:", e.message) }
+    Result.ok(0 as i32)
+}
+
+match run() {
+    ok(_) { console.log("done") }
+    err(e) { console.log("error:", e.message) }
 }
 ```
 
