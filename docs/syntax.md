@@ -2157,42 +2157,21 @@ console.log(ICON_BYTES.length)
 
 | Mode | Command | Notes |
 | --- | --- | --- |
-| Tree-walking | `ilang run path.il` | Every feature except FFI; fast startup |
-| Cranelift JIT (legacy) | `ilang run --jit path.il` | Native code; tens to hundreds of times faster than the interpreter |
-| MIR → Cranelift JIT | `ilang run --mir-jit path.il` | New AST → MIR → clif pipeline (in progress; non-FFI subset) |
-| REPL | `ilang` (no args) | Line-by-line evaluation, `let`/`fn`/`class` persist; interpreter only |
+| JIT | `ilang run path.il` | AST → MIR → Cranelift IR → in-process native code |
+| AOT | `ilang build path.il -o out` | Same pipeline, written to a Mach-O / ELF / COFF object and linked into a standalone executable |
+| REPL | `ilang` (no args) | Line-by-line evaluation via the same JIT; `let` / `fn` / `class` definitions persist across chunks |
+
+Both `run` and `build` go through the same lowering chain
+(`ilang_parser::loader` → `ilang_types::TypeChecker` →
+`ilang_mir::lower_program` → `ilang_mir_codegen::compile_program`)
+— the only difference is whether Cranelift emits in-memory code
+(JIT) or an object file (AOT). The legacy tree-walking
+interpreter and the pre-MIR `ilang-codegen` JIT have both been
+removed; the MIR pipeline is the only execution path.
 
 The CLI walks upward from the entry file looking for an
 `ilang.toml`. If present, each `[deps]` value adds an extra
 search directory the loader uses for `use module` resolution.
-
-JIT-only (legacy `--jit`):
-- Static fields are limited to `i64` / `f64` / `bool` (no
-  string / object yet).
-- Inheritance / static members / properties on generic classes
-  aren't supported (type-parameter resolution constraints).
-
-Interpreter-only:
-- `@extern(C) { @lib(...) fn ... }` requires dlsym, which the
-  interpreter doesn't drive — host-form (`@lib` omitted) bare
-  functions still work in both modes.
-
-`--mir-jit` (new pipeline):
-- Lowering: `ilang_parser::loader` → `ilang_types::TypeChecker` →
-  `ilang_types::mangle::mangle_overloads` → `ilang_mir::lower_program`
-  (AST → MIR) → `ilang_mir_codegen::compile_program` (MIR → clif) →
-  Cranelift JIT.
-- Covers: numerics, control flow, classes (incl. inheritance with
-  virtual dispatch via runtime vtable lookup), arrays (push/pop/
-  map/filter/forEach/indexOf), tuples, optionals, enums (incl.
-  match), maps, closures (capturing locals + nested), RTTI
-  (typeof/is/as?/weak), strings (length/concat/eq/toUpper/toLower/
-  trim/includes/startsWith/endsWith/charAt/slice/replace/split),
-  static / const fields, `console.log` (variadic).
-- Not yet covered (falls back with a clear error): `@extern(C)`
-  FFI dlsym, generic instantiations (use `--jit`), full ARC
-  (heap allocations leak — fine for short-running programs and
-  test harnesses).
 
 ---
 
@@ -2206,9 +2185,6 @@ Interpreter-only:
 - **Named arguments** (`open(path: "x", mode: "w")`) — default
   arguments are implemented; named-call sites are not.
 - **Operator overloading** (`class Vec2 { + (other: Vec2): Vec2 { ... } }`).
-- **Trait / Interface** (shape-based abstraction, orthogonal to
-  inheritance).
-- **Destructuring** (`let (a, b) = pair` / `let { x, y } = point`).
 - **Async / await** (concurrency).
 - **Generic constraints (bounds)**.
 - **Method overloading across the inheritance hierarchy** (only
