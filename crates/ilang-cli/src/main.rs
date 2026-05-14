@@ -254,8 +254,13 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
         let mut cmd = std::process::Command::new(&cc);
         cmd.arg(&object_path).arg("-o").arg(output);
-        // Dead-strip unused runtime helpers from the archive.
+        // Dead-strip unused runtime helpers from the archive. The flag
+        // name differs per linker: ld64 (macOS) takes `-dead_strip`,
+        // GNU/LLD use `--gc-sections`.
+        #[cfg(target_os = "macos")]
         cmd.arg("-Wl,-dead_strip");
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        cmd.arg("-Wl,--gc-sections");
         if let Some(rt) = locate_runtime_lib() {
             cmd.arg(&rt);
         }
@@ -270,6 +275,15 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         }
         for lib in &seen_libs {
             cmd.arg(format!("-l{lib}"));
+        }
+        // Linux: the runtime's `math.*` wrappers pull in glibc's libm
+        // (exp/sin/...) which must be linked explicitly. pthread/dl are
+        // commonly required by transitive deps; harmless if unused.
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        {
+            cmd.arg("-lm");
+            cmd.arg("-lpthread");
+            cmd.arg("-ldl");
         }
         let status = cmd.status();
         match status {
