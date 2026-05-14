@@ -361,6 +361,13 @@ pub struct ConstDecl {
     pub name: Symbol,
     pub ty: Option<crate::types::Type>,
     pub value: crate::expr::Expr,
+    /// `@embed("path/to/file")` attribute. When `Some`, the parser
+    /// leaves `value` as a placeholder; the loader resolves the
+    /// path (relative to the declaring source file), reads the
+    /// file's contents, validates them against `ty`, and replaces
+    /// `value` with the synthesised literal. The path is stored
+    /// verbatim — slashes / dots are kept as-is.
+    pub embed_path: Option<Symbol>,
     pub span: Span,
 }
 

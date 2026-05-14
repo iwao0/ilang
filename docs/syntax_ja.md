@@ -1584,6 +1584,24 @@ double(21)                          // 42
 - 同梱 `math` モジュールの `pi` / `e` はこの仕組みで定義されている
 - モジュール越しに `math.pi` のように参照可能 (loader が `math.pi` という qualified 名で扱う)
 
+#### `@embed("path") const X: T` — ファイル埋め込み
+
+`const` の値を **コンパイル時にファイルから読み込む** 形式。Zig の `@embedFile` 相当。パスは **宣言が書かれているソースファイル** からの相対で解決される。
+
+```rust
+@embed("assets/banner.txt") const BANNER: string
+@embed("assets/icon.png")   const ICON_BYTES: u8[]
+
+console.log(BANNER)
+console.log(ICON_BYTES.length)
+```
+
+- `@embed` 付き const に `= ...` は書けない (値はファイル由来)。型注釈は **必須**
+- `: string` の場合、ファイルは UTF-8 として読まれる。不正な UTF-8 はコンパイルエラー (バイナリファイルは `u8[]` を使う)
+- `: u8[]` の場合、ファイルは生バイト列として読まれる。各バイトが `u8` 要素になる。大きい埋め込みは runtime の配列初期化 (プログラム起動時に materialise) として残る
+- それ以外の型注釈は拒否される
+- ファイルが見つからなければ通常の loader エラーになる
+
 ---
 
 ## 14. コメント

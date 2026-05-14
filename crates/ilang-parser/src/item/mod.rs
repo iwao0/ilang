@@ -185,15 +185,40 @@ impl<'a> Parser<'a> {
                 Ok(Item::Use(u))
             }
             TokenKind::Const => {
-                if !attrs.is_empty() {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "'fn' (attributes on `const` are not supported)".into(),
-                        span: t.span,
-                    });
+                // The only attribute supported on `const` is
+                // `@embed("path")`, which initialises the constant
+                // from a file at compile time (see `parse_const_decl`
+                // for the per-form rules).
+                let mut embed_path: Option<ilang_ast::Symbol> = None;
+                for a in &attrs {
+                    match a.name.as_str() {
+                        "embed" => {
+                            let bad = ParseError::Unexpected {
+                                found: TokenKind::At,
+                                expected: "@embed(\"path/to/file\") — exactly one string argument".into(),
+                                span: self.peek().span,
+                            };
+                            if a.args.len() != 1 {
+                                return Err(bad);
+                            }
+                            match &a.args[0] {
+                                ilang_ast::AttrArg::Str(s) => {
+                                    embed_path = Some(s.as_str().into());
+                                }
+                                _ => return Err(bad),
+                            }
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "unknown attribute on `const` (only `@embed(\"path\")` is supported)".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
                 }
-                let mut c = self.parse_const_decl()?;
+                let mut c = self.parse_const_decl(embed_path)?;
                 c.is_pub = is_pub;
                 Ok(Item::Const(c))
             }
@@ -246,7 +271,17 @@ impl<'a> Parser<'a> {
     /// Restricted to literal RHS (numeric / bool / string, with
     /// optional unary minus on numerics). Anything more elaborate is
     /// rejected so the substitution pass stays trivial.
-    fn parse_const_decl(&mut self) -> Result<ilang_ast::ConstDecl, ParseError> {
+    ///
+    /// When `embed_path` is `Some`, the const is being initialised
+    /// from a file via `@embed("path")` — `=` must be absent and the
+    /// type annotation must be present (we can't infer `string` vs
+    /// `u8[]` from the file alone). A placeholder `value` is stored
+    /// so downstream passes have a well-typed `ConstDecl`; the
+    /// loader replaces it once the file is read.
+    fn parse_const_decl(
+        &mut self,
+        embed_path: Option<ilang_ast::Symbol>,
+    ) -> Result<ilang_ast::ConstDecl, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::Const, "'const'")?;
         let name = self.expect_ident("constant name")?;
@@ -256,6 +291,46 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        if embed_path.is_some() {
+            // `@embed("...")` initialises the const from a file; the
+            // user must not also write `= <expr>`. The type annotation
+            // is mandatory so the loader knows whether to produce a
+            // `string` (UTF-8 text) or a `u8[]` (raw bytes).
+            if matches!(self.peek().kind, TokenKind::Equals) {
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: "no `= ...` on a `@embed(\"...\") const` — the value comes from the file".into(),
+                    span: t.span,
+                });
+            }
+            if ty.is_none() {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::Const,
+                    expected: "type annotation required on `@embed(\"...\") const` (use `: string` or `: u8[]`)".into(),
+                    span,
+                });
+            }
+            // Placeholder value — replaced by the loader after the
+            // file is read. Pick a literal shape that matches the
+            // declared type so any pre-loader walker stays happy.
+            let placeholder_kind = match &ty {
+                Some(ilang_ast::Type::Str) => ilang_ast::ExprKind::Str(String::new()),
+                _ => ilang_ast::ExprKind::Array(Box::new([])),
+            };
+            let value = ilang_ast::Expr {
+                kind: placeholder_kind,
+                span,
+            };
+            return Ok(ilang_ast::ConstDecl {
+                is_pub: false,
+                name,
+                ty,
+                value,
+                embed_path,
+                span,
+            });
+        }
         if !matches!(self.peek().kind, TokenKind::Equals) {
             let t = self.peek();
             return Err(ParseError::Unexpected {
@@ -273,6 +348,7 @@ impl<'a> Parser<'a> {
             name,
             ty,
             value,
+            embed_path: None,
             span,
         })
     }

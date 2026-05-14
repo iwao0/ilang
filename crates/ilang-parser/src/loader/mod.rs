@@ -312,7 +312,79 @@ fn parse_file(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program
     };
     let toks = ilang_lexer::tokenize(&src)
         .map_err(|e| LoadError::LexError(e.to_string()))?;
-    crate::parse(&toks).map_err(LoadError::ParseError)
+    let mut prog = crate::parse(&toks).map_err(LoadError::ParseError)?;
+    expand_embeds(&mut prog, file)?;
+    Ok(prog)
+}
+
+/// Resolve `@embed("path/to/file") const X: T` declarations. The
+/// path is taken relative to the **declaring source file** (Zig's
+/// `@embedFile` rule). On the entry side we accept two type shapes:
+///
+/// - `: string` — the file is read as UTF-8 (invalid UTF-8 is a
+///   `BadConst` error) and the const's value is replaced with a
+///   `Str` literal.
+/// - `: u8[]` — the file is read as raw bytes and the value becomes
+///   an `Array` literal of `Int(byte)` elements. Large embeds keep
+///   their array shape; the const-folder leaves array initialisers
+///   as runtime one-shot inits so the AST stays cheap.
+fn expand_embeds(prog: &mut Program, source_file: &Path) -> Result<(), LoadError> {
+    let source_dir = source_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    for item in prog.items.iter_mut() {
+        let Item::Const(c) = item else { continue };
+        let Some(rel) = c.embed_path.clone() else { continue };
+        let path = source_dir.join(rel.as_str());
+        let bytes = std::fs::read(&path).map_err(|e| LoadError::ReadError {
+            path: path.clone(),
+            message: format!("@embed({:?}): {e}", rel.as_str()),
+        })?;
+        let span = c.value.span;
+        match &c.ty {
+            Some(ilang_ast::Type::Str) => {
+                let s = std::str::from_utf8(&bytes).map_err(|e| LoadError::BadConst {
+                    name: c.name.clone(),
+                    reason: format!(
+                        "@embed({:?}): file is not valid UTF-8 ({e}). Declare the const as `u8[]` to read raw bytes.",
+                        rel.as_str()
+                    ),
+                    span,
+                })?;
+                c.value = ilang_ast::Expr {
+                    kind: ilang_ast::ExprKind::Str(s.to_string()),
+                    span,
+                };
+            }
+            Some(ilang_ast::Type::Array { elem, .. })
+                if matches!(**elem, ilang_ast::Type::U8) =>
+            {
+                let elems: Vec<ilang_ast::Expr> = bytes
+                    .iter()
+                    .map(|b| ilang_ast::Expr {
+                        kind: ilang_ast::ExprKind::Int(*b as i64),
+                        span,
+                    })
+                    .collect();
+                c.value = ilang_ast::Expr {
+                    kind: ilang_ast::ExprKind::Array(elems.into_boxed_slice()),
+                    span,
+                };
+            }
+            other => {
+                return Err(LoadError::BadConst {
+                    name: c.name.clone(),
+                    reason: format!(
+                        "@embed only supports `: string` or `: u8[]` (got {:?})",
+                        other
+                    ),
+                    span,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 fn apply_use(

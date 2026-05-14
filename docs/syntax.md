@@ -2107,6 +2107,30 @@ double(21)                          // 42
 - References across modules work fine (the loader stores the
   qualified name `math.pi`).
 
+#### `@embed("path") const X: T` — file embedding
+
+A `const` whose value is **read from a file at compile time**.
+Models Zig's `@embedFile`. The path is resolved **relative to the
+declaring source file**.
+
+```rust
+@embed("assets/banner.txt") const BANNER: string
+@embed("assets/icon.png")   const ICON_BYTES: u8[]
+
+console.log(BANNER)
+console.log(ICON_BYTES.length)
+```
+
+- `=` is **forbidden** on a `@embed` const — the value comes from
+  the file. The type annotation is **required**.
+- `: string` reads the file as UTF-8. Invalid UTF-8 is a
+  compile-time error (use `u8[]` for binary files).
+- `: u8[]` reads the file as raw bytes. Each byte becomes a `u8`
+  element. Large embeds stay as a runtime array initialiser (the
+  array is materialised at program start).
+- Any other type annotation is rejected.
+- Missing files surface as a normal loader error.
+
 ---
 
 ## 14. Comments
