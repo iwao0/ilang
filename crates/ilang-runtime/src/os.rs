@@ -71,12 +71,19 @@ pub extern "C" fn os_set_errno(code: i32) {
 // `os.libLoaded` / `os.libLoadError` — `@lib(...)` fallback groups
 // --------------------------------------------------------------------
 
+#[cfg(not(windows))]
 unsafe extern "C" {
     fn dlopen(path: *const u8, flags: i32) -> *mut u8;
     fn dlerror() -> *const u8;
 }
-
+#[cfg(not(windows))]
 const RTLD_LAZY: i32 = 1;
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn LoadLibraryA(lpFileName: *const u8) -> *mut u8;
+    fn GetLastError() -> u32;
+}
 
 /// `@lib("primary", "fallback")` fallback groups. Each group is a
 /// vector of library names declared on the same fn. Registered at
@@ -122,7 +129,10 @@ fn try_open_lib(name: &str) -> bool {
     let try_one = |n: &str| -> bool {
         let mut nul = n.as_bytes().to_vec();
         nul.push(0);
+        #[cfg(not(windows))]
         let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        #[cfg(windows)]
+        let h = unsafe { LoadLibraryA(nul.as_ptr()) };
         !h.is_null()
     };
     if try_one(name) {
@@ -196,6 +206,7 @@ pub extern "C" fn os_lib_loaded(name: i64) -> i64 {
 /// Read a NUL-terminated C string into bytes — `dlerror` returns a
 /// libc-owned `*const u8` without the ilang `[i64 len | …]` prefix,
 /// so we walk for `\0` instead of peeking at offset -8.
+#[cfg(not(windows))]
 unsafe fn raw_c_str_bytes<'a>(p: *const u8) -> &'a [u8] {
     if p.is_null() {
         return &[];
@@ -217,20 +228,32 @@ pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
         let bytes = unsafe { cstr_bytes(name) };
         String::from_utf8_lossy(bytes).into_owned()
     };
-    // Re-attempt dlopen so dlerror is fresh for this name.
+    // Re-attempt open so we get a fresh error for this name.
     let mut nul = n.as_bytes().to_vec();
     nul.push(0);
-    let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
-    if !h.is_null() {
-        return leak_cstring(String::new());
-    }
-    unsafe {
-        let p = dlerror();
-        if p.is_null() {
-            leak_cstring(format!("could not load `{n}`"))
-        } else {
-            let bytes = raw_c_str_bytes(p);
-            leak_cstring(String::from_utf8_lossy(bytes).into_owned())
+    #[cfg(not(windows))]
+    {
+        let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        if !h.is_null() {
+            return leak_cstring(String::new());
         }
+        unsafe {
+            let p = dlerror();
+            if p.is_null() {
+                leak_cstring(format!("could not load `{n}`"))
+            } else {
+                let bytes = raw_c_str_bytes(p);
+                leak_cstring(String::from_utf8_lossy(bytes).into_owned())
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let h = unsafe { LoadLibraryA(nul.as_ptr()) };
+        if !h.is_null() {
+            return leak_cstring(String::new());
+        }
+        let code = unsafe { GetLastError() };
+        leak_cstring(format!("could not load `{n}` (error {code})"))
     }
 }

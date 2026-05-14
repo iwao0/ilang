@@ -134,10 +134,23 @@ pub(super) fn lower_cast(
             // catch. The `_sat` forms clamp to the destination
             // type's min/max instead, matching the semantics most
             // ilang code expects (alpha * 255 → 0..255).
-            if dst_ty.is_unsigned_int() {
-                fb.ins().fcvt_to_uint_sat(dst_ct, src)
+            //
+            // Cranelift's x64 backend only supports I32/I64 as the
+            // destination for saturating float→int instructions.
+            // For narrower targets (i8/i16) we convert to I32 first
+            // then truncate, which preserves the saturation semantics
+            // (e.g. f64→i16 saturates at ±32767 because the I32
+            // result is in range and ireduce just takes the low bits).
+            let effective_ct = if dst_ct.bits() < 32 { types::I32 } else { dst_ct };
+            let converted = if dst_ty.is_unsigned_int() {
+                fb.ins().fcvt_to_uint_sat(effective_ct, src)
             } else {
-                fb.ins().fcvt_to_sint_sat(dst_ct, src)
+                fb.ins().fcvt_to_sint_sat(effective_ct, src)
+            };
+            if dst_ct.bits() < 32 {
+                fb.ins().ireduce(dst_ct, converted)
+            } else {
+                converted
             }
         }
         CastKind::FloatResize => {

@@ -54,17 +54,26 @@ impl From<CompileError> for AotError {
     }
 }
 
+#[cfg(not(windows))]
 unsafe extern "C" {
     fn dlopen(path: *const u8, flags: i32) -> *mut u8;
 }
-
+#[cfg(not(windows))]
 const RTLD_LAZY: i32 = 1;
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn LoadLibraryA(lpFileName: *const u8) -> *mut u8;
+}
 
 fn lib_loadable(name: &str) -> bool {
     let try_one = |n: &str| -> bool {
         let mut nul = n.as_bytes().to_vec();
         nul.push(0);
+        #[cfg(not(windows))]
         let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        #[cfg(windows)]
+        let h = unsafe { LoadLibraryA(nul.as_ptr()) };
         !h.is_null()
     };
     if try_one(name) {

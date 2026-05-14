@@ -3,17 +3,26 @@
 //! the JIT side has a chance to load each declared shared library
 //! up front.
 
+#[cfg(not(windows))]
 unsafe extern "C" {
     fn dlopen(path: *const u8, flags: i32) -> *mut u8;
 }
-
+#[cfg(not(windows))]
 const RTLD_LAZY: i32 = 1;
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn LoadLibraryA(lpFileName: *const u8) -> *mut u8;
+}
 
 pub(super) fn try_open_lib(name: &str) -> Option<*mut u8> {
     let try_one = |n: &str| -> Option<*mut u8> {
         let mut nul = n.as_bytes().to_vec();
         nul.push(0);
+        #[cfg(not(windows))]
         let h = unsafe { dlopen(nul.as_ptr(), RTLD_LAZY) };
+        #[cfg(windows)]
+        let h = unsafe { LoadLibraryA(nul.as_ptr()) };
         if h.is_null() { None } else { Some(h) }
     };
     if let Some(h) = try_one(name) {

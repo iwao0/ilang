@@ -65,7 +65,8 @@ fn main() -> ExitCode {
 fn locate_runtime_lib() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let candidate = dir.join("libilang_runtime.a");
+    let lib_name = if cfg!(windows) { "ilang_runtime.lib" } else { "libilang_runtime.a" };
+    let candidate = dir.join(lib_name);
     if candidate.exists() {
         Some(candidate)
     } else {

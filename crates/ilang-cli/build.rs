@@ -31,7 +31,8 @@ fn main() {
         .nth(3)
         .expect("OUT_DIR shape (target/<profile>/build/<crate>/out)")
         .to_path_buf();
-    let dest = profile_dir.join("libilang_runtime.a");
+    let lib_filename = if cfg!(windows) { "ilang_runtime.lib" } else { "libilang_runtime.a" };
+    let dest = profile_dir.join(lib_filename);
 
     let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".into());
 
@@ -59,7 +60,7 @@ fn main() {
         panic!("cargo build of ilang-runtime failed (status: {status:?})");
     }
 
-    let source = sub_target.join(&profile).join("libilang_runtime.a");
+    let source = sub_target.join(&profile).join(lib_filename);
     fs::copy(&source, &dest).unwrap_or_else(|e| {
         panic!(
             "copying {:?} → {:?} failed: {e}",
