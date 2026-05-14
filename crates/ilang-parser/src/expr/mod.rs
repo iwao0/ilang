@@ -373,6 +373,102 @@ impl<'a> Parser<'a> {
                         span,
                     );
                 }
+                // Postfix `?` — Result short-circuit. `e?` evaluates
+                // to the `ok` payload when `e` is `Result.ok(v)`, or
+                // early-returns `Result.err(err)` from the enclosing
+                // fn when `e` is `Result.err(err)`.
+                //
+                // Desugars in-place to
+                //   { let __try_L_C = <e>
+                //     match __try_L_C {
+                //         ok(__try_v_L_C) { __try_v_L_C }
+                //         err(__try_e_L_C) { return Result.err(__try_e_L_C) }
+                //     } }
+                // where L_C tags the names with the `?`'s source
+                // position so multiple uses in one fn don't collide.
+                TokenKind::Question => {
+                    let q_span = self.peek().span;
+                    self.bump();
+                    let span = expr.span.to(q_span);
+                    let line = q_span.line;
+                    let col = q_span.col;
+                    let tmp: Symbol =
+                        format!("__try_{line}_{col}").as_str().into();
+                    let ok_v: Symbol =
+                        format!("__try_v_{line}_{col}").as_str().into();
+                    let err_e: Symbol =
+                        format!("__try_e_{line}_{col}").as_str().into();
+                    let ok_body = Expr::new(ExprKind::Var(ok_v), span);
+                    let err_payload = Expr::new(
+                        ExprKind::EnumCtor {
+                            enum_name: Symbol::intern("Result"),
+                            variant: Symbol::intern("err"),
+                            args: ilang_ast::CtorArgs::Tuple(Box::new([
+                                Expr::new(ExprKind::Var(err_e), span),
+                            ])),
+                        },
+                        span,
+                    );
+                    let err_body = Expr::new(
+                        ExprKind::Return(Some(Box::new(err_payload))),
+                        span,
+                    );
+                    let arms = vec![
+                        ilang_ast::MatchArm {
+                            pattern: ilang_ast::Pattern {
+                                kind: ilang_ast::PatternKind::Variant {
+                                    enum_name: None,
+                                    variant: Symbol::intern("ok"),
+                                    bindings: ilang_ast::PatternBindings::Tuple(
+                                        Box::new([ok_v]),
+                                    ),
+                                },
+                                span,
+                            },
+                            body: ok_body,
+                            span,
+                        },
+                        ilang_ast::MatchArm {
+                            pattern: ilang_ast::Pattern {
+                                kind: ilang_ast::PatternKind::Variant {
+                                    enum_name: None,
+                                    variant: Symbol::intern("err"),
+                                    bindings: ilang_ast::PatternBindings::Tuple(
+                                        Box::new([err_e]),
+                                    ),
+                                },
+                                span,
+                            },
+                            body: err_body,
+                            span,
+                        },
+                    ];
+                    let match_expr = Expr::new(
+                        ExprKind::Match {
+                            scrutinee: Box::new(Expr::new(
+                                ExprKind::Var(tmp),
+                                span,
+                            )),
+                            arms: arms.into_boxed_slice(),
+                        },
+                        span,
+                    );
+                    let block = ilang_ast::Block {
+                        stmts: vec![ilang_ast::Stmt {
+                            kind: ilang_ast::StmtKind::Let {
+                                is_pub: false,
+                                is_const: false,
+                                name: tmp,
+                                ty: None,
+                                value: expr,
+                            },
+                            span,
+                            source_module: None,
+                        }],
+                        tail: Some(Box::new(match_expr)),
+                    };
+                    expr = Expr::new(ExprKind::Block(block), span);
+                }
                 _ => break,
             }
         }

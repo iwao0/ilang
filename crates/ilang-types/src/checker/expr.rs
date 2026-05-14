@@ -15,6 +15,28 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
+/// `true` when `e` unconditionally transfers control out of the
+/// enclosing expression — `return` / `break` / `continue`, or a
+/// `Block` whose tail (or some unconditional statement) does so.
+/// Used by match-arm and (later) if/else type-checking to skip
+/// arms that don't actually produce a value for the join.
+pub(super) fn arm_body_diverges(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Return(_) | ExprKind::Break(_) | ExprKind::Continue => true,
+        ExprKind::Block(b) => {
+            for s in &b.stmts {
+                if let StmtKind::Expr(inner) = &s.kind {
+                    if arm_body_diverges(inner) {
+                        return true;
+                    }
+                }
+            }
+            b.tail.as_ref().map(|t| arm_body_diverges(t)).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
 impl TypeChecker {
     pub(super) fn check_expr(
         &self,
@@ -2316,10 +2338,20 @@ impl TypeChecker {
                         }
                     }
                     let bt = self.check_expr(&arm.body, &arm_env, ret_ty, in_class, loop_depth)?;
-                    result_ty = Some(match result_ty {
-                        None => bt,
-                        Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
-                    });
+                    // An arm whose body unconditionally diverges
+                    // (early `return` / `break` / `continue`) doesn't
+                    // contribute a value to the match result. Skip
+                    // unifying its (fictional) type. Without this,
+                    // the `?` desugaring's err-arm — literally
+                    // `return Result.err(e)` — types as the enclosing
+                    // fn's full return type and conflicts with the
+                    // ok-arm's payload type.
+                    if !arm_body_diverges(&arm.body) {
+                        result_ty = Some(match result_ty {
+                            None => bt,
+                            Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
+                        });
+                    }
                 }
                 if !has_wildcard {
                     let total = sig.variants.len();

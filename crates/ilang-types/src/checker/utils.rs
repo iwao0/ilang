@@ -205,10 +205,21 @@ impl TypeChecker {
             self.refine_enum_ctor_args(t, target);
         }
         // Return statements anywhere in the block also produce the
-        // function's return value — refine those too.
+        // function's return value — refine those too. Walk every
+        // statement shape that can carry an expression, not just
+        // bare `StmtKind::Expr` — `let v = match ... { err(e) {
+        // return Result.err(e) } }` puts the return inside a
+        // `Let` value, and skipping it leaves the `Result.err`
+        // call with `T = Any` (the monomorphizer then chokes on the
+        // unresolved type argument).
         for s in &b.stmts {
-            if let StmtKind::Expr(e) = &s.kind {
-                refine_returns(self, e, target);
+            match &s.kind {
+                StmtKind::Expr(e)
+                | StmtKind::Let { value: e, .. }
+                | StmtKind::LetTuple { value: e, .. }
+                | StmtKind::LetStruct { value: e, .. } => {
+                    refine_returns(self, e, target);
+                }
             }
         }
     }

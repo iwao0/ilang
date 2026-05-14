@@ -1167,6 +1167,37 @@ r.isErr                    // bool — true when the variant is `err`
 - Both interpreter and JIT support `Result` (monomorphised per
   `(T, E)`).
 
+#### `?` operator (short-circuit on `err`)
+
+Postfix `?` unwraps a `Result` to its `ok` payload, or
+early-returns the `err` from the enclosing function. The
+enclosing fn's return type must be `Result<_, E>` with the same
+`E` as the operand.
+
+```rust
+fn parse(s: string): Result<i32, string> {
+    if s == "42" { Result.ok(42) } else { Result.err("not 42") }
+}
+
+fn doubled(input: string): Result<i32, string> {
+    let v = parse(input)?            // ok → bind, err → early-return
+    Result.ok(v * 2)
+}
+
+doubled("42")     // Result.ok(84)
+doubled("foo")    // Result.err("not 42") — never reaches `v * 2`
+```
+
+- Desugars to `match e { ok(v) { v } err(e) { return Result.err(e) } }`.
+  The arm that early-returns doesn't contribute to the match's
+  result type — so `e?` evaluates to `T` even though one arm
+  diverges.
+- Works at any expression position (`let v = e?`, `f(e?)`, tail
+  position, etc.).
+- Outside a function whose return type is `Result<_, E>`, the
+  type checker rejects `?` (the early-return shape would type-
+  mismatch with the actual return type).
+
 ---
 
 ## 12. Weak references
@@ -2177,8 +2208,6 @@ search directory the loader uses for `use module` resolution.
 
 ## 17. Not implemented yet (TODO)
 
-- **`?` operator** (Result short-circuit. `let v = parse(s)?` to
-  early-return on `Result.err`).
 - **String interpolation** (backtick + `${expr}` style).
 - **Iterator protocol** — let user types implement `next()` and
   participate in `for-in`. Foundation for generators.

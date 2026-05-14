@@ -9,12 +9,35 @@
 //! - `lower_if_let` is the convenient one-arm `if let some(x) =
 //!   opt { ... } else { ... }` form.
 
-use ilang_ast::{self as ast, Block as AstBlock, Expr, Symbol};
+use ilang_ast::{self as ast, Block as AstBlock, Expr, ExprKind, StmtKind, Symbol};
 
 use crate::inst::{BinOp, BlockId, Inst, MirConst, Terminator, ValueId};
 use crate::types::MirTy;
 
 use super::{BodyCx, LowerError, VariantPayloadMeta};
+
+/// Same shape as `ilang-types`'s `arm_body_diverges`. An arm whose
+/// body transfers control out (early `return` / `break` /
+/// `continue`) never reaches the match's join — record it as such
+/// so the join wiring skips it (otherwise the post-Return "dead"
+/// block emits a `Br` to the join with the wrong argument shape
+/// and Cranelift rejects the function).
+fn arm_body_diverges(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Return(_) | ExprKind::Break(_) | ExprKind::Continue => true,
+        ExprKind::Block(b) => {
+            for s in &b.stmts {
+                if let StmtKind::Expr(inner) = &s.kind {
+                    if arm_body_diverges(inner) {
+                        return true;
+                    }
+                }
+            }
+            b.tail.as_ref().map(|t| arm_body_diverges(t)).unwrap_or(false)
+        }
+        _ => false,
+    }
+}
 
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_match(
@@ -163,22 +186,32 @@ impl<'a> BodyCx<'a> {
                     }
                 }
             }
+            let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
             self.env.exit_scope();
             // Pin the result type from the first arm we encounter.
-            if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                result_ty = Some(bty.clone());
+            // A diverging arm (early `return` / `break` / `continue`)
+            // never reaches the join, so its lowered value is
+            // irrelevant — skip both the type-pinning and the
+            // joins-list push.
+            if !diverges {
+                if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                    result_ty = Some(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
             }
-            joins.push((self.fb.current_block(), bv));
         }
         // Wildcard arm.
         if let Some((blk, arm)) = wildcard_blk {
             self.fb.switch_to(blk);
+            let diverges = arm_body_diverges(&arm.body);
             let (bv, bty) = self.lower_expr(&arm.body)?;
-            if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
-                result_ty = Some(bty.clone());
+            if !diverges {
+                if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                    result_ty = Some(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
             }
-            joins.push((self.fb.current_block(), bv));
         } else {
             // No user wildcard: the synthesised default is unreachable.
             self.fb.switch_to(default);
