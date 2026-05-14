@@ -9,11 +9,11 @@
 // expect: dog-noise
 
 interface Drawable {
-    fn draw(): string
+    draw(): string
 }
 
 interface Speaks {
-    fn speak(): string
+    speak(): string
 }
 
 class Circle: Drawable {

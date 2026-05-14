@@ -784,19 +784,20 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
 
 ### Interfaces (`interface I { ... }`)
 
-`interface Name { fn method(p: T): R … }` declares a method
-contract. Classes opt in via the same `:` base list they use for
-inheritance — the first entry may be the parent class, an
-interface, or omitted; everything after the first comma is an
-interface:
+`interface Name { method(p: T): R … }` declares a method
+contract. Method declarations use the same shape as inside a
+`class { }` body — `name(params): ret`, no leading `fn`. Classes
+opt in via the same `:` base list they use for inheritance — the
+first entry may be the parent class, an interface, or omitted;
+everything after the first comma is an interface:
 
 ```rust
 interface Drawable {
-    fn draw(): string
+    draw(): string
 }
 
 interface Speaks {
-    fn speak(): string
+    speak(): string
 }
 
 class Animal {

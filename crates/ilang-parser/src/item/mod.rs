@@ -545,7 +545,13 @@ impl<'a> Parser<'a> {
         let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             let m_span = self.peek().span;
-            self.expect(&TokenKind::Fn, "'fn'")?;
+            // Method declarations mirror the class-body shape:
+            // `name(params): ret` — no leading `fn` keyword. A
+            // stray `fn` is accepted as a friendly compatibility
+            // path for code carried over from the previous syntax.
+            if matches!(self.peek().kind, TokenKind::Fn) {
+                self.bump();
+            }
             let m_name = self.expect_ident("method name")?;
             self.expect(&TokenKind::LParen, "'('")?;
             let mut params: Vec<ilang_ast::Param> = Vec::new();

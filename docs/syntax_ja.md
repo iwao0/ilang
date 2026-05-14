@@ -618,15 +618,15 @@ introduce(d)                                   // OK — Dog is-a Animal (subtyp
 
 ### インタフェース (`interface I { ... }`)
 
-`interface Name { fn method(p: T): R … }` でメソッドの契約を宣言します。クラスは継承と同じ `:` のリストで参加します。リストの最初は親クラス・インタフェース・省略のいずれでも構いません。2つ目以降のカンマ区切りエントリはインタフェースとして扱われます。
+`interface Name { method(p: T): R … }` でメソッドの契約を宣言します。メソッド宣言は `class { }` 本体と同じ形 (`name(params): ret`、先頭の `fn` 不要) です。クラスは継承と同じ `:` のリストで参加します。リストの最初は親クラス・インタフェース・省略のいずれでも構いません。2つ目以降のカンマ区切りエントリはインタフェースとして扱われます。
 
 ```rust
 interface Drawable {
-    fn draw(): string
+    draw(): string
 }
 
 interface Speaks {
-    fn speak(): string
+    speak(): string
 }
 
 class Animal {
