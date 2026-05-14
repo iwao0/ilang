@@ -1,0 +1,386 @@
+//! Field / AssignField / Index / AssignIndex — read / write
+//! access on object, array, and map values. Extracted from
+//! `expr/mod.rs`.
+
+#![allow(unused_imports)]
+
+use std::collections::{HashMap, HashSet};
+
+use ilang_ast::{
+    Block, ClassDecl, CtorArgs, EnumDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, Param,
+    PatternBindings, PatternKind, Program, Span, Stmt, StmtKind, Symbol, Type, UnOp,
+    VariantPayload,
+};
+
+use crate::error::TypeError;
+use crate::ops::{assignable, bin_result, int_literal_fits};
+
+use super::super::*;
+
+impl TypeChecker {
+    pub(super) fn check_field(
+        &self,
+        obj: &Expr, name: &Symbol,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        // Static field read: `ClassName.field` when there's
+        // no shadowing local and the class declares a
+        // static field by that name.
+        if let ExprKind::Var(rname) = &obj.kind {
+            let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
+            if !is_local_shadow {
+                if let Some(cls) = self.classes.get(&rname) {
+                    if let Some(t) = cls.static_fields.get(name) {
+                        let is_pub = cls.static_field_pub.get(name).copied().unwrap_or(false);
+                        let cmod = cls.module.clone();
+                        let cn = rname.as_str().to_string();
+                        self.require_visible(
+                            &cn, &cmod, "static field", name.as_str(), is_pub, span,
+                        )?;
+                        return Ok(t.clone());
+                    }
+                }
+            }
+        }
+        let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+        // Built-in property: every array exposes `length: i64`.
+        if matches!(ot, Type::Array { .. }) && name == "length" {
+            return Ok(Type::I64);
+        }
+        // Built-in property: strings expose `length: i64` (Unicode
+        // code-point count, JS-style).
+        if matches!(ot, Type::Str) && name == "length" {
+            return Ok(Type::I64);
+        }
+        // Built-in Optional properties: `isSome` / `isNone`.
+        if matches!(ot, Type::Optional(_))
+            && (name == "isSome" || name == "isNone")
+        {
+            return Ok(Type::Bool);
+        }
+        // Built-in Result properties: `isOk` / `isErr`.
+        if (name == "isOk" || name == "isErr") && is_result_type(&ot) {
+            return Ok(Type::Bool);
+        }
+        // Built-in RTTI: `Type.name` / `Type.kind` / `Type.parent`.
+        if matches!(&ot, Type::Object(n) if n.as_str() == "Type") {
+            if name == "name" {
+                return Ok(Type::Str);
+            }
+            if name == "kind" {
+                return Ok(Type::Object("TypeKind".into()));
+            }
+            if name == "parent" {
+                return Ok(Type::Optional(Box::new(Type::Object("Type".into()))));
+            }
+            if name == "fields" || name == "methods" {
+                return Ok(Type::Array { elem: Box::new(Type::Str), fixed: None });
+            }
+            if name == "typeArgs" {
+                return Ok(Type::Array {
+                    elem: Box::new(Type::Object("Type".into())),
+                    fixed: None,
+                });
+            }
+        }
+        let class_name = expect_object(&ot, span)?;
+        let cls = self.classes.get(&class_name).ok_or_else(|| {
+            TypeError::UndefinedClass {
+                name: class_name.into(),
+                span,
+            }
+        })?;
+        // Property `get` takes precedence over field lookup —
+        // the parser disallows declaring a property and a
+        // same-named field on one class, but checking properties
+        // first keeps the resolution explicit.
+        if let Some(p) = cls.properties.get(name) {
+            if !p.has_get {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "property {:?}.{} has no getter (write-only)",
+                        class_name, name
+                    ),
+                    span,
+                });
+            }
+            let cmod = cls.module.clone();
+            self.require_visible(
+                class_name.as_str(), &cmod, "property", name.as_str(), p.is_pub, span,
+            )?;
+            return Ok(subst_type(
+                &p.ty,
+                &cls.type_params,
+                type_args_of(&ot),
+            ));
+        }
+        let raw = cls.fields.get(name).cloned().ok_or_else(|| {
+            TypeError::UnknownField {
+                class: class_name.into(),
+                field: name.clone(),
+                span,
+            }
+        })?;
+        // `@extern(C) struct` fields are transparent C ABI
+        // bridges — there's no private state to protect, so
+        // skip the per-field visibility check on them.
+        if !cls.is_repr_c {
+            let is_pub = cls.field_pub.get(name).copied().unwrap_or(false);
+            let cmod = cls.module.clone();
+            self.require_visible(
+                class_name.as_str(), &cmod, "field", name.as_str(), is_pub, span,
+            )?;
+        }
+        Ok(subst_type(&raw, &cls.type_params, type_args_of(&ot)))
+    }
+}
+
+impl TypeChecker {
+    pub(super) fn check_assign_field(
+        &self,
+        obj: &Expr, field: &Symbol, value: &Expr, is_init: &bool,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        // Static field write: `ClassName.field = v`.
+        if let ExprKind::Var(rname) = &obj.kind {
+            let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
+            if !is_local_shadow {
+                if let Some(cls) = self.classes.get(&rname) {
+                    if let Some(ft) = cls.static_fields.get(field).cloned() {
+                        if cls.static_const_fields.contains(field) && !*is_init {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "cannot assign to const static field {:?}.{:?}",
+                                    rname, field
+                                ),
+                                span,
+                            });
+                        }
+                        let is_pub = cls.static_field_pub.get(field).copied().unwrap_or(false);
+                        let cmod = cls.module.clone();
+                        let cn = rname.as_str().to_string();
+                        self.require_visible(
+                            &cn, &cmod, "static field", field.as_str(), is_pub, span,
+                        )?;
+                        let vt =
+                            self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                        if !self.value_assignable(value, &vt, &ft) {
+                            return Err(TypeError::Mismatch {
+                                expected: ft,
+                                got: vt,
+                                span: value.span,
+                            });
+                        }
+                        return Ok(Type::Unit);
+                    }
+                }
+            }
+        }
+        let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+        let class_name = expect_object(&ot, obj.span)?;
+        let cls = self.classes.get(&class_name).ok_or_else(|| {
+            TypeError::UndefinedClass {
+                name: class_name.into(),
+                span: obj.span,
+            }
+        })?;
+        // Property `set` precedes field lookup. Read-only
+        // properties (no setter) reject the assignment.
+        if let Some(p) = cls.properties.get(field) {
+            if !p.has_set {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "property {:?}.{} has no setter (read-only)",
+                        class_name, field
+                    ),
+                    span,
+                });
+            }
+            let cmod = cls.module.clone();
+            self.require_visible(
+                class_name.as_str(), &cmod, "property", field.as_str(), p.is_pub, span,
+            )?;
+            let prop_ty =
+                subst_type(&p.ty, &cls.type_params, type_args_of(&ot));
+            let v_ty =
+                self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+            if !self.value_assignable(value, &v_ty, &prop_ty) {
+                return Err(TypeError::Mismatch {
+                    expected: prop_ty,
+                    got: v_ty,
+                    span: value.span,
+                });
+            }
+            return Ok(Type::Unit);
+        }
+        let raw_field_ty = cls.fields.get(field).cloned().ok_or_else(|| {
+            TypeError::UnknownField {
+                class: class_name.into(),
+                field: field.clone(),
+                span,
+            }
+        })?;
+        if !cls.is_repr_c {
+            let is_pub = cls.field_pub.get(field).copied().unwrap_or(false);
+            let cmod = cls.module.clone();
+            self.require_visible(
+                class_name.as_str(), &cmod, "field", field.as_str(), is_pub, span,
+            )?;
+        }
+        // Substitute the receiver's generic type args so a
+        // `Box<i64>.x = 100` check sees `i64` for `x: T`.
+        // Mirrors the substitution done by the Field read path.
+        let field_ty = subst_type(&raw_field_ty, &cls.type_params, type_args_of(&ot));
+        let v_ty = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+        if !self.value_assignable(value, &v_ty, &field_ty) {
+            return Err(TypeError::Mismatch {
+                expected: field_ty,
+                got: v_ty,
+                span: value.span,
+            });
+        }
+        Ok(Type::Unit)
+    }
+}
+
+impl TypeChecker {
+    pub(super) fn check_index(
+        &self,
+        obj: &Expr, index: &Expr,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        _span: Span,
+    ) -> Result<Type, TypeError> {
+        let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+        let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
+        // Map<K, V> indexing: `m[k]` returns V (panics at runtime
+        // if missing — use `.get(k)` for `V?`).
+        if let Type::Generic(g) = &ot {
+            if g.base == "Map" && g.args.len() == 2 {
+                if !self.value_assignable(index, &it, &g.args[0]) {
+                    return Err(TypeError::Mismatch {
+                        expected: g.args[0].clone(),
+                        got: it,
+                        span: index.span,
+                    });
+                }
+                return Ok(g.args[1].clone());
+            }
+        }
+        // Tuple indexing: index must be a non-negative integer
+        // literal so the element type is statically known.
+        if let Type::Tuple(elems) = &ot {
+            let n = match &index.kind {
+                ExprKind::Int(n) if *n >= 0 => *n as usize,
+                _ => {
+                    return Err(TypeError::Unsupported {
+                        what: "tuple index must be a non-negative integer literal".into(),
+                        span: index.span,
+                    });
+                }
+            };
+            if n >= elems.len() {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "tuple index {n} out of bounds for {ot}"
+                    ),
+                    span: index.span,
+                });
+            }
+            return Ok(elems[n].clone());
+        }
+        if !it.is_int() {
+            return Err(TypeError::Mismatch {
+                expected: Type::I64,
+                got: it,
+                span: index.span,
+            });
+        }
+        match ot {
+            Type::Array { elem, .. } => Ok((*elem).clone()),
+            other => Err(TypeError::Mismatch {
+                expected: Type::Array {
+                    elem: Box::new(Type::Any),
+                    fixed: None,
+                },
+                got: other,
+                span: obj.span,
+            }),
+        }
+    }
+}
+
+impl TypeChecker {
+    pub(super) fn check_assign_index(
+        &self,
+        obj: &Expr, index: &Expr, value: &Expr,
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        _span: Span,
+    ) -> Result<Type, TypeError> {
+        let ot = self.check_expr(obj, env, ret_ty, in_class, loop_depth)?;
+        let it = self.check_expr(index, env, ret_ty, in_class, loop_depth)?;
+        // Map<K, V>: `m[k] = v` desugars to `set(k, v)`.
+        if let Type::Generic(g) = &ot {
+            if g.base == "Map" && g.args.len() == 2 {
+                if !self.value_assignable(index, &it, &g.args[0]) {
+                    return Err(TypeError::Mismatch {
+                        expected: g.args[0].clone(),
+                        got: it,
+                        span: index.span,
+                    });
+                }
+                let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                if !self.value_assignable(value, &vt, &g.args[1]) {
+                    return Err(TypeError::Mismatch {
+                        expected: g.args[1].clone(),
+                        got: vt,
+                        span: value.span,
+                    });
+                }
+                return Ok(Type::Unit);
+            }
+        }
+        if !it.is_int() {
+            return Err(TypeError::Mismatch {
+                expected: Type::I64,
+                got: it,
+                span: index.span,
+            });
+        }
+        let elem_ty = match &ot {
+            Type::Array { elem, .. } => (**elem).clone(),
+            other => {
+                return Err(TypeError::Mismatch {
+                    expected: Type::Array {
+                        elem: Box::new(Type::Any),
+                        fixed: None,
+                    },
+                    got: other.clone(),
+                    span: obj.span,
+                });
+            }
+        };
+        let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+        if !self.value_assignable(value, &vt, &elem_ty) {
+            return Err(TypeError::Mismatch {
+                expected: elem_ty,
+                got: vt,
+                span: value.span,
+            });
+        }
+        Ok(Type::Unit)
+    }
+}
