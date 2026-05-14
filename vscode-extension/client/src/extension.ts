@@ -23,8 +23,9 @@ export function activate(context: ExtensionContext) {
     const root = workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (root) {
       const fs = require("fs");
-      const release = path.join(root, "target", "release", "ilang-lsp");
-      const debug = path.join(root, "target", "debug", "ilang-lsp");
+      const exe = process.platform === "win32" ? "ilang-lsp.exe" : "ilang-lsp";
+      const release = path.join(root, "target", "release", exe);
+      const debug = path.join(root, "target", "debug", exe);
       serverPath = fs.existsSync(release) ? release : debug;
     }
   }
