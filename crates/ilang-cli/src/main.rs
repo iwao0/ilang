@@ -74,6 +74,33 @@ fn locate_runtime_lib() -> Option<PathBuf> {
     }
 }
 
+/// Search common locations for the vcpkg x64-windows lib directory so
+/// the MSVC linker can find SDL2.lib and other vcpkg-installed import libs.
+/// Checks (in order): `VCPKG_ROOT` env var, `VCPKG_INSTALLED_DIR` env var,
+/// and a handful of conventional install paths.
+#[cfg(windows)]
+fn find_vcpkg_lib_path() -> Option<PathBuf> {
+    let triplet = "x64-windows";
+    let sub = ["installed", triplet, "lib"];
+
+    // VCPKG_ROOT is set by `vcpkg integrate install` / shell integration.
+    if let Ok(root) = std::env::var("VCPKG_ROOT") {
+        let p = sub.iter().fold(PathBuf::from(root), |acc, s| acc.join(s));
+        if p.is_dir() { return Some(p); }
+    }
+    // VCPKG_INSTALLED_DIR may be set independently.
+    if let Ok(dir) = std::env::var("VCPKG_INSTALLED_DIR") {
+        let p = [triplet, "lib"].iter().fold(PathBuf::from(dir), |acc, s| acc.join(s));
+        if p.is_dir() { return Some(p); }
+    }
+    // Conventional manual-install paths.
+    for base in [r"C:\vcpkg", r"C:\tools\vcpkg", r"C:\dev\vcpkg"] {
+        let p = sub.iter().fold(PathBuf::from(base), |acc, s| acc.join(s));
+        if p.is_dir() { return Some(p); }
+    }
+    None
+}
+
 fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let extra_paths = match collect_dep_paths(path) {
         Ok(p) => p,
@@ -187,39 +214,24 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         }
     };
 
-    // Drop the `.o` next to the eventual executable so users can
-    // inspect or rerun the link manually if needed. Naming it
-    // `<output>.o` keeps the intermediate artifact under their chosen
-    // path rather than littering /tmp.
+    // Drop the intermediate object file next to the eventual executable
+    // so users can inspect or rerun the link manually if needed. Use
+    // `.obj` on Windows (MSVC convention; avoids cl.exe warning D9024)
+    // and `.o` everywhere else.
+    #[cfg(windows)]
+    let object_path = output.with_extension("obj");
+    #[cfg(not(windows))]
     let object_path = output.with_extension("o");
     if let Err(e) = std::fs::write(&object_path, &object_bytes) {
         eprintln!("{display_path}: write {}: {e}", object_path.display());
         return ExitCode::FAILURE;
     }
 
-    // Link via the system C compiler. macOS ships `ld`/`cc` with the
-    // Xcode Command Line Tools; we don't bundle a linker yet (LLD
-    // shipped as a library is a follow-up).
-    let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
-    let mut cmd = std::process::Command::new(&cc);
-    cmd.arg(&object_path).arg("-o").arg(output);
-    // Strip unreachable code / data. The runtime archive ships every
-    // helper the JIT and AOT paths between them might need; without
-    // dead-strip the linker pulls in unused __retain_*, __release_*,
-    // __print_* etc. for whichever shapes the user program never
-    // touches. macOS `ld` accepts `-dead_strip`; we route it via cc.
-    cmd.arg("-Wl,-dead_strip");
-    // `console.log` and other AOT runtime symbols live in
-    // `libilang_runtime.a`. Locate it next to the running `ilang`
-    // binary (cargo lays both into the same `target/<profile>/` dir).
-    if let Some(rt) = locate_runtime_lib() {
-        cmd.arg(&rt);
-    }
     // Every `@lib("X")`-annotated extern fn body resolves through the
     // system loader at runtime in the JIT, but the AOT linker needs
-    // an explicit `-lX`. Pick the first lib name per fn that the AOT
-    // codegen probed as loadable — primary or fallback. Missing libs
-    // are skipped; if the fn was `@optional` it gets a local stub
+    // an explicit library reference. Pick the first lib name per fn
+    // that the AOT codegen probed as loadable — primary or fallback.
+    // Missing libs are skipped; `@optional` fns get local abort-stubs
     // (emitted by aot.rs) so the link still succeeds.
     let available_libs = ilang_mir_codegen::aot::probe_available_libs(&mir);
     let mut seen_libs: std::collections::BTreeSet<String> =
@@ -233,44 +245,157 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
             }
         }
     }
-    if !seen_libs.is_empty() {
-        // Standard macOS install paths. Homebrew on Apple Silicon
-        // lives under /opt/homebrew; Intel Macs keep /usr/local. Pass
-        // both as search paths and as rpath entries so the linker
-        // resolves now and the loader finds the dylib at runtime.
-        for p in ["/opt/homebrew/lib", "/usr/local/lib"] {
-            if std::path::Path::new(p).is_dir() {
-                cmd.arg(format!("-L{p}"));
-                cmd.arg(format!("-Wl,-rpath,{p}"));
+
+    // ---- Unix / macOS linker ----
+    // Use `cc` (or $CC) as the driver. macOS ships `cc` with Xcode CLT;
+    // Linux uses whatever GCC / Clang the distro provides.
+    #[cfg(not(windows))]
+    {
+        let cc = std::env::var_os("CC").unwrap_or_else(|| "cc".into());
+        let mut cmd = std::process::Command::new(&cc);
+        cmd.arg(&object_path).arg("-o").arg(output);
+        // Dead-strip unused runtime helpers from the archive.
+        cmd.arg("-Wl,-dead_strip");
+        if let Some(rt) = locate_runtime_lib() {
+            cmd.arg(&rt);
+        }
+        if !seen_libs.is_empty() {
+            // Homebrew on Apple Silicon: /opt/homebrew; Intel: /usr/local.
+            for p in ["/opt/homebrew/lib", "/usr/local/lib"] {
+                if std::path::Path::new(p).is_dir() {
+                    cmd.arg(format!("-L{p}"));
+                    cmd.arg(format!("-Wl,-rpath,{p}"));
+                }
             }
         }
-    }
-    for lib in &seen_libs {
-        cmd.arg(format!("-l{lib}"));
-    }
-    let status = cmd.status();
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => {
-            eprintln!(
-                "{display_path}: linker exited with status {:?}",
-                s.code()
-            );
-            return ExitCode::FAILURE;
+        for lib in &seen_libs {
+            cmd.arg(format!("-l{lib}"));
         }
-        Err(e) => {
-            eprintln!(
-                "{display_path}: failed to spawn linker `{}`: {e}",
-                std::path::Path::new(&cc).display()
-            );
-            return ExitCode::FAILURE;
+        let status = cmd.status();
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                eprintln!("{display_path}: linker exited with status {:?}", s.code());
+                return ExitCode::FAILURE;
+            }
+            Err(e) => {
+                eprintln!(
+                    "{display_path}: failed to spawn linker `{}`: {e}",
+                    std::path::Path::new(&cc).display()
+                );
+                return ExitCode::FAILURE;
+            }
         }
+        // Strip symbol table (non-fatal). link.exe does this by default.
+        let _ = std::process::Command::new("strip").arg(output).status();
     }
-    // Strip the symbol table after linking. Reduces binary size with
-    // no effect on behaviour. macOS ships `strip` with the Command
-    // Line Tools alongside `cc`. Non-fatal on failure — the executable
-    // still runs without it.
-    let _ = std::process::Command::new("strip").arg(output).status();
+
+    // ---- Windows / MSVC linker ----
+    // `link.exe` collides with Git for Windows' POSIX `link` (hard-link
+    // utility). Instead we use the `cc` crate to locate `cl.exe` from the
+    // Visual Studio installation, then invoke it as a linker driver with
+    // `/link` to pass flags through to the real `link.exe`. The `cc` crate
+    // also supplies the required VC++ env vars (LIB, PATH) so `link.exe`
+    // can find `ucrt.lib`, `vcruntime.lib`, etc. without needing an open
+    // VS Developer Command Prompt. Override with $CC to use any
+    // MSVC-compatible driver (e.g. clang-cl, a specific cl.exe path).
+    #[cfg(windows)]
+    {
+        let msvc_target = if cfg!(target_arch = "aarch64") {
+            "aarch64-pc-windows-msvc"
+        } else {
+            "x86_64-pc-windows-msvc"
+        };
+        let (cl_path, cl_env) = if let Some(ov) = std::env::var_os("CC") {
+            (std::path::PathBuf::from(ov), vec![])
+        } else {
+            // `cc::windows_registry::find_tool` performs VS discovery
+            // (registry, vswhere, env vars) without requiring Cargo's
+            // OPT_LEVEL / TARGET / HOST env vars — safe to call from a
+            // binary rather than build.rs.
+            match cc::windows_registry::find_tool(msvc_target, "cl.exe") {
+                Some(tool) => (tool.path().to_path_buf(), tool.env().to_vec()),
+                None => {
+                    eprintln!(
+                        "{display_path}: could not locate MSVC cl.exe\n\
+                         hint: install Visual Studio with the \
+                         \"Desktop development with C++\" workload, \
+                         or set the CC environment variable to cl.exe"
+                    );
+                    return ExitCode::FAILURE;
+                }
+            }
+        };
+
+        let mut cmd = std::process::Command::new(&cl_path);
+        // Apply the VC++ environment (LIB, PATH, etc.) so cl.exe can
+        // find link.exe and the CRT import libs.
+        for (k, v) in &cl_env {
+            cmd.env(k, v);
+        }
+        cmd.arg("/nologo");
+        // cl.exe treats .o and .obj files as pre-compiled objects and
+        // passes them directly to link.exe without recompilation.
+        cmd.arg(&object_path);
+        // /Fe: specifies the output executable path.
+        cmd.arg(format!("/Fe:{}", output.display()));
+        // /link: everything after this is forwarded verbatim to link.exe.
+        cmd.arg("/link");
+        cmd.arg("/SUBSYSTEM:CONSOLE");
+        // Dead-strip equivalent: drop unreferenced functions and COMDAT.
+        cmd.arg("/OPT:REF");
+        cmd.arg("/OPT:ICF");
+        if let Some(rt) = locate_runtime_lib() {
+            cmd.arg(&rt);
+        }
+        // vcpkg lib dir so link.exe resolves SDL2.lib etc.
+        if let Some(vcpkg_lib) = find_vcpkg_lib_path() {
+            cmd.arg(format!("/LIBPATH:{}", vcpkg_lib.display()));
+        }
+        // MSVC import libs are named `<lib>.lib`.
+        for lib in &seen_libs {
+            cmd.arg(format!("{lib}.lib"));
+        }
+        // MSVC CRT and Win32 platform libs. Rust's staticlib objects
+        // carry /DEFAULTLIB records pointing to these, but link.exe only
+        // resolves them when the libs are locatable via LIB — adding them
+        // explicitly avoids the dependency on implicit DEFAULTLIB handling.
+        //   msvcrt.lib    — dynamic multithreaded CRT: mainCRTStartup,
+        //                   _fltused, atexit, …
+        //   ucrt.lib      — Universal CRT: memcpy, memset, strlen, printf, …
+        //   vcruntime.lib — VC++ runtime helpers: __chkstk, __C_specific_handler
+        //   kernel32.lib  — Win32 kernel: LoadLibraryA, GetLastError, …
+        //   advapi32.lib  — Registry / security (used by Rust std)
+        //   bcrypt.lib    — Crypto RNG (used by Rust std for random)
+        //   ntdll.lib     — NT API layer (used by Rust std)
+        //   userenv.lib   — User profile (used by Rust std)
+        //   ws2_32.lib    — Winsock (used by Rust std networking)
+        for lib in &[
+            "msvcrt.lib", "ucrt.lib", "vcruntime.lib",
+            "kernel32.lib", "advapi32.lib", "bcrypt.lib",
+            "ntdll.lib", "userenv.lib", "ws2_32.lib",
+        ] {
+            cmd.arg(lib);
+        }
+        let status = cmd.status();
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                eprintln!("{display_path}: linker exited with status {:?}", s.code());
+                return ExitCode::FAILURE;
+            }
+            Err(e) => {
+                eprintln!(
+                    "{display_path}: failed to spawn linker `{}`: {e}",
+                    cl_path.display()
+                );
+                return ExitCode::FAILURE;
+            }
+        }
+        // link.exe omits debug info by default (no /DEBUG), so no
+        // separate strip step is needed.
+    }
+
     ExitCode::SUCCESS
 }
 
