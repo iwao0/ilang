@@ -547,10 +547,15 @@ impl<'a> Parser<'a> {
             let m_span = self.peek().span;
             // Method declarations mirror the class-body shape:
             // `name(params): ret` — no leading `fn` keyword. A
-            // stray `fn` is accepted as a friendly compatibility
-            // path for code carried over from the previous syntax.
+            // stray `fn` is rejected with a targeted message
+            // rather than the generic "expected method name".
             if matches!(self.peek().kind, TokenKind::Fn) {
-                self.bump();
+                let t = self.peek();
+                return Err(ParseError::Unexpected {
+                    found: t.kind.clone(),
+                    expected: "method name — interface bodies use the same `name(params): ret` shape as a class body (drop the leading `fn`)".into(),
+                    span: t.span,
+                });
             }
             let m_name = self.expect_ident("method name")?;
             self.expect(&TokenKind::LParen, "'('")?;
