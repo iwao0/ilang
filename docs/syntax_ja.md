@@ -1651,6 +1651,56 @@ bus.removeAllListeners("tick")            // 全部削除
 **Node.js 版との違い:**
 - 1 emitter につきペイロード型ひとつ。複数値を渡したいときは struct / class でまとめる
 
+### 組み込み `Promise<T>` と work-stealing pool
+
+`Promise<T>` は非同期に到着する値を表す組み込みクラス。継続 (`.then`) や executor 本体は work-stealing スレッドプール (論理 CPU 数のワーカー) で実行され、ARC はアトミックなのでヒープ値はスレッド間を安全に行き来できる。`main` が return する直前に runtime が pending な継続を drain するので、トップレベルの `.then` は必ずプロセス終了前に発火する。
+
+```rust
+// 即解決。
+Promise.resolve("hello").then(fn(s: string) {
+    console.log(s)              // → hello
+})
+
+// JS 同等の値変換チェーン。各 .then は新しい Promise<U> を返す。
+Promise.resolve(21)
+    .then(fn(n: i64): i64 { n * 2 })
+    .then(fn(n: i64) { console.log(n.toString()) })  // → 42
+
+// executor。resolve/reject の最初に呼ばれた方が確定する。
+let p = new Promise<string>(fn(resolve: fn(string), reject: fn(string)) {
+    if some_cond { resolve("ok") } else { reject("oops") }
+})
+p.catch(fn(msg: string): string {
+    "recovered: " + msg
+})
+
+// 集約コンビネータ。
+let all = Promise.all<string>([
+    Promise.resolve("a"),
+    Promise.resolve("b"),
+])
+all.then(fn(vs: string[]) { ... })   // 全員揃ってから 1 度
+
+let first = Promise.race<string>([p1, p2])
+first.then(fn(v: string) { ... })    // 最初に settle した方
+```
+
+**API:**
+- `Promise.resolve<T>(v: T): Promise<T>` — 既に解決済み
+- `Promise.reject(msg: string): Promise<()>` — 既に reject 済み (rejection は値を持たないので `T = ()`。型付き reject は executor で)
+- `new Promise<T>(executor: fn(fn(T), fn(string)))` — pool 上で `executor(resolve, reject)` を実行。最初の呼び出しが採用される
+- `p.then<U>(cb: fn(T): U): Promise<U>` — 解決値を受け取る callback を登録、新しいチェーン promise を返す。rejection は `.then` を素通りして次の `.catch` に届く
+- `p.catch(cb: fn(string): T): Promise<T>` — rejection を捕まえて upstream 同型の値に復帰
+- `Promise.all<T>(ps: Promise<T>[]): Promise<T[]>` — 全部 settle 後にまとめて解決、最初の rejection で reject
+- `Promise.race<T>(ps: Promise<T>[]): Promise<T>` — 最初に settle した方 (resolve/reject どちらでも) で確定
+
+**JS との違い:**
+- 1 promise につき値型ひとつ — `T` は構築時に固定。union が欲しいときは enum / class でラップ
+- `Promise.reject(msg)` は `Promise<()>` を返す (call site の expected type を遡る型推論を持たないため)。型付き rejection が必要なら executor を使う
+- `.catch` の handler は upstream と同じ `T` を返す必要がある (`Promise<T | U>` のような union 化はしない)
+
+**`async` / `await`:** parser レベルでキーワードを予約済み、type checker は `await` の形を検証するが、`async fn` の本体を `Promise<T>` を返す poll 関数に変換する state-machine lowering は **未実装**。当面は `.then` / `.catch` のチェーンで書く。
+
 ### `const` (定数宣言)
 
 トップレベルで不変の定数を宣言できます。RHS には **コンパイル時に値が決まる式** が書けます。loader の inline pass で folding され、参照箇所はリテラルに置換されます。

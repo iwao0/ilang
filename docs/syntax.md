@@ -2197,6 +2197,82 @@ bus.removeAllListeners("tick")            // or wipe every listener
 - One payload type per emitter — pass a struct / class if you
   need multiple values per event
 
+### Built-in `Promise<T>` and the work-stealing pool
+
+`Promise<T>` is a built-in generic class for values that
+arrive asynchronously. Continuations and executor bodies run
+on a global work-stealing thread pool (one worker per logical
+CPU); ARC is atomic so heap values can cross thread
+boundaries safely. The runtime drains pending continuations
+right before `main` returns, so a top-level `.then` always
+fires before the process exits.
+
+```rust
+// Already-resolved value.
+Promise.resolve("hello").then(fn(s: string) {
+    console.log(s)              // → hello
+})
+
+// JS-style chain: each .then transforms the value and
+// returns a new Promise<U>.
+Promise.resolve(21)
+    .then(fn(n: i64): i64 { n * 2 })
+    .then(fn(n: i64) { console.log(n.toString()) })  // → 42
+
+// Executor that decides whether to resolve or reject.
+let p = new Promise<string>(fn(resolve: fn(string), reject: fn(string)) {
+    if some_cond { resolve("ok") } else { reject("oops") }
+})
+p.catch(fn(msg: string): string {
+    "recovered: " + msg
+})
+
+// Aggregate combinators.
+let all = Promise.all<string>([
+    Promise.resolve("a"),
+    Promise.resolve("b"),
+])
+all.then(fn(vs: string[]) { ... })   // both arrive together
+
+let first = Promise.race<string>([p1, p2])
+first.then(fn(v: string) { ... })    // whichever settles first
+```
+
+**API:**
+- `Promise.resolve<T>(v: T): Promise<T>` — already-resolved
+- `Promise.reject(msg: string): Promise<()>` — already-rejected
+  (the rejection has no value, so `T = ()`; for typed
+  rejections use the executor form)
+- `new Promise<T>(executor: fn(fn(T), fn(string)))` — runs
+  `executor(resolve, reject)` on the pool; the first
+  resolve/reject wins
+- `p.then<U>(cb: fn(T): U): Promise<U>` — register callback
+  for the resolved value, returns a new chained promise.
+  Rejections propagate through bare `.then` to the next
+  `.catch`.
+- `p.catch(cb: fn(string): T): Promise<T>` — handle a
+  rejection and recover to a value of the upstream's type
+- `Promise.all<T>(ps: Promise<T>[]): Promise<T[]>` —
+  resolves with every value once all settle, rejects on
+  first rejection
+- `Promise.race<T>(ps: Promise<T>[]): Promise<T>` — settles
+  with whichever input settles first (resolution or rejection)
+
+**Differences from JS:**
+- One value type per promise — `T` is fixed at construction
+  time. Use a wrapping enum / class if you need a union.
+- `Promise.reject(msg)` returns `Promise<()>` because there's
+  no syntactic expected-type propagation back from the call
+  site; for `Promise<T>` rejections, use the executor.
+- `.catch` handler must return the same `T` as the upstream
+  (no `Promise<T | U>` widening).
+
+**`async` / `await`:** the keywords are **reserved** at the
+parser level and validated by the type checker, but the
+state-machine lowering that would turn an `async fn` body
+into a `Promise<T>`-returning poll fn is not yet
+implemented. Use `.then` / `.catch` chains for now.
+
 ### `const` (constant declaration)
 
 Top-level immutable constants. The RHS is restricted to
