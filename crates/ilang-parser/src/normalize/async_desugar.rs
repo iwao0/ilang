@@ -752,6 +752,13 @@ fn walk_block_for_lets(
             };
             env.insert(*name, t.clone());
             out.push((*name, t));
+        } else if let StmtKind::Expr(e) = &s.kind {
+            // Recurse into `while` bodies so loop-local lets get
+            // a state-class field (any binding live across the
+            // back-edge needs storage).
+            if let ExprKind::While { body, .. } = &e.kind {
+                walk_block_for_lets(body, env, out, seen, fn_returns)?;
+            }
         }
     }
     if let Some(tail) = &b.tail {
@@ -1491,6 +1498,17 @@ struct BlockBuilder<'a> {
     error: Option<String>,
 }
 
+/// What the BlockBuilder should do when it reaches the natural end
+/// of a body without hitting an explicit terminator (suspend, branch,
+/// return, …).
+#[derive(Debug, Clone, Copy)]
+enum BodyEnd {
+    /// Top-level fn body: settle the result promise with the tail value.
+    Settle,
+    /// Loop body: jump back to the loop header.
+    JumpTo(u32),
+}
+
 impl<'a> BlockBuilder<'a> {
     fn fresh_idx(&mut self) -> u32 {
         let i = self.next_idx;
@@ -1498,18 +1516,19 @@ impl<'a> BlockBuilder<'a> {
         i
     }
 
-    /// Build the state blocks corresponding to `body`. The first
-    /// block carries `entry_idx` (assigned by the caller, so chained
-    /// builders can reserve indices). `prior_binding` is set when
-    /// `entry_idx`'s block resumes from a previous suspend point —
-    /// the prior await's resolved value lives in `__awaited_value`
-    /// and gets assigned to `state.<binding>` as the block's first
-    /// statement.
+    /// Build the state blocks corresponding to `body`. `entry_idx`
+    /// is the state assigned to the first block. `prior_binding`,
+    /// if set, means `entry_idx` resumes from a suspend point and
+    /// the first stmt assigns `__awaited_value` to that field.
+    /// `end` dictates what to do at the natural end of `body`
+    /// (no explicit terminator): Settle the result promise or
+    /// Jump back to a loop header.
     fn build_body(
         &mut self,
         body: &Block,
         entry_idx: u32,
         prior_binding: Option<Symbol>,
+        end: BodyEnd,
     ) {
         let span = self.span;
         let mut cur_idx = entry_idx;
@@ -1526,7 +1545,7 @@ impl<'a> BlockBuilder<'a> {
             ));
         }
         for stmt in &body.stmts {
-            // Recognise `let x = await E` as a suspend point.
+            // `let x = await E` — suspend.
             if let StmtKind::Let { name, value, .. } = &stmt.kind {
                 if let ExprKind::Await(p) = &value.kind {
                     let mut promise_expr = (**p).clone();
@@ -1558,22 +1577,75 @@ impl<'a> BlockBuilder<'a> {
                     continue;
                 }
             }
+            // `while cond { ... }` as an expression-stmt — emit a
+            // header / body / after pattern using Branch + Jump.
+            if let StmtKind::Expr(e) = &stmt.kind {
+                if let ExprKind::While { cond, body: wbody } = &e.kind {
+                    let header_idx = self.fresh_idx();
+                    let body_first_idx = self.fresh_idx();
+                    let after_idx = self.fresh_idx();
+                    // Close the current block by jumping to the
+                    // header.
+                    self.blocks.push(StateBlock {
+                        idx: cur_idx,
+                        stmts: std::mem::take(&mut cur_stmts),
+                        terminator: BlockTerminator::Jump(header_idx),
+                    });
+                    // Loop header: test `cond`, branch to body or
+                    // after.
+                    let mut cond_expr = (**cond).clone();
+                    rewrite_expr_locals(
+                        &mut cond_expr,
+                        self.state_param,
+                        self.state_locals,
+                    );
+                    self.blocks.push(StateBlock {
+                        idx: header_idx,
+                        stmts: Vec::new(),
+                        terminator: BlockTerminator::Branch {
+                            cond: cond_expr,
+                            then_idx: body_first_idx,
+                            else_idx: after_idx,
+                        },
+                    });
+                    // Build body's blocks; their natural end jumps
+                    // back to the header.
+                    self.build_body(
+                        wbody,
+                        body_first_idx,
+                        None,
+                        BodyEnd::JumpTo(header_idx),
+                    );
+                    // Continue accumulating subsequent stmts at the
+                    // after-loop state.
+                    cur_idx = after_idx;
+                    continue;
+                }
+            }
             // Sync stmt: rewrite locals and accumulate.
             let mut s = stmt.clone();
             rewrite_stmt_locals(&mut s, self.state_param, self.state_locals);
             cur_stmts.push(s);
         }
-        // Handle the tail. Three cases: None (settle unit), If
-        // (branch + recurse into arms), or any other expr (settle).
+        // Tail handling. Three shapes:
+        //   - None: terminate per `end` (Settle unit / JumpTo)
+        //   - If: branch + recurse into arms with same `end`
+        //   - Other expr: terminate per `end` (Settle uses the
+        //     tail value; JumpTo discards it — a `while` body's
+        //     tail expression is always discarded anyway)
         let tail = body.tail.as_deref();
         match tail.map(|t| (&t.kind, t.span)) {
             None => {
+                let term = match end {
+                    BodyEnd::Settle => {
+                        BlockTerminator::Settle { value: mk_int(0, span) }
+                    }
+                    BodyEnd::JumpTo(n) => BlockTerminator::Jump(n),
+                };
                 self.blocks.push(StateBlock {
                     idx: cur_idx,
                     stmts: cur_stmts,
-                    terminator: BlockTerminator::Settle {
-                        value: mk_int(0, span),
-                    },
+                    terminator: term,
                 });
             }
             Some((ExprKind::If { cond, then_branch, else_branch }, _)) => {
@@ -1594,45 +1666,64 @@ impl<'a> BlockBuilder<'a> {
                         else_idx,
                     },
                 });
-                self.build_body(then_branch, then_idx, None);
+                self.build_body(then_branch, then_idx, None, end);
                 match else_branch {
                     Some(eb) => match &eb.kind {
-                        ExprKind::Block(b) => self.build_body(b, else_idx, None),
-                        // `else if ...` — wrap the nested If as the
-                        // tail of a single-element synthetic block
-                        // and recurse.
+                        ExprKind::Block(b) => self.build_body(b, else_idx, None, end),
                         _ => {
                             let synth = Block {
                                 stmts: Vec::new(),
                                 tail: Some(Box::new((**eb).clone())),
                             };
-                            self.build_body(&synth, else_idx, None);
+                            self.build_body(&synth, else_idx, None, end);
                         }
                     },
                     None => {
-                        // No else: this arm settles with unit.
+                        let term = match end {
+                            BodyEnd::Settle => BlockTerminator::Settle {
+                                value: mk_int(0, span),
+                            },
+                            BodyEnd::JumpTo(n) => BlockTerminator::Jump(n),
+                        };
                         self.blocks.push(StateBlock {
                             idx: else_idx,
                             stmts: Vec::new(),
-                            terminator: BlockTerminator::Settle {
-                                value: mk_int(0, span),
-                            },
+                            terminator: term,
                         });
                     }
                 }
             }
             Some((_, _)) => {
-                // Regular tail expression: settle with its value.
-                let mut tail_expr = body.tail.as_deref().unwrap().clone();
-                rewrite_expr_locals(
-                    &mut tail_expr,
-                    self.state_param,
-                    self.state_locals,
-                );
+                let term = match end {
+                    BodyEnd::Settle => {
+                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
+                        rewrite_expr_locals(
+                            &mut tail_expr,
+                            self.state_param,
+                            self.state_locals,
+                        );
+                        BlockTerminator::Settle { value: tail_expr }
+                    }
+                    BodyEnd::JumpTo(n) => {
+                        // The tail expression has side effects (e.g.
+                        // `i = i + 1` in a while body's last
+                        // position) — run it as a statement before
+                        // jumping back. The value is discarded
+                        // because loop bodies are Unit-typed.
+                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
+                        rewrite_expr_locals(
+                            &mut tail_expr,
+                            self.state_param,
+                            self.state_locals,
+                        );
+                        cur_stmts.push(mk_expr_stmt(tail_expr, span));
+                        BlockTerminator::Jump(n)
+                    }
+                };
                 self.blocks.push(StateBlock {
                     idx: cur_idx,
                     stmts: cur_stmts,
-                    terminator: BlockTerminator::Settle { value: tail_expr },
+                    terminator: term,
                 });
             }
         }
@@ -1659,7 +1750,7 @@ fn build_blocks_for_body(
         span,
         error: None,
     };
-    b.build_body(body, 0, None);
+    b.build_body(body, 0, None, BodyEnd::Settle);
     if let Some(e) = b.error {
         return Err(e);
     }
@@ -1667,11 +1758,26 @@ fn build_blocks_for_body(
 }
 
 /// Whether the body needs the BlockBuilder path (contains an `if`
-/// at tail position with awaits inside) vs. the simpler chunks-
-/// based path.
+/// at tail position with awaits inside, OR a `while` stmt with
+/// awaits in its body) vs. the simpler chunks-based path.
 fn body_has_control_flow_with_await(body: &Block) -> bool {
-    matches!(body.tail.as_deref().map(|t| &t.kind), Some(ExprKind::If { .. }))
+    // While anywhere in body stmts that contains an await
+    for s in &body.stmts {
+        if let StmtKind::Expr(e) = &s.kind {
+            if let ExprKind::While { body: wbody, .. } = &e.kind {
+                if body_or_arms_have_await(wbody) {
+                    return true;
+                }
+            }
+        }
+    }
+    // If-else at tail with awaits inside
+    if matches!(body.tail.as_deref().map(|t| &t.kind), Some(ExprKind::If { .. }))
         && body_or_arms_have_await(body)
+    {
+        return true;
+    }
+    false
 }
 
 fn body_or_arms_have_await(b: &Block) -> bool {
@@ -1705,6 +1811,9 @@ fn expr_has_await(e: &Expr) -> bool {
             expr_has_await(cond)
                 || body_or_arms_have_await(then_branch)
                 || else_branch.as_deref().is_some_and(expr_has_await)
+        }
+        ExprKind::While { cond, body } => {
+            expr_has_await(cond) || body_or_arms_have_await(body)
         }
         ExprKind::Block(b) => body_or_arms_have_await(b),
         _ => false,

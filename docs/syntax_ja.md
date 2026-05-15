@@ -1731,7 +1731,7 @@ await 1 つにつき heap 割当の continuation closure 1 個 + 状態クラス
 **現状の制約:**
 - desugar 内のミニ型推論器が、よくある RHS 形 (リテラル、param、`await Var(p)`、`await fn_call()` (呼ばれる fn の戻り値型を参照)、`await Promise.resolve(arg)`、単純な算術 etc.) からは binding の型を導出する。認識できない形だけ `let x: T = ...` の明示注釈が要る
 - sub-expression 内の await (`foo(await p, await q)`, `(await p) * 2`) は state-machine 合成の前に `let __await_tN = await ...` に lifting されるので、自然に書ける。1 文に複数の await もあって良く、左から順に評価される
-- nested block (`if`, `loop`, `match`, lambda) 内の await は reject — join 点を跨ぐ live-variable 解析が必要
+- body tail 位置の `if-else` と `while` ループは arm / body 内に await を含んでよい。state-machine が Branch / Jump terminator を出して `state_idx` switch で再 dispatch する。mid-body `if-else` (if の値が以降の stmt に流れるケース)、`match`、lambda 内 await は引き続き reject — join state または N-way dispatch が必要
 - `class` 内の `async` メソッドは未対応 — state クラス + poll fn をクラス外に hoist する仕組みが要る
 - `throw` キーワードが無いので、`async fn` 本体から reject するには引き続き `Promise.reject(...)` / executor を使う
 

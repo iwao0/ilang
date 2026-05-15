@@ -2321,9 +2321,13 @@ pool can pass it between workers safely.
   statements above the use site before the state-machine
   synth runs, so they "just work" — including multiple awaits
   in one statement, evaluated left-to-right.
-- Awaits inside nested blocks (`if`, `loop`, `match`, lambdas)
-  are rejected — they would need explicit live-variable
-  analysis across the join points.
+- `if-else` at body tail position and `while` loops both
+  accept awaits inside their arms / bodies; the state-machine
+  lowering emits Branch / Jump terminators that re-dispatch
+  off the same `state_idx` switch. Mid-body `if-else` (where
+  the if's value flows into subsequent stmts), `match`, and
+  lambda bodies are still rejected — they need a join state
+  (mid-body if) or N-way dispatch (match).
 - `async` methods inside a `class` aren't allowed yet: the
   state class + poll fn would need to be hoisted next to the
   containing class.
