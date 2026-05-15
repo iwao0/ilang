@@ -43,7 +43,7 @@ use ilang_ast::{
     Program, Span, Stmt, StmtKind, Symbol, Type,
 };
 
-use super::state_machine_v2;
+use super::state_machine;
 
 
 /// Wrap an expression in `Promise.resolve(expr)`.
@@ -253,13 +253,13 @@ fn lower_async_fn(
     // Pre-passes (run before lift_subexpr_awaits so that any awaits
     // introduced by the rewrites flow through the canonicaliser):
     //   0. `loop { ...await... }` → `while true { ... }`.
-    f.body = state_machine_v2::desugar_loop_to_while(f.body);
+    f.body = state_machine::desugar_loop_to_while(f.body);
     //   1. `while await cond { ... }` → `while true { let cv = await cond; if !cv { break } ... }`
-    f.body = state_machine_v2::desugar_while_cond_await(f.body);
+    f.body = state_machine::desugar_while_cond_await(f.body);
     f.body = lift_subexpr_awaits(f.body);
     //   2. `for v in s..e { ...await... }` → equivalent while loop.
     //      (Runs AFTER lift since for-in's iter rarely needs lifting.)
-    f.body = state_machine_v2::desugar_for_in_with_await(f.body);
+    f.body = state_machine::desugar_for_in_with_await(f.body);
 
     // Zero-await: trivial wrap into Promise.resolve(<body>).
     // If the user already declared the return type as `Promise<U>`,
@@ -308,18 +308,18 @@ fn lower_async_fn(
             ),
         }
     })?;
-    match state_machine_v2::lower(&f, &body_lets, enclosing_class, enums) {
-        state_machine_v2::LowerOutput::Built(out) => Ok(AsyncLowerOutput::StateMachine {
+    match state_machine::lower(&f, &body_lets, enclosing_class, enums) {
+        state_machine::LowerOutput::Built(out) => Ok(AsyncLowerOutput::StateMachine {
             wrapper: out.wrapper,
             state_class: out.state_ref_class,
             poll_fn: out.poll_fn,
             state_enum: Some(out.state_enum),
         }),
-        state_machine_v2::LowerOutput::NoAwait => {
+        state_machine::LowerOutput::NoAwait => {
             // Defensive: body_contains_await above should have caught this.
             unreachable!("v2 returned NoAwait after body_contains_await=true")
         }
-        state_machine_v2::LowerOutput::NeedsFallback => Err(AsyncLowerError {
+        state_machine::LowerOutput::NeedsFallback => Err(AsyncLowerError {
             fn_name: f.name,
             span: f.span,
             reason: format!(

@@ -26,7 +26,7 @@ use crate::error::ParseError;
 
 pub mod async_desugar;
 mod dealias;
-pub(crate) mod state_machine_v2;
+pub(crate) mod state_machine;
 mod validate;
 
 use dealias::dealias_program;
