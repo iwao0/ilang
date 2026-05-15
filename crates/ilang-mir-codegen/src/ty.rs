@@ -31,6 +31,7 @@ pub fn mir_to_clif(t: &MirTy) -> Option<ClifType> {
         | MirTy::Tuple(_)
         | MirTy::Optional(_)
         | MirTy::Map { .. }
+        | MirTy::Promise(_)
         | MirTy::Fn(_) => ct::I64,
         MirTy::RawPtr { .. } => ct::I64,
         MirTy::CChar => ct::I8,

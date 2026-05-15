@@ -30,6 +30,7 @@ pub(super) const KIND_MAP: i64 = 5;
 pub(super) const KIND_CLOSURE: i64 = 6;
 pub(super) const KIND_STR: i64 = 7;
 pub(super) const KIND_ENUM: i64 = 8;
+pub(super) const KIND_PROMISE: i64 = 9;
 
 // `PK_*` — per-value pretty-print tag.
 pub(super) const PK_I64_SIG: i64 = 0;
@@ -82,6 +83,7 @@ pub(super) fn kind_tag_of(ty: &MirTy) -> i64 {
         MirTy::Fn(_) => KIND_CLOSURE,
         MirTy::Str => KIND_STR,
         MirTy::Enum(_) => KIND_ENUM,
+        MirTy::Promise(_) => KIND_PROMISE,
         _ => KIND_NONE,
     }
 }

@@ -127,6 +127,106 @@ impl TypeChecker {
             },
         );
 
+        // Built-in `Promise<T>` — generic class with no fields.
+        // Methods/static methods are intercepted in MIR lowering;
+        // the signatures here are what the type checker enforces.
+        //
+        //   then<U>(cb: fn(T): U): Promise<U>
+        //   catch(cb: fn(string): T): Promise<T>
+        //   static resolve(v: T): Promise<T>
+        //   static reject(msg: string): Promise<T>
+        //
+        // The constructor `new Promise<T>(executor: fn(fn(T), fn(string)))`
+        // goes through the regular `init` slot.
+        let t = || Type::TypeVar("T".into());
+        let u = || Type::TypeVar("U".into());
+        let promise_t = || Type::generic("Promise", vec![t()]);
+        let promise_u = || Type::generic("Promise", vec![u()]);
+        let mut promise_methods = HashMap::new();
+        // init(executor: fn(fn(T), fn(string)))
+        let executor_ty = Type::func(
+            vec![
+                Type::func(vec![t()], Type::Unit),
+                Type::func(vec![Type::Str], Type::Unit),
+            ],
+            Type::Unit,
+        );
+        promise_methods.insert(
+            "init".into(),
+            vec![Signature {
+                params: vec![executor_ty],
+                ret: Type::Unit,
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        promise_methods.insert(
+            "then".into(),
+            vec![Signature {
+                params: vec![Type::func(vec![t()], u())],
+                ret: promise_u(),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["U".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        promise_methods.insert(
+            "catch".into(),
+            vec![Signature {
+                params: vec![Type::func(vec![Type::Str], t())],
+                ret: promise_t(),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        let mut promise_statics = HashMap::new();
+        promise_statics.insert(
+            "resolve".into(),
+            vec![Signature {
+                params: vec![t()],
+                ret: promise_t(),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        // `Promise.reject(msg)` would need a T-from-context inference
+        // path the checker doesn't have today (the message doesn't
+        // constrain T). Users express rejection inside the executor:
+        // `new Promise<T>(fn(_, reject) { reject("...") })`.
+        self.classes.insert(
+            "Promise".into(),
+            ClassSig {
+                type_params: vec!["T".into()],
+                fields: HashMap::new(),
+                methods: promise_methods,
+                properties: HashMap::new(),
+                static_methods: promise_statics,
+                static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
+                parent: None,
+                implements: Vec::new(),
+                method_slots: HashMap::new(),
+                vtable_len: 0,
+                extern_lib: None,
+                is_repr_c: false,
+                has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
+            },
+        );
+
         // Built-in helpers callable inside `@extern(C) { ... }` blocks
         // for converting between raw C ABI values and ilang values.
         // Registered as top-level fns; their signatures use raw

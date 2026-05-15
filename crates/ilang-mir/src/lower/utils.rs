@@ -103,6 +103,7 @@ pub(super) fn mangle_ty_atom(t: &MirTy) -> String {
         }
         MirTy::Optional(inner) => format!("opt_{}", mangle_ty_atom(inner)),
         MirTy::Map { key, val } => format!("map_{}_{}", mangle_ty_atom(key), mangle_ty_atom(val)),
+        MirTy::Promise(inner) => format!("prom_{}", mangle_ty_atom(inner)),
         MirTy::Fn(_) => "fn".into(),
         MirTy::RawPtr { is_const, inner } => {
             let prefix = if *is_const { "pc" } else { "pm" };

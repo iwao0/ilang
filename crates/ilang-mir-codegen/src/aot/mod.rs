@@ -371,6 +371,17 @@ pub fn compile_program_to_object(prog: &Program) -> Result<Vec<u8>, AotError> {
             }
             None => fb.ins().iconst(types::I32, 0),
         };
+        // Drain the Promise / pool tasks the program scheduled so
+        // pending `.then` / executor bodies actually run before
+        // `main` returns. No-op if the user never touched a Promise.
+        let drain_sig = module.make_signature();
+        let drain_id = module.declare_function(
+            "__promise_drain",
+            Linkage::Import,
+            &drain_sig,
+        )?;
+        let drain_ref = module.declare_func_in_func(drain_id, fb.func);
+        fb.ins().call(drain_ref, &[]);
         fb.ins().return_(&[ret32]);
         fb.finalize();
     }

@@ -34,6 +34,9 @@ pub enum MirTy {
     Tuple(Box<[MirTy]>),
     Optional(Box<MirTy>),
     Map { key: Box<MirTy>, val: Box<MirTy> },
+    /// `Promise<T>` — built-in async value. Heap-allocated, atomic
+    /// refcount, settled exactly once.
+    Promise(Box<MirTy>),
     /// Closure / first-class function value. Always `(fn_ptr, env_ptr)`
     /// at runtime; the env may be null for trampoline-wrapped top-level
     /// functions.
@@ -107,6 +110,7 @@ impl MirTy {
                 | MirTy::Tuple(_)
                 | MirTy::Optional(_)
                 | MirTy::Map { .. }
+                | MirTy::Promise(_)
                 | MirTy::Fn(_)
         )
     }
@@ -145,6 +149,7 @@ impl std::fmt::Display for MirTy {
             }
             MirTy::Optional(inner) => write!(f, "{inner}?"),
             MirTy::Map { key, val } => write!(f, "Map<{key}, {val}>"),
+            MirTy::Promise(inner) => write!(f, "Promise<{inner}>"),
             MirTy::Fn(ft) => {
                 write!(f, "fn(")?;
                 for (i, p) in ft.params.iter().enumerate() {

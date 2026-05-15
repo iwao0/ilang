@@ -46,6 +46,16 @@ pub(super) struct MapIds {
 }
 
 #[derive(Clone, Copy)]
+pub(super) struct PromiseIds {
+    pub(super) resolve: cranelift_module::FuncId,
+    pub(super) reject: cranelift_module::FuncId,
+    pub(super) then: cranelift_module::FuncId,
+    pub(super) catch: cranelift_module::FuncId,
+    pub(super) with_executor: cranelift_module::FuncId,
+    pub(super) drain: cranelift_module::FuncId,
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct StrIds {
     pub(super) length: cranelift_module::FuncId,
     pub(super) concat: cranelift_module::FuncId,
@@ -184,6 +194,8 @@ pub(super) struct PanicAux {
     pub(super) enum_alloc: cranelift_module::FuncId,
     pub(super) release_enum: cranelift_module::FuncId,
     pub(super) retain_enum: cranelift_module::FuncId,
+    pub(super) release_promise: cranelift_module::FuncId,
+    pub(super) retain_promise: cranelift_module::FuncId,
     pub(super) msg_div: DataId,
     pub(super) msg_mod: DataId,
     pub(super) msg_oob: DataId,
@@ -242,7 +254,13 @@ pub struct BuiltinDecl {
 pub fn run_main(c: &Compiled) -> i64 {
     let ptr = c.module.get_finalized_function(c.entry);
     let f: extern "C" fn() -> i64 = unsafe { std::mem::transmute(ptr) };
-    f()
+    let rc = f();
+    // Drain the Promise / pool tasks that the program scheduled so
+    // pending `.then` / executor bodies actually run before exit.
+    // No-op if the user never touched a Promise (the pool stays
+    // un-initialised).
+    ilang_runtime::__promise_drain();
+    rc
 }
 
 /// Emit a boolean expression equivalent to `class_id ∈ {target ∪ all

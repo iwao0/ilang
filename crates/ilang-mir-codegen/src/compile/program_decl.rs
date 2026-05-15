@@ -20,7 +20,7 @@ use crate::ty::mir_to_clif;
 use super::abi::clif_signature_for;
 use super::{
     declare_binary_i64, declare_ternary_i64, declare_unary_i64, declare_unit_f64,
-    declare_unit_i64, declare_unit_void, lower_function, BuiltinDecl, CompileError, MapIds,
+    declare_unit_i64, declare_unit_void, lower_function, BuiltinDecl, CompileError, MapIds, PromiseIds,
     PanicAux, PrintIds, PrintLits, StrIds,
 };
 
@@ -131,6 +131,17 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let map_delete_id = declare_binary_i64(module, "__map_delete")?;
     let map_keys_id = declare_unary_i64(module, "__map_keys")?;
     let map_values_id = declare_unary_i64(module, "__map_values")?;
+    // Promise runtime imports.
+    let promise_resolve_id = declare_binary_i64(module, "__promise_resolve")?;
+    let promise_reject_id = declare_unary_i64(module, "__promise_reject")?;
+    let promise_then_id = declare_ternary_i64(module, "__promise_then")?;
+    let promise_catch_id = declare_ternary_i64(module, "__promise_catch")?;
+    let promise_with_executor_id =
+        declare_binary_i64(module, "__promise_with_executor")?;
+    let promise_drain_id = {
+        let sig = module.make_signature();
+        module.declare_function("__promise_drain", Linkage::Import, &sig)?
+    };
     // FFI marshalling helpers as imports.
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
@@ -342,6 +353,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     let enum_alloc_id = declare_ternary_i64(module, "__enum_alloc")?;
     let release_enum_id = declare_unit_i64(module, "__release_enum")?;
     let retain_enum_id = declare_unit_i64(module, "__retain_enum")?;
+    let release_promise_id = declare_unit_i64(module, "__release_promise")?;
+    let retain_promise_id = declare_unit_i64(module, "__retain_promise")?;
     let map_set_val_kind_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -564,6 +577,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 keys: map_keys_id,
                 values: map_values_id,
             };
+            let promise_ids = PromiseIds {
+                resolve: promise_resolve_id,
+                reject: promise_reject_id,
+                then: promise_then_id,
+                catch: promise_catch_id,
+                with_executor: promise_with_executor_id,
+                drain: promise_drain_id,
+            };
             let panic_aux = PanicAux {
                 fn_id: panic_fn_id,
                 drop_dispatch: drop_dispatch_id,
@@ -592,6 +613,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 enum_alloc: enum_alloc_id,
                 release_enum: release_enum_id,
                 retain_enum: retain_enum_id,
+                release_promise: release_promise_id,
+                retain_promise: retain_promise_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,
@@ -630,6 +653,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 &string_data,
                 alloc_id,
                 map_ids,
+                promise_ids,
                 str_ids,
                 print_ids,
                 panic_aux,

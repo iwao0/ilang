@@ -39,6 +39,56 @@ impl TypeChecker {
             self.method_overload_pick
                 .borrow_mut()
                 .insert(span, (class_name.into(), method.into(), 0));
+            // Method-level generics (e.g. `Promise.then<U>(cb: fn(T): U)`,
+            // `Promise.resolve<T>(v: T)`): infer the per-call type-arg
+            // bindings from (parametric param type, arg type) pairs,
+            // substitute, then validate. Mirrors the free-fn generic
+            // path in `check_call_named`.
+            if !sigs[0].type_params.is_empty() {
+                let sig = &sigs[0];
+                if sig.params.len() != args.len() {
+                    return Err(TypeError::ArityMismatch {
+                        name: method.into(),
+                        expected: sig.params.len(),
+                        got: args.len(),
+                        span,
+                    });
+                }
+                let mut bindings: HashMap<Symbol, Type> = HashMap::new();
+                let mut arg_tys: Vec<Type> = Vec::with_capacity(args.len());
+                for (param_ty, arg) in sig.params.iter().zip(args.iter()) {
+                    let at =
+                        self.check_expr(arg, env, ret_ty, in_class, loop_depth)?;
+                    collect_type_var_bindings(param_ty, &at, &mut bindings);
+                    arg_tys.push(at);
+                }
+                let inferred_args: Vec<Type> = sig
+                    .type_params
+                    .iter()
+                    .map(|p| bindings.get(p).cloned().unwrap_or(Type::Any))
+                    .collect();
+                for ((param_ty, arg), at) in
+                    sig.params.iter().zip(args.iter()).zip(arg_tys.iter())
+                {
+                    let actual = subst_type(param_ty, &sig.type_params, &inferred_args);
+                    if !self.value_assignable(arg, at, &actual) {
+                        return Err(TypeError::Mismatch {
+                            expected: actual,
+                            got: at.clone(),
+                            span: arg.span,
+                        });
+                    }
+                }
+                let mut chosen = sig.clone();
+                chosen.ret = subst_type(&sig.ret, &sig.type_params, &inferred_args);
+                chosen.params = sig
+                    .params
+                    .iter()
+                    .map(|p| subst_type(p, &sig.type_params, &inferred_args))
+                    .collect();
+                chosen.type_params = Vec::new();
+                return Ok(chosen);
+            }
             self.check_args(method, &sigs[0], args, env, ret_ty, in_class, loop_depth, span)?;
             return Ok(sigs[0].clone());
         }

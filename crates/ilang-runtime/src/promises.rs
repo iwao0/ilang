@@ -283,10 +283,11 @@ fn fire_resolved(
         __release_promise(downstream);
         return;
     }
-    // Invoke the closure: `extern "C" fn(closure_ptr, input) -> output`.
+    // Invoke the closure. ilang closures carry the env (closure_ptr)
+    // as the trailing argument — `extern "C" fn(value, env) -> output`.
     let fn_addr = unsafe { *(on_resolve as *const i64) };
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_addr) };
-    let out = f(on_resolve, value);
+    let out = f(value, on_resolve);
     // Closure call doesn't consume `value`; release our extra retain.
     release_field_by_kind(value, in_kind);
     release_closure_arg(on_resolve);
@@ -314,7 +315,7 @@ fn fire_rejected(
     }
     let fn_addr = unsafe { *(on_reject as *const i64) };
     let f: extern "C" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(fn_addr) };
-    let out = f(on_reject, msg);
+    let out = f(msg, on_reject);
     __release_string(msg);
     release_closure_arg(on_reject);
     // .catch's handler returns a recovery value of type T; the
@@ -408,7 +409,7 @@ pub extern "C" fn __promise_catch(p: i64, on_reject: i64, out_kind: i64) -> i64 
 // and calls `settle_resolve` / `settle_reject`.
 // --------------------------------------------------------------------
 
-extern "C" fn promise_resolve_stub(closure_ptr: i64, value: i64) -> i64 {
+extern "C" fn promise_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
     // Capture[0] at offset 16 = promise ptr. Take ownership of value
     // (caller in ilang doesn't release after the call; that's the
     // convention for resolve/reject).
@@ -421,7 +422,7 @@ extern "C" fn promise_resolve_stub(closure_ptr: i64, value: i64) -> i64 {
     0
 }
 
-extern "C" fn promise_reject_stub(closure_ptr: i64, msg: i64) -> i64 {
+extern "C" fn promise_reject_stub(msg: i64, closure_ptr: i64) -> i64 {
     let p = unsafe { *((closure_ptr + 16) as *const i64) };
     __retain_string(msg);
     settle_reject(p, msg);
@@ -484,9 +485,9 @@ pub extern "C" fn __promise_with_executor(executor_closure: i64, value_kind: i64
     let j_cb = reject_cb;
     pool::submit(move || {
         let fn_addr = unsafe { *(exec as *const i64) };
-        // executor signature: fn(closure_ptr, resolve_cb, reject_cb)
+        // executor signature: ilang env-trailing — `fn(resolve, reject, env)`.
         let f: extern "C" fn(i64, i64, i64) = unsafe { std::mem::transmute(fn_addr) };
-        f(exec, r_cb, j_cb);
+        f(r_cb, j_cb, exec);
         // Drop the +1 references the worker held.
         release_closure_arg(exec);
         release_closure_arg(r_cb);
@@ -524,8 +525,9 @@ mod tests {
         let v = make_string("hi");
         let p = __promise_resolve(v, KIND_STR);
 
-        // Synthetic callback that strcats " world" and returns a new string.
-        extern "C" fn cb(_closure: i64, value: i64) -> i64 {
+        // Synthetic callback (ilang env-trailing ABI: value first,
+        // closure ptr last) that strcats " world" and returns a new string.
+        extern "C" fn cb(value: i64, _closure: i64) -> i64 {
             let s = cstr_to_str(value);
             leak_cstring(format!("{} world", s))
         }
@@ -563,7 +565,7 @@ mod tests {
         // .then with no handler — should propagate.
         let mid = __promise_then(p, 0, KIND_STR);
         // .catch recovers to a string.
-        extern "C" fn recover(_closure: i64, _msg: i64) -> i64 {
+        extern "C" fn recover(_msg: i64, _closure: i64) -> i64 {
             leak_cstring("recovered".to_string())
         }
         let closure = crate::alloc::__mir_alloc(16) as *mut i64;

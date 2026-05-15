@@ -1090,7 +1090,7 @@ pub(super) fn is_generic_enum(name: &str) -> bool {
 /// `Type::Object` like user generic classes). The JIT recognizes these
 /// names and produces dedicated `JitTy` variants for them.
 pub(super) fn is_builtin_generic_class(name: &str) -> bool {
-    name == "Map"
+    name == "Map" || name == "Promise"
 }
 
 /// Collapse `Type::Generic { Box, [i64] }` to `Type::Object("Box<i64>")`

@@ -127,7 +127,7 @@ pub(super) fn is_valid_map_key_type(t: &Type) -> bool {
 }
 
 pub(super) fn is_reserved_class(name: &str) -> bool {
-    matches!(name, "Console" | "Map" | "Result" | "Type" | "TypeKind")
+    matches!(name, "Console" | "Map" | "Promise" | "Result" | "Type" | "TypeKind")
 }
 
 pub(super) fn is_reserved_global(name: &str) -> bool {

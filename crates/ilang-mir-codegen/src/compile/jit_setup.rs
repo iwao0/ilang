@@ -92,6 +92,18 @@ pub fn compile_with_builtins(
     jit_builder.symbol("__map_delete", ilang_runtime::__map_delete as *const u8);
     jit_builder.symbol("__map_keys", ilang_runtime::__map_keys as *const u8);
     jit_builder.symbol("__map_values", ilang_runtime::__map_values as *const u8);
+    // Promise + thread pool runtime.
+    jit_builder.symbol("__promise_resolve", ilang_runtime::__promise_resolve as *const u8);
+    jit_builder.symbol("__promise_reject", ilang_runtime::__promise_reject as *const u8);
+    jit_builder.symbol("__promise_then", ilang_runtime::__promise_then as *const u8);
+    jit_builder.symbol("__promise_catch", ilang_runtime::__promise_catch as *const u8);
+    jit_builder.symbol(
+        "__promise_with_executor",
+        ilang_runtime::__promise_with_executor as *const u8,
+    );
+    jit_builder.symbol("__promise_drain", ilang_runtime::__promise_drain as *const u8);
+    jit_builder.symbol("__retain_promise", ilang_runtime::__retain_promise as *const u8);
+    jit_builder.symbol("__release_promise", ilang_runtime::__release_promise as *const u8);
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.

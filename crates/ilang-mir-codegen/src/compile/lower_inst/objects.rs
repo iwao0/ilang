@@ -22,7 +22,7 @@ use super::super::abi::{
     reduce_from_i64,
 };
 use super::super::{
-    CompileError, MapIds, PanicAux, PrintIds, PrintLits, StrIds,
+    CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
     OBJECT_HEADER_BYTES,
 };
 
@@ -37,6 +37,7 @@ pub(super) fn lower_load_field<M: Module>(
     _string_data: &HashMap<Symbol, DataId>,
     _alloc_id: cranelift_module::FuncId,
     _map_ids: MapIds,
+    _promise_ids: PromiseIds,
     str_ids: StrIds,
     _print_ids: PrintIds,
     panic_aux: PanicAux,
@@ -250,6 +251,7 @@ pub(super) fn lower_store_field<M: Module>(
     _string_data: &HashMap<Symbol, DataId>,
     _alloc_id: cranelift_module::FuncId,
     _map_ids: MapIds,
+    _promise_ids: PromiseIds,
     _str_ids: StrIds,
     _print_ids: PrintIds,
     _panic_aux: PanicAux,

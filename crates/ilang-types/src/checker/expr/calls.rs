@@ -470,7 +470,11 @@ impl TypeChecker {
                     .collect(),
                 ret: subst_type(&raw.ret, &class_params, &inst_args),
                 variadic: raw.variadic,
-                type_params: Vec::new(),
+                // Keep method-level type_params after class-level
+                // substitution. `Promise.then<U>` carries U through
+                // even after T was substituted from the receiver's
+                // `Promise<T>` class args.
+                type_params: raw.type_params.clone(),
                 decl_span: raw.decl_span,
                 defaults: raw.defaults.clone(),
                 is_pub: raw.is_pub,

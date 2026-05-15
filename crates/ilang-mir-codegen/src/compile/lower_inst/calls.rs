@@ -24,7 +24,7 @@ use super::super::abi::{
 };
 use super::super::print_emit::emit_print_value;
 use super::super::{
-    CompileError, MapIds, PanicAux, PrintIds, PrintLits, StrIds,
+    CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
 };
 
 
@@ -39,6 +39,7 @@ pub(super) fn lower_call<M: Module>(
     _string_data: &HashMap<Symbol, DataId>,
     alloc_id: cranelift_module::FuncId,
     map_ids: MapIds,
+    promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
     panic_aux: PanicAux,
@@ -278,6 +279,12 @@ pub(super) fn lower_call<M: Module>(
                 "map_delete" => Some(map_ids.delete),
                 "map_keys" => Some(map_ids.keys),
                 "map_values" => Some(map_ids.values),
+                "promise_resolve" => Some(promise_ids.resolve),
+                "promise_reject" => Some(promise_ids.reject),
+                "promise_then" => Some(promise_ids.then),
+                "promise_catch" => Some(promise_ids.catch),
+                "promise_with_executor" => Some(promise_ids.with_executor),
+                "promise_drain" => Some(promise_ids.drain),
                 "class_name" => Some(panic_aux.class_name),
                 _ => None,
             };

@@ -656,6 +656,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Array { .. }
             | MirTy::Tuple(_)
             | MirTy::Map { .. }
+            | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
             | MirTy::Str
@@ -707,6 +708,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Array { .. }
             | MirTy::Tuple(_)
             | MirTy::Map { .. }
+            | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
             | MirTy::Str
@@ -1208,6 +1210,9 @@ impl<'a> BodyCx<'a> {
                 key: Box::new(self.resolve_ty(&g.args[0])?),
                 val: Box::new(self.resolve_ty(&g.args[1])?),
             }),
+            Type::Generic(g) if g.base.as_str() == "Promise" && g.args.len() == 1 => {
+                Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)))
+            }
             Type::Generic(g) => self
                 .enum_ids
                 .get(&g.base)

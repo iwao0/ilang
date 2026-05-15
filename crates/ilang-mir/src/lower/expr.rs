@@ -159,6 +159,42 @@ impl<'a> BodyCx<'a> {
             ExprKind::New { class, type_args, args, init_method } => {
                 // Built-in `Map<K, V>` — `new Map<K,V>()` constructs
                 // an empty map.
+                // Built-in `new Promise<T>(executor)` — schedules
+                // the executor on the work-stealing pool with two
+                // synthetic resolve/reject callbacks bound to the
+                // freshly-allocated pending promise.
+                if class.as_str() == "Promise"
+                    && type_args.len() == 1
+                    && args.len() == 1
+                {
+                    let inner = self.resolve_ty(&type_args[0])?;
+                    let exec_is_fresh = self.is_fresh_object_expr(&args[0]);
+                    let (exec_v, _exec_ty) = self.lower_expr(&args[0])?;
+                    if !exec_is_fresh {
+                        self.fb.push_inst(Inst::Retain { value: exec_v });
+                    }
+                    let kind = match &inner {
+                        MirTy::Object(_) => 1,
+                        MirTy::Array { .. } => 2,
+                        MirTy::Optional(_) => 3,
+                        MirTy::Tuple(_) => 4,
+                        MirTy::Map { .. } => 5,
+                        MirTy::Fn(_) => 6,
+                        MirTy::Str => 7,
+                        MirTy::Enum(_) => 8,
+                        MirTy::Promise(_) => 9,
+                        _ => 0,
+                    };
+                    let kind_v = self.const_int(MirTy::I64, kind);
+                    let prom_ty = MirTy::Promise(Box::new(inner));
+                    let dst = self.fb.new_value(prom_ty.clone());
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(dst),
+                        callee: FuncRef::Builtin(Symbol::intern("promise_with_executor")),
+                        args: Box::new([exec_v, kind_v]),
+                    });
+                    return Ok((dst, prom_ty));
+                }
                 if class.as_str() == "Map" && type_args.len() == 2 && args.is_empty() {
                     let key = self.resolve_ty(&type_args[0])?;
                     let val = self.resolve_ty(&type_args[1])?;

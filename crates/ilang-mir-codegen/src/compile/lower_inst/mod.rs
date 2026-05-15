@@ -36,7 +36,7 @@ use super::print_kind::{
     KIND_OBJECT, KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
 };
 use super::{
-    emit_is_subclass, CompileError, MapIds, PanicAux, PrintIds, PrintLits, StrIds,
+    emit_is_subclass, CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
     OBJECT_HEADER_BYTES,
 };
 
@@ -51,6 +51,7 @@ pub(super) fn lower_inst<M: Module>(
     string_data: &HashMap<Symbol, DataId>,
     alloc_id: cranelift_module::FuncId,
     map_ids: MapIds,
+    promise_ids: PromiseIds,
     str_ids: StrIds,
     print_ids: PrintIds,
     panic_aux: PanicAux,
@@ -158,7 +159,7 @@ pub(super) fn lower_inst<M: Module>(
         Inst::Call { dst, callee, args } => {
             calls::lower_call(
                 fb, dst, callee, args, vmap, func, fn_ids, builtin_ids,
-                static_data, string_data, alloc_id, map_ids, str_ids,
+                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
                 print_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,
                 class_struct_global, stack_local,
@@ -339,6 +340,11 @@ pub(super) fn lower_inst<M: Module>(
                     let r = module.declare_func_in_func(panic_aux.release_map, fb.func);
                     fb.ins().call(r, &[av]);
                 }
+                MirTy::Promise(_) => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.release_promise, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
                 MirTy::Str => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.release_string, fb.func);
@@ -400,6 +406,11 @@ pub(super) fn lower_inst<M: Module>(
                 MirTy::Map { .. } => {
                     let av = vmap[value];
                     let r = module.declare_func_in_func(panic_aux.retain_map, fb.func);
+                    fb.ins().call(r, &[av]);
+                }
+                MirTy::Promise(_) => {
+                    let av = vmap[value];
+                    let r = module.declare_func_in_func(panic_aux.retain_promise, fb.func);
                     fb.ins().call(r, &[av]);
                 }
                 MirTy::Str => {
@@ -1079,7 +1090,7 @@ pub(super) fn lower_inst<M: Module>(
         Inst::LoadField { dst, obj, field } => {
             objects::lower_load_field(
                 fb, dst, obj, field, vmap, func, fn_ids, builtin_ids,
-                static_data, string_data, alloc_id, map_ids, str_ids,
+                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
                 print_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,
                 class_struct_global, stack_local,
@@ -1088,7 +1099,7 @@ pub(super) fn lower_inst<M: Module>(
         Inst::StoreField { obj, field, value } => {
             objects::lower_store_field(
                 fb, obj, field, value, vmap, func, fn_ids, builtin_ids,
-                static_data, string_data, alloc_id, map_ids, str_ids,
+                static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
                 print_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,
                 class_struct_global, stack_local,

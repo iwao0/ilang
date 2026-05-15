@@ -19,6 +19,24 @@ use crate::types::MirTy;
 use super::utils::retain_if_heap;
 use super::{BodyCx, LowerError};
 
+/// Cascade `KIND_*` tag for a MirTy. Mirrors the codegen-side
+/// `print_kind::kind_tag_of`. Used by Promise codegen to tell
+/// the runtime how to release the wrapped value.
+fn kind_tag_of_mir(ty: &MirTy) -> i64 {
+    match ty {
+        MirTy::Object(_) => 1,
+        MirTy::Array { .. } => 2,
+        MirTy::Optional(_) => 3,
+        MirTy::Tuple(_) => 4,
+        MirTy::Map { .. } => 5,
+        MirTy::Fn(_) => 6,
+        MirTy::Str => 7,
+        MirTy::Enum(_) => 8,
+        MirTy::Promise(_) => 9,
+        _ => 0,
+    }
+}
+
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_super_call(
         &mut self,
@@ -183,6 +201,35 @@ impl<'a> BodyCx<'a> {
                     self.fb.push_inst(Inst::Release { value: fv });
                 }
                 return Ok((self.const_unit(), MirTy::Unit));
+            }
+            // Built-in `Promise.resolve(v)` static factory. T is
+            // inferred from the argument's lowered MirTy; the kind
+            // tag goes through to `__promise_resolve` so the cell's
+            // cascade-on-drop knows how to release the inner value.
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && method.as_str() == "resolve"
+                && args.len() == 1
+            {
+                let arg_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (vv, vty) = self.lower_expr(&args[0])?;
+                // The runtime takes ownership of the value (its rc
+                // moves into the promise's Resolved state). For a
+                // borrowed scrutinee we retain so the caller's +1
+                // stays intact.
+                if !arg_is_fresh && vty.is_heap() {
+                    self.fb.push_inst(Inst::Retain { value: vv });
+                }
+                let kind = kind_tag_of_mir(&vty);
+                let kind_v = self.const_int(MirTy::I64, kind);
+                let prom_ty = MirTy::Promise(Box::new(vty.clone()));
+                let dst = self.fb.new_value(prom_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern("promise_resolve")),
+                    args: Box::new([vv, kind_v]),
+                });
+                return Ok((dst, prom_ty));
             }
             // `ClassName.staticMethod(args)` when the ident names a
             // class with no local shadow.
@@ -466,6 +513,39 @@ impl<'a> BodyCx<'a> {
                     args: arg_vals.into_boxed_slice(),
                 });
                 Ok((dst.unwrap_or_else(|| self.const_unit()), ret_ty))
+            }
+            (MirTy::Promise(inner), m @ ("then" | "catch")) => {
+                if args.len() != 1 {
+                    return Err(LowerError::Other(format!(
+                        "Promise.{m} takes 1 callback arg"
+                    )));
+                }
+                // Lower the callback closure; from its fn-ty we
+                // figure out the downstream Promise's element type
+                // (then's `cb: fn(T): U` ⇒ Promise<U>; catch's
+                // `cb: fn(string): T` ⇒ Promise<T>).
+                let cb_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (cb_v, cb_ty) = self.lower_expr(&args[0])?;
+                let out_inner = match (&cb_ty, m) {
+                    (MirTy::Fn(ft), _) => ft.ret.clone(),
+                    (_, "catch") => (**inner).clone(),
+                    _ => MirTy::Unit,
+                };
+                let out_kind = kind_tag_of_mir(&out_inner);
+                let out_kind_v = self.const_int(MirTy::I64, out_kind);
+                // Runtime takes ownership of the callback's +1.
+                if !cb_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: cb_v });
+                }
+                let result_ty = MirTy::Promise(Box::new(out_inner));
+                let dst = self.fb.new_value(result_ty.clone());
+                let builtin = if m == "then" { "promise_then" } else { "promise_catch" };
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                    args: Box::new([ov, cb_v, out_kind_v]),
+                });
+                Ok((dst, result_ty))
             }
             (MirTy::Map { key, val }, m) => {
                 let (builtin_name, ret_ty) = match m {
