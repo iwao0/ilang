@@ -464,35 +464,151 @@ fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
             ),
         });
     }
-    if !analysis.suspend_points.is_empty() {
+    // Zero-await: trivial wrap.
+    if analysis.suspend_points.is_empty() {
+        let new_ret = wrap_ret_in_promise(f.ret);
+        let new_body = wrap_body_in_promise_resolve(f.body);
+        return Ok(FnDecl {
+            attrs: f.attrs,
+            is_pub: f.is_pub,
+            name: f.name,
+            type_params: f.type_params,
+            params: f.params,
+            ret: new_ret,
+            body: new_body,
+            span: f.span,
+            is_override: f.is_override,
+            is_async: false,
+        });
+    }
+    // Multi-await isn't supported yet (the `.then` chain would need
+    // `Promise<U>`-flattening which we haven't built).
+    if analysis.suspend_points.len() > 1 {
         return Err(AsyncLowerError {
             fn_name: f.name.clone(),
             span: f.span,
             reason: format!(
-                "async fn `{}`: {} await sites — only zero-await async \
-                 fns are lowered in this commit (multi-state lowering \
-                 lands next)",
+                "async fn `{}` has {} await sites — multi-await \
+                 desugar (needs a `.then` flattening primitive) is \
+                 the next sub-phase; for now use a single await + \
+                 manual `.then(...)` chain for the rest",
                 f.name.as_str(),
                 analysis.suspend_points.len()
             ),
         });
     }
-    // Trivial case: no awaits — wrap the body's value in
-    // `Promise.resolve(...)` and lift the declared return type.
-    let new_ret = wrap_ret_in_promise(f.ret);
-    let new_body = wrap_body_in_promise_resolve(f.body);
+    // Single-await: desugar to
+    //   fn foo(args): Promise<T> {
+    //       <awaited_expr>.then(fn(x: BindingTy): T { <rest_of_body> })
+    //   }
+    // The awaited let binding must carry an explicit type
+    // annotation (`let x: T = await p`) — without type-checker
+    // output at this stage, that's how we know the closure's
+    // parameter type.
+    desugar_single_await(f, analysis)
+}
+
+fn desugar_single_await(
+    f: FnDecl,
+    analysis: AsyncAnalysis,
+) -> Result<FnDecl, AsyncLowerError> {
+    // chunks: [chunk_0 (pre-await, terminated with let-await), chunk_1 (rest, terminal)]
+    debug_assert_eq!(analysis.chunks.len(), 2);
+    let chunk0 = &analysis.chunks[0];
+    let chunk1 = &analysis.chunks[1];
+
+    // Find the original `let x: T = await p` statement to recover
+    // x's declared type. The walk we did earlier verified that
+    // chunk0 has `awaited_binding` set, but it lost the type
+    // annotation (we only kept the name). Walk the original body
+    // again to fish it out.
+    let binding_name = chunk0
+        .awaited_binding
+        .expect("chunk 0 must end with an await");
+    let binding_ty = find_let_await_binding_type(&f.body, binding_name).ok_or_else(
+        || AsyncLowerError {
+            fn_name: f.name.clone(),
+            span: f.span,
+            reason: format!(
+                "async fn `{}`: `let {}: T = await ...` needs an explicit \
+                 type annotation (the desugar can't infer T without the \
+                 type checker)",
+                f.name.as_str(),
+                binding_name.as_str()
+            ),
+        },
+    )?;
+
+    let awaited_expr = chunk0
+        .awaited_promise_expr
+        .clone()
+        .expect("chunk 0 has an awaited promise");
+    let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
+
+    // Closure body: chunk1's stmts + tail. We pass it through as-is
+    // — chunk1's locals reference both the bound name `x` (which
+    // becomes the closure parameter) and the outer fn's params
+    // (which become the closure's captures, handled automatically
+    // by ilang's closure system).
+    let closure_body = Block {
+        stmts: chunk1.stmts.clone(),
+        tail: chunk1.final_tail.clone().map(Box::new),
+    };
+    let closure_span = f.body.tail.as_ref().map(|t| t.span).unwrap_or(f.span);
+    let closure_param = Param {
+        name: binding_name,
+        ty: binding_ty.clone(),
+        span: closure_span,
+        default: None,
+    };
+    let closure_expr = Expr::new(
+        ExprKind::FnExpr {
+            params: Box::new([closure_param]),
+            ret: Some(inner_ret.clone()),
+            body: closure_body,
+        },
+        closure_span,
+    );
+
+    // `<awaited_expr>.then(<closure>)`
+    let then_call = Expr::new(
+        ExprKind::MethodCall {
+            obj: Box::new(awaited_expr),
+            method: Symbol::intern("then"),
+            args: Box::new([closure_expr]),
+        },
+        closure_span,
+    );
+
+    let new_body = Block {
+        stmts: chunk0.stmts.clone(),
+        tail: Some(Box::new(then_call)),
+    };
+
     Ok(FnDecl {
         attrs: f.attrs,
         is_pub: f.is_pub,
         name: f.name,
         type_params: f.type_params,
         params: f.params,
-        ret: new_ret,
+        ret: Some(Type::generic("Promise", vec![inner_ret])),
         body: new_body,
         span: f.span,
         is_override: f.is_override,
         is_async: false,
     })
+}
+
+/// Walk a body looking for `let <name>: T = await ...` and return T.
+fn find_let_await_binding_type(body: &Block, name: Symbol) -> Option<Type> {
+    for s in &body.stmts {
+        if let StmtKind::Let { name: n, ty: Some(t), value, .. } = &s.kind {
+            if *n == name && matches!(&value.kind, ExprKind::Await(_)) {
+                return Some(t.clone());
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]

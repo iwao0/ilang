@@ -1,9 +1,12 @@
-// `async fn` with an `await` site — multi-state lowering isn't
-// implemented yet, the loader rejects with an actionable error.
+// `async fn` with TWO `await` sites — multi-await desugar (which
+// needs a `.then` flattening primitive) isn't implemented yet.
+// The single-await case works (see `async_single_await.il`); this
+// fixture pins the rejection path for the next case up.
 //
-// expect-error: only zero-await async fns are lowered
+// expect-error: multi-await desugar
 
-async fn waitFor(p: Promise<i64>): i64 {
-    let x = await p
-    x + 1
+async fn sumTwo(p: Promise<i64>, q: Promise<i64>): i64 {
+    let x: i64 = await p
+    let y: i64 = await q
+    x + y
 }
