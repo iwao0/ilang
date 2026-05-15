@@ -36,6 +36,28 @@ impl TypeChecker {
         if st.is_numeric() || st == Type::Bool || st == Type::Str {
             return self.check_match_primitive(&st, arms, span, env, ret_ty, in_class, loop_depth);
         }
+        // `match opt { some(v) { ... } none { ... } }` on
+        // `Optional<T>`. Treat exactly like a 2-variant enum:
+        // accept `some(name)` (binds name to T), `none`, and
+        // `_`; require both variants covered (or a wildcard).
+        if let Type::Optional(inner) = &st {
+            if matches!(**inner, Type::Any) {
+                return Err(TypeError::Mismatch {
+                    expected: Type::Optional(Box::new(Type::Any)),
+                    got: st.clone(),
+                    span: scrutinee.span,
+                });
+            }
+            return self.check_match_optional(
+                (**inner).clone(),
+                arms,
+                env,
+                ret_ty,
+                in_class,
+                loop_depth,
+                span,
+            );
+        }
         let (enum_name, scrut_args) = match &st {
             Type::Object(name) if self.enums.contains_key(name) => {
                 (name.clone(), Vec::<Type>::new())
@@ -210,6 +232,131 @@ impl TypeChecker {
     }
 }
 
+
+impl TypeChecker {
+    fn check_match_optional(
+        &self,
+        inner: Type,
+        arms: &[ilang_ast::MatchArm],
+        env: &Vars,
+        ret_ty: Option<&Type>,
+        in_class: Option<Symbol>,
+        loop_depth: u32,
+        span: Span,
+    ) -> Result<Type, TypeError> {
+        let mut has_some = false;
+        let mut has_none = false;
+        let mut has_wildcard = false;
+        let mut result_ty: Option<Type> = None;
+        for arm in arms {
+            if has_wildcard {
+                return Err(TypeError::Unsupported {
+                    what: "match arm after wildcard `_` is unreachable".into(),
+                    span: arm.span,
+                });
+            }
+            let mut arm_env = env.clone();
+            let arm_kind_span = arm.pattern.span;
+            match &arm.pattern.kind {
+                PatternKind::Wildcard => {
+                    has_wildcard = true;
+                }
+                PatternKind::Variant {
+                    enum_name: pat_enum,
+                    variant,
+                    bindings,
+                } => {
+                    if pat_enum.is_some() {
+                        return Err(TypeError::Unsupported {
+                            what: "qualified variant pattern not allowed for Optional"
+                                .into(),
+                            span: arm_kind_span,
+                        });
+                    }
+                    match variant.as_str() {
+                        "some" => {
+                            if has_some {
+                                return Err(TypeError::Unsupported {
+                                    what: "duplicate match arm for some".into(),
+                                    span: arm_kind_span,
+                                });
+                            }
+                            has_some = true;
+                            match bindings {
+                                PatternBindings::Tuple(names) if names.len() == 1 => {
+                                    let n = &names[0];
+                                    if n.as_str() != "_" {
+                                        arm_env.insert(n.clone(), inner.clone());
+                                    }
+                                }
+                                _ => {
+                                    return Err(TypeError::Unsupported {
+                                        what: "`some` pattern needs exactly one binding: `some(name)`"
+                                            .into(),
+                                        span: arm_kind_span,
+                                    });
+                                }
+                            }
+                        }
+                        "none" => {
+                            if has_none {
+                                return Err(TypeError::Unsupported {
+                                    what: "duplicate match arm for none".into(),
+                                    span: arm_kind_span,
+                                });
+                            }
+                            has_none = true;
+                            if !matches!(bindings, PatternBindings::Unit) {
+                                return Err(TypeError::Unsupported {
+                                    what: "`none` pattern takes no bindings".into(),
+                                    span: arm_kind_span,
+                                });
+                            }
+                        }
+                        other => {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "Optional has no variant {other:?} (use `some(x)` / `none`)"
+                                ),
+                                span: arm_kind_span,
+                            });
+                        }
+                    }
+                }
+                _ => {
+                    return Err(TypeError::Unsupported {
+                        what: "literal pattern not allowed when matching Optional".into(),
+                        span: arm_kind_span,
+                    });
+                }
+            }
+            let bt = self.check_expr(&arm.body, &arm_env, ret_ty, in_class, loop_depth)?;
+            if !arm_body_diverges(&arm.body) {
+                result_ty = Some(match result_ty {
+                    None => bt,
+                    Some(prev) => self.unify_branch_obj(prev, bt, arm.body.span)?,
+                });
+            }
+        }
+        if !has_wildcard && !(has_some && has_none) {
+            let mut missing: Vec<&str> = Vec::new();
+            if !has_some {
+                missing.push("some");
+            }
+            if !has_none {
+                missing.push("none");
+            }
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "non-exhaustive match on Optional: missing {}",
+                    missing.join(", ")
+                ),
+                span,
+            });
+        }
+        Ok(result_ty.unwrap_or(Type::Unit))
+    }
+}
 
 impl TypeChecker {
     pub(super) fn check_enum_ctor(

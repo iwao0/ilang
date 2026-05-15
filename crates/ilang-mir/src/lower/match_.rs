@@ -45,6 +45,9 @@ impl<'a> BodyCx<'a> {
         scrutinee: &Expr,
         arms: &[ast::MatchArm],
     ) -> Result<(ValueId, MirTy), LowerError> {
+        // Optional needs the fresh-vs-borrowed bit before
+        // `lower_expr` consumes the AST, so peek first.
+        let scrut_is_fresh = self.is_fresh_object_expr(scrutinee);
         let (sv, sty) = self.lower_expr(scrutinee)?;
 
         match &sty {
@@ -54,10 +57,141 @@ impl<'a> BodyCx<'a> {
             | MirTy::Size | MirTy::SSize => self.lower_match_int(sv, sty.clone(), arms),
             MirTy::Bool => self.lower_match_bool(sv, arms),
             MirTy::Str => self.lower_match_str(sv, arms),
+            MirTy::Optional(inner) => {
+                let inner_ty = (**inner).clone();
+                self.lower_match_optional(sv, inner_ty, arms, scrut_is_fresh)
+            }
             other => Err(LowerError::Other(format!(
                 "match on unsupported scrutinee type: {other}"
             ))),
         }
+    }
+
+    fn lower_match_optional(
+        &mut self,
+        sv: ValueId,
+        inner_ty: MirTy,
+        arms: &[ast::MatchArm],
+        scrut_is_fresh: bool,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        // Find the some / none / wildcard arms.
+        let mut some_arm: Option<&ast::MatchArm> = None;
+        let mut none_arm: Option<&ast::MatchArm> = None;
+        let mut wildcard: Option<&ast::MatchArm> = None;
+        let mut some_binding: Option<Symbol> = None;
+        for arm in arms {
+            match &arm.pattern.kind {
+                ast::PatternKind::Wildcard => wildcard = Some(arm),
+                ast::PatternKind::Variant { variant, bindings, .. } => {
+                    match variant.as_str() {
+                        "some" => {
+                            some_arm = Some(arm);
+                            if let ast::PatternBindings::Tuple(names) = bindings {
+                                if let Some(n) = names.first() {
+                                    if n.as_str() != "_" {
+                                        some_binding = Some(*n);
+                                    }
+                                }
+                            }
+                        }
+                        "none" => none_arm = Some(arm),
+                        other => {
+                            return Err(LowerError::Other(format!(
+                                "Optional match has no variant {other}"
+                            )))
+                        }
+                    }
+                }
+                _ => {
+                    return Err(LowerError::Other(
+                        "non-variant pattern in Optional match".into(),
+                    ))
+                }
+            }
+        }
+        let some_arm = some_arm.or(wildcard);
+        let none_arm = none_arm.or(wildcard);
+
+        let is_some = self.fb.new_value(MirTy::Bool);
+        self.fb.push_inst(Inst::OptionalIsSome { dst: is_some, opt: sv });
+
+        let some_blk = self.fb.new_block();
+        let none_blk = self.fb.new_block();
+        let cont = self.fb.new_block();
+        self.fb.set_terminator(Terminator::CondBr {
+            cond: is_some,
+            then_block: some_blk,
+            then_args: Box::new([]),
+            else_block: none_blk,
+            else_args: Box::new([]),
+        });
+
+        let mut joins: Vec<(BlockId, ValueId)> = Vec::new();
+        let mut result_ty: Option<MirTy> = None;
+
+        // Some branch — unwrap, bind name (if any), lower body.
+        // ARC: see `lower_if_let` — release fresh scrutinee at
+        // some-branch exit so the cell's cascade reclaims the
+        // inner value the unwrap aliased.
+        self.fb.switch_to(some_blk);
+        if let Some(arm) = some_arm {
+            self.env.enter_scope();
+            if let Some(name) = some_binding {
+                let unwrapped = self.fb.new_value(inner_ty.clone());
+                self.fb.push_inst(Inst::OptionalUnwrap { dst: unwrapped, opt: sv });
+                self.env.bind(name, unwrapped, inner_ty.clone());
+            }
+            let diverges = arm_body_diverges(&arm.body);
+            let (bv, bty) = self.lower_expr(&arm.body)?;
+            if scrut_is_fresh {
+                self.fb.push_inst(Inst::Release { value: sv });
+            }
+            self.env.exit_scope();
+            if !diverges {
+                if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                    result_ty = Some(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
+            }
+        } else {
+            self.fb.set_terminator(Terminator::Unreachable);
+        }
+
+        // None branch.
+        self.fb.switch_to(none_blk);
+        if let Some(arm) = none_arm {
+            let diverges = arm_body_diverges(&arm.body);
+            let (bv, bty) = self.lower_expr(&arm.body)?;
+            if !diverges {
+                if result_ty.is_none() && !matches!(bty, MirTy::Unit) {
+                    result_ty = Some(bty.clone());
+                }
+                joins.push((self.fb.current_block(), bv));
+            }
+        } else {
+            self.fb.set_terminator(Terminator::Unreachable);
+        }
+
+        let result_ty = result_ty.unwrap_or(MirTy::Unit);
+        let result_val = if matches!(result_ty, MirTy::Unit) {
+            None
+        } else {
+            Some(self.fb.add_block_param(cont, result_ty.clone()))
+        };
+        for (blk, val) in joins {
+            self.fb.switch_to(blk);
+            let args: Box<[ValueId]> = if matches!(result_ty, MirTy::Unit) {
+                Box::new([])
+            } else {
+                Box::new([val])
+            };
+            self.fb.set_terminator(Terminator::Br { dst: cont, args });
+        }
+        self.fb.switch_to(cont);
+        Ok(match result_val {
+            Some(v) => (v, result_ty),
+            None => (self.const_unit(), MirTy::Unit),
+        })
     }
 
     fn lower_match_enum(
