@@ -2327,11 +2327,16 @@ pool can pass it between workers safely.
   (match) terminators that re-dispatch off the same `state_idx`
   switch. Pattern bindings in match arms (e.g. `some(v)`) are
   captured into state fields before flowing to the target
-  state. Mid-body `if-else` / `while` / `match` (where the
-  expression's value flows into subsequent stmts) and awaits
-  inside lambda bodies are still rejected — the former needs a
-  join state, the latter would require the lambda itself to be
-  an async fn.
+  state.
+- Mid-body `let r = if-else { ... } / match { ... }` also
+  works when the arms contain awaits. The BlockBuilder
+  allocates a synthetic join state and gives each arm an
+  `AssignAndJump` terminator that writes its value into
+  `state.r` before flowing to the join; subsequent body stmts
+  read `state.r` via the regular variable rewriter.
+- Awaits inside lambda bodies are still rejected — that would
+  require the lambda itself to become an async fn (separate
+  state machine + executor).
 - `async` methods inside a `class` aren't allowed yet: the
   state class + poll fn would need to be hoisted next to the
   containing class.

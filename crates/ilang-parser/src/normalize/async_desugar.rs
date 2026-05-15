@@ -739,19 +739,22 @@ fn walk_block_for_lets(
 ) -> Result<(), Symbol> {
     for s in &b.stmts {
         if let StmtKind::Let { name, ty, value, .. } = &s.kind {
-            if !seen.insert(*name) {
-                continue;
+            if seen.insert(*name) {
+                let t = if let Some(t) = ty {
+                    t.clone()
+                } else {
+                    match infer_let_rhs(value, env, fn_returns) {
+                        Some(t) => t,
+                        None => return Err(*name),
+                    }
+                };
+                env.insert(*name, t.clone());
+                out.push((*name, t));
             }
-            let t = if let Some(t) = ty {
-                t.clone()
-            } else {
-                match infer_let_rhs(value, env, fn_returns) {
-                    Some(t) => t,
-                    None => return Err(*name),
-                }
-            };
-            env.insert(*name, t.clone());
-            out.push((*name, t));
+            // Also walk the let's RHS — for `let r = if-else { ... }` /
+            // `let r = match { ... }`, inner arm-local lets need
+            // state-class fields too.
+            walk_expr_for_lets(value, env, out, seen, fn_returns)?;
         } else if let StmtKind::Expr(e) = &s.kind {
             // Recurse into `while` bodies so loop-local lets get
             // a state-class field (any binding live across the
@@ -763,6 +766,42 @@ fn walk_block_for_lets(
     }
     if let Some(tail) = &b.tail {
         walk_if_tail_for_lets(tail, env, out, seen, fn_returns)?;
+    }
+    Ok(())
+}
+
+/// Walk a (sub-)expression looking for lets that need a state-
+/// class field. Used for `let r = if-else { let inner = ... }` style
+/// mid-body RHS expressions where inner bindings persist across
+/// await boundaries.
+fn walk_expr_for_lets(
+    e: &Expr,
+    env: &mut HashMap<Symbol, Type>,
+    out: &mut Vec<(Symbol, Type)>,
+    seen: &mut HashSet<Symbol>,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> Result<(), Symbol> {
+    match &e.kind {
+        ExprKind::Block(b) => walk_block_for_lets(b, env, out, seen, fn_returns)?,
+        ExprKind::If { then_branch, else_branch, .. } => {
+            walk_block_for_lets(then_branch, env, out, seen, fn_returns)?;
+            if let Some(eb) = else_branch {
+                walk_expr_for_lets(eb, env, out, seen, fn_returns)?;
+            }
+        }
+        ExprKind::Match { arms, .. } => {
+            for arm in arms.iter() {
+                for binding in pattern_binding_names(&arm.pattern) {
+                    if seen.insert(binding) {
+                        let t = Type::I64;
+                        env.insert(binding, t.clone());
+                        out.push((binding, t));
+                    }
+                }
+                walk_expr_for_lets(&arm.body, env, out, seen, fn_returns)?;
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -919,6 +958,50 @@ fn infer_let_rhs(
             }
         }
         ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env, fn_returns),
+        ExprKind::If { then_branch, else_branch, .. } => {
+            // Type of `if-else` = type of either arm. Walk the
+            // then-branch as a synthetic block (which threads inner
+            // let bindings into the env) before checking its tail;
+            // fall back to else.
+            let then_synth = Expr::new(
+                ExprKind::Block(then_branch.clone()),
+                Span::dummy(),
+            );
+            if let Some(ty) = infer_let_rhs(&then_synth, env, fn_returns) {
+                return Some(ty);
+            }
+            if let Some(eb) = else_branch {
+                return infer_let_rhs(eb, env, fn_returns);
+            }
+            None
+        }
+        ExprKind::Match { arms, .. } => {
+            // Type of match = type of any arm body. Try the first.
+            for a in arms.iter() {
+                if let Some(ty) = infer_let_rhs(&a.body, env, fn_returns) {
+                    return Some(ty);
+                }
+            }
+            None
+        }
+        ExprKind::Block(b) => {
+            // Type of a block = its tail's type. Track inner let
+            // bindings as we walk so the tail can reference them.
+            let mut inner_env = env.clone();
+            for s in &b.stmts {
+                if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+                    let t = ty.clone().or_else(|| {
+                        infer_let_rhs(value, &inner_env, fn_returns)
+                    });
+                    if let Some(t) = t {
+                        inner_env.insert(*name, t);
+                    }
+                }
+            }
+            b.tail
+                .as_deref()
+                .and_then(|t| infer_let_rhs(t, &inner_env, fn_returns))
+        }
         _ => None,
     }
 }
@@ -1627,6 +1710,11 @@ enum BodyEnd {
     Settle,
     /// Loop body: jump back to the loop header.
     JumpTo(u32),
+    /// Mid-body `let X = if-else { ... } / match { ... }` arm: store
+    /// the arm's tail value into `state.<field>`, then jump to the
+    /// join state at `target_idx` where the rest of the body
+    /// resumes.
+    AssignAndJump { field: Symbol, target_idx: u32 },
 }
 
 impl<'a> BlockBuilder<'a> {
@@ -1697,6 +1785,107 @@ impl<'a> BlockBuilder<'a> {
                     continue;
                 }
             }
+            // `let X = if cond { ... } else { ... }` where the
+            // if-else contains awaits — branch, build each arm with
+            // an AssignAndJump end that stores the arm's value
+            // into `state.<X>` then jumps to a synthetic join idx.
+            if let StmtKind::Let { name, value, .. } = &stmt.kind {
+                if let ExprKind::If { cond, then_branch, else_branch } = &value.kind {
+                    if body_or_arms_have_await(then_branch)
+                        || else_branch.as_deref().is_some_and(expr_has_await)
+                    {
+                        let mut cond_e = (**cond).clone();
+                        rewrite_expr_locals(
+                            &mut cond_e,
+                            self.state_param,
+                            self.state_locals,
+                        );
+                        let join_idx = self.fresh_idx();
+                        let then_idx = self.fresh_idx();
+                        let else_idx = self.fresh_idx();
+                        self.blocks.push(StateBlock {
+                            idx: cur_idx,
+                            stmts: std::mem::take(&mut cur_stmts),
+                            terminator: BlockTerminator::Branch {
+                                cond: cond_e,
+                                then_idx,
+                                else_idx,
+                            },
+                        });
+                        let arm_end =
+                            BodyEnd::AssignAndJump { field: *name, target_idx: join_idx };
+                        self.build_body(then_branch, then_idx, None, arm_end);
+                        match else_branch {
+                            Some(eb) => match &eb.kind {
+                                ExprKind::Block(b) => {
+                                    self.build_body(b, else_idx, None, arm_end);
+                                }
+                                _ => {
+                                    let synth = Block {
+                                        stmts: Vec::new(),
+                                        tail: Some(Box::new((**eb).clone())),
+                                    };
+                                    self.build_body(&synth, else_idx, None, arm_end);
+                                }
+                            },
+                            None => {
+                                self.blocks.push(StateBlock {
+                                    idx: else_idx,
+                                    stmts: vec![mk_expr_stmt(
+                                        mk_assign_field(
+                                            mk_var(self.state_param, span),
+                                            *name,
+                                            mk_int(0, span),
+                                            span,
+                                        ),
+                                        span,
+                                    )],
+                                    terminator: BlockTerminator::Jump(join_idx),
+                                });
+                            }
+                        }
+                        cur_idx = join_idx;
+                        continue;
+                    }
+                }
+                // `let X = match scrut { ... }` with awaits in arms.
+                if let ExprKind::Match { scrutinee, arms } = &value.kind {
+                    if arms.iter().any(|a| expr_has_await(&a.body)) {
+                        let mut scrut_e = (**scrutinee).clone();
+                        rewrite_expr_locals(
+                            &mut scrut_e,
+                            self.state_param,
+                            self.state_locals,
+                        );
+                        let join_idx = self.fresh_idx();
+                        let mut arm_targets: Vec<MatchArmTarget> = Vec::new();
+                        let arm_end =
+                            BodyEnd::AssignAndJump { field: *name, target_idx: join_idx };
+                        for arm in arms.iter() {
+                            let target_idx = self.fresh_idx();
+                            arm_targets.push(MatchArmTarget {
+                                pattern: arm.pattern.clone(),
+                                target_idx,
+                            });
+                            let synth = Block {
+                                stmts: Vec::new(),
+                                tail: Some(Box::new(arm.body.clone())),
+                            };
+                            self.build_body(&synth, target_idx, None, arm_end);
+                        }
+                        self.blocks.push(StateBlock {
+                            idx: cur_idx,
+                            stmts: std::mem::take(&mut cur_stmts),
+                            terminator: BlockTerminator::MatchDispatch {
+                                scrut: scrut_e,
+                                arms: arm_targets,
+                            },
+                        });
+                        cur_idx = join_idx;
+                        continue;
+                    }
+                }
+            }
             // `while cond { ... }` as an expression-stmt — emit a
             // header / body / after pattern using Branch + Jump.
             if let StmtKind::Expr(e) = &stmt.kind {
@@ -1756,12 +1945,27 @@ impl<'a> BlockBuilder<'a> {
         let tail = body.tail.as_deref();
         match tail.map(|t| (&t.kind, t.span)) {
             None => {
-                let term = match end {
+                let (extra_stmt, term) = match end {
                     BodyEnd::Settle => {
-                        BlockTerminator::Settle { value: mk_int(0, span) }
+                        (None, BlockTerminator::Settle { value: mk_int(0, span) })
                     }
-                    BodyEnd::JumpTo(n) => BlockTerminator::Jump(n),
+                    BodyEnd::JumpTo(n) => (None, BlockTerminator::Jump(n)),
+                    BodyEnd::AssignAndJump { field, target_idx } => (
+                        Some(mk_expr_stmt(
+                            mk_assign_field(
+                                mk_var(self.state_param, span),
+                                field,
+                                mk_int(0, span),
+                                span,
+                            ),
+                            span,
+                        )),
+                        BlockTerminator::Jump(target_idx),
+                    ),
                 };
+                if let Some(s) = extra_stmt {
+                    cur_stmts.push(s);
+                }
                 self.blocks.push(StateBlock {
                     idx: cur_idx,
                     stmts: cur_stmts,
@@ -1861,15 +2065,32 @@ impl<'a> BlockBuilder<'a> {
                         }
                     },
                     None => {
-                        let term = match end {
-                            BodyEnd::Settle => BlockTerminator::Settle {
-                                value: mk_int(0, span),
-                            },
-                            BodyEnd::JumpTo(n) => BlockTerminator::Jump(n),
+                        let (extra_stmt, term) = match end {
+                            BodyEnd::Settle => (
+                                None,
+                                BlockTerminator::Settle { value: mk_int(0, span) },
+                            ),
+                            BodyEnd::JumpTo(n) => (None, BlockTerminator::Jump(n)),
+                            BodyEnd::AssignAndJump { field, target_idx } => (
+                                Some(mk_expr_stmt(
+                                    mk_assign_field(
+                                        mk_var(self.state_param, span),
+                                        field,
+                                        mk_int(0, span),
+                                        span,
+                                    ),
+                                    span,
+                                )),
+                                BlockTerminator::Jump(target_idx),
+                            ),
                         };
+                        let mut stmts = Vec::new();
+                        if let Some(s) = extra_stmt {
+                            stmts.push(s);
+                        }
                         self.blocks.push(StateBlock {
                             idx: else_idx,
-                            stmts: Vec::new(),
+                            stmts,
                             terminator: term,
                         });
                     }
@@ -1900,6 +2121,28 @@ impl<'a> BlockBuilder<'a> {
                         );
                         cur_stmts.push(mk_expr_stmt(tail_expr, span));
                         BlockTerminator::Jump(n)
+                    }
+                    BodyEnd::AssignAndJump { field, target_idx } => {
+                        // Mid-body if-else / match arm: assign the
+                        // tail expression's value into `state.<field>`
+                        // (the let-binding the if-else feeds) then
+                        // jump to the join.
+                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
+                        rewrite_expr_locals(
+                            &mut tail_expr,
+                            self.state_param,
+                            self.state_locals,
+                        );
+                        cur_stmts.push(mk_expr_stmt(
+                            mk_assign_field(
+                                mk_var(self.state_param, span),
+                                field,
+                                tail_expr,
+                                span,
+                            ),
+                            span,
+                        ));
+                        BlockTerminator::Jump(target_idx)
                     }
                 };
                 self.blocks.push(StateBlock {
@@ -1943,13 +2186,31 @@ fn build_blocks_for_body(
 /// at tail position with awaits inside, OR a `while` stmt with
 /// awaits in its body) vs. the simpler chunks-based path.
 fn body_has_control_flow_with_await(body: &Block) -> bool {
-    // While anywhere in body stmts that contains an await
+    // While anywhere in body stmts that contains an await, OR
+    // mid-body `let X = if-else / match` whose arms have awaits.
     for s in &body.stmts {
         if let StmtKind::Expr(e) = &s.kind {
             if let ExprKind::While { body: wbody, .. } = &e.kind {
                 if body_or_arms_have_await(wbody) {
                     return true;
                 }
+            }
+        }
+        if let StmtKind::Let { value, .. } = &s.kind {
+            match &value.kind {
+                ExprKind::If { then_branch, else_branch, .. } => {
+                    if body_or_arms_have_await(then_branch)
+                        || else_branch.as_deref().is_some_and(expr_has_await)
+                    {
+                        return true;
+                    }
+                }
+                ExprKind::Match { arms, .. } => {
+                    if arms.iter().any(|a| expr_has_await(&a.body)) {
+                        return true;
+                    }
+                }
+                _ => {}
             }
         }
     }
