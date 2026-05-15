@@ -82,9 +82,16 @@ fn wrap_body_in_promise_resolve(body: Block) -> Block {
     }
 }
 
-/// Wrap a type `T` into `Promise<T>`. `Type::Unit` stays a unit.
+/// Wrap a type `T` into `Promise<T>`. If `T` is already
+/// `Promise<U>` — i.e. the user wrote `async fn foo(): Promise<U>`
+/// explicitly — leave it as is to avoid producing `Promise<Promise<U>>`.
 fn wrap_ret_in_promise(ret: Option<Type>) -> Option<Type> {
     let inner = ret.unwrap_or(Type::Unit);
+    if let Type::Generic(g) = &inner {
+        if g.base.as_str() == "Promise" {
+            return Some(inner);
+        }
+    }
     Some(Type::generic("Promise", vec![inner]))
 }
 
@@ -107,8 +114,19 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     for item in &prog.items {
         if let Item::Fn(f) = item {
             let ret = f.ret.clone().unwrap_or(Type::Unit);
+            // `async fn` callers see the Promise-wrapped signature.
+            // If the user already wrote `Promise<U>` as the return
+            // type, the desugar leaves it as-is; otherwise we wrap.
             let ret = if f.is_async {
-                Type::generic("Promise", vec![ret])
+                let already_promise = matches!(
+                    &ret,
+                    Type::Generic(g) if g.base.as_str() == "Promise"
+                );
+                if already_promise {
+                    ret
+                } else {
+                    Type::generic("Promise", vec![ret])
+                }
             } else {
                 ret
             };
@@ -244,9 +262,21 @@ fn lower_async_fn(
     f.body = state_machine_v2::desugar_for_in_with_await(f.body);
 
     // Zero-await: trivial wrap into Promise.resolve(<body>).
+    // If the user already declared the return type as `Promise<U>`,
+    // the body's tail is already a `Promise<U>` value, so skip the
+    // `Promise.resolve(...)` wrap (otherwise we'd build
+    // `Promise<Promise<U>>`).
     if !body_contains_await(&f.body) {
+        let ret_is_promise = matches!(
+            &f.ret,
+            Some(Type::Generic(g)) if g.base.as_str() == "Promise"
+        );
         let new_ret = wrap_ret_in_promise(f.ret);
-        let new_body = wrap_body_in_promise_resolve(f.body);
+        let new_body = if ret_is_promise {
+            f.body
+        } else {
+            wrap_body_in_promise_resolve(f.body)
+        };
         return Ok(AsyncLowerOutput::Single(FnDecl {
             attrs: f.attrs,
             is_pub: f.is_pub,

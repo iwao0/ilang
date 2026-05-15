@@ -2847,8 +2847,20 @@ pub fn lower(
     }
     let _ = body_is_straight_line; // kept for reference / future use
     let span = f.span;
-    let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
-    let promise_ret = Type::generic("Promise", vec![inner_ret.clone()]);
+    // If the user wrote `async fn foo(): Promise<U>` explicitly,
+    // treat the inner result type as `U` (not `Promise<U>`) so we
+    // don't end up generating a `Promise<Promise<U>>` wrapper. The
+    // outer `Promise<U>` already matches the user's declared shape.
+    let declared_ret = f.ret.clone().unwrap_or(Type::Unit);
+    let (inner_ret, promise_ret) = match &declared_ret {
+        Type::Generic(g) if g.base.as_str() == "Promise" && g.args.len() == 1 => {
+            (g.args[0].clone(), declared_ret.clone())
+        }
+        _ => (
+            declared_ret.clone(),
+            Type::generic("Promise", vec![declared_ret.clone()]),
+        ),
+    };
 
     let segments =
         build_segments(&f.body, &f.params, body_lets, &inner_ret, enclosing_class, span, enums);
