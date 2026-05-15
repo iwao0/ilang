@@ -207,6 +207,43 @@ impl TypeChecker {
         // because the catch handler also returns `()`. Typed
         // rejections (where catch recovers to a specific T) need
         // the executor form: `new Promise<T>(fn(_, reject) { reject("...") })`.
+        // `Promise.all<T>(ps: Promise<T>[]): Promise<T[]>` —
+        // resolves with all values, rejects on first rejection.
+        promise_statics.insert(
+            "all".into(),
+            vec![Signature {
+                params: vec![Type::Array {
+                    elem: Box::new(Type::generic("Promise", vec![t()])),
+                    fixed: None,
+                }],
+                ret: Type::generic(
+                    "Promise",
+                    vec![Type::Array { elem: Box::new(t()), fixed: None }],
+                ),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        // `Promise.race<T>(ps: Promise<T>[]): Promise<T>` —
+        // settles with the first promise to settle.
+        promise_statics.insert(
+            "race".into(),
+            vec![Signature {
+                params: vec![Type::Array {
+                    elem: Box::new(Type::generic("Promise", vec![t()])),
+                    fixed: None,
+                }],
+                ret: promise_t(),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
         promise_statics.insert(
             "reject".into(),
             vec![Signature {

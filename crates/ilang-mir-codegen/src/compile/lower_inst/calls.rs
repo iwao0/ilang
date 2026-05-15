@@ -285,6 +285,8 @@ pub(super) fn lower_call<M: Module>(
                 "promise_catch" => Some(promise_ids.catch),
                 "promise_with_executor" => Some(promise_ids.with_executor),
                 "promise_drain" => Some(promise_ids.drain),
+                "promise_all" => Some(promise_ids.all),
+                "promise_race" => Some(promise_ids.race),
                 "class_name" => Some(panic_aux.class_name),
                 _ => None,
             };

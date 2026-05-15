@@ -142,6 +142,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let sig = module.make_signature();
         module.declare_function("__promise_drain", Linkage::Import, &sig)?
     };
+    let promise_all_id = declare_binary_i64(module, "__promise_all")?;
+    let promise_race_id = declare_binary_i64(module, "__promise_race")?;
     // FFI marshalling helpers as imports.
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
@@ -584,6 +586,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 catch: promise_catch_id,
                 with_executor: promise_with_executor_id,
                 drain: promise_drain_id,
+                all: promise_all_id,
+                race: promise_race_id,
             };
             let panic_aux = PanicAux {
                 fn_id: panic_fn_id,

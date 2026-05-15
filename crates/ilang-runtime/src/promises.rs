@@ -506,6 +506,263 @@ pub extern "C" fn __promise_drain() {
 }
 
 // --------------------------------------------------------------------
+// Promise.all / Promise.race — aggregate combinators.
+//
+// Both take an array of `Promise<T>` (an i64 ptr to an array header
+// whose data section holds promise pointers) plus the runtime KIND_*
+// tag for `T` so the result array / single value can release its
+// inner properly. Both return a freshly-allocated aggregate Promise.
+//
+// Implementation notes:
+//   - We allocate per-call shared state (counter + result slots for
+//     all, single-flag for race) protected by the aggregate
+//     promise's own mutex. Callbacks run on the pool, so the
+//     `settle_resolve` / `settle_reject` no-op-on-already-settled
+//     semantics give us the "first one wins" race guarantee.
+//   - Each upstream promise's callback is a synthetic closure
+//     allocated like the executor's resolve/reject stubs — the
+//     fn_addr points at a runtime stub that decodes its captures.
+// --------------------------------------------------------------------
+
+extern "C" fn promise_all_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
+    // Captures: [+16 aggregate promise, +24 idx, +32 kind, +40 state ptr]
+    let agg = unsafe { *((closure_ptr + 16) as *const i64) };
+    let idx = unsafe { *((closure_ptr + 24) as *const i64) };
+    let kind = unsafe { *((closure_ptr + 32) as *const i64) };
+    let state = unsafe { *((closure_ptr + 40) as *const i64) } as *mut PromiseAllState;
+    retain_field_by_kind(value, kind);
+    let st = unsafe { &*state };
+    // Write our slot atomically — we own this slot uniquely.
+    unsafe {
+        let slot = st.values.add(idx as usize);
+        *slot = value;
+    }
+    let prev = st.remaining.fetch_sub(1, Ordering::AcqRel);
+    if prev == 1 {
+        // Last to arrive: build the result array and settle.
+        let arr = unsafe {
+            crate::arrays::build_i64_array(
+                std::slice::from_raw_parts(st.values, st.len),
+                kind,
+            )
+        };
+        // build_i64_array copies the slots; release the per-slot
+        // retains we accumulated above (they now live inside the
+        // array and the array will cascade-release them).
+        for i in 0..st.len {
+            let v = unsafe { *st.values.add(i) };
+            release_field_by_kind(v, kind);
+        }
+        unsafe { drop_promise_all_state(state) };
+        settle_resolve(agg, arr, crate::kind::KIND_ARRAY);
+    }
+    0
+}
+
+extern "C" fn promise_all_reject_stub(msg: i64, closure_ptr: i64) -> i64 {
+    let agg = unsafe { *((closure_ptr + 16) as *const i64) };
+    let kind = unsafe { *((closure_ptr + 32) as *const i64) };
+    let state = unsafe { *((closure_ptr + 40) as *const i64) } as *mut PromiseAllState;
+    __retain_string(msg);
+    settle_reject(agg, msg);
+    // Drop any partially-collected value retains. We can't tell
+    // here which slots were filled, so we walk all of them and
+    // release the non-zero ones (slots start at 0).
+    let st = unsafe { &*state };
+    for i in 0..st.len {
+        let v = unsafe { *st.values.add(i) };
+        if v != 0 {
+            release_field_by_kind(v, kind);
+            unsafe {
+                *st.values.add(i) = 0;
+            }
+        }
+    }
+    // Decrement remaining; only the LAST caller (whether resolve
+    // or reject) frees the state. Without this, an earlier reject
+    // and a later resolve would race on the state.
+    let prev = st.remaining.fetch_sub(1, Ordering::AcqRel);
+    if prev == 1 {
+        unsafe { drop_promise_all_state(state) };
+    }
+    0
+}
+
+extern "C" fn promise_race_resolve_stub(value: i64, closure_ptr: i64) -> i64 {
+    let agg = unsafe { *((closure_ptr + 16) as *const i64) };
+    let kind = unsafe { *((closure_ptr + 24) as *const i64) };
+    retain_field_by_kind(value, kind);
+    settle_resolve(agg, value, kind);
+    0
+}
+
+extern "C" fn promise_race_reject_stub(msg: i64, closure_ptr: i64) -> i64 {
+    let agg = unsafe { *((closure_ptr + 16) as *const i64) };
+    __retain_string(msg);
+    settle_reject(agg, msg);
+    0
+}
+
+struct PromiseAllState {
+    values: *mut i64,
+    len: usize,
+    /// Counts down both resolves and rejects. The last caller
+    /// frees the buffer.
+    remaining: AtomicI64,
+}
+
+unsafe fn drop_promise_all_state(state: *mut PromiseAllState) {
+    let layout =
+        std::alloc::Layout::array::<i64>(unsafe { (*state).len }.max(1)).unwrap();
+    unsafe {
+        std::alloc::dealloc((*state).values as *mut u8, layout);
+        let _ = Box::from_raw(state);
+    }
+}
+
+static AGG_STUBS_REGISTERED: OnceLock<()> = OnceLock::new();
+
+fn ensure_agg_stubs_registered() {
+    AGG_STUBS_REGISTERED.get_or_init(|| {
+        let r1 = promise_all_resolve_stub as *const () as i64;
+        let r2 = promise_all_reject_stub as *const () as i64;
+        let r3 = promise_race_resolve_stub as *const () as i64;
+        let r4 = promise_race_reject_stub as *const () as i64;
+        // Promise.all callbacks: 4 captures = 48 bytes total.
+        // Cascade: aggregate promise (KIND_PROMISE) at +16; the rest
+        // are plain i64 / pointers we manage manually.
+        crate::closures::__register_closure_size(r1, 48);
+        crate::closures::__register_closure_capture(r1, 16, KIND_PROMISE);
+        crate::closures::__register_closure_size(r2, 48);
+        crate::closures::__register_closure_capture(r2, 16, KIND_PROMISE);
+        // Promise.race callbacks: 2 captures = 32 bytes.
+        crate::closures::__register_closure_size(r3, 32);
+        crate::closures::__register_closure_capture(r3, 16, KIND_PROMISE);
+        crate::closures::__register_closure_size(r4, 24);
+        crate::closures::__register_closure_capture(r4, 16, KIND_PROMISE);
+    });
+}
+
+/// Read promise pointers out of an ilang array header (`arr_ptr`).
+/// Layout: `[len | cap | data_ptr | rc | kind | stride]`. Each cell
+/// is an i64 pointer to a `ManagedPromise`.
+fn read_promise_array(arr_ptr: i64) -> Vec<i64> {
+    if arr_ptr == 0 {
+        return Vec::new();
+    }
+    let len = unsafe { *(arr_ptr as *const i64) };
+    let data = unsafe { *((arr_ptr + 16) as *const i64) };
+    let mut out = Vec::with_capacity(len as usize);
+    for i in 0..len {
+        let p = unsafe { *((data + i * 8) as *const i64) };
+        out.push(p);
+    }
+    out
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __promise_all(arr_ptr: i64, value_kind: i64) -> i64 {
+    ensure_agg_stubs_registered();
+    let promises = read_promise_array(arr_ptr);
+    let n = promises.len();
+    let agg = alloc_pending();
+    if n == 0 {
+        // Empty input: resolve immediately with an empty array.
+        let empty = crate::arrays::build_i64_array(&[], value_kind);
+        settle_resolve(agg, empty, crate::kind::KIND_ARRAY);
+        return agg;
+    }
+    // Allocate the per-call state: a buffer of `n` i64 slots and
+    // an atomic counter. The counter starts at 2*n: each upstream
+    // contributes one decrement on its own resolve OR reject.
+    // (Only one happens per upstream; the other slot is consumed
+    // by the dual stub. We use 2*n so an early all-reject still
+    // converges to 0 and frees the state.)
+    let layout = std::alloc::Layout::array::<i64>(n).unwrap();
+    let values = unsafe { std::alloc::alloc_zeroed(layout) as *mut i64 };
+    let state = Box::into_raw(Box::new(PromiseAllState {
+        values,
+        len: n,
+        remaining: AtomicI64::new(n as i64),
+    }));
+
+    for (i, &up) in promises.iter().enumerate() {
+        // Allocate a 48-byte synthetic closure per upstream:
+        // [fn_addr | rc=1 | agg_promise | idx | kind | state_ptr]
+        let cell = crate::alloc::__mir_alloc(48) as *mut i64;
+        unsafe {
+            *cell = promise_all_resolve_stub as *const () as i64;
+            *cell.add(1) = 1;
+            *cell.add(2) = agg;
+            *cell.add(3) = i as i64;
+            *cell.add(4) = value_kind;
+            *cell.add(5) = state as i64;
+        }
+        __retain_promise(agg);
+        let resolve_cb = cell as i64;
+
+        let rcell = crate::alloc::__mir_alloc(48) as *mut i64;
+        unsafe {
+            *rcell = promise_all_reject_stub as *const () as i64;
+            *rcell.add(1) = 1;
+            *rcell.add(2) = agg;
+            *rcell.add(3) = i as i64;
+            *rcell.add(4) = value_kind;
+            *rcell.add(5) = state as i64;
+        }
+        __retain_promise(agg);
+        let reject_cb = rcell as i64;
+
+        // Wire both callbacks to the same upstream. Each takes
+        // ownership of its closure via register_continuation; we
+        // discard the downstream promises (they never settle visibly).
+        let d1 = register_continuation(up, resolve_cb, 0, value_kind);
+        __release_promise(d1);
+        let d2 = register_continuation(up, 0, reject_cb, value_kind);
+        __release_promise(d2);
+    }
+    agg
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __promise_race(arr_ptr: i64, value_kind: i64) -> i64 {
+    ensure_agg_stubs_registered();
+    let promises = read_promise_array(arr_ptr);
+    let agg = alloc_pending();
+    if promises.is_empty() {
+        // Empty race: stays Pending forever in JS. We mirror that —
+        // the caller's `.then` / `.catch` simply never fires.
+        return agg;
+    }
+    for &up in &promises {
+        let cell = crate::alloc::__mir_alloc(32) as *mut i64;
+        unsafe {
+            *cell = promise_race_resolve_stub as *const () as i64;
+            *cell.add(1) = 1;
+            *cell.add(2) = agg;
+            *cell.add(3) = value_kind;
+        }
+        __retain_promise(agg);
+        let resolve_cb = cell as i64;
+
+        let rcell = crate::alloc::__mir_alloc(24) as *mut i64;
+        unsafe {
+            *rcell = promise_race_reject_stub as *const () as i64;
+            *rcell.add(1) = 1;
+            *rcell.add(2) = agg;
+        }
+        __retain_promise(agg);
+        let reject_cb = rcell as i64;
+
+        let d1 = register_continuation(up, resolve_cb, 0, value_kind);
+        __release_promise(d1);
+        let d2 = register_continuation(up, 0, reject_cb, value_kind);
+        __release_promise(d2);
+    }
+    agg
+}
+
+// --------------------------------------------------------------------
 // Convenience for Rust unit tests in this crate.
 // --------------------------------------------------------------------
 

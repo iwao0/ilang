@@ -202,6 +202,48 @@ impl<'a> BodyCx<'a> {
                 }
                 return Ok((self.const_unit(), MirTy::Unit));
             }
+            // Built-in `Promise.all(ps)` / `Promise.race(ps)`
+            // aggregate combinators. The argument is a `Promise<T>[]`;
+            // we read T from the array element's MirTy::Promise(inner)
+            // so the runtime knows how to release each result value.
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && (method.as_str() == "all" || method.as_str() == "race")
+                && args.len() == 1
+            {
+                let arg_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (av, aty) = self.lower_expr(&args[0])?;
+                let inner_t = match &aty {
+                    MirTy::Array { elem, .. } => match elem.as_ref() {
+                        MirTy::Promise(t) => (**t).clone(),
+                        _ => MirTy::Unit,
+                    },
+                    _ => MirTy::Unit,
+                };
+                if !arg_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: av });
+                }
+                let value_kind = kind_tag_of_mir(&inner_t);
+                let kind_v = self.const_int(MirTy::I64, value_kind);
+                let ret_inner = if method.as_str() == "all" {
+                    MirTy::Array { elem: Box::new(inner_t.clone()), len: None }
+                } else {
+                    inner_t.clone()
+                };
+                let prom_ty = MirTy::Promise(Box::new(ret_inner));
+                let dst = self.fb.new_value(prom_ty.clone());
+                let builtin = if method.as_str() == "all" {
+                    "promise_all"
+                } else {
+                    "promise_race"
+                };
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern(builtin)),
+                    args: Box::new([av, kind_v]),
+                });
+                return Ok((dst, prom_ty));
+            }
             // Built-in `Promise.reject(msg)` static factory. The
             // returned promise's T is `Unit` (nothing carries the
             // rejection back to the consumer).

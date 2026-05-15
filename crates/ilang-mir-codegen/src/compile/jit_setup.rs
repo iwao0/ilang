@@ -102,6 +102,8 @@ pub fn compile_with_builtins(
         ilang_runtime::__promise_with_executor as *const u8,
     );
     jit_builder.symbol("__promise_drain", ilang_runtime::__promise_drain as *const u8);
+    jit_builder.symbol("__promise_all", ilang_runtime::__promise_all as *const u8);
+    jit_builder.symbol("__promise_race", ilang_runtime::__promise_race as *const u8);
     jit_builder.symbol("__retain_promise", ilang_runtime::__retain_promise as *const u8);
     jit_builder.symbol("__release_promise", ilang_runtime::__release_promise as *const u8);
     // Default string builtins. Returns are NUL-terminated `*const u8`
