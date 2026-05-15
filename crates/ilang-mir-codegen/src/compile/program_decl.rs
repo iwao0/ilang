@@ -144,6 +144,24 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     };
     let promise_all_id = declare_binary_i64(module, "__promise_all")?;
     let promise_race_id = declare_binary_i64(module, "__promise_race")?;
+    let promise_pending_id = {
+        let mut sig = module.make_signature();
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("__promise_pending", Linkage::Import, &sig)?
+    };
+    let promise_settle_resolve_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__promise_settle_resolve", Linkage::Import, &sig)?
+    };
+    let promise_settle_reject_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__promise_settle_reject", Linkage::Import, &sig)?
+    };
     // FFI marshalling helpers as imports.
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
@@ -588,6 +606,9 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 drain: promise_drain_id,
                 all: promise_all_id,
                 race: promise_race_id,
+                pending: promise_pending_id,
+                settle_resolve: promise_settle_resolve_id,
+                settle_reject: promise_settle_reject_id,
             };
             let panic_aux = PanicAux {
                 fn_id: panic_fn_id,

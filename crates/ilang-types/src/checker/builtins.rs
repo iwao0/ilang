@@ -256,6 +256,59 @@ impl TypeChecker {
                 is_pub: true,
             }],
         );
+        // Internal: `Promise.__pending<T>(): Promise<T>` — allocates
+        // a Pending promise. Used by the async/await state-machine
+        // desugar's wrapper fn to create the result promise; not
+        // intended for direct user consumption (the double-underscore
+        // signals "compiler-internal", same convention as
+        // `__mir_alloc` and friends).
+        promise_statics.insert(
+            "__pending".into(),
+            vec![Signature {
+                params: vec![],
+                ret: promise_t(),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        // Internal: `Promise.__settleResolve<T>(p: Promise<T>, v: T)` —
+        // transitions a Pending promise to Resolved. Used by the
+        // generated poll fn at the end of an async body.
+        promise_statics.insert(
+            "__settleResolve".into(),
+            vec![Signature {
+                params: vec![promise_t(), t()],
+                ret: Type::Unit,
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: vec!["T".into()],
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
+        // Internal: `Promise.__settleReject(p: Promise<()>, msg: string)`.
+        // The poll fn calls this when the async body wants to reject;
+        // because we don't yet have `throw`, this is currently
+        // emitted only for the trivial rejection paths inside the
+        // desugar — exposed for completeness.
+        promise_statics.insert(
+            "__settleReject".into(),
+            vec![Signature {
+                params: vec![
+                    Type::generic("Promise", vec![Type::Unit]),
+                    Type::Str,
+                ],
+                ret: Type::Unit,
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
         self.classes.insert(
             "Promise".into(),
             ClassSig {

@@ -244,6 +244,80 @@ impl<'a> BodyCx<'a> {
                 });
                 return Ok((dst, prom_ty));
             }
+            // Internal `Promise.__pending<T>()` — allocates a Pending
+            // promise. The desugar pass that synthesises async fn
+            // poll bodies emits this; users see it through the type
+            // checker registration but shouldn't call it directly.
+            // T is unrecoverable at MIR (no args constrain it) so we
+            // return `Promise<()>`; the desugar's surrounding code
+            // assigns through a typed binding which the MIR coerce
+            // pass treats as a no-op (every Promise is an i64 ptr).
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && method.as_str() == "__pending"
+                && args.is_empty()
+            {
+                let prom_ty = MirTy::Promise(Box::new(MirTy::Unit));
+                let dst = self.fb.new_value(prom_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern("promise_pending")),
+                    args: Box::new([]),
+                });
+                return Ok((dst, prom_ty));
+            }
+            // Internal `Promise.__settleResolve<T>(p, v)` — used by
+            // the generated async-fn poll fn at the end of an async
+            // body. Takes ownership of v (kind read from v's MirTy).
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && method.as_str() == "__settleResolve"
+                && args.len() == 2
+            {
+                let p_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (pv, _) = self.lower_expr(&args[0])?;
+                if !p_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: pv });
+                }
+                let v_is_fresh = self.is_fresh_object_expr(&args[1]);
+                let (vv, vty) = self.lower_expr(&args[1])?;
+                if !v_is_fresh && vty.is_heap() {
+                    self.fb.push_inst(Inst::Retain { value: vv });
+                }
+                let kind = kind_tag_of_mir(&vty);
+                let kind_v = self.const_int(MirTy::I64, kind);
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern("promise_settle_resolve")),
+                    args: Box::new([pv, vv, kind_v]),
+                });
+                // The runtime release_promise of `pv` happens when
+                // the surrounding scope's release fires.
+                return Ok((self.const_unit(), MirTy::Unit));
+            }
+            // Internal `Promise.__settleReject(p, msg)`.
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && method.as_str() == "__settleReject"
+                && args.len() == 2
+            {
+                let p_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (pv, _) = self.lower_expr(&args[0])?;
+                if !p_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: pv });
+                }
+                let msg_is_fresh = self.is_fresh_object_expr(&args[1]);
+                let (mv, _) = self.lower_expr(&args[1])?;
+                if !msg_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: mv });
+                }
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern("promise_settle_reject")),
+                    args: Box::new([pv, mv]),
+                });
+                return Ok((self.const_unit(), MirTy::Unit));
+            }
             // Built-in `Promise.reject(msg)` static factory. The
             // returned promise's T is `Unit` (nothing carries the
             // rejection back to the consumer).

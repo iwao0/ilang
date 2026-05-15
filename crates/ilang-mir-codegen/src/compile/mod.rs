@@ -55,6 +55,9 @@ pub(super) struct PromiseIds {
     pub(super) drain: cranelift_module::FuncId,
     pub(super) all: cranelift_module::FuncId,
     pub(super) race: cranelift_module::FuncId,
+    pub(super) pending: cranelift_module::FuncId,
+    pub(super) settle_resolve: cranelift_module::FuncId,
+    pub(super) settle_reject: cranelift_module::FuncId,
 }
 
 #[derive(Clone, Copy)]
