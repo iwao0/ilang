@@ -1062,23 +1062,55 @@ fn synthesize_state_machine(
     Ok((wrapper_fn, state_class, poll_fn))
 }
 
-/// Build the if-elif chain that switches on `state.state_idx`.
-fn build_poll_body(
+/// One basic block of the poll fn's CFG. `idx` is the state_idx
+/// value that selects this block; `stmts` are the bound-rewritten
+/// statements to run on entry; `terminator` is what the block does
+/// at the end (suspend / settle / jump / branch).
+#[derive(Debug, Clone)]
+pub struct StateBlock {
+    pub idx: u32,
+    pub stmts: Vec<Stmt>,
+    pub terminator: BlockTerminator,
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockTerminator {
+    /// `let _ = <promise>.then(fn(__v) { __poll(state, __v); 0 })`
+    /// then `return`. The runtime calls back into the poll fn with
+    /// the resolved value once the promise settles; the driver
+    /// loop's first step is to `state.state_idx = resume_idx`
+    /// (which happens just BEFORE the `.then` registration, so the
+    /// continuation runs against the right resume state).
+    Suspend { promise: Expr, resume_idx: u32, binding: Option<Symbol> },
+    /// `Promise.__settleResolve(state.__async_promise, value); return`.
+    Settle { value: Expr },
+    /// `state.state_idx = N; continue` — re-enters the driver loop
+    /// at the top.
+    #[allow(dead_code)]
+    Jump(u32),
+    /// `if cond { state.state_idx = then_idx; continue }
+    ///  else { state.state_idx = else_idx; continue }`.
+    #[allow(dead_code)]
+    Branch { cond: Expr, then_idx: u32, else_idx: u32 },
+}
+
+/// Translate the analyser's straight-line `AwaitChunk` vec into the
+/// generic CFG form. For each chunk K:
+///   - Block K's stmts: optionally a binding assign for the prior
+///     await's resolved value, then the chunk's own stmts.
+///   - Block K's terminator: `Suspend` (non-final chunk) or
+///     `Settle` (final chunk).
+fn chunks_to_blocks(
     chunks: &[AwaitChunk],
     state_param: Symbol,
     awaited_param: Symbol,
-    poll_fn_name: Symbol,
     state_locals: &HashSet<Symbol>,
-    inner_ret: &Type,
     span: Span,
-) -> Block {
-    // Each chunk K's branch produces a Block. We then nest them as
-    // `if state.state_idx == 0 { B0 } else if ... { B_{N-1} } else { B_N }`.
+) -> Vec<StateBlock> {
     let n = chunks.len();
-    let mut branch_blocks: Vec<Block> = Vec::with_capacity(n);
+    let mut blocks: Vec<StateBlock> = Vec::with_capacity(n);
     for (i, chunk) in chunks.iter().enumerate() {
         let mut stmts: Vec<Stmt> = Vec::new();
-        // After-await binding: state.<binding> = __awaited_value
         if i > 0 {
             if let Some(b) = chunks[i - 1].awaited_binding {
                 stmts.push(mk_expr_stmt(
@@ -1092,28 +1124,62 @@ fn build_poll_body(
                 ));
             }
         }
-        // The chunk's own (rewritten) stmts.
         for s in &chunk.stmts {
             let mut s = s.clone();
             rewrite_stmt_locals(&mut s, state_param, state_locals);
             stmts.push(s);
         }
-        if i + 1 < n {
-            // Non-final: advance state_idx, schedule next await.
+        let terminator = if i + 1 < n {
+            let mut awaited =
+                chunk.awaited_promise_expr.clone().expect("non-final chunk has await");
+            rewrite_expr_locals(&mut awaited, state_param, state_locals);
+            BlockTerminator::Suspend {
+                promise: awaited,
+                resume_idx: (i + 1) as u32,
+                binding: chunk.awaited_binding,
+            }
+        } else {
+            let mut tail = chunk
+                .final_tail
+                .clone()
+                .unwrap_or_else(|| mk_int(0, span));
+            rewrite_expr_locals(&mut tail, state_param, state_locals);
+            BlockTerminator::Settle { value: tail }
+        };
+        blocks.push(StateBlock {
+            idx: i as u32,
+            stmts,
+            terminator,
+        });
+    }
+    blocks
+}
+
+/// Emit one state block's body — its setup stmts plus the
+/// terminator-driven trailing stmts that either return (Suspend /
+/// Settle) or fall through to the loop top (Jump / Branch).
+fn emit_block_body(
+    block: &StateBlock,
+    state_param: Symbol,
+    poll_fn_name: Symbol,
+    span: Span,
+) -> Block {
+    let mut stmts: Vec<Stmt> = block.stmts.clone();
+    match &block.terminator {
+        BlockTerminator::Suspend { promise, resume_idx, binding: _ } => {
+            // Advance state_idx BEFORE scheduling the continuation
+            // (the continuation closure captures `state` and re-
+            // enters poll, which dispatches on state_idx).
             stmts.push(mk_expr_stmt(
                 mk_assign_field(
                     mk_var(state_param, span),
                     Symbol::intern("state_idx"),
-                    mk_int((i + 1) as i64, span),
+                    mk_int(*resume_idx as i64, span),
                     span,
                 ),
                 span,
             ));
-            let mut awaited =
-                chunk.awaited_promise_expr.clone().expect("non-final chunk has await");
-            rewrite_expr_locals(&mut awaited, state_param, state_locals);
-            // Synthesize the continuation closure:
-            //   fn(__v: i64): i64 { __${poll_fn_name}(__state, __v); 0 }
+            // Continuation closure: `fn(__v: i64): i64 { poll(state, __v); 0 }`
             let v_name = Symbol::intern("__v");
             let closure_body = Block {
                 stmts: vec![mk_expr_stmt(
@@ -1140,27 +1206,18 @@ fn build_poll_body(
                 span,
             );
             let then_call = mk_method_call(
-                awaited,
+                promise.clone(),
                 Symbol::intern("then"),
                 vec![closure],
                 span,
             );
-            stmts.push(mk_let(
-                Symbol::intern("_"),
-                None,
-                then_call,
+            stmts.push(mk_let(Symbol::intern("_"), None, then_call, span));
+            stmts.push(mk_expr_stmt(
+                Expr::new(ExprKind::Return(None), span),
                 span,
             ));
-        } else {
-            // Final chunk: compute the tail and settle the result
-            // Promise. If no tail, settle with unit (we emit `0` for
-            // the i64-shape ABI).
-            let mut tail = chunk
-                .final_tail
-                .clone()
-                .unwrap_or_else(|| mk_int(0, span));
-            rewrite_expr_locals(&mut tail, state_param, state_locals);
-            // Settle with the typed tail value.
+        }
+        BlockTerminator::Settle { value } => {
             stmts.push(mk_expr_stmt(
                 mk_method_call(
                     mk_var(Symbol::intern("Promise"), span),
@@ -1171,22 +1228,108 @@ fn build_poll_body(
                             Symbol::intern("__async_promise"),
                             span,
                         ),
-                        tail,
+                        value.clone(),
                     ],
                     span,
                 ),
                 span,
             ));
-            let _ = inner_ret; // currently unused but kept for future kind logic
+            stmts.push(mk_expr_stmt(
+                Expr::new(ExprKind::Return(None), span),
+                span,
+            ));
         }
-        branch_blocks.push(Block { stmts, tail: None });
+        BlockTerminator::Jump(n) => {
+            stmts.push(mk_expr_stmt(
+                mk_assign_field(
+                    mk_var(state_param, span),
+                    Symbol::intern("state_idx"),
+                    mk_int(*n as i64, span),
+                    span,
+                ),
+                span,
+            ));
+            stmts.push(mk_expr_stmt(
+                Expr::new(ExprKind::Continue, span),
+                span,
+            ));
+        }
+        BlockTerminator::Branch { cond, then_idx, else_idx } => {
+            // `if cond { state.state_idx = T; continue } else { ...F... }`.
+            let then_blk = Block {
+                stmts: vec![
+                    mk_expr_stmt(
+                        mk_assign_field(
+                            mk_var(state_param, span),
+                            Symbol::intern("state_idx"),
+                            mk_int(*then_idx as i64, span),
+                            span,
+                        ),
+                        span,
+                    ),
+                    mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
+                ],
+                tail: None,
+            };
+            let else_blk_expr = Expr::new(
+                ExprKind::Block(Block {
+                    stmts: vec![
+                        mk_expr_stmt(
+                            mk_assign_field(
+                                mk_var(state_param, span),
+                                Symbol::intern("state_idx"),
+                                mk_int(*else_idx as i64, span),
+                                span,
+                            ),
+                            span,
+                        ),
+                        mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
+                    ],
+                    tail: None,
+                }),
+                span,
+            );
+            stmts.push(mk_expr_stmt(
+                Expr::new(
+                    ExprKind::If {
+                        cond: Box::new(cond.clone()),
+                        then_branch: then_blk,
+                        else_branch: Some(Box::new(else_blk_expr)),
+                    },
+                    span,
+                ),
+                span,
+            ));
+        }
     }
-    // Nest the branches as if-elif-else.
+    Block { stmts, tail: None }
+}
+
+/// Build the poll fn's body: a `loop { ... }` whose body is an
+/// if-elif-else chain over `state.state_idx`, each branch ending
+/// in a Suspend / Settle / Jump / Branch terminator (the first two
+/// `return` from poll; the second two `continue` the loop).
+fn build_poll_body_from_blocks(
+    blocks: &[StateBlock],
+    state_param: Symbol,
+    poll_fn_name: Symbol,
+    span: Span,
+) -> Block {
+    // Build the if-elif-else chain. Each branch is one StateBlock.
+    let mut blocks_rev: Vec<&StateBlock> = blocks.iter().collect();
+    // Final else: unreachable, return from poll.
     let mut else_branch: Option<Expr> = Some(Expr::new(
-        ExprKind::Block(branch_blocks.pop().expect("at least one chunk")),
+        ExprKind::Block(Block {
+            stmts: vec![mk_expr_stmt(
+                Expr::new(ExprKind::Return(None), span),
+                span,
+            )],
+            tail: None,
+        }),
         span,
     ));
-    for (idx, blk) in branch_blocks.into_iter().enumerate().rev() {
+    while let Some(blk) = blocks_rev.pop() {
+        let body = emit_block_body(blk, state_param, poll_fn_name, span);
         let cond = Expr::new(
             ExprKind::Binary {
                 op: ilang_ast::BinOp::Eq,
@@ -1195,24 +1338,55 @@ fn build_poll_body(
                     Symbol::intern("state_idx"),
                     span,
                 )),
-                rhs: Box::new(mk_int(idx as i64, span)),
+                rhs: Box::new(mk_int(blk.idx as i64, span)),
             },
             span,
         );
         let if_e = Expr::new(
             ExprKind::If {
                 cond: Box::new(cond),
-                then_branch: blk,
+                then_branch: body,
                 else_branch: else_branch.map(Box::new),
             },
             span,
         );
         else_branch = Some(if_e);
     }
+    // Wrap the if-elif-else in a `loop { ... }` so Jump / Branch
+    // can `continue` back to the dispatch top. Suspend / Settle
+    // `return` out of the fn, breaking the loop indirectly.
+    let switch_expr = else_branch.unwrap();
+    let loop_body = Block {
+        stmts: vec![mk_expr_stmt(switch_expr, span)],
+        tail: None,
+    };
+    let loop_expr = Expr::new(
+        ExprKind::Loop { body: loop_body },
+        span,
+    );
     Block {
-        stmts: vec![mk_expr_stmt(else_branch.unwrap(), span)],
+        stmts: vec![mk_expr_stmt(loop_expr, span)],
         tail: None,
     }
+}
+
+/// Convenience wrapper used by `synthesize_state_machine`:
+/// translates straight-line chunks to blocks, then emits the
+/// loop+switch body. The split lets future passes (if-else, while,
+/// match) build blocks directly without going through chunks.
+fn build_poll_body(
+    chunks: &[AwaitChunk],
+    state_param: Symbol,
+    awaited_param: Symbol,
+    poll_fn_name: Symbol,
+    state_locals: &HashSet<Symbol>,
+    inner_ret: &Type,
+    span: Span,
+) -> Block {
+    let _ = inner_ret; // reserved for future per-state kind logic
+    let blocks =
+        chunks_to_blocks(chunks, state_param, awaited_param, state_locals, span);
+    build_poll_body_from_blocks(&blocks, state_param, poll_fn_name, span)
 }
 
 /// Rewrite `Var(name)` and `Assign(name, ..)` inside `e` to access
