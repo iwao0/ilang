@@ -928,6 +928,33 @@ pub(super) fn rewrite_enum_refs_in_expr(
                 args: new_args.into(),
             }
         }
+        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
+            params: params
+                .iter()
+                .map(|p| Param {
+                    name: p.name.clone(),
+                    ty: rewrite_enum_refs_in_type(&p.ty, generic_enums),
+                    span: p.span,
+                    default: p.default.clone(),
+                })
+                .collect(),
+            ret: ret.as_ref().map(|t| rewrite_enum_refs_in_type(t, generic_enums)),
+            body: rewrite_enum_refs_in_block(
+                body, generic_enums, table, outer_params, outer_args,
+            ),
+        },
+        ExprKind::TypeTest { expr, ty } => ExprKind::TypeTest {
+            expr: Box::new(rewrite_enum_refs_in_expr(
+                expr, generic_enums, table, outer_params, outer_args,
+            )),
+            ty: rewrite_enum_refs_in_type(ty, generic_enums),
+        },
+        ExprKind::TypeDowncast { expr, ty } => ExprKind::TypeDowncast {
+            expr: Box::new(rewrite_enum_refs_in_expr(
+                expr, generic_enums, table, outer_params, outer_args,
+            )),
+            ty: rewrite_enum_refs_in_type(ty, generic_enums),
+        },
         ExprKind::Cast { expr, ty } => ExprKind::Cast {
             expr: Box::new(rewrite_enum_refs_in_expr(
                 expr, generic_enums, table, outer_params, outer_args,
