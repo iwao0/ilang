@@ -32,7 +32,22 @@
     // useful for diagnostic logging; gating logic should use
     // `os.libLoaded(...)`.
     pub fn libLoadError(name: string): string
+
+    // Host OS name probe — called exactly once during module
+    // init to populate the `os.platform` binding below. Don't
+    // call this directly; reach for `os.platform` instead.
+    pub fn __platform(): string
 }
+
+/// Host OS name. One of `"macos"` / `"linux"` / `"windows"`,
+/// or `"other"` for any other Rust-known target. Resolved at
+/// compile time from `cfg(target_os)`; the helper runs once
+/// at module init and the value is cached here for the rest of
+/// the program. Use it to branch on platform without writing a
+/// conditional-compilation attribute:
+///
+///     if os.platform == "windows" { ... }
+pub let platform: string = __platform()
 
 // ─── POSIX error code constants ─────────────────────────────────
 // Values chosen to match macOS / Linux glibc — these 30-something

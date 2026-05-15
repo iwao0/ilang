@@ -1529,6 +1529,10 @@ if tryOpen("/missing", "r") == 0 as i32 {
 - `os.setErrno(code: i32)` — errno を上書き。`os.setErrno(0)` で「次の呼び出し失敗を確実に検出」したい時の前処理に
 - `os.libLoaded(name: string): bool` — 指定の `@lib(...)` ライブラリがロードに成功したかを返す。`@optional` 付き fn を呼ぶ前のガードに
 - `os.libLoadError(name: string): string` — ライブラリのロードに失敗した場合の dlopen エラーメッセージ。成功 (または未試行) なら空文字列。診断用、ガードロジックには `libLoaded` を使う
+- `os.platform: string` — ホスト OS 名。`"macos"` / `"linux"` / `"windows"` のいずれか、それ以外の Rust 認識ターゲットでは `"other"` になる。ビルド時の `cfg(target_os)` で解決され、トップレベル `pub let` にキャッシュされているので、`()` なしのプロパティ風アクセスで読める:
+  ```rust
+  if os.platform == "windows" { ... } else { ... }
+  ```
 - 値はエラーが起きるまで持続する。次の libc 呼び出しが成功してもクリアされない (POSIX 仕様)
 
 **定数 (i32):**

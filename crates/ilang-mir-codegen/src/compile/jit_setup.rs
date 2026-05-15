@@ -206,6 +206,7 @@ pub fn compile_with_builtins(
     jit_builder.symbol("os.setErrno", ilang_runtime::os_set_errno as *const u8);
     jit_builder.symbol("os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
     jit_builder.symbol("os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
+    jit_builder.symbol("os.__platform", ilang_runtime::os_platform as *const u8);
     // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
     jit_builder.symbol("fs.__hasError", ilang_runtime::fs::fs_has_error as *const u8);
     jit_builder.symbol("fs.__errorCode", ilang_runtime::fs::fs_error_code as *const u8);

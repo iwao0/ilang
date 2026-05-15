@@ -257,3 +257,30 @@ pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
         leak_cstring(format!("could not load `{n}` (error {code})"))
     }
 }
+
+// --------------------------------------------------------------------
+// `os.platform`
+// --------------------------------------------------------------------
+
+/// Host OS name as an ilang `string`. One of `"macos"`, `"linux"`,
+/// `"windows"`; for any other target Rust knows about we fall back
+/// to `"other"` so user code can exhaustively branch with a single
+/// catch-all arm. Resolved at compile time from `cfg(target_os)`,
+/// so the cost is one allocated string per call (no syscall).
+///
+/// Exported under `os.__platform`; user code reaches the value
+/// through the `pub let os.platform: string = __platform()`
+/// binding declared in `stdlib/os.il`, so the call happens once
+/// at program init and `os.platform` reads as a property.
+#[unsafe(export_name = "os.__platform")]
+pub extern "C" fn os_platform() -> i64 {
+    #[cfg(target_os = "macos")]
+    let name = "macos";
+    #[cfg(target_os = "linux")]
+    let name = "linux";
+    #[cfg(target_os = "windows")]
+    let name = "windows";
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let name = "other";
+    leak_cstring(name.to_string())
+}

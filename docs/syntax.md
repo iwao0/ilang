@@ -2018,6 +2018,14 @@ if tryOpen("/missing", "r") == 0 as i32 {
 - `os.libLoadError(name: string): string` — dlopen error message
   for a failed load (empty string on success or untried). For
   diagnostics; gating logic should use `libLoaded`.
+- `os.platform: string` — host OS name. One of `"macos"` /
+  `"linux"` / `"windows"`, or `"other"` for any other
+  Rust-known target. Resolved at compile time from
+  `cfg(target_os)` and cached in a top-level `pub let`, so
+  reads are property-style (no `()`):
+  ```rust
+  if os.platform == "windows" { ... } else { ... }
+  ```
 - The value persists until something else changes it (POSIX
   semantics — successful libc calls don't clear it).
 
