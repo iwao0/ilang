@@ -698,7 +698,34 @@ impl TypeChecker {
                 span,
             });
         }
-        let inst_args: Vec<Type> = type_args.to_vec();
+        // Rewrite the user-supplied type args so any reference to
+        // an enclosing class's type parameter (`new Map<string,
+        // T[]>()` inside `class Bag<T> { ... }`) lands as
+        // `TypeVar("T")` rather than the parser-default
+        // `Object("T")`. Without this, the resulting Generic's
+        // args wouldn't match a same-shape field type that's
+        // already been TypeVar-rewritten, and field assignment
+        // would error with `expected Map<string, T[]>, got
+        // Map<string, T[]>` (the two `T`s display the same but
+        // compare unequal).
+        let enclosing_params: Vec<Symbol> = match in_class {
+            Some(name) => self
+                .classes
+                .get(&name)
+                .map(|s| s.type_params.clone())
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let inst_args: Vec<Type> = type_args
+            .iter()
+            .map(|t| {
+                if enclosing_params.is_empty() {
+                    t.clone()
+                } else {
+                    rewrite_type_params(t, &enclosing_params)
+                }
+            })
+            .collect();
         if let Some(init_overloads) = init_raw {
             // Substitute generic type-args once per init
             // overload, then resolve which init to call.

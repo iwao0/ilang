@@ -39,6 +39,7 @@ pub fn builtin_module_source(name: &str) -> Option<&'static str> {
         "math" => Some(include_str!("../stdlib/math.il")),
         "test" => Some(include_str!("../stdlib/test.il")),
         "os" => Some(include_str!("../stdlib/os.il")),
+        "events" => Some(include_str!("../stdlib/events.il")),
         "fs" => Some(include_str!("../stdlib/fs.il")),
         "path" => Some(include_str!("../stdlib/path.il")),
         "regex" => Some(include_str!("../stdlib/regex.il")),
@@ -523,14 +524,30 @@ fn apply_use(
             .filter_map(|i| match i {
                 Item::Const(c) => Some(c.name.clone()),
                 Item::Class(c) => Some(c.name.clone()),
+                // Top-level fns count too — `qualify_var_refs`
+                // qualifies bare `Call(name, ...)` callees only
+                // when the name is in this set, so the later
+                // `prefix_*` walk doesn't accidentally qualify
+                // local-closure callees (`let f = ...; f(v)` →
+                // not `module.f(v)`).
+                Item::Fn(f) => Some(f.name.clone()),
                 _ => None,
             })
             .collect();
         for item in &module_prog.items {
             if let Item::ExternC(b) = item {
                 for inner in &b.items {
-                    if let ilang_ast::ExternCItem::Class(c) = inner {
-                        named_globals.insert(c.name.clone());
+                    match inner {
+                        ilang_ast::ExternCItem::Class(c) => {
+                            named_globals.insert(c.name.clone());
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            named_globals.insert(f.name.clone());
+                        }
+                        ilang_ast::ExternCItem::FnDecl { name, .. } => {
+                            named_globals.insert(name.clone());
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -784,7 +801,20 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
         | ExprKind::TypeDowncast { expr, .. } => {
             qualify_var_refs_in_expr(expr, prefix, consts)
         }
-        ExprKind::Call { args, .. } => {
+        ExprKind::Call { callee, args } => {
+            // Qualify the callee here (not in the later
+            // `prefix_*` walk) so locally-bound closures —
+            // `let f = ...; f(v)` — don't get accidentally
+            // rewritten to `module.f(v)`. `consts` lists every
+            // top-level name (const / class / fn / `let`) the
+            // module exposes; bare callee names not in there
+            // are presumed local and left alone.
+            if !is_builtin_callee(callee.as_str())
+                && !callee.as_str().contains('.')
+                && consts.contains(callee)
+            {
+                *callee = Symbol::intern(&format!("{prefix}.{callee}")).into();
+            }
             for a in args.iter_mut() {
                 qualify_var_refs_in_expr(a, prefix, consts);
             }
@@ -1067,6 +1097,250 @@ fn prefix_class_decl(c: &mut ilang_ast::ClassDecl, prefix: &str) {
                 .collect();
         }
     }
+    // The class's own type parameters look like bare `Object`
+    // names at parse time (the type checker is what later
+    // distinguishes them as `TypeVar`s). The prefix walk above
+    // accidentally turned them into `prefix.T`; sweep the body
+    // and roll those back. Doing it as a post-pass avoids
+    // threading an exclusion set through every recursive
+    // `prefix_*` helper.
+    if !c.type_params.is_empty() {
+        let type_params: HashSet<Symbol> = c.type_params.iter().cloned().collect();
+        unprefix_type_params_in_class(c, prefix, &type_params);
+    }
+}
+
+fn unprefix_type_params_in_class(
+    c: &mut ilang_ast::ClassDecl,
+    prefix: &str,
+    type_params: &HashSet<Symbol>,
+) {
+    for f in c.fields.iter_mut() {
+        unprefix_type_params(&mut f.ty, prefix, type_params);
+    }
+    for sf in c.static_fields.iter_mut() {
+        unprefix_type_params(&mut sf.ty, prefix, type_params);
+    }
+    for prop in c.properties.iter_mut() {
+        unprefix_type_params(&mut prop.ty, prefix, type_params);
+    }
+    for m in c.methods.iter_mut().chain(c.static_methods.iter_mut()) {
+        for p in m.params.iter_mut() {
+            unprefix_type_params(&mut p.ty, prefix, type_params);
+        }
+        if let Some(t) = m.ret.as_mut() {
+            unprefix_type_params(t, prefix, type_params);
+        }
+        unprefix_type_params_in_block(&mut m.body, prefix, type_params);
+    }
+}
+
+fn unprefix_type_params_in_block(
+    b: &mut Block,
+    prefix: &str,
+    type_params: &HashSet<Symbol>,
+) {
+    for s in b.stmts.iter_mut() {
+        unprefix_type_params_in_stmt(s, prefix, type_params);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        unprefix_type_params_in_expr(t, prefix, type_params);
+    }
+}
+
+fn unprefix_type_params_in_stmt(
+    s: &mut Stmt,
+    prefix: &str,
+    type_params: &HashSet<Symbol>,
+) {
+    match &mut s.kind {
+        StmtKind::Let { ty, value, .. } => {
+            if let Some(t) = ty.as_mut() {
+                unprefix_type_params(t, prefix, type_params);
+            }
+            unprefix_type_params_in_expr(value, prefix, type_params);
+        }
+        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+            unprefix_type_params_in_expr(value, prefix, type_params);
+        }
+        StmtKind::Expr(e) => unprefix_type_params_in_expr(e, prefix, type_params),
+    }
+}
+
+fn unprefix_type_params_in_expr(
+    e: &mut Expr,
+    prefix: &str,
+    type_params: &HashSet<Symbol>,
+) {
+    match &mut e.kind {
+        ExprKind::Cast { expr, ty }
+        | ExprKind::TypeTest { expr, ty }
+        | ExprKind::TypeDowncast { expr, ty } => {
+            unprefix_type_params(ty, prefix, type_params);
+            unprefix_type_params_in_expr(expr, prefix, type_params);
+        }
+        ExprKind::FnExpr { params, ret, body } => {
+            for p in params.iter_mut() {
+                unprefix_type_params(&mut p.ty, prefix, type_params);
+            }
+            if let Some(t) = ret.as_mut() {
+                unprefix_type_params(t, prefix, type_params);
+            }
+            unprefix_type_params_in_block(body, prefix, type_params);
+        }
+        ExprKind::New { type_args, args, .. } => {
+            for t in type_args.iter_mut() {
+                unprefix_type_params(t, prefix, type_params);
+            }
+            for a in args.iter_mut() {
+                unprefix_type_params_in_expr(a, prefix, type_params);
+            }
+        }
+        ExprKind::Block(b) => unprefix_type_params_in_block(b, prefix, type_params),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            unprefix_type_params_in_expr(cond, prefix, type_params);
+            unprefix_type_params_in_block(then_branch, prefix, type_params);
+            if let Some(e2) = else_branch.as_mut() {
+                unprefix_type_params_in_expr(e2, prefix, type_params);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            unprefix_type_params_in_expr(expr, prefix, type_params);
+            unprefix_type_params_in_block(then_branch, prefix, type_params);
+            if let Some(e2) = else_branch.as_mut() {
+                unprefix_type_params_in_expr(e2, prefix, type_params);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            unprefix_type_params_in_expr(cond, prefix, type_params);
+            unprefix_type_params_in_block(body, prefix, type_params);
+        }
+        ExprKind::Loop { body } => unprefix_type_params_in_block(body, prefix, type_params),
+        ExprKind::ForIn { iter, body, .. } => {
+            unprefix_type_params_in_expr(iter, prefix, type_params);
+            unprefix_type_params_in_block(body, prefix, type_params);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            unprefix_type_params_in_expr(scrutinee, prefix, type_params);
+            for arm in arms.iter_mut() {
+                unprefix_type_params_in_expr(&mut arm.body, prefix, type_params);
+            }
+        }
+        ExprKind::Call { args, .. } => {
+            for a in args.iter_mut() {
+                unprefix_type_params_in_expr(a, prefix, type_params);
+            }
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            unprefix_type_params_in_expr(obj, prefix, type_params);
+            for a in args.iter_mut() {
+                unprefix_type_params_in_expr(a, prefix, type_params);
+            }
+        }
+        ExprKind::SuperCall { args, .. } => {
+            for a in args.iter_mut() {
+                unprefix_type_params_in_expr(a, prefix, type_params);
+            }
+        }
+        ExprKind::Field { obj, .. } => unprefix_type_params_in_expr(obj, prefix, type_params),
+        ExprKind::AssignField { obj, value, .. } => {
+            unprefix_type_params_in_expr(obj, prefix, type_params);
+            unprefix_type_params_in_expr(value, prefix, type_params);
+        }
+        ExprKind::Index { obj, index } => {
+            unprefix_type_params_in_expr(obj, prefix, type_params);
+            unprefix_type_params_in_expr(index, prefix, type_params);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            unprefix_type_params_in_expr(obj, prefix, type_params);
+            unprefix_type_params_in_expr(index, prefix, type_params);
+            unprefix_type_params_in_expr(value, prefix, type_params);
+        }
+        ExprKind::Unary { expr, .. } => unprefix_type_params_in_expr(expr, prefix, type_params),
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            unprefix_type_params_in_expr(lhs, prefix, type_params);
+            unprefix_type_params_in_expr(rhs, prefix, type_params);
+        }
+        ExprKind::Assign { value, .. } => {
+            unprefix_type_params_in_expr(value, prefix, type_params);
+        }
+        ExprKind::Return(v) | ExprKind::Break(v) => {
+            if let Some(e2) = v.as_mut() {
+                unprefix_type_params_in_expr(e2, prefix, type_params);
+            }
+        }
+        ExprKind::Some(inner) => unprefix_type_params_in_expr(inner, prefix, type_params),
+        ExprKind::Array(items) | ExprKind::Tuple(items) => {
+            for item in items.iter_mut() {
+                unprefix_type_params_in_expr(item, prefix, type_params);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries.iter_mut() {
+                unprefix_type_params_in_expr(k, prefix, type_params);
+                unprefix_type_params_in_expr(v, prefix, type_params);
+            }
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for e in es.iter_mut() {
+                    unprefix_type_params_in_expr(e, prefix, type_params);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, e) in fs.iter_mut() {
+                    unprefix_type_params_in_expr(e, prefix, type_params);
+                }
+            }
+            ilang_ast::CtorArgs::Unit => {}
+        },
+        _ => {}
+    }
+}
+
+fn unprefix_type_params(
+    t: &mut Type,
+    prefix: &str,
+    type_params: &HashSet<Symbol>,
+) {
+    let candidate = format!("{prefix}.");
+    let unprefix_name = |name: &Symbol| -> Option<Symbol> {
+        let s = name.as_str();
+        let rest = s.strip_prefix(&candidate)?;
+        let rest_sym: Symbol = Symbol::intern(rest);
+        if type_params.contains(&rest_sym) {
+            Some(rest_sym)
+        } else {
+            None
+        }
+    };
+    match t {
+        Type::Object(name) => {
+            if let Some(orig) = unprefix_name(name) {
+                *name = orig;
+            }
+        }
+        Type::Array { elem, .. } => unprefix_type_params(elem, prefix, type_params),
+        Type::Optional(inner) | Type::Weak(inner) => {
+            unprefix_type_params(inner, prefix, type_params);
+        }
+        Type::Generic(g) => {
+            if let Some(orig) = unprefix_name(&g.base) {
+                g.base = orig;
+            }
+            for a in g.args.iter_mut() {
+                unprefix_type_params(a, prefix, type_params);
+            }
+        }
+        Type::Fn(ft) => {
+            for p in ft.params.iter_mut() {
+                unprefix_type_params(p, prefix, type_params);
+            }
+            unprefix_type_params(&mut ft.ret, prefix, type_params);
+        }
+        Type::RawPtr { inner, .. } => unprefix_type_params(inner, prefix, type_params),
+        _ => {}
+    }
 }
 
 fn prefix_type_name(name: &Symbol, prefix: &str) -> Symbol {
@@ -1238,34 +1512,24 @@ fn prefix_stmt(s: Stmt, prefix: &str) -> Stmt {
 fn prefix_expr(e: Expr, prefix: &str) -> Expr {
     let span = e.span;
     let kind = match e.kind {
-        // Function calls within a module: a bare `helper(x)` could
-        // refer to the module's own `helper`. We rewrite these to the
-        // prefixed form. Built-ins (FFI marshalling helpers,
-        // already-qualified `module.fn` shapes that get parsed as
-        // MethodCall, etc.) are skipped.
-        ExprKind::Call { callee, args } => {
-            // Skip rewriting when:
-            //   - the callee is a built-in (FFI helper, console.log, …)
-            //   - the callee is already module-qualified (contains a
-            //     `.`) — that means an earlier normalize pass already
-            //     turned `module.fn(args)` into a `Call`, and adding
-            //     the current module's prefix again would produce
-            //     `current.module.fn` and break resolution.
-            let new_callee = if is_builtin_callee(callee.as_str()) || callee.as_str().contains('.') {
-                callee
-            } else {
-                format!("{prefix}.{}", callee).into()
-            };
-            ExprKind::Call {
-                callee: new_callee,
-                args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
-            }
-        }
+        // Function calls: callee qualification has already been
+        // done by the earlier `qualify_var_refs` pass (it has the
+        // module's top-level fn-name set, so locally-bound
+        // closure callees like `let f = ...; f(v)` stay bare and
+        // don't get accidentally rewritten to `module.f(v)`).
+        // Just recurse into the arguments here.
+        ExprKind::Call { callee, args } => ExprKind::Call {
+            callee,
+            args: Vec::from(args).into_iter().map(|a| prefix_expr(a, prefix)).collect(),
+        },
         ExprKind::New { class, type_args, args, init_method } => ExprKind::New {
             // `new module.Class(...)` already qualified — leave as
             // is; only re-prefix bare names so a second pass
-            // doesn't produce `module.module.Class`.
-            class: if class.as_str().contains('.') {
+            // doesn't produce `module.module.Class`. Builtin
+            // types (`Map`, `Result`, …) are also left bare so
+            // `new Map<...>()` inside a stdlib module doesn't
+            // get rewritten to `new module.Map<...>()`.
+            class: if class.as_str().contains('.') || is_builtin_type(class.as_str()) {
                 class
             } else {
                 format!("{prefix}.{}", class).into()

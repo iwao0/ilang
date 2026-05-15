@@ -726,9 +726,19 @@ pub(super) fn subst_type(t: &Type, params: &[Symbol], args: &[Type]) -> Type {
         Type::Generic(g) => {
             let new_args: Vec<Type> =
                 g.args.iter().map(|a| subst_type(a, params, args)).collect();
-            // Once concrete (no TypeVar left), collapse to Object(mangled).
+            // Built-in generic classes (`Map`) and generic enums
+            // are NOT monomorphized into per-instantiation
+            // copies — the JIT routes them through dedicated
+            // codegen, so they stay as `Type::Generic`. Without
+            // this guard, `class Bag<T> { items: Map<string, T[]>
+            // }` substituted with `T = i32` would emit
+            // `Object("Map<string, i32[]>")` and resolve_ty's
+            // `Type::Object` arm would error with
+            // "unknown type: Map<string, i32[]>".
             let gen_ty = Type::generic(g.base.clone(), new_args.clone());
-            if !contains_type_var(&gen_ty) {
+            if is_generic_enum(g.base.as_str()) || is_builtin_generic_class(g.base.as_str()) {
+                gen_ty
+            } else if !contains_type_var(&gen_ty) {
                 Type::Object(
                     InstKey {
                         class: g.base.clone(),

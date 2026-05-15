@@ -160,7 +160,7 @@ let Point { x, y } = p                  // x: f64, y: f64
 | 13 | 単項 `-` `+` `!` `~` | 前置 |
 | 14 | `.` (フィールド/メソッド) / `[]` (添字) / `(...)` (呼び出し) | 後置 |
 
-文字列に対しては `+` (連結) と `==`/`!=` (構造的等値) のみ。オブジェクトの `==`/`!=` は同一クラスでの参照等値。`%` は浮動小数では未対応。
+文字列に対しては `+` (連結) と `==`/`!=` (構造的等値) のみ。オブジェクトの `==`/`!=` は同一クラスでの参照等値。関数 (`fn(...)`) も同じシグネチャ同士で `==`/`!=` を比較できる (クロージャポインタの参照等値 — 別々の `let f = fn(...)` は常に不一致)。`%` は浮動小数では未対応。
 
 ### 文字列の組み込みメソッド
 
@@ -1623,6 +1623,33 @@ path.format(p)                            // "/foo/bar/baz.txt"
 - `format(parts: PathParts): string` — `parse` の逆
 
 `PathParts` は public class。`format` に渡す独自の値を作りたい場合は `new PathParts(...)` で組み立てればよい。
+
+### 組み込み `events` モジュール
+
+Node.js 風の最小 EventEmitter。ペイロード型ひとつで generic、リスナーは登録順に同期実行。Pure ilang 実装、FFI なし。
+
+```rust
+use events
+
+let bus = new events.EventEmitter<i32>()
+
+let listener = fn(n: i32) { console.log("tick", n) }
+bus.on("tick", listener)
+bus.emit("tick", 1)                       // → "tick 1"
+
+bus.off("tick", listener)                 // この listener だけ削除
+bus.removeAllListeners("tick")            // 全部削除
+```
+
+**API (`EventEmitter<T>`):**
+- `on(event: string, listener: fn(T))` — 登録
+- `off(event: string, listener: fn(T)): bool` — `fn` 値が等しい (参照等価 — `on` に渡したのと同じ値を渡す) listener を削除。見つかれば `true`
+- `emit(event: string, value: T)` — 登録順に同期で発火
+- `removeAllListeners(event: string)` — 該当イベントの listener を全削除
+- `listenerCount(event: string): i32` — 登録数
+
+**Node.js 版との違い:**
+- 1 emitter につきペイロード型ひとつ。複数値を渡したいときは struct / class でまとめる
 
 ### `const` (定数宣言)
 

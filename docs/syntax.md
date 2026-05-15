@@ -188,7 +188,10 @@ let Point { x, y } = p                  // x: f64, y: f64
 
 For strings, only `+` (concatenation) and `==`/`!=` (structural
 equality) are defined. Object `==`/`!=` is reference equality on
-the same class. `%` is unsupported on floats.
+the same class. Function `==`/`!=` between matching `fn(...)`
+signatures is reference equality on the closure pointer (two
+distinct `let f = fn(...)` bindings always compare unequal).
+`%` is unsupported on floats.
 
 ### Built-in string methods
 
@@ -2157,6 +2160,42 @@ path.format(p)                            // "/foo/bar/baz.txt"
 
 `PathParts` is a public class — instantiate it directly to feed
 custom shapes into `format`.
+
+### Built-in `events` module
+
+Minimal Node.js-style EventEmitter, generic over a single
+payload type. Listeners run synchronously in registration order.
+Pure ilang implementation, no FFI.
+
+```rust
+use events
+
+let bus = new events.EventEmitter<i32>()
+
+let listener = fn(n: i32) { console.log("tick", n) }
+bus.on("tick", listener)
+bus.emit("tick", 1)                       // → "tick 1"
+
+bus.off("tick", listener)                 // remove just this listener
+bus.removeAllListeners("tick")            // or wipe every listener
+```
+
+**API (on `EventEmitter<T>`):**
+- `on(event: string, listener: fn(T))` — register
+- `off(event: string, listener: fn(T)): bool` — remove the
+  listener whose `fn` value compares equal (reference equality
+  on the closure pointer — pass back the exact value you gave
+  to `on`). Returns `true` when a matching listener was found
+- `emit(event: string, value: T)` — synchronously invoke every
+  listener registered for `event`
+- `removeAllListeners(event: string)` — drop every listener for
+  the event
+- `listenerCount(event: string): i32` — number currently
+  registered
+
+**Difference from Node.js `EventEmitter`:**
+- One payload type per emitter — pass a struct / class if you
+  need multiple values per event
 
 ### `const` (constant declaration)
 

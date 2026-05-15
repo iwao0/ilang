@@ -145,7 +145,10 @@ impl<'a> Parser<'a> {
                 inner: Box::new(inner),
             });
         }
-        // Function type: `fn(T1, T2): R` (or `fn(): R` / `fn(T)` for unit ret).
+        // Function type: `fn(T1, T2): R` (or `fn(): R` / `fn(T)` for
+        // unit ret). Falls through to the postfix `[]` / `?` /
+        // `.weak` loop below so callers can write `fn(T)[]` (an
+        // array of listeners) or `fn(T)?` (an optional callback).
         if matches!(t.kind, TokenKind::Fn) {
             self.bump();
             self.expect(&TokenKind::LParen, "'('")?;
@@ -167,7 +170,37 @@ impl<'a> Parser<'a> {
             } else {
                 Type::Unit
             };
-            return Ok(Type::func(params, ret));
+            let mut ty = Type::func(params, ret);
+            loop {
+                match self.peek().kind {
+                    TokenKind::LBracket => {
+                        self.bump();
+                        let fixed = match self.peek().kind {
+                            TokenKind::RBracket => None,
+                            TokenKind::Int(n) if n >= 0 => {
+                                self.bump();
+                                Some(n as usize)
+                            }
+                            _ => {
+                                let p = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: p.kind.clone(),
+                                    expected: "']' or non-negative integer literal".into(),
+                                    span: p.span,
+                                });
+                            }
+                        };
+                        self.expect(&TokenKind::RBracket, "']'")?;
+                        ty = Type::Array { elem: Box::new(ty), fixed };
+                    }
+                    TokenKind::Question => {
+                        self.bump();
+                        ty = Type::Optional(Box::new(ty));
+                    }
+                    _ => break,
+                }
+            }
+            return Ok(ty);
         }
         // Tuple type: `(T1, T2, ...)`. A single `(T)` is grouping and
         // returns `T` itself; `()` would be unit but is not currently

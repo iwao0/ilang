@@ -258,8 +258,14 @@ impl<'a> BodyCx<'a> {
                 let (kv, _) = self.lower_expr(index)?;
                 let v = self.fb.new_value(val_ty.clone());
                 self.fb.push_inst(Inst::MapGet { dst: v, map: av, key: kv });
-                if obj_is_fresh && matches!(val_ty, MirTy::Object(_)) {
-                    self.fb.push_inst(Inst::Retain { value: v });
+                // `__map_get` (the runtime helper) already retains
+                // heap values on read, so the caller always
+                // receives a `+1` reference. For a fresh-receiver
+                // index (`make_map()["k"]`) we just need to
+                // release the soon-to-be-orphan map; no extra
+                // retain on `v` (that would over-count and leak
+                // the selected entry forever).
+                if obj_is_fresh {
                     self.fb.push_inst(Inst::Release { value: av });
                 }
                 Ok((v, val_ty))

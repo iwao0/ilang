@@ -89,7 +89,16 @@ pub extern "C" fn __map_get(map: i64, key: i64) -> i64 {
     }
     let m = unsafe { &*(map as *const ManagedMap) };
     let mk = raw_to_map_key(key, m.key_print_kind);
-    *m.inner.get(&mk).unwrap_or(&0)
+    let v = *m.inner.get(&mk).unwrap_or(&0);
+    // Heap value-typed maps need a retain on read — the caller
+    // gets a `+1` reference whose lifetime is independent of the
+    // map's. Without this, `let arr = m["k"]; arr.length` would
+    // alias the map's slot and a later scope-exit release of
+    // `arr` would free the storage the map still owns.
+    if v != 0 && m.val_kind != KIND_NONE {
+        retain_field_by_kind(v, m.val_kind);
+    }
+    v
 }
 
 #[unsafe(no_mangle)]
@@ -101,6 +110,12 @@ pub extern "C" fn __map_get_optional(map: i64, key: i64) -> i64 {
     let mk = raw_to_map_key(key, m.key_print_kind);
     match m.inner.get(&mk) {
         Some(&v) => {
+            // See `__map_get`: heap values need a +1 to outlive
+            // the map's borrow. The Optional cell that the
+            // caller unwraps then owns the strong reference.
+            if v != 0 && m.val_kind != KIND_NONE {
+                retain_field_by_kind(v, m.val_kind);
+            }
             let cell = __mir_alloc(24) as *mut i64;
             unsafe {
                 *cell = v;

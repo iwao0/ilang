@@ -210,6 +210,18 @@ pub(crate) fn bin_result(op: BinOp, l: &Type, r: &Type) -> Result<Type, TypeErro
                 }
             }
         }
+        // Function identity: matching `fn(...)` signatures support
+        // `==` / `!=` (reference equality on the underlying closure
+        // pointer; matches Node.js's `removeListener` semantics).
+        // Two `let f = fn(...)` / `let g = fn(...)` are NOT equal —
+        // they're distinct heap allocations.
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            if let (Type::Fn(a), Type::Fn(b)) = (l, r) {
+                if a == b {
+                    return Ok(Type::Bool);
+                }
+            }
+        }
         if result.is_some() {
             return Ok(Type::Bool);
         }
