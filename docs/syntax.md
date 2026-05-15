@@ -2320,7 +2320,15 @@ pool can pass it between workers safely.
   `(await p) * 2`) are lifted to `let __await_tN = await ...`
   statements above the use site before the state-machine
   synth runs, so they "just work" — including multiple awaits
-  in one statement, evaluated left-to-right.
+  in one statement, evaluated left-to-right. The lifter also
+  descends into `if` cond / `match` scrutinee positions (the
+  expression is evaluated exactly once) but NOT into `while`
+  cond (re-evaluated each iter) or arm bodies (different
+  scope).
+- `break` / `continue` inside an async `while` body retarget
+  the user's logical loop — not the generated outer
+  `loop { switch state_idx }` driver. `break v` (with a
+  value) isn't yet supported.
 - `if-else`, `while`, and `match` at body tail position all
   accept awaits inside their arms / bodies. The state-machine
   lowering emits Branch (if), Jump (while), and MatchDispatch

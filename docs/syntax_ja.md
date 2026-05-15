@@ -1730,7 +1730,8 @@ await 1 つにつき heap 割当の continuation closure 1 個 + 状態クラス
 
 **現状の制約:**
 - desugar 内のミニ型推論器が、よくある RHS 形 (リテラル、param、`await Var(p)`、`await fn_call()` (呼ばれる fn の戻り値型を参照)、`await Promise.resolve(arg)`、単純な算術 etc.) からは binding の型を導出する。認識できない形だけ `let x: T = ...` の明示注釈が要る
-- sub-expression 内の await (`foo(await p, await q)`, `(await p) * 2`) は state-machine 合成の前に `let __await_tN = await ...` に lifting されるので、自然に書ける。1 文に複数の await もあって良く、左から順に評価される
+- sub-expression 内の await (`foo(await p, await q)`, `(await p) * 2`) は state-machine 合成の前に `let __await_tN = await ...` に lifting されるので、自然に書ける。1 文に複数の await もあって良く、左から順に評価される。`if` 条件 / `match` scrutinee (1 度だけ評価される位置) にも降りる。ただし `while` cond (毎反復評価) / arm body (異なる scope) は降りない
+- async `while` body 内の `break` / `continue` はユーザーの論理 while をターゲットにする (poll fn の外側の `loop { switch state_idx }` driver ではなく)。`break v` (値付き) は未対応
 - body tail 位置の `if-else` / `while` / `match` は arm / body 内に await を含んでよい。state-machine が Branch / Jump / MatchDispatch terminator を出して `state_idx` switch で再 dispatch する。match の pattern binding (`some(v)` 等) は target state に飛ぶ前に state field に保存される
 - mid-body `let r = if-else { ... } / match { ... }` で arm に await があるケースも対応。BlockBuilder が join state を確保し、各 arm に `AssignAndJump` terminator を出して `state.r` に値を書いてから join に飛ぶ。後続の stmt は `state.r` を読む (変数 rewriter 経由)
 - lambda 内 await は引き続き reject — lambda 自体を async fn にする仕組み (別の state machine + executor) が要る
