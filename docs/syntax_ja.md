@@ -1734,7 +1734,8 @@ await 1 つにつき heap 割当の continuation closure 1 個 + 状態クラス
 - body tail 位置の `if-else` / `while` / `match` は arm / body 内に await を含んでよい。state-machine が Branch / Jump / MatchDispatch terminator を出して `state_idx` switch で再 dispatch する。match の pattern binding (`some(v)` 等) は target state に飛ぶ前に state field に保存される
 - mid-body `let r = if-else { ... } / match { ... }` で arm に await があるケースも対応。BlockBuilder が join state を確保し、各 arm に `AssignAndJump` terminator を出して `state.r` に値を書いてから join に飛ぶ。後続の stmt は `state.r` を読む (変数 rewriter 経由)
 - lambda 内 await は引き続き reject — lambda 自体を async fn にする仕組み (別の state machine + executor) が要る
-- `class` 内の `async` メソッドは未対応 — state クラス + poll fn をクラス外に hoist する仕組みが要る
+- `class` 内の `async` メソッドに対応。state クラスと poll fn は class の隣にトップレベル項目として hoist され、class には元の名前のメソッドが残る (`this` を `state.__this` に保存して poll を起動する thin wrapper)。メソッド本体内の `this.<field>` 参照は生成された poll fn で `state.__this.<field>` に書き換えられる
+- 制約: state クラスのフィールドが heap 型 (Object / Array / Map / Promise 等) の場合、init 時の安全な default 値が無いため、async fn 本体内で heap 型の `let` バインディングは未対応。プリミティブ (`i64` / `f64` / `bool` / `string`) や任意型の param は使える。heap let は Optional<T> で wrap する refactor が必要 (今後)
 - `throw` キーワードが無いので、`async fn` 本体から reject するには引き続き `Promise.reject(...)` / executor を使う
 
 ### `const` (定数宣言)

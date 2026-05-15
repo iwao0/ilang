@@ -2337,9 +2337,19 @@ pool can pass it between workers safely.
 - Awaits inside lambda bodies are still rejected — that would
   require the lambda itself to become an async fn (separate
   state machine + executor).
-- `async` methods inside a `class` aren't allowed yet: the
-  state class + poll fn would need to be hoisted next to the
-  containing class.
+- `async` methods inside a `class` are supported. The state
+  class + poll fn are lifted next to the containing class as
+  top-level items; the class keeps the original-named method
+  as a thin wrapper that stashes `this` in `state.__this` and
+  kicks the first poll. `this.<field>` references inside the
+  method body get rewritten to `state.__this.<field>` by the
+  generated poll fn.
+- Limitation: state-class fields with heap types (Object,
+  Array, Map, Promise, etc.) have no safe init-time default,
+  so async fn bodies can't yet hold heap-typed `let` bindings.
+  Primitive bindings (`i64` / `f64` / `bool` / `string`) and
+  params of any type both work; heap-typed lets need the
+  Optional-wrapping refactor that's a follow-up.
 - There's no `throw` keyword, so rejecting from an `async fn`
   body still uses the explicit `Promise.reject(...)` /
   executor form.

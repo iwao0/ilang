@@ -547,6 +547,13 @@ impl<'a> Parser<'a> {
                     m.is_pub = member_is_pub;
                     methods.push(m);
                 }
+                TokenKind::Async => {
+                    self.bump(); // consume `async`
+                    let mut m = self.parse_method(Vec::new())?;
+                    m.is_async = true;
+                    m.is_pub = member_is_pub;
+                    methods.push(m);
+                }
                 TokenKind::Const => {
                     // `const name: T = expr` — class-level immutable
                     // static. Reassignment is rejected by the type

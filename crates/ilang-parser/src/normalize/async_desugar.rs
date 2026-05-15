@@ -424,7 +424,7 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     let mut items: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in prog.items {
         match item {
-            Item::Fn(f) => match lower_async_fn(f, &fn_returns) {
+            Item::Fn(f) => match lower_async_fn(f, &fn_returns, None) {
                 Ok(AsyncLowerOutput::Single(f)) => items.push(Item::Fn(f)),
                 Ok(AsyncLowerOutput::StateMachine {
                     wrapper,
@@ -439,7 +439,10 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
                     errors.push(e.clone());
                 }
             },
-            Item::Class(c) => items.push(Item::Class(lower_class(c, &mut errors))),
+            Item::Class(c) => {
+                let lowered = lower_class(c, &mut items, &mut errors, &fn_returns);
+                items.push(Item::Class(lowered));
+            }
             other => items.push(other),
         }
     }
@@ -458,40 +461,28 @@ enum AsyncLowerOutput {
     },
 }
 
-fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl {
-    let empty: HashMap<Symbol, Type> = HashMap::new();
+fn lower_class(
+    mut c: ClassDecl,
+    items: &mut Vec<Item>,
+    errors: &mut Vec<AsyncLowerError>,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> ClassDecl {
+    let class_name = c.name;
     let methods: Vec<FnDecl> = std::mem::take(&mut c.methods)
         .into_iter()
-        .map(|m| match lower_async_fn(m, &empty) {
+        .map(|m| match lower_async_fn(m, fn_returns, Some(class_name)) {
             Ok(AsyncLowerOutput::Single(f)) => f,
-            Ok(AsyncLowerOutput::StateMachine { wrapper, .. }) => {
-                // Class methods can't yet emit auxiliary top-level
-                // items (the state class + poll fn), so we reject
-                // multi-state lowering inside a class for this
-                // iteration. The wrapper alone wouldn't work
-                // because its body references the poll fn we'd
-                // need to splice in.
-                errors.push(AsyncLowerError {
-                    fn_name: wrapper.name,
-                    span: wrapper.span,
-                    reason: "async methods inside a class can't carry \
-                             await yet (the state class + poll fn \
-                             would need to be lifted out next to the \
-                             class itself); use a free `async fn` for now"
-                        .into(),
-                });
-                FnDecl {
-                    attrs: Box::new([]),
-                    is_pub: false,
-                    name: wrapper.name,
-                    type_params: Box::new([]),
-                    params: Box::new([]),
-                    ret: None,
-                    body: Block { stmts: Vec::new(), tail: None },
-                    span: Span::dummy(),
-                    is_override: false,
-                    is_async: false,
-                }
+            Ok(AsyncLowerOutput::StateMachine {
+                wrapper,
+                state_class,
+                poll_fn,
+            }) => {
+                // Lift the auxiliary items out next to the
+                // containing class. The wrapper stays as the
+                // class method (now non-async, returns a Promise).
+                items.push(Item::Class(state_class));
+                items.push(Item::Fn(poll_fn));
+                wrapper
             }
             Err(e) => {
                 let placeholder = e.fn_name.clone();
@@ -518,6 +509,7 @@ fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl
 fn lower_async_fn(
     mut f: FnDecl,
     fn_returns: &HashMap<Symbol, Type>,
+    enclosing_class: Option<Symbol>,
 ) -> Result<AsyncLowerOutput, AsyncLowerError> {
     if !f.is_async {
         return Ok(AsyncLowerOutput::Single(f));
@@ -574,7 +566,7 @@ fn lower_async_fn(
     // rejected non-straight-line shapes via the `unsupported`
     // field).
     let (wrapper, state_class, poll_fn) =
-        synthesize_state_machine(f, analysis, fn_returns)?;
+        synthesize_state_machine(f, analysis, fn_returns, enclosing_class)?;
     Ok(AsyncLowerOutput::StateMachine { wrapper, state_class, poll_fn })
 }
 
@@ -694,14 +686,24 @@ fn mk_expr_stmt(e: Expr, span: Span) -> Stmt {
 /// post-await locals. Heap types use `0` (interpreted as a null
 /// pointer); the field gets overwritten before any read at runtime,
 /// so the null is never observed.
-fn default_value_for(ty: &Type, span: Span) -> Expr {
+fn default_value_for(ty: &Type, span: Span) -> Option<Expr> {
     match ty {
         Type::F32 | Type::F64 => {
-            Expr::new(ExprKind::Float(0.0), span)
+            Some(Expr::new(ExprKind::Float(0.0), span))
         }
-        Type::Bool => Expr::new(ExprKind::Bool(false), span),
-        Type::Str => Expr::new(ExprKind::Str(String::new()), span),
-        _ => mk_int(0, span),
+        Type::Bool => Some(Expr::new(ExprKind::Bool(false), span)),
+        Type::Str => Some(Expr::new(ExprKind::Str(String::new()), span)),
+        Type::I8 | Type::I16 | Type::I32 | Type::I64
+        | Type::U8 | Type::U16 | Type::U32 | Type::U64
+        | Type::Size | Type::SSize | Type::CChar => Some(mk_int(0, span)),
+        // Heap types (Object / Array / Tuple / Optional / Generic /
+        // Promise / etc.) don't have a safely-typed default
+        // expression we can synthesise. The state-machine invariant
+        // guarantees each such field is assigned before any read
+        // (it's a `let`-binding that always gets initialised), so
+        // we skip the init-time fill — the field stays at its
+        // zero-initialised heap-allocator value (null pointer).
+        _ => None,
     }
 }
 
@@ -900,6 +902,7 @@ fn infer_let_rhs(
         ExprKind::Str(_) => Some(Type::Str),
         ExprKind::Var(n) => env.get(n).cloned(),
         ExprKind::Call { callee, .. } => fn_returns.get(callee).cloned(),
+        ExprKind::New { class, .. } => Some(Type::Object(*class)),
         ExprKind::Await(inner) => {
             let t = infer_let_rhs(inner, env, fn_returns)?;
             match t {
@@ -1010,14 +1013,25 @@ fn synthesize_state_machine(
     f: FnDecl,
     analysis: AsyncAnalysis,
     fn_returns: &HashMap<Symbol, Type>,
+    enclosing_class: Option<Symbol>,
 ) -> Result<(FnDecl, ClassDecl, FnDecl), AsyncLowerError> {
     let span = f.span;
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
     let promise_ret = Type::generic("Promise", vec![inner_ret.clone()]);
 
-    let state_class_name =
-        Symbol::intern(&format!("__{}_State", f.name.as_str()));
-    let poll_fn_name = Symbol::intern(&format!("__{}_poll", f.name.as_str()));
+    // Class methods get their auxiliary items (state class + poll
+    // fn) hoisted next to the containing class. Prefix the names
+    // so multiple classes with same-named methods don't collide.
+    let (state_class_name, poll_fn_name) = match enclosing_class {
+        Some(class) => (
+            Symbol::intern(&format!("__{}_{}_State", class.as_str(), f.name.as_str())),
+            Symbol::intern(&format!("__{}_{}_poll", class.as_str(), f.name.as_str())),
+        ),
+        None => (
+            Symbol::intern(&format!("__{}_State", f.name.as_str())),
+            Symbol::intern(&format!("__{}_poll", f.name.as_str())),
+        ),
+    };
     let state_param = Symbol::intern("__state");
     let awaited_param = Symbol::intern("__awaited_value");
 
@@ -1059,6 +1073,18 @@ fn synthesize_state_machine(
         span,
         bits: None,
     });
+    // Class methods: store the receiver. `this` inside the user's
+    // body gets rewritten to `state.__this` so the poll fn (a free
+    // fn) can reach it.
+    if let Some(class) = enclosing_class {
+        fields.push(FieldDecl {
+            is_pub: true,
+            name: Symbol::intern("__this"),
+            ty: Type::Object(class),
+            span,
+            bits: None,
+        });
+    }
     for p in f.params.iter() {
         fields.push(FieldDecl {
             is_pub: true,
@@ -1079,7 +1105,21 @@ fn synthesize_state_machine(
     }
 
     let prom_init_param = Symbol::intern("__init_prom");
-    let mut init_params: Vec<Param> = f.params.iter().cloned().collect();
+    let this_init_param = Symbol::intern("__init_this");
+    let mut init_params: Vec<Param> = Vec::new();
+    // Class methods: the receiver comes in as the first init arg
+    // and gets stored in the `__this` field.
+    if let Some(class) = enclosing_class {
+        init_params.push(Param {
+            name: this_init_param,
+            ty: Type::Object(class),
+            span,
+            default: None,
+        });
+    }
+    for p in f.params.iter() {
+        init_params.push(p.clone());
+    }
     init_params.push(Param {
         name: prom_init_param,
         ty: promise_ret.clone(),
@@ -1101,6 +1141,17 @@ fn synthesize_state_machine(
         ),
         span,
     ));
+    if enclosing_class.is_some() {
+        init_stmts.push(mk_expr_stmt(
+            mk_assign_field(
+                this_e(),
+                Symbol::intern("__this"),
+                mk_var(this_init_param, span),
+                span,
+            ),
+            span,
+        ));
+    }
     for p in f.params.iter() {
         init_stmts.push(mk_expr_stmt(
             mk_assign_field(this_e(), p.name, mk_var(p.name, p.span), span),
@@ -1108,10 +1159,12 @@ fn synthesize_state_machine(
         ));
     }
     for (n, t) in &body_lets {
-        init_stmts.push(mk_expr_stmt(
-            mk_assign_field(this_e(), *n, default_value_for(t, span), span),
-            span,
-        ));
+        if let Some(default) = default_value_for(t, span) {
+            init_stmts.push(mk_expr_stmt(
+                mk_assign_field(this_e(), *n, default, span),
+                span,
+            ));
+        }
     }
     let init_method = FnDecl {
         attrs: Box::new([]),
@@ -1223,8 +1276,14 @@ fn synthesize_state_machine(
         ),
         span,
     ));
-    let mut new_args: Vec<Expr> =
-        f.params.iter().map(|p| mk_var(p.name, p.span)).collect();
+    let mut new_args: Vec<Expr> = Vec::new();
+    // Class methods: pass `this` first to the state init.
+    if enclosing_class.is_some() {
+        new_args.push(Expr::new(ExprKind::This, span));
+    }
+    for p in f.params.iter() {
+        new_args.push(mk_var(p.name, p.span));
+    }
     new_args.push(mk_var(prom_local, span));
     wrapper_stmts.push(mk_let(
         state_local,
@@ -2283,6 +2342,17 @@ fn expr_has_await(e: &Expr) -> bool {
 fn rewrite_expr_locals(e: &mut Expr, state: Symbol, locals: &HashSet<Symbol>) {
     let span = e.span;
     match &mut e.kind {
+        // `this` inside an async class method body becomes
+        // `state.__this`. The state class has a `__this` field
+        // (added when `enclosing_class` is set) — this is how the
+        // poll fn (a free fn, no implicit receiver) reaches the
+        // original method receiver.
+        ExprKind::This => {
+            e.kind = ExprKind::Field {
+                obj: Box::new(mk_var(state, span)),
+                name: Symbol::intern("__this"),
+            };
+        }
         ExprKind::Var(n) if locals.contains(n) => {
             let name = *n;
             e.kind = ExprKind::Field {
