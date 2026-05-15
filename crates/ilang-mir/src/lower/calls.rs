@@ -202,6 +202,28 @@ impl<'a> BodyCx<'a> {
                 }
                 return Ok((self.const_unit(), MirTy::Unit));
             }
+            // Built-in `Promise.reject(msg)` static factory. The
+            // returned promise's T is `Unit` (nothing carries the
+            // rejection back to the consumer).
+            if self.lookup_var(*name).is_none()
+                && name.as_str() == "Promise"
+                && method.as_str() == "reject"
+                && args.len() == 1
+            {
+                let msg_is_fresh = self.is_fresh_object_expr(&args[0]);
+                let (mv, _) = self.lower_expr(&args[0])?;
+                if !msg_is_fresh {
+                    self.fb.push_inst(Inst::Retain { value: mv });
+                }
+                let prom_ty = MirTy::Promise(Box::new(MirTy::Unit));
+                let dst = self.fb.new_value(prom_ty.clone());
+                self.fb.push_inst(Inst::Call {
+                    dst: Some(dst),
+                    callee: FuncRef::Builtin(Symbol::intern("promise_reject")),
+                    args: Box::new([mv]),
+                });
+                return Ok((dst, prom_ty));
+            }
             // Built-in `Promise.resolve(v)` static factory. T is
             // inferred from the argument's lowered MirTy; the kind
             // tag goes through to `__promise_resolve` so the cell's

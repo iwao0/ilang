@@ -200,10 +200,25 @@ impl TypeChecker {
                 is_pub: true,
             }],
         );
-        // `Promise.reject(msg)` would need a T-from-context inference
-        // path the checker doesn't have today (the message doesn't
-        // constrain T). Users express rejection inside the executor:
-        // `new Promise<T>(fn(_, reject) { reject("...") })`.
+        // `Promise.reject(msg)` returns `Promise<()>` since there's
+        // nothing in the call to constrain T (the rejection has no
+        // value, only a message). Common use is
+        // `.catch(fn(s) { console.log(s) })` which type-checks
+        // because the catch handler also returns `()`. Typed
+        // rejections (where catch recovers to a specific T) need
+        // the executor form: `new Promise<T>(fn(_, reject) { reject("...") })`.
+        promise_statics.insert(
+            "reject".into(),
+            vec![Signature {
+                params: vec![Type::Str],
+                ret: Type::generic("Promise", vec![Type::Unit]),
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+                is_pub: true,
+            }],
+        );
         self.classes.insert(
             "Promise".into(),
             ClassSig {
