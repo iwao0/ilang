@@ -263,7 +263,9 @@ fn walk_expr(e: &Expr, a: &mut AsyncAnalysis) {
             a.suspend_points.push(e.span);
             a.unsupported.get_or_insert_with(|| {
                 "await inside a sub-expression is not yet supported \
-                 (lift it into `let _t = await p` first)"
+                 (the lifting pre-pass should have handled this; \
+                 awaits in `&&` / `||` short-circuit rhs and inside \
+                 nested closures aren't lifted)"
                     .into()
             });
         }
@@ -529,20 +531,28 @@ fn lower_async_fn(
     f.body = lift_subexpr_awaits(f.body);
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
     let analysis = analyze(&f.params, &inner_ret, &f.body);
-    if let Some(reason) = analysis.unsupported {
-        return Err(AsyncLowerError {
-            fn_name: f.name.clone(),
-            span: f.span,
-            reason: format!(
-                "async fn `{}`: {} (state-machine lowering doesn't \
-                 cover this shape yet)",
-                f.name.as_str(),
-                reason
-            ),
-        });
+    // The chunks-based analyser marks awaits inside `if` / `while`
+    // / `match` as unsupported. For body-tail `if-else` we have the
+    // BlockBuilder path that handles them properly, so skip the
+    // unsupported check in that case (the BlockBuilder validates
+    // sub-shapes as it walks).
+    let block_builder_handles = body_has_control_flow_with_await(&f.body);
+    if let Some(reason) = analysis.unsupported.clone() {
+        if !block_builder_handles {
+            return Err(AsyncLowerError {
+                fn_name: f.name.clone(),
+                span: f.span,
+                reason: format!(
+                    "async fn `{}`: {} (state-machine lowering doesn't \
+                     cover this shape yet)",
+                    f.name.as_str(),
+                    reason
+                ),
+            });
+        }
     }
     // Zero-await: trivial wrap.
-    if analysis.suspend_points.is_empty() {
+    if analysis.suspend_points.is_empty() && !block_builder_handles {
         let new_ret = wrap_ret_in_promise(f.ret);
         let new_body = wrap_body_in_promise_resolve(f.body);
         return Ok(AsyncLowerOutput::Single(FnDecl {
@@ -711,6 +721,22 @@ fn collect_let_types(
     }
     let mut out: Vec<(Symbol, Type)> = Vec::new();
     let mut seen: HashSet<Symbol> = HashSet::new();
+    walk_block_for_lets(b, &mut env, &mut out, &mut seen, fn_returns)?;
+    Ok(out)
+}
+
+/// Recursive helper: walks a block (and any if-else at tail
+/// position) accumulating every `let` binding into the seen / out
+/// tables. We DON'T descend into `if` arms unless the if appears at
+/// a block's tail (the BlockBuilder only supports if-at-tail; mid-
+/// body if-else still hits the analyser's nested-block rejection).
+fn walk_block_for_lets(
+    b: &Block,
+    env: &mut HashMap<Symbol, Type>,
+    out: &mut Vec<(Symbol, Type)>,
+    seen: &mut HashSet<Symbol>,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> Result<(), Symbol> {
     for s in &b.stmts {
         if let StmtKind::Let { name, ty, value, .. } = &s.kind {
             if !seen.insert(*name) {
@@ -719,7 +745,7 @@ fn collect_let_types(
             let t = if let Some(t) = ty {
                 t.clone()
             } else {
-                match infer_let_rhs(value, &env, fn_returns) {
+                match infer_let_rhs(value, env, fn_returns) {
                     Some(t) => t,
                     None => return Err(*name),
                 }
@@ -728,7 +754,32 @@ fn collect_let_types(
             out.push((*name, t));
         }
     }
-    Ok(out)
+    if let Some(tail) = &b.tail {
+        walk_if_tail_for_lets(tail, env, out, seen, fn_returns)?;
+    }
+    Ok(())
+}
+
+fn walk_if_tail_for_lets(
+    e: &Expr,
+    env: &mut HashMap<Symbol, Type>,
+    out: &mut Vec<(Symbol, Type)>,
+    seen: &mut HashSet<Symbol>,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> Result<(), Symbol> {
+    match &e.kind {
+        ExprKind::If { then_branch, else_branch, .. } => {
+            walk_block_for_lets(then_branch, env, out, seen, fn_returns)?;
+            if let Some(eb) = else_branch {
+                walk_if_tail_for_lets(eb, env, out, seen, fn_returns)?;
+            }
+        }
+        ExprKind::Block(b) => {
+            walk_block_for_lets(b, env, out, seen, fn_returns)?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Best-effort type inference for the common let-RHS shapes the
@@ -966,15 +1017,33 @@ fn synthesize_state_machine(
         state_locals.insert(*n);
     }
 
-    let poll_body = build_poll_body(
-        &analysis.chunks,
-        state_param,
-        awaited_param,
-        poll_fn_name,
-        &state_locals,
-        &inner_ret,
-        span,
-    );
+    // Pick the lowering path: control-flow-aware BlockBuilder for
+    // bodies with `if-else` at tail; chunks-based path otherwise.
+    let poll_body = if body_has_control_flow_with_await(&f.body) {
+        let blocks = build_blocks_for_body(
+            &f.body,
+            state_param,
+            awaited_param,
+            &state_locals,
+            span,
+        )
+        .map_err(|reason| AsyncLowerError {
+            fn_name: f.name,
+            span: f.span,
+            reason: format!("async fn `{}`: {}", f.name.as_str(), reason),
+        })?;
+        build_poll_body_from_blocks(&blocks, state_param, poll_fn_name, span)
+    } else {
+        build_poll_body(
+            &analysis.chunks,
+            state_param,
+            awaited_param,
+            poll_fn_name,
+            &state_locals,
+            &inner_ret,
+            span,
+        )
+    };
 
     let poll_fn = FnDecl {
         attrs: Box::new([]),
@@ -1387,6 +1456,259 @@ fn build_poll_body(
     let blocks =
         chunks_to_blocks(chunks, state_param, awaited_param, state_locals, span);
     build_poll_body_from_blocks(&blocks, state_param, poll_fn_name, span)
+}
+
+// --------------------------------------------------------------------
+// BlockBuilder — direct AST→StateBlock construction with `if`-tail
+// branching support. Phase 2 of the CFG-based lowering.
+//
+// The chunks-based analyser walks the body once and produces a flat
+// Vec<AwaitChunk> that assumes straight-line code. The BlockBuilder
+// is a recursive walker that handles `if-else` at body-tail position
+// by emitting Branch terminators and recursing into each arm.
+//
+// Supported shapes:
+//   - Straight-line stmts (mirroring the chunks-based path).
+//   - `let x = await E` suspend points.
+//   - Body tail = `if cond { arm_a } else { arm_b }`. Each arm is
+//     recursively built; both arms must settle the result promise
+//     (no join — the if-else IS the body's value).
+//   - Nested if-else within an arm's tail.
+//
+// Not yet:
+//   - `while` / `match` / mid-body if-else (need a join state).
+// --------------------------------------------------------------------
+
+struct BlockBuilder<'a> {
+    blocks: Vec<StateBlock>,
+    next_idx: u32,
+    state_param: Symbol,
+    awaited_param: Symbol,
+    state_locals: &'a HashSet<Symbol>,
+    span: Span,
+    /// Set when an unsupported shape is encountered during the build.
+    /// The caller (lower_async_fn) surfaces it as an AsyncLowerError.
+    error: Option<String>,
+}
+
+impl<'a> BlockBuilder<'a> {
+    fn fresh_idx(&mut self) -> u32 {
+        let i = self.next_idx;
+        self.next_idx += 1;
+        i
+    }
+
+    /// Build the state blocks corresponding to `body`. The first
+    /// block carries `entry_idx` (assigned by the caller, so chained
+    /// builders can reserve indices). `prior_binding` is set when
+    /// `entry_idx`'s block resumes from a previous suspend point —
+    /// the prior await's resolved value lives in `__awaited_value`
+    /// and gets assigned to `state.<binding>` as the block's first
+    /// statement.
+    fn build_body(
+        &mut self,
+        body: &Block,
+        entry_idx: u32,
+        prior_binding: Option<Symbol>,
+    ) {
+        let span = self.span;
+        let mut cur_idx = entry_idx;
+        let mut cur_stmts: Vec<Stmt> = Vec::new();
+        if let Some(b) = prior_binding {
+            cur_stmts.push(mk_expr_stmt(
+                mk_assign_field(
+                    mk_var(self.state_param, span),
+                    b,
+                    mk_var(self.awaited_param, span),
+                    span,
+                ),
+                span,
+            ));
+        }
+        for stmt in &body.stmts {
+            // Recognise `let x = await E` as a suspend point.
+            if let StmtKind::Let { name, value, .. } = &stmt.kind {
+                if let ExprKind::Await(p) = &value.kind {
+                    let mut promise_expr = (**p).clone();
+                    rewrite_expr_locals(
+                        &mut promise_expr,
+                        self.state_param,
+                        self.state_locals,
+                    );
+                    let next_idx = self.fresh_idx();
+                    self.blocks.push(StateBlock {
+                        idx: cur_idx,
+                        stmts: std::mem::take(&mut cur_stmts),
+                        terminator: BlockTerminator::Suspend {
+                            promise: promise_expr,
+                            resume_idx: next_idx,
+                            binding: Some(*name),
+                        },
+                    });
+                    cur_idx = next_idx;
+                    cur_stmts.push(mk_expr_stmt(
+                        mk_assign_field(
+                            mk_var(self.state_param, span),
+                            *name,
+                            mk_var(self.awaited_param, span),
+                            span,
+                        ),
+                        span,
+                    ));
+                    continue;
+                }
+            }
+            // Sync stmt: rewrite locals and accumulate.
+            let mut s = stmt.clone();
+            rewrite_stmt_locals(&mut s, self.state_param, self.state_locals);
+            cur_stmts.push(s);
+        }
+        // Handle the tail. Three cases: None (settle unit), If
+        // (branch + recurse into arms), or any other expr (settle).
+        let tail = body.tail.as_deref();
+        match tail.map(|t| (&t.kind, t.span)) {
+            None => {
+                self.blocks.push(StateBlock {
+                    idx: cur_idx,
+                    stmts: cur_stmts,
+                    terminator: BlockTerminator::Settle {
+                        value: mk_int(0, span),
+                    },
+                });
+            }
+            Some((ExprKind::If { cond, then_branch, else_branch }, _)) => {
+                let mut cond_expr = (**cond).clone();
+                rewrite_expr_locals(
+                    &mut cond_expr,
+                    self.state_param,
+                    self.state_locals,
+                );
+                let then_idx = self.fresh_idx();
+                let else_idx = self.fresh_idx();
+                self.blocks.push(StateBlock {
+                    idx: cur_idx,
+                    stmts: cur_stmts,
+                    terminator: BlockTerminator::Branch {
+                        cond: cond_expr,
+                        then_idx,
+                        else_idx,
+                    },
+                });
+                self.build_body(then_branch, then_idx, None);
+                match else_branch {
+                    Some(eb) => match &eb.kind {
+                        ExprKind::Block(b) => self.build_body(b, else_idx, None),
+                        // `else if ...` — wrap the nested If as the
+                        // tail of a single-element synthetic block
+                        // and recurse.
+                        _ => {
+                            let synth = Block {
+                                stmts: Vec::new(),
+                                tail: Some(Box::new((**eb).clone())),
+                            };
+                            self.build_body(&synth, else_idx, None);
+                        }
+                    },
+                    None => {
+                        // No else: this arm settles with unit.
+                        self.blocks.push(StateBlock {
+                            idx: else_idx,
+                            stmts: Vec::new(),
+                            terminator: BlockTerminator::Settle {
+                                value: mk_int(0, span),
+                            },
+                        });
+                    }
+                }
+            }
+            Some((_, _)) => {
+                // Regular tail expression: settle with its value.
+                let mut tail_expr = body.tail.as_deref().unwrap().clone();
+                rewrite_expr_locals(
+                    &mut tail_expr,
+                    self.state_param,
+                    self.state_locals,
+                );
+                self.blocks.push(StateBlock {
+                    idx: cur_idx,
+                    stmts: cur_stmts,
+                    terminator: BlockTerminator::Settle { value: tail_expr },
+                });
+            }
+        }
+    }
+}
+
+/// Top-level entry used by `synthesize_state_machine` when the
+/// body contains control-flow constructs the chunks-based analyser
+/// can't lay out. Returns `Err(reason)` if the BlockBuilder hit an
+/// unsupported sub-shape.
+fn build_blocks_for_body(
+    body: &Block,
+    state_param: Symbol,
+    awaited_param: Symbol,
+    state_locals: &HashSet<Symbol>,
+    span: Span,
+) -> Result<Vec<StateBlock>, String> {
+    let mut b = BlockBuilder {
+        blocks: Vec::new(),
+        next_idx: 1,
+        state_param,
+        awaited_param,
+        state_locals,
+        span,
+        error: None,
+    };
+    b.build_body(body, 0, None);
+    if let Some(e) = b.error {
+        return Err(e);
+    }
+    Ok(b.blocks)
+}
+
+/// Whether the body needs the BlockBuilder path (contains an `if`
+/// at tail position with awaits inside) vs. the simpler chunks-
+/// based path.
+fn body_has_control_flow_with_await(body: &Block) -> bool {
+    matches!(body.tail.as_deref().map(|t| &t.kind), Some(ExprKind::If { .. }))
+        && body_or_arms_have_await(body)
+}
+
+fn body_or_arms_have_await(b: &Block) -> bool {
+    for s in &b.stmts {
+        if stmt_has_await(s) {
+            return true;
+        }
+    }
+    if let Some(t) = &b.tail {
+        if expr_has_await(t) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_has_await(s: &Stmt) -> bool {
+    match &s.kind {
+        StmtKind::Let { value, .. } => expr_has_await(value),
+        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+            expr_has_await(value)
+        }
+        StmtKind::Expr(e) => expr_has_await(e),
+    }
+}
+
+fn expr_has_await(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Await(_) => true,
+        ExprKind::If { cond, then_branch, else_branch } => {
+            expr_has_await(cond)
+                || body_or_arms_have_await(then_branch)
+                || else_branch.as_deref().is_some_and(expr_has_await)
+        }
+        ExprKind::Block(b) => body_or_arms_have_await(b),
+        _ => false,
+    }
 }
 
 /// Rewrite `Var(name)` and `Assign(name, ..)` inside `e` to access
