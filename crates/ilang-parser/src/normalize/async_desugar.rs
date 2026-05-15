@@ -400,11 +400,29 @@ fn wrap_ret_in_promise(ret: Option<Type>) -> Option<Type> {
 /// the state and the result promise. Zero-await async fns stay a
 /// single fn (body wrapped in `Promise.resolve`).
 pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
+    // Collect every top-level fn's return type so the mini-
+    // inferencer can recover `let a = await computeAsync(...)` —
+    // it looks up `computeAsync`'s declared `: T` and tells the
+    // synthesiser that `a` is `T`. Includes async fn returns
+    // pre-wrapped to `Promise<T>` since callers see the wrapped
+    // signature.
+    let mut fn_returns: HashMap<Symbol, Type> = HashMap::new();
+    for item in &prog.items {
+        if let Item::Fn(f) = item {
+            let ret = f.ret.clone().unwrap_or(Type::Unit);
+            let ret = if f.is_async {
+                Type::generic("Promise", vec![ret])
+            } else {
+                ret
+            };
+            fn_returns.insert(f.name, ret);
+        }
+    }
     let mut errors: Vec<AsyncLowerError> = Vec::new();
     let mut items: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in prog.items {
         match item {
-            Item::Fn(f) => match lower_async_fn(f) {
+            Item::Fn(f) => match lower_async_fn(f, &fn_returns) {
                 Ok(AsyncLowerOutput::Single(f)) => items.push(Item::Fn(f)),
                 Ok(AsyncLowerOutput::StateMachine {
                     wrapper,
@@ -439,9 +457,10 @@ enum AsyncLowerOutput {
 }
 
 fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl {
+    let empty: HashMap<Symbol, Type> = HashMap::new();
     let methods: Vec<FnDecl> = std::mem::take(&mut c.methods)
         .into_iter()
-        .map(|m| match lower_async_fn(m) {
+        .map(|m| match lower_async_fn(m, &empty) {
             Ok(AsyncLowerOutput::Single(f)) => f,
             Ok(AsyncLowerOutput::StateMachine { wrapper, .. }) => {
                 // Class methods can't yet emit auxiliary top-level
@@ -494,10 +513,20 @@ fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl
     c
 }
 
-fn lower_async_fn(f: FnDecl) -> Result<AsyncLowerOutput, AsyncLowerError> {
+fn lower_async_fn(
+    mut f: FnDecl,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> Result<AsyncLowerOutput, AsyncLowerError> {
     if !f.is_async {
         return Ok(AsyncLowerOutput::Single(f));
     }
+    // Pre-pass: lift every `await E` that appears inside a sub-
+    // expression into its own `let __await_tN = await E` statement
+    // above the use site. The analyser + synthesiser only handle
+    // the canonical "await as direct let RHS" form; this pass
+    // makes `foo(await p, await q)` and `bar(await p) + 1` flow
+    // through to the same lowering.
+    f.body = lift_subexpr_awaits(f.body);
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
     let analysis = analyze(&f.params, &inner_ret, &f.body);
     if let Some(reason) = analysis.unsupported {
@@ -534,7 +563,8 @@ fn lower_async_fn(f: FnDecl) -> Result<AsyncLowerOutput, AsyncLowerError> {
     // straight-line awaits is supported (the analyser already
     // rejected non-straight-line shapes via the `unsupported`
     // field).
-    let (wrapper, state_class, poll_fn) = synthesize_state_machine(f, analysis)?;
+    let (wrapper, state_class, poll_fn) =
+        synthesize_state_machine(f, analysis, fn_returns)?;
     Ok(AsyncLowerOutput::StateMachine { wrapper, state_class, poll_fn })
 }
 
@@ -673,6 +703,7 @@ fn default_value_for(ty: &Type, span: Span) -> Expr {
 fn collect_let_types(
     params: &[Param],
     b: &Block,
+    fn_returns: &HashMap<Symbol, Type>,
 ) -> Result<Vec<(Symbol, Type)>, Symbol> {
     let mut env: HashMap<Symbol, Type> = HashMap::new();
     for p in params {
@@ -688,7 +719,7 @@ fn collect_let_types(
             let t = if let Some(t) = ty {
                 t.clone()
             } else {
-                match infer_let_rhs(value, &env) {
+                match infer_let_rhs(value, &env, fn_returns) {
                     Some(t) => t,
                     None => return Err(*name),
                 }
@@ -713,15 +744,20 @@ fn collect_let_types(
 /// - `Promise.resolve(arg)` (returns `Promise<typeof arg>`)
 /// - `Promise.reject(...)` (returns `Promise<()>`)
 /// - Simple arithmetic / comparison on i64 (returns i64 / bool)
-fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
+fn infer_let_rhs(
+    e: &Expr,
+    env: &HashMap<Symbol, Type>,
+    fn_returns: &HashMap<Symbol, Type>,
+) -> Option<Type> {
     match &e.kind {
         ExprKind::Int(_) => Some(Type::I64),
         ExprKind::Float(_) => Some(Type::F64),
         ExprKind::Bool(_) => Some(Type::Bool),
         ExprKind::Str(_) => Some(Type::Str),
         ExprKind::Var(n) => env.get(n).cloned(),
+        ExprKind::Call { callee, .. } => fn_returns.get(callee).cloned(),
         ExprKind::Await(inner) => {
-            let t = infer_let_rhs(inner, env)?;
+            let t = infer_let_rhs(inner, env, fn_returns)?;
             match t {
                 Type::Generic(g)
                     if g.base.as_str() == "Promise" && g.args.len() == 1 =>
@@ -739,7 +775,7 @@ fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
                 if n.as_str() == "Promise" {
                     match method.as_str() {
                         "resolve" if args.len() == 1 => {
-                            let inner = infer_let_rhs(&args[0], env)?;
+                            let inner = infer_let_rhs(&args[0], env, fn_returns)?;
                             return Some(Type::generic("Promise", vec![inner]));
                         }
                         "reject" => {
@@ -759,8 +795,8 @@ fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
             None
         }
         ExprKind::Binary { op, lhs, rhs } => {
-            let lt = infer_let_rhs(lhs, env)?;
-            let rt = infer_let_rhs(rhs, env)?;
+            let lt = infer_let_rhs(lhs, env, fn_returns)?;
+            let rt = infer_let_rhs(rhs, env, fn_returns)?;
             use ilang_ast::BinOp;
             match op {
                 BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
@@ -777,7 +813,7 @@ fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
                 }
             }
         }
-        ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env),
+        ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env, fn_returns),
         _ => None,
     }
 }
@@ -785,6 +821,7 @@ fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
 fn synthesize_state_machine(
     f: FnDecl,
     analysis: AsyncAnalysis,
+    fn_returns: &HashMap<Symbol, Type>,
 ) -> Result<(FnDecl, ClassDecl, FnDecl), AsyncLowerError> {
     let span = f.span;
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
@@ -802,7 +839,7 @@ fn synthesize_state_machine(
     // simple arithmetic); anything else still needs an explicit
     // annotation.
     let body_lets =
-        collect_let_types(&f.params, &f.body).map_err(|missing| AsyncLowerError {
+        collect_let_types(&f.params, &f.body, fn_returns).map_err(|missing| AsyncLowerError {
             fn_name: f.name.clone(),
             span: f.span,
             reason: format!(
@@ -1381,6 +1418,262 @@ impl std::error::Error for AsyncLowerError {}
 
 // Silence `unused` warning for the `HashSet` import — the live-
 // variable analysis lands in the multi-state follow-up.
+// --------------------------------------------------------------------
+// Sub-expression `await` lifting
+//
+// Before the analyser / synthesiser run, we normalise the async fn
+// body so that every `await E` appears as the direct RHS of a let
+// (or, for the body's tail, gets pulled into one above the tail).
+// `foo(await p, await q)` becomes
+//     let __await_t0 = await p
+//     let __await_t1 = await q
+//     foo(__await_t0, __await_t1)
+//
+// We only lift awaits that appear at the *top-level* expression
+// stack of a statement — awaits inside an `if` / `while` / `match` /
+// closure body are left in place, and the analyser will still
+// reject them as "nested-block await" (a separate follow-up).
+// --------------------------------------------------------------------
+
+fn lift_subexpr_awaits(body: Block) -> Block {
+    let mut counter: u64 = 0;
+    let mut new_stmts: Vec<Stmt> = Vec::new();
+    for s in body.stmts {
+        lift_stmt(s, &mut counter, &mut new_stmts);
+    }
+    let new_tail = body.tail.map(|t| {
+        let span = t.span;
+        let mut lifts: Vec<Stmt> = Vec::new();
+        // The tail is the body's value. If it's a bare `await E`,
+        // we still lift it (the synthesiser expects the final tail
+        // to be a sync expression — the let-await becomes the
+        // body's last suspend point and the tail reduces to
+        // `__await_tN`).
+        let tail_lifted = lift_in_expr(*t, &mut lifts, &mut counter, /*at_let_rhs=*/ false);
+        for s in lifts {
+            new_stmts.push(s);
+        }
+        Box::new(Expr::new(tail_lifted.kind, span))
+    });
+    Block { stmts: new_stmts, tail: new_tail }
+}
+
+fn lift_stmt(s: Stmt, counter: &mut u64, out: &mut Vec<Stmt>) {
+    let span = s.span;
+    let source_module = s.source_module.clone();
+    match s.kind {
+        StmtKind::Let { is_pub, is_const, name, ty, value } => {
+            // Direct `let x = await E`: keep the outer await as-is,
+            // but recurse into E for nested liftable awaits.
+            let new_value = if let ExprKind::Await(inner) = value.kind {
+                let inner_span = inner.span;
+                let lifted_inner = lift_in_expr(*inner, out, counter, /*at_let_rhs=*/ true);
+                Expr::new(
+                    ExprKind::Await(Box::new(lifted_inner)),
+                    inner_span.to(span),
+                )
+            } else {
+                lift_in_expr(value, out, counter, /*at_let_rhs=*/ false)
+            };
+            let mut new_s = Stmt::new(
+                StmtKind::Let { is_pub, is_const, name, ty, value: new_value },
+                span,
+            );
+            new_s.source_module = source_module;
+            out.push(new_s);
+        }
+        StmtKind::LetTuple { elems, value } => {
+            let new_value = lift_in_expr(value, out, counter, false);
+            let mut new_s = Stmt::new(StmtKind::LetTuple { elems, value: new_value }, span);
+            new_s.source_module = source_module;
+            out.push(new_s);
+        }
+        StmtKind::LetStruct { class, fields, value } => {
+            let new_value = lift_in_expr(value, out, counter, false);
+            let mut new_s = Stmt::new(
+                StmtKind::LetStruct { class, fields, value: new_value },
+                span,
+            );
+            new_s.source_module = source_module;
+            out.push(new_s);
+        }
+        StmtKind::Expr(e) => {
+            let new_e = lift_in_expr(e, out, counter, false);
+            let mut new_s = Stmt::new(StmtKind::Expr(new_e), span);
+            new_s.source_module = source_module;
+            out.push(new_s);
+        }
+    }
+}
+
+/// Walk an expression rebuilding it; every `await E` we encounter
+/// (in a position other than the *immediate* RHS of a let — handled
+/// by `lift_stmt`) is replaced by `Var(__await_tN)` and an
+/// `let __await_tN = await E` is appended to `lifts`. Sub-trees
+/// that introduce a new scope (blocks, branches, closures) are NOT
+/// descended into — awaits there are still rejected by the
+/// analyser.
+fn lift_in_expr(
+    e: Expr,
+    lifts: &mut Vec<Stmt>,
+    counter: &mut u64,
+    at_let_rhs: bool,
+) -> Expr {
+    let span = e.span;
+    match e.kind {
+        ExprKind::Await(inner) if !at_let_rhs => {
+            // Lift this await: first recurse into the inner so a
+            // nested `await E1(await E2)` becomes
+            //   let __t0 = await E2
+            //   let __t1 = await E1(__t0)
+            // and finally the use site reads `__t1`.
+            let inner_lifted = lift_in_expr(*inner, lifts, counter, false);
+            let name = Symbol::intern(&format!("__await_t{}", *counter));
+            *counter += 1;
+            lifts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name,
+                    ty: None,
+                    value: Expr::new(
+                        ExprKind::Await(Box::new(inner_lifted)),
+                        span,
+                    ),
+                },
+                span,
+            ));
+            Expr::new(ExprKind::Var(name), span)
+        }
+        ExprKind::Await(inner) => {
+            // `at_let_rhs` — keep the outer await; recurse into the
+            // inner for nested liftable awaits.
+            let inner = lift_in_expr(*inner, lifts, counter, false);
+            Expr::new(ExprKind::Await(Box::new(inner)), span)
+        }
+        ExprKind::Call { callee, args } => {
+            let new_args: Vec<Expr> = args
+                .into_vec()
+                .into_iter()
+                .map(|a| lift_in_expr(a, lifts, counter, false))
+                .collect();
+            Expr::new(
+                ExprKind::Call { callee, args: new_args.into_boxed_slice() },
+                span,
+            )
+        }
+        ExprKind::MethodCall { obj, method, args } => {
+            let obj = Box::new(lift_in_expr(*obj, lifts, counter, false));
+            let new_args: Vec<Expr> = args
+                .into_vec()
+                .into_iter()
+                .map(|a| lift_in_expr(a, lifts, counter, false))
+                .collect();
+            Expr::new(
+                ExprKind::MethodCall { obj, method, args: new_args.into_boxed_slice() },
+                span,
+            )
+        }
+        ExprKind::SuperCall { method, args } => {
+            let new_args: Vec<Expr> = args
+                .into_vec()
+                .into_iter()
+                .map(|a| lift_in_expr(a, lifts, counter, false))
+                .collect();
+            Expr::new(
+                ExprKind::SuperCall { method, args: new_args.into_boxed_slice() },
+                span,
+            )
+        }
+        ExprKind::New { class, type_args, args, init_method } => {
+            let new_args: Vec<Expr> = args
+                .into_vec()
+                .into_iter()
+                .map(|a| lift_in_expr(a, lifts, counter, false))
+                .collect();
+            Expr::new(
+                ExprKind::New {
+                    class,
+                    type_args,
+                    args: new_args.into_boxed_slice(),
+                    init_method,
+                },
+                span,
+            )
+        }
+        ExprKind::Field { obj, name } => {
+            let obj = Box::new(lift_in_expr(*obj, lifts, counter, false));
+            Expr::new(ExprKind::Field { obj, name }, span)
+        }
+        ExprKind::Index { obj, index } => {
+            let obj = Box::new(lift_in_expr(*obj, lifts, counter, false));
+            let index = Box::new(lift_in_expr(*index, lifts, counter, false));
+            Expr::new(ExprKind::Index { obj, index }, span)
+        }
+        ExprKind::Binary { op, lhs, rhs } => {
+            let lhs = Box::new(lift_in_expr(*lhs, lifts, counter, false));
+            let rhs = Box::new(lift_in_expr(*rhs, lifts, counter, false));
+            Expr::new(ExprKind::Binary { op, lhs, rhs }, span)
+        }
+        ExprKind::Logical { op, lhs, rhs } => {
+            // Note: `&&` / `||` short-circuit, so awaits on the
+            // RHS would only run conditionally. Lifting them
+            // unconditionally changes semantics. For safety, we
+            // DON'T lift into Logical's rhs; if a user writes
+            // `cond && await p`, the analyser still rejects the
+            // nested await. (Lifting only the lhs is sound.)
+            let lhs = Box::new(lift_in_expr(*lhs, lifts, counter, false));
+            Expr::new(ExprKind::Logical { op, lhs, rhs }, span)
+        }
+        ExprKind::Unary { op, expr } => {
+            let expr = Box::new(lift_in_expr(*expr, lifts, counter, false));
+            Expr::new(ExprKind::Unary { op, expr }, span)
+        }
+        ExprKind::Cast { expr, ty } => {
+            let expr = Box::new(lift_in_expr(*expr, lifts, counter, false));
+            Expr::new(ExprKind::Cast { expr, ty }, span)
+        }
+        ExprKind::TypeTest { expr, ty } => {
+            let expr = Box::new(lift_in_expr(*expr, lifts, counter, false));
+            Expr::new(ExprKind::TypeTest { expr, ty }, span)
+        }
+        ExprKind::TypeDowncast { expr, ty } => {
+            let expr = Box::new(lift_in_expr(*expr, lifts, counter, false));
+            Expr::new(ExprKind::TypeDowncast { expr, ty }, span)
+        }
+        ExprKind::Some(inner) => {
+            let inner = Box::new(lift_in_expr(*inner, lifts, counter, false));
+            Expr::new(ExprKind::Some(inner), span)
+        }
+        ExprKind::Tuple(es) => {
+            let new_es: Vec<Expr> = es
+                .into_vec()
+                .into_iter()
+                .map(|x| lift_in_expr(x, lifts, counter, false))
+                .collect();
+            Expr::new(ExprKind::Tuple(new_es.into_boxed_slice()), span)
+        }
+        ExprKind::Array(es) => {
+            let new_es: Vec<Expr> = es
+                .into_vec()
+                .into_iter()
+                .map(|x| lift_in_expr(x, lifts, counter, false))
+                .collect();
+            Expr::new(ExprKind::Array(new_es.into_boxed_slice()), span)
+        }
+        ExprKind::Return(opt) => {
+            let new_opt = opt.map(|e| Box::new(lift_in_expr(*e, lifts, counter, false)));
+            Expr::new(ExprKind::Return(new_opt), span)
+        }
+        // Everything that introduces a new scope (blocks, control
+        // flow, closures) is NOT descended into. Awaits inside are
+        // currently rejected by the analyser; lifting them out
+        // would change observable order (e.g. an await inside one
+        // `if` arm would run unconditionally).
+        kind => Expr::new(kind, span),
+    }
+}
+
 #[allow(dead_code)]
 fn _liveness_placeholder() -> HashSet<Symbol> {
     HashSet::new()

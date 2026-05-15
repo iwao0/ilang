@@ -2312,9 +2312,15 @@ pool can pass it between workers safely.
 **Current restrictions:**
 - The desugar's mini-inferencer recovers the binding's type from
   common RHS shapes: literals, params, `await Var(p)`,
+  `await fn_call()` (looks up the called fn's return type),
   `await Promise.resolve(arg)`, simple arithmetic, etc. For
   shapes it doesn't recognise, fall back to an explicit
   `let x: T = ...` annotation.
+- Awaits in sub-expressions (`foo(await p, await q)`,
+  `(await p) * 2`) are lifted to `let __await_tN = await ...`
+  statements above the use site before the state-machine
+  synth runs, so they "just work" — including multiple awaits
+  in one statement, evaluated left-to-right.
 - Awaits inside nested blocks (`if`, `loop`, `match`, lambdas)
   are rejected — they would need explicit live-variable
   analysis across the join points.
