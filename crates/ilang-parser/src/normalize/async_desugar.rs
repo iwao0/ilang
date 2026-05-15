@@ -36,11 +36,11 @@
 //!
 //! Multi-state poll-fn synthesis lands in a follow-up commit.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FnDecl, Item, Param, Program, Span, Stmt,
-    StmtKind, Symbol, Type,
+    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, MatchArm, Param,
+    Program, Span, Stmt, StmtKind, Symbol, Type,
 };
 
 /// One slot in the generated state struct. Slot 0 is the result
@@ -394,18 +394,29 @@ fn wrap_ret_in_promise(ret: Option<Type>) -> Option<Type> {
 
 /// Run the desugar pass over a program. Returns `Err` if any async
 /// fn has an unsupported body shape (await sites we can't lower yet).
+///
+/// An await-containing async fn expands into THREE items: a state
+/// class, a poll fn, and the original-named wrapper that allocates
+/// the state and the result promise. Zero-await async fns stay a
+/// single fn (body wrapped in `Promise.resolve`).
 pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     let mut errors: Vec<AsyncLowerError> = Vec::new();
     let mut items: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in prog.items {
         match item {
             Item::Fn(f) => match lower_async_fn(f) {
-                Ok(f) => items.push(Item::Fn(f)),
+                Ok(AsyncLowerOutput::Single(f)) => items.push(Item::Fn(f)),
+                Ok(AsyncLowerOutput::StateMachine {
+                    wrapper,
+                    state_class,
+                    poll_fn,
+                }) => {
+                    items.push(Item::Class(state_class));
+                    items.push(Item::Fn(poll_fn));
+                    items.push(Item::Fn(wrapper));
+                }
                 Err(e) => {
                     errors.push(e.clone());
-                    // Keep the original (still-async) fn so downstream
-                    // diagnostics don't compound; the error returned
-                    // below halts compilation anyway.
                 }
             },
             Item::Class(c) => items.push(Item::Class(lower_class(c, &mut errors))),
@@ -418,16 +429,52 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     Ok(Program { items, stmts: prog.stmts, tail: prog.tail })
 }
 
+enum AsyncLowerOutput {
+    Single(FnDecl),
+    StateMachine {
+        wrapper: FnDecl,
+        state_class: ClassDecl,
+        poll_fn: FnDecl,
+    },
+}
+
 fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl {
     let methods: Vec<FnDecl> = std::mem::take(&mut c.methods)
         .into_iter()
         .map(|m| match lower_async_fn(m) {
-            Ok(m) => m,
+            Ok(AsyncLowerOutput::Single(f)) => f,
+            Ok(AsyncLowerOutput::StateMachine { wrapper, .. }) => {
+                // Class methods can't yet emit auxiliary top-level
+                // items (the state class + poll fn), so we reject
+                // multi-state lowering inside a class for this
+                // iteration. The wrapper alone wouldn't work
+                // because its body references the poll fn we'd
+                // need to splice in.
+                errors.push(AsyncLowerError {
+                    fn_name: wrapper.name,
+                    span: wrapper.span,
+                    reason: "async methods inside a class can't carry \
+                             await yet (the state class + poll fn \
+                             would need to be lifted out next to the \
+                             class itself); use a free `async fn` for now"
+                        .into(),
+                });
+                FnDecl {
+                    attrs: Box::new([]),
+                    is_pub: false,
+                    name: wrapper.name,
+                    type_params: Box::new([]),
+                    params: Box::new([]),
+                    ret: None,
+                    body: Block { stmts: Vec::new(), tail: None },
+                    span: Span::dummy(),
+                    is_override: false,
+                    is_async: false,
+                }
+            }
             Err(e) => {
                 let placeholder = e.fn_name.clone();
                 errors.push(e);
-                // Return a stub fn so the class type-check still has
-                // a method to look at. The error halts compilation.
                 FnDecl {
                     attrs: Box::new([]),
                     is_pub: false,
@@ -447,9 +494,9 @@ fn lower_class(mut c: ClassDecl, errors: &mut Vec<AsyncLowerError>) -> ClassDecl
     c
 }
 
-fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
+fn lower_async_fn(f: FnDecl) -> Result<AsyncLowerOutput, AsyncLowerError> {
     if !f.is_async {
-        return Ok(f);
+        return Ok(AsyncLowerOutput::Single(f));
     }
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
     let analysis = analyze(&f.params, &inner_ret, &f.body);
@@ -458,7 +505,8 @@ fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
             fn_name: f.name.clone(),
             span: f.span,
             reason: format!(
-                "async fn `{}`: {} (multi-state lowering is the next phase)",
+                "async fn `{}`: {} (state-machine lowering doesn't \
+                 cover this shape yet)",
                 f.name.as_str(),
                 reason
             ),
@@ -468,7 +516,7 @@ fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
     if analysis.suspend_points.is_empty() {
         let new_ret = wrap_ret_in_promise(f.ret);
         let new_body = wrap_body_in_promise_resolve(f.body);
-        return Ok(FnDecl {
+        return Ok(AsyncLowerOutput::Single(FnDecl {
             attrs: f.attrs,
             is_pub: f.is_pub,
             name: f.name,
@@ -479,136 +527,738 @@ fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
             span: f.span,
             is_override: f.is_override,
             is_async: false,
-        });
+        }));
     }
-    // Multi-await isn't supported yet (the `.then` chain would need
-    // `Promise<U>`-flattening which we haven't built).
-    if analysis.suspend_points.len() > 1 {
-        return Err(AsyncLowerError {
-            fn_name: f.name.clone(),
-            span: f.span,
-            reason: format!(
-                "async fn `{}` has {} await sites — multi-await \
-                 desugar (needs a `.then` flattening primitive) is \
-                 the next sub-phase; for now use a single await + \
-                 manual `.then(...)` chain for the rest",
-                f.name.as_str(),
-                analysis.suspend_points.len()
-            ),
-        });
-    }
-    // Single-await: desugar to
-    //   fn foo(args): Promise<T> {
-    //       <awaited_expr>.then(fn(x: BindingTy): T { <rest_of_body> })
-    //   }
-    // The awaited let binding must carry an explicit type
-    // annotation (`let x: T = await p`) — without type-checker
-    // output at this stage, that's how we know the closure's
-    // parameter type.
-    desugar_single_await(f, analysis)
+    // N awaits → state-machine: emit a state class, a poll fn, and
+    // a wrapper fn that takes over the original name. Any number of
+    // straight-line awaits is supported (the analyser already
+    // rejected non-straight-line shapes via the `unsupported`
+    // field).
+    let (wrapper, state_class, poll_fn) = synthesize_state_machine(f, analysis)?;
+    Ok(AsyncLowerOutput::StateMachine { wrapper, state_class, poll_fn })
 }
 
-fn desugar_single_await(
+// --------------------------------------------------------------------
+// State-machine synthesis
+//
+// For
+//     async fn foo(p: Promise<i64>, q: Promise<i64>): i64 {
+//         let x: i64 = await p
+//         let y: i64 = await q
+//         x + y
+//     }
+//
+// we emit:
+//
+//     class __foo_State {
+//         pub state_idx: i64
+//         pub __async_promise: Promise<i64>
+//         pub p: Promise<i64>
+//         pub q: Promise<i64>
+//         pub x: i64
+//         pub y: i64
+//         pub init(p: Promise<i64>, q: Promise<i64>, prom: Promise<i64>) {
+//             this.state_idx = 0
+//             this.__async_promise = prom
+//             this.p = p; this.q = q
+//             this.x = 0; this.y = 0
+//         }
+//     }
+//
+//     fn __foo_poll(__state: __foo_State, __awaited_value: i64) {
+//         if __state.state_idx == 0 {
+//             // chunk 0 stmts (post-rewrite)
+//             __state.state_idx = 1
+//             let _d = __state.p.then(fn(v: i64): i64 {
+//                 __foo_poll(__state, v); 0
+//             })
+//         } else if __state.state_idx == 1 {
+//             __state.x = __awaited_value
+//             // chunk 1 stmts
+//             __state.state_idx = 2
+//             let _d = __state.q.then(fn(v: i64): i64 {
+//                 __foo_poll(__state, v); 0
+//             })
+//         } else {
+//             __state.y = __awaited_value
+//             // chunk 2 stmts + tail rewrite
+//             let __result: i64 = __state.x + __state.y
+//             Promise.__settleResolve(__state.__async_promise, __result)
+//         }
+//     }
+//
+//     fn foo(p: Promise<i64>, q: Promise<i64>): Promise<i64> {
+//         let __async_prom: Promise<i64> = Promise.__pending()
+//         let __async_state = new __foo_State(p, q, __async_prom)
+//         __foo_poll(__async_state, 0)
+//         __async_prom
+//     }
+// --------------------------------------------------------------------
+
+fn mk_var(name: Symbol, span: Span) -> Expr {
+    Expr::new(ExprKind::Var(name), span)
+}
+fn mk_int(n: i64, span: Span) -> Expr {
+    Expr::new(ExprKind::Int(n), span)
+}
+fn mk_field(obj: Expr, name: Symbol, span: Span) -> Expr {
+    Expr::new(ExprKind::Field { obj: Box::new(obj), name }, span)
+}
+fn mk_state_field(state_name: Symbol, field: Symbol, span: Span) -> Expr {
+    mk_field(mk_var(state_name, span), field, span)
+}
+fn mk_assign_field(obj: Expr, field: Symbol, value: Expr, span: Span) -> Expr {
+    Expr::new(
+        ExprKind::AssignField {
+            obj: Box::new(obj),
+            field,
+            value: Box::new(value),
+            is_init: false,
+        },
+        span,
+    )
+}
+fn mk_method_call(obj: Expr, method: Symbol, args: Vec<Expr>, span: Span) -> Expr {
+    Expr::new(
+        ExprKind::MethodCall {
+            obj: Box::new(obj),
+            method,
+            args: args.into_boxed_slice(),
+        },
+        span,
+    )
+}
+fn mk_call(callee: Symbol, args: Vec<Expr>, span: Span) -> Expr {
+    Expr::new(
+        ExprKind::Call { callee, args: args.into_boxed_slice() },
+        span,
+    )
+}
+fn mk_let(name: Symbol, ty: Option<Type>, value: Expr, span: Span) -> Stmt {
+    Stmt::new(
+        StmtKind::Let {
+            is_pub: false,
+            is_const: false,
+            name,
+            ty,
+            value,
+        },
+        span,
+    )
+}
+fn mk_expr_stmt(e: Expr, span: Span) -> Stmt {
+    Stmt::new(StmtKind::Expr(e), span)
+}
+
+/// Provide a literal default value for the type so init can pre-fill
+/// post-await locals. Heap types use `0` (interpreted as a null
+/// pointer); the field gets overwritten before any read at runtime,
+/// so the null is never observed.
+fn default_value_for(ty: &Type, span: Span) -> Expr {
+    match ty {
+        Type::F32 | Type::F64 => {
+            Expr::new(ExprKind::Float(0.0), span)
+        }
+        Type::Bool => Expr::new(ExprKind::Bool(false), span),
+        Type::Str => Expr::new(ExprKind::Str(String::new()), span),
+        _ => mk_int(0, span),
+    }
+}
+
+/// Walk the original body and collect every `let name: T = ...` into
+/// a name→type map. Required so the state class can declare each
+/// in-body local with its proper field type; the analyser only
+/// recorded names.
+fn collect_let_types(b: &Block) -> Result<Vec<(Symbol, Type)>, Symbol> {
+    let mut out: Vec<(Symbol, Type)> = Vec::new();
+    let mut seen: HashSet<Symbol> = HashSet::new();
+    for s in &b.stmts {
+        if let StmtKind::Let { name, ty: Some(t), .. } = &s.kind {
+            if seen.insert(*name) {
+                out.push((*name, t.clone()));
+            }
+        } else if let StmtKind::Let { name, ty: None, .. } = &s.kind {
+            // Missing annotation — the desugar can't decide the
+            // state-class field type without it. Return the offender.
+            return Err(*name);
+        }
+    }
+    Ok(out)
+}
+
+fn synthesize_state_machine(
     f: FnDecl,
     analysis: AsyncAnalysis,
-) -> Result<FnDecl, AsyncLowerError> {
-    // chunks: [chunk_0 (pre-await, terminated with let-await), chunk_1 (rest, terminal)]
-    debug_assert_eq!(analysis.chunks.len(), 2);
-    let chunk0 = &analysis.chunks[0];
-    let chunk1 = &analysis.chunks[1];
-
-    // Find the original `let x: T = await p` statement to recover
-    // x's declared type. The walk we did earlier verified that
-    // chunk0 has `awaited_binding` set, but it lost the type
-    // annotation (we only kept the name). Walk the original body
-    // again to fish it out.
-    let binding_name = chunk0
-        .awaited_binding
-        .expect("chunk 0 must end with an await");
-    let binding_ty = find_let_await_binding_type(&f.body, binding_name).ok_or_else(
-        || AsyncLowerError {
-            fn_name: f.name.clone(),
-            span: f.span,
-            reason: format!(
-                "async fn `{}`: `let {}: T = await ...` needs an explicit \
-                 type annotation (the desugar can't infer T without the \
-                 type checker)",
-                f.name.as_str(),
-                binding_name.as_str()
-            ),
-        },
-    )?;
-
-    let awaited_expr = chunk0
-        .awaited_promise_expr
-        .clone()
-        .expect("chunk 0 has an awaited promise");
+) -> Result<(FnDecl, ClassDecl, FnDecl), AsyncLowerError> {
+    let span = f.span;
     let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
+    let promise_ret = Type::generic("Promise", vec![inner_ret.clone()]);
 
-    // Closure body: chunk1's stmts + tail. We pass it through as-is
-    // — chunk1's locals reference both the bound name `x` (which
-    // becomes the closure parameter) and the outer fn's params
-    // (which become the closure's captures, handled automatically
-    // by ilang's closure system).
-    let closure_body = Block {
-        stmts: chunk1.stmts.clone(),
-        tail: chunk1.final_tail.clone().map(Box::new),
-    };
-    let closure_span = f.body.tail.as_ref().map(|t| t.span).unwrap_or(f.span);
-    let closure_param = Param {
-        name: binding_name,
-        ty: binding_ty.clone(),
-        span: closure_span,
+    let state_class_name =
+        Symbol::intern(&format!("__{}_State", f.name.as_str()));
+    let poll_fn_name = Symbol::intern(&format!("__{}_poll", f.name.as_str()));
+    let state_param = Symbol::intern("__state");
+    let awaited_param = Symbol::intern("__awaited_value");
+
+    // Every in-body let must declare its type so we can lay out the
+    // state class. Surface a precise error otherwise.
+    let body_lets = collect_let_types(&f.body).map_err(|missing| AsyncLowerError {
+        fn_name: f.name.clone(),
+        span: f.span,
+        reason: format!(
+            "async fn `{}`: `let {} = ...` needs an explicit type \
+             annotation so the state-machine desugar can size the \
+             state struct field (the AST-stage desugar runs before \
+             type inference)",
+            f.name.as_str(),
+            missing.as_str()
+        ),
+    })?;
+
+    // ---- State class -------------------------------------------------
+    let mut fields: Vec<FieldDecl> = Vec::new();
+    fields.push(FieldDecl {
+        is_pub: true,
+        name: Symbol::intern("state_idx"),
+        ty: Type::I64,
+        span,
+        bits: None,
+    });
+    fields.push(FieldDecl {
+        is_pub: true,
+        name: Symbol::intern("__async_promise"),
+        ty: promise_ret.clone(),
+        span,
+        bits: None,
+    });
+    for p in f.params.iter() {
+        fields.push(FieldDecl {
+            is_pub: true,
+            name: p.name,
+            ty: p.ty.clone(),
+            span: p.span,
+            bits: None,
+        });
+    }
+    for (n, t) in &body_lets {
+        fields.push(FieldDecl {
+            is_pub: true,
+            name: *n,
+            ty: t.clone(),
+            span,
+            bits: None,
+        });
+    }
+
+    let prom_init_param = Symbol::intern("__init_prom");
+    let mut init_params: Vec<Param> = f.params.iter().cloned().collect();
+    init_params.push(Param {
+        name: prom_init_param,
+        ty: promise_ret.clone(),
+        span,
         default: None,
+    });
+    let this_e = || Expr::new(ExprKind::This, span);
+    let mut init_stmts: Vec<Stmt> = Vec::new();
+    init_stmts.push(mk_expr_stmt(
+        mk_assign_field(this_e(), Symbol::intern("state_idx"), mk_int(0, span), span),
+        span,
+    ));
+    init_stmts.push(mk_expr_stmt(
+        mk_assign_field(
+            this_e(),
+            Symbol::intern("__async_promise"),
+            mk_var(prom_init_param, span),
+            span,
+        ),
+        span,
+    ));
+    for p in f.params.iter() {
+        init_stmts.push(mk_expr_stmt(
+            mk_assign_field(this_e(), p.name, mk_var(p.name, p.span), span),
+            span,
+        ));
+    }
+    for (n, t) in &body_lets {
+        init_stmts.push(mk_expr_stmt(
+            mk_assign_field(this_e(), *n, default_value_for(t, span), span),
+            span,
+        ));
+    }
+    let init_method = FnDecl {
+        attrs: Box::new([]),
+        is_pub: true,
+        name: Symbol::intern("init"),
+        type_params: Box::new([]),
+        params: init_params.into_boxed_slice(),
+        ret: None,
+        body: Block { stmts: init_stmts, tail: None },
+        span,
+        is_override: false,
+        is_async: false,
     };
-    let closure_expr = Expr::new(
-        ExprKind::FnExpr {
-            params: Box::new([closure_param]),
-            ret: Some(inner_ret.clone()),
-            body: closure_body,
-        },
-        closure_span,
+    let state_class = ClassDecl {
+        extern_lib: None,
+        is_repr_c: false,
+        is_packed: false,
+        is_union: false,
+        is_pub: false,
+        name: state_class_name,
+        parent: None,
+        interfaces: Box::new([]),
+        type_params: Box::new([]),
+        fields: fields.into_boxed_slice(),
+        methods: Box::new([init_method]),
+        static_methods: Box::new([]),
+        static_fields: Box::new([]),
+        properties: Box::new([]),
+        span,
+    };
+
+    // ---- Poll fn -----------------------------------------------------
+    // Names of all "body locals" we rewrite to state field accesses
+    // inside chunk bodies.
+    let mut state_locals: HashSet<Symbol> = HashSet::new();
+    for p in f.params.iter() {
+        state_locals.insert(p.name);
+    }
+    for (n, _) in &body_lets {
+        state_locals.insert(*n);
+    }
+
+    let poll_body = build_poll_body(
+        &analysis.chunks,
+        state_param,
+        awaited_param,
+        poll_fn_name,
+        &state_locals,
+        &inner_ret,
+        span,
     );
 
-    // `<awaited_expr>.then(<closure>)`
-    let then_call = Expr::new(
-        ExprKind::MethodCall {
-            obj: Box::new(awaited_expr),
-            method: Symbol::intern("then"),
-            args: Box::new([closure_expr]),
-        },
-        closure_span,
-    );
-
-    let new_body = Block {
-        stmts: chunk0.stmts.clone(),
-        tail: Some(Box::new(then_call)),
+    let poll_fn = FnDecl {
+        attrs: Box::new([]),
+        is_pub: false,
+        name: poll_fn_name,
+        type_params: Box::new([]),
+        params: Box::new([
+            Param {
+                name: state_param,
+                ty: Type::Object(state_class_name),
+                span,
+                default: None,
+            },
+            Param {
+                name: awaited_param,
+                ty: Type::I64,
+                span,
+                default: None,
+            },
+        ]),
+        ret: None,
+        body: poll_body,
+        span,
+        is_override: false,
+        is_async: false,
     };
 
-    Ok(FnDecl {
-        attrs: f.attrs,
+    // ---- Wrapper fn (replaces the original) --------------------------
+    let prom_local = Symbol::intern("__async_prom");
+    let state_local = Symbol::intern("__async_state");
+    let mut wrapper_stmts: Vec<Stmt> = Vec::new();
+    wrapper_stmts.push(mk_let(
+        prom_local,
+        Some(promise_ret.clone()),
+        mk_method_call(
+            mk_var(Symbol::intern("Promise"), span),
+            Symbol::intern("__pending"),
+            vec![],
+            span,
+        ),
+        span,
+    ));
+    let mut new_args: Vec<Expr> =
+        f.params.iter().map(|p| mk_var(p.name, p.span)).collect();
+    new_args.push(mk_var(prom_local, span));
+    wrapper_stmts.push(mk_let(
+        state_local,
+        None,
+        Expr::new(
+            ExprKind::New {
+                class: state_class_name,
+                type_args: Box::new([]),
+                args: new_args.into_boxed_slice(),
+                init_method: None,
+            },
+            span,
+        ),
+        span,
+    ));
+    wrapper_stmts.push(mk_expr_stmt(
+        mk_call(
+            poll_fn_name,
+            vec![mk_var(state_local, span), mk_int(0, span)],
+            span,
+        ),
+        span,
+    ));
+    let wrapper_body = Block {
+        stmts: wrapper_stmts,
+        tail: Some(Box::new(mk_var(prom_local, span))),
+    };
+    let wrapper_fn = FnDecl {
+        attrs: f.attrs.clone(),
         is_pub: f.is_pub,
         name: f.name,
-        type_params: f.type_params,
-        params: f.params,
-        ret: Some(Type::generic("Promise", vec![inner_ret])),
-        body: new_body,
+        type_params: f.type_params.clone(),
+        params: f.params.clone(),
+        ret: Some(promise_ret),
+        body: wrapper_body,
         span: f.span,
         is_override: f.is_override,
         is_async: false,
-    })
+    };
+
+    Ok((wrapper_fn, state_class, poll_fn))
 }
 
-/// Walk a body looking for `let <name>: T = await ...` and return T.
-fn find_let_await_binding_type(body: &Block, name: Symbol) -> Option<Type> {
-    for s in &body.stmts {
-        if let StmtKind::Let { name: n, ty: Some(t), value, .. } = &s.kind {
-            if *n == name && matches!(&value.kind, ExprKind::Await(_)) {
-                return Some(t.clone());
+/// Build the if-elif chain that switches on `state.state_idx`.
+fn build_poll_body(
+    chunks: &[AwaitChunk],
+    state_param: Symbol,
+    awaited_param: Symbol,
+    poll_fn_name: Symbol,
+    state_locals: &HashSet<Symbol>,
+    inner_ret: &Type,
+    span: Span,
+) -> Block {
+    // Each chunk K's branch produces a Block. We then nest them as
+    // `if state.state_idx == 0 { B0 } else if ... { B_{N-1} } else { B_N }`.
+    let n = chunks.len();
+    let mut branch_blocks: Vec<Block> = Vec::with_capacity(n);
+    for (i, chunk) in chunks.iter().enumerate() {
+        let mut stmts: Vec<Stmt> = Vec::new();
+        // After-await binding: state.<binding> = __awaited_value
+        if i > 0 {
+            if let Some(b) = chunks[i - 1].awaited_binding {
+                stmts.push(mk_expr_stmt(
+                    mk_assign_field(
+                        mk_var(state_param, span),
+                        b,
+                        mk_var(awaited_param, span),
+                        span,
+                    ),
+                    span,
+                ));
             }
         }
+        // The chunk's own (rewritten) stmts.
+        for s in &chunk.stmts {
+            let mut s = s.clone();
+            rewrite_stmt_locals(&mut s, state_param, state_locals);
+            stmts.push(s);
+        }
+        if i + 1 < n {
+            // Non-final: advance state_idx, schedule next await.
+            stmts.push(mk_expr_stmt(
+                mk_assign_field(
+                    mk_var(state_param, span),
+                    Symbol::intern("state_idx"),
+                    mk_int((i + 1) as i64, span),
+                    span,
+                ),
+                span,
+            ));
+            let mut awaited =
+                chunk.awaited_promise_expr.clone().expect("non-final chunk has await");
+            rewrite_expr_locals(&mut awaited, state_param, state_locals);
+            // Synthesize the continuation closure:
+            //   fn(__v: i64): i64 { __${poll_fn_name}(__state, __v); 0 }
+            let v_name = Symbol::intern("__v");
+            let closure_body = Block {
+                stmts: vec![mk_expr_stmt(
+                    mk_call(
+                        poll_fn_name,
+                        vec![mk_var(state_param, span), mk_var(v_name, span)],
+                        span,
+                    ),
+                    span,
+                )],
+                tail: Some(Box::new(mk_int(0, span))),
+            };
+            let closure = Expr::new(
+                ExprKind::FnExpr {
+                    params: Box::new([Param {
+                        name: v_name,
+                        ty: Type::I64,
+                        span,
+                        default: None,
+                    }]),
+                    ret: Some(Type::I64),
+                    body: closure_body,
+                },
+                span,
+            );
+            let then_call = mk_method_call(
+                awaited,
+                Symbol::intern("then"),
+                vec![closure],
+                span,
+            );
+            stmts.push(mk_let(
+                Symbol::intern("_"),
+                None,
+                then_call,
+                span,
+            ));
+        } else {
+            // Final chunk: compute the tail and settle the result
+            // Promise. If no tail, settle with unit (we emit `0` for
+            // the i64-shape ABI).
+            let mut tail = chunk
+                .final_tail
+                .clone()
+                .unwrap_or_else(|| mk_int(0, span));
+            rewrite_expr_locals(&mut tail, state_param, state_locals);
+            // Settle with the typed tail value.
+            stmts.push(mk_expr_stmt(
+                mk_method_call(
+                    mk_var(Symbol::intern("Promise"), span),
+                    Symbol::intern("__settleResolve"),
+                    vec![
+                        mk_state_field(
+                            state_param,
+                            Symbol::intern("__async_promise"),
+                            span,
+                        ),
+                        tail,
+                    ],
+                    span,
+                ),
+                span,
+            ));
+            let _ = inner_ret; // currently unused but kept for future kind logic
+        }
+        branch_blocks.push(Block { stmts, tail: None });
     }
-    None
+    // Nest the branches as if-elif-else.
+    let mut else_branch: Option<Expr> = Some(Expr::new(
+        ExprKind::Block(branch_blocks.pop().expect("at least one chunk")),
+        span,
+    ));
+    for (idx, blk) in branch_blocks.into_iter().enumerate().rev() {
+        let cond = Expr::new(
+            ExprKind::Binary {
+                op: ilang_ast::BinOp::Eq,
+                lhs: Box::new(mk_state_field(
+                    state_param,
+                    Symbol::intern("state_idx"),
+                    span,
+                )),
+                rhs: Box::new(mk_int(idx as i64, span)),
+            },
+            span,
+        );
+        let if_e = Expr::new(
+            ExprKind::If {
+                cond: Box::new(cond),
+                then_branch: blk,
+                else_branch: else_branch.map(Box::new),
+            },
+            span,
+        );
+        else_branch = Some(if_e);
+    }
+    Block {
+        stmts: vec![mk_expr_stmt(else_branch.unwrap(), span)],
+        tail: None,
+    }
+}
+
+/// Rewrite `Var(name)` and `Assign(name, ..)` inside `e` to access
+/// `state.name` when `name` is in `locals`. Recurses into every
+/// child expression / block. The `Awaitable` form is left alone —
+/// it never appears inside a chunk's stmts (awaits are extracted
+/// to chunk boundaries).
+fn rewrite_expr_locals(e: &mut Expr, state: Symbol, locals: &HashSet<Symbol>) {
+    let span = e.span;
+    match &mut e.kind {
+        ExprKind::Var(n) if locals.contains(n) => {
+            let name = *n;
+            e.kind = ExprKind::Field {
+                obj: Box::new(mk_var(state, span)),
+                name,
+            };
+        }
+        ExprKind::Var(_) => {}
+        ExprKind::Assign { target, value } if locals.contains(target) => {
+            rewrite_expr_locals(value, state, locals);
+            let val = std::mem::replace(
+                value,
+                Box::new(Expr::new(ExprKind::None, span)),
+            );
+            let field = *target;
+            e.kind = ExprKind::AssignField {
+                obj: Box::new(mk_var(state, span)),
+                field,
+                value: val,
+                is_init: false,
+            };
+        }
+        ExprKind::Assign { value, .. } => rewrite_expr_locals(value, state, locals),
+        ExprKind::AssignField { obj, value, .. }
+        | ExprKind::AssignIndex { obj, value, .. } => {
+            rewrite_expr_locals(obj, state, locals);
+            rewrite_expr_locals(value, state, locals);
+        }
+        ExprKind::Block(b) => rewrite_block_locals(b, state, locals),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            rewrite_expr_locals(cond, state, locals);
+            rewrite_block_locals(then_branch, state, locals);
+            if let Some(eb) = else_branch {
+                rewrite_expr_locals(eb, state, locals);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            rewrite_expr_locals(expr, state, locals);
+            rewrite_block_locals(then_branch, state, locals);
+            if let Some(eb) = else_branch {
+                rewrite_expr_locals(eb, state, locals);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            rewrite_expr_locals(cond, state, locals);
+            rewrite_block_locals(body, state, locals);
+        }
+        ExprKind::Loop { body } => rewrite_block_locals(body, state, locals),
+        ExprKind::ForIn { iter, body, .. } => {
+            rewrite_expr_locals(iter, state, locals);
+            rewrite_block_locals(body, state, locals);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            rewrite_expr_locals(scrutinee, state, locals);
+            for arm in arms.iter_mut() {
+                rewrite_expr_locals(&mut arm.body, state, locals);
+            }
+            let _ = MatchArm { pattern: arms[0].pattern.clone(), body: arms[0].body.clone(), span: arms[0].span };
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => {
+            for a in args.iter_mut() {
+                rewrite_expr_locals(a, state, locals);
+            }
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            rewrite_expr_locals(obj, state, locals);
+            for a in args.iter_mut() {
+                rewrite_expr_locals(a, state, locals);
+            }
+        }
+        ExprKind::Field { obj, .. } => rewrite_expr_locals(obj, state, locals),
+        ExprKind::Index { obj, index } => {
+            rewrite_expr_locals(obj, state, locals);
+            rewrite_expr_locals(index, state, locals);
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            rewrite_expr_locals(lhs, state, locals);
+            rewrite_expr_locals(rhs, state, locals);
+        }
+        ExprKind::Unary { expr, .. }
+        | ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => {
+            rewrite_expr_locals(expr, state, locals);
+        }
+        ExprKind::Some(inner) | ExprKind::Await(inner) => {
+            rewrite_expr_locals(inner, state, locals);
+        }
+        ExprKind::Return(opt) | ExprKind::Break(opt) => {
+            if let Some(e) = opt {
+                rewrite_expr_locals(e, state, locals);
+            }
+        }
+        ExprKind::FnExpr { body, .. } => {
+            // Closure bodies *do* need rewriting: the continuation
+            // closures the poll fn emits reference `state` directly
+            // (already a free var the rewriter shouldn't touch since
+            // `state` isn't in `locals`), but a user-written closure
+            // inside a chunk would capture body locals — those need
+            // to flow through state field accesses too.
+            rewrite_block_locals(body, state, locals);
+        }
+        ExprKind::Tuple(es) | ExprKind::Array(es) => {
+            for e in es.iter_mut() {
+                rewrite_expr_locals(e, state, locals);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries.iter_mut() {
+                rewrite_expr_locals(k, state, locals);
+                rewrite_expr_locals(v, state, locals);
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(e) = start {
+                rewrite_expr_locals(e, state, locals);
+            }
+            if let Some(e) = end {
+                rewrite_expr_locals(e, state, locals);
+            }
+        }
+        ExprKind::EnumCtor { args, .. } => match args {
+            ilang_ast::CtorArgs::Unit => {}
+            ilang_ast::CtorArgs::Tuple(es) => {
+                for e in es.iter_mut() {
+                    rewrite_expr_locals(e, state, locals);
+                }
+            }
+            ilang_ast::CtorArgs::Struct(fs) => {
+                for (_, e) in fs.iter_mut() {
+                    rewrite_expr_locals(e, state, locals);
+                }
+            }
+        },
+        _ => {}
+    }
+}
+
+fn rewrite_block_locals(b: &mut Block, state: Symbol, locals: &HashSet<Symbol>) {
+    for s in b.stmts.iter_mut() {
+        rewrite_stmt_locals(s, state, locals);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        rewrite_expr_locals(t, state, locals);
+    }
+}
+
+fn rewrite_stmt_locals(s: &mut Stmt, state: Symbol, locals: &HashSet<Symbol>) {
+    match &mut s.kind {
+        StmtKind::Let { name, value, .. } => {
+            // A *fresh* `let` inside a chunk introduces a new
+            // local — and since `state_locals` is computed from
+            // the original (pre-desugar) body, the freshly-
+            // introduced name is already in the set if it was a
+            // top-level body let. The rewriter then converts the
+            // `let x = ...` introduction to `state.x = ...`.
+            rewrite_expr_locals(value, state, locals);
+            if locals.contains(name) {
+                let n = *name;
+                let v = value.clone();
+                let span = s.span;
+                s.kind = StmtKind::Expr(mk_assign_field(
+                    mk_var(state, span),
+                    n,
+                    v,
+                    span,
+                ));
+            }
+        }
+        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+            rewrite_expr_locals(value, state, locals);
+        }
+        StmtKind::Expr(e) => rewrite_expr_locals(e, state, locals),
+    }
 }
 
 #[derive(Debug, Clone)]

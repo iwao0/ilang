@@ -1699,7 +1699,40 @@ first.then(fn(v: string) { ... })    // 最初に settle した方
 - `Promise.reject(msg)` は `Promise<()>` を返す (call site の expected type を遡る型推論を持たないため)。型付き rejection が必要なら executor を使う
 - `.catch` の handler は upstream と同じ `T` を返す必要がある (`Promise<T | U>` のような union 化はしない)
 
-**`async` / `await`:** parser レベルでキーワードを予約済み、type checker は `await` の形を検証するが、`async fn` の本体を `Promise<T>` を返す poll 関数に変換する state-machine lowering は **未実装**。当面は `.then` / `.catch` のチェーンで書く。
+### `async` / `await`
+
+`async fn foo(args): T { ... }` は呼び出し側に `Promise<T>` を返す。本体内で `await expr` を書くと、対象の `Promise<U>` が settle するまで関数を suspend し、`U` を取り出す。
+
+```rust
+async fn doubleAsync(p: Promise<i64>): i64 {
+    let x: i64 = await p
+    x * 2
+}
+
+doubleAsync(Promise.resolve(21)).then(fn(n: i64) {
+    console.log(n.toString())        // → 42
+})
+
+async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
+    let x: i64 = await a
+    let y: i64 = await b
+    let z: i64 = await c
+    x + y + z
+}
+```
+
+**Lowering:** `async fn` は AST 段階で 3 項目に展開される:
+- `__foo_State` クラス — `state_idx`、結果の `Promise<T>`、全パラメータ、全 in-body `let` をフィールドに持つ
+- `__foo_poll(__state, __awaited_value)` 関数 — `state_idx` で分岐して await 間のチャンクを実行し、await した promise が resolve したら poll に戻る continuation closure を登録
+- 元の名前のままの wrapper — state と結果 promise を確保し、最初の poll を kick し、promise を返す
+
+await 1 つにつき heap 割当の continuation closure 1 個 + 状態クラスのフィールドが live local 分。state クラスは heap 上にあり ARC はアトミックなので、work-stealing pool が worker 間で持ち回しても安全。
+
+**現状の制約:**
+- await の binding は型注釈必須 (`let x: T = await p`)。desugar は AST 段階で動くので型推論結果がまだ無い
+- nested block (`if`, `loop`, `match`, lambda) 内の await は reject — join 点を跨ぐ live-variable 解析が必要
+- `class` 内の `async` メソッドは未対応 — state クラス + poll fn をクラス外に hoist する仕組みが要る
+- `throw` キーワードが無いので、`async fn` 本体から reject するには引き続き `Promise.reject(...)` / executor を使う
 
 ### `const` (定数宣言)
 

@@ -2267,11 +2267,61 @@ first.then(fn(v: string) { ... })    // whichever settles first
 - `.catch` handler must return the same `T` as the upstream
   (no `Promise<T | U>` widening).
 
-**`async` / `await`:** the keywords are **reserved** at the
-parser level and validated by the type checker, but the
-state-machine lowering that would turn an `async fn` body
-into a `Promise<T>`-returning poll fn is not yet
-implemented. Use `.then` / `.catch` chains for now.
+### `async` / `await`
+
+An `async fn foo(args): T { ... }` exposes `Promise<T>` to
+its callers; inside the body, `await expr` suspends until the
+awaited `Promise<U>` settles and evaluates to its inner `U`.
+
+```rust
+async fn doubleAsync(p: Promise<i64>): i64 {
+    let x: i64 = await p
+    x * 2
+}
+
+doubleAsync(Promise.resolve(21)).then(fn(n: i64) {
+    console.log(n.toString())        // → 42
+})
+
+async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
+    let x: i64 = await a
+    let y: i64 = await b
+    let z: i64 = await c
+    x + y + z
+}
+```
+
+**Lowering:** each `async fn` becomes three top-level items
+generated at AST-rewrite time:
+- a `__foo_State` class holding `state_idx`, the result
+  `Promise<T>`, every parameter, and every in-body `let`
+  binding as fields;
+- a `__foo_poll(__state, __awaited_value)` fn that switches
+  on `state_idx`, runs the chunk between two awaits, and
+  registers a continuation closure that re-enters poll when
+  the awaited promise resolves;
+- a wrapper that keeps the original name, allocates the
+  state + the result promise, kicks the first poll, and
+  returns the promise.
+
+Each await costs one heap-allocated continuation closure plus
+one state-class field per live local; the state class lives on
+the heap and is atomically refcounted, so the work-stealing
+pool can pass it between workers safely.
+
+**Current restrictions:**
+- The awaited binding must declare its type: `let x: T = await p`.
+  The desugar runs at the AST stage, before type inference, so
+  it can't yet recover `T` from `p`'s expression.
+- Awaits inside nested blocks (`if`, `loop`, `match`, lambdas)
+  are rejected — they would need explicit live-variable
+  analysis across the join points.
+- `async` methods inside a `class` aren't allowed yet: the
+  state class + poll fn would need to be hoisted next to the
+  containing class.
+- There's no `throw` keyword, so rejecting from an `async fn`
+  body still uses the explicit `Promise.reject(...)` /
+  executor form.
 
 ### `const` (constant declaration)
 

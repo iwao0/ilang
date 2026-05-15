@@ -285,6 +285,17 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::FloatResize, src: v });
             return Ok(dst);
         }
+        // `Promise<A>` ↔ `Promise<B>` is structurally compatible at
+        // the runtime level (every promise is an i64 pointer to a
+        // `ManagedPromise`; the inner type only affects how the
+        // value is interpreted at `.then` / settle time, which is
+        // driven by an explicit kind tag, not by the static type).
+        // Needed for `Promise.__pending()` (returns `Promise<()>` at
+        // the MIR layer) feeding into typed bindings the async
+        // state-machine desugar emits.
+        if matches!(from, MirTy::Promise(_)) && matches!(to, MirTy::Promise(_)) {
+            return Ok(v);
+        }
         Err(LowerError::Other(format!("no coercion from {from} to {to}")))
     }
 
