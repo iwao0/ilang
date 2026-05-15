@@ -609,6 +609,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             index: Box::new(rewrite_expr(*index, ctx)),
         },
         ExprKind::Some(inner) => ExprKind::Some(Box::new(rewrite_expr(*inner, ctx))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(rewrite_expr(*inner, ctx))),
         ExprKind::EnumCtor {
             enum_name,
             variant,

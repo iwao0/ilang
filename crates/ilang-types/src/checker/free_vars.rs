@@ -71,6 +71,7 @@ pub(super) fn cfev_expr(
             if let Some(x) = opt { cfev_expr(x, bound, frees, seen); }
         }
         ExprKind::Some(inner) => cfev_expr(inner, bound, frees, seen),
+        ExprKind::Await(inner) => cfev_expr(inner, bound, frees, seen),
         ExprKind::Unary { expr, .. } => cfev_expr(expr, bound, frees, seen),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             cfev_expr(lhs, bound, frees, seen);

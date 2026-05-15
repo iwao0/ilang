@@ -60,6 +60,11 @@ pub struct FnDecl {
     /// an ancestor class (signature must match). Always `false` for
     /// top-level fns and non-override methods.
     pub is_override: bool,
+    /// `async fn foo(...): T { ... }` — the body's value of type `T`
+    /// is wrapped in a `Promise<T>` automatically, and inside the
+    /// body `await expr` is allowed (suspends the fn until the
+    /// awaited promise settles, evaluating to its inner value).
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

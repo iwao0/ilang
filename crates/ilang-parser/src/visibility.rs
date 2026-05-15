@@ -417,6 +417,7 @@ fn check_expr(e: &Expr, self_module: Option<&str>, catalog: &PubCatalog) -> Resu
         }
         ExprKind::Unary { expr, .. }
         | ExprKind::Some(expr)
+        | ExprKind::Await(expr)
         | ExprKind::Return(Some(expr))
         | ExprKind::Break(Some(expr)) => check_expr(expr, self_module, catalog)?,
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {

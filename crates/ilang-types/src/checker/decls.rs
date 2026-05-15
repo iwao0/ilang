@@ -402,6 +402,23 @@ impl TypeChecker {
     }
 
     pub(super) fn check_fn(&self, f: &FnDecl, in_class: Option<Symbol>) -> Result<(), TypeError> {
+        // `async fn` is parsed and reserved at the AST level, but
+        // the state-machine transform that lowers an async fn body
+        // to a `Promise<T>`-returning poll fn isn't implemented yet.
+        // Reject explicitly so users hit a clear error instead of
+        // a downstream MIR / runtime crash.
+        if f.is_async {
+            return Err(TypeError::Unsupported {
+                what: format!(
+                    "`async fn {}` lowering is not yet implemented; \
+                     use `fn {}(...): Promise<T> {{ Promise.resolve(...).then(...) }}` \
+                     and `.then(...)` chains in the meantime",
+                    f.name.as_str(),
+                    f.name.as_str()
+                ),
+                span: f.span,
+            });
+        }
         // Closure wrappers lifted out of a class method body get
         // their lexical class restored here so that `super.method(...)`
         // inside the wrapper still resolves against the original

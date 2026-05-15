@@ -330,6 +330,7 @@ fn collect_matches_in_expr<'a>(
             collect_matches_in_expr(v, text, out);
         }
         ExprKind::Some(v) => collect_matches_in_expr(v, text, out),
+        ExprKind::Await(v) => collect_matches_in_expr(v, text, out),
         ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
             collect_matches_in_expr(expr, text, out);
             collect_matches_in_block(then_branch, text, out);

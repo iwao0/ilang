@@ -698,6 +698,19 @@ impl<'a> Parser<'a> {
                 self.expect(&TokenKind::RParen, "')'")?;
                 Ok(Expr::new(ExprKind::Some(Box::new(inner)), span))
             }
+            // `await expr` — prefix operator. Binds tighter than the
+            // top-level binops; takes the next unary expression so
+            // `await p + 1` parses as `(await p) + 1`. The desugar
+            // pass turns it into a `.then` continuation.
+            TokenKind::Await => {
+                self.bump();
+                // Parse at the same precedence as `!` so chaining
+                // `await await p` works and method-call postfix
+                // (`.then(...)`) on the awaited value still binds.
+                let inner = self.parse_expr(30)?;
+                let full = span.to(inner.span);
+                Ok(Expr::new(ExprKind::Await(Box::new(inner)), full))
+            }
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
             TokenKind::For => self.parse_for(),

@@ -1070,6 +1070,7 @@ impl<'a> BodyCx<'a> {
             | ExprKind::Array(_)
             | ExprKind::Tuple(_)
             | ExprKind::Some(_)
+            | ExprKind::Await(_)
             | ExprKind::None
             | ExprKind::EnumCtor { .. }
             | ExprKind::FnExpr { .. } => true,

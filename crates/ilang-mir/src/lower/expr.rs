@@ -605,6 +605,11 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::Const { dst: v, value: MirConst::None });
                 Ok((v, ty))
             }
+            ExprKind::Await(_) => {
+                return Err(LowerError::Other(
+                    "`await` outside an `async fn` body — desugar pass should have eliminated it".into(),
+                ));
+            }
             ExprKind::Some(inner) => {
                 let value_is_fresh = self.is_fresh_object_expr(inner);
                 let (iv, ity) = self.lower_expr(inner)?;

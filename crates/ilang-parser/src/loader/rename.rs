@@ -331,6 +331,7 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
             rename_in_expr(value, rules);
         }
         ExprKind::Some(inner) => rename_in_expr(inner, rules),
+        ExprKind::Await(inner) => rename_in_expr(inner, rules),
         ExprKind::Match { scrutinee, arms } => {
             rename_in_expr(scrutinee, rules);
             for arm in arms.iter_mut() {

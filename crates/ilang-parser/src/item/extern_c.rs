@@ -204,6 +204,7 @@ impl<'a> Parser<'a> {
                 body,
                 span,
                 is_override: false,
+            is_async: false,
             };
             Ok(ilang_ast::ExternCItem::FnDef(fn_decl))
         } else {

@@ -118,6 +118,7 @@ fn validate_expr(e: &Expr, modules: &HashMap<Symbol, Symbol>) -> Result<(), Pars
         }
         ExprKind::Unary { expr, .. }
         | ExprKind::Some(expr)
+        | ExprKind::Await(expr)
         | ExprKind::Return(Some(expr))
         | ExprKind::Break(Some(expr)) => validate_expr(expr, modules)?,
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {

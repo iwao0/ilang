@@ -919,6 +919,7 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
             }
         }
         ExprKind::Some(e) => qualify_var_refs_in_expr(e, prefix, consts),
+        ExprKind::Await(e) => qualify_var_refs_in_expr(e, prefix, consts),
         ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
             qualify_var_refs_in_expr(expr, prefix, consts);
             qualify_var_refs_in_block(then_branch, prefix, consts);
@@ -1270,6 +1271,7 @@ fn unprefix_type_params_in_expr(
             }
         }
         ExprKind::Some(inner) => unprefix_type_params_in_expr(inner, prefix, type_params),
+        ExprKind::Await(inner) => unprefix_type_params_in_expr(inner, prefix, type_params),
         ExprKind::Array(items) | ExprKind::Tuple(items) => {
             for item in items.iter_mut() {
                 unprefix_type_params_in_expr(item, prefix, type_params);
@@ -1689,6 +1691,7 @@ fn prefix_expr(e: Expr, prefix: &str) -> Expr {
             index: Box::new(prefix_expr(*index, prefix)),
         },
         ExprKind::Some(inner) => ExprKind::Some(Box::new(prefix_expr(*inner, prefix))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(prefix_expr(*inner, prefix))),
         ExprKind::Match { scrutinee, arms } => ExprKind::Match {
             scrutinee: Box::new(prefix_expr(*scrutinee, prefix)),
             arms: arms

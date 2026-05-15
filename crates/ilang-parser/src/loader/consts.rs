@@ -692,6 +692,7 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
             index: Box::new(subst_const_expr(*index, ctx)),
         },
         ExprKind::Some(inner) => ExprKind::Some(Box::new(subst_const_expr(*inner, ctx))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(subst_const_expr(*inner, ctx))),
         ExprKind::EnumCtor {
             enum_name,
             variant,

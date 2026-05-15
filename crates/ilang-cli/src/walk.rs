@@ -96,7 +96,8 @@ fn walk_fnexpr_bodies(
         | E::TypeTest { expr, .. }
         | E::TypeDowncast { expr, .. }
         | E::Some(expr)
-        | E::Field { obj: expr, .. } => walk_fnexpr_bodies(expr, top_lets, out),
+        | E::Await(expr)
+        | E::Field { obj: expr, .. } =>walk_fnexpr_bodies(expr, top_lets, out),
         E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
             walk_fnexpr_bodies(lhs, top_lets, out);
             walk_fnexpr_bodies(rhs, top_lets, out);
@@ -287,7 +288,8 @@ fn walk_expr(
         | E::TypeTest { expr, .. }
         | E::TypeDowncast { expr, .. }
         | E::Some(expr)
-        | E::Field { obj: expr, .. } => walk_expr(expr, top_lets, locals, out),
+        | E::Await(expr)
+        | E::Field { obj: expr, .. } =>walk_expr(expr, top_lets, locals, out),
         E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
             walk_expr(lhs, top_lets, locals, out);
             walk_expr(rhs, top_lets, locals, out);

@@ -102,10 +102,20 @@ impl<'a> Parser<'a> {
                 }));
             }
         }
+        // `async fn ...` — strip the `async` token, set `is_async`
+        // on the parsed FnDecl. The desugar pass picks this up and
+        // wraps the body in a `Promise<T>` chain.
+        let is_async = if matches!(self.peek().kind, TokenKind::Async) {
+            self.bump();
+            true
+        } else {
+            false
+        };
         match self.peek().kind {
             TokenKind::Fn => {
                 let mut fn_decl = self.parse_fn_decl(attrs)?;
                 fn_decl.is_pub = is_pub;
+                fn_decl.is_async = is_async;
                 Ok(Item::Fn(fn_decl))
             }
             TokenKind::Class => {
@@ -889,6 +899,7 @@ impl<'a> Parser<'a> {
             body,
             span,
             is_override: false,
+            is_async: false,
         })
     }
 
@@ -989,6 +1000,7 @@ impl<'a> Parser<'a> {
             body,
             span,
             is_override: false,
+            is_async: false,
         })
     }
 }

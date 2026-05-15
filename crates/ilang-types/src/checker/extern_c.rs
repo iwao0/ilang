@@ -96,6 +96,7 @@ impl TypeChecker {
                         body: ilang_ast::Block { stmts: Vec::new(), tail: None },
                         span: *span,
                         is_override: false,
+            is_async: false,
                     };
                     let sig = signature_of(&synth);
                     self.fns.entry(name.clone()).or_default().push(sig);

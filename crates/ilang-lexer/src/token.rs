@@ -36,6 +36,8 @@ pub enum TokenKind {
     Override,
     Super,
     Pub,
+    Async,
+    Await,
     FatArrow,
     // punctuation
     Plus,

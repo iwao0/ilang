@@ -103,7 +103,7 @@ fn body_writes_to(body: &Block, name: &Symbol) -> bool {
             Cast { expr, .. } => in_expr(expr, name),
             TypeTest { expr, .. } => in_expr(expr, name),
             TypeDowncast { expr, .. } => in_expr(expr, name),
-            Some(inner) => in_expr(inner, name),
+            Some(inner) | Await(inner) => in_expr(inner, name),
             New { args, .. } => args.iter().any(|a| in_expr(a, name)),
             Return(v) => v.as_deref().is_some_and(|e| in_expr(e, name)),
             Break(v) => v.as_deref().is_some_and(|e| in_expr(e, name)),
@@ -222,6 +222,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
             body: hoist_in_block(&f.body, ctx),
             span: f.span,
         is_override: f.is_override,
+            is_async: false,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
@@ -248,6 +249,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     body: hoist_in_block(&m.body, ctx),
                     span: m.span,
                 is_override: m.is_override,
+            is_async: false,
                 })
                 .collect(),
             static_methods: c
@@ -264,6 +266,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     body: hoist_in_block(&m.body, ctx),
                     span: m.span,
                 is_override: m.is_override,
+            is_async: false,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -285,6 +288,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                         body: hoist_in_block(&g.body, ctx),
                         span: g.span,
                     is_override: g.is_override,
+            is_async: false,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         is_pub: false,
@@ -297,6 +301,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                         body: hoist_in_block(&s.body, ctx),
                         span: s.span,
                     is_override: s.is_override,
+            is_async: false,
                     }),
                     span: p.span,
                 })
@@ -430,6 +435,7 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
                 body,
                 span: e.span,
                 is_override: false,
+            is_async: false,
             }));
             ctx.closure_meta.insert(
                 name.clone(),
@@ -447,6 +453,9 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
         // Recurse through anything that might contain expressions.
         ExprKind::Some(inner) => {
             ExprKind::Some(Box::new(hoist_in_expr(inner, ctx)))
+        }
+        ExprKind::Await(inner) => {
+            ExprKind::Await(Box::new(hoist_in_expr(inner, ctx)))
         }
         ExprKind::Unary { op, expr } => ExprKind::Unary {
             op: *op,

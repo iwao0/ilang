@@ -734,6 +734,8 @@ impl<'a> Lexer<'a> {
             "override" => TokenKind::Override,
             "super" => TokenKind::Super,
             "pub" => TokenKind::Pub,
+            "async" => TokenKind::Async,
+            "await" => TokenKind::Await,
             _ => TokenKind::Ident(buf),
         }
     }

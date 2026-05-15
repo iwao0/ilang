@@ -104,6 +104,7 @@ pub(super) fn collect_cellified_names_expr(
         | E::TypeTest { expr, .. }
         | E::TypeDowncast { expr, .. }
         | E::Some(expr)
+        | E::Await(expr)
         | E::Field { obj: expr, .. } => collect_cellified_names_expr(expr, out),
         E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
             collect_cellified_names_expr(lhs, out);
@@ -211,7 +212,8 @@ pub(super) fn collect_mut_assigned_expr(expr: &Expr, out: &mut std::collections:
         }
         E::Int(_) | E::Float(_) | E::Bool(_) | E::Str(_) | E::Var(_) | E::This | E::None | E::Continue => {}
         E::Unary { expr, .. } | E::Cast { expr, .. } | E::TypeTest { expr, .. }
-        | E::TypeDowncast { expr, .. } | E::Some(expr) | E::Field { obj: expr, .. } => {
+        | E::TypeDowncast { expr, .. } | E::Some(expr) | E::Await(expr)
+        | E::Field { obj: expr, .. } => {
             collect_mut_assigned_expr(expr, out)
         }
         E::Binary { lhs, rhs, .. } | E::Logical { lhs, rhs, .. } => {
@@ -505,7 +507,7 @@ pub(super) fn collect_free_vars_expr(
             collect_free_vars_expr(index, bound, frees);
             collect_free_vars_expr(value, bound, frees);
         }
-        E::Some(e) => collect_free_vars_expr(e, bound, frees),
+        E::Some(e) | E::Await(e) => collect_free_vars_expr(e, bound, frees),
         E::IfLet { name, expr, then_branch, else_branch } => {
             collect_free_vars_expr(expr, bound, frees);
             let saved = bound.clone();

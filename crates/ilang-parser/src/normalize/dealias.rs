@@ -89,6 +89,7 @@ fn dealias_expr(e: &mut Expr, modules: &HashMap<Symbol, Symbol>) {
         }
         ExprKind::Unary { expr, .. }
         | ExprKind::Some(expr)
+        | ExprKind::Await(expr)
         | ExprKind::Return(Some(expr))
         | ExprKind::Break(Some(expr)) => dealias_expr(expr, modules),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {

@@ -25,7 +25,7 @@ pub(super) fn walk_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
                 f(x);
             }
         }
-        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
+        ExprKind::Some(x) | ExprKind::Await(x) | ExprKind::Unary { expr: x, .. } => f(x),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             f(lhs);
             f(rhs);
@@ -184,6 +184,7 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
         ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(f(e)))),
         ExprKind::Continue => ExprKind::Continue,
         ExprKind::Some(x) => ExprKind::Some(Box::new(f(x))),
+        ExprKind::Await(x) => ExprKind::Await(Box::new(f(x))),
         ExprKind::Unary { op, expr } => ExprKind::Unary {
             op: *op,
             expr: Box::new(f(expr)),

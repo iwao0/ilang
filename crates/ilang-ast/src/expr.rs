@@ -138,6 +138,12 @@ pub enum ExprKind {
     Break(Option<Box<Expr>>),
     /// Skip to the next iteration of the innermost enclosing loop.
     Continue,
+    /// `await expr` — only legal inside an `async fn`. The
+    /// inner must be `Promise<T>`; the await expression
+    /// evaluates to `T` once the promise settles. Currently
+    /// desugared to `.then(fn(v) { rest_of_body })`; a real
+    /// state-machine transform is the eventual replacement.
+    Await(Box<Expr>),
     /// `return` (with or without a value) — early exit from the
     /// enclosing function/method. Type checker rejects occurrences
     /// outside any function body.

@@ -179,6 +179,7 @@ pub(super) fn scan_expr(e: &Expr, needed: &mut HashSet<Symbol>, work: &mut Vec<I
             }
         }
         ExprKind::Some(inner) => scan_expr(inner, needed, work),
+        ExprKind::Await(inner) => scan_expr(inner, needed, work),
         ExprKind::Unary { expr, .. } => scan_expr(expr, needed, work),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             scan_expr(lhs, needed, work);
@@ -473,6 +474,7 @@ pub(super) fn specialize_fn(f: &FnDecl, params: &[Symbol], args: &[Type]) -> FnD
         attrs: f.attrs.clone(),
         span: f.span,
         is_override: f.is_override,
+            is_async: false,
     }
 }
 
@@ -520,6 +522,7 @@ pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
         ExprKind::This => ExprKind::This,
         ExprKind::None => ExprKind::None,
         ExprKind::Some(inner) => ExprKind::Some(Box::new(subst_expr(inner, params, args))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(subst_expr(inner, params, args))),
         ExprKind::Break(opt) => ExprKind::Break(opt.as_ref().map(|e| Box::new(subst_expr(e, params, args)))),
         ExprKind::Continue => ExprKind::Continue,
         ExprKind::Unary { op, expr } => ExprKind::Unary {
@@ -833,6 +836,7 @@ pub(super) fn rewrite_fn(f: &FnDecl) -> FnDecl {
         attrs: f.attrs.clone(),
         span: f.span,
         is_override: f.is_override,
+            is_async: false,
     }
 }
 
@@ -1036,6 +1040,7 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
             index: Box::new(rewrite_expr(index)),
         },
         ExprKind::Some(inner) => ExprKind::Some(Box::new(rewrite_expr(inner))),
+        ExprKind::Await(inner) => ExprKind::Await(Box::new(rewrite_expr(inner))),
         ExprKind::EnumCtor {
             enum_name,
             variant,

@@ -202,6 +202,7 @@ fn walk_expr_children_for_match(
         | ExprKind::None
         | ExprKind::Continue => {}
         ExprKind::Some(x) => visit!(x),
+        ExprKind::Await(x) => visit!(x),
         ExprKind::Unary { expr, .. } => visit!(expr),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             visit!(lhs);

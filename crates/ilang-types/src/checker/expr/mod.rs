@@ -532,6 +532,36 @@ impl TypeChecker {
                 let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 Ok(Type::Optional(Box::new(it)))
             }
+            ExprKind::Await(inner) => {
+                let it = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
+                // `await expr` requires `Promise<T>` and evaluates to T.
+                let inner_ty = match it {
+                    Type::Generic(g)
+                        if g.base.as_str() == "Promise" && g.args.len() == 1 =>
+                    {
+                        g.args[0].clone()
+                    }
+                    other => {
+                        return Err(TypeError::Mismatch {
+                            expected: Type::generic("Promise", vec![Type::Any]),
+                            got: other,
+                            span,
+                        });
+                    }
+                };
+                // The MIR lowering / desugar pass that turns `await`
+                // into a state-machine isn't implemented yet — reject
+                // here with an actionable error so users don't run
+                // into the cryptic MIR-level "outside async fn" message.
+                Err(TypeError::Unsupported {
+                    what: format!(
+                        "`await` lowering is not yet implemented (would yield {:?}); \
+                         use `.then(fn(v) {{ ... }})` chains for now",
+                        inner_ty
+                    ),
+                    span,
+                })
+            }
             ExprKind::IfLet {
                 name,
                 expr,

@@ -533,6 +533,7 @@ pub(super) fn rewrite_enum_refs_in_item(
             ),
             span: f.span,
         is_override: f.is_override,
+            is_async: false,
         }),
         Item::Class(c) => Item::Class(ClassDecl {
             is_pub: false,
@@ -579,6 +580,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                     ),
                     span: m.span,
                 is_override: m.is_override,
+            is_async: false,
                 })
                 .collect(),
             static_methods: c
@@ -602,6 +604,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                     ),
                     span: m.span,
                 is_override: m.is_override,
+            is_async: false,
                 })
                 .collect(),
             static_fields: c.static_fields.clone(),
@@ -628,6 +631,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                         body: rewrite_enum_refs_in_block(&g.body, generic_enums, table, outer_params, outer_args),
                         span: g.span,
                     is_override: g.is_override,
+            is_async: false,
                     }),
                     setter: p.setter.as_ref().map(|s| FnDecl {
                         is_pub: false,
@@ -645,6 +649,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                         body: rewrite_enum_refs_in_block(&s.body, generic_enums, table, outer_params, outer_args),
                         span: s.span,
                     is_override: s.is_override,
+            is_async: false,
                     }),
                     span: p.span,
                 })
@@ -766,6 +771,7 @@ fn rewrite_enum_refs_in_extern_c_item(
             ),
             span: f.span,
             is_override: f.is_override,
+            is_async: false,
         }),
         ExternCItem::Class(c) => {
             // Reuse the regular class path — wrapping classes

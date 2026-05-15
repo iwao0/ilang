@@ -59,7 +59,7 @@ pub(super) fn expr_uses_this_directly(e: &Expr) -> bool {
         // span; we additionally need outer FnExprs to see through
         // their nested closures.
         ExprKind::FnExpr { body, .. } => block_uses_this_directly(body),
-        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => {
+        ExprKind::Some(x) | ExprKind::Await(x) | ExprKind::Unary { expr: x, .. } => {
             expr_uses_this_directly(x)
         }
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
@@ -144,7 +144,7 @@ pub(super) fn expr_uses_this_directly(e: &Expr) -> bool {
 /// expressions as belonging to the surrounding function.
 pub(super) fn walk_children(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     match &e.kind {
-        ExprKind::Some(x) | ExprKind::Unary { expr: x, .. } => f(x),
+        ExprKind::Some(x) | ExprKind::Await(x) | ExprKind::Unary { expr: x, .. } => f(x),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             f(lhs);
             f(rhs);
