@@ -1,11 +1,5 @@
-// `Promise<UserEnum>` (non-generic) — payload variants flow back
+// `Promise<UserEnum>` (non-generic) — variant data flows back
 // through await and match on the resolved value.
-//
-// Note: `Promise<Result<T, E>>` / `Promise<Box<T>>` (built-in or
-// user-defined generic enum payload) is currently rejected by MIR
-// monomorphize as "unsupported in M1: user-defined generic types".
-// That's a pre-existing M1 gap unrelated to the v2 state-machine
-// rewrite; this fixture sticks to a non-generic user enum.
 //
 // expect: R
 // expect: G

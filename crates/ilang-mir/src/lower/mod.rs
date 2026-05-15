@@ -84,7 +84,16 @@ pub fn lower_program_with_slots(
     // reserves the name and the loader doesn't include a stdlib file
     // for it. Pre-register so user `Result.ok(...)` / match on Result
     // resolve.
-    lower.register_builtin_result();
+    // `Result<T, E>` is no longer pre-registered as a built-in
+    // enum. It is monomorphized per call site like any other
+    // generic enum (the `monomorphize_enums` pass synthesizes an
+    // `Item::Enum` named e.g. `Result<i64, string>`, which the
+    // ordinary `register_enum` path picks up below). The previous
+    // built-in registration kept all Result payload cells as i64
+    // and ended up coexisting with the synthesized per-args enum
+    // under two distinct `MirTy::Enum` ids — leaking out as
+    // "no coercion from enum#1 to enum#0" or, in patterns,
+    // `err(e: string)` resolving to `e: i64`.
 
     // 1a. Pre-pass: register every class NAME (regular + @extern(C))
     //     before resolving anything. Lets fields reference classes
@@ -426,58 +435,6 @@ pub(super) struct FnSig {
 }
 
 impl Lower {
-    fn register_builtin_result(&mut self) {
-        // Built-in `Result<T, E>`. Treated as non-generic at MIR level
-        // (T and E both flow as i64 cells); the codegen reads payload
-        // bytes uniformly.
-        let id = crate::types::EnumId(self.enums.len() as u32);
-        let name = Symbol::intern("Result");
-        self.enum_ids.insert(name, id);
-        let mut meta = EnumMeta::default();
-        let ok_id = crate::inst::VariantId(0);
-        let err_id = crate::inst::VariantId(1);
-        meta.variants.insert(
-            Symbol::intern("ok"),
-            EnumVariantMeta {
-                id: ok_id,
-                payload: VariantPayloadMeta::Tuple(vec![MirTy::I64]),
-            },
-        );
-        meta.variants.insert(
-            Symbol::intern("err"),
-            EnumVariantMeta {
-                id: err_id,
-                payload: VariantPayloadMeta::Tuple(vec![MirTy::I64]),
-            },
-        );
-        self.enums.push(crate::program::EnumLayout {
-            id,
-            name,
-            repr: MirTy::I64,
-            variants: vec![
-                crate::program::VariantDecl {
-                    id: ok_id,
-                    name: Symbol::intern("ok"),
-                    discriminant: 0,
-                    discriminant_str: None,
-                    payload: crate::program::VariantPayload::Tuple(
-                        vec![MirTy::I64].into_boxed_slice(),
-                    ),
-                },
-                crate::program::VariantDecl {
-                    id: err_id,
-                    name: Symbol::intern("err"),
-                    discriminant: 1,
-                    discriminant_str: None,
-                    payload: crate::program::VariantPayload::Tuple(
-                        vec![MirTy::I64].into_boxed_slice(),
-                    ),
-                },
-            ],
-            is_flags: false,
-        });
-        self.enum_meta.insert(id, meta);
-    }
 
     fn new() -> Self {
         Self {

@@ -1,10 +1,7 @@
-// `Promise<Box<T>>` (ユーザ定義 generic enum を Promise の payload に
-// 入れる) — 以前は MIR の monomorphize_enums が FnExpr クロージャの
-// 引数型を rewrite し損ねていたため `unsupported in M1: user-defined
-// generic types` で失敗していた。本 fixture は修正後の動作確認。
-//
-// Promise<Result<T, E>> は別の pre-existing 問題 (built-in Result と
-// synthesized Result<...> の MirTy::Enum id 重複) があり、ここでは対象外。
+// `Promise<Box<T>>` — a user-defined generic enum inside Promise.
+// Previously failed with "unsupported in M1: user-defined generic
+// types" because monomorphize_enums skipped FnExpr closure param
+// types when rewriting `Type::Generic` → mangled `Type::Object`.
 //
 // expect: hold: hi
 // expect: empty

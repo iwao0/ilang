@@ -231,9 +231,11 @@ fn enum_unit_match() {
         name(Color.green)
     "#;
     let dump = lower(src);
-    // The built-in `Result` enum claims id 0; user enums start at 1.
+    // User enums are registered starting from id 0 (Result is no
+    // longer pre-registered as a built-in id 0; it's monomorphized
+    // per call site like any other generic enum).
     assert!(dump.contains("Color (repr"), "expected Color enum dump:\n{dump}");
-    assert!(dump.contains("new_enum enum#1"));
+    assert!(dump.contains("new_enum enum#0"));
     assert!(dump.contains("enum_tag"));
     assert!(dump.contains("switch"));
 }
@@ -254,7 +256,7 @@ fn enum_payload_match() {
         area(Shape.circle(5.0))
     "#;
     let dump = lower(src);
-    assert!(dump.contains("new_enum enum#1.0"), "expected circle ctor:\n{dump}");
+    assert!(dump.contains("new_enum enum#0.0"), "expected circle ctor:\n{dump}");
     assert!(dump.contains("enum_payload"));
 }
 
