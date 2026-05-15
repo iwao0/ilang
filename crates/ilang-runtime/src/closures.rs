@@ -43,16 +43,9 @@ pub extern "C" fn __release_closure(closure_ptr: i64) {
         return;
     }
     let rc_ptr = (closure_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
     let fn_addr = unsafe { *(closure_ptr as *const i64) };
     let entries = {
@@ -80,11 +73,5 @@ pub extern "C" fn __retain_closure(closure_ptr: i64) {
         return;
     }
     let rc_ptr = (closure_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }

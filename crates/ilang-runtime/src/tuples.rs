@@ -14,16 +14,9 @@ pub extern "C" fn __release_tuple(tup_ptr: i64) {
     }
     let base = tup_ptr - 16;
     let rc_ptr = base as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
     let packed = unsafe { *((base + 8) as *const i64) } as u64;
     let arity = (packed & 0xFFFF) as i64;
@@ -43,11 +36,5 @@ pub extern "C" fn __retain_tuple(tup_ptr: i64) {
         return;
     }
     let rc_ptr = (tup_ptr - 16) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }

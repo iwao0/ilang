@@ -14,16 +14,9 @@ pub extern "C" fn __release_optional(opt_ptr: i64) {
         return;
     }
     let rc_ptr = (opt_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
     let tag = unsafe { *((opt_ptr + 16) as *const i64) };
     let inner = unsafe { *(opt_ptr as *const i64) };
@@ -37,11 +30,5 @@ pub extern "C" fn __retain_optional(opt_ptr: i64) {
         return;
     }
     let rc_ptr = (opt_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }

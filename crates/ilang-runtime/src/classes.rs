@@ -123,13 +123,7 @@ pub extern "C" fn __retain_object(obj_ptr: i64) {
         return;
     }
     let rc_ptr = (obj_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
 #[unsafe(no_mangle)]
@@ -138,16 +132,9 @@ pub extern "C" fn __release_object(obj_ptr: i64) {
         return;
     }
     let rc_ptr = (obj_ptr + 8) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
     let class_id = unsafe { *(obj_ptr as *const i64) };
     let user_drop = __drop_dispatch(class_id);

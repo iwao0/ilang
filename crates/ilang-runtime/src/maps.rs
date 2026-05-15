@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicI64, Ordering, fence};
 
 use crate::alloc::__mir_alloc;
 use crate::arrays::build_i64_array;
@@ -20,7 +21,7 @@ enum MapKey {
 }
 
 pub(crate) struct ManagedMap {
-    rc: i64,
+    rc: AtomicI64,
     val_kind: i64,
     pub(crate) key_print_kind: i64,
     pub(crate) val_print_kind: i64,
@@ -53,7 +54,7 @@ fn map_key_to_raw(k: &MapKey) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn __map_new() -> i64 {
     let m = Box::new(ManagedMap {
-        rc: 1,
+        rc: AtomicI64::new(1),
         val_kind: 0,
         key_print_kind: PK_OTHER,
         val_print_kind: PK_OTHER,
@@ -267,11 +268,17 @@ pub extern "C" fn __retain_map(map: i64) {
     if map == 0 {
         return;
     }
-    let m = unsafe { &mut *(map as *mut ManagedMap) };
-    if m.rc <= 0 {
-        return;
+    let m = unsafe { &*(map as *const ManagedMap) };
+    let mut cur = m.rc.load(Ordering::Relaxed);
+    loop {
+        if cur <= 0 {
+            return;
+        }
+        match m.rc.compare_exchange_weak(cur, cur + 1, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(actual) => cur = actual,
+        }
     }
-    m.rc += 1;
 }
 
 #[unsafe(no_mangle)]
@@ -279,14 +286,30 @@ pub extern "C" fn __release_map(map: i64) {
     if map == 0 {
         return;
     }
+    // Decrement atomically; only the thread that takes the count
+    // to 0 may run the destructor (and is then the sole owner of
+    // the Box).
+    let m_ref = unsafe { &*(map as *const ManagedMap) };
+    let mut cur = m_ref.rc.load(Ordering::Relaxed);
+    loop {
+        if cur <= 0 {
+            return;
+        }
+        match m_ref.rc.compare_exchange_weak(
+            cur,
+            cur - 1,
+            Ordering::Release,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => cur = actual,
+        }
+    }
+    if cur != 1 {
+        return;
+    }
+    fence(Ordering::Acquire);
     let m_mut = unsafe { &mut *(map as *mut ManagedMap) };
-    if m_mut.rc <= 0 {
-        return;
-    }
-    m_mut.rc -= 1;
-    if m_mut.rc != 0 {
-        return;
-    }
     let val_kind = m_mut.val_kind;
     if val_kind != KIND_NONE {
         let values: Vec<i64> = m_mut.inner.values().copied().collect();

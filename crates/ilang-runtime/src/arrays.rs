@@ -158,13 +158,7 @@ pub extern "C" fn __retain_array(arr_ptr: i64) {
         return;
     }
     let rc_ptr = (arr_ptr + 24) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    unsafe {
-        *rc_ptr = rc + 1;
-    }
+    unsafe { crate::refcount::atomic_retain(rc_ptr) };
 }
 
 /// Release an array (`--rc`); free header + data buffer at rc 0.
@@ -175,16 +169,9 @@ pub extern "C" fn __release_array(arr_ptr: i64) {
         return;
     }
     let rc_ptr = (arr_ptr + 24) as *mut i64;
-    let rc = unsafe { *rc_ptr };
-    if rc <= 0 {
-        return;
-    }
-    let new_rc = rc - 1;
-    unsafe {
-        *rc_ptr = new_rc;
-    }
-    if new_rc != 0 {
-        return;
+    match unsafe { crate::refcount::atomic_release(rc_ptr) } {
+        Some(0) => {}
+        _ => return,
     }
     let tag = unsafe { *((arr_ptr + 32) as *const i64) };
     let len = unsafe { *(arr_ptr as *const i64) };
