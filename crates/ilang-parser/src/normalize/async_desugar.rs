@@ -39,318 +39,12 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Item, MatchArm, Param,
+    Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, Param,
     Program, Span, Stmt, StmtKind, Symbol, Type,
 };
 
-/// One slot in the generated state struct. Slot 0 is the result
-/// Promise pointer; slots 1.. mirror the live locals (params first,
-/// then `let`-bindings in source order).
-#[derive(Debug, Clone)]
-pub struct StateSlot {
-    /// Identifier the source body uses for this binding.
-    pub name: Symbol,
-    /// Declared (or inferred) type — used to size the cascade kind
-    /// the runtime will release on poll completion.
-    pub ty: Type,
-    /// Byte offset within the state struct (0-based; the rc /
-    /// state_idx header sits at offsets 0 and 8).
-    pub offset: u32,
-    /// Whether this slot was a function parameter (always live at
-    /// every state) vs. an in-body `let` (live only after its
-    /// introduction).
-    pub from_param: bool,
-}
+use super::state_machine_v2;
 
-/// One straight-line chunk of the async body, separated from the
-/// previous chunk by an `await` suspend point. Chunk 0 runs from
-/// the start of the body to the first await; chunk N runs from
-/// the last await's continuation to the end.
-#[derive(Debug, Clone)]
-pub struct AwaitChunk {
-    /// Statements in source order belonging to this chunk. The
-    /// `let x = await p` that *terminates* the chunk is NOT part
-    /// of it — instead, the chunk's `awaited_promise_expr` and
-    /// `awaited_binding` capture that suspend point.
-    pub stmts: Vec<Stmt>,
-    /// `Some` if this chunk ends with `let name = await p` — the
-    /// poll fn schedules `p`, then resumes the next chunk with
-    /// `name` bound to p's resolved value. `None` for the final
-    /// chunk (no trailing await; the body's tail expression
-    /// becomes the result).
-    pub awaited_promise_expr: Option<Expr>,
-    pub awaited_binding: Option<Symbol>,
-    /// `Some` only on the final chunk: the body's tail expression
-    /// after every await has been processed. The poll fn settles
-    /// the result Promise with this value.
-    pub final_tail: Option<Expr>,
-}
-
-/// Result of analysing one async fn's body.
-#[derive(Debug)]
-pub struct AsyncAnalysis {
-    /// Spans of every `await` expression we found.
-    pub suspend_points: Vec<Span>,
-    /// `Some(reason)` if the body shape isn't supported by the
-    /// current lowering. `None` means we'll lower it.
-    pub unsupported: Option<String>,
-    /// State struct layout (poll fn reads / writes locals via
-    /// these slot offsets). Empty for unsupported bodies.
-    pub state_slots: Vec<StateSlot>,
-    /// Body broken into per-state chunks. `chunks.len()` equals
-    /// `suspend_points.len() + 1`. Empty for unsupported bodies.
-    pub chunks: Vec<AwaitChunk>,
-    /// Total bytes the state struct should be allocated at.
-    /// `16 + 8 * state_slots.len()` (header + one i64 per slot).
-    pub state_size: u32,
-}
-
-/// Walk an async fn body and collect its analysis. The `params`
-/// argument supplies the parameter list (always live at every
-/// suspend point); `ret` is the declared inner return type
-/// (post-`async fn` unwrapping — i.e. `T` for `async fn foo(): T`).
-pub fn analyze(params: &[Param], ret: &Type, body: &Block) -> AsyncAnalysis {
-    let mut a = AsyncAnalysis {
-        suspend_points: Vec::new(),
-        unsupported: None,
-        state_slots: Vec::new(),
-        chunks: Vec::new(),
-        state_size: 0,
-    };
-    walk_block(body, &mut a, /*top_level=*/ true);
-    if a.unsupported.is_none() && !a.suspend_points.is_empty() {
-        compute_slots_and_chunks(params, ret, body, &mut a);
-    }
-    a
-}
-
-/// Build the StateSlot table + AwaitChunk sequence for an async fn
-/// body whose top-level statements are at most:
-///   - sync `let / let-tuple / let-struct / Expr` statements
-///   - `let name = await p` statements (the only suspend points
-///     allowed by `walk_*`)
-/// followed by an optional tail expression that doesn't itself
-/// contain `await` (caught upstream by `walk_expr`'s "await in
-/// sub-expression" check).
-fn compute_slots_and_chunks(
-    params: &[Param],
-    _ret: &Type,
-    body: &Block,
-    a: &mut AsyncAnalysis,
-) {
-    // Header: rc @ 0, state_idx @ 8. Slot 0 = result Promise @ 16.
-    let mut slots: Vec<StateSlot> = Vec::new();
-    let mut next_off: u32 = 16; // state_idx is at +8, slot 0 starts here
-    let promise_slot = StateSlot {
-        name: Symbol::intern("__async_promise"),
-        ty: Type::Object("Promise".into()),
-        offset: next_off,
-        from_param: false,
-    };
-    slots.push(promise_slot);
-    next_off += 8;
-    // Params first.
-    for p in params {
-        slots.push(StateSlot {
-            name: p.name,
-            ty: p.ty.clone(),
-            offset: next_off,
-            from_param: true,
-        });
-        next_off += 8;
-    }
-    // Then in-body let bindings, in source order. We don't compute
-    // tight liveness — over-approximate by giving every let a slot.
-    // The poll fn writes the slot at let-binding time and reads it
-    // back when needed. Wasteful for short-lived locals but
-    // correctness-preserving.
-    let body_lets = collect_let_bindings(body);
-    for (name, ty) in body_lets {
-        slots.push(StateSlot {
-            name,
-            ty,
-            offset: next_off,
-            from_param: false,
-        });
-        next_off += 8;
-    }
-    a.state_size = next_off;
-    a.state_slots = slots;
-
-    // Build the chunks: split body.stmts on each `let _ = await p`.
-    let mut chunks: Vec<AwaitChunk> = Vec::new();
-    let mut cur: Vec<Stmt> = Vec::new();
-    for s in &body.stmts {
-        if let StmtKind::Let { name, value, .. } = &s.kind {
-            if let ExprKind::Await(p) = &value.kind {
-                chunks.push(AwaitChunk {
-                    stmts: std::mem::take(&mut cur),
-                    awaited_promise_expr: Some((**p).clone()),
-                    awaited_binding: Some(*name),
-                    final_tail: None,
-                });
-                continue;
-            }
-        }
-        cur.push(s.clone());
-    }
-    // Final chunk: remaining stmts + the body's tail.
-    chunks.push(AwaitChunk {
-        stmts: cur,
-        awaited_promise_expr: None,
-        awaited_binding: None,
-        final_tail: body.tail.as_deref().cloned(),
-    });
-    a.chunks = chunks;
-}
-
-fn collect_let_bindings(b: &Block) -> Vec<(Symbol, Type)> {
-    let mut out: Vec<(Symbol, Type)> = Vec::new();
-    let mut seen: HashSet<Symbol> = HashSet::new();
-    for s in &b.stmts {
-        if let StmtKind::Let { name, ty, value, .. } = &s.kind {
-            if seen.insert(*name) {
-                // Take the declared type when present; otherwise
-                // record `Type::Unit` as a placeholder. The poll-fn
-                // synth pass will infer from the value expression
-                // when it walks the chunks.
-                let _ = value;
-                out.push((*name, ty.clone().unwrap_or(Type::Unit)));
-            }
-        }
-    }
-    out
-}
-
-fn walk_block(b: &Block, a: &mut AsyncAnalysis, top_level: bool) {
-    for s in &b.stmts {
-        walk_stmt(s, a, top_level);
-    }
-    if let Some(t) = &b.tail {
-        walk_expr(t, a);
-    }
-}
-
-fn walk_stmt(s: &Stmt, a: &mut AsyncAnalysis, top_level: bool) {
-    match &s.kind {
-        StmtKind::Let { value, .. } => {
-            // `let x = await p` is the supported await-in-stmt shape.
-            // `let x = bar(await p)` (await inside a sub-expression)
-            // gets flagged as unsupported below.
-            if matches!(&value.kind, ExprKind::Await(_)) {
-                a.suspend_points.push(value.span);
-                if !top_level {
-                    a.unsupported.get_or_insert_with(|| {
-                        "await inside a nested block (if / loop / match) \
-                         is not yet supported"
-                            .into()
-                    });
-                }
-                return;
-            }
-            walk_expr(value, a);
-        }
-        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
-            walk_expr(value, a);
-        }
-        StmtKind::Expr(e) => walk_expr(e, a),
-    }
-}
-
-fn walk_expr(e: &Expr, a: &mut AsyncAnalysis) {
-    match &e.kind {
-        ExprKind::Await(_) => {
-            a.suspend_points.push(e.span);
-            a.unsupported.get_or_insert_with(|| {
-                "await inside a sub-expression is not yet supported \
-                 (the lifting pre-pass should have handled this; \
-                 awaits in `&&` / `||` short-circuit rhs and inside \
-                 nested closures aren't lifted)"
-                    .into()
-            });
-        }
-        ExprKind::Block(b) => walk_block(b, a, false),
-        ExprKind::If { cond, then_branch, else_branch } => {
-            walk_expr(cond, a);
-            walk_block(then_branch, a, false);
-            if let Some(eb) = else_branch {
-                walk_expr(eb, a);
-            }
-        }
-        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
-            walk_expr(expr, a);
-            walk_block(then_branch, a, false);
-            if let Some(eb) = else_branch {
-                walk_expr(eb, a);
-            }
-        }
-        ExprKind::While { cond, body } => {
-            walk_expr(cond, a);
-            walk_block(body, a, false);
-        }
-        ExprKind::Loop { body } => walk_block(body, a, false),
-        ExprKind::ForIn { iter, body, .. } => {
-            walk_expr(iter, a);
-            walk_block(body, a, false);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            walk_expr(scrutinee, a);
-            for arm in arms.iter() {
-                walk_expr(&arm.body, a);
-            }
-        }
-        ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. }
-        | ExprKind::New { args, .. } => {
-            for arg in args.iter() {
-                walk_expr(arg, a);
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            walk_expr(obj, a);
-            for arg in args.iter() {
-                walk_expr(arg, a);
-            }
-        }
-        ExprKind::Field { obj, .. } => walk_expr(obj, a),
-        ExprKind::Index { obj, index } => {
-            walk_expr(obj, a);
-            walk_expr(index, a);
-        }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            walk_expr(lhs, a);
-            walk_expr(rhs, a);
-        }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::Cast { expr, .. }
-        | ExprKind::TypeTest { expr, .. }
-        | ExprKind::TypeDowncast { expr, .. } => walk_expr(expr, a),
-        ExprKind::Some(inner) => walk_expr(inner, a),
-        ExprKind::Return(opt) | ExprKind::Break(opt) => {
-            if let Some(e) = opt {
-                walk_expr(e, a);
-            }
-        }
-        ExprKind::Assign { value, .. } => walk_expr(value, a),
-        ExprKind::AssignField { obj, value, .. } => {
-            walk_expr(obj, a);
-            walk_expr(value, a);
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            walk_expr(obj, a);
-            walk_expr(index, a);
-            walk_expr(value, a);
-        }
-        ExprKind::FnExpr { body, .. } => {
-            // Closure bodies have their own scope — `await` inside
-            // a nested closure isn't a suspend point of the outer
-            // async fn (and would require the closure itself to be
-            // async, which we don't support).
-            let _ = body;
-        }
-        _ => {}
-    }
-}
 
 /// Wrap an expression in `Promise.resolve(expr)`.
 fn wrap_in_promise_resolve(expr: Expr) -> Expr {
@@ -409,6 +103,7 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     // pre-wrapped to `Promise<T>` since callers see the wrapped
     // signature.
     let mut fn_returns: HashMap<Symbol, Type> = HashMap::new();
+    let mut enums: HashMap<Symbol, EnumDecl> = HashMap::new();
     for item in &prog.items {
         if let Item::Fn(f) = item {
             let ret = f.ret.clone().unwrap_or(Type::Unit);
@@ -419,18 +114,25 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
             };
             fn_returns.insert(f.name, ret);
         }
+        if let Item::Enum(e) = item {
+            enums.insert(e.name, e.clone());
+        }
     }
     let mut errors: Vec<AsyncLowerError> = Vec::new();
     let mut items: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in prog.items {
         match item {
-            Item::Fn(f) => match lower_async_fn(f, &fn_returns, None) {
+            Item::Fn(f) => match lower_async_fn(f, &fn_returns, None, &enums) {
                 Ok(AsyncLowerOutput::Single(f)) => items.push(Item::Fn(f)),
                 Ok(AsyncLowerOutput::StateMachine {
                     wrapper,
                     state_class,
                     poll_fn,
+                    state_enum,
                 }) => {
+                    if let Some(e) = state_enum {
+                        items.push(Item::Enum(e));
+                    }
                     items.push(Item::Class(state_class));
                     items.push(Item::Fn(poll_fn));
                     items.push(Item::Fn(wrapper));
@@ -440,7 +142,7 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
                 }
             },
             Item::Class(c) => {
-                let lowered = lower_class(c, &mut items, &mut errors, &fn_returns);
+                let lowered = lower_class(c, &mut items, &mut errors, &fn_returns, &enums);
                 items.push(Item::Class(lowered));
             }
             other => items.push(other),
@@ -458,6 +160,10 @@ enum AsyncLowerOutput {
         wrapper: FnDecl,
         state_class: ClassDecl,
         poll_fn: FnDecl,
+        /// Enum produced by the v2 (enum-variant) lowering. `None`
+        /// means the legacy class-based path was used (state lives in
+        /// `state_class` directly with all fields side-by-side).
+        state_enum: Option<EnumDecl>,
     },
 }
 
@@ -466,20 +172,25 @@ fn lower_class(
     items: &mut Vec<Item>,
     errors: &mut Vec<AsyncLowerError>,
     fn_returns: &HashMap<Symbol, Type>,
+    enums: &HashMap<Symbol, EnumDecl>,
 ) -> ClassDecl {
     let class_name = c.name;
     let methods: Vec<FnDecl> = std::mem::take(&mut c.methods)
         .into_iter()
-        .map(|m| match lower_async_fn(m, fn_returns, Some(class_name)) {
+        .map(|m| match lower_async_fn(m, fn_returns, Some(class_name), enums) {
             Ok(AsyncLowerOutput::Single(f)) => f,
             Ok(AsyncLowerOutput::StateMachine {
                 wrapper,
                 state_class,
                 poll_fn,
+                state_enum,
             }) => {
                 // Lift the auxiliary items out next to the
                 // containing class. The wrapper stays as the
                 // class method (now non-async, returns a Promise).
+                if let Some(e) = state_enum {
+                    items.push(Item::Enum(e));
+                }
                 items.push(Item::Class(state_class));
                 items.push(Item::Fn(poll_fn));
                 wrapper
@@ -510,41 +221,28 @@ fn lower_async_fn(
     mut f: FnDecl,
     fn_returns: &HashMap<Symbol, Type>,
     enclosing_class: Option<Symbol>,
+    enums: &HashMap<Symbol, EnumDecl>,
 ) -> Result<AsyncLowerOutput, AsyncLowerError> {
     if !f.is_async {
         return Ok(AsyncLowerOutput::Single(f));
     }
     // Pre-pass: lift every `await E` that appears inside a sub-
     // expression into its own `let __await_tN = await E` statement
-    // above the use site. The analyser + synthesiser only handle
+    // above the use site. The state-machine builder only handles
     // the canonical "await as direct let RHS" form; this pass
-    // makes `foo(await p, await q)` and `bar(await p) + 1` flow
-    // through to the same lowering.
+    // normalizes shapes like `foo(await p, await q)` and
+    // `bar(await p) + 1` into that form.
+    // Pre-passes (run before lift_subexpr_awaits so that any awaits
+    // introduced by the rewrites flow through the canonicaliser):
+    //   1. `while await cond { ... }` → `while true { let cv = await cond; if !cv { break } ... }`
+    f.body = state_machine_v2::desugar_while_cond_await(f.body);
     f.body = lift_subexpr_awaits(f.body);
-    let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
-    let analysis = analyze(&f.params, &inner_ret, &f.body);
-    // The chunks-based analyser marks awaits inside `if` / `while`
-    // / `match` as unsupported. For body-tail `if-else` we have the
-    // BlockBuilder path that handles them properly, so skip the
-    // unsupported check in that case (the BlockBuilder validates
-    // sub-shapes as it walks).
-    let block_builder_handles = body_has_control_flow_with_await(&f.body);
-    if let Some(reason) = analysis.unsupported.clone() {
-        if !block_builder_handles {
-            return Err(AsyncLowerError {
-                fn_name: f.name.clone(),
-                span: f.span,
-                reason: format!(
-                    "async fn `{}`: {} (state-machine lowering doesn't \
-                     cover this shape yet)",
-                    f.name.as_str(),
-                    reason
-                ),
-            });
-        }
-    }
-    // Zero-await: trivial wrap.
-    if analysis.suspend_points.is_empty() && !block_builder_handles {
+    //   2. `for v in s..e { ...await... }` → equivalent while loop.
+    //      (Runs AFTER lift since for-in's iter rarely needs lifting.)
+    f.body = state_machine_v2::desugar_for_in_with_await(f.body);
+
+    // Zero-await: trivial wrap into Promise.resolve(<body>).
+    if !body_contains_await(&f.body) {
         let new_ret = wrap_ret_in_promise(f.ret);
         let new_body = wrap_body_in_promise_resolve(f.body);
         return Ok(AsyncLowerOutput::Single(FnDecl {
@@ -560,157 +258,133 @@ fn lower_async_fn(
             is_async: false,
         }));
     }
-    // N awaits → state-machine: emit a state class, a poll fn, and
-    // a wrapper fn that takes over the original name. Any number of
-    // straight-line awaits is supported (the analyser already
-    // rejected non-straight-line shapes via the `unsupported`
-    // field).
-    let (wrapper, state_class, poll_fn) =
-        synthesize_state_machine(f, analysis, fn_returns, enclosing_class)?;
-    Ok(AsyncLowerOutput::StateMachine { wrapper, state_class, poll_fn })
-}
 
-// --------------------------------------------------------------------
-// State-machine synthesis
-//
-// For
-//     async fn foo(p: Promise<i64>, q: Promise<i64>): i64 {
-//         let x: i64 = await p
-//         let y: i64 = await q
-//         x + y
-//     }
-//
-// we emit:
-//
-//     class __foo_State {
-//         pub state_idx: i64
-//         pub __async_promise: Promise<i64>
-//         pub p: Promise<i64>
-//         pub q: Promise<i64>
-//         pub x: i64
-//         pub y: i64
-//         pub init(p: Promise<i64>, q: Promise<i64>, prom: Promise<i64>) {
-//             this.state_idx = 0
-//             this.__async_promise = prom
-//             this.p = p; this.q = q
-//             this.x = 0; this.y = 0
-//         }
-//     }
-//
-//     fn __foo_poll(__state: __foo_State, __awaited_value: i64) {
-//         if __state.state_idx == 0 {
-//             // chunk 0 stmts (post-rewrite)
-//             __state.state_idx = 1
-//             let _d = __state.p.then(fn(v: i64): i64 {
-//                 __foo_poll(__state, v); 0
-//             })
-//         } else if __state.state_idx == 1 {
-//             __state.x = __awaited_value
-//             // chunk 1 stmts
-//             __state.state_idx = 2
-//             let _d = __state.q.then(fn(v: i64): i64 {
-//                 __foo_poll(__state, v); 0
-//             })
-//         } else {
-//             __state.y = __awaited_value
-//             // chunk 2 stmts + tail rewrite
-//             let __result: i64 = __state.x + __state.y
-//             Promise.__settleResolve(__state.__async_promise, __result)
-//         }
-//     }
-//
-//     fn foo(p: Promise<i64>, q: Promise<i64>): Promise<i64> {
-//         let __async_prom: Promise<i64> = Promise.__pending()
-//         let __async_state = new __foo_State(p, q, __async_prom)
-//         __foo_poll(__async_state, 0)
-//         __async_prom
-//     }
-// --------------------------------------------------------------------
-
-fn mk_var(name: Symbol, span: Span) -> Expr {
-    Expr::new(ExprKind::Var(name), span)
-}
-fn mk_int(n: i64, span: Span) -> Expr {
-    Expr::new(ExprKind::Int(n), span)
-}
-fn mk_field(obj: Expr, name: Symbol, span: Span) -> Expr {
-    Expr::new(ExprKind::Field { obj: Box::new(obj), name }, span)
-}
-fn mk_state_field(state_name: Symbol, field: Symbol, span: Span) -> Expr {
-    mk_field(mk_var(state_name, span), field, span)
-}
-fn mk_assign_field(obj: Expr, field: Symbol, value: Expr, span: Span) -> Expr {
-    Expr::new(
-        ExprKind::AssignField {
-            obj: Box::new(obj),
-            field,
-            value: Box::new(value),
-            is_init: false,
-        },
-        span,
-    )
-}
-fn mk_method_call(obj: Expr, method: Symbol, args: Vec<Expr>, span: Span) -> Expr {
-    Expr::new(
-        ExprKind::MethodCall {
-            obj: Box::new(obj),
-            method,
-            args: args.into_boxed_slice(),
-        },
-        span,
-    )
-}
-fn mk_call(callee: Symbol, args: Vec<Expr>, span: Span) -> Expr {
-    Expr::new(
-        ExprKind::Call { callee, args: args.into_boxed_slice() },
-        span,
-    )
-}
-fn mk_let(name: Symbol, ty: Option<Type>, value: Expr, span: Span) -> Stmt {
-    Stmt::new(
-        StmtKind::Let {
-            is_pub: false,
-            is_const: false,
-            name,
-            ty,
-            value,
-        },
-        span,
-    )
-}
-fn mk_expr_stmt(e: Expr, span: Span) -> Stmt {
-    Stmt::new(StmtKind::Expr(e), span)
-}
-
-/// Provide a literal default value for the type so init can pre-fill
-/// post-await locals. Heap types use `0` (interpreted as a null
-/// pointer); the field gets overwritten before any read at runtime,
-/// so the null is never observed.
-fn default_value_for(ty: &Type, span: Span) -> Option<Expr> {
-    match ty {
-        Type::F32 | Type::F64 => {
-            Some(Expr::new(ExprKind::Float(0.0), span))
+    // ≥1 await: lower to enum-variant state machine via v2.
+    let body_lets = collect_let_types(&f.params, &f.body, fn_returns).map_err(|missing| {
+        AsyncLowerError {
+            fn_name: f.name,
+            span: f.span,
+            reason: format!(
+                "async fn `{}`: `let {} = ...` — the desugar couldn't \
+                 infer this binding's type from the RHS shape. Add an \
+                 explicit `let {}: T = ...` annotation (the AST-stage \
+                 desugar covers a small subset of RHS shapes; full type \
+                 inference runs after the desugar).",
+                f.name.as_str(),
+                missing.as_str(),
+                missing.as_str(),
+            ),
         }
-        Type::Bool => Some(Expr::new(ExprKind::Bool(false), span)),
-        Type::Str => Some(Expr::new(ExprKind::Str(String::new()), span)),
-        Type::I8 | Type::I16 | Type::I32 | Type::I64
-        | Type::U8 | Type::U16 | Type::U32 | Type::U64
-        | Type::Size | Type::SSize | Type::CChar => Some(mk_int(0, span)),
-        // Heap types (Object / Array / Tuple / Optional / Generic /
-        // Promise / etc.) don't have a safely-typed default
-        // expression we can synthesise. The state-machine invariant
-        // guarantees each such field is assigned before any read
-        // (it's a `let`-binding that always gets initialised), so
-        // we skip the init-time fill — the field stays at its
-        // zero-initialised heap-allocator value (null pointer).
-        _ => None,
+    })?;
+    match state_machine_v2::lower(&f, &body_lets, enclosing_class, enums) {
+        state_machine_v2::LowerOutput::Built(out) => Ok(AsyncLowerOutput::StateMachine {
+            wrapper: out.wrapper,
+            state_class: out.state_ref_class,
+            poll_fn: out.poll_fn,
+            state_enum: Some(out.state_enum),
+        }),
+        state_machine_v2::LowerOutput::NoAwait => {
+            // Defensive: body_contains_await above should have caught this.
+            unreachable!("v2 returned NoAwait after body_contains_await=true")
+        }
+        state_machine_v2::LowerOutput::NeedsFallback => Err(AsyncLowerError {
+            fn_name: f.name,
+            span: f.span,
+            reason: format!(
+                "async fn `{}`: this body shape isn't covered by the \
+                 state-machine lowering yet (e.g. `for-in` / `loop` with \
+                 awaits, or await inside a `while` cond). Refactor to a \
+                 supported shape (sequential `let v = await ...`, \
+                 `if/elif/else`, `while` with await-free cond, `match`).",
+                f.name.as_str(),
+            ),
+        }),
     }
 }
 
-/// Walk the original body and collect every `let` binding's name +
-/// type. Annotation is used when present; otherwise the mini-
-/// inferencer below tries to derive the type from the RHS using
-/// the param env + earlier let env. Returns `Err(name)` if a let
+/// Walk a block tree to determine whether any `await` occurs anywhere
+/// inside. Used to decide between the trivial `Promise.resolve(...)`
+/// wrap and the state-machine lowering.
+fn body_contains_await(b: &Block) -> bool {
+    for s in &b.stmts {
+        if stmt_contains_await(s) {
+            return true;
+        }
+    }
+    if let Some(t) = b.tail.as_deref() {
+        if expr_contains_await(t) {
+            return true;
+        }
+    }
+    false
+}
+
+fn stmt_contains_await(s: &Stmt) -> bool {
+    match &s.kind {
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => expr_contains_await(value),
+        StmtKind::Expr(e) => expr_contains_await(e),
+    }
+}
+
+fn expr_contains_await(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Await(_) => true,
+        ExprKind::Block(b) => body_contains_await(b),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            expr_contains_await(cond)
+                || body_contains_await(then_branch)
+                || else_branch.as_deref().is_some_and(expr_contains_await)
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            expr_contains_await(expr)
+                || body_contains_await(then_branch)
+                || else_branch.as_deref().is_some_and(expr_contains_await)
+        }
+        ExprKind::While { cond, body } => expr_contains_await(cond) || body_contains_await(body),
+        ExprKind::Loop { body } => body_contains_await(body),
+        ExprKind::ForIn { iter, body, .. } => expr_contains_await(iter) || body_contains_await(body),
+        ExprKind::Match { scrutinee, arms } => {
+            expr_contains_await(scrutinee)
+                || arms.iter().any(|a| expr_contains_await(&a.body))
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            expr_contains_await(lhs) || expr_contains_await(rhs)
+        }
+        ExprKind::Unary { expr, .. }
+        | ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => expr_contains_await(expr),
+        ExprKind::Some(e) => expr_contains_await(e),
+        ExprKind::Return(opt) | ExprKind::Break(opt) => {
+            opt.as_deref().is_some_and(expr_contains_await)
+        }
+        ExprKind::Assign { value, .. } => expr_contains_await(value),
+        ExprKind::AssignField { obj, value, .. } => {
+            expr_contains_await(obj) || expr_contains_await(value)
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            expr_contains_await(obj) || expr_contains_await(index) || expr_contains_await(value)
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => args.iter().any(expr_contains_await),
+        ExprKind::MethodCall { obj, args, .. } => {
+            expr_contains_await(obj) || args.iter().any(expr_contains_await)
+        }
+        ExprKind::Field { obj, .. } => expr_contains_await(obj),
+        ExprKind::Index { obj, index } => expr_contains_await(obj) || expr_contains_await(index),
+        ExprKind::Tuple(es) | ExprKind::Array(es) => es.iter().any(expr_contains_await),
+        ExprKind::Range { start, end, .. } => {
+            start.as_deref().is_some_and(expr_contains_await)
+                || end.as_deref().is_some_and(expr_contains_await)
+        }
+        ExprKind::FnExpr { .. } | ExprKind::Closure { .. } => false,
+        _ => false,
+    }
+}
+
 /// is un-annotated AND the inferencer can't handle its RHS shape.
 fn collect_let_types(
     params: &[Param],
@@ -1009,1580 +683,6 @@ fn infer_let_rhs(
     }
 }
 
-fn synthesize_state_machine(
-    f: FnDecl,
-    analysis: AsyncAnalysis,
-    fn_returns: &HashMap<Symbol, Type>,
-    enclosing_class: Option<Symbol>,
-) -> Result<(FnDecl, ClassDecl, FnDecl), AsyncLowerError> {
-    let span = f.span;
-    let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
-    let promise_ret = Type::generic("Promise", vec![inner_ret.clone()]);
-
-    // Class methods get their auxiliary items (state class + poll
-    // fn) hoisted next to the containing class. Prefix the names
-    // so multiple classes with same-named methods don't collide.
-    let (state_class_name, poll_fn_name) = match enclosing_class {
-        Some(class) => (
-            Symbol::intern(&format!("__{}_{}_State", class.as_str(), f.name.as_str())),
-            Symbol::intern(&format!("__{}_{}_poll", class.as_str(), f.name.as_str())),
-        ),
-        None => (
-            Symbol::intern(&format!("__{}_State", f.name.as_str())),
-            Symbol::intern(&format!("__{}_poll", f.name.as_str())),
-        ),
-    };
-    let state_param = Symbol::intern("__state");
-    let awaited_param = Symbol::intern("__awaited_value");
-
-    // Every in-body let needs a known type so we can lay out the
-    // state class. The mini-inferencer covers common RHS shapes
-    // (literals, params, await on a typed Promise, Promise.resolve,
-    // simple arithmetic); anything else still needs an explicit
-    // annotation.
-    let body_lets =
-        collect_let_types(&f.params, &f.body, fn_returns).map_err(|missing| AsyncLowerError {
-            fn_name: f.name.clone(),
-            span: f.span,
-            reason: format!(
-                "async fn `{}`: `let {} = ...` — the state-machine \
-                 desugar couldn't infer this binding's type from the \
-                 RHS shape. Add an explicit `let {}: T = ...` \
-                 annotation (the AST-stage desugar covers only a \
-                 small subset of RHS shapes; full type inference \
-                 runs after the desugar)",
-                f.name.as_str(),
-                missing.as_str(),
-                missing.as_str()
-            ),
-        })?;
-
-    // ---- State class -------------------------------------------------
-    let mut fields: Vec<FieldDecl> = Vec::new();
-    fields.push(FieldDecl {
-        is_pub: true,
-        name: Symbol::intern("state_idx"),
-        ty: Type::I64,
-        span,
-        bits: None,
-    });
-    fields.push(FieldDecl {
-        is_pub: true,
-        name: Symbol::intern("__async_promise"),
-        ty: promise_ret.clone(),
-        span,
-        bits: None,
-    });
-    // Class methods: store the receiver. `this` inside the user's
-    // body gets rewritten to `state.__this` so the poll fn (a free
-    // fn) can reach it.
-    if let Some(class) = enclosing_class {
-        fields.push(FieldDecl {
-            is_pub: true,
-            name: Symbol::intern("__this"),
-            ty: Type::Object(class),
-            span,
-            bits: None,
-        });
-    }
-    for p in f.params.iter() {
-        fields.push(FieldDecl {
-            is_pub: true,
-            name: p.name,
-            ty: p.ty.clone(),
-            span: p.span,
-            bits: None,
-        });
-    }
-    for (n, t) in &body_lets {
-        fields.push(FieldDecl {
-            is_pub: true,
-            name: *n,
-            ty: t.clone(),
-            span,
-            bits: None,
-        });
-    }
-
-    let prom_init_param = Symbol::intern("__init_prom");
-    let this_init_param = Symbol::intern("__init_this");
-    let mut init_params: Vec<Param> = Vec::new();
-    // Class methods: the receiver comes in as the first init arg
-    // and gets stored in the `__this` field.
-    if let Some(class) = enclosing_class {
-        init_params.push(Param {
-            name: this_init_param,
-            ty: Type::Object(class),
-            span,
-            default: None,
-        });
-    }
-    for p in f.params.iter() {
-        init_params.push(p.clone());
-    }
-    init_params.push(Param {
-        name: prom_init_param,
-        ty: promise_ret.clone(),
-        span,
-        default: None,
-    });
-    let this_e = || Expr::new(ExprKind::This, span);
-    let mut init_stmts: Vec<Stmt> = Vec::new();
-    init_stmts.push(mk_expr_stmt(
-        mk_assign_field(this_e(), Symbol::intern("state_idx"), mk_int(0, span), span),
-        span,
-    ));
-    init_stmts.push(mk_expr_stmt(
-        mk_assign_field(
-            this_e(),
-            Symbol::intern("__async_promise"),
-            mk_var(prom_init_param, span),
-            span,
-        ),
-        span,
-    ));
-    if enclosing_class.is_some() {
-        init_stmts.push(mk_expr_stmt(
-            mk_assign_field(
-                this_e(),
-                Symbol::intern("__this"),
-                mk_var(this_init_param, span),
-                span,
-            ),
-            span,
-        ));
-    }
-    for p in f.params.iter() {
-        init_stmts.push(mk_expr_stmt(
-            mk_assign_field(this_e(), p.name, mk_var(p.name, p.span), span),
-            span,
-        ));
-    }
-    for (n, t) in &body_lets {
-        if let Some(default) = default_value_for(t, span) {
-            init_stmts.push(mk_expr_stmt(
-                mk_assign_field(this_e(), *n, default, span),
-                span,
-            ));
-        }
-    }
-    let init_method = FnDecl {
-        attrs: Box::new([]),
-        is_pub: true,
-        name: Symbol::intern("init"),
-        type_params: Box::new([]),
-        params: init_params.into_boxed_slice(),
-        ret: None,
-        body: Block { stmts: init_stmts, tail: None },
-        span,
-        is_override: false,
-        is_async: false,
-    };
-    let state_class = ClassDecl {
-        extern_lib: None,
-        is_repr_c: false,
-        is_packed: false,
-        is_union: false,
-        is_pub: false,
-        name: state_class_name,
-        parent: None,
-        interfaces: Box::new([]),
-        type_params: Box::new([]),
-        fields: fields.into_boxed_slice(),
-        methods: Box::new([init_method]),
-        static_methods: Box::new([]),
-        static_fields: Box::new([]),
-        properties: Box::new([]),
-        span,
-    };
-
-    // ---- Poll fn -----------------------------------------------------
-    // Names of all "body locals" we rewrite to state field accesses
-    // inside chunk bodies.
-    let mut state_locals: HashSet<Symbol> = HashSet::new();
-    let mut state_field_types: HashMap<Symbol, Type> = HashMap::new();
-    for p in f.params.iter() {
-        state_locals.insert(p.name);
-        state_field_types.insert(p.name, p.ty.clone());
-    }
-    for (n, t) in &body_lets {
-        state_locals.insert(*n);
-        state_field_types.insert(*n, t.clone());
-    }
-
-    // Pick the lowering path: control-flow-aware BlockBuilder for
-    // bodies with `if-else` at tail; chunks-based path otherwise.
-    let poll_body = if body_has_control_flow_with_await(&f.body) {
-        let blocks = build_blocks_for_body(
-            &f.body,
-            state_param,
-            awaited_param,
-            &state_locals,
-            &state_field_types,
-            span,
-        )
-        .map_err(|reason| AsyncLowerError {
-            fn_name: f.name,
-            span: f.span,
-            reason: format!("async fn `{}`: {}", f.name.as_str(), reason),
-        })?;
-        build_poll_body_from_blocks(&blocks, state_param, poll_fn_name, span)
-    } else {
-        build_poll_body(
-            &analysis.chunks,
-            state_param,
-            awaited_param,
-            poll_fn_name,
-            &state_locals,
-            &state_field_types,
-            &inner_ret,
-            span,
-        )
-    };
-
-    let poll_fn = FnDecl {
-        attrs: Box::new([]),
-        is_pub: false,
-        name: poll_fn_name,
-        type_params: Box::new([]),
-        params: Box::new([
-            Param {
-                name: state_param,
-                ty: Type::Object(state_class_name),
-                span,
-                default: None,
-            },
-            Param {
-                name: awaited_param,
-                ty: Type::I64,
-                span,
-                default: None,
-            },
-        ]),
-        ret: None,
-        body: poll_body,
-        span,
-        is_override: false,
-        is_async: false,
-    };
-
-    // ---- Wrapper fn (replaces the original) --------------------------
-    let prom_local = Symbol::intern("__async_prom");
-    let state_local = Symbol::intern("__async_state");
-    let mut wrapper_stmts: Vec<Stmt> = Vec::new();
-    wrapper_stmts.push(mk_let(
-        prom_local,
-        Some(promise_ret.clone()),
-        mk_method_call(
-            mk_var(Symbol::intern("Promise"), span),
-            Symbol::intern("__pending"),
-            vec![],
-            span,
-        ),
-        span,
-    ));
-    let mut new_args: Vec<Expr> = Vec::new();
-    // Class methods: pass `this` first to the state init.
-    if enclosing_class.is_some() {
-        new_args.push(Expr::new(ExprKind::This, span));
-    }
-    for p in f.params.iter() {
-        new_args.push(mk_var(p.name, p.span));
-    }
-    new_args.push(mk_var(prom_local, span));
-    wrapper_stmts.push(mk_let(
-        state_local,
-        None,
-        Expr::new(
-            ExprKind::New {
-                class: state_class_name,
-                type_args: Box::new([]),
-                args: new_args.into_boxed_slice(),
-                init_method: None,
-            },
-            span,
-        ),
-        span,
-    ));
-    wrapper_stmts.push(mk_expr_stmt(
-        mk_call(
-            poll_fn_name,
-            vec![mk_var(state_local, span), mk_int(0, span)],
-            span,
-        ),
-        span,
-    ));
-    let wrapper_body = Block {
-        stmts: wrapper_stmts,
-        tail: Some(Box::new(mk_var(prom_local, span))),
-    };
-    let wrapper_fn = FnDecl {
-        attrs: f.attrs.clone(),
-        is_pub: f.is_pub,
-        name: f.name,
-        type_params: f.type_params.clone(),
-        params: f.params.clone(),
-        ret: Some(promise_ret),
-        body: wrapper_body,
-        span: f.span,
-        is_override: f.is_override,
-        is_async: false,
-    };
-
-    Ok((wrapper_fn, state_class, poll_fn))
-}
-
-/// One basic block of the poll fn's CFG. `idx` is the state_idx
-/// value that selects this block; `stmts` are the bound-rewritten
-/// statements to run on entry; `terminator` is what the block does
-/// at the end (suspend / settle / jump / branch).
-#[derive(Debug, Clone)]
-pub struct StateBlock {
-    pub idx: u32,
-    pub stmts: Vec<Stmt>,
-    pub terminator: BlockTerminator,
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockTerminator {
-    /// `let _ = <promise>.then(fn(__v) { __poll(state, __v); 0 })`
-    /// then `return`. The runtime calls back into the poll fn with
-    /// the resolved value once the promise settles; the driver
-    /// loop's first step is to `state.state_idx = resume_idx`
-    /// (which happens just BEFORE the `.then` registration, so the
-    /// continuation runs against the right resume state).
-    Suspend {
-        promise: Expr,
-        resume_idx: u32,
-        binding: Option<Symbol>,
-        /// Type of the awaited promise's inner value — used to type
-        /// the continuation closure's parameter. Falls back to
-        /// `Type::I64` when unknown (e.g. when `binding` is `None`).
-        binding_ty: Type,
-    },
-    /// `Promise.__settleResolve(state.__async_promise, value); return`.
-    Settle { value: Expr },
-    /// `state.state_idx = N; continue` — re-enters the driver loop
-    /// at the top.
-    #[allow(dead_code)]
-    Jump(u32),
-    /// `if cond { state.state_idx = then_idx; continue }
-    ///  else { state.state_idx = else_idx; continue }`.
-    #[allow(dead_code)]
-    Branch { cond: Expr, then_idx: u32, else_idx: u32 },
-    /// `match scrut { pat_0 => { state.state_idx = idx_0; continue }
-    ///                pat_1 => { state.state_idx = idx_1; continue }
-    ///                ... }`. Multi-way dispatch. Patterns are
-    /// emitted verbatim into the generated `match` expression — the
-    /// language-level exhaustiveness rules apply (the type checker
-    /// validates them on the generated code).
-    MatchDispatch { scrut: Expr, arms: Vec<MatchArmTarget> },
-}
-
-/// One arm of a `MatchDispatch` terminator. Pattern bindings (if
-/// any) are visible in the arm body via the regular variable
-/// rewriter — they need to live in the state class as fields so
-/// they survive across the state transition; the BlockBuilder
-/// adds them to `state_locals` before recursing.
-#[derive(Debug, Clone)]
-pub struct MatchArmTarget {
-    pub pattern: ilang_ast::Pattern,
-    pub target_idx: u32,
-}
-
-/// Translate the analyser's straight-line `AwaitChunk` vec into the
-/// generic CFG form. For each chunk K:
-///   - Block K's stmts: optionally a binding assign for the prior
-///     await's resolved value, then the chunk's own stmts.
-///   - Block K's terminator: `Suspend` (non-final chunk) or
-///     `Settle` (final chunk).
-fn chunks_to_blocks(
-    chunks: &[AwaitChunk],
-    state_param: Symbol,
-    awaited_param: Symbol,
-    state_locals: &HashSet<Symbol>,
-    state_field_types: &HashMap<Symbol, Type>,
-    span: Span,
-) -> Vec<StateBlock> {
-    let n = chunks.len();
-    let mut blocks: Vec<StateBlock> = Vec::with_capacity(n);
-    let _ = awaited_param;
-    for (i, chunk) in chunks.iter().enumerate() {
-        let mut stmts: Vec<Stmt> = Vec::new();
-        // The prior-binding assign is handled inside the continuation
-        // closure now (`emit_block_body`'s Suspend case writes the
-        // resolved value directly into `state.<binding>` before
-        // re-entering poll), so the resume state block doesn't need
-        // to repeat it.
-        for s in &chunk.stmts {
-            let mut s = s.clone();
-            rewrite_stmt_locals(&mut s, state_param, state_locals);
-            stmts.push(s);
-        }
-        let terminator = if i + 1 < n {
-            let mut awaited =
-                chunk.awaited_promise_expr.clone().expect("non-final chunk has await");
-            rewrite_expr_locals(&mut awaited, state_param, state_locals);
-            let binding = chunk.awaited_binding;
-            let binding_ty = binding
-                .and_then(|n| state_field_types.get(&n).cloned())
-                .unwrap_or(Type::I64);
-            BlockTerminator::Suspend {
-                promise: awaited,
-                resume_idx: (i + 1) as u32,
-                binding,
-                binding_ty,
-            }
-        } else {
-            let mut tail = chunk
-                .final_tail
-                .clone()
-                .unwrap_or_else(|| mk_int(0, span));
-            rewrite_expr_locals(&mut tail, state_param, state_locals);
-            BlockTerminator::Settle { value: tail }
-        };
-        blocks.push(StateBlock {
-            idx: i as u32,
-            stmts,
-            terminator,
-        });
-    }
-    blocks
-}
-
-/// Emit one state block's body — its setup stmts plus the
-/// terminator-driven trailing stmts that either return (Suspend /
-/// Settle) or fall through to the loop top (Jump / Branch).
-fn emit_block_body(
-    block: &StateBlock,
-    state_param: Symbol,
-    poll_fn_name: Symbol,
-    span: Span,
-) -> Block {
-    let mut stmts: Vec<Stmt> = block.stmts.clone();
-    match &block.terminator {
-        BlockTerminator::Suspend { promise, resume_idx, binding, binding_ty } => {
-            // Advance state_idx BEFORE scheduling the continuation
-            // (the continuation closure captures `state` and re-
-            // enters poll, which dispatches on state_idx).
-            stmts.push(mk_expr_stmt(
-                mk_assign_field(
-                    mk_var(state_param, span),
-                    Symbol::intern("state_idx"),
-                    mk_int(*resume_idx as i64, span),
-                    span,
-                ),
-                span,
-            ));
-            // Continuation closure: `fn(__v: T): T { state.<binding> = __v; __poll(state, 0); __v }`.
-            // Storing the resolved value directly into the state
-            // field (T → T assignment) avoids an i64 cast that
-            // wouldn't type-check for heap T (string / Object /
-            // etc.). __poll's `__awaited_value` parameter then sees
-            // a dummy 0; the resume state reads state.<binding>
-            // instead. We have the closure return `__v` so its
-            // return type matches its parameter type (avoids a
-            // bool→i64 type mismatch where T = bool, etc.).
-            let v_name = Symbol::intern("__v");
-            let mut closure_stmts: Vec<Stmt> = Vec::new();
-            if let Some(b) = binding {
-                closure_stmts.push(mk_expr_stmt(
-                    mk_assign_field(
-                        mk_var(state_param, span),
-                        *b,
-                        mk_var(v_name, span),
-                        span,
-                    ),
-                    span,
-                ));
-            }
-            closure_stmts.push(mk_expr_stmt(
-                mk_call(
-                    poll_fn_name,
-                    vec![mk_var(state_param, span), mk_int(0, span)],
-                    span,
-                ),
-                span,
-            ));
-            let closure_body = Block {
-                stmts: closure_stmts,
-                tail: Some(Box::new(mk_var(v_name, span))),
-            };
-            let closure = Expr::new(
-                ExprKind::FnExpr {
-                    params: Box::new([Param {
-                        name: v_name,
-                        ty: binding_ty.clone(),
-                        span,
-                        default: None,
-                    }]),
-                    ret: Some(binding_ty.clone()),
-                    body: closure_body,
-                },
-                span,
-            );
-            let then_call = mk_method_call(
-                promise.clone(),
-                Symbol::intern("then"),
-                vec![closure],
-                span,
-            );
-            stmts.push(mk_let(Symbol::intern("_"), None, then_call, span));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
-        }
-        BlockTerminator::Settle { value } => {
-            stmts.push(mk_expr_stmt(
-                mk_method_call(
-                    mk_var(Symbol::intern("Promise"), span),
-                    Symbol::intern("__settleResolve"),
-                    vec![
-                        mk_state_field(
-                            state_param,
-                            Symbol::intern("__async_promise"),
-                            span,
-                        ),
-                        value.clone(),
-                    ],
-                    span,
-                ),
-                span,
-            ));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            ));
-        }
-        BlockTerminator::Jump(n) => {
-            stmts.push(mk_expr_stmt(
-                mk_assign_field(
-                    mk_var(state_param, span),
-                    Symbol::intern("state_idx"),
-                    mk_int(*n as i64, span),
-                    span,
-                ),
-                span,
-            ));
-            stmts.push(mk_expr_stmt(
-                Expr::new(ExprKind::Continue, span),
-                span,
-            ));
-        }
-        BlockTerminator::MatchDispatch { scrut, arms } => {
-            // Build `match <scrut> { pat => { <save bindings>; state.state_idx = N; continue } ... }`.
-            // Pattern bindings introduced in the dispatch arm get
-            // captured into state fields BEFORE flowing to the
-            // target idx — they're lexically scoped to the arm
-            // body, so without the save they'd be inaccessible
-            // once we jump out.
-            let mut match_arms: Vec<ilang_ast::MatchArm> = Vec::new();
-            for a in arms {
-                let mut arm_stmts: Vec<Stmt> = Vec::new();
-                for binding in pattern_binding_names(&a.pattern) {
-                    arm_stmts.push(mk_expr_stmt(
-                        mk_assign_field(
-                            mk_var(state_param, span),
-                            binding,
-                            mk_var(binding, span),
-                            span,
-                        ),
-                        span,
-                    ));
-                }
-                arm_stmts.push(mk_expr_stmt(
-                    mk_assign_field(
-                        mk_var(state_param, span),
-                        Symbol::intern("state_idx"),
-                        mk_int(a.target_idx as i64, span),
-                        span,
-                    ),
-                    span,
-                ));
-                arm_stmts.push(mk_expr_stmt(
-                    Expr::new(ExprKind::Continue, span),
-                    span,
-                ));
-                let arm_body = Expr::new(
-                    ExprKind::Block(Block { stmts: arm_stmts, tail: None }),
-                    span,
-                );
-                match_arms.push(ilang_ast::MatchArm {
-                    pattern: a.pattern.clone(),
-                    body: arm_body,
-                    span,
-                });
-            }
-            stmts.push(mk_expr_stmt(
-                Expr::new(
-                    ExprKind::Match {
-                        scrutinee: Box::new(scrut.clone()),
-                        arms: match_arms.into_boxed_slice(),
-                    },
-                    span,
-                ),
-                span,
-            ));
-        }
-        BlockTerminator::Branch { cond, then_idx, else_idx } => {
-            // `if cond { state.state_idx = T; continue } else { ...F... }`.
-            let then_blk = Block {
-                stmts: vec![
-                    mk_expr_stmt(
-                        mk_assign_field(
-                            mk_var(state_param, span),
-                            Symbol::intern("state_idx"),
-                            mk_int(*then_idx as i64, span),
-                            span,
-                        ),
-                        span,
-                    ),
-                    mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
-                ],
-                tail: None,
-            };
-            let else_blk_expr = Expr::new(
-                ExprKind::Block(Block {
-                    stmts: vec![
-                        mk_expr_stmt(
-                            mk_assign_field(
-                                mk_var(state_param, span),
-                                Symbol::intern("state_idx"),
-                                mk_int(*else_idx as i64, span),
-                                span,
-                            ),
-                            span,
-                        ),
-                        mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
-                    ],
-                    tail: None,
-                }),
-                span,
-            );
-            stmts.push(mk_expr_stmt(
-                Expr::new(
-                    ExprKind::If {
-                        cond: Box::new(cond.clone()),
-                        then_branch: then_blk,
-                        else_branch: Some(Box::new(else_blk_expr)),
-                    },
-                    span,
-                ),
-                span,
-            ));
-        }
-    }
-    Block { stmts, tail: None }
-}
-
-/// Build the poll fn's body: a `loop { ... }` whose body is an
-/// if-elif-else chain over `state.state_idx`, each branch ending
-/// in a Suspend / Settle / Jump / Branch terminator (the first two
-/// `return` from poll; the second two `continue` the loop).
-fn build_poll_body_from_blocks(
-    blocks: &[StateBlock],
-    state_param: Symbol,
-    poll_fn_name: Symbol,
-    span: Span,
-) -> Block {
-    // Build the if-elif-else chain. Each branch is one StateBlock.
-    let mut blocks_rev: Vec<&StateBlock> = blocks.iter().collect();
-    // Final else: unreachable, return from poll.
-    let mut else_branch: Option<Expr> = Some(Expr::new(
-        ExprKind::Block(Block {
-            stmts: vec![mk_expr_stmt(
-                Expr::new(ExprKind::Return(None), span),
-                span,
-            )],
-            tail: None,
-        }),
-        span,
-    ));
-    while let Some(blk) = blocks_rev.pop() {
-        let body = emit_block_body(blk, state_param, poll_fn_name, span);
-        let cond = Expr::new(
-            ExprKind::Binary {
-                op: ilang_ast::BinOp::Eq,
-                lhs: Box::new(mk_state_field(
-                    state_param,
-                    Symbol::intern("state_idx"),
-                    span,
-                )),
-                rhs: Box::new(mk_int(blk.idx as i64, span)),
-            },
-            span,
-        );
-        let if_e = Expr::new(
-            ExprKind::If {
-                cond: Box::new(cond),
-                then_branch: body,
-                else_branch: else_branch.map(Box::new),
-            },
-            span,
-        );
-        else_branch = Some(if_e);
-    }
-    // Wrap the if-elif-else in a `loop { ... }` so Jump / Branch
-    // can `continue` back to the dispatch top. Suspend / Settle
-    // `return` out of the fn, breaking the loop indirectly.
-    let switch_expr = else_branch.unwrap();
-    let loop_body = Block {
-        stmts: vec![mk_expr_stmt(switch_expr, span)],
-        tail: None,
-    };
-    let loop_expr = Expr::new(
-        ExprKind::Loop { body: loop_body },
-        span,
-    );
-    Block {
-        stmts: vec![mk_expr_stmt(loop_expr, span)],
-        tail: None,
-    }
-}
-
-/// Convenience wrapper used by `synthesize_state_machine`:
-/// translates straight-line chunks to blocks, then emits the
-/// loop+switch body. The split lets future passes (if-else, while,
-/// match) build blocks directly without going through chunks.
-fn build_poll_body(
-    chunks: &[AwaitChunk],
-    state_param: Symbol,
-    awaited_param: Symbol,
-    poll_fn_name: Symbol,
-    state_locals: &HashSet<Symbol>,
-    state_field_types: &HashMap<Symbol, Type>,
-    inner_ret: &Type,
-    span: Span,
-) -> Block {
-    let _ = inner_ret; // reserved for future per-state kind logic
-    let blocks = chunks_to_blocks(
-        chunks,
-        state_param,
-        awaited_param,
-        state_locals,
-        state_field_types,
-        span,
-    );
-    build_poll_body_from_blocks(&blocks, state_param, poll_fn_name, span)
-}
-
-// --------------------------------------------------------------------
-// BlockBuilder — direct AST→StateBlock construction with `if`-tail
-// branching support. Phase 2 of the CFG-based lowering.
-//
-// The chunks-based analyser walks the body once and produces a flat
-// Vec<AwaitChunk> that assumes straight-line code. The BlockBuilder
-// is a recursive walker that handles `if-else` at body-tail position
-// by emitting Branch terminators and recursing into each arm.
-//
-// Supported shapes:
-//   - Straight-line stmts (mirroring the chunks-based path).
-//   - `let x = await E` suspend points.
-//   - Body tail = `if cond { arm_a } else { arm_b }`. Each arm is
-//     recursively built; both arms must settle the result promise
-//     (no join — the if-else IS the body's value).
-//   - Nested if-else within an arm's tail.
-//
-// Not yet:
-//   - `while` / `match` / mid-body if-else (need a join state).
-// --------------------------------------------------------------------
-
-struct BlockBuilder<'a> {
-    blocks: Vec<StateBlock>,
-    next_idx: u32,
-    state_param: Symbol,
-    awaited_param: Symbol,
-    state_locals: &'a HashSet<Symbol>,
-    state_field_types: &'a HashMap<Symbol, Type>,
-    span: Span,
-    /// Set when an unsupported shape is encountered during the build.
-    /// The caller (lower_async_fn) surfaces it as an AsyncLowerError.
-    error: Option<String>,
-}
-
-/// What the BlockBuilder should do when it reaches the natural end
-/// of a body without hitting an explicit terminator (suspend, branch,
-/// return, …).
-#[derive(Debug, Clone, Copy)]
-enum BodyEnd {
-    /// Top-level fn body: settle the result promise with the tail value.
-    Settle,
-    /// Loop body: jump back to the loop header.
-    JumpTo(u32),
-    /// Mid-body `let X = if-else { ... } / match { ... }` arm: store
-    /// the arm's tail value into `state.<field>`, then jump to the
-    /// join state at `target_idx` where the rest of the body
-    /// resumes.
-    AssignAndJump { field: Symbol, target_idx: u32 },
-}
-
-impl<'a> BlockBuilder<'a> {
-    fn fresh_idx(&mut self) -> u32 {
-        let i = self.next_idx;
-        self.next_idx += 1;
-        i
-    }
-
-    /// Build the state blocks corresponding to `body`. `entry_idx`
-    /// is the state assigned to the first block. `prior_binding`,
-    /// if set, means `entry_idx` resumes from a suspend point and
-    /// the first stmt assigns `__awaited_value` to that field.
-    /// `end` dictates what to do at the natural end of `body`
-    /// (no explicit terminator): Settle the result promise or
-    /// Jump back to a loop header.
-    fn build_body(
-        &mut self,
-        body: &Block,
-        entry_idx: u32,
-        prior_binding: Option<Symbol>,
-        end: BodyEnd,
-    ) {
-        let span = self.span;
-        let mut cur_idx = entry_idx;
-        let mut cur_stmts: Vec<Stmt> = Vec::new();
-        // `prior_binding` was historically used to inject a
-        // `state.<binding> = __awaited_value` at the start of the
-        // resume block. That now happens inside the continuation
-        // closure (typed against the binding's exact T) so we can
-        // ignore it here.
-        let _ = prior_binding;
-        for stmt in &body.stmts {
-            // `let x = await E` — suspend.
-            if let StmtKind::Let { name, value, .. } = &stmt.kind {
-                if let ExprKind::Await(p) = &value.kind {
-                    let mut promise_expr = (**p).clone();
-                    rewrite_expr_locals(
-                        &mut promise_expr,
-                        self.state_param,
-                        self.state_locals,
-                    );
-                    let next_idx = self.fresh_idx();
-                    let binding_ty = self
-                        .state_field_types
-                        .get(name)
-                        .cloned()
-                        .unwrap_or(Type::I64);
-                    self.blocks.push(StateBlock {
-                        idx: cur_idx,
-                        stmts: std::mem::take(&mut cur_stmts),
-                        terminator: BlockTerminator::Suspend {
-                            promise: promise_expr,
-                            resume_idx: next_idx,
-                            binding: Some(*name),
-                            binding_ty,
-                        },
-                    });
-                    cur_idx = next_idx;
-                    // The continuation closure writes the resolved
-                    // value into state.<name> before re-entering
-                    // poll, so the resume block doesn't need to
-                    // repeat the assignment.
-                    continue;
-                }
-            }
-            // `let X = if cond { ... } else { ... }` where the
-            // if-else contains awaits — branch, build each arm with
-            // an AssignAndJump end that stores the arm's value
-            // into `state.<X>` then jumps to a synthetic join idx.
-            if let StmtKind::Let { name, value, .. } = &stmt.kind {
-                if let ExprKind::If { cond, then_branch, else_branch } = &value.kind {
-                    if body_or_arms_have_await(then_branch)
-                        || else_branch.as_deref().is_some_and(expr_has_await)
-                    {
-                        let mut cond_e = (**cond).clone();
-                        rewrite_expr_locals(
-                            &mut cond_e,
-                            self.state_param,
-                            self.state_locals,
-                        );
-                        let join_idx = self.fresh_idx();
-                        let then_idx = self.fresh_idx();
-                        let else_idx = self.fresh_idx();
-                        self.blocks.push(StateBlock {
-                            idx: cur_idx,
-                            stmts: std::mem::take(&mut cur_stmts),
-                            terminator: BlockTerminator::Branch {
-                                cond: cond_e,
-                                then_idx,
-                                else_idx,
-                            },
-                        });
-                        let arm_end =
-                            BodyEnd::AssignAndJump { field: *name, target_idx: join_idx };
-                        self.build_body(then_branch, then_idx, None, arm_end);
-                        match else_branch {
-                            Some(eb) => match &eb.kind {
-                                ExprKind::Block(b) => {
-                                    self.build_body(b, else_idx, None, arm_end);
-                                }
-                                _ => {
-                                    let synth = Block {
-                                        stmts: Vec::new(),
-                                        tail: Some(Box::new((**eb).clone())),
-                                    };
-                                    self.build_body(&synth, else_idx, None, arm_end);
-                                }
-                            },
-                            None => {
-                                self.blocks.push(StateBlock {
-                                    idx: else_idx,
-                                    stmts: vec![mk_expr_stmt(
-                                        mk_assign_field(
-                                            mk_var(self.state_param, span),
-                                            *name,
-                                            mk_int(0, span),
-                                            span,
-                                        ),
-                                        span,
-                                    )],
-                                    terminator: BlockTerminator::Jump(join_idx),
-                                });
-                            }
-                        }
-                        cur_idx = join_idx;
-                        continue;
-                    }
-                }
-                // `let X = match scrut { ... }` with awaits in arms.
-                if let ExprKind::Match { scrutinee, arms } = &value.kind {
-                    if arms.iter().any(|a| expr_has_await(&a.body)) {
-                        let mut scrut_e = (**scrutinee).clone();
-                        rewrite_expr_locals(
-                            &mut scrut_e,
-                            self.state_param,
-                            self.state_locals,
-                        );
-                        let join_idx = self.fresh_idx();
-                        let mut arm_targets: Vec<MatchArmTarget> = Vec::new();
-                        let arm_end =
-                            BodyEnd::AssignAndJump { field: *name, target_idx: join_idx };
-                        for arm in arms.iter() {
-                            let target_idx = self.fresh_idx();
-                            arm_targets.push(MatchArmTarget {
-                                pattern: arm.pattern.clone(),
-                                target_idx,
-                            });
-                            let synth = Block {
-                                stmts: Vec::new(),
-                                tail: Some(Box::new(arm.body.clone())),
-                            };
-                            self.build_body(&synth, target_idx, None, arm_end);
-                        }
-                        self.blocks.push(StateBlock {
-                            idx: cur_idx,
-                            stmts: std::mem::take(&mut cur_stmts),
-                            terminator: BlockTerminator::MatchDispatch {
-                                scrut: scrut_e,
-                                arms: arm_targets,
-                            },
-                        });
-                        cur_idx = join_idx;
-                        continue;
-                    }
-                }
-            }
-            // `while cond { ... }` as an expression-stmt — emit a
-            // header / body / after pattern using Branch + Jump.
-            if let StmtKind::Expr(e) = &stmt.kind {
-                if let ExprKind::While { cond, body: wbody } = &e.kind {
-                    let header_idx = self.fresh_idx();
-                    let body_first_idx = self.fresh_idx();
-                    let after_idx = self.fresh_idx();
-                    // Close the current block by jumping to the
-                    // header.
-                    self.blocks.push(StateBlock {
-                        idx: cur_idx,
-                        stmts: std::mem::take(&mut cur_stmts),
-                        terminator: BlockTerminator::Jump(header_idx),
-                    });
-                    // Loop header: test `cond`, branch to body or
-                    // after.
-                    let mut cond_expr = (**cond).clone();
-                    rewrite_expr_locals(
-                        &mut cond_expr,
-                        self.state_param,
-                        self.state_locals,
-                    );
-                    self.blocks.push(StateBlock {
-                        idx: header_idx,
-                        stmts: Vec::new(),
-                        terminator: BlockTerminator::Branch {
-                            cond: cond_expr,
-                            then_idx: body_first_idx,
-                            else_idx: after_idx,
-                        },
-                    });
-                    // Rewrite any `break` / `continue` inside the
-                    // loop body to direct state_idx jumps so they
-                    // target the user's logical while — NOT the
-                    // generated `loop { switch }` driver in the
-                    // poll fn. Nested loops are left alone (each
-                    // has its own break/continue scope).
-                    let mut wbody_owned = wbody.clone();
-                    rewrite_loop_jumps_in_block(
-                        &mut wbody_owned,
-                        header_idx,
-                        after_idx,
-                        self.state_param,
-                    );
-                    // Build body's blocks; their natural end jumps
-                    // back to the header.
-                    self.build_body(
-                        &wbody_owned,
-                        body_first_idx,
-                        None,
-                        BodyEnd::JumpTo(header_idx),
-                    );
-                    // Continue accumulating subsequent stmts at the
-                    // after-loop state.
-                    cur_idx = after_idx;
-                    continue;
-                }
-            }
-            // Sync stmt: rewrite locals and accumulate.
-            let mut s = stmt.clone();
-            rewrite_stmt_locals(&mut s, self.state_param, self.state_locals);
-            cur_stmts.push(s);
-        }
-        // Tail handling. Three shapes:
-        //   - None: terminate per `end` (Settle unit / JumpTo)
-        //   - If: branch + recurse into arms with same `end`
-        //   - Other expr: terminate per `end` (Settle uses the
-        //     tail value; JumpTo discards it — a `while` body's
-        //     tail expression is always discarded anyway)
-        let tail = body.tail.as_deref();
-        match tail.map(|t| (&t.kind, t.span)) {
-            None => {
-                let (extra_stmt, term) = match end {
-                    BodyEnd::Settle => {
-                        (None, BlockTerminator::Settle { value: mk_int(0, span) })
-                    }
-                    BodyEnd::JumpTo(n) => (None, BlockTerminator::Jump(n)),
-                    BodyEnd::AssignAndJump { field, target_idx } => (
-                        Some(mk_expr_stmt(
-                            mk_assign_field(
-                                mk_var(self.state_param, span),
-                                field,
-                                mk_int(0, span),
-                                span,
-                            ),
-                            span,
-                        )),
-                        BlockTerminator::Jump(target_idx),
-                    ),
-                };
-                if let Some(s) = extra_stmt {
-                    cur_stmts.push(s);
-                }
-                self.blocks.push(StateBlock {
-                    idx: cur_idx,
-                    stmts: cur_stmts,
-                    terminator: term,
-                });
-            }
-            Some((ExprKind::Block(inner_block), _)) => {
-                // Tail is itself a block — splice its stmts and
-                // tail into the current chunk and continue handling.
-                // Without this, e.g. a match arm whose body is
-                // `{ let v = await p; v * 2 }` gets treated as a
-                // single tail expression and the inner await never
-                // produces its own state block.
-                let merged = Block {
-                    stmts: inner_block.stmts.clone(),
-                    tail: inner_block.tail.clone(),
-                };
-                // Continue current accumulation by recursing: the
-                // recursive call uses `cur_idx` as its entry and
-                // honours `end`. We feed cur_stmts through by
-                // prepending the recursive call's stmts? No — the
-                // simpler fix: emit a Jump to a fresh idx whose
-                // block builds `merged`. But that's wasteful for a
-                // common case. Instead, do a *no-op* prologue: emit
-                // the current stmts under cur_idx with a Jump, then
-                // recurse on the merged block at the jump target.
-                let nested_idx = self.fresh_idx();
-                self.blocks.push(StateBlock {
-                    idx: cur_idx,
-                    stmts: cur_stmts,
-                    terminator: BlockTerminator::Jump(nested_idx),
-                });
-                self.build_body(&merged, nested_idx, None, end);
-            }
-            Some((ExprKind::Match { scrutinee, arms }, _)) => {
-                let mut scrut_e = (**scrutinee).clone();
-                rewrite_expr_locals(
-                    &mut scrut_e,
-                    self.state_param,
-                    self.state_locals,
-                );
-                // Allocate a target idx per arm, build each arm body
-                // as its own block sequence terminated per `end`.
-                let mut arm_targets: Vec<MatchArmTarget> = Vec::new();
-                for arm in arms.iter() {
-                    let target_idx = self.fresh_idx();
-                    arm_targets.push(MatchArmTarget {
-                        pattern: arm.pattern.clone(),
-                        target_idx,
-                    });
-                    // The arm body is an Expr; wrap it as a Block
-                    // with the body as the tail so build_body's
-                    // recursive logic settles / jumps it correctly.
-                    let synth_body = Block {
-                        stmts: Vec::new(),
-                        tail: Some(Box::new(arm.body.clone())),
-                    };
-                    self.build_body(&synth_body, target_idx, None, end);
-                }
-                self.blocks.push(StateBlock {
-                    idx: cur_idx,
-                    stmts: cur_stmts,
-                    terminator: BlockTerminator::MatchDispatch {
-                        scrut: scrut_e,
-                        arms: arm_targets,
-                    },
-                });
-            }
-            Some((ExprKind::If { cond, then_branch, else_branch }, _)) => {
-                let mut cond_expr = (**cond).clone();
-                rewrite_expr_locals(
-                    &mut cond_expr,
-                    self.state_param,
-                    self.state_locals,
-                );
-                let then_idx = self.fresh_idx();
-                let else_idx = self.fresh_idx();
-                self.blocks.push(StateBlock {
-                    idx: cur_idx,
-                    stmts: cur_stmts,
-                    terminator: BlockTerminator::Branch {
-                        cond: cond_expr,
-                        then_idx,
-                        else_idx,
-                    },
-                });
-                self.build_body(then_branch, then_idx, None, end);
-                match else_branch {
-                    Some(eb) => match &eb.kind {
-                        ExprKind::Block(b) => self.build_body(b, else_idx, None, end),
-                        _ => {
-                            let synth = Block {
-                                stmts: Vec::new(),
-                                tail: Some(Box::new((**eb).clone())),
-                            };
-                            self.build_body(&synth, else_idx, None, end);
-                        }
-                    },
-                    None => {
-                        let (extra_stmt, term) = match end {
-                            BodyEnd::Settle => (
-                                None,
-                                BlockTerminator::Settle { value: mk_int(0, span) },
-                            ),
-                            BodyEnd::JumpTo(n) => (None, BlockTerminator::Jump(n)),
-                            BodyEnd::AssignAndJump { field, target_idx } => (
-                                Some(mk_expr_stmt(
-                                    mk_assign_field(
-                                        mk_var(self.state_param, span),
-                                        field,
-                                        mk_int(0, span),
-                                        span,
-                                    ),
-                                    span,
-                                )),
-                                BlockTerminator::Jump(target_idx),
-                            ),
-                        };
-                        let mut stmts = Vec::new();
-                        if let Some(s) = extra_stmt {
-                            stmts.push(s);
-                        }
-                        self.blocks.push(StateBlock {
-                            idx: else_idx,
-                            stmts,
-                            terminator: term,
-                        });
-                    }
-                }
-            }
-            Some((_, _)) => {
-                let term = match end {
-                    BodyEnd::Settle => {
-                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
-                        rewrite_expr_locals(
-                            &mut tail_expr,
-                            self.state_param,
-                            self.state_locals,
-                        );
-                        BlockTerminator::Settle { value: tail_expr }
-                    }
-                    BodyEnd::JumpTo(n) => {
-                        // The tail expression has side effects (e.g.
-                        // `i = i + 1` in a while body's last
-                        // position) — run it as a statement before
-                        // jumping back. The value is discarded
-                        // because loop bodies are Unit-typed.
-                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
-                        rewrite_expr_locals(
-                            &mut tail_expr,
-                            self.state_param,
-                            self.state_locals,
-                        );
-                        cur_stmts.push(mk_expr_stmt(tail_expr, span));
-                        BlockTerminator::Jump(n)
-                    }
-                    BodyEnd::AssignAndJump { field, target_idx } => {
-                        // Mid-body if-else / match arm: assign the
-                        // tail expression's value into `state.<field>`
-                        // (the let-binding the if-else feeds) then
-                        // jump to the join.
-                        let mut tail_expr = body.tail.as_deref().unwrap().clone();
-                        rewrite_expr_locals(
-                            &mut tail_expr,
-                            self.state_param,
-                            self.state_locals,
-                        );
-                        cur_stmts.push(mk_expr_stmt(
-                            mk_assign_field(
-                                mk_var(self.state_param, span),
-                                field,
-                                tail_expr,
-                                span,
-                            ),
-                            span,
-                        ));
-                        BlockTerminator::Jump(target_idx)
-                    }
-                };
-                self.blocks.push(StateBlock {
-                    idx: cur_idx,
-                    stmts: cur_stmts,
-                    terminator: term,
-                });
-            }
-        }
-    }
-}
-
-/// Top-level entry used by `synthesize_state_machine` when the
-/// body contains control-flow constructs the chunks-based analyser
-/// can't lay out. Returns `Err(reason)` if the BlockBuilder hit an
-/// unsupported sub-shape.
-fn build_blocks_for_body(
-    body: &Block,
-    state_param: Symbol,
-    awaited_param: Symbol,
-    state_locals: &HashSet<Symbol>,
-    state_field_types: &HashMap<Symbol, Type>,
-    span: Span,
-) -> Result<Vec<StateBlock>, String> {
-    let mut b = BlockBuilder {
-        blocks: Vec::new(),
-        next_idx: 1,
-        state_param,
-        awaited_param,
-        state_locals,
-        state_field_types,
-        span,
-        error: None,
-    };
-    b.build_body(body, 0, None, BodyEnd::Settle);
-    if let Some(e) = b.error {
-        return Err(e);
-    }
-    Ok(b.blocks)
-}
-
-/// Whether the body needs the BlockBuilder path (contains an `if`
-/// at tail position with awaits inside, OR a `while` stmt with
-/// awaits in its body) vs. the simpler chunks-based path.
-fn body_has_control_flow_with_await(body: &Block) -> bool {
-    // While anywhere in body stmts that contains an await, OR
-    // mid-body `let X = if-else / match` whose arms have awaits.
-    for s in &body.stmts {
-        if let StmtKind::Expr(e) = &s.kind {
-            if let ExprKind::While { body: wbody, .. } = &e.kind {
-                if body_or_arms_have_await(wbody) {
-                    return true;
-                }
-            }
-        }
-        if let StmtKind::Let { value, .. } = &s.kind {
-            match &value.kind {
-                ExprKind::If { then_branch, else_branch, .. } => {
-                    if body_or_arms_have_await(then_branch)
-                        || else_branch.as_deref().is_some_and(expr_has_await)
-                    {
-                        return true;
-                    }
-                }
-                ExprKind::Match { arms, .. } => {
-                    if arms.iter().any(|a| expr_has_await(&a.body)) {
-                        return true;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    // If-else at tail with awaits inside
-    if matches!(body.tail.as_deref().map(|t| &t.kind), Some(ExprKind::If { .. }))
-        && body_or_arms_have_await(body)
-    {
-        return true;
-    }
-    // Match at tail with awaits inside
-    if matches!(
-        body.tail.as_deref().map(|t| &t.kind),
-        Some(ExprKind::Match { .. })
-    ) && body_or_arms_have_await(body)
-    {
-        return true;
-    }
-    false
-}
-
-fn body_or_arms_have_await(b: &Block) -> bool {
-    for s in &b.stmts {
-        if stmt_has_await(s) {
-            return true;
-        }
-    }
-    if let Some(t) = &b.tail {
-        if expr_has_await(t) {
-            return true;
-        }
-    }
-    false
-}
-
-fn stmt_has_await(s: &Stmt) -> bool {
-    match &s.kind {
-        StmtKind::Let { value, .. } => expr_has_await(value),
-        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
-            expr_has_await(value)
-        }
-        StmtKind::Expr(e) => expr_has_await(e),
-    }
-}
-
-fn expr_has_await(e: &Expr) -> bool {
-    match &e.kind {
-        ExprKind::Await(_) => true,
-        ExprKind::If { cond, then_branch, else_branch } => {
-            expr_has_await(cond)
-                || body_or_arms_have_await(then_branch)
-                || else_branch.as_deref().is_some_and(expr_has_await)
-        }
-        ExprKind::While { cond, body } => {
-            expr_has_await(cond) || body_or_arms_have_await(body)
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            expr_has_await(scrutinee)
-                || arms.iter().any(|a| expr_has_await(&a.body))
-        }
-        ExprKind::Block(b) => body_or_arms_have_await(b),
-        _ => false,
-    }
-}
-
-/// Rewrite `Var(name)` and `Assign(name, ..)` inside `e` to access
-/// `state.name` when `name` is in `locals`. Recurses into every
-/// child expression / block. The `Awaitable` form is left alone —
-/// it never appears inside a chunk's stmts (awaits are extracted
-/// to chunk boundaries).
-fn rewrite_expr_locals(e: &mut Expr, state: Symbol, locals: &HashSet<Symbol>) {
-    let span = e.span;
-    match &mut e.kind {
-        // `this` inside an async class method body becomes
-        // `state.__this`. The state class has a `__this` field
-        // (added when `enclosing_class` is set) — this is how the
-        // poll fn (a free fn, no implicit receiver) reaches the
-        // original method receiver.
-        ExprKind::This => {
-            e.kind = ExprKind::Field {
-                obj: Box::new(mk_var(state, span)),
-                name: Symbol::intern("__this"),
-            };
-        }
-        ExprKind::Var(n) if locals.contains(n) => {
-            let name = *n;
-            e.kind = ExprKind::Field {
-                obj: Box::new(mk_var(state, span)),
-                name,
-            };
-        }
-        ExprKind::Var(_) => {}
-        ExprKind::Assign { target, value } if locals.contains(target) => {
-            rewrite_expr_locals(value, state, locals);
-            let val = std::mem::replace(
-                value,
-                Box::new(Expr::new(ExprKind::None, span)),
-            );
-            let field = *target;
-            e.kind = ExprKind::AssignField {
-                obj: Box::new(mk_var(state, span)),
-                field,
-                value: val,
-                is_init: false,
-            };
-        }
-        ExprKind::Assign { value, .. } => rewrite_expr_locals(value, state, locals),
-        ExprKind::AssignField { obj, value, .. }
-        | ExprKind::AssignIndex { obj, value, .. } => {
-            rewrite_expr_locals(obj, state, locals);
-            rewrite_expr_locals(value, state, locals);
-        }
-        ExprKind::Block(b) => rewrite_block_locals(b, state, locals),
-        ExprKind::If { cond, then_branch, else_branch } => {
-            rewrite_expr_locals(cond, state, locals);
-            rewrite_block_locals(then_branch, state, locals);
-            if let Some(eb) = else_branch {
-                rewrite_expr_locals(eb, state, locals);
-            }
-        }
-        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
-            rewrite_expr_locals(expr, state, locals);
-            rewrite_block_locals(then_branch, state, locals);
-            if let Some(eb) = else_branch {
-                rewrite_expr_locals(eb, state, locals);
-            }
-        }
-        ExprKind::While { cond, body } => {
-            rewrite_expr_locals(cond, state, locals);
-            rewrite_block_locals(body, state, locals);
-        }
-        ExprKind::Loop { body } => rewrite_block_locals(body, state, locals),
-        ExprKind::ForIn { iter, body, .. } => {
-            rewrite_expr_locals(iter, state, locals);
-            rewrite_block_locals(body, state, locals);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            rewrite_expr_locals(scrutinee, state, locals);
-            for arm in arms.iter_mut() {
-                rewrite_expr_locals(&mut arm.body, state, locals);
-            }
-            let _ = MatchArm { pattern: arms[0].pattern.clone(), body: arms[0].body.clone(), span: arms[0].span };
-        }
-        ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. }
-        | ExprKind::New { args, .. } => {
-            for a in args.iter_mut() {
-                rewrite_expr_locals(a, state, locals);
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            rewrite_expr_locals(obj, state, locals);
-            for a in args.iter_mut() {
-                rewrite_expr_locals(a, state, locals);
-            }
-        }
-        ExprKind::Field { obj, .. } => rewrite_expr_locals(obj, state, locals),
-        ExprKind::Index { obj, index } => {
-            rewrite_expr_locals(obj, state, locals);
-            rewrite_expr_locals(index, state, locals);
-        }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            rewrite_expr_locals(lhs, state, locals);
-            rewrite_expr_locals(rhs, state, locals);
-        }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::Cast { expr, .. }
-        | ExprKind::TypeTest { expr, .. }
-        | ExprKind::TypeDowncast { expr, .. } => {
-            rewrite_expr_locals(expr, state, locals);
-        }
-        ExprKind::Some(inner) | ExprKind::Await(inner) => {
-            rewrite_expr_locals(inner, state, locals);
-        }
-        ExprKind::Return(opt) | ExprKind::Break(opt) => {
-            if let Some(e) = opt {
-                rewrite_expr_locals(e, state, locals);
-            }
-        }
-        ExprKind::FnExpr { body, .. } => {
-            // Closure bodies *do* need rewriting: the continuation
-            // closures the poll fn emits reference `state` directly
-            // (already a free var the rewriter shouldn't touch since
-            // `state` isn't in `locals`), but a user-written closure
-            // inside a chunk would capture body locals — those need
-            // to flow through state field accesses too.
-            rewrite_block_locals(body, state, locals);
-        }
-        ExprKind::Tuple(es) | ExprKind::Array(es) => {
-            for e in es.iter_mut() {
-                rewrite_expr_locals(e, state, locals);
-            }
-        }
-        ExprKind::MapLit(entries) => {
-            for (k, v) in entries.iter_mut() {
-                rewrite_expr_locals(k, state, locals);
-                rewrite_expr_locals(v, state, locals);
-            }
-        }
-        ExprKind::Range { start, end, .. } => {
-            if let Some(e) = start {
-                rewrite_expr_locals(e, state, locals);
-            }
-            if let Some(e) = end {
-                rewrite_expr_locals(e, state, locals);
-            }
-        }
-        ExprKind::EnumCtor { args, .. } => match args {
-            ilang_ast::CtorArgs::Unit => {}
-            ilang_ast::CtorArgs::Tuple(es) => {
-                for e in es.iter_mut() {
-                    rewrite_expr_locals(e, state, locals);
-                }
-            }
-            ilang_ast::CtorArgs::Struct(fs) => {
-                for (_, e) in fs.iter_mut() {
-                    rewrite_expr_locals(e, state, locals);
-                }
-            }
-        },
-        _ => {}
-    }
-}
-
-fn rewrite_block_locals(b: &mut Block, state: Symbol, locals: &HashSet<Symbol>) {
-    for s in b.stmts.iter_mut() {
-        rewrite_stmt_locals(s, state, locals);
-    }
-    if let Some(t) = b.tail.as_mut() {
-        rewrite_expr_locals(t, state, locals);
-    }
-}
-
-fn rewrite_stmt_locals(s: &mut Stmt, state: Symbol, locals: &HashSet<Symbol>) {
-    match &mut s.kind {
-        StmtKind::Let { name, value, .. } => {
-            // A *fresh* `let` inside a chunk introduces a new
-            // local — and since `state_locals` is computed from
-            // the original (pre-desugar) body, the freshly-
-            // introduced name is already in the set if it was a
-            // top-level body let. The rewriter then converts the
-            // `let x = ...` introduction to `state.x = ...`.
-            rewrite_expr_locals(value, state, locals);
-            if locals.contains(name) {
-                let n = *name;
-                let v = value.clone();
-                let span = s.span;
-                s.kind = StmtKind::Expr(mk_assign_field(
-                    mk_var(state, span),
-                    n,
-                    v,
-                    span,
-                ));
-            }
-        }
-        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
-            rewrite_expr_locals(value, state, locals);
-        }
-        StmtKind::Expr(e) => rewrite_expr_locals(e, state, locals),
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct AsyncLowerError {
     pub fn_name: Symbol,
@@ -2597,215 +697,6 @@ impl std::fmt::Display for AsyncLowerError {
 }
 
 impl std::error::Error for AsyncLowerError {}
-
-// Silence `unused` warning for the `HashSet` import — the live-
-// variable analysis lands in the multi-state follow-up.
-// --------------------------------------------------------------------
-// `break` / `continue` rewriting inside async while bodies
-//
-// The poll fn body is wrapped in `loop { switch (state_idx) {...} }`
-// so Jump terminators can re-enter the dispatcher. A user-written
-// `break` / `continue` inside the original `while` body would
-// escape THAT outer loop instead of the user's logical while —
-// `break` would exit the entire poll fn (leaving the result
-// promise pending forever), and `continue` would jump back to
-// re-dispatch on the same state_idx (infinite loop).
-//
-// Pre-pass: rewrite each `break` to `{ state.state_idx = after_idx;
-// continue }` and each `continue` to `{ state.state_idx = header_idx;
-// continue }`. The `continue` here is the OUTER loop's — it
-// re-dispatches, picking up the user-loop's correct target state.
-// Nested loops are left alone (the inner break/continue belongs to
-// the inner loop, which has its own state-machine treatment).
-
-fn rewrite_loop_jumps_in_block(
-    b: &mut Block,
-    header_idx: u32,
-    after_idx: u32,
-    state: Symbol,
-) {
-    for s in b.stmts.iter_mut() {
-        rewrite_loop_jumps_in_stmt(s, header_idx, after_idx, state);
-    }
-    if let Some(t) = b.tail.as_mut() {
-        rewrite_loop_jumps_in_expr(t, header_idx, after_idx, state);
-    }
-}
-
-fn rewrite_loop_jumps_in_stmt(
-    s: &mut Stmt,
-    header_idx: u32,
-    after_idx: u32,
-    state: Symbol,
-) {
-    match &mut s.kind {
-        StmtKind::Let { value, .. } => {
-            rewrite_loop_jumps_in_expr(value, header_idx, after_idx, state);
-        }
-        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
-            rewrite_loop_jumps_in_expr(value, header_idx, after_idx, state);
-        }
-        StmtKind::Expr(e) => {
-            rewrite_loop_jumps_in_expr(e, header_idx, after_idx, state);
-        }
-    }
-}
-
-fn rewrite_loop_jumps_in_expr(
-    e: &mut Expr,
-    header_idx: u32,
-    after_idx: u32,
-    state: Symbol,
-) {
-    let span = e.span;
-    match &mut e.kind {
-        ExprKind::Break(opt) => {
-            // `break v` with a value is rare and would need to
-            // thread `v` through to the after state's `state.<field>`
-            // — not implemented. Reject by leaving the value alone;
-            // the post-desugar type checker will surface a clearer
-            // "break with value in this position" diagnostic.
-            if opt.is_some() {
-                return;
-            }
-            e.kind = ExprKind::Block(Block {
-                stmts: vec![
-                    mk_expr_stmt(
-                        mk_assign_field(
-                            mk_var(state, span),
-                            Symbol::intern("state_idx"),
-                            mk_int(after_idx as i64, span),
-                            span,
-                        ),
-                        span,
-                    ),
-                    mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
-                ],
-                tail: None,
-            });
-        }
-        ExprKind::Continue => {
-            e.kind = ExprKind::Block(Block {
-                stmts: vec![
-                    mk_expr_stmt(
-                        mk_assign_field(
-                            mk_var(state, span),
-                            Symbol::intern("state_idx"),
-                            mk_int(header_idx as i64, span),
-                            span,
-                        ),
-                        span,
-                    ),
-                    mk_expr_stmt(Expr::new(ExprKind::Continue, span), span),
-                ],
-                tail: None,
-            });
-        }
-        // Don't recurse into nested loops — break/continue there
-        // belong to the inner loop's scope.
-        ExprKind::While { .. } | ExprKind::Loop { .. } | ExprKind::ForIn { .. } => {}
-        ExprKind::FnExpr { .. } => {
-            // Closures introduce their own break/continue scope (and
-            // ilang doesn't even allow break/continue across a
-            // closure boundary). Don't descend.
-        }
-        // Recurse into every other sub-expression.
-        ExprKind::Block(b) => rewrite_loop_jumps_in_block(b, header_idx, after_idx, state),
-        ExprKind::If { cond, then_branch, else_branch } => {
-            rewrite_loop_jumps_in_expr(cond, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_block(then_branch, header_idx, after_idx, state);
-            if let Some(eb) = else_branch {
-                rewrite_loop_jumps_in_expr(eb, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
-            rewrite_loop_jumps_in_expr(expr, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_block(then_branch, header_idx, after_idx, state);
-            if let Some(eb) = else_branch {
-                rewrite_loop_jumps_in_expr(eb, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            rewrite_loop_jumps_in_expr(scrutinee, header_idx, after_idx, state);
-            for arm in arms.iter_mut() {
-                rewrite_loop_jumps_in_expr(&mut arm.body, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
-            rewrite_loop_jumps_in_expr(lhs, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_expr(rhs, header_idx, after_idx, state);
-        }
-        ExprKind::Unary { expr, .. }
-        | ExprKind::Cast { expr, .. }
-        | ExprKind::TypeTest { expr, .. }
-        | ExprKind::TypeDowncast { expr, .. } => {
-            rewrite_loop_jumps_in_expr(expr, header_idx, after_idx, state);
-        }
-        ExprKind::Some(inner) | ExprKind::Await(inner) => {
-            rewrite_loop_jumps_in_expr(inner, header_idx, after_idx, state);
-        }
-        ExprKind::Return(opt) => {
-            if let Some(e) = opt {
-                rewrite_loop_jumps_in_expr(e, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::Assign { value, .. } => {
-            rewrite_loop_jumps_in_expr(value, header_idx, after_idx, state);
-        }
-        ExprKind::AssignField { obj, value, .. } => {
-            rewrite_loop_jumps_in_expr(obj, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_expr(value, header_idx, after_idx, state);
-        }
-        ExprKind::AssignIndex { obj, index, value } => {
-            rewrite_loop_jumps_in_expr(obj, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_expr(index, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_expr(value, header_idx, after_idx, state);
-        }
-        ExprKind::Call { args, .. }
-        | ExprKind::SuperCall { args, .. }
-        | ExprKind::New { args, .. } => {
-            for a in args.iter_mut() {
-                rewrite_loop_jumps_in_expr(a, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::MethodCall { obj, args, .. } => {
-            rewrite_loop_jumps_in_expr(obj, header_idx, after_idx, state);
-            for a in args.iter_mut() {
-                rewrite_loop_jumps_in_expr(a, header_idx, after_idx, state);
-            }
-        }
-        ExprKind::Field { obj, .. } => {
-            rewrite_loop_jumps_in_expr(obj, header_idx, after_idx, state);
-        }
-        ExprKind::Index { obj, index } => {
-            rewrite_loop_jumps_in_expr(obj, header_idx, after_idx, state);
-            rewrite_loop_jumps_in_expr(index, header_idx, after_idx, state);
-        }
-        ExprKind::Tuple(es) | ExprKind::Array(es) => {
-            for e in es.iter_mut() {
-                rewrite_loop_jumps_in_expr(e, header_idx, after_idx, state);
-            }
-        }
-        _ => {}
-    }
-}
-
-// --------------------------------------------------------------------
-// Sub-expression `await` lifting
-//
-// Before the analyser / synthesiser run, we normalise the async fn
-// body so that every `await E` appears as the direct RHS of a let
-// (or, for the body's tail, gets pulled into one above the tail).
-// `foo(await p, await q)` becomes
-//     let __await_t0 = await p
-//     let __await_t1 = await q
-//     foo(__await_t0, __await_t1)
-//
-// We only lift awaits that appear at the *top-level* expression
-// stack of a statement — awaits inside an `if` / `while` / `match` /
-// closure body are left in place, and the analyser will still
-// reject them as "nested-block await" (a separate follow-up).
-// --------------------------------------------------------------------
 
 fn lift_subexpr_awaits(body: Block) -> Block {
     let mut counter: u64 = 0;
@@ -3063,90 +954,3 @@ fn lift_in_expr(
     }
 }
 
-#[allow(dead_code)]
-fn _liveness_placeholder() -> HashSet<Symbol> {
-    HashSet::new()
-}
-
-#[allow(dead_code)]
-fn _param_placeholder() -> Param {
-    Param {
-        name: Symbol::intern("_"),
-        ty: Type::Unit,
-        span: Span::dummy(),
-        default: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse_async_body(src: &str) -> FnDecl {
-        let tokens = ilang_lexer::tokenize(src).expect("lex");
-        let prog = crate::parse(&tokens).expect("parse");
-        prog.items
-            .into_iter()
-            .find_map(|i| match i {
-                Item::Fn(f) if f.is_async => Some(f),
-                _ => None,
-            })
-            .expect("async fn")
-    }
-
-    #[test]
-    fn analyzes_zero_await_body() {
-        let f = parse_async_body("async fn foo(): i64 { 42 }");
-        let inner = f.ret.clone().unwrap_or(Type::Unit);
-        let a = analyze(&f.params, &inner, &f.body);
-        assert!(a.suspend_points.is_empty());
-        assert!(a.unsupported.is_none());
-        // No suspend points → no chunks computed.
-        assert!(a.chunks.is_empty());
-        assert!(a.state_slots.is_empty());
-    }
-
-    #[test]
-    fn analyzes_let_await_chain() {
-        let f = parse_async_body(
-            "async fn run(p: Promise<i64>, q: Promise<i64>): i64 {
-                let x = await p
-                let y = await q
-                x + y
-            }",
-        );
-        let inner = f.ret.clone().unwrap_or(Type::Unit);
-        let a = analyze(&f.params, &inner, &f.body);
-        assert_eq!(a.suspend_points.len(), 2);
-        assert!(a.unsupported.is_none(), "got: {:?}", a.unsupported);
-        // 3 chunks: pre-first-await, post-first-pre-second, final.
-        assert_eq!(a.chunks.len(), 3);
-        assert!(a.chunks[0].stmts.is_empty());
-        assert_eq!(a.chunks[0].awaited_binding, Some(Symbol::intern("x")));
-        assert_eq!(a.chunks[1].awaited_binding, Some(Symbol::intern("y")));
-        assert!(a.chunks[2].awaited_promise_expr.is_none());
-        assert!(a.chunks[2].final_tail.is_some());
-        // State slots: promise + 2 params + 2 lets = 5 slots; 16-byte
-        // header + 5 * 8 = 56 bytes total.
-        assert_eq!(a.state_slots.len(), 5);
-        assert_eq!(a.state_size, 16 + 5 * 8);
-        assert_eq!(a.state_slots[0].name, Symbol::intern("__async_promise"));
-        assert_eq!(a.state_slots[1].name, Symbol::intern("p"));
-        assert_eq!(a.state_slots[1].from_param, true);
-        assert_eq!(a.state_slots[3].name, Symbol::intern("x"));
-        assert_eq!(a.state_slots[3].from_param, false);
-    }
-
-    #[test]
-    fn rejects_await_in_subexpression() {
-        let f = parse_async_body(
-            "async fn run(p: Promise<i64>): i64 {
-                let x = (await p) + 1
-                x
-            }",
-        );
-        let inner = f.ret.clone().unwrap_or(Type::Unit);
-        let a = analyze(&f.params, &inner, &f.body);
-        assert!(a.unsupported.is_some());
-    }
-}

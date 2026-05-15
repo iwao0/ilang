@@ -33,7 +33,7 @@ use super::lower_term_const::lower_const;
 use super::print_emit::emit_panic_if;
 use super::print_kind::{
     kind_tag_of, print_kind_id, KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_NONE,
-    KIND_OBJECT, KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
+    KIND_OBJECT, KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
 use super::{
     emit_is_subclass, CompileError, MapIds, PanicAux, PrintIds, PrintLits, PromiseIds, StrIds,
@@ -987,6 +987,7 @@ pub(super) fn lower_inst<M: Module>(
                     KIND_CLOSURE => panic_aux.retain_closure,
                     KIND_STR => panic_aux.retain_string,
                     KIND_ENUM => panic_aux.retain_enum,
+                    KIND_PROMISE => panic_aux.retain_promise,
                     _ => unreachable!(),
                 };
                 let f = module.declare_func_in_func(r, fb.func);
