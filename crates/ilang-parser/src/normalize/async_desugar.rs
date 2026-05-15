@@ -234,6 +234,8 @@ fn lower_async_fn(
     // `bar(await p) + 1` into that form.
     // Pre-passes (run before lift_subexpr_awaits so that any awaits
     // introduced by the rewrites flow through the canonicaliser):
+    //   0. `loop { ...await... }` → `while true { ... }`.
+    f.body = state_machine_v2::desugar_loop_to_while(f.body);
     //   1. `while await cond { ... }` → `while true { let cv = await cond; if !cv { break } ... }`
     f.body = state_machine_v2::desugar_while_cond_await(f.body);
     f.body = lift_subexpr_awaits(f.body);
@@ -635,6 +637,16 @@ fn infer_let_rhs(
             }
         }
         ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env, fn_returns),
+        ExprKind::Index { obj, .. } => {
+            // `arr[i]` — element type of an Array. Other indexable
+            // types (Map etc.) aren't covered here; an explicit
+            // annotation lets the user override.
+            let ot = infer_let_rhs(obj, env, fn_returns)?;
+            match ot {
+                Type::Array { elem, .. } => Some(*elem),
+                _ => None,
+            }
+        }
         ExprKind::If { then_branch, else_branch, .. } => {
             // Type of `if-else` = type of either arm. Walk the
             // then-branch as a synthetic block (which threads inner

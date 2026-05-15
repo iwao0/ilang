@@ -30,8 +30,17 @@ impl Lower {
         if !ed.type_params.is_empty() {
             return Err(LowerError::Unsupported("generic enums"));
         }
-        let id = crate::types::EnumId(self.enums.len() as u32);
-        self.enum_ids.insert(ed.name, id);
+        // Reuse the pre-allocated id from the name-pre-pass when
+        // present (see `lower_program`'s 1b. step). Otherwise allocate
+        // a fresh one.
+        let (id, was_pre_allocated) = match self.enum_ids.get(&ed.name).copied() {
+            Some(id) => (id, true),
+            None => {
+                let id = crate::types::EnumId(self.enums.len() as u32);
+                self.enum_ids.insert(ed.name, id);
+                (id, false)
+            }
+        };
 
         let repr_ty = match &ed.repr_ty {
             Some(t) => self.resolve_ty(t)?,
@@ -115,13 +124,19 @@ impl Lower {
                 },
             );
         }
-        self.enums.push(crate::program::EnumLayout {
+        let layout = crate::program::EnumLayout {
             id,
             name: ed.name,
             repr: repr_ty,
             variants,
             is_flags: ed.flags,
-        });
+        };
+        if was_pre_allocated {
+            // Overwrite the placeholder layout the pre-pass pushed.
+            self.enums[id.0 as usize] = layout;
+        } else {
+            self.enums.push(layout);
+        }
         self.enum_meta.insert(id, meta);
         Ok(())
     }

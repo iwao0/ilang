@@ -127,6 +127,141 @@ fn mid_body_join_kind(e: &Expr) -> Option<()> {
     }
 }
 
+// --- `loop { body }` → `while true { body }` ---------------------
+//
+// Reuses the existing while-with-await machinery (cond is await-
+// free `true`, body inherits the user's break/continue intent).
+// Sync loops don't need rewriting — only those whose body contains
+// awaits would otherwise be rejected as unsupported.
+
+pub fn desugar_loop_to_while(mut body: Block) -> Block {
+    desugar_loop_in_block(&mut body);
+    body
+}
+
+fn desugar_loop_in_block(b: &mut Block) {
+    for s in b.stmts.iter_mut() {
+        desugar_loop_in_stmt(s);
+    }
+    if let Some(t) = b.tail.as_mut() {
+        desugar_loop_in_expr(t);
+    }
+}
+
+fn desugar_loop_in_stmt(s: &mut Stmt) {
+    match &mut s.kind {
+        StmtKind::Let { value, .. }
+        | StmtKind::LetTuple { value, .. }
+        | StmtKind::LetStruct { value, .. } => desugar_loop_in_expr(value),
+        StmtKind::Expr(e) => desugar_loop_in_expr(e),
+    }
+}
+
+fn desugar_loop_in_expr(e: &mut Expr) {
+    match &mut e.kind {
+        ExprKind::Loop { body } => {
+            desugar_loop_in_block(body);
+            if block_has_await(body) {
+                let span = e.span;
+                let new_body = std::mem::replace(body, Block { stmts: Vec::new(), tail: None });
+                *e = Expr::new(
+                    ExprKind::While {
+                        cond: Box::new(Expr::new(ExprKind::Bool(true), span)),
+                        body: new_body,
+                    },
+                    span,
+                );
+            }
+        }
+        ExprKind::Block(b) => desugar_loop_in_block(b),
+        ExprKind::If { cond, then_branch, else_branch } => {
+            desugar_loop_in_expr(cond);
+            desugar_loop_in_block(then_branch);
+            if let Some(eb) = else_branch {
+                desugar_loop_in_expr(eb);
+            }
+        }
+        ExprKind::IfLet { expr, then_branch, else_branch, .. } => {
+            desugar_loop_in_expr(expr);
+            desugar_loop_in_block(then_branch);
+            if let Some(eb) = else_branch {
+                desugar_loop_in_expr(eb);
+            }
+        }
+        ExprKind::While { cond, body } => {
+            desugar_loop_in_expr(cond);
+            desugar_loop_in_block(body);
+        }
+        ExprKind::ForIn { iter, body, .. } => {
+            desugar_loop_in_expr(iter);
+            desugar_loop_in_block(body);
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            desugar_loop_in_expr(scrutinee);
+            for a in arms.iter_mut() {
+                desugar_loop_in_expr(&mut a.body);
+            }
+        }
+        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
+            desugar_loop_in_expr(lhs);
+            desugar_loop_in_expr(rhs);
+        }
+        ExprKind::Unary { expr, .. }
+        | ExprKind::Cast { expr, .. }
+        | ExprKind::TypeTest { expr, .. }
+        | ExprKind::TypeDowncast { expr, .. } => desugar_loop_in_expr(expr),
+        ExprKind::Some(inner) | ExprKind::Await(inner) => desugar_loop_in_expr(inner),
+        ExprKind::Return(opt) | ExprKind::Break(opt) => {
+            if let Some(inner) = opt {
+                desugar_loop_in_expr(inner);
+            }
+        }
+        ExprKind::Assign { value, .. } => desugar_loop_in_expr(value),
+        ExprKind::AssignField { obj, value, .. } => {
+            desugar_loop_in_expr(obj);
+            desugar_loop_in_expr(value);
+        }
+        ExprKind::AssignIndex { obj, index, value } => {
+            desugar_loop_in_expr(obj);
+            desugar_loop_in_expr(index);
+            desugar_loop_in_expr(value);
+        }
+        ExprKind::Call { args, .. }
+        | ExprKind::SuperCall { args, .. }
+        | ExprKind::New { args, .. } => {
+            for a in args.iter_mut() {
+                desugar_loop_in_expr(a);
+            }
+        }
+        ExprKind::MethodCall { obj, args, .. } => {
+            desugar_loop_in_expr(obj);
+            for a in args.iter_mut() {
+                desugar_loop_in_expr(a);
+            }
+        }
+        ExprKind::Field { obj, .. } => desugar_loop_in_expr(obj),
+        ExprKind::Index { obj, index } => {
+            desugar_loop_in_expr(obj);
+            desugar_loop_in_expr(index);
+        }
+        ExprKind::Tuple(es) | ExprKind::Array(es) => {
+            for x in es.iter_mut() {
+                desugar_loop_in_expr(x);
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(s) = start {
+                desugar_loop_in_expr(s);
+            }
+            if let Some(eb) = end {
+                desugar_loop_in_expr(eb);
+            }
+        }
+        ExprKind::FnExpr { body, .. } => desugar_loop_in_block(body),
+        _ => {}
+    }
+}
+
 // --- `while await cond` → `while true { let __wcond_N = await cond; if !cond_v { break } ... }` --
 //
 // `while cond` re-evaluates cond every iteration; awaiting inside
@@ -401,88 +536,201 @@ fn desugar_for_in_in_expr(e: &mut Expr, counter: &mut u64) {
             // Recurse into the body first (handles nested for-in).
             desugar_for_in_in_block(body, counter);
             desugar_for_in_in_expr(iter, counter);
-            // Only rewrite if the loop body contains awaits AND the
-            // iter is a fully-bounded range. Otherwise leave intact.
+            // Only rewrite if the loop body contains awaits. Sync
+            // for-in is handled downstream as-is.
             if !block_has_await(body) {
                 return;
             }
-            let (start_opt, end_opt, inclusive) = match &iter.kind {
-                ExprKind::Range { start, end, inclusive } => {
-                    (start.as_deref().cloned(), end.as_deref().cloned(), *inclusive)
-                }
-                _ => return,
-            };
-            let (Some(start_expr), Some(end_expr)) = (start_opt, end_opt) else {
-                return;
-            };
             let span = e.span;
-            *counter += 1;
-            let end_name = Symbol::intern(&format!("__for_end_{}", counter));
             let var_name = *var;
-            // body + `var = var + 1`
-            let mut new_body_stmts: Vec<Stmt> = body.stmts.clone();
-            if let Some(t) = body.tail.as_ref() {
-                new_body_stmts.push(Stmt::new(StmtKind::Expr((**t).clone()), span));
-            }
-            let inc = Expr::new(
-                ExprKind::Assign {
-                    target: var_name,
-                    value: Box::new(Expr::new(
-                        ExprKind::Binary {
-                            op: ilang_ast::BinOp::Add,
-                            lhs: Box::new(Expr::new(ExprKind::Var(var_name), span)),
-                            rhs: Box::new(Expr::new(ExprKind::Int(1), span)),
+            match &iter.kind {
+                ExprKind::Range { start, end, inclusive } => {
+                    let start_opt = start.as_deref().cloned();
+                    let end_opt = end.as_deref().cloned();
+                    let inclusive = *inclusive;
+                    let Some(start_expr) = start_opt else {
+                        return;
+                    };
+                    let mut new_body_stmts: Vec<Stmt> = body.stmts.clone();
+                    if let Some(t) = body.tail.as_ref() {
+                        new_body_stmts.push(Stmt::new(StmtKind::Expr((**t).clone()), span));
+                    }
+                    let inc = Expr::new(
+                        ExprKind::Assign {
+                            target: var_name,
+                            value: Box::new(Expr::new(
+                                ExprKind::Binary {
+                                    op: ilang_ast::BinOp::Add,
+                                    lhs: Box::new(Expr::new(ExprKind::Var(var_name), span)),
+                                    rhs: Box::new(Expr::new(ExprKind::Int(1), span)),
+                                },
+                                span,
+                            )),
                         },
                         span,
-                    )),
-                },
-                span,
-            );
-            new_body_stmts.push(Stmt::new(StmtKind::Expr(inc), span));
-            let new_body = Block { stmts: new_body_stmts, tail: None };
-            let cmp_op = if inclusive { ilang_ast::BinOp::Le } else { ilang_ast::BinOp::Lt };
-            let cond = Expr::new(
-                ExprKind::Binary {
-                    op: cmp_op,
-                    lhs: Box::new(Expr::new(ExprKind::Var(var_name), span)),
-                    rhs: Box::new(Expr::new(ExprKind::Var(end_name), span)),
-                },
-                span,
-            );
-            let while_expr = Expr::new(
-                ExprKind::While {
-                    cond: Box::new(cond),
-                    body: new_body,
-                },
-                span,
-            );
-            let stmts = vec![
-                Stmt::new(
-                    StmtKind::Let {
-                        is_pub: false,
-                        is_const: false,
-                        name: end_name,
-                        ty: None,
-                        value: end_expr,
-                    },
-                    span,
-                ),
-                Stmt::new(
-                    StmtKind::Let {
-                        is_pub: false,
-                        is_const: false,
-                        name: var_name,
-                        ty: None,
-                        value: start_expr,
-                    },
-                    span,
-                ),
-                Stmt::new(StmtKind::Expr(while_expr), span),
-            ];
-            *e = Expr::new(
-                ExprKind::Block(Block { stmts, tail: None }),
-                span,
-            );
+                    );
+                    new_body_stmts.push(Stmt::new(StmtKind::Expr(inc), span));
+                    let new_body = Block { stmts: new_body_stmts, tail: None };
+                    let mut stmts: Vec<Stmt> = Vec::with_capacity(3);
+                    let cond = match end_opt {
+                        Some(end_expr) => {
+                            *counter += 1;
+                            let end_name = Symbol::intern(&format!("__for_end_{}", counter));
+                            stmts.push(Stmt::new(
+                                StmtKind::Let {
+                                    is_pub: false,
+                                    is_const: false,
+                                    name: end_name,
+                                    ty: None,
+                                    value: end_expr,
+                                },
+                                span,
+                            ));
+                            let cmp_op = if inclusive {
+                                ilang_ast::BinOp::Le
+                            } else {
+                                ilang_ast::BinOp::Lt
+                            };
+                            Expr::new(
+                                ExprKind::Binary {
+                                    op: cmp_op,
+                                    lhs: Box::new(Expr::new(ExprKind::Var(var_name), span)),
+                                    rhs: Box::new(Expr::new(ExprKind::Var(end_name), span)),
+                                },
+                                span,
+                            )
+                        }
+                        None => Expr::new(ExprKind::Bool(true), span),
+                    };
+                    let while_expr = Expr::new(
+                        ExprKind::While {
+                            cond: Box::new(cond),
+                            body: new_body,
+                        },
+                        span,
+                    );
+                    stmts.push(Stmt::new(
+                        StmtKind::Let {
+                            is_pub: false,
+                            is_const: false,
+                            name: var_name,
+                            ty: None,
+                            value: start_expr,
+                        },
+                        span,
+                    ));
+                    stmts.push(Stmt::new(StmtKind::Expr(while_expr), span));
+                    *e = Expr::new(
+                        ExprKind::Block(Block { stmts, tail: None }),
+                        span,
+                    );
+                }
+                _ => {
+                    // Array-like iter: index-based while loop.
+                    //   { let __arr_N = iter
+                    //     let __i_N = 0
+                    //     while __i_N < __arr_N.length {
+                    //         let var = __arr_N[__i_N]
+                    //         body
+                    //         __i_N = __i_N + 1
+                    //     } }
+                    *counter += 1;
+                    let arr_name = Symbol::intern(&format!("__for_arr_{}", counter));
+                    let idx_name = Symbol::intern(&format!("__for_i_{}", counter));
+                    let iter_expr = (**iter).clone();
+                    let arr_var = || Expr::new(ExprKind::Var(arr_name), span);
+                    let idx_var = || Expr::new(ExprKind::Var(idx_name), span);
+                    // let var = __arr_N[__i_N]
+                    let elem_let = Stmt::new(
+                        StmtKind::Let {
+                            is_pub: false,
+                            is_const: false,
+                            name: var_name,
+                            ty: None,
+                            value: Expr::new(
+                                ExprKind::Index {
+                                    obj: Box::new(arr_var()),
+                                    index: Box::new(idx_var()),
+                                },
+                                span,
+                            ),
+                        },
+                        span,
+                    );
+                    let mut new_body_stmts: Vec<Stmt> = Vec::with_capacity(body.stmts.len() + 3);
+                    new_body_stmts.push(elem_let);
+                    for s in body.stmts.iter() {
+                        new_body_stmts.push(s.clone());
+                    }
+                    if let Some(t) = body.tail.as_ref() {
+                        new_body_stmts.push(Stmt::new(StmtKind::Expr((**t).clone()), span));
+                    }
+                    let inc = Expr::new(
+                        ExprKind::Assign {
+                            target: idx_name,
+                            value: Box::new(Expr::new(
+                                ExprKind::Binary {
+                                    op: ilang_ast::BinOp::Add,
+                                    lhs: Box::new(idx_var()),
+                                    rhs: Box::new(Expr::new(ExprKind::Int(1), span)),
+                                },
+                                span,
+                            )),
+                        },
+                        span,
+                    );
+                    new_body_stmts.push(Stmt::new(StmtKind::Expr(inc), span));
+                    let new_body = Block { stmts: new_body_stmts, tail: None };
+                    let cond = Expr::new(
+                        ExprKind::Binary {
+                            op: ilang_ast::BinOp::Lt,
+                            lhs: Box::new(idx_var()),
+                            rhs: Box::new(Expr::new(
+                                ExprKind::Field {
+                                    obj: Box::new(arr_var()),
+                                    name: Symbol::intern("length"),
+                                },
+                                span,
+                            )),
+                        },
+                        span,
+                    );
+                    let while_expr = Expr::new(
+                        ExprKind::While {
+                            cond: Box::new(cond),
+                            body: new_body,
+                        },
+                        span,
+                    );
+                    let stmts = vec![
+                        Stmt::new(
+                            StmtKind::Let {
+                                is_pub: false,
+                                is_const: false,
+                                name: arr_name,
+                                ty: None,
+                                value: iter_expr,
+                            },
+                            span,
+                        ),
+                        Stmt::new(
+                            StmtKind::Let {
+                                is_pub: false,
+                                is_const: false,
+                                name: idx_name,
+                                ty: None,
+                                value: Expr::new(ExprKind::Int(0), span),
+                            },
+                            span,
+                        ),
+                        Stmt::new(StmtKind::Expr(while_expr), span),
+                    ];
+                    *e = Expr::new(
+                        ExprKind::Block(Block { stmts, tail: None }),
+                        span,
+                    );
+                }
+            }
         }
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Logical { lhs, rhs, .. } => {
             desugar_for_in_in_expr(lhs, counter);
@@ -559,12 +807,44 @@ fn resolve_var_ty(e: &Expr, cumulative_fields: &[(Symbol, Type)]) -> Option<Type
     None
 }
 
+/// Substitute every `Type::TypeVar(name)` in `t` with its mapped
+/// concrete type from `subst`. Used when resolving variant payload
+/// types of a generic enum instantiation (e.g. `Box<i64>` mapping
+/// `T → i64` over a variant's `T` payload).
+fn substitute_type(t: &Type, subst: &HashMap<Symbol, Type>) -> Type {
+    match t {
+        Type::TypeVar(n) => subst.get(n).cloned().unwrap_or_else(|| t.clone()),
+        // The parser can't distinguish a type-parameter reference from
+        // a class name at parse time — it emits `Type::Object(name)`
+        // for both. If `name` is in the substitution map, treat it
+        // as a type-param reference and replace.
+        Type::Object(n) if subst.contains_key(n) => subst.get(n).cloned().unwrap(),
+        Type::Optional(inner) => Type::Optional(Box::new(substitute_type(inner, subst))),
+        Type::Weak(inner) => Type::Weak(Box::new(substitute_type(inner, subst))),
+        Type::Array { elem, fixed } => Type::Array {
+            elem: Box::new(substitute_type(elem, subst)),
+            fixed: *fixed,
+        },
+        Type::Tuple(ts) => Type::Tuple(
+            ts.iter().map(|t| substitute_type(t, subst)).collect::<Vec<_>>().into_boxed_slice(),
+        ),
+        Type::Generic(g) => Type::generic(
+            g.base,
+            g.args.iter().map(|a| substitute_type(a, subst)).collect(),
+        ),
+        Type::Fn(f) => Type::func(
+            f.params.iter().map(|p| substitute_type(p, subst)).collect(),
+            substitute_type(&f.ret, subst),
+        ),
+        _ => t.clone(),
+    }
+}
+
 /// Compute (binding_name, binding_type) pairs introduced by `pattern`
 /// when matched against a value of `scrutinee_ty`. Built-in
-/// `Optional<T>` / `Result<T,E>` / user enums are resolved
-/// precisely; unknown shapes yield `Type::I64` placeholders for any
-/// bindings (matching legacy's policy and what we did before this
-/// pass landed).
+/// `Optional<T>` / `Result<T,E>` / user enums (including generic
+/// ones via type_param substitution) are resolved precisely;
+/// unknown shapes yield `Type::I64` placeholders for any bindings.
 fn pattern_binding_types(
     pattern: &Pattern,
     scrutinee_ty: Option<&Type>,
@@ -573,10 +853,26 @@ fn pattern_binding_types(
     let PatternKind::Variant { variant, bindings, .. } = &pattern.kind else {
         return Vec::new();
     };
-    // payload_tys: positional payload type list for the matched variant.
-    // payload_struct: name → type map for struct-payload variants.
     let mut payload_tys: Option<Vec<Type>> = None;
     let mut payload_struct: HashMap<Symbol, Type> = HashMap::new();
+    // Resolve user-enum payload using an enum decl + type-arg
+    // substitution.
+    let mut resolve_user_enum = |ed: &EnumDecl, subst: HashMap<Symbol, Type>| {
+        if let Some(v) = ed.variants.iter().find(|v| v.name == *variant) {
+            match &v.payload {
+                VariantPayload::Unit => payload_tys = Some(Vec::new()),
+                VariantPayload::Tuple(tys) => {
+                    payload_tys =
+                        Some(tys.iter().map(|t| substitute_type(t, &subst)).collect());
+                }
+                VariantPayload::Struct(fs) => {
+                    for f in fs.iter() {
+                        payload_struct.insert(f.name, substitute_type(&f.ty, &subst));
+                    }
+                }
+            }
+        }
+    };
     match scrutinee_ty {
         Some(Type::Optional(inner)) => match variant.as_str() {
             "some" => payload_tys = Some(vec![(**inner).clone()]),
@@ -590,19 +886,22 @@ fn pattern_binding_types(
                 _ => {}
             }
         }
+        Some(Type::Generic(g)) => {
+            // User-defined generic enum: `EnumName<A, B>`. Build a
+            // type_param → arg substitution and resolve.
+            if let Some(ed) = enums.get(&g.base) {
+                let subst: HashMap<Symbol, Type> = ed
+                    .type_params
+                    .iter()
+                    .zip(g.args.iter())
+                    .map(|(p, a)| (*p, a.clone()))
+                    .collect();
+                resolve_user_enum(ed, subst);
+            }
+        }
         Some(Type::Enum(name)) | Some(Type::Object(name)) => {
             if let Some(ed) = enums.get(name) {
-                if let Some(v) = ed.variants.iter().find(|v| v.name == *variant) {
-                    match &v.payload {
-                        VariantPayload::Unit => payload_tys = Some(Vec::new()),
-                        VariantPayload::Tuple(tys) => payload_tys = Some(tys.to_vec()),
-                        VariantPayload::Struct(fs) => {
-                            for f in fs.iter() {
-                                payload_struct.insert(f.name, f.ty.clone());
-                            }
-                        }
-                    }
-                }
+                resolve_user_enum(ed, HashMap::new());
             }
         }
         _ => {}
