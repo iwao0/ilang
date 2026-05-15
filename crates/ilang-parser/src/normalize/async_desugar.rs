@@ -781,12 +781,59 @@ fn walk_if_tail_for_lets(
                 walk_if_tail_for_lets(eb, env, out, seen, fn_returns)?;
             }
         }
+        ExprKind::Match { scrutinee: _, arms } => {
+            // Pattern bindings get rewritten to `state.<name>` field
+            // accesses by the variable rewriter — they need a slot
+            // in the state class. The binding's type isn't recoverable
+            // at the desugar stage without typecheck info (each
+            // enum variant's payload signature would have to be
+            // looked up). We register the binding with `Type::I64`
+            // as a placeholder: it matches the runtime ABI of every
+            // pointer / numeric, and the type checker accepts the
+            // post-desugar field assignment as long as the actual
+            // bound value's MIR type lines up. Patterns that need
+            // type-precise field declarations (e.g. heap strings
+            // that the cascade must release) are a follow-up.
+            for arm in arms.iter() {
+                for binding_name in pattern_binding_names(&arm.pattern) {
+                    if seen.insert(binding_name) {
+                        let t = Type::I64;
+                        env.insert(binding_name, t.clone());
+                        out.push((binding_name, t));
+                    }
+                }
+                // Then walk the arm body for further lets.
+                walk_if_tail_for_lets(&arm.body, env, out, seen, fn_returns)?;
+            }
+        }
         ExprKind::Block(b) => {
             walk_block_for_lets(b, env, out, seen, fn_returns)?;
         }
         _ => {}
     }
     Ok(())
+}
+
+/// Collect every binding name introduced by a pattern (variant
+/// payload tuples / structs). Wildcards and primitive literal
+/// patterns produce nothing.
+fn pattern_binding_names(p: &ilang_ast::Pattern) -> Vec<Symbol> {
+    match &p.kind {
+        ilang_ast::PatternKind::Variant { bindings, .. } => match bindings {
+            ilang_ast::PatternBindings::Unit => Vec::new(),
+            ilang_ast::PatternBindings::Tuple(names) => names
+                .iter()
+                .filter(|n| n.as_str() != "_")
+                .copied()
+                .collect(),
+            ilang_ast::PatternBindings::Struct(pairs) => pairs
+                .iter()
+                .map(|(_, bind)| *bind)
+                .filter(|n| n.as_str() != "_")
+                .collect(),
+        },
+        _ => Vec::new(),
+    }
 }
 
 /// Best-effort type inference for the common let-RHS shapes the
@@ -1168,6 +1215,24 @@ pub enum BlockTerminator {
     ///  else { state.state_idx = else_idx; continue }`.
     #[allow(dead_code)]
     Branch { cond: Expr, then_idx: u32, else_idx: u32 },
+    /// `match scrut { pat_0 => { state.state_idx = idx_0; continue }
+    ///                pat_1 => { state.state_idx = idx_1; continue }
+    ///                ... }`. Multi-way dispatch. Patterns are
+    /// emitted verbatim into the generated `match` expression — the
+    /// language-level exhaustiveness rules apply (the type checker
+    /// validates them on the generated code).
+    MatchDispatch { scrut: Expr, arms: Vec<MatchArmTarget> },
+}
+
+/// One arm of a `MatchDispatch` terminator. Pattern bindings (if
+/// any) are visible in the arm body via the regular variable
+/// rewriter — they need to live in the state class as fields so
+/// they survive across the state transition; the BlockBuilder
+/// adds them to `state_locals` before recursing.
+#[derive(Debug, Clone)]
+pub struct MatchArmTarget {
+    pub pattern: ilang_ast::Pattern,
+    pub target_idx: u32,
 }
 
 /// Translate the analyser's straight-line `AwaitChunk` vec into the
@@ -1327,6 +1392,61 @@ fn emit_block_body(
             ));
             stmts.push(mk_expr_stmt(
                 Expr::new(ExprKind::Continue, span),
+                span,
+            ));
+        }
+        BlockTerminator::MatchDispatch { scrut, arms } => {
+            // Build `match <scrut> { pat => { <save bindings>; state.state_idx = N; continue } ... }`.
+            // Pattern bindings introduced in the dispatch arm get
+            // captured into state fields BEFORE flowing to the
+            // target idx — they're lexically scoped to the arm
+            // body, so without the save they'd be inaccessible
+            // once we jump out.
+            let mut match_arms: Vec<ilang_ast::MatchArm> = Vec::new();
+            for a in arms {
+                let mut arm_stmts: Vec<Stmt> = Vec::new();
+                for binding in pattern_binding_names(&a.pattern) {
+                    arm_stmts.push(mk_expr_stmt(
+                        mk_assign_field(
+                            mk_var(state_param, span),
+                            binding,
+                            mk_var(binding, span),
+                            span,
+                        ),
+                        span,
+                    ));
+                }
+                arm_stmts.push(mk_expr_stmt(
+                    mk_assign_field(
+                        mk_var(state_param, span),
+                        Symbol::intern("state_idx"),
+                        mk_int(a.target_idx as i64, span),
+                        span,
+                    ),
+                    span,
+                ));
+                arm_stmts.push(mk_expr_stmt(
+                    Expr::new(ExprKind::Continue, span),
+                    span,
+                ));
+                let arm_body = Expr::new(
+                    ExprKind::Block(Block { stmts: arm_stmts, tail: None }),
+                    span,
+                );
+                match_arms.push(ilang_ast::MatchArm {
+                    pattern: a.pattern.clone(),
+                    body: arm_body,
+                    span,
+                });
+            }
+            stmts.push(mk_expr_stmt(
+                Expr::new(
+                    ExprKind::Match {
+                        scrutinee: Box::new(scrut.clone()),
+                        arms: match_arms.into_boxed_slice(),
+                    },
+                    span,
+                ),
                 span,
             ));
         }
@@ -1648,6 +1768,68 @@ impl<'a> BlockBuilder<'a> {
                     terminator: term,
                 });
             }
+            Some((ExprKind::Block(inner_block), _)) => {
+                // Tail is itself a block — splice its stmts and
+                // tail into the current chunk and continue handling.
+                // Without this, e.g. a match arm whose body is
+                // `{ let v = await p; v * 2 }` gets treated as a
+                // single tail expression and the inner await never
+                // produces its own state block.
+                let merged = Block {
+                    stmts: inner_block.stmts.clone(),
+                    tail: inner_block.tail.clone(),
+                };
+                // Continue current accumulation by recursing: the
+                // recursive call uses `cur_idx` as its entry and
+                // honours `end`. We feed cur_stmts through by
+                // prepending the recursive call's stmts? No — the
+                // simpler fix: emit a Jump to a fresh idx whose
+                // block builds `merged`. But that's wasteful for a
+                // common case. Instead, do a *no-op* prologue: emit
+                // the current stmts under cur_idx with a Jump, then
+                // recurse on the merged block at the jump target.
+                let nested_idx = self.fresh_idx();
+                self.blocks.push(StateBlock {
+                    idx: cur_idx,
+                    stmts: cur_stmts,
+                    terminator: BlockTerminator::Jump(nested_idx),
+                });
+                self.build_body(&merged, nested_idx, None, end);
+            }
+            Some((ExprKind::Match { scrutinee, arms }, _)) => {
+                let mut scrut_e = (**scrutinee).clone();
+                rewrite_expr_locals(
+                    &mut scrut_e,
+                    self.state_param,
+                    self.state_locals,
+                );
+                // Allocate a target idx per arm, build each arm body
+                // as its own block sequence terminated per `end`.
+                let mut arm_targets: Vec<MatchArmTarget> = Vec::new();
+                for arm in arms.iter() {
+                    let target_idx = self.fresh_idx();
+                    arm_targets.push(MatchArmTarget {
+                        pattern: arm.pattern.clone(),
+                        target_idx,
+                    });
+                    // The arm body is an Expr; wrap it as a Block
+                    // with the body as the tail so build_body's
+                    // recursive logic settles / jumps it correctly.
+                    let synth_body = Block {
+                        stmts: Vec::new(),
+                        tail: Some(Box::new(arm.body.clone())),
+                    };
+                    self.build_body(&synth_body, target_idx, None, end);
+                }
+                self.blocks.push(StateBlock {
+                    idx: cur_idx,
+                    stmts: cur_stmts,
+                    terminator: BlockTerminator::MatchDispatch {
+                        scrut: scrut_e,
+                        arms: arm_targets,
+                    },
+                });
+            }
             Some((ExprKind::If { cond, then_branch, else_branch }, _)) => {
                 let mut cond_expr = (**cond).clone();
                 rewrite_expr_locals(
@@ -1777,6 +1959,14 @@ fn body_has_control_flow_with_await(body: &Block) -> bool {
     {
         return true;
     }
+    // Match at tail with awaits inside
+    if matches!(
+        body.tail.as_deref().map(|t| &t.kind),
+        Some(ExprKind::Match { .. })
+    ) && body_or_arms_have_await(body)
+    {
+        return true;
+    }
     false
 }
 
@@ -1814,6 +2004,10 @@ fn expr_has_await(e: &Expr) -> bool {
         }
         ExprKind::While { cond, body } => {
             expr_has_await(cond) || body_or_arms_have_await(body)
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            expr_has_await(scrutinee)
+                || arms.iter().any(|a| expr_has_await(&a.body))
         }
         ExprKind::Block(b) => body_or_arms_have_await(b),
         _ => false,

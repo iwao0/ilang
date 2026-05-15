@@ -2321,13 +2321,17 @@ pool can pass it between workers safely.
   statements above the use site before the state-machine
   synth runs, so they "just work" — including multiple awaits
   in one statement, evaluated left-to-right.
-- `if-else` at body tail position and `while` loops both
-  accept awaits inside their arms / bodies; the state-machine
-  lowering emits Branch / Jump terminators that re-dispatch
-  off the same `state_idx` switch. Mid-body `if-else` (where
-  the if's value flows into subsequent stmts), `match`, and
-  lambda bodies are still rejected — they need a join state
-  (mid-body if) or N-way dispatch (match).
+- `if-else`, `while`, and `match` at body tail position all
+  accept awaits inside their arms / bodies. The state-machine
+  lowering emits Branch (if), Jump (while), and MatchDispatch
+  (match) terminators that re-dispatch off the same `state_idx`
+  switch. Pattern bindings in match arms (e.g. `some(v)`) are
+  captured into state fields before flowing to the target
+  state. Mid-body `if-else` / `while` / `match` (where the
+  expression's value flows into subsequent stmts) and awaits
+  inside lambda bodies are still rejected — the former needs a
+  join state, the latter would require the lambda itself to be
+  an async fn.
 - `async` methods inside a `class` aren't allowed yet: the
   state class + poll fn would need to be hoisted next to the
   containing class.
