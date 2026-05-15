@@ -11,10 +11,11 @@ use crate::closures::{__release_closure, __retain_closure};
 use crate::enums::{__release_enum, __retain_enum};
 use crate::kind::{
     KIND_ARRAY, KIND_CLOSURE, KIND_ENUM, KIND_MAP, KIND_OBJECT,
-    KIND_OPTIONAL, KIND_STR, KIND_TUPLE,
+    KIND_OPTIONAL, KIND_PROMISE, KIND_STR, KIND_TUPLE,
 };
 use crate::maps::{__release_map, __retain_map};
 use crate::optionals::{__release_optional, __retain_optional};
+use crate::promises::{__release_promise, __retain_promise};
 use crate::strings::{__release_string, __retain_string};
 use crate::tuples::{__release_tuple, __retain_tuple};
 
@@ -31,6 +32,7 @@ pub(crate) fn release_field_by_kind(ptr: i64, kind: i64) {
         KIND_CLOSURE => __release_closure(ptr),
         KIND_STR => __release_string(ptr),
         KIND_ENUM => __release_enum(ptr),
+        KIND_PROMISE => __release_promise(ptr),
         _ => {}
     }
 }
@@ -48,6 +50,7 @@ pub(crate) fn retain_field_by_kind(ptr: i64, kind: i64) {
         KIND_CLOSURE => __retain_closure(ptr),
         KIND_STR => __retain_string(ptr),
         KIND_ENUM => __retain_enum(ptr),
+        KIND_PROMISE => __retain_promise(ptr),
         _ => {}
     }
 }
