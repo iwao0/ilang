@@ -43,6 +43,49 @@ use ilang_ast::{
     StmtKind, Symbol, Type,
 };
 
+/// One slot in the generated state struct. Slot 0 is the result
+/// Promise pointer; slots 1.. mirror the live locals (params first,
+/// then `let`-bindings in source order).
+#[derive(Debug, Clone)]
+pub struct StateSlot {
+    /// Identifier the source body uses for this binding.
+    pub name: Symbol,
+    /// Declared (or inferred) type — used to size the cascade kind
+    /// the runtime will release on poll completion.
+    pub ty: Type,
+    /// Byte offset within the state struct (0-based; the rc /
+    /// state_idx header sits at offsets 0 and 8).
+    pub offset: u32,
+    /// Whether this slot was a function parameter (always live at
+    /// every state) vs. an in-body `let` (live only after its
+    /// introduction).
+    pub from_param: bool,
+}
+
+/// One straight-line chunk of the async body, separated from the
+/// previous chunk by an `await` suspend point. Chunk 0 runs from
+/// the start of the body to the first await; chunk N runs from
+/// the last await's continuation to the end.
+#[derive(Debug, Clone)]
+pub struct AwaitChunk {
+    /// Statements in source order belonging to this chunk. The
+    /// `let x = await p` that *terminates* the chunk is NOT part
+    /// of it — instead, the chunk's `awaited_promise_expr` and
+    /// `awaited_binding` capture that suspend point.
+    pub stmts: Vec<Stmt>,
+    /// `Some` if this chunk ends with `let name = await p` — the
+    /// poll fn schedules `p`, then resumes the next chunk with
+    /// `name` bound to p's resolved value. `None` for the final
+    /// chunk (no trailing await; the body's tail expression
+    /// becomes the result).
+    pub awaited_promise_expr: Option<Expr>,
+    pub awaited_binding: Option<Symbol>,
+    /// `Some` only on the final chunk: the body's tail expression
+    /// after every await has been processed. The poll fn settles
+    /// the result Promise with this value.
+    pub final_tail: Option<Expr>,
+}
+
 /// Result of analysing one async fn's body.
 #[derive(Debug)]
 pub struct AsyncAnalysis {
@@ -51,13 +94,132 @@ pub struct AsyncAnalysis {
     /// `Some(reason)` if the body shape isn't supported by the
     /// current lowering. `None` means we'll lower it.
     pub unsupported: Option<String>,
+    /// State struct layout (poll fn reads / writes locals via
+    /// these slot offsets). Empty for unsupported bodies.
+    pub state_slots: Vec<StateSlot>,
+    /// Body broken into per-state chunks. `chunks.len()` equals
+    /// `suspend_points.len() + 1`. Empty for unsupported bodies.
+    pub chunks: Vec<AwaitChunk>,
+    /// Total bytes the state struct should be allocated at.
+    /// `16 + 8 * state_slots.len()` (header + one i64 per slot).
+    pub state_size: u32,
 }
 
-/// Walk an async fn body and collect its analysis.
-pub fn analyze(body: &Block) -> AsyncAnalysis {
-    let mut a = AsyncAnalysis { suspend_points: Vec::new(), unsupported: None };
+/// Walk an async fn body and collect its analysis. The `params`
+/// argument supplies the parameter list (always live at every
+/// suspend point); `ret` is the declared inner return type
+/// (post-`async fn` unwrapping — i.e. `T` for `async fn foo(): T`).
+pub fn analyze(params: &[Param], ret: &Type, body: &Block) -> AsyncAnalysis {
+    let mut a = AsyncAnalysis {
+        suspend_points: Vec::new(),
+        unsupported: None,
+        state_slots: Vec::new(),
+        chunks: Vec::new(),
+        state_size: 0,
+    };
     walk_block(body, &mut a, /*top_level=*/ true);
+    if a.unsupported.is_none() && !a.suspend_points.is_empty() {
+        compute_slots_and_chunks(params, ret, body, &mut a);
+    }
     a
+}
+
+/// Build the StateSlot table + AwaitChunk sequence for an async fn
+/// body whose top-level statements are at most:
+///   - sync `let / let-tuple / let-struct / Expr` statements
+///   - `let name = await p` statements (the only suspend points
+///     allowed by `walk_*`)
+/// followed by an optional tail expression that doesn't itself
+/// contain `await` (caught upstream by `walk_expr`'s "await in
+/// sub-expression" check).
+fn compute_slots_and_chunks(
+    params: &[Param],
+    _ret: &Type,
+    body: &Block,
+    a: &mut AsyncAnalysis,
+) {
+    // Header: rc @ 0, state_idx @ 8. Slot 0 = result Promise @ 16.
+    let mut slots: Vec<StateSlot> = Vec::new();
+    let mut next_off: u32 = 16; // state_idx is at +8, slot 0 starts here
+    let promise_slot = StateSlot {
+        name: Symbol::intern("__async_promise"),
+        ty: Type::Object("Promise".into()),
+        offset: next_off,
+        from_param: false,
+    };
+    slots.push(promise_slot);
+    next_off += 8;
+    // Params first.
+    for p in params {
+        slots.push(StateSlot {
+            name: p.name,
+            ty: p.ty.clone(),
+            offset: next_off,
+            from_param: true,
+        });
+        next_off += 8;
+    }
+    // Then in-body let bindings, in source order. We don't compute
+    // tight liveness — over-approximate by giving every let a slot.
+    // The poll fn writes the slot at let-binding time and reads it
+    // back when needed. Wasteful for short-lived locals but
+    // correctness-preserving.
+    let body_lets = collect_let_bindings(body);
+    for (name, ty) in body_lets {
+        slots.push(StateSlot {
+            name,
+            ty,
+            offset: next_off,
+            from_param: false,
+        });
+        next_off += 8;
+    }
+    a.state_size = next_off;
+    a.state_slots = slots;
+
+    // Build the chunks: split body.stmts on each `let _ = await p`.
+    let mut chunks: Vec<AwaitChunk> = Vec::new();
+    let mut cur: Vec<Stmt> = Vec::new();
+    for s in &body.stmts {
+        if let StmtKind::Let { name, value, .. } = &s.kind {
+            if let ExprKind::Await(p) = &value.kind {
+                chunks.push(AwaitChunk {
+                    stmts: std::mem::take(&mut cur),
+                    awaited_promise_expr: Some((**p).clone()),
+                    awaited_binding: Some(*name),
+                    final_tail: None,
+                });
+                continue;
+            }
+        }
+        cur.push(s.clone());
+    }
+    // Final chunk: remaining stmts + the body's tail.
+    chunks.push(AwaitChunk {
+        stmts: cur,
+        awaited_promise_expr: None,
+        awaited_binding: None,
+        final_tail: body.tail.as_deref().cloned(),
+    });
+    a.chunks = chunks;
+}
+
+fn collect_let_bindings(b: &Block) -> Vec<(Symbol, Type)> {
+    let mut out: Vec<(Symbol, Type)> = Vec::new();
+    let mut seen: HashSet<Symbol> = HashSet::new();
+    for s in &b.stmts {
+        if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+            if seen.insert(*name) {
+                // Take the declared type when present; otherwise
+                // record `Type::Unit` as a placeholder. The poll-fn
+                // synth pass will infer from the value expression
+                // when it walks the chunks.
+                let _ = value;
+                out.push((*name, ty.clone().unwrap_or(Type::Unit)));
+            }
+        }
+    }
+    out
 }
 
 fn walk_block(b: &Block, a: &mut AsyncAnalysis, top_level: bool) {
@@ -289,7 +451,8 @@ fn lower_async_fn(f: FnDecl) -> Result<FnDecl, AsyncLowerError> {
     if !f.is_async {
         return Ok(f);
     }
-    let analysis = analyze(&f.body);
+    let inner_ret = f.ret.clone().unwrap_or(Type::Unit);
+    let analysis = analyze(&f.params, &inner_ret, &f.body);
     if let Some(reason) = analysis.unsupported {
         return Err(AsyncLowerError {
             fn_name: f.name.clone(),
@@ -361,5 +524,78 @@ fn _param_placeholder() -> Param {
         ty: Type::Unit,
         span: Span::dummy(),
         default: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_async_body(src: &str) -> FnDecl {
+        let tokens = ilang_lexer::tokenize(src).expect("lex");
+        let prog = crate::parse(&tokens).expect("parse");
+        prog.items
+            .into_iter()
+            .find_map(|i| match i {
+                Item::Fn(f) if f.is_async => Some(f),
+                _ => None,
+            })
+            .expect("async fn")
+    }
+
+    #[test]
+    fn analyzes_zero_await_body() {
+        let f = parse_async_body("async fn foo(): i64 { 42 }");
+        let inner = f.ret.clone().unwrap_or(Type::Unit);
+        let a = analyze(&f.params, &inner, &f.body);
+        assert!(a.suspend_points.is_empty());
+        assert!(a.unsupported.is_none());
+        // No suspend points → no chunks computed.
+        assert!(a.chunks.is_empty());
+        assert!(a.state_slots.is_empty());
+    }
+
+    #[test]
+    fn analyzes_let_await_chain() {
+        let f = parse_async_body(
+            "async fn run(p: Promise<i64>, q: Promise<i64>): i64 {
+                let x = await p
+                let y = await q
+                x + y
+            }",
+        );
+        let inner = f.ret.clone().unwrap_or(Type::Unit);
+        let a = analyze(&f.params, &inner, &f.body);
+        assert_eq!(a.suspend_points.len(), 2);
+        assert!(a.unsupported.is_none(), "got: {:?}", a.unsupported);
+        // 3 chunks: pre-first-await, post-first-pre-second, final.
+        assert_eq!(a.chunks.len(), 3);
+        assert!(a.chunks[0].stmts.is_empty());
+        assert_eq!(a.chunks[0].awaited_binding, Some(Symbol::intern("x")));
+        assert_eq!(a.chunks[1].awaited_binding, Some(Symbol::intern("y")));
+        assert!(a.chunks[2].awaited_promise_expr.is_none());
+        assert!(a.chunks[2].final_tail.is_some());
+        // State slots: promise + 2 params + 2 lets = 5 slots; 16-byte
+        // header + 5 * 8 = 56 bytes total.
+        assert_eq!(a.state_slots.len(), 5);
+        assert_eq!(a.state_size, 16 + 5 * 8);
+        assert_eq!(a.state_slots[0].name, Symbol::intern("__async_promise"));
+        assert_eq!(a.state_slots[1].name, Symbol::intern("p"));
+        assert_eq!(a.state_slots[1].from_param, true);
+        assert_eq!(a.state_slots[3].name, Symbol::intern("x"));
+        assert_eq!(a.state_slots[3].from_param, false);
+    }
+
+    #[test]
+    fn rejects_await_in_subexpression() {
+        let f = parse_async_body(
+            "async fn run(p: Promise<i64>): i64 {
+                let x = (await p) + 1
+                x
+            }",
+        );
+        let inner = f.ret.clone().unwrap_or(Type::Unit);
+        let a = analyze(&f.params, &inner, &f.body);
+        assert!(a.unsupported.is_some());
     }
 }
