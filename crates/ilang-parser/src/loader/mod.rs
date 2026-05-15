@@ -89,6 +89,14 @@ pub enum LoadError {
         name: Symbol,
         span: ilang_ast::Span,
     },
+    /// `async fn` body has a shape the current state-machine
+    /// lowering can't handle (await in a sub-expression, await
+    /// inside a loop / branch, etc.). The reason carries the
+    /// specific limitation; users get an actionable message.
+    AsyncLowerError {
+        reason: String,
+        span: ilang_ast::Span,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -107,6 +115,9 @@ impl std::fmt::Display for LoadError {
             }
             LoadError::BadConst { name, reason, span } => {
                 write!(f, "{span}: `const {name}` is not a constant expression: {reason}")
+            }
+            LoadError::AsyncLowerError { reason, span } => {
+                write!(f, "[{span}]: {reason}")
             }
             LoadError::PrivateItemRef { module, name, span } => {
                 write!(
@@ -230,7 +241,17 @@ pub fn load_program_with_overlay(
     // `Var(const_name)` with the literal value. Item::Const entries
     // are removed afterwards. Downstream stages (type checker /
     // interpreter / JIT) never see consts.
-    inline_constants(merged)
+    let prog = inline_constants(merged)?;
+    // Lower `async fn` bodies into Promise-returning state-machine
+    // form. Trivial (zero-await) bodies become
+    // `Promise.resolve(...)`-wrapping fns; bodies with awaits are
+    // not yet supported and fail here with an actionable error.
+    crate::normalize::async_desugar::lower_async(prog).map_err(|e| {
+        LoadError::AsyncLowerError {
+            reason: e.reason,
+            span: e.span,
+        }
+    })
 }
 
 fn canonicalize(p: &Path) -> Result<PathBuf, LoadError> {

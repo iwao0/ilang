@@ -24,6 +24,7 @@ use ilang_ast::{
 
 use crate::error::ParseError;
 
+pub mod async_desugar;
 mod dealias;
 mod validate;
 

@@ -538,6 +538,10 @@ impl Lower {
                     let val = self.resolve_ty(&g.args[1])?;
                     return Ok(MirTy::Map { key: Box::new(key), val: Box::new(val) });
                 }
+                // Built-in `Promise<T>`.
+                if g.base.as_str() == "Promise" && g.args.len() == 1 {
+                    return Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)));
+                }
                 // Built-in `Result<T, E>` is registered as a
                 // non-generic enum (i64 payload cells) — fall through
                 // by name lookup.

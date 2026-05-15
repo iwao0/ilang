@@ -506,6 +506,30 @@ pub extern "C" fn __promise_drain() {
 }
 
 // --------------------------------------------------------------------
+// Settle hooks for the upcoming async/await state-machine lowering.
+//
+// The poll fn that the multi-state lowering generates needs to call
+// `settle_resolve` / `settle_reject` on its result Promise from
+// inside generated ilang code. Both internals already exist (the
+// `.then` / `.catch` paths route through them); here we expose them
+// as `extern "C"` wrappers so codegen can declare them as imports
+// alongside the rest of the `__promise_*` family.
+//
+// Both take ownership of the value / msg's +1 reference (consistent
+// with the rest of the Promise API).
+// --------------------------------------------------------------------
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __promise_settle_resolve(p: i64, value: i64, kind: i64) {
+    settle_resolve(p, value, kind);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __promise_settle_reject(p: i64, msg: i64) {
+    settle_reject(p, msg);
+}
+
+// --------------------------------------------------------------------
 // Promise.all / Promise.race — aggregate combinators.
 //
 // Both take an array of `Promise<T>` (an i64 ptr to an array header
