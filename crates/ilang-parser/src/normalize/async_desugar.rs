@@ -665,25 +665,121 @@ fn default_value_for(ty: &Type, span: Span) -> Expr {
     }
 }
 
-/// Walk the original body and collect every `let name: T = ...` into
-/// a name→type map. Required so the state class can declare each
-/// in-body local with its proper field type; the analyser only
-/// recorded names.
-fn collect_let_types(b: &Block) -> Result<Vec<(Symbol, Type)>, Symbol> {
+/// Walk the original body and collect every `let` binding's name +
+/// type. Annotation is used when present; otherwise the mini-
+/// inferencer below tries to derive the type from the RHS using
+/// the param env + earlier let env. Returns `Err(name)` if a let
+/// is un-annotated AND the inferencer can't handle its RHS shape.
+fn collect_let_types(
+    params: &[Param],
+    b: &Block,
+) -> Result<Vec<(Symbol, Type)>, Symbol> {
+    let mut env: HashMap<Symbol, Type> = HashMap::new();
+    for p in params {
+        env.insert(p.name, p.ty.clone());
+    }
     let mut out: Vec<(Symbol, Type)> = Vec::new();
     let mut seen: HashSet<Symbol> = HashSet::new();
     for s in &b.stmts {
-        if let StmtKind::Let { name, ty: Some(t), .. } = &s.kind {
-            if seen.insert(*name) {
-                out.push((*name, t.clone()));
+        if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+            if !seen.insert(*name) {
+                continue;
             }
-        } else if let StmtKind::Let { name, ty: None, .. } = &s.kind {
-            // Missing annotation — the desugar can't decide the
-            // state-class field type without it. Return the offender.
-            return Err(*name);
+            let t = if let Some(t) = ty {
+                t.clone()
+            } else {
+                match infer_let_rhs(value, &env) {
+                    Some(t) => t,
+                    None => return Err(*name),
+                }
+            };
+            env.insert(*name, t.clone());
+            out.push((*name, t));
         }
     }
     Ok(out)
+}
+
+/// Best-effort type inference for the common let-RHS shapes the
+/// state-machine desugar needs to recover when the user didn't
+/// annotate. Returns `None` for shapes we can't decide locally
+/// (the caller surfaces an actionable error pointing at the
+/// missing annotation).
+///
+/// Supported:
+/// - literals (int / float / bool / string)
+/// - `Var(n)` where n is in scope
+/// - `await E` where E's type can be inferred
+/// - `Promise.resolve(arg)` (returns `Promise<typeof arg>`)
+/// - `Promise.reject(...)` (returns `Promise<()>`)
+/// - Simple arithmetic / comparison on i64 (returns i64 / bool)
+fn infer_let_rhs(e: &Expr, env: &HashMap<Symbol, Type>) -> Option<Type> {
+    match &e.kind {
+        ExprKind::Int(_) => Some(Type::I64),
+        ExprKind::Float(_) => Some(Type::F64),
+        ExprKind::Bool(_) => Some(Type::Bool),
+        ExprKind::Str(_) => Some(Type::Str),
+        ExprKind::Var(n) => env.get(n).cloned(),
+        ExprKind::Await(inner) => {
+            let t = infer_let_rhs(inner, env)?;
+            match t {
+                Type::Generic(g)
+                    if g.base.as_str() == "Promise" && g.args.len() == 1 =>
+                {
+                    Some(g.args[0].clone())
+                }
+                _ => None,
+            }
+        }
+        ExprKind::MethodCall { obj, method, args } => {
+            // `Promise.resolve(v)` / `Promise.reject(msg)` —
+            // recognise the common static factories so a
+            // `let p = Promise.resolve(...)` flows through.
+            if let ExprKind::Var(n) = &obj.kind {
+                if n.as_str() == "Promise" {
+                    match method.as_str() {
+                        "resolve" if args.len() == 1 => {
+                            let inner = infer_let_rhs(&args[0], env)?;
+                            return Some(Type::generic("Promise", vec![inner]));
+                        }
+                        "reject" => {
+                            return Some(Type::generic("Promise", vec![Type::Unit]));
+                        }
+                        "__pending" => {
+                            // Internal — returns `Promise<Any>` since
+                            // the inner type can't be derived from
+                            // args. Caller's binding annotation (if
+                            // any) would override.
+                            return Some(Type::generic("Promise", vec![Type::Any]));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            None
+        }
+        ExprKind::Binary { op, lhs, rhs } => {
+            let lt = infer_let_rhs(lhs, env)?;
+            let rt = infer_let_rhs(rhs, env)?;
+            use ilang_ast::BinOp;
+            match op {
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                    Some(Type::Bool)
+                }
+                _ => {
+                    if lt == rt {
+                        Some(lt)
+                    } else if matches!(lt, Type::I64) && matches!(rt, Type::I64) {
+                        Some(Type::I64)
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+        ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env),
+        _ => None,
+    }
 }
 
 fn synthesize_state_machine(
@@ -700,20 +796,27 @@ fn synthesize_state_machine(
     let state_param = Symbol::intern("__state");
     let awaited_param = Symbol::intern("__awaited_value");
 
-    // Every in-body let must declare its type so we can lay out the
-    // state class. Surface a precise error otherwise.
-    let body_lets = collect_let_types(&f.body).map_err(|missing| AsyncLowerError {
-        fn_name: f.name.clone(),
-        span: f.span,
-        reason: format!(
-            "async fn `{}`: `let {} = ...` needs an explicit type \
-             annotation so the state-machine desugar can size the \
-             state struct field (the AST-stage desugar runs before \
-             type inference)",
-            f.name.as_str(),
-            missing.as_str()
-        ),
-    })?;
+    // Every in-body let needs a known type so we can lay out the
+    // state class. The mini-inferencer covers common RHS shapes
+    // (literals, params, await on a typed Promise, Promise.resolve,
+    // simple arithmetic); anything else still needs an explicit
+    // annotation.
+    let body_lets =
+        collect_let_types(&f.params, &f.body).map_err(|missing| AsyncLowerError {
+            fn_name: f.name.clone(),
+            span: f.span,
+            reason: format!(
+                "async fn `{}`: `let {} = ...` — the state-machine \
+                 desugar couldn't infer this binding's type from the \
+                 RHS shape. Add an explicit `let {}: T = ...` \
+                 annotation (the AST-stage desugar covers only a \
+                 small subset of RHS shapes; full type inference \
+                 runs after the desugar)",
+                f.name.as_str(),
+                missing.as_str(),
+                missing.as_str()
+            ),
+        })?;
 
     // ---- State class -------------------------------------------------
     let mut fields: Vec<FieldDecl> = Vec::new();

@@ -2310,9 +2310,11 @@ the heap and is atomically refcounted, so the work-stealing
 pool can pass it between workers safely.
 
 **Current restrictions:**
-- The awaited binding must declare its type: `let x: T = await p`.
-  The desugar runs at the AST stage, before type inference, so
-  it can't yet recover `T` from `p`'s expression.
+- The desugar's mini-inferencer recovers the binding's type from
+  common RHS shapes: literals, params, `await Var(p)`,
+  `await Promise.resolve(arg)`, simple arithmetic, etc. For
+  shapes it doesn't recognise, fall back to an explicit
+  `let x: T = ...` annotation.
 - Awaits inside nested blocks (`if`, `loop`, `match`, lambdas)
   are rejected — they would need explicit live-variable
   analysis across the join points.

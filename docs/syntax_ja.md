@@ -1729,7 +1729,7 @@ async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
 await 1 つにつき heap 割当の continuation closure 1 個 + 状態クラスのフィールドが live local 分。state クラスは heap 上にあり ARC はアトミックなので、work-stealing pool が worker 間で持ち回しても安全。
 
 **現状の制約:**
-- await の binding は型注釈必須 (`let x: T = await p`)。desugar は AST 段階で動くので型推論結果がまだ無い
+- desugar 内のミニ型推論器が、よくある RHS 形 (リテラル、param、`await Var(p)`、`await Promise.resolve(arg)`、単純な算術 etc.) からは binding の型を導出する。認識できない形だけ `let x: T = ...` の明示注釈が要る
 - nested block (`if`, `loop`, `match`, lambda) 内の await は reject — join 点を跨ぐ live-variable 解析が必要
 - `class` 内の `async` メソッドは未対応 — state クラス + poll fn をクラス外に hoist する仕組みが要る
 - `throw` キーワードが無いので、`async fn` 本体から reject するには引き続き `Promise.reject(...)` / executor を使う

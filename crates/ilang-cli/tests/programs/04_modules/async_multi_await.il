@@ -10,9 +10,11 @@
 // expect: 60
 
 async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
-    let x: i64 = await a
-    let y: i64 = await b
-    let z: i64 = await c
+    // Bindings drop their `: i64` annotation — the desugar's mini-
+    // inferencer pulls `i64` out of each param's `Promise<i64>`.
+    let x = await a
+    let y = await b
+    let z = await c
     x + y + z
 }
 

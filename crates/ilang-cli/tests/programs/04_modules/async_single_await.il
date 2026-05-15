@@ -1,17 +1,12 @@
-// `async fn` with a single `let x: T = await p` await site.
-// The desugar pass rewrites this to:
-//   fn doubleAsync(p): Promise<i64> {
-//       p.then(fn(x: i64): i64 { x * 2 })
-//   }
-// so the asynchronously-arriving value of `p` flows through the
-// trailing expression. Explicit type annotation on the `let x: i64`
-// is currently required (the AST-level desugar can't see the type
-// checker's inference yet).
+// `async fn` with a single `let x = await p` await site. The
+// desugar's mini-inferencer figures out `x: i64` from `p`'s
+// `Promise<i64>` parameter type, so no explicit annotation is
+// required on the binding.
 //
 // expect: 42
 
 async fn doubleAsync(p: Promise<i64>): i64 {
-    let x: i64 = await p
+    let x = await p
     x * 2
 }
 
