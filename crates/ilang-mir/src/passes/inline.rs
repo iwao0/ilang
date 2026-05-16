@@ -88,7 +88,7 @@ fn inst_blocks_inlining(inst: &Inst) -> bool {
     )
 }
 
-fn extract_candidate(f: &Function, self_id: usize) -> Option<Candidate> {
+fn extract_candidate(f: &Function, self_id: usize, prog: &Program) -> Option<Candidate> {
     if !matches!(f.kind, FunctionKind::Local) {
         return None;
     }
@@ -96,6 +96,23 @@ fn extract_candidate(f: &Function, self_id: usize) -> Option<Candidate> {
         return None;
     }
     if f.blocks.len() != 1 {
+        return None;
+    }
+    // CRepr struct / union parameters use the by-value ABI: at a
+    // real call site the bytes are copied across the boundary so
+    // the callee mutating a field can't reach back to the caller's
+    // value. Inlining replaces the call with the body and
+    // substitutes the param ValueId for the caller's arg
+    // ValueId — that's reference semantics, the opposite of what
+    // by-value passing promises. Skip inlining any candidate that
+    // takes (or returns) a CRepr value; a future pass could
+    // revisit with explicit copy emission at the inline boundary.
+    for p in f.params.iter() {
+        if is_crepr_object(&p.ty, prog) {
+            return None;
+        }
+    }
+    if is_crepr_object(&f.ret, prog) {
         return None;
     }
     let block = &f.blocks[0];
@@ -129,12 +146,29 @@ fn extract_candidate(f: &Function, self_id: usize) -> Option<Candidate> {
     })
 }
 
+/// CRepr / CPacked / CUnion `Object` — these are the types that
+/// follow the by-value calling convention (chunks / HFA / sret),
+/// so naively substituting their ValueIds across an inline
+/// boundary would lose the copy semantics the ABI promises.
+fn is_crepr_object(ty: &MirTy, prog: &Program) -> bool {
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        return matches!(
+            layout.repr,
+            crate::program::ClassRepr::CRepr
+                | crate::program::ClassRepr::CPacked
+                | crate::program::ClassRepr::CUnion
+        );
+    }
+    false
+}
+
 pub fn run_program(prog: &mut Program) -> Stats {
     let candidates: Vec<Option<Candidate>> = prog
         .functions
         .iter()
         .enumerate()
-        .map(|(i, f)| extract_candidate(f, i))
+        .map(|(i, f)| extract_candidate(f, i, prog))
         .collect();
     let mut stats = Stats::default();
     for caller in prog.functions.iter_mut() {

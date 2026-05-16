@@ -141,7 +141,7 @@ pub fn analyze_function(prog: &Program, fn_idx: usize) -> HashSet<ValueId> {
         .collect();
     for block in &f.blocks {
         for inst in &block.insts {
-            check_inst_escape(inst, &mut cand_set, &alias_resolved);
+            check_inst_escape(inst, &mut cand_set, &alias_resolved, f, prog);
         }
         check_term_escape(&block.term, &mut cand_set, &alias_resolved);
     }
@@ -173,10 +173,47 @@ fn resolve_alias(mut v: ValueId, alias: &HashMap<ValueId, ValueId>) -> ValueId {
     v
 }
 
+/// `true` when an arg passed to a Call would be consumed by-value
+/// (chunked into i64/float regs at the call site, callee gets its
+/// own frame copy). Such args don't escape the caller — the
+/// pointer never reaches the callee, only the bytes do. >16 B
+/// structs that aren't HFA fall back to pointer-passing today
+/// and DO escape, hence the explicit `<= 16` check.
+fn arg_passed_by_value(arg_ty: &crate::types::MirTy, prog: &Program) -> bool {
+    if let crate::types::MirTy::Object(cid) = arg_ty {
+        let layout = &prog.classes[cid.0 as usize];
+        let crepr = matches!(
+            layout.repr,
+            crate::program::ClassRepr::CRepr
+                | crate::program::ClassRepr::CPacked
+                | crate::program::ClassRepr::CUnion
+        );
+        if !crepr {
+            return false;
+        }
+        // HFA: 1–4 same-type-float fields. Chunks: ≤16 B.
+        let is_hfa = !layout.fields.is_empty()
+            && layout.fields.len() <= 4
+            && layout.fields.iter().all(|f| matches!(
+                f.ty,
+                crate::types::MirTy::F32 | crate::types::MirTy::F64
+            ))
+            && {
+                let first = &layout.fields[0].ty;
+                layout.fields.iter().all(|f| &f.ty == first)
+            };
+        is_hfa || layout.c_size <= 16
+    } else {
+        false
+    }
+}
+
 fn check_inst_escape(
     inst: &Inst,
     cands: &mut HashSet<ValueId>,
     alias: &HashMap<ValueId, ValueId>,
+    func: &crate::program::Function,
+    prog: &Program,
 ) {
     use Inst::*;
     let mut leak = |v: &ValueId| {
@@ -278,20 +315,37 @@ fn check_inst_escape(
                 leak(c);
             }
         }
+        // CRepr struct args (≤16 B chunks or HFA float regs) are
+        // consumed by-value at the call site: the callee gets a
+        // fresh frame copy and never sees the caller's pointer.
+        // Such args don't escape the caller, so a stack-promoted
+        // local can survive being passed through a function call —
+        // which is the whole point of the by-value ABI. Pointer-
+        // passed (>16 B, ArcObject, Array, Map, etc.) args still
+        // leak as before.
         Call { args, .. } => {
             for a in args.iter() {
+                if arg_passed_by_value(func.ty_of(*a), prog) {
+                    continue;
+                }
                 leak(a);
             }
         }
         CallIndirect { callee, args, .. } => {
             leak(callee);
             for a in args.iter() {
+                if arg_passed_by_value(func.ty_of(*a), prog) {
+                    continue;
+                }
                 leak(a);
             }
         }
         VirtCall { recv, args, .. } => {
             leak(recv);
             for a in args.iter() {
+                if arg_passed_by_value(func.ty_of(*a), prog) {
+                    continue;
+                }
                 leak(a);
             }
         }

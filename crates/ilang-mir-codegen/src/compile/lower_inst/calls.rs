@@ -106,27 +106,26 @@ pub(super) fn lower_call<M: Module>(
         }
         _ => (None, false, false),
     };
-    // sret: pre-alloc the destination struct and pass its
-    // pointer as the hidden first arg.
-    let sret_dst = if is_callee_extern {
-        if let Some(d) = dst {
-            let dst_ty = func.ty_of(*d).clone();
-            if let Some(c_size) = struct_indirect(&dst_ty, prog) {
-                let size_v = fb.ins().iconst(types::I64, c_size);
-                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-                let ptr = fb.inst_results(alloc_call)[0];
-                arg_vs.push(ptr);
-                Some((*d, ptr))
-            } else {
-                None
-            }
+    // sret: pre-alloc the destination struct and pass its pointer
+    // as the hidden first arg. Triggered by any CRepr return >16 B
+    // regardless of who the callee is — the by-value ABI is now
+    // uniform across `@extern(C)` and ilang fns.
+    let sret_dst = if let Some(d) = dst {
+        let dst_ty = func.ty_of(*d).clone();
+        if let Some(c_size) = struct_indirect(&dst_ty, prog) {
+            let size_v = fb.ins().iconst(types::I64, c_size);
+            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+            let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+            let ptr = fb.inst_results(alloc_call)[0];
+            arg_vs.push(ptr);
+            Some((*d, ptr))
         } else {
             None
         }
     } else {
         None
     };
+    let _ = is_callee_extern;
     // Builtins like array_map / array_filter / array_for_each /
     // array_slice / array_index_of / array_includes consume a
     // dynamic-array header (6×i64 [len|cap|data|rc|kind|stride]).
@@ -170,11 +169,13 @@ pub(super) fn lower_call<M: Module>(
                 av = fb.inst_results(call)[0];
             }
         }
-        if is_callee_extern {
+        // CRepr / CPacked struct arg → chunk / HFA explode regardless
+        // of callee kind. Builtins (str_*, array_*, etc.) don't take
+        // user-defined CRepr types so they fall through to the plain
+        // arg_vs.push below.
+        if !is_callee_builtin {
             let aty = func.ty_of(*a);
             if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
-                // Read `count` floats from the struct body
-                // (offset = i × elem_byte_size).
                 let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
                 for c in 0..count {
                     let v = fb.ins().load(
@@ -202,7 +203,6 @@ pub(super) fn lower_call<M: Module>(
         }
         arg_vs.push(av);
     }
-    let _ = is_callee_builtin;
     let (cid, is_builtin) = match callee {
         FuncRef::Local(_) => (callee_cid.unwrap(), is_callee_extern),
         FuncRef::Builtin(sym) => {
@@ -453,7 +453,12 @@ pub(super) fn lower_call<M: Module>(
     }
     if let Some(d) = dst {
         let dst_ty = func.ty_of(*d).clone();
-        if is_callee_extern {
+        // Returned CRepr struct: result arrives as HFA float regs or
+        // i64 chunks. Reassemble into a heap buffer and bind that as
+        // the SSA value's pointer. Escape analysis may later promote
+        // this allocation to a StackSlot at the NewObject site, but
+        // call-result buffers always go through alloc.
+        if !is_callee_builtin {
             if let Some((elem_ct, count)) = struct_hfa(&dst_ty, prog) {
                 let layout = if let MirTy::Object(cid) = &dst_ty {
                     &prog.classes[cid.0 as usize]
@@ -500,6 +505,7 @@ pub(super) fn lower_call<M: Module>(
                 return Ok(());
             }
         }
+        let _ = is_callee_extern;
         let results = fb.inst_results(inst_ref);
         if let Some(&v) = results.first() {
             let v_clif = fb.func.dfg.value_type(v);

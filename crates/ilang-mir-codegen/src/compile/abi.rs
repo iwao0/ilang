@@ -29,12 +29,21 @@ pub(super) fn clif_signature_for<M: Module>(
 ) -> Result<Signature, CompileError> {
     let mut sig = module.make_signature();
     let is_extern = matches!(f.kind, ilang_mir::FunctionKind::Extern { .. });
-    // sret return: hidden first param (StructReturn), no clif return.
-    let sret_size = if is_extern {
-        struct_indirect(&f.ret, prog)
-    } else {
-        None
-    };
+    // CRepr / CPacked / CUnion params and returns ALWAYS use the
+    // by-value rules — chunked (≤16 B → 1-2 i64), HFA (≤4 same float),
+    // or indirect sret (>16 B). This was previously gated on
+    // `is_extern` (i.e. only `@extern(C)` fns got it), forcing every
+    // ilang→ilang call that passed a struct to fall back to pointer
+    // passing — which in turn defeated stack promotion since
+    // pointer-passing makes the value escape to the callee. Applying
+    // the same rules across all function kinds gives true value
+    // semantics: the callee gets its own copy in registers / its own
+    // frame slot, and the caller's stack-promoted struct survives
+    // the call unharmed.
+    //
+    // ArcObject params / returns stay pointer-typed (they're
+    // reference types — sharing the pointer IS the semantics).
+    let sret_size = struct_indirect(&f.ret, prog);
     if sret_size.is_some() {
         sig.params.push(AbiParam::special(
             types::I64,
@@ -42,19 +51,17 @@ pub(super) fn clif_signature_for<M: Module>(
         ));
     }
     for p in f.params.iter() {
-        if is_extern {
-            if let Some((elem_ct, count)) = struct_hfa(&p.ty, prog) {
-                for _ in 0..count {
-                    sig.params.push(AbiParam::new(elem_ct));
-                }
-                continue;
+        if let Some((elem_ct, count)) = struct_hfa(&p.ty, prog) {
+            for _ in 0..count {
+                sig.params.push(AbiParam::new(elem_ct));
             }
-            if let Some(chunks) = struct_chunks(&p.ty, prog) {
-                for _ in 0..chunks {
-                    sig.params.push(AbiParam::new(types::I64));
-                }
-                continue;
+            continue;
+        }
+        if let Some(chunks) = struct_chunks(&p.ty, prog) {
+            for _ in 0..chunks {
+                sig.params.push(AbiParam::new(types::I64));
             }
+            continue;
         }
         if let Some(ct) = mir_to_clif(&p.ty) {
             sig.params.push(AbiParam::new(ct));
@@ -71,19 +78,17 @@ pub(super) fn clif_signature_for<M: Module>(
         return Ok(sig);
     }
     if !matches!(f.ret, MirTy::Unit) {
-        if is_extern {
-            if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
-                for _ in 0..count {
-                    sig.returns.push(AbiParam::new(elem_ct));
-                }
-                return Ok(sig);
+        if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
+            for _ in 0..count {
+                sig.returns.push(AbiParam::new(elem_ct));
             }
-            if let Some(chunks) = struct_chunks(&f.ret, prog) {
-                for _ in 0..chunks {
-                    sig.returns.push(AbiParam::new(types::I64));
-                }
-                return Ok(sig);
+            return Ok(sig);
+        }
+        if let Some(chunks) = struct_chunks(&f.ret, prog) {
+            for _ in 0..chunks {
+                sig.returns.push(AbiParam::new(types::I64));
             }
+            return Ok(sig);
         }
         let ret = mir_to_clif(&f.ret)
             .ok_or(CompileError::Unsupported("unit return through ABI"))?;

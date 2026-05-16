@@ -6,17 +6,31 @@ use cranelift::prelude::*;
 use cranelift_codegen::ir::InstBuilder;
 use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
 
-use ilang_mir::{MirConst, MirTy, Terminator, ValueId};
+use ilang_mir::{MirConst, MirTy, Program, Terminator, ValueId};
 
+use crate::compile::abi::{struct_chunks, struct_hfa, struct_indirect};
 use crate::ty::mir_to_clif;
 
 use super::CompileError;
+
+/// Side-channel that `lower_term` consults when lowering a
+/// `Terminator::Return`. The CRepr by-value ABI splits the return
+/// value into HFA float regs / i64 chunks / sret hidden pointer
+/// depending on the type's layout, so the bare `return cv` shape
+/// isn't enough — the terminator needs to know the function's
+/// return type and (for sret) the buffer the caller pre-allocated.
+pub(super) struct ReturnAbi {
+    pub sret_ptr: Option<Value>,
+    pub ret_ty: MirTy,
+}
 
 pub(super) fn lower_term(
     fb: &mut ClifFnBuilder,
     term: &Terminator,
     vmap: &HashMap<ValueId, Value>,
     blocks: &[cranelift::prelude::Block],
+    ret_abi: &ReturnAbi,
+    prog: &Program,
 ) -> Result<(), CompileError> {
     // Helper: keep only values that have a clif counterpart in vmap.
     let visible = |args: &[ValueId]| -> Vec<cranelift_codegen::ir::BlockArg> {
@@ -26,6 +40,70 @@ pub(super) fn lower_term(
     };
     match term {
         Terminator::Return { value } => {
+            // CRepr return paths: split bytes into the matching
+            // clif-level return shape.
+            //
+            // - sret: copy struct bytes into the caller's pre-
+            //   allocated buffer (`ret_abi.sret_ptr`); the clif
+            //   function returns nothing.
+            // - HFA: load each float field from the struct body
+            //   and return them as multiple clif results.
+            // - chunks: load 1 or 2 i64 cells from the struct body
+            //   and return them.
+            //
+            // Non-CRepr returns fall through to the original
+            // single-value or void return path.
+            if let Some(v) = value {
+                let cv_opt = vmap.get(v).copied();
+                if let Some(c_size) = struct_indirect(&ret_abi.ret_ty, prog) {
+                    if let (Some(sret), Some(cv)) = (ret_abi.sret_ptr, cv_opt) {
+                        // memcpy struct bytes (cv → sret) one i64 cell
+                        // at a time. `c_size` already includes any
+                        // tail padding (it rounds up to the largest
+                        // field's alignment), so 8-byte stores are
+                        // safe.
+                        let mut off: i32 = 0;
+                        while (off as i64) < c_size {
+                            let cell = fb.ins().load(types::I64, MemFlags::trusted(), cv, off);
+                            fb.ins().store(MemFlags::trusted(), cell, sret, off);
+                            off += 8;
+                        }
+                        fb.ins().return_(&[]);
+                        return Ok(());
+                    }
+                }
+                if let Some((elem_ct, count)) = struct_hfa(&ret_abi.ret_ty, prog) {
+                    if let Some(cv) = cv_opt {
+                        let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                        let mut vs: Vec<Value> = Vec::with_capacity(count);
+                        for c in 0..count {
+                            vs.push(fb.ins().load(
+                                elem_ct,
+                                MemFlags::trusted(),
+                                cv,
+                                (c as i32) * elem_size,
+                            ));
+                        }
+                        fb.ins().return_(&vs);
+                        return Ok(());
+                    }
+                }
+                if let Some(chunks) = struct_chunks(&ret_abi.ret_ty, prog) {
+                    if let Some(cv) = cv_opt {
+                        let mut vs: Vec<Value> = Vec::with_capacity(chunks);
+                        for c in 0..chunks {
+                            vs.push(fb.ins().load(
+                                types::I64,
+                                MemFlags::trusted(),
+                                cv,
+                                (c as i32) * 8,
+                            ));
+                        }
+                        fb.ins().return_(&vs);
+                        return Ok(());
+                    }
+                }
+            }
             match value.and_then(|v| vmap.get(&v).copied()) {
                 Some(cv) => {
                     fb.ins().return_(&[cv]);
