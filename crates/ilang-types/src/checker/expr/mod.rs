@@ -23,6 +23,19 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
+/// `&path` accepts a local variable optionally followed by a chain
+/// of field accesses (`x`, `x.f`, `x.f.g`, ...). Any other shape
+/// (indexing, calls, parenthesised expressions, etc.) is rejected
+/// at this level — the MIR lowerer relies on the AST matching one
+/// of these forms.
+fn is_addr_path(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Var(_) => true,
+        ExprKind::Field { obj, .. } => is_addr_path(obj),
+        _ => false,
+    }
+}
+
 /// `true` when `e` unconditionally transfers control out of the
 /// enclosing expression — `return` / `break` / `continue`, or a
 /// `Block` whose tail (or some unconditional statement) does so.
@@ -284,19 +297,18 @@ impl TypeChecker {
                             span,
                         });
                     }
-                    let name = match &inner.kind {
-                        ExprKind::Var(n) => *n,
-                        _ => {
-                            return Err(TypeError::Unsupported {
-                                what: "`&` target must be a local variable name".into(),
-                                span,
-                            });
-                        }
-                    };
-                    let inner_ty = env
-                        .get(&name)
-                        .ok_or(TypeError::UndefinedVariable { name, span })?
-                        .clone();
+                    // Allowed shapes: `&local`, `&local.f1`,
+                    // `&local.f1.f2....fn`. The root must be a plain
+                    // local; intermediate hops are field accesses.
+                    // Each intermediate must be a class (Object); the
+                    // leaf may be any field type.
+                    if !is_addr_path(inner) {
+                        return Err(TypeError::Unsupported {
+                            what: "`&` target must be a local variable or a chain of field accesses (e.g., `&x`, `&x.f`, `&x.f.g`)".into(),
+                            span,
+                        });
+                    }
+                    let inner_ty = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                     return Ok(Type::RawPtr {
                         is_const: false,
                         inner: Box::new(inner_ty),

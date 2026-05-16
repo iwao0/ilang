@@ -250,6 +250,20 @@ pub enum Inst {
     /// pointer is stable across the function. `dst` has raw-pointer
     /// type at the type-check level (`*T` of the local's MirTy).
     AddrOfLocal { dst: ValueId, local: LocalId },
+    /// Compute the address of a field within a class instance or an
+    /// inline struct. `obj` is the heap pointer (for ARC / CRepr
+    /// classes) or the inline address (for embedded CRepr structs).
+    /// `class` selects the layout — the codegen looks up either
+    /// `c_field_offsets[field]` (CRepr) or `OBJECT_HEADER_BYTES +
+    /// field * 8` (ARC) and emits an `iadd_imm`. Used by `&x.f`,
+    /// `&x.f.g`, etc.; the AST→MIR lowerer composes
+    /// `UseLocal + (LoadField)* + AddrOfField` for chains.
+    AddrOfField {
+        dst: ValueId,
+        obj: ValueId,
+        class: crate::types::ClassId,
+        field: FieldId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

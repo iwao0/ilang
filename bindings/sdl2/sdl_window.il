@@ -576,12 +576,8 @@ pub enum SubSystem: u32 {
 
         /// Top-left corner in screen coordinates.
         pub get position(): Point {
-            let xx: i32 = 0
-            let yy: i32 = 0
-            SDL_GetWindowPosition(this.handle as *SDL_Window, &xx, &yy)
             let p = new Point()
-            p.x = xx
-            p.y = yy
+            SDL_GetWindowPosition(this.handle as *SDL_Window, &p.x, &p.y)
             p
         }
 
@@ -593,12 +589,8 @@ pub enum SubSystem: u32 {
 
         /// Logical size (matches `init`'s `w` / `h` arguments).
         pub get size(): Size {
-            let ww: i32 = 0
-            let hh: i32 = 0
-            SDL_GetWindowSize(this.handle as *SDL_Window, &ww, &hh)
             let s = new Size()
-            s.w = ww
-            s.h = hh
+            SDL_GetWindowSize(this.handle as *SDL_Window, &s.w, &s.h)
             s
         }
         pub setSize(w: i32, h: i32) {
@@ -608,23 +600,15 @@ pub enum SubSystem: u32 {
         /// Drawable size in physical pixels (differs from `size` on
         /// HiDPI displays).
         pub get sizeInPixels(): Size {
-            let ww: i32 = 0
-            let hh: i32 = 0
-            SDL_GetWindowSizeInPixels(this.handle as *SDL_Window, &ww, &hh)
             let s = new Size()
-            s.w = ww
-            s.h = hh
+            SDL_GetWindowSizeInPixels(this.handle as *SDL_Window, &s.w, &s.h)
             s
         }
 
         /// Minimum size the user can resize to.
         pub get minimumSize(): Size {
-            let ww: i32 = 0
-            let hh: i32 = 0
-            SDL_GetWindowMinimumSize(this.handle as *SDL_Window, &ww, &hh)
             let s = new Size()
-            s.w = ww
-            s.h = hh
+            SDL_GetWindowMinimumSize(this.handle as *SDL_Window, &s.w, &s.h)
             s
         }
         pub setMinimumSize(w: i32, h: i32) {
@@ -633,12 +617,8 @@ pub enum SubSystem: u32 {
 
         /// Maximum size the user can resize to.
         pub get maximumSize(): Size {
-            let ww: i32 = 0
-            let hh: i32 = 0
-            SDL_GetWindowMaximumSize(this.handle as *SDL_Window, &ww, &hh)
             let s = new Size()
-            s.w = ww
-            s.h = hh
+            SDL_GetWindowMaximumSize(this.handle as *SDL_Window, &s.w, &s.h)
             s
         }
         pub setMaximumSize(w: i32, h: i32) {
@@ -647,16 +627,11 @@ pub enum SubSystem: u32 {
 
         /// Decoration thicknesses (title-bar / borders) in pixels.
         pub get borders(): WindowBorders {
-            let t: i32 = 0
-            let l: i32 = 0
-            let b: i32 = 0
-            let r: i32 = 0
-            SDL_GetWindowBordersSize(this.handle as *SDL_Window, &t, &l, &b, &r)
             let wb = new WindowBorders()
-            wb.top = t
-            wb.left = l
-            wb.bottom = b
-            wb.right = r
+            SDL_GetWindowBordersSize(
+                this.handle as *SDL_Window,
+                &wb.top, &wb.left, &wb.bottom, &wb.right
+            )
             wb
         }
 
@@ -1072,14 +1047,8 @@ pub enum SubSystem: u32 {
 
         /// Diagonal / horizontal / vertical DPI for the display.
         pub get dpi(): DisplayDPI {
-            let dd: f32 = 0.0 as f32
-            let hd: f32 = 0.0 as f32
-            let vd: f32 = 0.0 as f32
-            SDL_GetDisplayDPI(this.index, &dd, &hd, &vd)
             let d = new DisplayDPI()
-            d.diagonal = dd
-            d.horizontal = hd
-            d.vertical = vd
+            SDL_GetDisplayDPI(this.index, &d.diagonal, &d.horizontal, &d.vertical)
             d
         }
 

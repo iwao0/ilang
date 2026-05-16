@@ -690,6 +690,26 @@ pub(super) fn lower_inst<M: Module>(
             let p = fb.ins().stack_addr(types::I64, slot, 0);
             vmap.insert(*dst, p);
         }
+        Inst::AddrOfField { dst, obj, class, field } => {
+            let obj_v = vmap[obj];
+            let layout = &prog.classes[class.0 as usize];
+            let offset: i64 = if matches!(
+                layout.repr,
+                ilang_mir::ClassRepr::CRepr
+                    | ilang_mir::ClassRepr::CPacked
+                    | ilang_mir::ClassRepr::CUnion
+            ) {
+                layout
+                    .c_field_offsets
+                    .get(field.0 as usize)
+                    .copied()
+                    .unwrap_or(0)
+            } else {
+                OBJECT_HEADER_BYTES as i64 + (field.0 as i64) * 8
+            };
+            let p = fb.ins().iadd_imm(obj_v, offset);
+            vmap.insert(*dst, p);
+        }
         Inst::NewObject { dst, class, init_args, init } => {
             let layout = &prog.classes[class.0 as usize];
             // `@extern(C) struct` lives flat with no header / rc:

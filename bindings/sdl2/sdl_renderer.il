@@ -476,12 +476,8 @@ pub enum RendererFlip: i32 {
         /// Drawable output size in pixels (may differ from window
         /// size on HiDPI / logical-size setups).
         pub get outputSize(): Size {
-            let w: i32 = 0
-            let h: i32 = 0
-            SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, &w, &h)
             let s = new Size()
-            s.w = w
-            s.h = h
+            SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, &s.w, &s.h)
             s
         }
 
@@ -503,15 +499,9 @@ pub enum RendererFlip: i32 {
         /// signature for ergonomic literal calls) to write.
         pub get color(): Color {
             let c = new Color()
-            let r: u8 = 0
-            let g: u8 = 0
-            let b: u8 = 0
-            let a: u8 = 0
-            SDL_GetRenderDrawColor(this.handle as *SDL_Renderer, &r, &g, &b, &a)
-            c.r = r
-            c.g = g
-            c.b = b
-            c.a = a
+            SDL_GetRenderDrawColor(
+                this.handle as *SDL_Renderer, &c.r, &c.g, &c.b, &c.a
+            )
             c
         }
 
@@ -548,12 +538,8 @@ pub enum RendererFlip: i32 {
         /// Read-only — `setLogicalSize(w, h)` keeps the multi-arg
         /// signature for the writer.
         pub get logicalSize(): Size {
-            let w: i32 = 0
-            let h: i32 = 0
-            SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, &w, &h)
             let s = new Size()
-            s.w = w
-            s.h = h
+            SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, &s.w, &s.h)
             s
         }
 
@@ -617,36 +603,24 @@ pub enum RendererFlip: i32 {
         }
 
         pub get scale(): FPoint {
-            let x: f32 = 0.0 as f32
-            let y: f32 = 0.0 as f32
-            SDL_RenderGetScale(this.handle as *SDL_Renderer, &x, &y)
             let s = new FPoint()
-            s.x = x
-            s.y = y
+            SDL_RenderGetScale(this.handle as *SDL_Renderer, &s.x, &s.y)
             s
         }
 
         pub windowToLogical(wx: i32, wy: i32): FPoint {
-            let lx: f32 = 0.0 as f32
-            let ly: f32 = 0.0 as f32
-            SDL_RenderWindowToLogical(
-                this.handle as *SDL_Renderer, wx, wy, &lx, &ly
-            )
             let p = new FPoint()
-            p.x = lx
-            p.y = ly
+            SDL_RenderWindowToLogical(
+                this.handle as *SDL_Renderer, wx, wy, &p.x, &p.y
+            )
             p
         }
 
         pub logicalToWindow(lx: f32, ly: f32): Point {
-            let wx: i32 = 0
-            let wy: i32 = 0
-            SDL_RenderLogicalToWindow(
-                this.handle as *SDL_Renderer, lx, ly, &wx, &wy
-            )
             let p = new Point()
-            p.x = wx
-            p.y = wy
+            SDL_RenderLogicalToWindow(
+                this.handle as *SDL_Renderer, lx, ly, &p.x, &p.y
+            )
             p
         }
 
@@ -1126,18 +1100,11 @@ pub enum RendererFlip: i32 {
 
         /// SDL_QueryTexture in one shot — format / access / w / h.
         pub get info(): TextureInfo {
-            let fmt: u32 = 0 as u32
-            let access: i32 = 0
-            let w: i32 = 0
-            let h: i32 = 0
-            SDL_QueryTexture(
-                this.handle as *SDL_Texture, &fmt, &access, &w, &h
-            )
             let i = new TextureInfo()
-            i.format = fmt
-            i.access = access
-            i.w = w
-            i.h = h
+            SDL_QueryTexture(
+                this.handle as *SDL_Texture,
+                &i.format, &i.access, &i.w, &i.h
+            )
             i
         }
 
@@ -1182,14 +1149,8 @@ pub enum RendererFlip: i32 {
         /// `Color` first.
         pub get colorMod(): Color {
             let c = new Color()
-            let r: u8 = 0
-            let g: u8 = 0
-            let b: u8 = 0
-            SDL_GetTextureColorMod(this.handle as *SDL_Texture, &r, &g, &b)
-            c.r = r
-            c.g = g
-            c.b = b
             c.a = 255 as u8
+            SDL_GetTextureColorMod(this.handle as *SDL_Texture, &c.r, &c.g, &c.b)
             c
         }
 

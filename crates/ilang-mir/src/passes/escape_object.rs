@@ -367,6 +367,11 @@ fn check_inst_escape(
         // be conservative and leak any related candidates. Cheap
         // safety since AddrOf is FFI-only and rare.
         AddrOfLocal { .. } => {}
+        // `&obj.field` — leak the receiver (its address is
+        // exposed to a callee that may mutate / persist it).
+        AddrOfField { obj, .. } => {
+            leak(obj);
+        }
     }
 }
 

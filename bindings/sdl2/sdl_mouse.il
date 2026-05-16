@@ -71,12 +71,8 @@ pub enum SystemCursor: i32 {
         /// with `Mouse.buttons()` to read pressed buttons in the
         /// same poll.
         pub static position(): Point {
-            let xs: i32 = 0
-            let ys: i32 = 0
-            SDL_GetMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs
-            p.y = ys
+            SDL_GetMouseState(&p.x, &p.y)
             p
         }
 
@@ -91,12 +87,8 @@ pub enum SystemCursor: i32 {
         /// Like `position()`, but coordinates are relative to the
         /// desktop, not any specific window.
         pub static globalPosition(): Point {
-            let xs: i32 = 0
-            let ys: i32 = 0
-            SDL_GetGlobalMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs
-            p.y = ys
+            SDL_GetGlobalMouseState(&p.x, &p.y)
             p
         }
 
@@ -105,12 +97,8 @@ pub enum SystemCursor: i32 {
         /// call after `sdl.init` returns garbage for `dx` / `dy` —
         /// discard it.
         pub static relativePosition(): Point {
-            let xs: i32 = 0
-            let ys: i32 = 0
-            SDL_GetRelativeMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs
-            p.y = ys
+            SDL_GetRelativeMouseState(&p.x, &p.y)
             p
         }
 

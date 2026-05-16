@@ -18,40 +18,11 @@ use super::{BodyCx, LowerError};
 
 impl<'a> BodyCx<'a> {
     pub(super) fn lower_unary(&mut self, op: AstUnOp, e: &Expr, span: Span) -> Result<(ValueId, MirTy), LowerError> {
-        // `&name` is special: it never evaluates the operand as a
-        // value. The operand must syntactically be a `Var(name)`
-        // bound to a mutable local, and we emit `AddrOfLocal`
-        // without an intervening `UseLocal` (which would pull the
-        // current value into SSA — wrong for the address case).
+        // `&path` is special: the operand is never evaluated as a
+        // value — it's an lvalue chain (Var optionally followed by
+        // field accesses). The leaf becomes the address-of target.
         if matches!(op, AstUnOp::AddrOf) {
-            let name = match &e.kind {
-                AstExprKind::Var(n) => *n,
-                _ => {
-                    return Err(LowerError::Other(format!(
-                        "`&` target must be a local variable (got non-Var expr at {:?})",
-                        span
-                    )));
-                }
-            };
-            let (lid, ty) = match self.env.lookup_binding(name) {
-                Some(Binding::Local(lid, t)) => (lid, t),
-                Some(_) => {
-                    return Err(LowerError::Other(format!(
-                        "`&{}`: only mutable locals can be address-taken (binding is SSA or cell)",
-                        name.as_str()
-                    )));
-                }
-                None => {
-                    return Err(LowerError::Other(format!(
-                        "`&{}`: unbound name",
-                        name.as_str()
-                    )));
-                }
-            };
-            let ptr_ty = MirTy::RawPtr { is_const: false, inner: Box::new(ty) };
-            let dst = self.fb.new_value(ptr_ty.clone());
-            self.fb.push_inst(Inst::AddrOfLocal { dst, local: lid });
-            return Ok((dst, ptr_ty));
+            return self.lower_addr_of_path(e, span);
         }
         let (v, ty) = self.lower_expr(e)?;
         match op {
@@ -74,6 +45,148 @@ impl<'a> BodyCx<'a> {
             }
             AstUnOp::AddrOf => unreachable!("handled above"),
         }
+    }
+
+    /// Lower `&path` where `path` is a `Var` optionally followed by
+    /// a field chain. For the chain case, intermediate field hops
+    /// emit `LoadField` (which loads the class pointer for ARC
+    /// fields or returns the inline base for CRepr struct fields);
+    /// the final hop emits `AddrOfField` to compute the storage
+    /// address. The bare `&local` case emits `AddrOfLocal`, which
+    /// pins the local into a Cranelift stack slot.
+    fn lower_addr_of_path(
+        &mut self,
+        e: &Expr,
+        _span: Span,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        let mut fields_rev: Vec<Symbol> = Vec::new();
+        let mut cur: &Expr = e;
+        loop {
+            match &cur.kind {
+                AstExprKind::Var(n) => {
+                    let root_name = *n;
+                    fields_rev.reverse();
+                    return self.lower_addr_of_decomposed(root_name, &fields_rev);
+                }
+                AstExprKind::Field { obj, name } => {
+                    fields_rev.push(*name);
+                    cur = obj;
+                }
+                _ => {
+                    return Err(LowerError::Other(
+                        "`&` target must be a local variable or field chain".to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
+    fn lower_addr_of_decomposed(
+        &mut self,
+        root_name: Symbol,
+        fields: &[Symbol],
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        // Bare `&name` requires a mutable local — we need a stable
+        // stack slot. Field chains (`&name.f...`) just need the
+        // binding's *current value* (the class pointer / inline
+        // buffer pointer), so plain SSA values (e.g., function
+        // parameters) work too.
+        if fields.is_empty() {
+            let (lid, root_ty) = match self.env.lookup_binding(root_name) {
+                Some(Binding::Local(lid, t)) => (lid, t),
+                Some(_) => {
+                    return Err(LowerError::Other(format!(
+                        "`&{}`: only mutable locals can be address-taken (binding is SSA / param / cell)",
+                        root_name.as_str()
+                    )));
+                }
+                None => {
+                    return Err(LowerError::Other(format!(
+                        "`&{}`: unbound name",
+                        root_name.as_str()
+                    )));
+                }
+            };
+            let ptr_ty = MirTy::RawPtr { is_const: false, inner: Box::new(root_ty) };
+            let dst = self.fb.new_value(ptr_ty.clone());
+            self.fb.push_inst(Inst::AddrOfLocal { dst, local: lid });
+            return Ok((dst, ptr_ty));
+        }
+
+        // Field chain: get the root's current value, then walk.
+        let (mut cur_v, mut cur_ty) = match self.env.lookup_binding(root_name) {
+            Some(Binding::Local(lid, t)) => {
+                let v = self.fb.new_value(t.clone());
+                self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
+                (v, t)
+            }
+            Some(Binding::Ssa(v, t)) => (v, t),
+            Some(Binding::Cell(cell_v, t)) => {
+                // Cell-captured root: load through the cell.
+                let zero = self.const_int(MirTy::I64, 0);
+                let v = self.fb.new_value(t.clone());
+                self.fb.push_inst(Inst::ArrayLoad { dst: v, arr: cell_v, idx: zero });
+                (v, t)
+            }
+            None => {
+                return Err(LowerError::Other(format!(
+                    "`&{}...`: unbound root `{}`",
+                    root_name.as_str(),
+                    root_name.as_str()
+                )));
+            }
+        };
+
+        for (idx, fname) in fields.iter().enumerate() {
+            let cid = match &cur_ty {
+                MirTy::Object(cid) => *cid,
+                _ => {
+                    return Err(LowerError::Other(format!(
+                        "`&{}...`: field `{}` accessed on non-class type `{}`",
+                        root_name.as_str(),
+                        fname.as_str(),
+                        cur_ty,
+                    )));
+                }
+            };
+            let meta = self
+                .class_meta
+                .get(&cid)
+                .ok_or_else(|| LowerError::Other(format!(
+                    "missing class meta for cid#{} when lowering `&{}.{}`",
+                    cid.0,
+                    root_name.as_str(),
+                    fname.as_str(),
+                )))?;
+            let fid = *meta.field_ix.get(fname).ok_or_else(|| LowerError::Other(format!(
+                "class `{}` has no field `{}`",
+                self.classes[cid.0 as usize].name.as_str(),
+                fname.as_str(),
+            )))?;
+            let fty = meta
+                .field_ty
+                .get(&fid)
+                .cloned()
+                .ok_or_else(|| LowerError::Other("field type missing".to_string()))?;
+
+            if idx + 1 < fields.len() {
+                let next_v = self.fb.new_value(fty.clone());
+                self.fb.push_inst(Inst::LoadField { dst: next_v, obj: cur_v, field: fid });
+                cur_v = next_v;
+                cur_ty = fty;
+            } else {
+                let ptr_ty = MirTy::RawPtr { is_const: false, inner: Box::new(fty) };
+                let dst = self.fb.new_value(ptr_ty.clone());
+                self.fb.push_inst(Inst::AddrOfField {
+                    dst,
+                    obj: cur_v,
+                    class: cid,
+                    field: fid,
+                });
+                return Ok((dst, ptr_ty));
+            }
+        }
+        unreachable!("loop returns on the leaf iteration")
     }
 
     pub(super) fn lower_binary(

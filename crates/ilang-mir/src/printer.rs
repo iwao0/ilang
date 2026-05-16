@@ -330,6 +330,12 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
         Inst::AddrOfLocal { dst, local } => {
             format!("{}addr_of_local %{}", dst_pre(*dst), local.0)
         }
+        Inst::AddrOfField { dst, obj, class, field } => {
+            format!(
+                "{}addr_of_field {}.class#{}.f{}",
+                dst_pre(*dst), fmt_value(*obj), class.0, field.0
+            )
+        }
     }
 }
 

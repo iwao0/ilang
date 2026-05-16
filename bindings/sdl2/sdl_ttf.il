@@ -295,20 +295,10 @@ pub class GlyphMetrics {
         pub glyphMetrics(ch: u16): GlyphMetrics {
             let m = new GlyphMetrics()
             if this.handle == 0 { return m }
-            let xs0: i32 = 0
-            let xs1: i32 = 0
-            let ys0: i32 = 0
-            let ys1: i32 = 0
-            let adv: i32 = 0
             TTF_GlyphMetrics(
                 this.handle as *TTF_Font, ch,
-                &xs0, &xs1, &ys0, &ys1, &adv
+                &m.minX, &m.maxX, &m.minY, &m.maxY, &m.advance
             )
-            m.minX = xs0
-            m.maxX = xs1
-            m.minY = ys0
-            m.maxY = ys1
-            m.advance = adv
             m
         }
 
@@ -324,11 +314,7 @@ pub class GlyphMetrics {
         pub size(text: string): Size {
             let s = new Size()
             if this.handle == 0 { return s }
-            let ws: i32 = 0
-            let hs: i32 = 0
-            TTF_SizeUTF8(this.handle as *TTF_Font, cstrFromString(text), &ws, &hs)
-            s.w = ws
-            s.h = hs
+            TTF_SizeUTF8(this.handle as *TTF_Font, cstrFromString(text), &s.w, &s.h)
             s
         }
 

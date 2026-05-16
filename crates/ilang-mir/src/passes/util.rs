@@ -182,6 +182,10 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
         DefLocal { value, .. } => remap(value),
         UseLocal { dst, .. } => remap(dst),
         AddrOfLocal { dst, .. } => remap(dst),
+        AddrOfField { dst, obj, .. } => {
+            remap(dst);
+            remap(obj);
+        }
     }
 }
 

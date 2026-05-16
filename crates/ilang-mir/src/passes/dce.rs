@@ -147,6 +147,10 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         // still pins the local; dropping the inst doesn't undo
         // that. Either way DCE on an unreferenced AddrOf is fine.
         AddrOfLocal { dst, .. } => !used.contains(dst),
+        // `&path.field` is pure as a value producer (offset add on a
+        // pointer). When the dst is unused, DCE can drop it; the
+        // address computation has no side effects.
+        AddrOfField { dst, .. } => !used.contains(dst),
     }
 }
 
@@ -264,6 +268,9 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
         // `&local` doesn't reference any ValueId — it names the
         // local directly. No SSA uses to collect.
         AddrOfLocal { .. } => {}
+        AddrOfField { obj, .. } => {
+            set.insert(*obj);
+        }
     }
 }
 
