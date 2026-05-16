@@ -1001,7 +1001,17 @@ impl<'a> Walker<'a> {
                 .fn_returns
                 .get(callee)
                 .or_else(|| self.external_returns.get(callee))
-                .cloned(),
+                .cloned()
+                .or_else(|| {
+                    // `ClassName.staticMethod()` — parsed as a single
+                    // dotted callee, not as MethodCall. Resolve through
+                    // the class's `methods` table so chained calls
+                    // like `Foo.alloc().init()` can infer past the
+                    // first hop.
+                    let (cls, m) = callee.as_str().rsplit_once('.')?;
+                    let info = self.classes.get(&AstSymbol::intern(cls))?;
+                    info.methods.get(&AstSymbol::intern(m))?.ret_ty.clone()
+                }),
             ExprKind::MethodCall { obj, method, .. } => {
                 let class = self.resolve_obj_class(obj, scope, None)?;
                 let info = self.classes.get(&AstSymbol::intern(&class))?;
@@ -1198,6 +1208,15 @@ impl<'a> Walker<'a> {
                 }
             }
             ExprKind::New { class, .. } => Some(class.as_str().to_string()),
+            // Chained calls — `a.b().c()` needs the inner call's
+            // return type resolved to a class so `.c()` knows where
+            // to look. Defer to `infer_expr` (which handles Call /
+            // MethodCall / Field already) and then class-ify it.
+            ExprKind::Call { .. }
+            | ExprKind::MethodCall { .. }
+            | ExprKind::Field { .. } => {
+                self.infer_expr(obj, scope).as_ref().and_then(type_to_class)
+            }
             _ => None,
         }
     }
