@@ -3,7 +3,7 @@
 //! sites, and the no-op `freeCstr` identity (kept so existing ilang
 //! bindings can call it like any other helper).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use crate::alloc::__mir_alloc;
@@ -272,6 +272,71 @@ pub extern "C" fn os_lib_load_error(name: i64) -> i64 {
 /// through the `pub let os.platform: string = __platform()`
 /// binding declared in `stdlib/os.il`, so the call happens once
 /// at program init and `os.platform` reads as a property.
+// --------------------------------------------------------------------
+// `@objc class : Parent` IMP lookup — bridges JIT-emitted methods to
+// `class_addMethod`, which can't see JIT-compiled functions through
+// the host dyld. The parser-generated `register()` body calls
+// `__ilang_objc_imp_lookup(name)` instead of `dlsym(RTLD_DEFAULT)`;
+// in JIT mode the entries are populated from `JITModule
+// ::get_finalized_function`, and in AOT mode we fall back to dlsym so
+// the exported `ilang_objc_imp__…` symbols already in the binary's
+// symbol table still resolve.
+// --------------------------------------------------------------------
+
+fn imp_table() -> &'static Mutex<HashMap<String, usize>> {
+    static T: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    T.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// JIT-side registration: called from `jit_setup` after
+/// `finalize_definitions` once each IMP's address is known.
+pub fn __register_objc_imp(name: String, addr: usize) {
+    imp_table()
+        .lock()
+        .expect("imp table poisoned")
+        .insert(name, addr);
+}
+
+#[cfg(not(windows))]
+unsafe extern "C" {
+    fn dlsym(handle: *mut u8, name: *const u8) -> *mut u8;
+}
+#[cfg(not(windows))]
+const RTLD_DEFAULT: *mut u8 = -2isize as *mut u8;
+
+/// Two-arg shape (handle, name) mirrors the `dlsym` signature the
+/// parser-generated `register()` body uses; the handle is ignored —
+/// we always search both the JIT-registered table and the host's
+/// `RTLD_DEFAULT`.
+#[unsafe(export_name = "__ilang_objc_imp_lookup")]
+pub extern "C" fn __ilang_objc_imp_lookup(_handle: i64, name_ptr: i64) -> i64 {
+    if name_ptr == 0 {
+        return 0;
+    }
+    let bytes = unsafe { cstr_bytes(name_ptr) };
+    let name = String::from_utf8_lossy(bytes).into_owned();
+    if let Some(addr) = imp_table()
+        .lock()
+        .expect("imp table poisoned")
+        .get(&name)
+        .copied()
+    {
+        return addr as i64;
+    }
+    #[cfg(not(windows))]
+    {
+        let mut nul = name.as_bytes().to_vec();
+        nul.push(0);
+        let p = unsafe { dlsym(RTLD_DEFAULT, nul.as_ptr()) };
+        p as i64
+    }
+    #[cfg(windows)]
+    {
+        let _ = name;
+        0
+    }
+}
+
 #[unsafe(export_name = "os.__platform")]
 pub extern "C" fn os_platform() -> i64 {
     #[cfg(target_os = "macos")]

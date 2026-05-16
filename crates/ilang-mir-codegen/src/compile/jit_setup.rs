@@ -233,6 +233,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("os.libLoaded", ilang_runtime::os_lib_loaded as *const u8);
     jit_builder.symbol("os.libLoadError", ilang_runtime::os_lib_load_error as *const u8);
     jit_builder.symbol("os.__platform", ilang_runtime::os_platform as *const u8);
+    jit_builder.symbol(
+        "__ilang_objc_imp_lookup",
+        ilang_runtime::__ilang_objc_imp_lookup as *const u8,
+    );
     // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
     jit_builder.symbol("fs.__hasError", ilang_runtime::fs::fs_has_error as *const u8);
     jit_builder.symbol("fs.__errorCode", ilang_runtime::fs::fs_error_code as *const u8);
@@ -393,6 +397,28 @@ pub fn compile_with_builtins(
                 let addr = module.get_finalized_function(*cl_id) as i64;
                 ilang_runtime::__register_vtable_entry(*cid as i64, *slot as i64, addr);
             }
+        }
+    }
+    // Register `@objc class : Parent` IMP function addresses with
+    // the runtime so the parser-generated `register()` body can
+    // resolve them via `__ilang_objc_imp_lookup` — JIT-emitted
+    // functions aren't reachable through `dlsym(RTLD_DEFAULT)`.
+    for (idx, f) in prog.functions.iter().enumerate() {
+        let mid = FuncId(idx as u32);
+        if extern_fn_ids.contains(&mid) {
+            continue;
+        }
+        let symbol_name = f
+            .c_symbol
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or_else(|| f.name.as_str());
+        if !symbol_name.starts_with("ilang_objc_imp__") {
+            continue;
+        }
+        if let Some(cl_id) = fn_ids.get(&mid) {
+            let addr = module.get_finalized_function(*cl_id) as usize;
+            ilang_runtime::__register_objc_imp(symbol_name.to_string(), addr);
         }
     }
     // Populate Object field table — host_release_object_fields uses

@@ -106,7 +106,19 @@ impl TypeChecker {
                     self.fns.entry(f.name.clone()).or_default().push(sig);
                 }
                 ilang_ast::ExternCItem::Class(c) => {
-                    let sig = class_signature(c, None, &|_, _| false)?;
+                    // Resolve parent the same way Item::Class does so
+                    // `@objc class NSString : NSObject` inherits NSObject's
+                    // fields (notably the synthesised `handle: i64`).
+                    let parent_sig = if let Some(pname) = &c.parent {
+                        if self.interfaces.contains_key(pname) {
+                            None
+                        } else {
+                            self.classes.get(&pname).cloned()
+                        }
+                    } else {
+                        None
+                    };
+                    let sig = class_signature(c, parent_sig.as_ref(), &|_, _| false)?;
                     self.classes.insert(c.name.clone(), sig);
                 }
             }

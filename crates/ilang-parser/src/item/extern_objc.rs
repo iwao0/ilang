@@ -359,14 +359,15 @@ impl<'a> Parser<'a> {
                     variadic: false,
                     span: block_span,
                 });
-                // `dlsym(handle, name)` — the dynamic linker
-                // primitive used to look up the IMP fn by name.
-                // RTLD_DEFAULT on macOS/Linux is encoded as a
-                // small negative pointer; we pass `0 as *void` for
-                // simplicity. dlsym's "0 = search all loaded
-                // images" behaviour differs by platform but Apple
-                // and modern glibc both accept it as a stand-in
-                // for RTLD_DEFAULT.
+                // IMP address lookup. AOT links our subclass IMPs
+                // with `Linkage::Export` so `dlsym(RTLD_DEFAULT)`
+                // would find them; the JIT can't be reached the
+                // same way, so we go through an ilang-runtime
+                // helper (`__ilang_objc_imp_lookup`) that checks a
+                // JIT-populated table first and falls back to
+                // dlsym for the AOT path. The first `handle`
+                // argument is kept to preserve the dlsym call
+                // shape but is ignored by the helper.
                 items.push(ilang_ast::ExternCItem::FnDecl {
                     is_pub: false,
                     name: dlsym_name,
@@ -396,7 +397,7 @@ impl<'a> Parser<'a> {
                     }),
                     libs: Box::new([Symbol::intern("c")]),
                     optional: false,
-                    c_symbol: Some(Symbol::intern("dlsym")),
+                    c_symbol: Some(Symbol::intern("__ilang_objc_imp_lookup")),
                     variadic: false,
                     span: block_span,
                 });
@@ -730,16 +731,32 @@ fn build_objc_class(
     let class_name = c.name;
     let span = c.span;
 
-    // `pub handle: i64` field carries the underlying ObjC `id`.
-    let handle_field = FieldDecl {
-        is_pub: true,
-        name: Symbol::intern("handle"),
-        ty: Type::I64,
-        span,
-        bits: None,
+    // Root @objc class: declare a fresh `handle: i64` slot to
+    // carry the underlying ObjC `id`.
+    // Subclass: rely on the inherited slot — declaring our own
+    // `handle` again would shadow it, give the child two
+    // independent fields (parent's at HEADER+0, ours at
+    // HEADER+N), and the wrapper code's `this.handle` would set
+    // the child's while a sibling cast via the parent would read
+    // the parent's empty slot (this manifested as
+    // `[contentView addSubview:nil]` for NSButton instances).
+    let has_parent = c.parent.is_some();
+    let fields: Vec<FieldDecl> = if has_parent {
+        Vec::new()
+    } else {
+        vec![FieldDecl {
+            is_pub: true,
+            name: Symbol::intern("handle"),
+            ty: Type::I64,
+            span,
+            bits: None,
+        }]
     };
 
-    // `pub init(h: i64) { this.handle = h }` — wraps a raw id.
+    // `init(h: i64)` exists on every @objc class so the user can
+    // construct a wrapper around a raw id. Subclasses use the
+    // *inherited* handle field via `this.handle = h` (same
+    // syntax; field lookup walks the chain).
     let init_param = Param {
         name: Symbol::intern("h"),
         ty: Type::I64,
@@ -883,7 +900,7 @@ fn build_objc_class(
         parent: c.parent,
         interfaces: Box::new([]),
         type_params: Box::new([]),
-        fields: Box::new([handle_field]),
+        fields: fields.into_boxed_slice(),
         methods: methods.into(),
         static_methods: static_methods.into(),
         static_fields: Box::new([]),
