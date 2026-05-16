@@ -169,6 +169,7 @@ pub fn gen_state_ref_class(
         static_methods: Box::new([]),
         static_fields: Box::new([]),
         properties: Box::new([]),
+        attrs: Box::new([]),
         span,
     }
 }

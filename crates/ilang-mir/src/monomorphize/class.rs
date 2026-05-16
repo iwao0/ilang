@@ -473,6 +473,7 @@ pub(super) fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> C
         // type checker forbids static members on generic classes for
         // now), but pass them through verbatim for completeness.
         static_fields: c.static_fields.clone(),
+        attrs: c.attrs.clone(),
         span: c.span,
     }
 }
@@ -827,6 +828,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
                     span: p.span,
                 })
                 .collect(),
+            attrs: c.attrs.clone(),
             span: c.span,
         }),
         Item::Fn(f) => {

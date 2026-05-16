@@ -911,6 +911,13 @@ fn build_objc_class(
         static_methods: static_methods.into(),
         static_fields: Box::new([]),
         properties: Box::new([]),
+        // Preserve `@objc` on the synthesised class so LSP hover
+        // can render it. No args — `@objc class` carries no
+        // selector at the class level.
+        attrs: Box::new([Attribute {
+            name: Symbol::intern("objc"),
+            args: Box::new([]),
+        }]),
         span,
     };
     (ilang_ast::ExternCItem::Class(class_decl), aliases)

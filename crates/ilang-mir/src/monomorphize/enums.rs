@@ -670,6 +670,7 @@ pub(super) fn rewrite_enum_refs_in_item(
                     span: p.span,
                 })
                 .collect(),
+            attrs: c.attrs.clone(),
             span: c.span,
         }),
         Item::Enum(e) => Item::Enum(EnumDecl {

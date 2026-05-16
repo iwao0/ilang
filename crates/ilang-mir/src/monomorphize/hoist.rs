@@ -306,6 +306,7 @@ fn hoist_in_item(item: &Item, ctx: &mut HoistCtx) -> Item {
                     span: p.span,
                 })
                 .collect(),
+            attrs: c.attrs.clone(),
             span: c.span,
         }),
         Item::Enum(e) => Item::Enum(e.clone()),

@@ -55,7 +55,7 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
         match item {
             Item::Fn(f) => put_fn(f, &mut out),
             Item::Class(c) => {
-                let signature = format!("class {}", c.name);
+                let signature = format!("{}class {}", render_user_attrs(&c.attrs), c.name);
                 out.insert(
                     c.name.into(),
                     Symbol {
@@ -204,8 +204,12 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                                 Symbol {
                                     name: c.name.as_str().to_string(),
                                     span: c.span,
-                                    signature: format!("class {}", c.name),
-                doc: text::extract_doc_above(src, c.span.line),
+                                    signature: format!(
+                                        "{}class {}",
+                                        render_user_attrs(&c.attrs),
+                                        c.name
+                                    ),
+                                    doc: text::extract_doc_above(src, c.span.line),
                                 },
                             );
                         }
@@ -397,7 +401,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     span: m.span,
                     signature: format!(
                         "{}(method) {}.{}",
-                        render_user_attrs(m),
+                        render_user_attrs(&m.attrs),
                         c.name,
                         fn_body(m)
                     ),
@@ -416,7 +420,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                     span: m.span,
                     signature: format!(
                         "{}(static method) {}.{}",
-                        render_user_attrs(m),
+                        render_user_attrs(&m.attrs),
                         c.name,
                         fn_body(m)
                     ),
@@ -445,7 +449,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
 }
 
 pub(crate) fn fn_signature(f: &FnDecl) -> String {
-    format!("{}fn {}", render_user_attrs(f), fn_body(f))
+    format!("{}fn {}", render_user_attrs(&f.attrs), fn_body(f))
 }
 
 /// `name(params): ret` — the part that comes after `fn` / `(method)` /
@@ -468,10 +472,10 @@ pub(crate) fn fn_body(f: &FnDecl) -> String {
 /// newline-terminated prefix. Parser-internal markers like
 /// `__objc_wrapper` are filtered out — they exist only to disable
 /// downstream checks, not for documentation.
-pub(crate) fn render_user_attrs(f: &FnDecl) -> String {
+pub(crate) fn render_user_attrs(attrs: &[ilang_ast::Attribute]) -> String {
     use ilang_ast::AttrArg;
     let mut out = String::new();
-    for a in f.attrs.iter() {
+    for a in attrs.iter() {
         let n = a.name.as_str();
         if n.starts_with("__") {
             continue;

@@ -149,6 +149,12 @@ pub struct ClassDecl {
     /// Stored separately from `methods` so method-name lookups don't
     /// trip over property accessors.
     pub properties: Box<[PropertyDecl]>,
+    /// User-visible attributes the parser preserved on this class
+    /// (e.g. `@objc` for an `@objc class` synthesised inside
+    /// `@extern(ObjC) { ... }`). Empty for ordinary classes. The
+    /// type checker doesn't look at this — it's plumbing for LSP
+    /// hover so the binding's ObjC tag stays visible.
+    pub attrs: Box<[Attribute]>,
     pub span: Span,
 }
 

@@ -386,6 +386,7 @@ pub(super) fn rewrite_calls_in_item(
                     span: p.span,
                 })
                 .collect(),
+            attrs: c.attrs.clone(),
             span: c.span,
         }),
         Item::Enum(e) => Item::Enum(e.clone()),

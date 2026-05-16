@@ -700,6 +700,7 @@ impl<'a> Parser<'a> {
             static_methods: static_methods.into(),
             static_fields: static_fields.into(),
             properties: properties.into(),
+            attrs: Box::new([]),
             span,
         })
     }

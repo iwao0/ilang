@@ -701,7 +701,7 @@ pub(crate) fn collect_external_classes(
                 span: m.span,
                 signature: format!(
                     "{}(method) {}.{}",
-                    render_user_attrs(m),
+                    render_user_attrs(&m.attrs),
                     c.name,
                     fn_body(m)
                 ),
@@ -720,7 +720,7 @@ pub(crate) fn collect_external_classes(
                 span: m.span,
                 signature: format!(
                     "{}(static method) {}.{}",
-                    render_user_attrs(m),
+                    render_user_attrs(&m.attrs),
                     c.name,
                     fn_body(m)
                 ),
@@ -920,7 +920,11 @@ pub(crate) fn collect_external_signatures(
                 put_dotted(c.name.as_str(), format!("const {}{ty}{value}", c.name), &mut out);
             }
             Item::Class(c) => {
-                put_dotted(c.name.as_str(), format!("class {}", c.name), &mut out);
+                put_dotted(
+                    c.name.as_str(),
+                    format!("{}class {}", render_user_attrs(&c.attrs), c.name),
+                    &mut out,
+                );
             }
             Item::Enum(e) => {
                 let repr = e
@@ -991,7 +995,11 @@ pub(crate) fn collect_external_signatures(
                             put_dotted(name.as_str(), format!("union {}", name), &mut out);
                         }
                         ExternCItem::Class(c) => {
-                            put_dotted(c.name.as_str(), format!("class {}", c.name), &mut out);
+                            put_dotted(
+                                c.name.as_str(),
+                                format!("{}class {}", render_user_attrs(&c.attrs), c.name),
+                                &mut out,
+                            );
                         }
                     }
                 }
