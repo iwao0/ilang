@@ -7,13 +7,11 @@ compilable. Anything not on this page is either unimplemented or
 buggy.
 
 `.il` files run with `cargo run -p ilang-cli -- run path.il`
-(default: AST → MIR → Cranelift JIT). The `--jit` flag opts into
-the legacy `ilang-codegen` pipeline, retained for parity testing
-but slated for removal. Launching `ilang` with no arguments drops
-into the incremental MIR-JIT REPL — fn / class / enum decls and
-most top-level `let` bindings persist across chunks via host slots.
-Trailing semicolons are optional — newlines act as statement
-separators (JS-style ASI).
+(AST → MIR → Cranelift JIT). Launching `ilang` with no arguments
+drops into the incremental MIR-JIT REPL — fn / class / enum decls
+and most top-level `let` bindings persist across chunks via host
+slots. Trailing semicolons are optional — newlines act as
+statement separators (JS-style ASI).
 
 ---
 
@@ -2525,7 +2523,6 @@ search directory the loader uses for `use module` resolution.
 - **Named arguments** (`open(path: "x", mode: "w")`) — default
   arguments are implemented; named-call sites are not.
 - **Operator overloading** (`class Vec2 { + (other: Vec2): Vec2 { ... } }`).
-- **Async / await** (concurrency).
 - **Generic constraints (bounds)**.
 - **Method overloading across the inheritance hierarchy** (only
   the root class supports overloading today).
