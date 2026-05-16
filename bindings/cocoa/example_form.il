@@ -37,7 +37,7 @@ let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ActivationPolicy.regular as i64)
+app.setActivationPolicy(ActivationPolicy.regular)
 
 let mask = StyleMask.titled
     | StyleMask.closable

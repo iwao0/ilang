@@ -142,7 +142,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("sharedApplication")
         pub static sharedApplication(): NSApplication
         @objc("setActivationPolicy:")
-        pub setActivationPolicy(policy: i64): i8
+        pub setActivationPolicy(policy: ActivationPolicy): i8
         @objc("activateIgnoringOtherApps:")
         pub activateIgnoringOtherApps(flag: i8)
         @objc("run")
@@ -170,14 +170,13 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     @objc pub class NSWindow : NSObject {
         @objc("alloc")
         pub static alloc(): NSWindow
-        // The underlying ABI is u64 (`NSWindowStyleMask` is a
-        // `NSUInteger`). `@flags` enum values are heap-boxed at
-        // the ilang level, so they can't ride directly across
-        // the objc_msgSend boundary — `makeWindow` below casts
-        // `StyleMask as u64` before invoking this.
+        // `NSWindowStyleMask` / `NSBackingStoreType` are typed
+        // enums on the ilang side. The MIR codegen extracts the
+        // discriminant when handing them to objc_msgSend, so the
+        // C ABI sees the raw NSUInteger that AppKit expects.
         @objc("initWithContentRect:styleMask:backing:defer:")
         pub init(
-            rect: NSRect, mask: u64, backing: u64, defer: i8
+            rect: NSRect, mask: StyleMask, backing: BackingStore, defer: i8
         ): NSWindow
 
         @objc("setTitle:")
@@ -208,7 +207,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("setTitle:")
         pub setTitle(title: NSString)
         @objc("setBezelStyle:")
-        pub setBezelStyle(style: u64)
+        pub setBezelStyle(style: BezelStyle)
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)
@@ -283,7 +282,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         pub init(): NSStackView
 
         @objc("setOrientation:")
-        pub setOrientation(o: i64)
+        pub setOrientation(o: LayoutOrientation)
         @objc("setSpacing:")
         pub setSpacing(s: f64)
         @objc("addArrangedSubview:")
@@ -365,16 +364,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         x: f64, y: f64, w: f64, h: f64,
         mask: StyleMask
     ): NSWindow {
-        // `mask as u64` extracts the @flags tag (the OR'd bits),
-        // matching the `NSUInteger` shape `objc_msgSend` expects.
-        // `BackingStore.buffered` is the only non-deprecated value.
         let win = NSWindow.alloc()
-            .init(
-                makeRect(x, y, w, h),
-                mask as u64,
-                BackingStore.buffered as u64,
-                0
-            )
+            .init(makeRect(x, y, w, h), mask, BackingStore.buffered, 0)
         win.setTitle(nsstr(title))
         win
     }
@@ -430,7 +421,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     ): NSButton {
         let btn = NSButton.alloc().init(makeRect(x, y, w, h))
         btn.setTitle(nsstr(title))
-        btn.setBezelStyle(BezelStyle.push as u64)
+        btn.setBezelStyle(BezelStyle.push)
         btn
     }
 
@@ -493,7 +484,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         spacing: f64
     ): NSStackView {
         let s = NSStackView.alloc().init()
-        s.setOrientation(orientation as i64)
+        s.setOrientation(orientation)
         s.setSpacing(spacing)
         s
     }

@@ -32,7 +32,7 @@ use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ActivationPolicy.regular as i64)
+app.setActivationPolicy(ActivationPolicy.regular)
 
 let mask = StyleMask.titled
     | StyleMask.closable

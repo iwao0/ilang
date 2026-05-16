@@ -240,6 +240,30 @@ pub(super) fn lower_call<M: Module>(
                 continue;
             }
         }
+        // ilang represents enums as heap-box pointers ([tag |
+        // payload…]), but a C ABI parameter expects the raw
+        // discriminant (NSUInteger / NSInteger style). For unit-only
+        // enums passed to an extern C callee, load offset 0 so
+        // selectors like `setActivationPolicy:` receive the actual
+        // integer value instead of a heap address. Payload enums
+        // are left alone; those don't fit a scalar C parameter
+        // anyway, and binding code that wraps them needs to
+        // unpack the box itself.
+        if is_callee_extern {
+            if let MirTy::Enum(eid) = func.ty_of(*a) {
+                let layout = &prog.enums[eid.0 as usize];
+                let unit_only = layout
+                    .variants
+                    .iter()
+                    .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
+                if unit_only {
+                    let disc =
+                        fb.ins().load(types::I64, MemFlags::trusted(), av, 0);
+                    arg_vs.push(disc);
+                    continue;
+                }
+            }
+        }
         arg_vs.push(av);
     }
     let (cid, is_builtin) = match callee {

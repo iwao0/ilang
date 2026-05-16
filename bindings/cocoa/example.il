@@ -9,7 +9,7 @@
 use cocoa
 
 let app = cocoa.sharedApplication()
-app.setActivationPolicy(cocoa.ActivationPolicy.regular as i64)
+app.setActivationPolicy(cocoa.ActivationPolicy.regular)
 
 // Swift's `[.titled, .closable, .miniaturizable, .resizable]`
 // in ilang's bitwise-OR form on the typed flags enum.

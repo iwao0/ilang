@@ -54,7 +54,7 @@ use cocoa { NSObject, StyleMask, ActivationPolicy, nil,
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ActivationPolicy.regular as i64)
+app.setActivationPolicy(ActivationPolicy.regular)
 
 AppDelegate.register()
 let appDel = AppDelegate.alloc().init()
