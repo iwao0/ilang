@@ -313,7 +313,19 @@ pub(crate) fn extract_doc_above(text: &str, decl_line: u32) -> Option<String> {
         return None;
     }
     doc_lines.reverse();
-    Some(doc_lines.join("\n"))
+    // Hover popups render this as Markdown. CommonMark collapses a
+    // single `\n` between two non-blank lines into a soft break (a
+    // space), which makes multi-line `///` comments appear as one
+    // wrapped paragraph — losing the argument-per-line / list
+    // structure the author wrote. Appending two trailing spaces to
+    // every non-empty line turns each line ending into a Markdown
+    // hard break (`<br>`); blank `///` lines stay empty so they
+    // still produce a normal paragraph break in the rendered output.
+    let formatted: Vec<String> = doc_lines
+        .iter()
+        .map(|l| if l.is_empty() { String::new() } else { format!("{l}  ") })
+        .collect();
+    Some(formatted.join("\n"))
 }
 
 /// Build a single-line span that covers the given identifier's full
