@@ -725,8 +725,13 @@ impl<'a> BodyCx<'a> {
             ExprKind::Match { scrutinee, arms } => self.lower_match(scrutinee, arms),
             ExprKind::MapLit(entries) => self.lower_map_literal(entries),
             ExprKind::StructLit { class, fields } => {
-                // Aggregate literal for an @extern(C) struct. Desugars
-                // to `new C()` (zero-init) + field stores.
+                // Aggregate literal — for `@extern(C) struct` /
+                // top-level `struct` / `union` (zero-init heap slot
+                // then store each field) and for ARC classes (the
+                // looser literal form that bypasses `init`). The
+                // type checker has already validated field set and
+                // types; here we just emit the construction +
+                // per-field stores.
                 let class_id = self
                     .class_meta
                     .iter()
@@ -751,12 +756,33 @@ impl<'a> BodyCx<'a> {
                         LowerError::Other(format!("no field {fname} on {class}"))
                     })?;
                     let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                    let value_is_fresh = self.is_fresh_object_expr(fval);
                     let (vv, vty) = self.lower_expr(fval)?;
                     let coerced = if vty == fty {
                         vv
                     } else {
                         self.coerce(vv, &vty, &fty, fval.span)?
                     };
+                    // ARC retain for heap-typed fields: same rule as
+                    // AssignField. The slot started at zero (fresh
+                    // alloc) so there is no prior occupant to
+                    // release. CRepr structs / unions can't hold
+                    // these field types — the type-checker rejects
+                    // them — so this branch only fires on ARC class
+                    // literals.
+                    let is_heap = matches!(
+                        fty,
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                            | MirTy::Str
+                    );
+                    if is_heap && !value_is_fresh {
+                        self.fb.push_inst(Inst::Retain { value: coerced });
+                    }
                     self.fb.push_inst(Inst::StoreField { obj: dst, field: fid, value: coerced });
                 }
                 Ok((dst, MirTy::Object(class_id)))

@@ -276,6 +276,11 @@ pub(super) struct ClassSig {
     /// (primitives + repr_c only) and embedded-struct layout depend
     /// on this flag.
     pub(super) is_repr_c: bool,
+    /// `true` for `union Foo { ... }` (top-level or inside
+    /// `@extern(C) { ... }`). Distinguishes the "exactly one field
+    /// must be initialized" rule for union literals from the
+    /// "every field must be initialized" rule for struct literals.
+    pub(super) is_union: bool,
     /// `true` when the class ends in a C99 flexible array member
     /// (`T[]` last field). `new ClassName(n)` accepts a single i64
     /// arg (the trailing element count) for these.

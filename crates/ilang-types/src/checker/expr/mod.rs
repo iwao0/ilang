@@ -86,14 +86,93 @@ impl TypeChecker {
     ) -> Result<Type, TypeError> {
         let span = expr.span;
         match &expr.kind {
-            // The parser produces `StructLit`, but normalize desugars
-            // it into `{ let __sl = new Foo(); __sl.f = v; ...; __sl }`
-            // before type checking runs — reaching here means a
-            // pipeline shortcut bypassed normalize.
-            ExprKind::StructLit { .. } => Err(TypeError::Unsupported {
-                what: "internal: struct literal reached type checker (normalize was skipped)".into(),
-                span,
-            }),
+            ExprKind::StructLit { class, fields } => {
+                // Look up the class signature. A literal against an
+                // unknown class name is the same error as `new
+                // BogusName()`.
+                let cls = self.classes.get(class).ok_or_else(|| {
+                    TypeError::UndefinedClass {
+                        name: class.clone(),
+                        span,
+                    }
+                })?;
+                // Reject duplicates first — `Foo { x: 1, x: 2 }` is
+                // ambiguous regardless of what `Foo` is.
+                let mut seen: HashSet<Symbol> = HashSet::with_capacity(fields.len());
+                for (fname, _) in fields.iter() {
+                    if !seen.insert(fname.clone()) {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "duplicate field {fname:?} in struct literal for {class:?}"
+                            ),
+                            span,
+                        });
+                    }
+                }
+                // CRepr struct: every declared field must be
+                // explicitly initialized — no `init` exists to fill
+                // missing slots, so a partial literal would leave
+                // them at their zero-initialized default. Reject so
+                // the author has to spell out the field or change
+                // the declaration.
+                //
+                // CRepr union: exactly one field is initialized
+                // (variants share one storage slot — initializing
+                // zero or multiple has no meaningful semantics).
+                //
+                // Regular ARC classes deliberately keep the looser
+                // "any subset" behaviour — these may have an `init`
+                // that sets the rest, and partial literals are a
+                // long-standing idiom in the existing fixtures.
+                if cls.is_repr_c {
+                    if cls.is_union {
+                        if fields.len() != 1 {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "union literal for {class:?} must initialize exactly \
+                                     one field (got {})",
+                                    fields.len()
+                                ),
+                                span,
+                            });
+                        }
+                    } else {
+                        for declared in cls.fields.keys() {
+                            if !seen.contains(declared) {
+                                return Err(TypeError::Unsupported {
+                                    what: format!(
+                                        "struct literal for {class:?} is missing field \
+                                         {declared:?} — CRepr struct literals must initialize \
+                                         every field"
+                                    ),
+                                    span,
+                                });
+                            }
+                        }
+                    }
+                }
+                // Type-check each field expression against its
+                // declared type. Reject unknown field names — the
+                // declaration is authoritative.
+                for (fname, fexpr) in fields.iter() {
+                    let field_ty = cls.fields.get(fname).cloned().ok_or_else(|| {
+                        TypeError::UnknownField {
+                            class: class.clone(),
+                            field: fname.clone(),
+                            span: fexpr.span,
+                        }
+                    })?;
+                    let vt = self.check_expr(fexpr, env, ret_ty, in_class, loop_depth)?;
+                    if !self.value_assignable(fexpr, &vt, &field_ty) {
+                        return Err(TypeError::Mismatch {
+                            expected: field_ty,
+                            got: vt,
+                            span: fexpr.span,
+                        });
+                    }
+                }
+                Ok(Type::Object(class.clone()))
+            }
             ExprKind::Int(_) => Ok(Type::I64),
             ExprKind::Float(_) => Ok(Type::F64),
             ExprKind::Bool(_) => Ok(Type::Bool),

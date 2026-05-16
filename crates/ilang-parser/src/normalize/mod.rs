@@ -554,49 +554,25 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Tuple(items) => {
             ExprKind::Tuple(Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect())
         }
-        // Struct literal: `Foo { a: 1, b: 2 }` desugars to a block
-        // `{ let __sl = new Foo(); __sl.a = 1; __sl.b = 2; __sl }`.
-        // The temp name embeds the source position so nested struct
-        // literals don't collide.
+        // Struct literal: leave the `StructLit` node intact and just
+        // recurse into the field expressions. Validation (CRepr
+        // structs require every declared field; `class` literals are
+        // already rejected by the type checker) and the actual
+        // construction (NewObject + StoreField sequence) happen in
+        // the type checker / MIR lower respectively. Keeping the
+        // node alive past normalize is what lets those passes see
+        // the full literal — including which field names the author
+        // wrote — instead of an already-desugared `__sl.x = ...`
+        // sequence that loses the "this was a struct literal" intent.
         ExprKind::StructLit { class, fields } => {
-            let tmp: Symbol = format!("__struct_lit_{}_{}", span.line, span.col).into();
-            let mut stmts: Vec<ilang_ast::Stmt> = Vec::with_capacity(fields.len() + 1);
-            stmts.push(ilang_ast::Stmt {
-                kind: ilang_ast::StmtKind::Let {
-                    is_pub: false,
-                is_const: false,
-                    name: tmp,
-                    ty: None,
-                    value: Expr::new(
-                        ExprKind::New {
-                            class,
-                            type_args: Box::new([]),
-                            args: Box::new([]),
-                            init_method: None,
-                        },
-                        span,
-                    ),
-                },
-                span, source_module: None });
-            for (fname, fval) in fields {
-                let assign = Expr::new(
-                    ExprKind::AssignField {
-                        obj: Box::new(Expr::new(ExprKind::Var(tmp), span)),
-                        field: fname,
-                        value: Box::new(rewrite_expr(fval, ctx)),
-                        is_init: false,
-                    },
-                    span,
-                );
-                stmts.push(ilang_ast::Stmt {
-                    kind: ilang_ast::StmtKind::Expr(assign),
-                    span, source_module: None });
-            }
             return Expr::new(
-                ExprKind::Block(ilang_ast::Block {
-                    stmts: stmts.into(),
-                    tail: Some(Box::new(Expr::new(ExprKind::Var(tmp), span))),
-                }),
+                ExprKind::StructLit {
+                    class,
+                    fields: fields
+                        .into_iter()
+                        .map(|(n, e)| (n, rewrite_expr(e, ctx)))
+                        .collect(),
+                },
                 span,
             );
         }
