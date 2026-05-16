@@ -604,11 +604,9 @@ pub enum Hint: string {
 
     /// Convenience: `getPowerInfo` that just returns the state.
     pub fn getPowerState(): PowerState {
-        let s: i32[] = [0]
-        let p: i32[] = [0]
-        let ps: *i32 = s
-        let pp: *i32 = p
-        SDL_GetPowerInfo(ps, pp) as PowerState
+        let s: i32 = 0
+        let p: i32 = 0
+        SDL_GetPowerInfo(&s, &p) as PowerState
     }
 
     /// Hand a URL to the OS — opens the user's default browser

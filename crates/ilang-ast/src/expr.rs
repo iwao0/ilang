@@ -330,6 +330,11 @@ pub enum UnOp {
     Not,
     /// Bitwise NOT (`~`). Operand must be `i64`.
     BitNot,
+    /// Address-of (`&local`). Only valid inside an `@extern(C)`
+    /// context; the operand must be a local variable. Result type
+    /// is `*T` where `T` is the local's declared type. Forces the
+    /// local into a stack slot at codegen so the pointer is stable.
+    AddrOf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

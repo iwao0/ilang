@@ -29,8 +29,8 @@ pub mod validate;
 pub use builder::FunctionBuilder;
 pub use lower::{lower_program, lower_program_with_slots, ty_to_mir, LowerError};
 pub use inst::{
-    BinOp, BlockId, CastKind, FieldId, FnSig, FuncId, FuncRef, Inst, MirConst, StaticSlotId,
-    SwitchCase, Terminator, UnOp, ValueId, VariantId, VTableSlot,
+    BinOp, BlockId, CastKind, FieldId, FnSig, FuncId, FuncRef, Inst, LocalId, MirConst,
+    StaticSlotId, SwitchCase, Terminator, UnOp, ValueId, VariantId, VTableSlot,
 };
 pub use printer::{print_function, print_program};
 pub use program::{

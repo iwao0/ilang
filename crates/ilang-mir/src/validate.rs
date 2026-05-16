@@ -142,7 +142,8 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         | Inst::IsInstance { dst, .. }
         | Inst::DowncastOrNone { dst, .. }
         | Inst::LoadStatic { dst, .. }
-        | Inst::UseLocal { dst, .. } => vec![*dst],
+        | Inst::UseLocal { dst, .. }
+        | Inst::AddrOfLocal { dst, .. } => vec![*dst],
         Inst::Call { dst, .. } | Inst::CallIndirect { dst, .. } | Inst::VirtCall { dst, .. } => {
             dst.iter().copied().collect()
         }

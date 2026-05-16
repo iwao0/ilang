@@ -71,38 +71,32 @@ pub enum SystemCursor: i32 {
         /// with `Mouse.buttons()` to read pressed buttons in the
         /// same poll.
         pub static position(): Point {
-            let xs: i32[] = [0]
-            let ys: i32[] = [0]
-            let px: *i32 = xs
-            let py: *i32 = ys
-            SDL_GetMouseState(px, py)
+            let xs: i32 = 0
+            let ys: i32 = 0
+            SDL_GetMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs[0]
-            p.y = ys[0]
+            p.x = xs
+            p.y = ys
             p
         }
 
         /// The held-button bitmask (no position). AND the result
         /// against `MouseButton.left` etc. to test.
         pub static buttons(): u32 {
-            let xs: i32[] = [0]
-            let ys: i32[] = [0]
-            let px: *i32 = xs
-            let py: *i32 = ys
-            SDL_GetMouseState(px, py)
+            let xs: i32 = 0
+            let ys: i32 = 0
+            SDL_GetMouseState(&xs, &ys)
         }
 
         /// Like `position()`, but coordinates are relative to the
         /// desktop, not any specific window.
         pub static globalPosition(): Point {
-            let xs: i32[] = [0]
-            let ys: i32[] = [0]
-            let px: *i32 = xs
-            let py: *i32 = ys
-            SDL_GetGlobalMouseState(px, py)
+            let xs: i32 = 0
+            let ys: i32 = 0
+            SDL_GetGlobalMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs[0]
-            p.y = ys[0]
+            p.x = xs
+            p.y = ys
             p
         }
 
@@ -111,14 +105,12 @@ pub enum SystemCursor: i32 {
         /// call after `sdl.init` returns garbage for `dx` / `dy` —
         /// discard it.
         pub static relativePosition(): Point {
-            let xs: i32[] = [0]
-            let ys: i32[] = [0]
-            let px: *i32 = xs
-            let py: *i32 = ys
-            SDL_GetRelativeMouseState(px, py)
+            let xs: i32 = 0
+            let ys: i32 = 0
+            SDL_GetRelativeMouseState(&xs, &ys)
             let p = new Point()
-            p.x = xs[0]
-            p.y = ys[0]
+            p.x = xs
+            p.y = ys
             p
         }
 

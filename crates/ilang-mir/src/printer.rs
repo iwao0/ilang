@@ -327,6 +327,9 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
         Inst::UseLocal { dst, local } => {
             format!("{}use_local %{}", dst_pre(*dst), local.0)
         }
+        Inst::AddrOfLocal { dst, local } => {
+            format!("{}addr_of_local %{}", dst_pre(*dst), local.0)
+        }
     }
 }
 

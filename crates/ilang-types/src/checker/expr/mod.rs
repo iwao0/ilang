@@ -271,6 +271,37 @@ impl TypeChecker {
                 })
             }
             ExprKind::Unary { op, expr: inner } => {
+                // `&name` is FFI-scoped: only valid inside an
+                // @extern(C) context, and only on a name that
+                // resolves to a local variable. The result type is
+                // `*T` where T is the local's type. The address-of
+                // is materialised by the MIR lowerer (`AddrOfLocal`);
+                // here we just gate-keep + assign the type.
+                if matches!(op, UnOp::AddrOf) {
+                    if !*self.in_extern_c.borrow() {
+                        return Err(TypeError::Unsupported {
+                            what: "`&` (address-of) is only allowed inside an @extern(C) block".into(),
+                            span,
+                        });
+                    }
+                    let name = match &inner.kind {
+                        ExprKind::Var(n) => *n,
+                        _ => {
+                            return Err(TypeError::Unsupported {
+                                what: "`&` target must be a local variable name".into(),
+                                span,
+                            });
+                        }
+                    };
+                    let inner_ty = env
+                        .get(&name)
+                        .ok_or(TypeError::UndefinedVariable { name, span })?
+                        .clone();
+                    return Ok(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(inner_ty),
+                    });
+                }
                 let t = self.check_expr(inner, env, ret_ty, in_class, loop_depth)?;
                 match op {
                     // Unary `-` is only meaningful on signed numerics.
@@ -286,6 +317,7 @@ impl TypeChecker {
                     {
                         Ok(t)
                     }
+                    UnOp::AddrOf => unreachable!("handled above"),
                     _ => Err(TypeError::BadUnary { ty: t, span }),
                 }
             }

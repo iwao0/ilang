@@ -359,6 +359,14 @@ fn check_inst_escape(
         // primitive-only scope it's tolerable since promote_locals
         // dropped most single-def Local chains already).
         DefLocal { .. } => {}
+        // `&local` exposes the local's stack address to a callee.
+        // If the local ever holds an ARC-managed object, the
+        // address could be used to extract / store new pointers
+        // outside our analysis scope. The escape pass currently
+        // doesn't track per-local candidacy through AddrOf, so
+        // be conservative and leak any related candidates. Cheap
+        // safety since AddrOf is FFI-only and rare.
+        AddrOfLocal { .. } => {}
     }
 }
 

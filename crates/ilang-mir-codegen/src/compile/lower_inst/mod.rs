@@ -59,6 +59,7 @@ pub(super) fn lower_inst<M: Module>(
     print_lits: PrintLits,
     module: &mut M,
     locals: &[Variable],
+    local_slots: &[Option<cranelift_codegen::ir::StackSlot>],
     prog: &Program,
     env_value: Value,
     class_global: &[u32],
@@ -657,7 +658,6 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, v);
         }
         Inst::DefLocal { local, value } => {
-            let var = locals[local.0 as usize];
             let v = vmap[value];
             if std::env::var("ILANG_DEBUG_DEFLOCAL").is_ok() {
                 let want = func.local_tys[local.0 as usize].clone();
@@ -667,12 +667,28 @@ pub(super) fn lower_inst<M: Module>(
                     func.name.as_str(), local.0
                 );
             }
-            fb.def_var(var, v);
+            if let Some(slot) = local_slots[local.0 as usize] {
+                fb.ins().stack_store(v, slot, 0);
+            } else {
+                let var = locals[local.0 as usize];
+                fb.def_var(var, v);
+            }
         }
         Inst::UseLocal { dst, local } => {
-            let var = locals[local.0 as usize];
-            let v = fb.use_var(var);
+            let v = if let Some(slot) = local_slots[local.0 as usize] {
+                let ct = mir_to_clif(&func.local_tys[local.0 as usize]).unwrap_or(types::I64);
+                fb.ins().stack_load(ct, slot, 0)
+            } else {
+                let var = locals[local.0 as usize];
+                fb.use_var(var)
+            };
             vmap.insert(*dst, v);
+        }
+        Inst::AddrOfLocal { dst, local } => {
+            let slot = local_slots[local.0 as usize]
+                .expect("AddrOfLocal target local must have a StackSlot");
+            let p = fb.ins().stack_addr(types::I64, slot, 0);
+            vmap.insert(*dst, p);
         }
         Inst::NewObject { dst, class, init_args, init } => {
             let layout = &prog.classes[class.0 as usize];

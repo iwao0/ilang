@@ -51,6 +51,19 @@ pub fn run_program(prog: &mut Program) -> Stats {
 }
 
 pub fn run_function(func: &mut Function) -> Stats {
+    // Locals whose address is taken (`&x` inside @extern) need a
+    // stable stack slot at codegen — promoting them to SSA would
+    // break the pointer's identity. Collect those first so the
+    // promotion loop can skip them.
+    let mut addr_taken: std::collections::HashSet<LocalId> =
+        std::collections::HashSet::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Inst::AddrOfLocal { local, .. } = inst {
+                addr_taken.insert(*local);
+            }
+        }
+    }
     // Count `DefLocal`s per LocalId and remember which block holds
     // the def. Single-def locals are the candidates; we also need
     // the def's block to enforce same-block usage.
@@ -84,6 +97,10 @@ pub fn run_function(func: &mut Function) -> Stats {
     }
     for (loc, count) in &def_count {
         if *count != 1 {
+            continue;
+        }
+        // Address-taken: must remain a Local (StackSlot at codegen).
+        if addr_taken.contains(loc) {
             continue;
         }
         if let Some(ty) = func.local_tys.get(loc.0 as usize) {

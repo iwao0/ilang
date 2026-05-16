@@ -141,6 +141,16 @@ pub extern "C" fn maybe_succeed_i64(ok: i32) -> i64 {
     if ok != 0 { 1_234_567_890_123 } else { -1 }
 }
 
+#[unsafe(export_name = "set_via_ptr")]
+pub extern "C" fn set_via_ptr(out: *mut i32, value: i32) {
+    unsafe { *out = value }
+}
+
+#[unsafe(export_name = "set_via_ptr_f64")]
+pub extern "C" fn set_via_ptr_f64(out: *mut f64, value: f64) {
+    unsafe { *out = value }
+}
+
 #[unsafe(export_name = "get_cstr_array")]
 pub extern "C" fn get_cstr_array() -> *const *const u8 {
     static mut PTRS: [*const u8; 4] = [std::ptr::null(); 4];

@@ -139,6 +139,14 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | Panic { .. }
         | DefLocal { .. }
         | UseLocal { .. } => false,
+        // `&local` is pure as a value producer (just a stack
+        // address) but the side effect — *pinning the local into a
+        // StackSlot so codegen routes Def/Use through memory* — is
+        // implicit. Treat it like a regular dst-bearing inst: only
+        // dead when `dst` is unused. Even when dead, the codegen
+        // still pins the local; dropping the inst doesn't undo
+        // that. Either way DCE on an unreferenced AddrOf is fine.
+        AddrOfLocal { dst, .. } => !used.contains(dst),
     }
 }
 
@@ -253,6 +261,9 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
             set.insert(*value);
         }
         UseLocal { .. } => {}
+        // `&local` doesn't reference any ValueId — it names the
+        // local directly. No SSA uses to collect.
+        AddrOfLocal { .. } => {}
     }
 }
 

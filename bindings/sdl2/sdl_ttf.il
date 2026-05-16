@@ -295,25 +295,20 @@ pub class GlyphMetrics {
         pub glyphMetrics(ch: u16): GlyphMetrics {
             let m = new GlyphMetrics()
             if this.handle == 0 { return m }
-            let xs0: i32[] = [0]
-            let xs1: i32[] = [0]
-            let ys0: i32[] = [0]
-            let ys1: i32[] = [0]
-            let adv: i32[] = [0]
-            let pmx0: *i32 = xs0
-            let pmx1: *i32 = xs1
-            let pmy0: *i32 = ys0
-            let pmy1: *i32 = ys1
-            let pad: *i32 = adv
+            let xs0: i32 = 0
+            let xs1: i32 = 0
+            let ys0: i32 = 0
+            let ys1: i32 = 0
+            let adv: i32 = 0
             TTF_GlyphMetrics(
                 this.handle as *TTF_Font, ch,
-                pmx0, pmx1, pmy0, pmy1, pad
+                &xs0, &xs1, &ys0, &ys1, &adv
             )
-            m.minX = xs0[0]
-            m.maxX = xs1[0]
-            m.minY = ys0[0]
-            m.maxY = ys1[0]
-            m.advance = adv[0]
+            m.minX = xs0
+            m.maxX = xs1
+            m.minY = ys0
+            m.maxY = ys1
+            m.advance = adv
             m
         }
 
@@ -329,13 +324,11 @@ pub class GlyphMetrics {
         pub size(text: string): Size {
             let s = new Size()
             if this.handle == 0 { return s }
-            let ws: i32[] = [0]
-            let hs: i32[] = [0]
-            let pw: *i32 = ws
-            let ph: *i32 = hs
-            TTF_SizeUTF8(this.handle as *TTF_Font, cstrFromString(text), pw, ph)
-            s.w = ws[0]
-            s.h = hs[0]
+            let ws: i32 = 0
+            let hs: i32 = 0
+            TTF_SizeUTF8(this.handle as *TTF_Font, cstrFromString(text), &ws, &hs)
+            s.w = ws
+            s.h = hs
             s
         }
 

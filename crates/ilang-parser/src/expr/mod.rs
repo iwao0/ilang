@@ -779,6 +779,23 @@ impl<'a> Parser<'a> {
                     full,
                 ))
             }
+            // `&local` — address-of (FFI). Only allowed inside an
+            // `@extern(C)` context; the type checker enforces that.
+            // Tokenised as `Amp`, which doubles as the binary
+            // bitwise-AND operator in infix position — the Pratt
+            // parser keeps the two disambiguated by context.
+            TokenKind::Amp => {
+                self.bump();
+                let e = self.parse_expr(30)?;
+                let full = span.to(e.span);
+                Ok(Expr::new(
+                    ExprKind::Unary {
+                        op: UnOp::AddrOf,
+                        expr: Box::new(e),
+                    },
+                    full,
+                ))
+            }
             TokenKind::Ident(name) => {
                 self.bump();
                 if matches!(self.peek().kind, TokenKind::LParen) {

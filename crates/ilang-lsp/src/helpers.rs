@@ -300,6 +300,7 @@ pub(crate) fn render_const_value_with_src(e: &Expr, src: Option<&str>) -> Option
                 UnOp::Pos => "+",
                 UnOp::Not => "!",
                 UnOp::BitNot => "~",
+                UnOp::AddrOf => "&",
             };
             Some(format!("{sym}{inner}"))
         }

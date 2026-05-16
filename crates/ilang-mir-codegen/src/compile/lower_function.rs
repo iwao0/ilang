@@ -224,14 +224,51 @@ pub(super) fn lower_function<M: Module>(
         chunk_max,
     };
 
+    // Address-taken locals (those that show up in an
+    // `Inst::AddrOfLocal`) need a stable memory address, so we back
+    // them with a Cranelift `StackSlot` instead of an SSA Variable.
+    // `DefLocal`/`UseLocal`/`AddrOfLocal` route through the slot via
+    // `stack_store` / `stack_load` / `stack_addr`.
+    let mut addr_taken_locals: std::collections::HashSet<ilang_mir::LocalId> =
+        std::collections::HashSet::new();
+    for blk in &func.blocks {
+        for inst in &blk.insts {
+            if let ilang_mir::Inst::AddrOfLocal { local, .. } = inst {
+                addr_taken_locals.insert(*local);
+            }
+        }
+    }
+
     // Declare a Cranelift `Variable` for every MIR local. Cranelift
     // performs the on-demand SSA construction (block-arg insertion
     // for loop-carried values) once we use def_var / use_var.
+    // For address-taken locals we also allocate a StackSlot; the
+    // Variable still exists as a placeholder but isn't read.
     let mut locals: Vec<Variable> = Vec::with_capacity(func.local_tys.len());
-    for lt in func.local_tys.iter() {
+    let mut local_slots: Vec<Option<cranelift_codegen::ir::StackSlot>> =
+        Vec::with_capacity(func.local_tys.len());
+    for (idx, lt) in func.local_tys.iter().enumerate() {
         let ct = mir_to_clif(lt).unwrap_or(types::I64);
         let var = fb.declare_var(ct);
         locals.push(var);
+        let lid = ilang_mir::LocalId(idx as u32);
+        let slot = if addr_taken_locals.contains(&lid) {
+            let size = ct.bytes().max(1);
+            let align = match size {
+                1 => 0,
+                2 => 1,
+                4 => 2,
+                _ => 3,
+            };
+            Some(fb.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                size,
+                align,
+            )))
+        } else {
+            None
+        };
+        local_slots.push(slot);
     }
 
     // Lower in MIR-block order. Any MIR block reachable from terminators
@@ -263,6 +300,7 @@ pub(super) fn lower_function<M: Module>(
                 print_lits,
                 module,
                 &locals,
+                &local_slots,
                 prog,
                 env_value,
                 class_global,

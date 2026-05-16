@@ -476,12 +476,12 @@ pub enum RendererFlip: i32 {
         /// Drawable output size in pixels (may differ from window
         /// size on HiDPI / logical-size setups).
         pub get outputSize(): Size {
-            let w: i32[] = [0]
-            let h: i32[] = [0]
-            SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, w, h)
+            let w: i32 = 0
+            let h: i32 = 0
+            SDL_GetRendererOutputSize(this.handle as *SDL_Renderer, &w, &h)
             let s = new Size()
-            s.w = w[0]
-            s.h = h[0]
+            s.w = w
+            s.h = h
             s
         }
 
@@ -503,15 +503,15 @@ pub enum RendererFlip: i32 {
         /// signature for ergonomic literal calls) to write.
         pub get color(): Color {
             let c = new Color()
-            let r: u8[] = [0]
-            let g: u8[] = [0]
-            let b: u8[] = [0]
-            let a: u8[] = [0]
-            SDL_GetRenderDrawColor(this.handle as *SDL_Renderer, r, g, b, a)
-            c.r = r[0]
-            c.g = g[0]
-            c.b = b[0]
-            c.a = a[0]
+            let r: u8 = 0
+            let g: u8 = 0
+            let b: u8 = 0
+            let a: u8 = 0
+            SDL_GetRenderDrawColor(this.handle as *SDL_Renderer, &r, &g, &b, &a)
+            c.r = r
+            c.g = g
+            c.b = b
+            c.a = a
             c
         }
 
@@ -520,9 +520,9 @@ pub enum RendererFlip: i32 {
         /// `SDL_SetRenderDrawBlendMode` directly if you need to
         /// react to a failed mode change.
         pub get blendMode(): BlendMode {
-            let m: i32[] = [0]
-            SDL_GetRenderDrawBlendMode(this.handle as *SDL_Renderer, m)
-            m[0] as BlendMode
+            let m: i32 = 0
+            SDL_GetRenderDrawBlendMode(this.handle as *SDL_Renderer, &m)
+            m as BlendMode
         }
         pub set blendMode(mode: BlendMode) {
             SDL_SetRenderDrawBlendMode(this.handle as *SDL_Renderer, mode as i32)
@@ -548,12 +548,12 @@ pub enum RendererFlip: i32 {
         /// Read-only — `setLogicalSize(w, h)` keeps the multi-arg
         /// signature for the writer.
         pub get logicalSize(): Size {
-            let w: i32[] = [0]
-            let h: i32[] = [0]
-            SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, w, h)
+            let w: i32 = 0
+            let h: i32 = 0
+            SDL_RenderGetLogicalSize(this.handle as *SDL_Renderer, &w, &h)
             let s = new Size()
-            s.w = w[0]
-            s.h = h[0]
+            s.w = w
+            s.h = h
             s
         }
 
@@ -617,36 +617,36 @@ pub enum RendererFlip: i32 {
         }
 
         pub get scale(): FPoint {
-            let x: f32[] = [0.0 as f32]
-            let y: f32[] = [0.0 as f32]
-            SDL_RenderGetScale(this.handle as *SDL_Renderer, x, y)
+            let x: f32 = 0.0 as f32
+            let y: f32 = 0.0 as f32
+            SDL_RenderGetScale(this.handle as *SDL_Renderer, &x, &y)
             let s = new FPoint()
-            s.x = x[0]
-            s.y = y[0]
+            s.x = x
+            s.y = y
             s
         }
 
         pub windowToLogical(wx: i32, wy: i32): FPoint {
-            let lx: f32[] = [0.0 as f32]
-            let ly: f32[] = [0.0 as f32]
+            let lx: f32 = 0.0 as f32
+            let ly: f32 = 0.0 as f32
             SDL_RenderWindowToLogical(
-                this.handle as *SDL_Renderer, wx, wy, lx, ly
+                this.handle as *SDL_Renderer, wx, wy, &lx, &ly
             )
             let p = new FPoint()
-            p.x = lx[0]
-            p.y = ly[0]
+            p.x = lx
+            p.y = ly
             p
         }
 
         pub logicalToWindow(lx: f32, ly: f32): Point {
-            let wx: i32[] = [0]
-            let wy: i32[] = [0]
+            let wx: i32 = 0
+            let wy: i32 = 0
             SDL_RenderLogicalToWindow(
-                this.handle as *SDL_Renderer, lx, ly, wx, wy
+                this.handle as *SDL_Renderer, lx, ly, &wx, &wy
             )
             let p = new Point()
-            p.x = wx[0]
-            p.y = wy[0]
+            p.x = wx
+            p.y = wy
             p
         }
 
@@ -1116,28 +1116,28 @@ pub enum RendererFlip: i32 {
             if handle == 0 {
                 return new Texture(0 as i64, 0 as i32, 0 as i32)
             }
-            let fmt: u32[] = [0 as u32]
-            let access: i32[] = [0]
-            let w: i32[] = [0]
-            let h: i32[] = [0]
-            SDL_QueryTexture(handle as *SDL_Texture, fmt, access, w, h)
-            new Texture(handle, w[0], h[0])
+            let fmt: u32 = 0 as u32
+            let access: i32 = 0
+            let w: i32 = 0
+            let h: i32 = 0
+            SDL_QueryTexture(handle as *SDL_Texture, &fmt, &access, &w, &h)
+            new Texture(handle, w, h)
         }
 
         /// SDL_QueryTexture in one shot — format / access / w / h.
         pub get info(): TextureInfo {
-            let fmt: u32[] = [0 as u32]
-            let access: i32[] = [0]
-            let w: i32[] = [0]
-            let h: i32[] = [0]
+            let fmt: u32 = 0 as u32
+            let access: i32 = 0
+            let w: i32 = 0
+            let h: i32 = 0
             SDL_QueryTexture(
-                this.handle as *SDL_Texture, fmt, access, w, h
+                this.handle as *SDL_Texture, &fmt, &access, &w, &h
             )
             let i = new TextureInfo()
-            i.format = fmt[0]
-            i.access = access[0]
-            i.w = w[0]
-            i.h = h[0]
+            i.format = fmt
+            i.access = access
+            i.w = w
+            i.h = h
             i
         }
 
@@ -1182,13 +1182,13 @@ pub enum RendererFlip: i32 {
         /// `Color` first.
         pub get colorMod(): Color {
             let c = new Color()
-            let r: u8[] = [0]
-            let g: u8[] = [0]
-            let b: u8[] = [0]
-            SDL_GetTextureColorMod(this.handle as *SDL_Texture, r, g, b)
-            c.r = r[0]
-            c.g = g[0]
-            c.b = b[0]
+            let r: u8 = 0
+            let g: u8 = 0
+            let b: u8 = 0
+            SDL_GetTextureColorMod(this.handle as *SDL_Texture, &r, &g, &b)
+            c.r = r
+            c.g = g
+            c.b = b
             c.a = 255 as u8
             c
         }
@@ -1196,9 +1196,9 @@ pub enum RendererFlip: i32 {
         /// Per-draw alpha multiplier (fade-out). `255` = opaque.
         /// The setter discards the SDL error code.
         pub get alphaMod(): u8 {
-            let a: u8[] = [0]
-            SDL_GetTextureAlphaMod(this.handle as *SDL_Texture, a)
-            a[0]
+            let a: u8 = 0
+            SDL_GetTextureAlphaMod(this.handle as *SDL_Texture, &a)
+            a
         }
         pub set alphaMod(a: u8) {
             SDL_SetTextureAlphaMod(this.handle as *SDL_Texture, a)
@@ -1209,9 +1209,9 @@ pub enum RendererFlip: i32 {
         /// composites this texture. Setter discards the error
         /// code.
         pub get blendMode(): BlendMode {
-            let m: i32[] = [0]
-            SDL_GetTextureBlendMode(this.handle as *SDL_Texture, m)
-            m[0] as BlendMode
+            let m: i32 = 0
+            SDL_GetTextureBlendMode(this.handle as *SDL_Texture, &m)
+            m as BlendMode
         }
         pub set blendMode(mode: BlendMode) {
             SDL_SetTextureBlendMode(this.handle as *SDL_Texture, mode as i32)
@@ -1221,9 +1221,9 @@ pub enum RendererFlip: i32 {
         /// Sampling filter SDL applies when scaling this texture
         /// at draw time. Setter discards the error code.
         pub get scaleMode(): ScaleMode {
-            let m: i32[] = [0]
-            SDL_GetTextureScaleMode(this.handle as *SDL_Texture, m)
-            m[0] as ScaleMode
+            let m: i32 = 0
+            SDL_GetTextureScaleMode(this.handle as *SDL_Texture, &m)
+            m as ScaleMode
         }
         pub set scaleMode(mode: ScaleMode) {
             SDL_SetTextureScaleMode(this.handle as *SDL_Texture, mode as i32)

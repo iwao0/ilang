@@ -245,6 +245,11 @@ pub enum Inst {
     /// Read the current value of a mutable local. Lowered via
     /// Cranelift's `use_var`.
     UseLocal { dst: ValueId, local: LocalId },
+    /// Take the address of a mutable local (`&x` inside @extern(C)).
+    /// Forces the local to live in a Cranelift `StackSlot` so the
+    /// pointer is stable across the function. `dst` has raw-pointer
+    /// type at the type-check level (`*T` of the local's MirTy).
+    AddrOfLocal { dst: ValueId, local: LocalId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

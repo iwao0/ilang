@@ -178,13 +178,10 @@ pub enum MixInitFlag: i32 {
         /// on the `Mixer.default*` values they passed to
         /// `openAudio`.
         pub static querySpec(): i32 {
-            let f: i32[] = [0]
-            let fmt: u16[] = [0 as u16]
-            let ch: i32[] = [0]
-            let pf: *i32 = f
-            let pfmt: *u16 = fmt
-            let pch: *i32 = ch
-            Mix_QuerySpec(pf, pfmt, pch)
+            let f: i32 = 0
+            let fmt: u16 = 0 as u16
+            let ch: i32 = 0
+            Mix_QuerySpec(&f, &fmt, &ch)
         }
 
         pub static getError(): string {

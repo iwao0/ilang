@@ -7,16 +7,52 @@
 //! widths first. `lower_logical` builds the short-circuit `||` /
 //! `&&` control flow with a fresh join block.
 
-use ilang_ast::{BinOp as AstBinOp, Expr, LogicalOp, Span, Symbol, UnOp as AstUnOp};
+use ilang_ast::{BinOp as AstBinOp, Expr, ExprKind as AstExprKind, LogicalOp, Span, Symbol, UnOp as AstUnOp};
 
 use crate::inst::{BinOp, FuncRef, Inst, MirConst, Terminator, UnOp, ValueId};
 use crate::types::MirTy;
 
+use super::env::Binding;
 use super::utils::{cmp_op, Cmp};
 use super::{BodyCx, LowerError};
 
 impl<'a> BodyCx<'a> {
-    pub(super) fn lower_unary(&mut self, op: AstUnOp, e: &Expr, _span: Span) -> Result<(ValueId, MirTy), LowerError> {
+    pub(super) fn lower_unary(&mut self, op: AstUnOp, e: &Expr, span: Span) -> Result<(ValueId, MirTy), LowerError> {
+        // `&name` is special: it never evaluates the operand as a
+        // value. The operand must syntactically be a `Var(name)`
+        // bound to a mutable local, and we emit `AddrOfLocal`
+        // without an intervening `UseLocal` (which would pull the
+        // current value into SSA — wrong for the address case).
+        if matches!(op, AstUnOp::AddrOf) {
+            let name = match &e.kind {
+                AstExprKind::Var(n) => *n,
+                _ => {
+                    return Err(LowerError::Other(format!(
+                        "`&` target must be a local variable (got non-Var expr at {:?})",
+                        span
+                    )));
+                }
+            };
+            let (lid, ty) = match self.env.lookup_binding(name) {
+                Some(Binding::Local(lid, t)) => (lid, t),
+                Some(_) => {
+                    return Err(LowerError::Other(format!(
+                        "`&{}`: only mutable locals can be address-taken (binding is SSA or cell)",
+                        name.as_str()
+                    )));
+                }
+                None => {
+                    return Err(LowerError::Other(format!(
+                        "`&{}`: unbound name",
+                        name.as_str()
+                    )));
+                }
+            };
+            let ptr_ty = MirTy::RawPtr { is_const: false, inner: Box::new(ty) };
+            let dst = self.fb.new_value(ptr_ty.clone());
+            self.fb.push_inst(Inst::AddrOfLocal { dst, local: lid });
+            return Ok((dst, ptr_ty));
+        }
         let (v, ty) = self.lower_expr(e)?;
         match op {
             AstUnOp::Pos => Ok((v, ty)),
@@ -36,6 +72,7 @@ impl<'a> BodyCx<'a> {
                 self.fb.push_inst(Inst::UnOp { dst, op: UnOp::Not, src: v });
                 Ok((dst, ty))
             }
+            AstUnOp::AddrOf => unreachable!("handled above"),
         }
     }
 
