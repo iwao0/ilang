@@ -160,9 +160,43 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         }
         ilang_mir_codegen::reset_repl_slots();
     }
+    // Preserve generic class / enum templates so we can run the
+    // monomorphize passes a second time (needed after fn
+    // specialization, which may surface new instantiations).
+    let generic_class_templates: Vec<ilang_ast::ClassDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            ilang_ast::Item::Class(c) if !c.type_params.is_empty() => Some(c.clone()),
+            _ => None,
+        })
+        .collect();
+    let generic_enum_templates: Vec<ilang_ast::EnumDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            ilang_ast::Item::Enum(e) if !e.type_params.is_empty() => Some(e.clone()),
+            _ => None,
+        })
+        .collect();
     let prog = ilang_mir::monomorphize::monomorphize(&prog);
     let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
     let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
+    // Second monomorphize pass: a specialized generic fn body (e.g.
+    // `make<i64>` synthesized from `fn make<T>(v: T): Box<T> { new
+    // Box<T>(v) }`) can contain previously-unseen class / enum
+    // instantiations like `new Box<i64>(...)`. Re-attach the
+    // generic templates the first pass dropped so this round can
+    // specialize fresh references.
+    let mut prog = prog;
+    for c in generic_class_templates {
+        prog.items.push(ilang_ast::Item::Class(c));
+    }
+    for e in generic_enum_templates {
+        prog.items.push(ilang_ast::Item::Enum(e));
+    }
+    let prog = ilang_mir::monomorphize::monomorphize(&prog);
+    let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
     let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
         Ok(m) => m,
         Err(e) => {
@@ -655,6 +689,22 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
             }
             ilang_mir_codegen::reset_repl_slots();
         }
+        let generic_class_templates: Vec<ilang_ast::ClassDecl> = prog
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                ilang_ast::Item::Class(c) if !c.type_params.is_empty() => Some(c.clone()),
+                _ => None,
+            })
+            .collect();
+        let generic_enum_templates: Vec<ilang_ast::EnumDecl> = prog
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                ilang_ast::Item::Enum(e) if !e.type_params.is_empty() => Some(e.clone()),
+                _ => None,
+            })
+            .collect();
         let prog = ilang_mir::monomorphize::monomorphize(&prog);
         let prog = ilang_mir::monomorphize::monomorphize_enums(
             &prog,
@@ -663,6 +713,21 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         let prog = ilang_mir::monomorphize::monomorphize_fns(
             &prog,
             &tc.fn_call_type_args(),
+        );
+        // Second pass: pick up class / enum instantiations from
+        // bodies of specialized generic fns. See the matching
+        // comment in `build_file`.
+        let mut prog = prog;
+        for c in generic_class_templates {
+            prog.items.push(ilang_ast::Item::Class(c));
+        }
+        for e in generic_enum_templates {
+            prog.items.push(ilang_ast::Item::Enum(e));
+        }
+        let prog = ilang_mir::monomorphize::monomorphize(&prog);
+        let prog = ilang_mir::monomorphize::monomorphize_enums(
+            &prog,
+            &tc.enum_ctor_type_args(),
         );
         let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
             Ok(m) => m,

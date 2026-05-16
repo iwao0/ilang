@@ -45,8 +45,20 @@ pub fn monomorphize(prog: &Program) -> Program {
     });
 
     // Seed the worklist by scanning the entire (untransformed) program
-    // for generic instantiations.
-    let mut needed: HashSet<Symbol> = HashSet::new();
+    // for generic instantiations. Pre-populate `needed` with the
+    // names of existing concrete (non-generic) classes so the
+    // worklist skips re-synthesizing them when a previous
+    // monomorphize round already produced them — important when
+    // monomorphize runs more than once (e.g. after fn
+    // specialization surfaces new class refs).
+    let mut needed: HashSet<Symbol> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Class(c) if c.type_params.is_empty() => Some(c.name.clone()),
+            _ => None,
+        })
+        .collect();
     let mut worklist: Vec<InstKey> = Vec::new();
     let seed = |t: &Type, needed: &mut HashSet<Symbol>, work: &mut Vec<InstKey>| {
         collect_instantiations(t, needed, work);
@@ -65,7 +77,18 @@ pub fn monomorphize(prog: &Program) -> Program {
                     scan_fn(m, &mut needed, &mut worklist);
                 }
             }
-            Item::Fn(f) => scan_fn(f, &mut needed, &mut worklist),
+            // Skip seeding from generic fn bodies: they reference
+            // their own type params as `Object("T")`, and
+            // `contains_type_var` (which only treats `TypeVar` as
+            // a type variable) would wrongly consider them
+            // concrete, queueing fake instantiations like
+            // `Box<T>`. monomorphize_fns specializes such bodies
+            // per call site; a second pass over the program then
+            // picks up the resulting concrete `Box<i64>` refs.
+            Item::Fn(f) if f.type_params.is_empty() => {
+                scan_fn(f, &mut needed, &mut worklist)
+            }
+            Item::Fn(_) => {}
             Item::Enum(_) | Item::Use(_) | Item::Const(_)  | Item::ExternC(_) => {}
             Item::Interface(_) => {}
         }
@@ -806,7 +829,22 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
                 .collect(),
             span: c.span,
         }),
-        Item::Fn(f) => Item::Fn(rewrite_fn(f)),
+        Item::Fn(f) => {
+            // Skip rewrite for generic fns — their bodies reference
+            // their own type params (as `Object("T")`), and
+            // `rewrite_type` doesn't know to preserve those, so it
+            // would mangle `new Box<T>(...)` to `Object("Box<T>")`
+            // and surface a phantom "Box<T>" class. Let
+            // `monomorphize_fns` handle them per call site (where
+            // T is concrete), and re-running `monomorphize` after
+            // that pass picks up any class / enum instantiations
+            // in the specialized bodies.
+            if !f.type_params.is_empty() {
+                Item::Fn(f.clone())
+            } else {
+                Item::Fn(rewrite_fn(f))
+            }
+        }
         Item::Enum(e) => Item::Enum(e.clone()),
         Item::Use(u) => Item::Use(u.clone()),
         Item::Const(c) => Item::Const(c.clone()),

@@ -223,13 +223,16 @@ pub fn lower(
     enclosing_class: Option<Symbol>,
     enums: &HashMap<Symbol, EnumDecl>,
 ) -> LowerOutput {
-    // Generic `async fn first<T>(...)` would need the synthesized
-    // state enum / class / poll fn to also carry the user fn's
-    // type params, but ilang's typecheck currently rejects
-    // `new GenericClass<T>(...)` inside a generic fn body
-    // ("expected T, got T"), even for hand-written code. Until
-    // that's fixed, surface a clearer error here than the
-    // downstream "undefined class T" the MIR lower would emit.
+    // Generic `async fn first<T>(...)`: the typechecker now accepts
+    // `new GenericClass<T>(...)` inside a generic fn body, but the
+    // state-machine wrapper this pass would emit needs the
+    // synthesized `__XX_State` / `__XX_StateRef` / `__XX_poll`
+    // items to also carry the user fn's type params, plus the
+    // wrapper-body let-annotations to round-trip through
+    // typecheck against the generic `Promise.__pending()` static.
+    // The plumbing is partially done elsewhere, but the wrapper
+    // body still hits "expected T, got T" at typecheck — defer
+    // until that's resolved.
     if !f.type_params.is_empty() {
         return LowerOutput::NeedsFallback;
     }

@@ -334,13 +334,12 @@ fn lower_async_fn(
             let reason = if !f.type_params.is_empty() {
                 format!(
                     "async fn `{}`: generic `async fn` (with `<T>`) \
-                     isn't supported. The state-machine lowering \
-                     would need `new __XX_StateRef<T>(...)` inside \
-                     a generic fn body, which the typechecker \
-                     currently rejects (\"expected T, got T\") — \
-                     this affects hand-written generic code as well. \
+                     isn't supported yet. The state-machine wrapper \
+                     this pass would emit needs the synthesized state \
+                     enum / class / poll fn to also be generic over \
+                     the same params; that plumbing isn't finished. \
                      Workaround: write a non-generic version per \
-                     concrete `T`, or chain with `.then(fn(v) {{ ... }})`.",
+                     concrete `T`, or use `.then(fn(v) {{ ... }})`.",
                     f.name.as_str(),
                 )
             } else {

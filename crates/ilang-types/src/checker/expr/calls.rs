@@ -703,23 +703,22 @@ impl TypeChecker {
             });
         }
         // Rewrite the user-supplied type args so any reference to
-        // an enclosing class's type parameter (`new Map<string,
-        // T[]>()` inside `class Bag<T> { ... }`) lands as
-        // `TypeVar("T")` rather than the parser-default
+        // an enclosing type parameter (a class param like `new
+        // Map<string, T[]>()` inside `class Bag<T>`, OR a fn-level
+        // param like `new Box<T>(v)` inside `fn make<T>(...)`)
+        // lands as `TypeVar("T")` rather than the parser-default
         // `Object("T")`. Without this, the resulting Generic's
-        // args wouldn't match a same-shape field type that's
-        // already been TypeVar-rewritten, and field assignment
-        // would error with `expected Map<string, T[]>, got
-        // Map<string, T[]>` (the two `T`s display the same but
-        // compare unequal).
-        let enclosing_params: Vec<Symbol> = match in_class {
-            Some(name) => self
-                .classes
-                .get(&name)
-                .map(|s| s.type_params.clone())
-                .unwrap_or_default(),
-            None => Vec::new(),
-        };
+        // args wouldn't match a same-shape param/return type that
+        // was already TypeVar-rewritten, and assignment / return
+        // would fail with `expected Box<T>, got Box<T>` (the two
+        // `T`s display the same but compare unequal).
+        //
+        // `current_type_params` holds class params + fn-own params
+        // for the currently-checked fn body (set up by `check_fn`).
+        let enclosing_params: Vec<Symbol> = self
+            .current_type_params
+            .borrow()
+            .clone();
         let inst_args: Vec<Type> = type_args
             .iter()
             .map(|t| {
