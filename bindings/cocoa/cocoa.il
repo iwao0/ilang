@@ -98,6 +98,13 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("activateIgnoringOtherApps:")
                                       fn activateIgnoringOtherApps(flag: i8)
         @objc("run")                  fn run()
+        @objc("terminate:")           fn terminate(sender: NSObject)
+        // NSApplicationDelegate is a protocol — any NSObject subclass
+        // that implements the relevant `applicationDidFinishLaunching:`
+        // / `applicationWillTerminate:` / etc. selectors can be the
+        // delegate. ObjC's runtime doesn't enforce protocols, so we
+        // just take an NSObject here.
+        @objc("setDelegate:")         fn setDelegate(d: NSObject)
     }
 
     /// NSView — base class for every visible AppKit object.
@@ -124,6 +131,9 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("center")              fn center()
         @objc("makeKeyAndOrderFront:") fn makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")         fn contentView(): NSView
+        // NSWindowDelegate protocol — same ducktype story as
+        // NSApplication.setDelegate.
+        @objc("setDelegate:")        fn setDelegate(d: NSObject)
     }
 
     /// NSButton. `alloc + initWithFrame:` follows the same
@@ -154,6 +164,17 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     // wrappers; user code just treats SEL as opaque i64.
     @lib("objc") @symbol("sel_registerName")
         fn _sel_register_name(name: *const char): i64
+
+    // ObjC autorelease pool primitives. Mirror `@autoreleasepool {
+    // ... }` in Cocoa: push a pool token, run the body, pop the
+    // token. Inside the body any `autorelease`-flagged temporaries
+    // (e.g. `[NSString stringWithUTF8String:]`) accumulate against
+    // this pool instead of the outer thread-default one — pop
+    // drains them.
+    @lib("objc") @symbol("objc_autoreleasePoolPush")
+        fn _autoreleasepool_push(): i64
+    @lib("objc") @symbol("objc_autoreleasePoolPop")
+        fn _autoreleasepool_pop(token: i64)
 
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
@@ -201,6 +222,18 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
             .initWithContentRect(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
         win.setTitle(nsstr(title))
         win
+    }
+
+    /// Run `body` inside a fresh ObjC autorelease pool. Mirrors
+    /// Cocoa's `@autoreleasepool { ... }` — any autorelease'd
+    /// temporaries (e.g. the NSStrings minted by `nsstr`) get
+    /// drained when `body` returns instead of leaking until the
+    /// outer thread-default pool drains (which, in a long-running
+    /// loop, may never happen).
+    pub fn autoreleasepool(body: fn()) {
+        let token = _autoreleasepool_push()
+        body()
+        _autoreleasepool_pop(token)
     }
 
     /// Allocate + frame + title a push button. Defaults to the
