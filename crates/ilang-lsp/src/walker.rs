@@ -1018,9 +1018,28 @@ impl<'a> Walker<'a> {
                 info.methods.get(&AstSymbol::intern(method.as_str()))?.ret_ty.clone()
             }
             ExprKind::Field { obj, name } => {
-                let class = self.resolve_obj_class(obj, scope, None)?;
-                let info = self.classes.get(&AstSymbol::intern(&class))?;
-                info.fields.get(name)?.ret_ty.clone()
+                // `EnumName.Variant` parses as Field too. Try the
+                // class path first; if that misses, check whether
+                // `obj` names an enum we know about (variant entries
+                // live in `external_signatures` under the composite
+                // `EnumName.Variant` key) and lift the result to
+                // `Type::Object(EnumName)` so a chain like
+                // `Flag.a | Flag.b` carries the enum type up.
+                if let Some(class) = self.resolve_obj_class(obj, scope, None) {
+                    if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
+                        if let Some(t) = info.fields.get(name).and_then(|f| f.ret_ty.clone()) {
+                            return Some(t);
+                        }
+                    }
+                }
+                let obj_name = enum_obj_name(obj)?;
+                let key = AstSymbol::intern(&format!("{obj_name}.{name}"));
+                let sig = self.external_signatures.get(&key)?;
+                if sig.starts_with("(variant)") {
+                    Some(Type::Object(AstSymbol::intern(&obj_name)))
+                } else {
+                    None
+                }
             }
             ExprKind::Index { obj, .. } => match self.infer_expr(obj, scope)? {
                 Type::Array { elem, .. } => Some(*elem),
