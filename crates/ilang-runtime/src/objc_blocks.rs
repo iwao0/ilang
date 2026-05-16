@@ -72,6 +72,9 @@ const BLOCK_RC_ONE: i32 = 1 << 1;
 // runtime checks the size prefix loosely; the encoding matters for
 // NSMethodSignature-based introspection.
 static VOID_VOID_SIGNATURE: &[u8] = b"v8@?0\0";
+// `void(^)(id)` — block + one id arg = 16 bytes total. `@8` says
+// the second arg is an id starting at offset 8 in the arg frame.
+static VOID_OBJ_SIGNATURE: &[u8] = b"v16@?0@8\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -88,6 +91,28 @@ extern "C" fn invoke_void_block(b: *mut BlockLayout) {
         let fn_ptr = *(closure_ptr as *const usize);
         let f: extern "C" fn(i64) = std::mem::transmute(fn_ptr);
         f(closure_ptr);
+    }
+}
+
+/// `void(^)(id)` trampoline. The ilang closure signature is
+/// `fn(arg: i64): unit`; the user is expected to wrap `arg` via
+/// `NSObject.wrap(arg)` if they want a typed NSObject view.
+///
+/// Note the calling convention: ilang's lifted closure fn takes
+/// `(user_args..., env)` — env is the *last* clif param, not the
+/// first (see ilang-mir-codegen's lower_function `env_value`).
+extern "C" fn invoke_obj_block(b: *mut BlockLayout, arg: i64) {
+    if b.is_null() {
+        return;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        let f: extern "C" fn(i64, i64) = std::mem::transmute(fn_ptr);
+        f(arg, closure_ptr);
     }
 }
 
@@ -129,18 +154,26 @@ extern "C" fn dispose_helper(src: *const c_void) {
     }
 }
 
-// Static descriptor — `BlockDescriptor`'s raw signature pointer
-// doesn't implement `Sync`, so wrap it. The pointer is read-only
-// across threads, so the wrapper is safe in practice.
+// Static descriptors — `BlockDescriptor`'s raw signature pointer
+// doesn't implement `Sync`, so wrap them. The pointers are
+// read-only across threads, so the wrapper is safe in practice.
 struct DescriptorBox(BlockDescriptor);
 unsafe impl Sync for DescriptorBox {}
 
-static DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+static VOID_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
     copy_helper,
     dispose_helper,
     signature: VOID_VOID_SIGNATURE.as_ptr(),
+});
+
+static OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: VOID_OBJ_SIGNATURE.as_ptr(),
 });
 
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
@@ -164,14 +197,62 @@ pub extern "C" fn invoke_void_block_via_runtime(block_ptr: i64) {
     }
 }
 
-/// Build a heap ObjC block that calls `closure_ptr` (an ilang
-/// `fn(): unit` value) when invoked. The block comes back
-/// autoreleased — pass it straight to an ObjC method that wants
-/// a `void (^)(void)`; the surrounding autorelease pool drains it
-/// once nobody's holding a `Block_copy`.
-///
-/// Returns `0` on macOS-only-symbol-missing builds (non-Apple
-/// targets) or when `closure_ptr` is null.
+/// Same idea for `void(^)(id)` — invoke the block with the given
+/// raw id argument. Test-only driver for `make_obj_block`.
+#[unsafe(export_name = "__ilang_invoke_obj_block")]
+pub extern "C" fn invoke_obj_block_via_runtime(block_ptr: i64, arg: i64) {
+    if block_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let invoke_slot = (block_ptr + 16) as *const usize;
+        let invoke_addr = *invoke_slot;
+        if invoke_addr == 0 {
+            return;
+        }
+        let f: extern "C" fn(i64, i64) = std::mem::transmute(invoke_addr);
+        f(block_ptr, arg);
+    }
+}
+
+/// Shared allocation path for every `make_*_block` flavour. Builds
+/// a heap block with the given `invoke` trampoline + descriptor,
+/// returns it autoreleased.
+#[cfg(target_os = "macos")]
+fn make_block(
+    closure_ptr: i64,
+    invoke: *const c_void,
+    descriptor: &'static BlockDescriptor,
+) -> i64 {
+    let size = std::mem::size_of::<BlockLayout>() as i64;
+    let raw = __mir_alloc(size);
+    if raw == 0 {
+        return 0;
+    }
+    let b = raw as *mut BlockLayout;
+    unsafe {
+        (*b).isa = _NSConcreteMallocBlock;
+        (*b).flags = BLOCK_NEEDS_FREE
+            | BLOCK_HAS_COPY_DISPOSE
+            | BLOCK_HAS_SIGNATURE
+            | BLOCK_RC_ONE;
+        (*b).reserved = 0;
+        (*b).invoke = invoke;
+        (*b).descriptor = descriptor;
+        (*b).closure = closure_ptr;
+        // Bump the closure refcount so it outlives the ilang local
+        // that handed it to us — the block now owns a +1 the
+        // dispose helper drops.
+        let rc_ptr = (closure_ptr + 8) as *mut i64;
+        crate::refcount::atomic_retain(rc_ptr);
+        objc_autorelease(b as *mut c_void) as i64
+    }
+}
+
+/// Build a heap ObjC `void(^)(void)` block whose `invoke`
+/// trampoline calls `closure_ptr` (an ilang `fn(): unit` value).
+/// Comes back autoreleased — pass straight to ObjC APIs that
+/// take a completion handler.
 #[unsafe(export_name = "__ilang_make_void_block")]
 pub extern "C" fn make_void_block(closure_ptr: i64) -> i64 {
     if closure_ptr == 0 {
@@ -179,31 +260,35 @@ pub extern "C" fn make_void_block(closure_ptr: i64) -> i64 {
     }
     #[cfg(target_os = "macos")]
     {
-        let size = std::mem::size_of::<BlockLayout>() as i64;
-        let raw = __mir_alloc(size);
-        if raw == 0 {
-            return 0;
-        }
-        let b = raw as *mut BlockLayout;
-        unsafe {
-            (*b).isa = _NSConcreteMallocBlock;
-            (*b).flags = BLOCK_NEEDS_FREE
-                | BLOCK_HAS_COPY_DISPOSE
-                | BLOCK_HAS_SIGNATURE
-                | BLOCK_RC_ONE;
-            (*b).reserved = 0;
-            (*b).invoke = invoke_void_block as *const c_void;
-            (*b).descriptor = &DESCRIPTOR.0;
-            (*b).closure = closure_ptr;
-            // Bump the closure refcount so it outlives the
-            // ilang local that handed it to us — the block now
-            // owns a +1 reference that the dispose helper drops.
-            let rc_ptr = (closure_ptr + 8) as *mut i64;
-            crate::refcount::atomic_retain(rc_ptr);
-            // Hand off to the ObjC autorelease pool. Callers
-            // don't need to think about `Block_release`.
-            objc_autorelease(b as *mut c_void) as i64
-        }
+        return make_block(
+            closure_ptr,
+            invoke_void_block as *const c_void,
+            &VOID_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
+/// Build a heap ObjC `void(^)(id)` block whose trampoline calls
+/// `closure_ptr` with the raw `id` argument as `i64`. The ilang
+/// closure should be `fn(handle: i64): unit`; use `NSObject.wrap`
+/// (or a subclass equivalent) inside if you want a typed view.
+#[unsafe(export_name = "__ilang_make_obj_block")]
+pub extern "C" fn make_obj_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_obj_block as *const c_void,
+            &OBJ_DESCRIPTOR.0,
+        );
     }
     #[cfg(not(target_os = "macos"))]
     {

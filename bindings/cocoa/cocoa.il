@@ -294,6 +294,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     // `Block_release`. Implemented in `ilang-runtime/objc_blocks.rs`.
     @lib("c") @symbol("__ilang_make_void_block")
         fn _make_void_block(closure: fn()): i64
+    @lib("c") @symbol("__ilang_make_obj_block")
+        fn _make_obj_block(closure: fn(i64)): i64
 
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
@@ -351,6 +353,16 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// retain it via `objc_retain` if you need a longer lifetime.
     pub fn makeBlock(body: fn()): i64 {
         _make_void_block(body)
+    }
+
+    /// Build an ObjC `void(^)(id)` block — the callback shape used
+    /// by AppKit / Foundation when handing a single object back
+    /// (e.g. `addLocalMonitorForEventsMatchingMask:handler:`'s
+    /// NSEvent argument). The ilang closure receives the object's
+    /// raw `id` as `i64`; wrap it with `NSObject.wrap(arg)` (or a
+    /// subclass equivalent) inside if you want a typed view.
+    pub fn makeObjectBlock(body: fn(i64)): i64 {
+        _make_obj_block(body)
     }
 
     /// Run `body` inside a fresh ObjC autorelease pool. Mirrors
