@@ -223,16 +223,14 @@ pub fn lower(
     enclosing_class: Option<Symbol>,
     enums: &HashMap<Symbol, EnumDecl>,
 ) -> LowerOutput {
-    // Generic `async fn first<T>(...)`: the typechecker now accepts
-    // `new GenericClass<T>(...)` inside a generic fn body, but the
-    // state-machine wrapper this pass would emit needs the
-    // synthesized `__XX_State` / `__XX_StateRef` / `__XX_poll`
-    // items to also carry the user fn's type params, plus the
-    // wrapper-body let-annotations to round-trip through
-    // typecheck against the generic `Promise.__pending()` static.
-    // The plumbing is partially done elsewhere, but the wrapper
-    // body still hits "expected T, got T" at typecheck — defer
-    // until that's resolved.
+    // Generic `async fn first<T>(...)`: hand-written generic class
+    // instantiation inside a generic fn now typechecks and MIR
+    // monomorphizes properly. The v2-generated state items
+    // (state enum / state ref class / poll fn) ARE wired up to
+    // carry the user fn's type params; however the poll fn body
+    // — with its loop/match dispatch, state-transition Blocks,
+    // and Suspend `.then` closure — still hits a TypeVar-vs-Object
+    // unification edge somewhere typecheck can't square. Defer.
     if !f.type_params.is_empty() {
         return LowerOutput::NeedsFallback;
     }
@@ -277,9 +275,10 @@ pub fn lower(
         ),
     };
 
-    let state_enum = gen_state_enum(enum_name, &segments, span);
-    let state_ref_class = gen_state_ref_class(ref_name, enum_name, &promise_ret, span);
-    let poll_fn = gen_poll_fn(poll_name, ref_name, enum_name, &segments, enclosing_class, span);
+    let tp = || f.type_params.clone();
+    let state_enum = gen_state_enum(enum_name, &segments, span, tp());
+    let state_ref_class = gen_state_ref_class(ref_name, enum_name, &promise_ret, span, tp());
+    let poll_fn = gen_poll_fn(poll_name, ref_name, enum_name, &segments, enclosing_class, span, tp());
     let wrapper = gen_wrapper_fn(
         f,
         ref_name,

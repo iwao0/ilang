@@ -39,6 +39,7 @@ pub fn gen_state_enum(
     enum_name: Symbol,
     segments: &[Segment],
     span: Span,
+    type_params: Box<[Symbol]>,
 ) -> EnumDecl {
     let mut variants: Vec<Variant> = Vec::new();
     for seg in segments {
@@ -63,7 +64,7 @@ pub fn gen_state_enum(
     EnumDecl {
         is_pub: false,
         name: enum_name,
-        type_params: Box::new([]),
+        type_params,
         repr_ty: None,
         flags: false,
         variants: variants.into_boxed_slice(),
@@ -78,8 +79,16 @@ pub fn gen_state_ref_class(
     enum_name: Symbol,
     promise_ret: &Type,
     span: Span,
+    type_params: Box<[Symbol]>,
 ) -> ClassDecl {
-    let enum_ty = Type::Object(enum_name);
+    let enum_ty = if type_params.is_empty() {
+        Type::Object(enum_name)
+    } else {
+        Type::generic(
+            enum_name,
+            type_params.iter().map(|p| Type::Object(*p)).collect(),
+        )
+    };
     let fields = vec![
         FieldDecl {
             is_pub: true,
@@ -154,7 +163,7 @@ pub fn gen_state_ref_class(
         name: class_name,
         parent: None,
         interfaces: Box::new([]),
-        type_params: Box::new([]),
+        type_params,
         fields: fields.into_boxed_slice(),
         methods: Box::new([init_method]),
         static_methods: Box::new([]),
@@ -174,6 +183,7 @@ pub fn gen_poll_fn(
     segments: &[Segment],
     enclosing_class: Option<Symbol>,
     span: Span,
+    type_params: Box<[Symbol]>,
 ) -> FnDecl {
     let state_ref_param = Symbol::intern("__state_ref");
     let dummy_awaited_param = Symbol::intern("__awaited_value");
@@ -250,15 +260,23 @@ pub fn gen_poll_fn(
         )],
         tail: None,
     };
+    let state_ref_ty = if type_params.is_empty() {
+        Type::Object(state_ref_class)
+    } else {
+        Type::generic(
+            state_ref_class,
+            type_params.iter().map(|p| Type::Object(*p)).collect(),
+        )
+    };
     FnDecl {
         attrs: Box::new([]),
         is_pub: false,
         name: poll_name,
-        type_params: Box::new([]),
+        type_params,
         params: Box::new([
             Param {
                 name: state_ref_param,
-                ty: Type::Object(state_ref_class),
+                ty: state_ref_ty,
                 span,
                 default: None,
             },
@@ -1010,13 +1028,18 @@ pub fn gen_wrapper_fn(
         mk_enum_ctor_struct(state_enum, Symbol::intern("S0"), ctor_args, span),
         span,
     ));
+    let state_ref_type_args: Box<[Type]> = orig
+        .type_params
+        .iter()
+        .map(|p| Type::Object(*p))
+        .collect();
     wrapper_stmts.push(mk_let(
         state_local,
         None,
         Expr::new(
             ExprKind::New {
                 class: state_ref_class,
-                type_args: Box::new([]),
+                type_args: state_ref_type_args,
                 args: Box::new([
                     mk_var(initial_local, span),
                     mk_var(prom_local, span),

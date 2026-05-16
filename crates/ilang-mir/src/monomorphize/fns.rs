@@ -13,7 +13,18 @@ use super::class::*;
 pub fn monomorphize_fns(
     prog: &Program,
     call_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
+    enum_ctor_type_args: &HashMap<Span, (Symbol, Vec<Type>)>,
 ) -> Program {
+    // Collect generic enum decls so the post-specialize EnumCtor
+    // rewrite (below) knows which enum_names to mangle.
+    let generic_enums: HashMap<Symbol, ilang_ast::EnumDecl> = prog
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Enum(e) if !e.type_params.is_empty() => Some((e.name.clone(), e.clone())),
+            _ => None,
+        })
+        .collect();
     // Catalog generic fns. After class monomorphization every fn is a
     // top-level `Item::Fn` (methods live inside their class's items),
     // so we don't need to look at class methods here.
@@ -120,6 +131,20 @@ pub fn monomorphize_fns(
             &outer_params,
             &outer_args,
             &generic_fns,
+        );
+
+        // 4. Rewrite EnumCtors in the substituted body so refs to
+        //    generic enums get their `enum_name` mangled with the
+        //    now-concrete args. Without this, `MyOpt.some(v)` inside
+        //    a specialized `wrap_i64` body keeps `enum_name="MyOpt"`,
+        //    and MIR lower can't find the (already-dropped) generic
+        //    `MyOpt` template.
+        new_fn.body = super::enums::rewrite_enum_refs_in_block(
+            &new_fn.body,
+            &generic_enums,
+            enum_ctor_type_args,
+            &outer_params,
+            &outer_args,
         );
 
         synthesized.insert(mangled, new_fn);

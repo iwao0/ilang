@@ -181,13 +181,11 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         .collect();
     let prog = ilang_mir::monomorphize::monomorphize(&prog);
     let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
-    let prog = ilang_mir::monomorphize::monomorphize_fns(&prog, &tc.fn_call_type_args());
-    // Second monomorphize pass: a specialized generic fn body (e.g.
-    // `make<i64>` synthesized from `fn make<T>(v: T): Box<T> { new
-    // Box<T>(v) }`) can contain previously-unseen class / enum
-    // instantiations like `new Box<i64>(...)`. Re-attach the
-    // generic templates the first pass dropped so this round can
-    // specialize fresh references.
+    // Re-attach generic templates BEFORE fn-specialization so
+    // `monomorphize_fns` sees `generic_enums` populated and can
+    // mangle `EnumCtor.enum_name` for refs in specialized bodies
+    // (e.g. `MyOpt.some(v)` inside `wrap_i64` becomes
+    // `MyOpt<i64>.some(v)`).
     let mut prog = prog;
     for c in generic_class_templates {
         prog.items.push(ilang_ast::Item::Class(c));
@@ -195,6 +193,17 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     for e in generic_enum_templates {
         prog.items.push(ilang_ast::Item::Enum(e));
     }
+    let prog = ilang_mir::monomorphize::monomorphize_fns(
+        &prog,
+        &tc.fn_call_type_args(),
+        &tc.enum_ctor_type_args(),
+    );
+    // Second monomorphize pass: a specialized generic fn body (e.g.
+    // `make<i64>` synthesized from `fn make<T>(v: T): Box<T> { new
+    // Box<T>(v) }`) can contain previously-unseen class / enum
+    // instantiations like `new Box<i64>(...)`. The templates are
+    // still present from the re-attach above so this round
+    // synthesizes the missing concrete versions.
     let prog = ilang_mir::monomorphize::monomorphize(&prog);
     let prog = ilang_mir::monomorphize::monomorphize_enums(&prog, &tc.enum_ctor_type_args());
     let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
@@ -544,7 +553,11 @@ impl ReplSession {
             &self.tc.enum_ctor_type_args(),
         );
         let prog =
-            ilang_mir::monomorphize::monomorphize_fns(&prog, &self.tc.fn_call_type_args());
+            ilang_mir::monomorphize::monomorphize_fns(
+                &prog,
+                &self.tc.fn_call_type_args(),
+                &self.tc.enum_ctor_type_args(),
+            );
         let mut mir = ilang_mir::lower_program_with_slots(&prog, &self.slot_table)
             .map_err(|e| format!("<repl> mir: {e}"))?;
         ilang_mir::passes::promote_locals::run_program(&mut mir);
@@ -710,13 +723,7 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
             &prog,
             &tc.enum_ctor_type_args(),
         );
-        let prog = ilang_mir::monomorphize::monomorphize_fns(
-            &prog,
-            &tc.fn_call_type_args(),
-        );
-        // Second pass: pick up class / enum instantiations from
-        // bodies of specialized generic fns. See the matching
-        // comment in `build_file`.
+        // Re-attach templates BEFORE fn-spec — see `build_file`.
         let mut prog = prog;
         for c in generic_class_templates {
             prog.items.push(ilang_ast::Item::Class(c));
@@ -724,11 +731,30 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         for e in generic_enum_templates {
             prog.items.push(ilang_ast::Item::Enum(e));
         }
+        let prog = ilang_mir::monomorphize::monomorphize_fns(
+            &prog,
+            &tc.fn_call_type_args(),
+            &tc.enum_ctor_type_args(),
+        );
+        // Second pass: pick up class / enum instantiations from
+        // bodies of specialized generic fns. See the matching
+        // comment in `build_file`.
+        let prog = prog;
         let prog = ilang_mir::monomorphize::monomorphize(&prog);
         let prog = ilang_mir::monomorphize::monomorphize_enums(
             &prog,
             &tc.enum_ctor_type_args(),
         );
+        if std::env::var("ILANG_PIPE_DEBUG").is_ok() {
+            for item in &prog.items {
+                match item {
+                    ilang_ast::Item::Fn(f) => eprintln!("[pipe] Fn {} type_params={:?}", f.name.as_str(), f.type_params.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                    ilang_ast::Item::Class(c) => eprintln!("[pipe] Class {} type_params={:?}", c.name.as_str(), c.type_params.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                    ilang_ast::Item::Enum(e) => eprintln!("[pipe] Enum {} type_params={:?}", e.name.as_str(), e.type_params.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                    _ => {}
+                }
+            }
+        }
         let mut mir = match ilang_mir::lower_program_with_slots(&prog, &slot_table) {
             Ok(m) => m,
             Err(e) => {

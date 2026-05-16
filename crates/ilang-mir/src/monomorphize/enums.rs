@@ -266,7 +266,15 @@ pub(super) fn seed_enums_in_item(item: &Item, visit: &mut dyn FnMut(&str, &[Type
                 }
             }
         }
-        Item::Fn(f) => seed_enums_in_fn(f, visit),
+        // Skip generic fn bodies — same reason as in
+        // monomorphize_classes: `contains_type_var` treats only
+        // `TypeVar`, but type params arrive as `Object("T")`, and
+        // we'd queue fake instantiations from inside an unspecialized
+        // generic body. `monomorphize_fns` specializes such bodies
+        // per call site; a second monomorphize_enums round picks up
+        // the resulting concrete refs.
+        Item::Fn(f) if f.type_params.is_empty() => seed_enums_in_fn(f, visit),
+        Item::Fn(_) => {}
         Item::Enum(e) => {
             for v in &e.variants {
                 match &v.payload {
@@ -511,6 +519,14 @@ pub(super) fn rewrite_enum_refs_in_item(
     outer_args: &[Type],
 ) -> Item {
     match item {
+        // Generic fn bodies reference their own type params as
+        // `Object("T")`; the rewrite would mangle `MyOpt<T>` to
+        // `Object("MyOpt<T>")` (the literal `<T>` baked into the
+        // symbol). `monomorphize_fns` specializes such bodies per
+        // call site with concrete args, AND post-rewrites the
+        // EnumCtor refs against the side table. We just clone
+        // generic templates through here.
+        Item::Fn(f) if !f.type_params.is_empty() => Item::Fn(f.clone()),
         Item::Fn(f) => Item::Fn(FnDecl {
             is_pub: false,
             attrs: f.attrs.clone(),
