@@ -104,40 +104,51 @@ impl<'a> Walker<'a> {
     /// `start_span`.
     pub(crate) fn walk_type_at(&mut self, ty: &Type, start_span: Span) {
         match ty {
-            Type::Object(name) => {
-                if name.as_str().contains('.') {
-                    self.push_external_dotted_ref(name.as_str(), start_span);
-                } else if let Some(sym) = self.symbols.get(name) {
-                    self.push_ref(
-                        name.as_str(),
-                        start_span,
-                        sym.span,
-                        name.as_str().len() as u32,
-                        sym.signature.clone(),
-                    );
-                } else {
-                    self.push_external_type_ref(name.as_str(), start_span);
-                }
-            }
+            Type::Object(name) => self.walk_type_name_at(name.as_str(), start_span),
             Type::Array { elem, .. } => self.walk_type_at(elem, start_span),
             Type::Optional(inner) => self.walk_type_at(inner, start_span),
             Type::Weak(inner) => self.walk_type_at(inner, start_span),
-            Type::Generic(g) => {
-                if g.base.as_str().contains('.') {
-                    self.push_external_dotted_ref(g.base.as_str(), start_span);
-                } else if let Some(sym) = self.symbols.get(&g.base) {
-                    self.push_ref(
-                        g.base.as_str(),
-                        start_span,
-                        sym.span,
-                        g.base.as_str().len() as u32,
-                        sym.signature.clone(),
-                    );
-                } else {
-                    self.push_external_type_ref(g.base.as_str(), start_span);
+            Type::Generic(g) => self.walk_type_name_at(g.base.as_str(), start_span),
+            _ => {}
+        }
+    }
+
+    /// Resolve and push a Ref for a type-name occurrence at
+    /// `start_span`. Handles three shapes:
+    ///   * the source literally spells the full dotted name
+    ///     (`cocoa.NSObject` in code) → `push_external_dotted_ref`
+    ///   * the AST carries a dotted name but the source spells
+    ///     just the suffix (typical after `use M { Name }` lets
+    ///     the loader rewrite `Name` → `M.Name`) → look up the
+    ///     suffix in `external_signatures` and point F12 at the
+    ///     selective-import source
+    ///   * bare name, either in buffer-local `symbols` or in the
+    ///     selective-import maps
+    fn walk_type_name_at(&mut self, name: &str, start_span: Span) {
+        if name.contains('.') {
+            if text::text_at_span_starts_with(self.text, start_span, name) {
+                self.push_external_dotted_ref(name, start_span);
+                return;
+            }
+            if let Some((_, suffix)) = name.rsplit_once('.') {
+                if text::text_at_span_starts_with(self.text, start_span, suffix) {
+                    self.push_external_type_ref(suffix, start_span);
+                    return;
                 }
             }
-            _ => {}
+            self.push_external_dotted_ref(name, start_span);
+            return;
+        }
+        if let Some(sym) = self.symbols.get(&AstSymbol::intern(name)) {
+            self.push_ref(
+                name,
+                start_span,
+                sym.span,
+                name.len() as u32,
+                sym.signature.clone(),
+            );
+        } else {
+            self.push_external_type_ref(name, start_span);
         }
     }
 
