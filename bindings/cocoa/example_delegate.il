@@ -17,7 +17,7 @@
 // Run with:
 //   cargo run --release -p ilang -- run bindings/cocoa/example_delegate.il
 
-use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR, nil,
+use cocoa { NSObject, StyleMask, ActivationPolicy, nil,
             sharedApplication, makeWindow, autoreleasepool, nsstr }
 
 @extern(ObjC) {
@@ -54,7 +54,7 @@ use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR, nil,
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ACTIVATION_REGULAR)
+app.setActivationPolicy(ActivationPolicy.regular as i64)
 
 AppDelegate.register()
 let appDel = AppDelegate.alloc().init()

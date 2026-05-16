@@ -9,7 +9,7 @@
 //   cargo run --release -p ilang -- run bindings/cocoa/example_form.il
 
 use cocoa { NSObject, NSTextField, NSSlider, NSView,
-            StyleMask, ACTIVATION_REGULAR, LAYOUT_VERTICAL, nil,
+            StyleMask, ActivationPolicy, LayoutOrientation, nil,
             sharedApplication, makeWindow, makeButton, makeLabel,
             makeTextField, makeSlider, makeStackView, ilstr,
             selectorPtr }
@@ -37,7 +37,7 @@ let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ACTIVATION_REGULAR)
+app.setActivationPolicy(ActivationPolicy.regular as i64)
 
 let mask = StyleMask.titled
     | StyleMask.closable
@@ -47,7 +47,7 @@ let win = makeWindow("Cocoa form", 0.0, 0.0, 360.0, 240.0, mask)
 win.center()
 
 // Build the stack view + children.
-let stack = makeStackView(LAYOUT_VERTICAL, 8.0)
+let stack = makeStackView(LayoutOrientation.vertical, 8.0)
 stack.setFrame(cocoa.makeRect(20.0, 20.0, 320.0, 200.0))
 
 stack.addArrangedSubview(makeLabel("Name:", 0.0, 0.0, 0.0, 20.0))

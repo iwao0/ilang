@@ -23,37 +23,62 @@
 //         | cocoa.StyleMask.resizable
 @flags
 pub enum StyleMask: u64 {
-    borderless             = 0
-    titled                 = 1
-    closable               = 2
-    miniaturizable         = 4
-    resizable              = 8
-    utilityWindow          = 16
-    docModalWindow         = 64
-    nonactivatingPanel     = 128
-    texturedBackground     = 256
-    unifiedTitleAndToolbar = 4096
-    hudWindow              = 8192
-    fullScreen             = 16384
-    fullSizeContentView    = 32768
+    borderless             = 0x0000
+    titled                 = 0x0001
+    closable               = 0x0002
+    miniaturizable         = 0x0004
+    resizable              = 0x0008
+    utilityWindow          = 0x0010
+    docModalWindow         = 0x0040
+    nonactivatingPanel     = 0x0080
+    texturedBackground     = 0x0100
+    unifiedTitleAndToolbar = 0x1000
+    hudWindow              = 0x2000
+    fullScreen             = 0x4000
+    fullSizeContentView    = 0x8000
 }
 
-// NSBackingStoreType — buffered is the only useful value
-// today (the others are deprecated).
-pub const BACKING_BUFFERED:    u64 = 2
+// NSBackingStoreType — `buffered` is the only non-deprecated
+// member today; AppKit still accepts the legacy values for
+// source-compat.
+pub enum BackingStore: u64 {
+    retained    = 0
+    nonretained = 1
+    buffered    = 2
+}
 
-// NSApplicationActivationPolicy — regular makes the app
-// appear in the Dock and accept keyboard focus.
-pub const ACTIVATION_REGULAR:  i64 = 0
+// NSApplicationActivationPolicy — controls the app's Dock /
+// activation behaviour.
+pub enum ActivationPolicy: i64 {
+    regular    = 0
+    accessory  = 1
+    prohibited = 2
+}
 
-// NSButton.BezelStyle — rounded is the standard macOS push
-// button.
-pub const BEZEL_ROUNDED:       u64 = 1
+// NSButton.BezelStyle — visual style of an NSButton. `push` is
+// the standard rounded Mac push button (was named `rounded` in
+// older AppKit headers).
+pub enum BezelStyle: u64 {
+    automatic          = 0
+    push               = 1
+    flexiblePush       = 2
+    disclosure         = 5
+    circular           = 7
+    helpButton         = 9
+    smallSquare        = 10
+    toolbar            = 11
+    accessoryBarAction = 12
+    accessoryBar       = 13
+    pushDisclosure     = 14
+    badge              = 15
+}
 
-// NSUserInterfaceLayoutOrientation — passed to
-// `NSStackView.setOrientation` to switch row/column stacking.
-pub const LAYOUT_HORIZONTAL:   i64 = 0
-pub const LAYOUT_VERTICAL:     i64 = 1
+// NSUserInterfaceLayoutOrientation — `NSStackView.setOrientation`
+// switches its arranged children between row and column layouts.
+pub enum LayoutOrientation: i64 {
+    horizontal = 0
+    vertical   = 1
+}
 
 // ─── Foundation geometry types (HFA-passed) ──────────────────────
 // NSPoint / NSSize / NSRect are plain f64 structs. The AArch64
@@ -247,9 +272,10 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     }
 
     /// NSStackView — stacks its arranged subviews along
-    /// `orientation` (use `cocoa.LAYOUT_HORIZONTAL` /
-    /// `cocoa.LAYOUT_VERTICAL`). `addArrangedSubview:` appends a
-    /// view; the stack handles sizing and positioning.
+    /// `orientation` (use `cocoa.LayoutOrientation.horizontal` /
+    /// `cocoa.LayoutOrientation.vertical`).
+    /// `addArrangedSubview:` appends a view; the stack handles
+    /// sizing and positioning.
     @objc pub class NSStackView : NSView {
         @objc("alloc")
         pub static alloc(): NSStackView
@@ -341,8 +367,14 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     ): NSWindow {
         // `mask as u64` extracts the @flags tag (the OR'd bits),
         // matching the `NSUInteger` shape `objc_msgSend` expects.
+        // `BackingStore.buffered` is the only non-deprecated value.
         let win = NSWindow.alloc()
-            .init(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
+            .init(
+                makeRect(x, y, w, h),
+                mask as u64,
+                BackingStore.buffered as u64,
+                0
+            )
         win.setTitle(nsstr(title))
         win
     }
@@ -391,14 +423,14 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     }
 
     /// Allocate + frame + title a push button. Defaults to the
-    /// rounded bezel — the standard Mac-style push button.
+    /// rounded `push` bezel — the standard Mac-style push button.
     pub fn makeButton(
         title: string,
         x: f64, y: f64, w: f64, h: f64
     ): NSButton {
         let btn = NSButton.alloc().init(makeRect(x, y, w, h))
         btn.setTitle(nsstr(title))
-        btn.setBezelStyle(BEZEL_ROUNDED)
+        btn.setBezelStyle(BezelStyle.push as u64)
         btn
     }
 
@@ -456,9 +488,12 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// `NSStackView` initialised with the given orientation and
     /// spacing. Position it with `setFrame` and append children
     /// via `addArrangedSubview`.
-    pub fn makeStackView(orientation: i64, spacing: f64): NSStackView {
+    pub fn makeStackView(
+        orientation: LayoutOrientation,
+        spacing: f64
+    ): NSStackView {
         let s = NSStackView.alloc().init()
-        s.setOrientation(orientation)
+        s.setOrientation(orientation as i64)
         s.setSpacing(spacing)
         s
     }

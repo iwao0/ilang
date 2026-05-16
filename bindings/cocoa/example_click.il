@@ -14,7 +14,7 @@
 // quit.
 
 use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
-            StyleMask, ACTIVATION_REGULAR, nil,
+            StyleMask, ActivationPolicy, nil,
             sharedApplication, makeWindow, makeButton, selectorPtr }
 
 @extern(ObjC) {
@@ -32,7 +32,7 @@ use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
 }
 
 let app = sharedApplication()
-app.setActivationPolicy(ACTIVATION_REGULAR)
+app.setActivationPolicy(ActivationPolicy.regular as i64)
 
 let mask = StyleMask.titled
     | StyleMask.closable
