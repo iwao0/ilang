@@ -110,9 +110,14 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// idiom; the convenience constructor below combines them.
     @objc class NSWindow : NSObject {
         @objc("alloc") static fn alloc(): NSWindow
+        // The underlying ABI is u64 (`NSWindowStyleMask` is a
+        // `NSUInteger`). `@flags` enum values are heap-boxed at
+        // the ilang level, so they can't ride directly across
+        // the objc_msgSend boundary — `makeWindow` below casts
+        // `StyleMask as u64` before invoking this.
         @objc("initWithContentRect:styleMask:backing:defer:")
             fn initWithContentRect(
-                rect: NSRect, mask: StyleMask, backing: u64, defer: i8
+                rect: NSRect, mask: u64, backing: u64, defer: i8
             ): NSWindow
 
         @objc("setTitle:")           fn setTitle(title: NSString)
@@ -166,8 +171,10 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         x: f64, y: f64, w: f64, h: f64,
         mask: StyleMask
     ): NSWindow {
+        // `mask as u64` extracts the @flags tag (the OR'd bits),
+        // matching the `NSUInteger` shape `objc_msgSend` expects.
         let win = NSWindow.alloc()
-            .initWithContentRect(makeRect(x, y, w, h), mask, BACKING_BUFFERED, 0)
+            .initWithContentRect(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
         win.setTitle(nsstr(title))
         win
     }
