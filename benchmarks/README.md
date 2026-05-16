@@ -37,7 +37,7 @@ Missing tools are skipped — the corresponding cell renders as `--`.
 
 `ILANG_BIN` overrides the ilang binary path (default
 `../target/release/ilang`; the runner falls back to
-`cargo build --release -p ilang-cli` when the binary is missing).
+`cargo build --release -p ilang` when the binary is missing).
 
 ## Notes
 

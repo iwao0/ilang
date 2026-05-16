@@ -153,17 +153,17 @@ cargo build           # 初回のみ依存解決 + ビルド (~1 分)
 
 ```sh
 # 💬 REPL (let / fn が永続化、JIT バック)
-cargo run -p ilang-cli
+cargo run -p ilang
 
 # 📄 ファイル実行 (`;` は省略可、改行が文の区切りになる JS 風 ASI)
 #    MIR → Cranelift JIT パイプラインを使う。
-cargo run -p ilang-cli -- run path/to/script.il
+cargo run -p ilang -- run path/to/script.il
 
 # 📦 ネイティブ実行可能ファイルを生成 (macOS、Cranelift AOT)。
 #    システムの `cc` が `libilang_runtime.a` とプログラムが参照する
 #    `@lib("X")` を一緒にリンクするので、生成バイナリは Rust toolchain
 #    が入っていない環境でも動きます。
-cargo run -p ilang-cli -- build path/to/script.il -o path/to/script
+cargo run -p ilang -- build path/to/script.il -o path/to/script
 ./path/to/script
 ```
 
@@ -188,7 +188,7 @@ fn count_div(n: i64): i64 {
 }
 count_div(100)
 EOF
-cargo run -p ilang-cli -- run sample.il   # => 47
+cargo run -p ilang -- run sample.il   # => 47
 ```
 
 ### 🧱 クラス
@@ -217,7 +217,7 @@ loop {
 }
 c.bump()
 EOF
-cargo run -p ilang-cli -- run counter.il   # => 16
+cargo run -p ilang -- run counter.il   # => 16
 ```
 
 ### 🎮 サンプル: SDL2 でゲーム画面を出す
@@ -248,11 +248,11 @@ copy "%VCPKG_ROOT%\installed\x64-windows\bin\SDL2.dll" target\release\
 
 ```sh
 # JIT
-cargo run -p ilang-cli -- run examples/sdl_breakout/main.il
+cargo run -p ilang -- run examples/sdl_breakout/main.il
 
 # AOT — SDL2 を実行時にロードする 735 KB ほどの Mach-O 実行
 # ファイルを生成。
-cargo run -p ilang-cli -- build examples/sdl_breakout/main.il -o breakout
+cargo run -p ilang -- build examples/sdl_breakout/main.il -o breakout
 ./breakout
 ```
 

@@ -6,7 +6,7 @@ A list of every syntactic construct that's actually implemented and
 compilable. Anything not on this page is either unimplemented or
 buggy.
 
-`.il` files run with `cargo run -p ilang-cli -- run path.il`
+`.il` files run with `cargo run -p ilang -- run path.il`
 (AST → MIR → Cranelift JIT). Launching `ilang` with no arguments
 drops into the incremental MIR-JIT REPL — fn / class / enum decls
 and most top-level `let` bindings persist across chunks via host

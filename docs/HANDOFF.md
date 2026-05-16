@@ -262,11 +262,11 @@ crates/ilang-cli/tests/programs/  # 150 個の .il fixture (interp + JIT 両方�
 ~/.cargo/bin/cargo test --workspace
 
 # REPL (let / fn / class が永続化)
-~/.cargo/bin/cargo run -p ilang-cli
+~/.cargo/bin/cargo run -p ilang
 
 # ファイル実行
-~/.cargo/bin/cargo run -p ilang-cli -- run path.il
-~/.cargo/bin/cargo run -p ilang-cli -- run --jit path.il
+~/.cargo/bin/cargo run -p ilang -- run path.il
+~/.cargo/bin/cargo run -p ilang -- run --jit path.il
 
 # 1 つの fixture を直接実行
 ./target/debug/ilang run --jit crates/ilang-cli/tests/programs/04_modules/extern_cstr_array.il

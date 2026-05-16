@@ -20,7 +20,7 @@ LANGS=(c rs il_aot il_jit js lua py)
 ILANG_BIN="${ILANG_BIN:-$ROOT/../target/release/ilang}"
 if [[ ! -x "$ILANG_BIN" ]]; then
     echo "Building release ilang…" >&2
-    (cd "$ROOT/.." && cargo build --release -p ilang-cli >&2)
+    (cd "$ROOT/.." && cargo build --release -p ilang >&2)
 fi
 
 have() { command -v "$1" >/dev/null 2>&1; }

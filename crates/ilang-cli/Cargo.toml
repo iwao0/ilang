@@ -1,12 +1,12 @@
 [package]
-name = "ilang-cli"
+name = "ilang"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "ilang"
-path = "src/main.rs"
+# `src/main.rs` is auto-detected as a `[[bin]]` named after the
+# package, so no explicit bin section is needed — the CLI is invoked
+# as `cargo run -p ilang` and produces `target/<profile>/ilang`.
 
 [dependencies]
 ilang-ast = { workspace = true }

@@ -180,17 +180,17 @@ cargo build           # first run resolves deps + compiles (~1 minute)
 
 ```sh
 # 💬 REPL — let / fn persist across lines, JIT-backed
-cargo run -p ilang-cli
+cargo run -p ilang
 
 # 📄 Run a file (`;` is optional, newlines act as statement separators
 #    JS-ASI style). Routes through the MIR → Cranelift JIT pipeline.
-cargo run -p ilang-cli -- run path/to/script.il
+cargo run -p ilang -- run path/to/script.il
 
 # 📦 Build a native executable (macOS, Cranelift AOT). The system
 #    `cc` links the emitted object against `libilang_runtime.a` plus
 #    any `@lib("X")` the program references; the output runs without
 #    a Rust toolchain installed.
-cargo run -p ilang-cli -- build path/to/script.il -o path/to/script
+cargo run -p ilang -- build path/to/script.il -o path/to/script
 ./path/to/script
 ```
 
@@ -215,7 +215,7 @@ fn count_div(n: i64): i64 {
 }
 count_div(100)
 EOF
-cargo run -p ilang-cli -- run sample.il   # => 47
+cargo run -p ilang -- run sample.il   # => 47
 ```
 
 ### 🧱 Classes
@@ -244,7 +244,7 @@ loop {
 }
 c.bump()
 EOF
-cargo run -p ilang-cli -- run counter.il   # => 16
+cargo run -p ilang -- run counter.il   # => 16
 ```
 
 ### 🎮 Sample: an SDL2 game window
@@ -274,11 +274,11 @@ Run:
 
 ```sh
 # JIT
-cargo run -p ilang-cli -- run examples/sdl_breakout/main.il
+cargo run -p ilang -- run examples/sdl_breakout/main.il
 
 # AOT — produces a standalone ~735 KB Mach-O binary that links
 # against SDL2 at load time.
-cargo run -p ilang-cli -- build examples/sdl_breakout/main.il -o breakout
+cargo run -p ilang -- build examples/sdl_breakout/main.il -o breakout
 ./breakout
 ```
 
