@@ -147,6 +147,8 @@ impl<'a> Parser<'a> {
         let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
         let class_add_method_name: Symbol = format!("{tag}_class_add_method").into();
         let dlsym_name: Symbol = format!("{tag}_dlsym").into();
+        let retain_name: Symbol = format!("{tag}_objc_retain").into();
+        let release_name: Symbol = format!("{tag}_objc_release").into();
 
         if any_objc {
             // Selector type + sel_registerName alias.
@@ -204,6 +206,52 @@ impl<'a> Parser<'a> {
                         span: block_span,
                     },
                 );
+            }
+            // Retain / release helpers — used by the auto-generated
+            // deinit on root @objc classes and by the dispatch
+            // wrappers' retain-on-autoreleased-return rule.
+            if any_class {
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: retain_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("obj"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(object_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(object_struct_name)),
+                    }),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_retain")),
+                    variadic: false,
+                    span: block_span,
+                });
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: release_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("obj"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(object_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: None,
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_release")),
+                    variadic: false,
+                    span: block_span,
+                });
             }
             // Class lookup helpers are only injected when at least
             // one class uses a static method (only static dispatch
@@ -430,6 +478,8 @@ impl<'a> Parser<'a> {
                 register_pair: register_pair_name,
                 class_add_method: class_add_method_name,
                 dlsym: dlsym_name,
+                retain: retain_name,
+                release: release_name,
                 class_names: &class_names,
             };
             let (class_item, aliases) = build_objc_class(c, &ctx);
@@ -660,6 +710,126 @@ struct ObjcClass {
     span: Span,
 }
 
+/// Apple ARC's NS_RETURNS_RETAINED family rule. The selector's
+/// first word (lowercase letters until an uppercase letter, `:`,
+/// or end) names the family — `alloc`, `new`, `copy`,
+/// `mutableCopy`, `init`, and `retain` return +1. Everything else
+/// is autoreleased.
+fn returns_retained_selector(selector: &str) -> bool {
+    for family in &["alloc", "new", "copy", "mutableCopy", "init", "retain"] {
+        if let Some(rest) = selector.strip_prefix(family) {
+            let first = rest.chars().next();
+            match first {
+                None | Some(':') => return true,
+                Some(c) if !c.is_lowercase() => return true,
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+/// Body:
+///   if this.__owns != 0 && this.handle != 0 {
+///       <release>(this.handle as *objc_object)
+///   }
+fn build_root_deinit(ctx: &ObjcCtx<'_>, span: Span) -> FnDecl {
+    let this_owns = Expr::new(
+        ExprKind::Field {
+            obj: Box::new(Expr::new(ExprKind::This, span)),
+            name: Symbol::intern("__owns"),
+        },
+        span,
+    );
+    let this_handle = Expr::new(
+        ExprKind::Field {
+            obj: Box::new(Expr::new(ExprKind::This, span)),
+            name: Symbol::intern("handle"),
+        },
+        span,
+    );
+    let owns_nonzero = Expr::new(
+        ExprKind::Binary {
+            op: ilang_ast::BinOp::Ne,
+            lhs: Box::new(this_owns),
+            rhs: Box::new(Expr::new(
+                ExprKind::Cast {
+                    expr: Box::new(Expr::new(ExprKind::Int(0), span)),
+                    ty: Type::I8,
+                },
+                span,
+            )),
+        },
+        span,
+    );
+    let handle_nonzero = Expr::new(
+        ExprKind::Binary {
+            op: ilang_ast::BinOp::Ne,
+            lhs: Box::new(this_handle.clone()),
+            rhs: Box::new(Expr::new(ExprKind::Int(0), span)),
+        },
+        span,
+    );
+    let cond = Expr::new(
+        ExprKind::Logical {
+            op: ilang_ast::LogicalOp::And,
+            lhs: Box::new(owns_nonzero),
+            rhs: Box::new(handle_nonzero),
+        },
+        span,
+    );
+    let handle_as_ptr = Expr::new(
+        ExprKind::Cast {
+            expr: Box::new(this_handle),
+            ty: Type::RawPtr {
+                is_const: false,
+                inner: Box::new(Type::Object(ctx.object_struct)),
+            },
+        },
+        span,
+    );
+    let release_call = Expr::new(
+        ExprKind::Call {
+            callee: ctx.release,
+            args: Box::new([handle_as_ptr]),
+        },
+        span,
+    );
+    let then_branch = Block {
+        stmts: vec![Stmt::new(StmtKind::Expr(release_call), span)],
+        tail: None,
+    };
+    let if_release = Expr::new(
+        ExprKind::If {
+            cond: Box::new(cond),
+            then_branch,
+            else_branch: None,
+        },
+        span,
+    );
+    FnDecl {
+        is_pub: false,
+        // Re-use the wrapper bypass so the *objc_object cast in
+        // the body doesn't trip the pointer-in-signature rule the
+        // type checker applies to ilang-side helpers.
+        attrs: Box::new([Attribute {
+            name: Symbol::intern("__objc_wrapper"),
+            args: Box::new([]),
+        }]),
+        name: Symbol::intern("deinit"),
+        type_params: Box::new([]),
+        params: Box::new([]),
+        ret: None,
+        body: Block {
+            stmts: vec![Stmt::new(StmtKind::Expr(if_release), span)],
+            tail: None,
+        },
+        span,
+        is_override: false,
+        is_async: false,
+    }
+}
+
 struct ObjcCtx<'a> {
     tag: &'a str,
     sel_struct: Symbol,
@@ -671,6 +841,8 @@ struct ObjcCtx<'a> {
     register_pair: Symbol,
     class_add_method: Symbol,
     dlsym: Symbol,
+    retain: Symbol,
+    release: Symbol,
     class_names: &'a HashSet<Symbol>,
 }
 
@@ -769,47 +941,101 @@ fn build_objc_class(
     let fields: Vec<FieldDecl> = if has_parent {
         Vec::new()
     } else {
-        vec![FieldDecl {
-            is_pub: true,
-            name: Symbol::intern("handle"),
-            ty: Type::I64,
-            span,
-            bits: None,
-        }]
+        // `__owns` tags whether this wrapper is responsible for
+        // releasing the underlying ObjC object when its ilang
+        // refcount drops. `__bind_handle` sets it to 1; the IMP-side
+        // `__bind_handle_unowned` (used for the AppKit-supplied
+        // `__self` / sender args) leaves it 0 so the auto-deinit
+        // skips them.
+        vec![
+            FieldDecl {
+                is_pub: true,
+                name: Symbol::intern("handle"),
+                ty: Type::I64,
+                span,
+                bits: None,
+            },
+            FieldDecl {
+                is_pub: true,
+                name: Symbol::intern("__owns"),
+                ty: Type::I8,
+                span,
+                bits: None,
+            },
+        ]
     };
 
-    // `__bind_handle(h: i64)` exists on every @objc class so the
-    // desugar can wrap a raw ObjC `id` into an ilang instance.
-    // It used to be named `init`, but the @objc-side `init`
-    // selector is too useful — keeping the handle binder under a
+    // `__bind_handle(h: i64)` — every @objc class's owning handle
+    // binder. Sets `handle = h` and `__owns = 1`. The matching
+    // `__bind_handle_unowned` variant zeroes `__owns` so the auto
+    // deinit skips release — used by IMP wrappers for the
+    // AppKit-supplied `__self` / `sender` args we don't own.
+    //
+    // It used to be named `init`, but the @objc `init` selector
+    // is too useful at user level — keeping the binder under a
     // reserved internal name leaves `init` free for user
     // `@objc("init") pub init(): Self` declarations. Subclasses
-    // use the *inherited* handle field via `this.handle = h`
-    // (same syntax; field lookup walks the chain).
-    let init_param = Param {
+    // inherit the slots through the normal ilang vtable (declaring
+    // our own here would trip the "method hides parent without
+    // override" check).
+    let bind_h_param = || Param {
         name: Symbol::intern("h"),
         ty: Type::I64,
         span,
         default: None,
     };
-    let init_body_assign = Expr::new(
-        ExprKind::AssignField {
-            obj: Box::new(Expr::new(ExprKind::This, span)),
-            field: Symbol::intern("handle"),
-            value: Box::new(Expr::new(ExprKind::Var(Symbol::intern("h")), span)),
-            is_init: true,
-        },
-        span,
-    );
+    let assign_handle = || {
+        Expr::new(
+            ExprKind::AssignField {
+                obj: Box::new(Expr::new(ExprKind::This, span)),
+                field: Symbol::intern("handle"),
+                value: Box::new(Expr::new(ExprKind::Var(Symbol::intern("h")), span)),
+                is_init: true,
+            },
+            span,
+        )
+    };
+    let assign_owns = |val: i64| {
+        Expr::new(
+            ExprKind::AssignField {
+                obj: Box::new(Expr::new(ExprKind::This, span)),
+                field: Symbol::intern("__owns"),
+                value: Box::new(Expr::new(ExprKind::Int(val), span)),
+                is_init: true,
+            },
+            span,
+        )
+    };
     let init_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
         name: Symbol::intern("__bind_handle"),
         type_params: Box::new([]),
-        params: Box::new([init_param]),
+        params: Box::new([bind_h_param()]),
         ret: None,
         body: Block {
-            stmts: vec![Stmt::new(StmtKind::Expr(init_body_assign), span)],
+            stmts: vec![
+                Stmt::new(StmtKind::Expr(assign_handle()), span),
+                Stmt::new(StmtKind::Expr(assign_owns(1)), span),
+            ],
+            tail: None,
+        },
+        span,
+        is_override: false,
+        is_async: false,
+    };
+    let unowned_init_fn = FnDecl {
+        is_pub: true,
+        attrs: Box::new([]),
+        name: Symbol::intern("__bind_handle_unowned"),
+        type_params: Box::new([]),
+        params: Box::new([bind_h_param()]),
+        ret: None,
+        body: Block {
+            stmts: vec![
+                Stmt::new(StmtKind::Expr(assign_handle()), span),
+                Stmt::new(StmtKind::Expr(assign_owns(0)), span),
+            ],
             tail: None,
         },
         span,
@@ -817,14 +1043,17 @@ fn build_objc_class(
         is_async: false,
     };
 
-    // Only the root @objc class declares `__bind_handle` — children
-    // inherit it through the normal ilang vtable. Re-declaring it
-    // on every subclass would trip the "method hides parent
-    // without override" check.
+    // Auto-deinit on the root @objc class: release the underlying
+    // ObjC object iff this wrapper owns it and the handle is set.
+    // Subclasses inherit the deinit unchanged.
+    let deinit_fn = build_root_deinit(ctx, span);
+
+    // Only the root @objc class declares the binders + deinit —
+    // children inherit them through the normal ilang vtable.
     let mut methods: Vec<FnDecl> = if has_parent {
         Vec::new()
     } else {
-        vec![init_fn]
+        vec![init_fn, unowned_init_fn, deinit_fn]
     };
     // `pub static __wrap_handle(h: i64): Self` — internal helper
     // the @objc desugar leans on to wrap a raw ObjC id into an
@@ -1197,21 +1426,91 @@ fn build_class_method(
 
     // 4. Tail expression: wrap an @objc-class return into `new T(raw as i64)`,
     //    otherwise just return the raw value (or no tail for unit).
+    //
+    // Memory rules (mirrors Apple's ARC NS_RETURNS_RETAINED family):
+    //   * `alloc*` / `new*` / `copy*` / `mutableCopy*` / `init*` /
+    //     `retain` return +1 — wrap as-is. The instance `init*` case
+    //     additionally needs to consume `self`: set `this.handle = 0`
+    //     so the (now-stale, same-pointer) outer wrapper's deinit
+    //     doesn't double-release the object init just gave us back.
+    //   * Anything else is autoreleased — `objc_retain` first so our
+    //     wrapper holds a stable +1 once the pool drains.
+    let retained_return = returns_retained_selector(&m.selector);
+    let consumes_self = retained_return
+        && !m.is_static
+        && m.selector.starts_with("init");
     let tail = match &m.ret {
         Some(t) if is_objc_class_ty(t, ctx.class_names) => {
-            // new ReturnClass(call_expr as i64)
-            let raw_as_i64 = Expr::new(
+            let result_name = Symbol::intern("__raw");
+            // let __raw = (alias_call) as i64
+            let call_as_i64 = Expr::new(
                 ExprKind::Cast {
                     expr: Box::new(call_expr),
                     ty: Type::I64,
                 },
                 m.span,
             );
+            stmts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name: result_name,
+                    ty: None,
+                    value: call_as_i64,
+                },
+                m.span,
+            ));
+            // For init-family instance methods, zero out this.handle
+            // so our outer wrapper's deinit doesn't release the
+            // pointer init just returned to us (same +1 the caller
+            // now owns through the new wrapper).
+            if consumes_self {
+                let zero_handle = Expr::new(
+                    ExprKind::AssignField {
+                        obj: Box::new(Expr::new(ExprKind::This, m.span)),
+                        field: Symbol::intern("handle"),
+                        value: Box::new(Expr::new(ExprKind::Int(0), m.span)),
+                        is_init: false,
+                    },
+                    m.span,
+                );
+                stmts.push(Stmt::new(StmtKind::Expr(zero_handle), m.span));
+            }
+            // If the selector returns autoreleased, retain the raw
+            // pointer before wrapping so it survives the next pool drain.
+            let raw_for_wrap = if retained_return {
+                Expr::new(ExprKind::Var(result_name), m.span)
+            } else {
+                let raw_as_ptr = Expr::new(
+                    ExprKind::Cast {
+                        expr: Box::new(Expr::new(ExprKind::Var(result_name), m.span)),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(ctx.object_struct)),
+                        },
+                    },
+                    m.span,
+                );
+                let retain_call = Expr::new(
+                    ExprKind::Call {
+                        callee: ctx.retain,
+                        args: Box::new([raw_as_ptr]),
+                    },
+                    m.span,
+                );
+                Expr::new(
+                    ExprKind::Cast {
+                        expr: Box::new(retain_call),
+                        ty: Type::I64,
+                    },
+                    m.span,
+                )
+            };
             let new_expr = Expr::new(
                 ExprKind::New {
                     class: ret_class_symbol(t),
                     type_args: Box::new([]),
-                    args: Box::new([raw_as_i64]),
+                    args: Box::new([raw_for_wrap]),
                     init_method: Some(Symbol::intern("__bind_handle")),
                 },
                 m.span,
@@ -1723,7 +2022,10 @@ fn build_imp_fn(
             class: class_name,
             type_args: Box::new([]),
             args: Box::new([self_as_i64]),
-            init_method: Some(Symbol::intern("__bind_handle")),
+            // AppKit gave us this `self`; it owns the reference.
+            // The IMP-side wrapper is non-owning so its deinit
+            // doesn't double-release when the IMP returns.
+            init_method: Some(Symbol::intern("__bind_handle_unowned")),
         },
         m.span,
     );
@@ -1762,7 +2064,9 @@ fn build_imp_fn(
                     class,
                     type_args: Box::new([]),
                     args: Box::new([arg_as_i64]),
-                    init_method: Some(Symbol::intern("__bind_handle")),
+                    // Same reasoning as `__me` above — the sender
+                    // is owned by AppKit, not by us.
+                    init_method: Some(Symbol::intern("__bind_handle_unowned")),
                 },
                 p.span,
             );
