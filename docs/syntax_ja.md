@@ -1067,12 +1067,12 @@ let label = match typeof(x).kind {
 
 ```rust
 // utils.il
-fn double(n: i64): i64 { n * 2 }
-class Counter {
+pub fn double(n: i64): i64 { n * 2 }
+pub class Counter {
     n: i64
-    init(start: i64) { this.n = start }
-    bump() { this.n = this.n + 1 }
-    get(): i64 { this.n }
+    pub init(start: i64) { this.n = start }
+    pub bump() { this.n = this.n + 1 }
+    pub get(): i64 { this.n }
 }
 
 // main.il
