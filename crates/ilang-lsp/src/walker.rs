@@ -1073,6 +1073,13 @@ impl<'a> Walker<'a> {
                 ilang_ast::UnOp::Not => Some(Type::Bool),
                 _ => self.infer_expr(expr, scope),
             },
+            // `EnumName.Variant` (with or without payload args). The
+            // type checker treats enums as nominal types reachable
+            // through `Type::Object(EnumName)`; match that so a
+            // bitwise OR chain of `@flags` variants infers cleanly.
+            ExprKind::EnumCtor { enum_name, .. } => {
+                Some(Type::Object(enum_name.clone()))
+            }
             // Fall back to the scope-aware inferer for everything else.
             _ => infer_expr_type_with_scope(e, scope),
         }
