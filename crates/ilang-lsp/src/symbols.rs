@@ -20,10 +20,27 @@ use ilang_types::{check, TypeError};
 
 use crate::*;
 
+/// Parser-synthesised helpers emitted by `@extern(ObjC) { ... }`
+/// desugar — get_class, sel_register, allocate_class_pair, the
+/// per-method `__objc_..._msg_*` aliases, the subclass IMP /
+/// _ilang_impl_ pair, and so on. They're invisible in source and
+/// their generated call sites borrow nearby user spans, so without
+/// this filter hovering on the class name picks one up as a ref and
+/// shows its synthetic signature.
+pub(crate) fn is_synthesized_objc_helper(name: &str) -> bool {
+    name.starts_with("__objc_")
+        || name.starts_with("ilang_objc_imp__")
+        || name.starts_with("_ilang_impl_")
+        || name.starts_with("__super_")
+}
+
 pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {
     use ilang_ast::ExternCItem;
     let mut out = HashMap::new();
     let put_fn = |f: &FnDecl, m: &mut HashMap<AstSymbol, Symbol>| {
+        if is_synthesized_objc_helper(f.name.as_str()) {
+            return;
+        }
         m.insert(
             f.name.into(),
             Symbol {
@@ -120,6 +137,9 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                         ExternCItem::FnDecl {
                             name, params, ret, span, libs, ..
                         } => {
+                            if is_synthesized_objc_helper(name.as_str()) {
+                                continue;
+                            }
                             let ps = params
                                 .iter()
                                 .map(|p| format!("{}: {}", p.name, p.ty))
@@ -151,6 +171,9 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                         }
                         ExternCItem::FnDef(f) => put_fn(f, &mut out),
                         ExternCItem::Struct { name, span, .. } => {
+                            if is_synthesized_objc_helper(name.as_str()) {
+                                continue;
+                            }
                             out.insert(
                                 name.clone(),
                                 Symbol {
@@ -162,6 +185,9 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                             );
                         }
                         ExternCItem::Union { name, span, .. } => {
+                            if is_synthesized_objc_helper(name.as_str()) {
+                                continue;
+                            }
                             out.insert(
                                 name.clone(),
                                 Symbol {
