@@ -30,6 +30,21 @@ pub(crate) fn collect_fn_free_var_refs(
     top_lets: &std::collections::HashSet<Symbol>,
     out: &mut std::collections::HashSet<Symbol>,
 ) {
+    let walk_class =
+        |c: &ilang_ast::ClassDecl,
+         out: &mut std::collections::HashSet<Symbol>| {
+            for m in c.methods.iter() {
+                let mut locals: Vec<Symbol> = std::iter::once(Symbol::intern("this"))
+                    .chain(m.params.iter().map(|p| p.name))
+                    .collect();
+                walk_block(&m.body, top_lets, &mut locals, out);
+            }
+            for sm in c.static_methods.iter() {
+                let mut locals: Vec<Symbol> =
+                    sm.params.iter().map(|p| p.name).collect();
+                walk_block(&sm.body, top_lets, &mut locals, out);
+            }
+        };
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
@@ -37,17 +52,24 @@ pub(crate) fn collect_fn_free_var_refs(
                     f.params.iter().map(|p| p.name).collect();
                 walk_block(&f.body, top_lets, &mut locals, out);
             }
-            Item::Class(c) => {
-                for m in c.methods.iter() {
-                    let mut locals: Vec<Symbol> = std::iter::once(Symbol::intern("this"))
-                        .chain(m.params.iter().map(|p| p.name))
-                        .collect();
-                    walk_block(&m.body, top_lets, &mut locals, out);
-                }
-                for sm in c.static_methods.iter() {
-                    let mut locals: Vec<Symbol> =
-                        sm.params.iter().map(|p| p.name).collect();
-                    walk_block(&sm.body, top_lets, &mut locals, out);
+            Item::Class(c) => walk_class(c, out),
+            // `@extern(C) { ... }` and `@extern(ObjC) { ... }` blocks
+            // contain inner Fn / Class items whose bodies (e.g. an
+            // `@objc class` subclass override) can reference
+            // top-level lets the same way a regular method can. Without
+            // descending here, those references hit "unbound variable"
+            // at MIR lower time because no slot got promoted.
+            Item::ExternC(blk) => {
+                for inner in blk.items.iter() {
+                    match inner {
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            let mut locals: Vec<Symbol> =
+                                f.params.iter().map(|p| p.name).collect();
+                            walk_block(&f.body, top_lets, &mut locals, out);
+                        }
+                        ilang_ast::ExternCItem::Class(c) => walk_class(c, out),
+                        _ => {}
+                    }
                 }
             }
             _ => {}

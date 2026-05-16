@@ -226,8 +226,20 @@ impl TypeChecker {
                 }
                 let bind_ty = if let Some(t) = ty {
                     Some(t.clone())
+                } else if let Some(t) = self.infer_literal_type(value) {
+                    Some(t)
                 } else {
-                    self.infer_literal_type(value)
+                    // Non-literal RHS (`let app = sharedApplication()` etc).
+                    // Run a full check_expr against the partial environment
+                    // collected so far so fns / methods / classes (signature
+                    // tables are already populated by this point) can
+                    // contribute a type. Errors are ignored — they'll
+                    // resurface when the stmt body gets checked for real
+                    // later, with full diagnostics. Without this, the
+                    // top-level let stays invisible to free-fn / method
+                    // bodies and they fail with "undefined variable".
+                    let env_snapshot: Vars = self.vars.clone();
+                    self.check_expr(value, &env_snapshot, None, None, 0).ok()
                 };
                 if let Some(t) = bind_ty {
                     self.vars.insert(name.clone(), t);

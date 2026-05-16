@@ -50,6 +50,11 @@ pub const ACTIVATION_REGULAR:  i64 = 0
 // button.
 pub const BEZEL_ROUNDED:       u64 = 1
 
+// NSUserInterfaceLayoutOrientation — passed to
+// `NSStackView.setOrientation` to switch row/column stacking.
+pub const LAYOUT_HORIZONTAL:   i64 = 0
+pub const LAYOUT_VERTICAL:     i64 = 1
+
 // ─── Foundation geometry types (HFA-passed) ──────────────────────
 // NSPoint / NSSize / NSRect are plain f64 structs. The AArch64
 // ABI rides them through v0..v3 (HFA path) when passed to
@@ -91,12 +96,15 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         }
     }
 
-    /// `NSString` — Cocoa's UTF-16 string type. We only expose
-    /// the C-string constructor since ilang code already speaks
-    /// UTF-8 natively.
+    /// `NSString` — Cocoa's UTF-16 string type. We expose the
+    /// C-string constructor and `UTF8String` accessor; ilang code
+    /// works in UTF-8 so the round-trip is `nsstr(s) ↔ s.toIlang()`
+    /// (use the `toIlang` helper below).
     @objc pub class NSString : NSObject {
         @objc("stringWithUTF8String:")
         pub static fromCStr(s: *const char): NSString
+        @objc("UTF8String")
+        pub utf8String(): *const char
     }
 
     // ─── AppKit ──────────────────────────────────────────────────
@@ -184,6 +192,78 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         // Use `selectorPtr("clicked:")` to build one from a name.
         @objc("setAction:")
         pub setAction(sel: i64)
+    }
+
+    /// NSTextField. Doubles as both an editable text input and a
+    /// non-editable label (set `setEditable(0)` + `setBordered(0)` +
+    /// `setDrawsBackground(0)` for the label look — `makeLabel`
+    /// below does that for you).
+    @objc pub class NSTextField : NSView {
+        @objc("alloc")
+        pub static alloc(): NSTextField
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSTextField
+
+        @objc("setStringValue:")
+        pub setStringValue(s: NSString)
+        @objc("stringValue")
+        pub stringValue(): NSString
+
+        @objc("setEditable:")
+        pub setEditable(flag: i8)
+        @objc("setBordered:")
+        pub setBordered(flag: i8)
+        @objc("setBezeled:")
+        pub setBezeled(flag: i8)
+        @objc("setDrawsBackground:")
+        pub setDrawsBackground(flag: i8)
+        @objc("setSelectable:")
+        pub setSelectable(flag: i8)
+    }
+
+    /// NSSlider — continuous horizontal slider by default. `min`,
+    /// `max`, and the current `doubleValue` are f64; the value
+    /// reads back via `doubleValue()` (target/action hookups for
+    /// live updates follow the NSButton pattern).
+    @objc pub class NSSlider : NSView {
+        @objc("alloc")
+        pub static alloc(): NSSlider
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSSlider
+
+        @objc("setMinValue:")
+        pub setMinValue(v: f64)
+        @objc("setMaxValue:")
+        pub setMaxValue(v: f64)
+        @objc("setDoubleValue:")
+        pub setDoubleValue(v: f64)
+        @objc("doubleValue")
+        pub doubleValue(): f64
+
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+    }
+
+    /// NSStackView — stacks its arranged subviews along
+    /// `orientation` (use `cocoa.LAYOUT_HORIZONTAL` /
+    /// `cocoa.LAYOUT_VERTICAL`). `addArrangedSubview:` appends a
+    /// view; the stack handles sizing and positioning.
+    @objc pub class NSStackView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSStackView
+        @objc("init")
+        pub init(): NSStackView
+
+        @objc("setOrientation:")
+        pub setOrientation(o: i64)
+        @objc("setSpacing:")
+        pub setSpacing(s: f64)
+        @objc("addArrangedSubview:")
+        pub addArrangedSubview(v: NSView)
+        @objc("setFrame:")
+        pub setFrame(rect: NSRect)
     }
 
     // ─── Convenience helpers ─────────────────────────────────────
@@ -277,6 +357,66 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         btn.setTitle(nsstr(title))
         btn.setBezelStyle(BEZEL_ROUNDED)
         btn
+    }
+
+    /// Convert an `NSString` back to an ilang `string`. Internally
+    /// `[NSString UTF8String]` returns a C `const char *` whose
+    /// lifetime is tied to the autorelease pool, so call this
+    /// inside an `autoreleasepool { ... }` if the string is
+    /// long-lived or you'll race the pool drain.
+    pub fn toIlang(s: NSString): string {
+        stringFromCstr(s.utf8String())
+    }
+
+    /// Plain non-editable label backed by an `NSTextField`. Flips
+    /// off `editable` / `bordered` / `bezeled` / `drawsBackground`
+    /// so it reads as static text rather than an input.
+    pub fn makeLabel(
+        text: string,
+        x: f64, y: f64, w: f64, h: f64
+    ): NSTextField {
+        let f = NSTextField.alloc().init(makeRect(x, y, w, h))
+        f.setStringValue(nsstr(text))
+        f.setEditable(0)
+        f.setBordered(0)
+        f.setBezeled(0)
+        f.setDrawsBackground(0)
+        f.setSelectable(1)
+        f
+    }
+
+    /// Editable single-line text input pre-seeded with `text`.
+    pub fn makeTextField(
+        text: string,
+        x: f64, y: f64, w: f64, h: f64
+    ): NSTextField {
+        let f = NSTextField.alloc().init(makeRect(x, y, w, h))
+        f.setStringValue(nsstr(text))
+        f.setEditable(1)
+        f.setBezeled(1)
+        f
+    }
+
+    /// Horizontal slider over `[min, max]` initialised to `value`.
+    pub fn makeSlider(
+        min: f64, max: f64, value: f64,
+        x: f64, y: f64, w: f64, h: f64
+    ): NSSlider {
+        let s = NSSlider.alloc().init(makeRect(x, y, w, h))
+        s.setMinValue(min)
+        s.setMaxValue(max)
+        s.setDoubleValue(value)
+        s
+    }
+
+    /// `NSStackView` initialised with the given orientation and
+    /// spacing. Position it with `setFrame` and append children
+    /// via `addArrangedSubview`.
+    pub fn makeStackView(orientation: i64, spacing: f64): NSStackView {
+        let s = NSStackView.alloc().init()
+        s.setOrientation(orientation)
+        s.setSpacing(spacing)
+        s
     }
 }
 
