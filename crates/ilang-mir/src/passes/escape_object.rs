@@ -69,7 +69,21 @@ pub fn analyze_function(prog: &Program, fn_idx: usize) -> HashSet<ValueId> {
                 if cls.drop_fn != FuncId(u32::MAX) {
                     continue;
                 }
-                if !matches!(cls.repr, crate::program::ClassRepr::ArcObject) {
+                // ArcObject: classic stack-promotion of an RC'd class
+                // whose `init` is trivial and fields are primitive.
+                // CRepr / CPacked / CUnion: top-level struct / union
+                // (and `@extern(C)` aggregates) — no header, no
+                // refcount, no drop. Field offsets and store/load
+                // handlers already work on a flat byte buffer
+                // regardless of heap vs stack origin, so the same
+                // escape rules below decide whether it's safe to
+                // back the value with a StackSlot instead of an
+                // alloc call.
+                use crate::program::ClassRepr;
+                if !matches!(
+                    cls.repr,
+                    ClassRepr::ArcObject | ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion
+                ) {
                     continue;
                 }
                 if !cls.fields.iter().all(|fd| !fd.ty.is_heap()) {
@@ -215,15 +229,21 @@ fn check_inst_escape(
                 leak(a);
             }
         }
-        // Field stores: `value` ends up reachable from `obj`. The
-        // obj is itself a heap container even if it's stack-
-        // promoted (a stack object holding a heap pointer would
-        // escape that pointer at function exit). For our scope
-        // (primitive-only fields) the value would always be a
-        // primitive, so this branch is mostly a no-op. Still mark
-        // both as leaked defensively.
-        StoreField { obj, value, .. } => {
-            leak(obj);
+        // Field stores: `value` ends up reachable from `obj`, so
+        // the value's lifetime is tied to obj's. The obj itself is
+        // NOT made reachable from anywhere new by the store — any
+        // later escape of obj is caught at that other use. So just
+        // leak the value.
+        //
+        // Without this distinction, the new StructLit lowering
+        // (NewObject + per-field StoreField with obj == candidate)
+        // would always leak its own candidate at the very next
+        // instruction, defeating stack promotion for every CRepr /
+        // ARC class literal. For the candidate-only restriction (its
+        // fields are non-heap by the earlier filter), the value
+        // being stored is always a primitive so this branch ends up
+        // being a no-op for them too.
+        StoreField { value, .. } => {
             leak(value);
         }
         ArrayStore { arr, value, .. } => {

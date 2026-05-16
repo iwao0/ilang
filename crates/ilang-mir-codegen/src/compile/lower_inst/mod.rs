@@ -554,23 +554,66 @@ pub(super) fn lower_inst<M: Module>(
                     | ilang_mir::ClassRepr::CPacked
                     | ilang_mir::ClassRepr::CUnion
             ) {
-                // CRepr struct alloc. With a flexible array tail
-                // (`new packet(n)`) the user passes the FAM length
-                // as the first arg; total size = c_size +
-                // n*flex_elem_size.
-                let size_v = if layout.flex_elem_size > 0 && !init_args.is_empty() {
-                    let n_v = vmap[&init_args[0]];
-                    let n_i64 = extend_to_i64(fb, n_v);
-                    let elem_v = fb.ins().iconst(types::I64, layout.flex_elem_size);
-                    let extra = fb.ins().imul(n_i64, elem_v);
-                    let base = fb.ins().iconst(types::I64, layout.c_size.max(0));
-                    fb.ins().iadd(base, extra)
+                // CRepr struct alloc. Two paths:
+                //
+                // 1. Stack promotion (`stack_local.contains(dst)`):
+                //    escape analysis cleared this allocation, so back
+                //    it with a function-local Cranelift StackSlot of
+                //    `c_size` bytes instead of going through
+                //    `__mir_alloc`. Field offsets are computed by
+                //    LoadField / StoreField from `c_field_offsets`
+                //    against whatever base pointer we hand back,
+                //    which works identically for heap and stack
+                //    memory. The flex-array-tail form
+                //    (`new Packet(n)`) needs a dynamic size, so it's
+                //    not eligible — fall through to the heap path.
+                //
+                // 2. Heap (default): one call to `__mir_alloc` for
+                //    `c_size` bytes (or `c_size + n*flex_elem_size`
+                //    for the FAM form).
+                let stack_ok =
+                    stack_local.contains(dst) && layout.flex_elem_size == 0;
+                let ptr = if stack_ok {
+                    let slot_size = (layout.c_size.max(1)) as u32;
+                    let slot = fb.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        slot_size,
+                        // log2 of alignment. 8-byte alignment covers
+                        // every primitive a top-level struct field
+                        // can hold (i64 / f64 / pointer); over-
+                        // aligning is cheap since the slot's purely
+                        // local.
+                        3,
+                    ));
+                    let p = fb.ins().stack_addr(types::I64, slot, 0);
+                    // Zero the slot to mirror `__mir_alloc`'s
+                    // zero-init contract — primitive field reads
+                    // before the first write must see 0 instead of
+                    // stack garbage. Whole-slot 8-byte stores are
+                    // safe here because `c_size` rounds up to the
+                    // largest field's alignment in `class_signature`.
+                    let zero = fb.ins().iconst(types::I64, 0);
+                    let mut off: i32 = 0;
+                    while (off as i64) < slot_size as i64 {
+                        fb.ins().store(MemFlags::trusted(), zero, p, off);
+                        off += 8;
+                    }
+                    p
                 } else {
-                    fb.ins().iconst(types::I64, layout.c_size.max(1))
+                    let size_v = if layout.flex_elem_size > 0 && !init_args.is_empty() {
+                        let n_v = vmap[&init_args[0]];
+                        let n_i64 = extend_to_i64(fb, n_v);
+                        let elem_v = fb.ins().iconst(types::I64, layout.flex_elem_size);
+                        let extra = fb.ins().imul(n_i64, elem_v);
+                        let base = fb.ins().iconst(types::I64, layout.c_size.max(0));
+                        fb.ins().iadd(base, extra)
+                    } else {
+                        fb.ins().iconst(types::I64, layout.c_size.max(1))
+                    };
+                    let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                    let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                    fb.inst_results(alloc_call)[0]
                 };
-                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-                let ptr = fb.inst_results(alloc_call)[0];
                 vmap.insert(*dst, ptr);
                 return Ok(());
             }
