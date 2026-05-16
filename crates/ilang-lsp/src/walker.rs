@@ -115,6 +115,8 @@ impl<'a> Walker<'a> {
                         name.as_str().len() as u32,
                         sym.signature.clone(),
                     );
+                } else {
+                    self.push_external_type_ref(name.as_str(), start_span);
                 }
             }
             Type::Array { elem, .. } => self.walk_type_at(elem, start_span),
@@ -131,10 +133,41 @@ impl<'a> Walker<'a> {
                         g.base.as_str().len() as u32,
                         sym.signature.clone(),
                     );
+                } else {
+                    self.push_external_type_ref(g.base.as_str(), start_span);
                 }
             }
             _ => {}
         }
+    }
+
+    /// Bare type name not found in `symbols` (so not buffer-local)
+    /// — try the selective-import maps. `use cocoa { NSObject }`
+    /// lands NSObject's signature under the bare key in
+    /// `external_signatures` with the originating source in
+    /// `external_sources`, which gives us the F12 target.
+    pub(crate) fn push_external_type_ref(&mut self, name: &str, span: Span) {
+        let key = AstSymbol::intern(name);
+        let Some(sig) = self.external_signatures.get(&key) else {
+            return;
+        };
+        let loc = self.external_sources.get(&key);
+        let target_uri = loc.and_then(|l| Url::from_file_path(&l.path).ok());
+        let (target_span, target_name_len, no_def) = match loc {
+            Some(l) if target_uri.is_some() => (l.span, l.name_len, false),
+            _ => (span, name.len() as u32, target_uri.is_none()),
+        };
+        self.refs.push(RefEntry {
+            line: span.line,
+            start_col: span.col,
+            end_col: span.col + name.len() as u32,
+            target_span,
+            target_name_len,
+            signature: sig.clone(),
+            no_definition: no_def,
+            target_uri,
+            doc: self.external_docs.get(&key).cloned(),
+        });
     }
 
     pub(crate) fn walk_fn(&mut self, f: &FnDecl, this_class: Option<&str>) {
