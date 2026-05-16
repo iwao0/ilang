@@ -1,4 +1,4 @@
-const N: i64 = 1000000
+const N: i64 = 10000000
 
 class Node {
     pub value: i64

@@ -1,7 +1,7 @@
 import sys
 sys.setrecursionlimit(1 << 20)
 
-N = 200_000
+N = 2_000_000
 
 def qsort(a, lo, hi):
     if lo >= hi:

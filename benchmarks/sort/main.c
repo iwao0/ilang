@@ -1,10 +1,10 @@
-// Quicksort on 200_000 i64 values seeded by a Fibonacci-hash PRNG.
+// Quicksort on 2_000_000 i64 values seeded by a Fibonacci-hash PRNG.
 // Output is the first + last element after sort as a sanity sum.
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#define N 200000
+#define N 2000000
 
 static int64_t a[N];
 

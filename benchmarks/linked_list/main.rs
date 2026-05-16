@@ -1,4 +1,4 @@
-const N: i64 = 1_000_000;
+const N: i64 = 10_000_000;
 
 struct Node {
     value: i64,

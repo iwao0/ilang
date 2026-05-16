@@ -8,7 +8,7 @@ else:
 libc.abs.argtypes = [ctypes.c_int]
 libc.abs.restype = ctypes.c_int
 
-N = 10_000_000
+N = 100_000_000
 s = 0
 for i in range(N):
     s += libc.abs(i - N // 2)

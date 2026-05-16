@@ -122,20 +122,21 @@ sources and `benchmarks/run.sh` for the runner.
 Author's machine (M-series Mac, macOS 15, `cc` from Xcode CLT 16,
 `rustc 1.x -O`, Node.js 22, Lua 5.5, Python 3.13):
 
-| Benchmark       | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua   | Python |
-|-----------------|-------|-------|-----------|-----------|---------|-------|--------|
-| `fib(40)`       | 0.15s | 0.16s | 0.34s     | 0.34s     | 0.65s   | 3.43s | 13.55s |
-| `mandelbrot`    | 0.46s | 0.52s | 0.67s     | 0.59s     | 0.59s   | 8.56s | 57.96s |
-| `sort` (200 k)  | 0.01s | 0.01s | 0.02s     | 0.01s     | 0.05s   | 0.06s | 0.22s  |
-| `linked_list`   | 0.03s | 0.02s | 0.04s     | 0.03s     | 0.05s   | 0.11s | 0.42s  |
-| `string_concat` | 0.02s | 0.00s | 0.00s¹    | 0.00s¹    | 0.02s   | 0.04s | 0.02s  |
-| `ffi`           | 0.01s | 0.01s | 0.01s     | 0.01s     | --      | --    | 2.14s  |
+| Benchmark        | C     | Rust  | ilang AOT | ilang JIT | Node.js | Lua   | Python |
+|------------------|-------|-------|-----------|-----------|---------|-------|--------|
+| `fib(40)`        | 0.15s | 0.16s | 0.35s     | 0.35s     | 0.60s   | 3.48s | 13.81s |
+| `mandelbrot`     | 0.49s | 0.62s | 0.68s     | 0.60s     | 0.62s   | 8.67s | 64.78s |
+| `sort` (2 M)     | 0.10s | 0.10s | 0.15s     | 0.15s     | 0.28s   | 0.68s | 2.87s  |
+| `linked_list`    | 0.27s | 0.13s | 0.32s     | 0.31s     | 0.29s   | 1.05s | 4.24s  |
+| `string_concat`¹ | 2.18s | 0.00s | 0.01s     | 0.01s     | 0.04s   | 2.45s | 0.05s  |
+| `ffi`            | 0.03s | 0.02s | 0.10s     | 0.10s     | --      | --    | 20.80s |
 
-¹ Below the 10 ms resolution of `time -p`. The `s = s + expr`
-shape is detected at MIR time and lowered to an in-place
-doubling-realloc helper so the total cost is O(n) instead of the
-naive O(n²) every other column except Python / Node.js / Lua here
-actually pays. Measured at ~3 ms wall clock for 50 k appends.
+¹ The `s = s + expr` shape is detected at MIR time and lowered
+to an in-place doubling-realloc helper so the total cost is O(n)
+instead of the naive O(n²) the C and Lua columns actually pay
+(Rust / Node.js / Python avoid O(n²) via in-place reuse or
+small-string fast paths of their own). Measured at ~10 ms wall
+clock for 500 k appends.
 
 Reproduce on your own machine with `bash benchmarks/run.sh`. Tools
 that aren't installed render as `--` (Node.js and stock Lua ship no

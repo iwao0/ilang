@@ -11,10 +11,10 @@ than algorithmic differences.
 | ----------------- | ----------------------------------------------------------- |
 | `fib`             | Recursive function calls and integer arithmetic (`fib(40)`) |
 | `mandelbrot`      | `f64` tight loop, branch-heavy escape test (1024×1024×1000) |
-| `sort`            | Manual quicksort over 200 000 `i64` values                  |
-| `linked_list`     | Heap allocation + traversal (1 000 000 ARC / GC nodes)      |
-| `string_concat`   | Quadratic `s = s + "x"` (50 000 iterations)                 |
-| `ffi`             | C ABI boundary: `abs()` × 10 000 000                        |
+| `sort`            | Manual quicksort over 2 000 000 `i64` values                |
+| `linked_list`     | Heap allocation + traversal (10 000 000 ARC / GC nodes)     |
+| `string_concat`   | Quadratic `s = s + "x"` (500 000 iterations)                |
+| `ffi`             | C ABI boundary: `abs()` × 100 000 000                       |
 
 Each implementation prints a final value (sum, length, etc.) so the
 optimiser can't elide the work.

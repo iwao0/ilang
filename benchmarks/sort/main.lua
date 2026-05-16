@@ -1,4 +1,4 @@
-local N = 200000
+local N = 2000000
 
 local function qsort(a, lo, hi)
     if lo >= hi then return end

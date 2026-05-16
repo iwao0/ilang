@@ -1,4 +1,4 @@
-const N = 1_000_000;
+const N = 10_000_000;
 
 class Node {
     constructor(value, next) {

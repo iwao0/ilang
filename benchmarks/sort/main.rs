@@ -1,4 +1,4 @@
-const N: usize = 200_000;
+const N: usize = 2_000_000;
 
 fn qsort(a: &mut [i64], lo: i64, hi: i64) {
     if lo >= hi { return; }

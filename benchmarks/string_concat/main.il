@@ -1,4 +1,4 @@
-const N: i64 = 50000
+const N: i64 = 500000
 let mut_s: string = ""
 for i in 0..N {
     mut_s = mut_s + "x"

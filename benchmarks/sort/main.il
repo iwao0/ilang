@@ -1,4 +1,4 @@
-const N: i64 = 200000
+const N: i64 = 2000000
 
 fn qsort(a: i64[], lo: i64, hi: i64) {
     if lo >= hi { return }

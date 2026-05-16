@@ -1,4 +1,4 @@
-// Build a 1_000_000-node singly-linked list, traverse summing values,
+// Build a 10_000_000-node singly-linked list, traverse summing values,
 // then free. The sum is printed so the optimiser can't elide.
 #include <stdio.h>
 #include <stdint.h>
@@ -9,7 +9,7 @@ typedef struct Node {
     struct Node *next;
 } Node;
 
-#define N 1000000
+#define N 10000000
 
 int main(void) {
     Node *head = NULL;

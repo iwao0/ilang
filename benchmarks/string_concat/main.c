@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define N 50000
+#define N 500000
 
 int main(void) {
     char *s = malloc(1);

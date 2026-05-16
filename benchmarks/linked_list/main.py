@@ -1,7 +1,7 @@
 import sys
 sys.setrecursionlimit(1 << 20)
 
-N = 1_000_000
+N = 10_000_000
 
 class Node:
     __slots__ = ("value", "next")

@@ -1,4 +1,4 @@
-const N = 200000;
+const N = 2000000;
 
 function qsort(a, lo, hi) {
     if (lo >= hi) return;

@@ -1,4 +1,4 @@
-local N = 1000000
+local N = 10000000
 local head = nil
 for i = 0, N - 1 do
     head = { value = i, next = head }

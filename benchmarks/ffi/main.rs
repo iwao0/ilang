@@ -4,7 +4,7 @@ unsafe extern "C" {
     fn abs(x: i32) -> i32;
 }
 
-const N: i64 = 10_000_000;
+const N: i64 = 100_000_000;
 
 fn main() {
     let mut sum: i64 = 0;
