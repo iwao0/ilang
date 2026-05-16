@@ -76,12 +76,17 @@ pub enum SystemCursor: i32 {
             p
         }
 
-        /// The held-button bitmask (no position). AND the result
-        /// against `MouseButton.left` etc. to test.
-        pub static buttons(): u32 {
+        /// The held-button bitmask (no position).
+        ///
+        /// Returns:
+        ///   a `MouseButton` flag set. Use bit-and against
+        ///   `MouseButton.left` / `.right` / ... to test specific
+        ///   buttons, or compare against `0 as MouseButton` to
+        ///   check whether any button is held.
+        pub static buttons(): MouseButton {
             let xs: i32 = 0
             let ys: i32 = 0
-            SDL_GetMouseState(&xs, &ys)
+            SDL_GetMouseState(&xs, &ys) as MouseButton
         }
 
         /// Like `position()`, but coordinates are relative to the
