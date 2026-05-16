@@ -1723,16 +1723,87 @@ async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
 
 内部的には `async fn foo` は小さな状態機械に展開されます。実行時のエラーやスタックには `__foo_State` / `__foo_StateRef` / `__foo_poll` といった生成名が現れることがあります。
 
-**現状の制約:**
-- desugar 内のミニ型推論器が、よくある RHS 形 (リテラル、param、`await Var(p)`、`await fn_call()` (呼ばれる fn の戻り値型を参照)、`await Promise.resolve(arg)`、単純な算術 etc.) からは binding の型を導出する。認識できない形だけ `let x: T = ...` の明示注釈が要る
-- sub-expression 内の await (`foo(await p, await q)`, `(await p) * 2`) は state-machine 合成の前に `let __await_tN = await ...` に lifting されるので、自然に書ける。1 文に複数の await もあって良く、左から順に評価される。`if` 条件 / `match` scrutinee (1 度だけ評価される位置) にも降りる。ただし `while` cond (毎反復評価) / arm body (異なる scope) は降りない
-- async `while` body 内の `break` / `continue` はユーザーの論理 while をターゲットにする (poll fn の外側の `loop { match state.current }` driver ではなく)。`break v` (値付き) は未対応
-- body tail 位置の `if-else` / `while` / `match` は arm / body 内に await を含んでよい。state-machine が Branch / Jump / MatchDispatch terminator を出して外側の `match state.current` で再 dispatch する。match の pattern binding (`some(v)` 等) は target state に飛ぶ前に variant のフィールドに保存される
-- mid-body `let r = if-else { ... } / match { ... }` で arm に await があるケースも対応。BlockBuilder が join state を確保し、各 arm に `AssignAndJump` terminator を出して `state.r` に値を書いてから join に飛ぶ。後続の stmt は `state.r` を読む (変数 rewriter 経由)
-- lambda 内 await は引き続き reject — lambda 自体を async fn にする仕組み (別の state machine + executor) が要る
-- `class` 内の `async` メソッドに対応。state クラスと poll fn は class の隣にトップレベル項目として hoist され、class には元の名前のメソッドが残る (`this` を `state.__this` に保存して poll を起動する thin wrapper)。メソッド本体内の `this.<field>` 参照は生成された poll fn で `state.__this.<field>` に書き換えられる
-- 制約: state クラスのフィールドが heap 型 (Object / Array / Map / Promise 等) の場合、init 時の安全な default 値が無いため、async fn 本体内で heap 型の `let` バインディングは未対応。プリミティブ (`i64` / `f64` / `bool` / `string`) や任意型の param は使える。heap let は Optional<T> で wrap する refactor が必要 (今後)
-- `throw` キーワードが無いので、`async fn` 本体から reject するには引き続き `Promise.reject(...)` / executor を使う
+**`await` の書ける位置**
+
+```rust
+// 順次に await
+async fn pair(a: Promise<i64>, b: Promise<i64>): i64 {
+    let x = await a
+    let y = await b
+    x + y
+}
+
+// 式の途中で await(左→右の順に評価される)
+async fn sum_args(a: Promise<i64>, b: Promise<i64>): i64 {
+    (await a) + (await b)
+}
+
+// if の条件、match の対象に直接書ける
+async fn pick(p: Promise<i64>): i64 {
+    if await p > 0 { 1 } else { -1 }
+}
+async fn handle(p: Promise<i64>): i64 {
+    match await p {
+        0 { -1 }
+        n { n * 2 }
+    }
+}
+
+// class のメソッドにも書ける
+class Worker {
+    pub init() {}
+    pub async fn run(p: Promise<i64>): i64 {
+        let v = await p
+        v * 2
+    }
+}
+```
+
+**制約**
+
+- `while` の条件式に `await` は書けません(毎反復評価する位置のため)。ループの本体内で `let` バインディングを経由します:
+
+  ```rust
+  // ❌ 条件位置の await
+  async fn poll(p: Promise<bool>): i64 {
+      while await p { /* ... */ }
+      0
+  }
+  // ⭕ 本体で受けてから break
+  async fn poll(p: Promise<bool>): i64 {
+      let count = 0
+      while true {
+          let ready = await p
+          if !ready { break }
+          count = count + 1
+      }
+      count
+  }
+  ```
+
+- ラムダ(`fn(...) { ... }`)の本体には `await` を書けません。ラムダ自体を async にする仕組みが無いためで、ラムダの外で受け取って渡します。
+
+  ```rust
+  // ❌
+  let f = fn(p: Promise<i64>): i64 { await p }
+  // ⭕ async fn として書く
+  async fn f(p: Promise<i64>): i64 { await p }
+  ```
+
+- `break v`(値付き break)は async の `while` の中では未対応。`break` 単独と `continue` は使えます。
+
+- `let x = ...` の RHS の形が desugar 側のミニ型推論器の範囲を超えている場合、型注釈が必要です。リテラル / `param` 参照 / `await Var` / `await fn(...)` / `await Promise.resolve(...)` / 配列リテラル / 単純な算術 / フィールド・メソッド呼び出しは推論できます。それ以外で `let x = ...` の型が決まらないと desugar 時にエラーになるので `let x: T = ...` で型を書きます。
+
+- `throw` 構文が無いので、`async fn` の中から reject するには `Promise.reject(...)` か executor を使います:
+
+  ```rust
+  // executor 経由で型付き reject
+  async fn parse(s: string): Promise<i64> {
+      new Promise<i64>(fn(resolve: fn(i64), reject: fn(string)) {
+          if s == "" { reject("empty") } else { resolve(0) }
+      })
+  }
+  ```
 
 ### `const` (定数宣言)
 

@@ -2295,58 +2295,98 @@ Internally an `async fn foo` is desugared into a small state
 machine — runtime errors and stack frames may mention generated
 names like `__foo_State`, `__foo_StateRef`, or `__foo_poll`.
 
-**Current restrictions:**
-- The desugar's mini-inferencer recovers the binding's type from
-  common RHS shapes: literals, params, `await Var(p)`,
-  `await fn_call()` (looks up the called fn's return type),
-  `await Promise.resolve(arg)`, simple arithmetic, etc. For
-  shapes it doesn't recognise, fall back to an explicit
-  `let x: T = ...` annotation.
-- Awaits in sub-expressions (`foo(await p, await q)`,
-  `(await p) * 2`) are lifted to `let __await_tN = await ...`
-  statements above the use site before the state-machine
-  synth runs, so they "just work" — including multiple awaits
-  in one statement, evaluated left-to-right. The lifter also
-  descends into `if` cond / `match` scrutinee positions (the
-  expression is evaluated exactly once) but NOT into `while`
-  cond (re-evaluated each iter) or arm bodies (different
-  scope).
-- `break` / `continue` inside an async `while` body retarget
-  the user's logical loop — not the generated outer
-  `loop { match state.current }` driver. `break v` (with a
-  value) isn't yet supported.
-- `if-else`, `while`, and `match` at body tail position all
-  accept awaits inside their arms / bodies. The state-machine
-  lowering emits Branch (if), Jump (while), and MatchDispatch
-  (match) terminators that re-dispatch off the same outer
-  `match state.current` loop. Pattern bindings in match arms (e.g. `some(v)`) are
-  captured into state fields before flowing to the target
-  state.
-- Mid-body `let r = if-else { ... } / match { ... }` also
-  works when the arms contain awaits. The BlockBuilder
-  allocates a synthetic join state and gives each arm an
-  `AssignAndJump` terminator that writes its value into
-  `state.r` before flowing to the join; subsequent body stmts
-  read `state.r` via the regular variable rewriter.
-- Awaits inside lambda bodies are still rejected — that would
-  require the lambda itself to become an async fn (separate
-  state machine + executor).
-- `async` methods inside a `class` are supported. The state
-  class + poll fn are lifted next to the containing class as
-  top-level items; the class keeps the original-named method
-  as a thin wrapper that stashes `this` in `state.__this` and
-  kicks the first poll. `this.<field>` references inside the
-  method body get rewritten to `state.__this.<field>` by the
-  generated poll fn.
-- Limitation: state-class fields with heap types (Object,
-  Array, Map, Promise, etc.) have no safe init-time default,
-  so async fn bodies can't yet hold heap-typed `let` bindings.
-  Primitive bindings (`i64` / `f64` / `bool` / `string`) and
-  params of any type both work; heap-typed lets need the
-  Optional-wrapping refactor that's a follow-up.
+**Where `await` can appear**
+
+```rust
+// Sequential await
+async fn pair(a: Promise<i64>, b: Promise<i64>): i64 {
+    let x = await a
+    let y = await b
+    x + y
+}
+
+// Inside a sub-expression — awaits evaluate left-to-right
+async fn sum_args(a: Promise<i64>, b: Promise<i64>): i64 {
+    (await a) + (await b)
+}
+
+// Directly in `if` condition / `match` scrutinee
+async fn pick(p: Promise<i64>): i64 {
+    if await p > 0 { 1 } else { -1 }
+}
+async fn handle(p: Promise<i64>): i64 {
+    match await p {
+        0 { -1 }
+        _ { 99 }
+    }
+}
+
+// `async` methods on a class
+class Worker {
+    pub init() {}
+    pub async run(p: Promise<i64>): i64 {
+        let v = await p
+        v * 2
+    }
+}
+```
+
+**Restrictions**
+
+- `await` can't appear in a `while` condition (that position is
+  re-evaluated every iteration). Use a `let` inside the body
+  instead:
+
+  ```rust
+  // ❌ await in condition
+  async fn poll(p: Promise<bool>): i64 {
+      while await p { /* ... */ }
+      0
+  }
+  // ⭕ await once per iteration, then break
+  async fn poll(p: Promise<bool>): i64 {
+      let count = 0
+      while true {
+          let ready = await p
+          if !ready { break }
+          count = count + 1
+      }
+      count
+  }
+  ```
+
+- `await` isn't allowed inside a lambda body (`fn(...) { ... }`).
+  There's no machinery to make the lambda itself async — hoist
+  the await out, or write a named `async fn` instead:
+
+  ```rust
+  // ❌
+  let f = fn(p: Promise<i64>): i64 { await p }
+  // ⭕
+  async fn f(p: Promise<i64>): i64 { await p }
+  ```
+
+- `break v` (value-carrying break) isn't supported in an async
+  `while`. Plain `break` and `continue` work.
+
+- `let x = ...` inside an async fn needs an explicit type if the
+  RHS shape exceeds the desugar's mini-inferencer. The
+  inferencer covers: literals, params, `await Var`,
+  `await fn(...)`, `await Promise.resolve(...)`, array literals,
+  simple arithmetic, and field / method accesses on known types.
+  Anything else needs `let x: T = ...`.
+
 - There's no `throw` keyword, so rejecting from an `async fn`
-  body still uses the explicit `Promise.reject(...)` /
-  executor form.
+  body uses `Promise.reject(...)` or the executor form:
+
+  ```rust
+  // Typed reject via the executor
+  async fn parse(s: string): Promise<i64> {
+      new Promise<i64>(fn(resolve: fn(i64), reject: fn(string)) {
+          if s == "" { reject("empty") } else { resolve(0) }
+      })
+  }
+  ```
 
 ### `const` (constant declaration)
 
