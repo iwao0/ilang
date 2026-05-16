@@ -2291,23 +2291,31 @@ async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
 }
 ```
 
-**Lowering:** each `async fn` becomes three top-level items
-generated at AST-rewrite time:
-- a `__foo_State` class holding `state_idx`, the result
-  `Promise<T>`, every parameter, and every in-body `let`
-  binding as fields;
-- a `__foo_poll(__state, __awaited_value)` fn that switches
-  on `state_idx`, runs the chunk between two awaits, and
-  registers a continuation closure that re-enters poll when
-  the awaited promise resolves;
+**Lowering:** each `async fn` becomes four top-level items
+generated at AST-rewrite time. The body is split into N+1
+*segments* (straight-line chunks separated by the N awaits and
+other control-flow boundaries); each segment becomes one variant
+of the state enum:
+- a `__foo_State` enum with one variant per segment. Each
+  variant is a struct that carries only the locals that are
+  live at that segment's entry (not every local in the body).
+- a `__foo_StateRef` class holding a cell for the current
+  `__foo_State` value plus the result `Promise<T>`. Shared by
+  the `.then` callbacks so they can mutate state across the
+  chain.
+- a `__foo_poll(state_ref, _)` fn shaped as
+  `loop { match state_ref.current { ... } }`. Each arm runs
+  its segment, and on hitting an await registers a
+  continuation closure that re-enters poll when the awaited
+  promise resolves, then returns.
 - a wrapper that keeps the original name, allocates the
-  state + the result promise, kicks the first poll, and
-  returns the promise.
+  `StateRef`, kicks the first poll, and returns the promise.
 
 Each await costs one heap-allocated continuation closure plus
-one state-class field per live local; the state class lives on
-the heap and is atomically refcounted, so the work-stealing
-pool can pass it between workers safely.
+the current state enum variant's fields; both the enum value
+and the `StateRef` live on the heap and are atomically
+refcounted, so the work-stealing pool can pass them between
+workers safely.
 
 **Current restrictions:**
 - The desugar's mini-inferencer recovers the binding's type from
@@ -2327,13 +2335,13 @@ pool can pass it between workers safely.
   scope).
 - `break` / `continue` inside an async `while` body retarget
   the user's logical loop — not the generated outer
-  `loop { switch state_idx }` driver. `break v` (with a
+  `loop { match state.current }` driver. `break v` (with a
   value) isn't yet supported.
 - `if-else`, `while`, and `match` at body tail position all
   accept awaits inside their arms / bodies. The state-machine
   lowering emits Branch (if), Jump (while), and MatchDispatch
-  (match) terminators that re-dispatch off the same `state_idx`
-  switch. Pattern bindings in match arms (e.g. `some(v)`) are
+  (match) terminators that re-dispatch off the same outer
+  `match state.current` loop. Pattern bindings in match arms (e.g. `some(v)`) are
   captured into state fields before flowing to the target
   state.
 - Mid-body `let r = if-else { ... } / match { ... }` also
