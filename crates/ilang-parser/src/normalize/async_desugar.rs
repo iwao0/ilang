@@ -326,32 +326,17 @@ fn lower_async_fn(
             unreachable!("v2 returned NoAwait after body_contains_await=true")
         }
         state_machine::LowerOutput::NeedsFallback => {
-            // Generic async fns get a more specific message — they
-            // hit a typecheck limitation (`new GenericClass<T>(...)`
-            // inside a generic fn doesn't unify) that affects user
-            // code too. Other unsupported shapes get the generic
-            // refactor hint.
-            let reason = if !f.type_params.is_empty() {
-                format!(
-                    "async fn `{}`: generic `async fn` (with `<T>`) \
-                     isn't supported yet. The state-machine wrapper \
-                     this pass would emit needs the synthesized state \
-                     enum / class / poll fn to also be generic over \
-                     the same params; that plumbing isn't finished. \
-                     Workaround: write a non-generic version per \
-                     concrete `T`, or use `.then(fn(v) {{ ... }})`.",
-                    f.name.as_str(),
-                )
-            } else {
-                format!(
-                    "async fn `{}`: this body shape isn't covered by the \
-                     state-machine lowering yet. Refactor to a supported \
-                     shape (sequential `let v = await ...`, \
-                     `if/elif/else`, `while` with await-free cond, \
-                     `match`, `for v in s..e`, `loop`).",
-                    f.name.as_str(),
-                )
-            };
+            // `NeedsFallback` now means the body shape isn't covered
+            // by the segment builder. (Generic async fns are no
+            // longer rejected up-front.)
+            let reason = format!(
+                "async fn `{}`: this body shape isn't covered by the \
+                 state-machine lowering yet. Refactor to a supported \
+                 shape (sequential `let v = await ...`, \
+                 `if/elif/else`, `while` with await-free cond, \
+                 `match`, `for v in s..e`, `loop`).",
+                f.name.as_str(),
+            );
             Err(AsyncLowerError {
                 fn_name: f.name,
                 span: f.span,
