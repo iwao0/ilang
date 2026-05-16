@@ -47,6 +47,7 @@ pub(super) fn lower_inst<M: Module>(
     vmap: &mut HashMap<ValueId, Value>,
     func: &MirFunction,
     fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
+    extern_alias_fn_ids: &std::collections::HashSet<FuncId>,
     builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
     static_data: &HashMap<StaticSlotId, DataId>,
     string_data: &HashMap<Symbol, DataId>,
@@ -160,7 +161,8 @@ pub(super) fn lower_inst<M: Module>(
         }
         Inst::Call { dst, callee, args } => {
             calls::lower_call(
-                fb, dst, callee, args, vmap, func, fn_ids, builtin_ids,
+                fb, dst, callee, args, vmap, func, fn_ids, extern_alias_fn_ids,
+                builtin_ids,
                 static_data, string_data, alloc_id, map_ids, promise_ids, str_ids,
                 print_ids, panic_aux, print_lits, module, locals, prog,
                 env_value, class_global, enum_global,

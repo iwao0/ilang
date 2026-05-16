@@ -20,8 +20,9 @@ use ilang_mir::{
 use crate::ty::mir_to_clif;
 
 use super::super::abi::{
-    chunk_max_for, elem_byte_stride, elem_clif_type, struct_byval_size_with_max,
-    struct_chunks_with_max, struct_hfa, struct_indirect_with_max,
+    chunk_max_for, clif_signature_for, elem_byte_stride, elem_clif_type,
+    struct_byval_size_with_max, struct_chunks_with_max, struct_hfa,
+    struct_indirect_with_max,
 };
 use super::super::print_emit::emit_print_value;
 use super::super::{
@@ -35,6 +36,7 @@ pub(super) fn lower_call<M: Module>(
     vmap: &mut HashMap<ValueId, Value>,
     func: &MirFunction,
     fn_ids: &HashMap<FuncId, cranelift_module::FuncId>,
+    extern_alias_fn_ids: &std::collections::HashSet<FuncId>,
     builtin_ids: &HashMap<String, (cranelift_module::FuncId, Signature)>,
     _static_data: &HashMap<StaticSlotId, DataId>,
     _string_data: &HashMap<Symbol, DataId>,
@@ -425,6 +427,22 @@ pub(super) fn lower_call<M: Module>(
     } else {
         None
     };
+    // Extern alias dispatch: the callee shares a C symbol with an
+    // earlier extern declaration but has its own ilang signature
+    // (think `objc_msgSend` declared once per call shape). The
+    // Cranelift FuncId in `fn_ids` points at the canonical
+    // declaration's signature, so a direct `call` would marshal
+    // arguments under the wrong shape. Route through `func_addr +
+    // call_indirect` with the per-callee signature instead.
+    let alias_dispatch = if is_callee_extern && variadic_dispatch.is_none() {
+        if let FuncRef::Local(fid) = callee {
+            extern_alias_fn_ids.contains(fid)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let inst_ref = if let Some(n_fixed) = variadic_dispatch {
         let mut cl_sig = module.make_signature();
         let needs_apple_pad =
@@ -479,6 +497,15 @@ pub(super) fn lower_call<M: Module>(
         let sig_ref = fb.import_signature(cl_sig);
         let func_addr = fb.ins().func_addr(types::I64, local_ref);
         fb.ins().call_indirect(sig_ref, func_addr, &padded)
+    } else if alias_dispatch {
+        let target_func = match callee {
+            FuncRef::Local(fid) => &prog.functions[fid.0 as usize],
+            _ => unreachable!(),
+        };
+        let cl_sig = clif_signature_for(&*module, target_func, prog)?;
+        let sig_ref = fb.import_signature(cl_sig);
+        let func_addr = fb.ins().func_addr(types::I64, local_ref);
+        fb.ins().call_indirect(sig_ref, func_addr, &arg_vs)
     } else {
         fb.ins().call(local_ref, &arg_vs)
     };

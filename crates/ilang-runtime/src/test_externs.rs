@@ -151,6 +151,16 @@ pub extern "C" fn set_via_ptr_f64(out: *mut f64, value: f64) {
     unsafe { *out = value }
 }
 
+#[unsafe(export_name = "test_alias_inc")]
+pub extern "C" fn test_alias_inc(x: i64) -> i64 {
+    x + 1
+}
+
+#[unsafe(export_name = "test_alias_pair")]
+pub extern "C" fn test_alias_pair(a: i64, b: i64) -> i64 {
+    a * 100 + b
+}
+
 #[unsafe(export_name = "get_cstr_array")]
 pub extern "C" fn get_cstr_array() -> *const *const u8 {
     static mut PTRS: [*const u8; 4] = [std::ptr::null(); 4];

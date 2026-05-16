@@ -31,6 +31,18 @@ pub(crate) struct LoweringOutputs {
     /// probe — declared `Linkage::Local` so the caller can attach an
     /// abort-stub body before `module.finalize`.
     pub missing_optional_fn_ids: std::collections::HashSet<FuncId>,
+    /// Extern fns that share a C symbol with an earlier declaration
+    /// but were declared with a different ilang signature. Their
+    /// Cranelift `FuncId` in `fn_ids` aliases the canonical
+    /// declaration's `FuncId`; call sites for these must dispatch
+    /// through `func_addr + call_indirect` with the per-callee
+    /// signature so the wrong (canonical) signature isn't reused.
+    /// Used to express the `objc_msgSend(obj, sel, ...) -> ret` family
+    /// where each call shape needs its own ilang fn.
+    /// Kept here for diagnostics; the in-pass `lower_function` call
+    /// receives a borrow of the local set directly.
+    #[allow(dead_code)]
+    pub extern_alias_fn_ids: std::collections::HashSet<FuncId>,
 }
 
 pub(crate) fn lower_program_into<M: Module>(
@@ -537,6 +549,12 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         std::collections::HashSet::new();
     let mut missing_optional_fn_ids: std::collections::HashSet<FuncId> =
         std::collections::HashSet::new();
+    let mut extern_alias_fn_ids: std::collections::HashSet<FuncId> =
+        std::collections::HashSet::new();
+    // Track the first Cranelift FuncId per C symbol so subsequent
+    // ilang declarations with a different signature can alias it
+    // (the call sites dispatch through `func_addr + call_indirect`).
+    let mut c_sym_canonical: HashMap<String, cranelift_module::FuncId> = HashMap::new();
     for (idx, func) in prog.functions.iter().enumerate() {
         let mid = FuncId(idx as u32);
         let sig = clif_signature_for(&*module, func, prog)?;
@@ -548,8 +566,24 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         } else {
             func.name.as_str()
         };
-        let linkage = if matches!(func.kind, ilang_mir::FunctionKind::Extern { .. }) {
+        let is_extern = matches!(func.kind, ilang_mir::FunctionKind::Extern { .. });
+        if is_extern {
             extern_fn_ids.insert(mid);
+        }
+        // Alias path: a previous extern declaration already pinned
+        // `symbol_name` to a Cranelift FuncId. Cranelift only allows
+        // one signature per symbol; we reuse the existing FuncId for
+        // the address lookup and flag this MIR fn so the call
+        // lowering emits `call_indirect` with our own signature.
+        if is_extern {
+            if let Some(&existing_cid) = c_sym_canonical.get(symbol_name) {
+                fn_ids.insert(mid, existing_cid);
+                fn_sigs.insert(mid, sig);
+                extern_alias_fn_ids.insert(mid);
+                continue;
+            }
+        }
+        let linkage = if is_extern {
             if missing_optional_syms.contains(symbol_name) {
                 // Optional extern whose libs all failed to probe at
                 // AOT build time. Caller will define a stub body
@@ -566,6 +600,9 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         let cid = module.declare_function(symbol_name, linkage, &sig)?;
         fn_ids.insert(mid, cid);
         fn_sigs.insert(mid, sig);
+        if is_extern {
+            c_sym_canonical.insert(symbol_name.to_string(), cid);
+        }
     }
 
     // Define each fn body.
@@ -673,6 +710,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 func,
                 &fn_ids,
                 &fn_sigs,
+                &extern_alias_fn_ids,
                 &builtin_ids,
                 &static_data,
                 &string_data,
@@ -705,5 +743,10 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         }
         module.clear_context(&mut ctx);
     }
-    Ok(LoweringOutputs { fn_ids, extern_fn_ids, missing_optional_fn_ids })
+    Ok(LoweringOutputs {
+        fn_ids,
+        extern_fn_ids,
+        missing_optional_fn_ids,
+        extern_alias_fn_ids,
+    })
 }

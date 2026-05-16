@@ -374,8 +374,12 @@ pub fn compile_with_builtins(
     let mut module = JITModule::new(jit_builder);
 
     // Declare the alloc builtin so NewObject can call it.
-    let LoweringOutputs { fn_ids, extern_fn_ids, missing_optional_fn_ids: _ } =
-        lower_program_into(&mut module, prog, builtins, &class_global, &enum_global)?;
+    let LoweringOutputs {
+        fn_ids,
+        extern_fn_ids,
+        missing_optional_fn_ids: _,
+        extern_alias_fn_ids: _,
+    } = lower_program_into(&mut module, prog, builtins, &class_global, &enum_global)?;
     module
         .finalize_definitions()
         .map_err(CompileError::Module)?;
