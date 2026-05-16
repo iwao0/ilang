@@ -97,7 +97,7 @@ impl<'a> Parser<'a> {
         Ok(ilang_ast::ExternCBlock { items: items.into(), span })
     }
 
-    fn parse_extern_c_fn(
+    pub(super) fn parse_extern_c_fn(
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {

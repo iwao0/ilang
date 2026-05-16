@@ -123,12 +123,25 @@ impl TypeChecker {
         for item in &block.items {
             match item {
                 ilang_ast::ExternCItem::FnDef(f) => {
-                    self.reject_pointer_in_signature(
-                        &format!("fn {:?}", f.name),
-                        f.params.iter().map(|p| &p.ty),
-                        f.ret.as_ref(),
-                        f.span,
-                    )?;
+                    // `@__objc_wrapper`-flagged FnDefs are
+                    // parser-synthesised dispatch wrappers from an
+                    // `@extern(ObjC) { ... }` block. Their
+                    // signatures mirror the user's @objc declaration
+                    // verbatim (raw pointers and all), so the
+                    // raw-pointer rejection that normally guards
+                    // ilang-side wrappers is intentionally skipped.
+                    let is_objc_wrapper = f
+                        .attrs
+                        .iter()
+                        .any(|a| a.name.as_str() == "__objc_wrapper");
+                    if !is_objc_wrapper {
+                        self.reject_pointer_in_signature(
+                            &format!("fn {:?}", f.name),
+                            f.params.iter().map(|p| &p.ty),
+                            f.ret.as_ref(),
+                            f.span,
+                        )?;
+                    }
                     self.check_fn(f, None)?;
                 }
                 ilang_ast::ExternCItem::Class(c) => {

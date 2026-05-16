@@ -9,6 +9,7 @@ use crate::stmt::parse_block;
 
 mod enum_;
 mod extern_c;
+mod extern_objc;
 mod types;
 
 /// True if `e` is a value-only literal — what `const` accepts as its
@@ -264,6 +265,43 @@ impl<'a> Parser<'a> {
                     });
                 }
                 let block = self.parse_extern_c_block()?;
+                Ok(Item::ExternC(block))
+            }
+            TokenKind::LBrace
+                if attrs.iter().any(|a| {
+                    a.name == "extern"
+                        && a.args.len() == 1
+                        && matches!(
+                            &a.args[0],
+                            ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["ObjC"]
+                        )
+                }) =>
+            {
+                // `@extern(ObjC) { ... }` — Objective-C dispatch
+                // block. The parser desugars each `@objc("selector:")
+                // fn` into a typed `objc_msgSend` alias plus a thin
+                // wrapper that interns the selector and forwards.
+                // The output is an ordinary `ExternCBlock` so the
+                // rest of the compiler sees no new construct.
+                if is_pub {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: TokenKind::Pub,
+                        expected: "`pub` on the block as a whole isn't supported — mark individual items inside `@extern(ObjC) { ... }` instead".into(),
+                        span: t.span,
+                    });
+                }
+                if attrs.len() != 1 {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected:
+                            "@extern(ObjC) cannot be combined with other attributes on the block"
+                                .into(),
+                        span: t.span,
+                    });
+                }
+                let block = self.parse_extern_objc_block()?;
                 Ok(Item::ExternC(block))
             }
             _ => {
