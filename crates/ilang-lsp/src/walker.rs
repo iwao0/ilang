@@ -625,17 +625,22 @@ impl<'a> Walker<'a> {
                 } else if callee.as_str().contains('.') {
                     self.push_external_dotted_ref(callee.as_str(), e.span);
                 } else if let Some(sig) = ffi_helper_signature(callee.as_str()) {
-                    self.refs.push(RefEntry {
-                        line: e.span.line,
-                        start_col: e.span.col,
-                        end_col: e.span.col + callee.as_str().len() as u32,
-                        target_span: e.span,
-                        target_name_len: callee.as_str().len() as u32,
-                        signature: sig.to_string(),
-                        no_definition: true,
-                        target_uri: None,
-                    doc: None,
-                    });
+                    // Same use_span guard as push_ref — synthesised
+                    // calls (e.g. `cstrFromString` inside the @objc
+                    // class desugar) borrow nearby user spans.
+                    if text::text_at_span_starts_with(self.text, e.span, callee.as_str()) {
+                        self.refs.push(RefEntry {
+                            line: e.span.line,
+                            start_col: e.span.col,
+                            end_col: e.span.col + callee.as_str().len() as u32,
+                            target_span: e.span,
+                            target_name_len: callee.as_str().len() as u32,
+                            signature: sig.to_string(),
+                            no_definition: true,
+                            target_uri: None,
+                            doc: None,
+                        });
+                    }
                 }
                 for a in args {
                     self.walk_expr(a, scope, this_class);
