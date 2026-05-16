@@ -23,14 +23,14 @@ use crate::ops::{assignable, bin_result, int_literal_fits};
 
 use super::*;
 
-/// `&path` accepts a local variable optionally followed by a chain
-/// of field accesses (`x`, `x.f`, `x.f.g`, ...). Any other shape
-/// (indexing, calls, parenthesised expressions, etc.) is rejected
-/// at this level — the MIR lowerer relies on the AST matching one
-/// of these forms.
+/// `&path` accepts a local variable (or `this`) optionally
+/// followed by a chain of field accesses (`x`, `x.f`, `x.f.g`,
+/// `this.f`, `this.f.g`, ...). Any other shape (indexing, calls,
+/// parenthesised expressions, etc.) is rejected at this level —
+/// the MIR lowerer relies on the AST matching one of these forms.
 fn is_addr_path(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::Var(_) => true,
+        ExprKind::Var(_) | ExprKind::This => true,
         ExprKind::Field { obj, .. } => is_addr_path(obj),
         _ => false,
     }

@@ -68,13 +68,23 @@ impl<'a> BodyCx<'a> {
                     fields_rev.reverse();
                     return self.lower_addr_of_decomposed(root_name, &fields_rev);
                 }
+                AstExprKind::This => {
+                    fields_rev.reverse();
+                    // `this` is registered under the canonical symbol
+                    // "this" inside method bodies — lower like a
+                    // regular Var, letting the existing param /
+                    // capture / local lookup handle the rest.
+                    let this_sym = Symbol::intern("this");
+                    return self.lower_addr_of_decomposed(this_sym, &fields_rev);
+                }
                 AstExprKind::Field { obj, name } => {
                     fields_rev.push(*name);
                     cur = obj;
                 }
                 _ => {
                     return Err(LowerError::Other(
-                        "`&` target must be a local variable or field chain".to_string(),
+                        "`&` target must be a local variable, `this`, or a field chain"
+                            .to_string(),
                     ));
                 }
             }
