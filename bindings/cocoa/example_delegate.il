@@ -25,7 +25,7 @@ use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR,
         @objc("alloc")
         static alloc(): AppDelegate
         @objc("init")
-        doInit(): AppDelegate
+        init(): AppDelegate
 
         @objc("applicationDidFinishLaunching:")
         didFinishLaunching(notification: NSObject) {
@@ -57,7 +57,7 @@ let app = sharedApplication()
 app.setActivationPolicy(ACTIVATION_REGULAR)
 
 AppDelegate.register()
-let appDel = AppDelegate.alloc().doInit()
+let appDel = AppDelegate.alloc().init()
 app.setDelegate(appDel)
 
 let mask = StyleMask.titled
@@ -67,6 +67,6 @@ let mask = StyleMask.titled
 let win = makeWindow("Cocoa delegate", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
-win.makeKeyAndOrderFront(new NSObject(0))
+win.makeKeyAndOrderFront(NSObject.wrap(0))
 app.activateIgnoringOtherApps(1)
 app.run()

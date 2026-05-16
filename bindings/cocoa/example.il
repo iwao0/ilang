@@ -23,8 +23,8 @@ win.center()
 let btn = cocoa.makeButton("Hello, ilang", 180.0, 140.0, 120.0, 32.0)
 win.contentView().addSubview(btn)
 
-// nil sender — construct a zero-handle NSObject wrapper; the
-// desugar passes `0 as *objc_object` (a.k.a. `nil`) through.
-win.makeKeyAndOrderFront(new cocoa.NSObject(0))
+// nil sender — `NSObject.wrap(0)` builds a zero-handle wrapper;
+// the desugar passes `0 as *objc_object` (a.k.a. `nil`) through.
+win.makeKeyAndOrderFront(cocoa.NSObject.wrap(0))
 app.activateIgnoringOtherApps(1)
 app.run()

@@ -22,7 +22,7 @@ use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
         @objc("alloc")
         static alloc(): ClickHandler
         @objc("init")
-        doInit(): ClickHandler
+        init(): ClickHandler
 
         @objc("clicked:")
         clicked(sender: NSObject) {
@@ -44,13 +44,13 @@ win.center()
 // Register and instantiate the handler. `register()` is
 // idempotent so calling it more than once is safe.
 ClickHandler.register()
-let handler = ClickHandler.alloc().doInit()
+let handler = ClickHandler.alloc().init()
 
 let btn = makeButton("Click me", 180.0, 140.0, 120.0, 32.0)
 btn.setTarget(handler)
 btn.setAction(selectorPtr("clicked:"))
 win.contentView().addSubview(btn)
 
-win.makeKeyAndOrderFront(new NSObject(0))
+win.makeKeyAndOrderFront(NSObject.wrap(0))
 app.activateIgnoringOtherApps(1)
 app.run()

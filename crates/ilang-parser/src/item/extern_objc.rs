@@ -759,10 +759,14 @@ fn build_objc_class(
         }]
     };
 
-    // `init(h: i64)` exists on every @objc class so the user can
-    // construct a wrapper around a raw id. Subclasses use the
-    // *inherited* handle field via `this.handle = h` (same
-    // syntax; field lookup walks the chain).
+    // `__bind_handle(h: i64)` exists on every @objc class so the
+    // desugar can wrap a raw ObjC `id` into an ilang instance.
+    // It used to be named `init`, but the @objc-side `init`
+    // selector is too useful — keeping the handle binder under a
+    // reserved internal name leaves `init` free for user
+    // `@objc("init") pub init(): Self` declarations. Subclasses
+    // use the *inherited* handle field via `this.handle = h`
+    // (same syntax; field lookup walks the chain).
     let init_param = Param {
         name: Symbol::intern("h"),
         ty: Type::I64,
@@ -781,7 +785,7 @@ fn build_objc_class(
     let init_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
-        name: Symbol::intern("init"),
+        name: Symbol::intern("__bind_handle"),
         type_params: Box::new([]),
         params: Box::new([init_param]),
         ret: None,
@@ -794,8 +798,54 @@ fn build_objc_class(
         is_async: false,
     };
 
-    let mut methods: Vec<FnDecl> = vec![init_fn];
-    let mut static_methods: Vec<FnDecl> = Vec::new();
+    // Only the root @objc class declares `__bind_handle` — children
+    // inherit it through the normal ilang vtable. Re-declaring it
+    // on every subclass would trip the "method hides parent
+    // without override" check.
+    let mut methods: Vec<FnDecl> = if has_parent {
+        Vec::new()
+    } else {
+        vec![init_fn]
+    };
+    // `pub static wrap(h: i64): Self` — the user-facing way to
+    // produce an ilang wrapper around a raw ObjC id. Bridges to
+    // the private `__bind_handle` init. Replaces the older
+    // `new ClassName(h)` form that conflicted with user-defined
+    // `@objc("init") pub init(...)`.
+    let wrap_param = Param {
+        name: Symbol::intern("h"),
+        ty: Type::I64,
+        span,
+        default: None,
+    };
+    let wrap_body_new = Expr::new(
+        ExprKind::New {
+            class: class_name,
+            type_args: Box::new([]),
+            args: Box::new([Expr::new(
+                ExprKind::Var(Symbol::intern("h")),
+                span,
+            )]),
+            init_method: Some(Symbol::intern("__bind_handle")),
+        },
+        span,
+    );
+    let wrap_fn = FnDecl {
+        is_pub: true,
+        attrs: Box::new([]),
+        name: Symbol::intern("wrap"),
+        type_params: Box::new([]),
+        params: Box::new([wrap_param]),
+        ret: Some(Type::Object(class_name)),
+        body: Block {
+            stmts: Vec::new(),
+            tail: Some(Box::new(wrap_body_new)),
+        },
+        span,
+        is_override: false,
+        is_async: false,
+    };
+    let mut static_methods: Vec<FnDecl> = vec![wrap_fn];
     let mut aliases: Vec<ilang_ast::ExternCItem> = Vec::new();
     // Collect bodied methods so the `register()` builder can emit
     // a `class_addMethod` call per IMP. Stored as
@@ -1114,7 +1164,7 @@ fn build_class_method(
                     class: ret_class_symbol(t),
                     type_args: Box::new([]),
                     args: Box::new([raw_as_i64]),
-                    init_method: None,
+                    init_method: Some(Symbol::intern("__bind_handle")),
                 },
                 m.span,
             );
@@ -1340,7 +1390,7 @@ fn build_super_helper(
                     class: ret_class_symbol(t),
                     type_args: Box::new([]),
                     args: Box::new([raw_as_i64]),
-                    init_method: None,
+                    init_method: Some(Symbol::intern("__bind_handle")),
                 },
                 span,
             );
@@ -1625,7 +1675,7 @@ fn build_imp_fn(
             class: class_name,
             type_args: Box::new([]),
             args: Box::new([self_as_i64]),
-            init_method: None,
+            init_method: Some(Symbol::intern("__bind_handle")),
         },
         m.span,
     );
@@ -1664,7 +1714,7 @@ fn build_imp_fn(
                     class,
                     type_args: Box::new([]),
                     args: Box::new([arg_as_i64]),
-                    init_method: None,
+                    init_method: Some(Symbol::intern("__bind_handle")),
                 },
                 p.span,
             );
