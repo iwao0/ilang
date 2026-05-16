@@ -93,6 +93,25 @@ pub enum MixInitFlag: i32 {
     // alongside the existing `sdl.getError()`.
     @lib("SDL2_mixer") @symbol("SDL_GetError") pub fn Mix_GetError(): *const char
 
+    /// Snapshot of the negotiated audio device parameters as
+    /// returned by `Mixer.querySpec()`. Mirrors the three out-
+    /// parameters of `Mix_QuerySpec` — the underlying device may
+    /// hold additional state but only these three are exposed.
+    pub class MixerSpec {
+        /// Sample rate in Hz (e.g. 44100).
+        pub frequency: i32
+        /// Sample format actually in use.
+        pub format: AudioFormat
+        /// Channel count: 1 = mono, 2 = stereo.
+        pub channels: i32
+
+        pub init() {
+            this.frequency = 0
+            this.format = AudioFormat.s16Lsb
+            this.channels = 0
+        }
+    }
+
     /// Namespace class for SDL2_mixer's global state — the audio
     /// device, channel pool, and per-channel control. All methods
     /// are `static` (there's no per-instance Mixer to construct).
@@ -116,11 +135,12 @@ pub enum MixInitFlag: i32 {
         ///   flags — bitwise OR of `MixInitFlag.*` values.
         ///
         /// Returns:
-        ///   bitmask of decoders that actually loaded. Mismatched
-        ///   bits indicate missing optional dependencies (call
-        ///   `Mixer.getError()`).
-        pub static init(flags: MixInitFlag): i32 {
-            Mix_Init(flags as i32)
+        ///   the subset of `flags` whose decoders actually loaded
+        ///   (as another `MixInitFlag`). Compare against the
+        ///   requested mask to detect missing optional deps
+        ///   (`(init(req) as i32) & (req as i32) != req as i32`).
+        pub static init(flags: MixInitFlag): MixInitFlag {
+            Mix_Init(flags as i32) as MixInitFlag
         }
 
         /// Tear down SDL2_mixer. Call after `Mixer.closeAudio()`
@@ -173,15 +193,23 @@ pub enum MixInitFlag: i32 {
             Mix_AllocateChannels(numchans)
         }
 
-        /// Query the open device's spec. Returns the
-        /// `Mix_QuerySpec` raw status; callers usually just rely
-        /// on the `Mixer.default*` values they passed to
-        /// `openAudio`.
-        pub static querySpec(): i32 {
-            let f: i32 = 0
+        /// Query the open device's spec.
+        ///
+        /// Returns:
+        ///   `Some(MixerSpec)` with the negotiated frequency /
+        ///   format / channels when the device is open, or `none`
+        ///   if the mixer hasn't been opened yet.
+        pub static querySpec(): MixerSpec? {
+            let spec = new MixerSpec()
+            // Mix_QuerySpec writes format as a raw u16; bridge it
+            // into the AudioFormat enum after the call. The other
+            // two fields are i32, matching `MixerSpec`'s layout
+            // directly.
             let fmt: u16 = 0 as u16
-            let ch: i32 = 0
-            Mix_QuerySpec(&f, &fmt, &ch)
+            let opened = Mix_QuerySpec(&spec.frequency, &fmt, &spec.channels)
+            if opened == 0 { return none }
+            spec.format = fmt as AudioFormat
+            some(spec)
         }
 
         pub static getError(): string {
