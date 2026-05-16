@@ -97,10 +97,27 @@ pub(crate) async fn refresh_impl(
             })
     };
     let diags = analyse(&text, path.as_deref(), &merged, is_submodule);
-    let (mut external_sigs, external_rets) = merged
+    let (mut external_sigs, mut external_rets) = merged
         .as_ref()
         .map(collect_external_signatures)
         .unwrap_or_default();
+    // `external_rets` from `collect_external_signatures` is keyed
+    // by the qualified `module.fn` name only. For a `use M { fn }`
+    // selective import the buffer sees the bare callee `fn(...)`,
+    // so mirror those dotted entries under their bare names. Without
+    // this `let x = fn()` hover never picks up the inferred type.
+    if let Ok(buffer_prog) = &parsed_buffer {
+        for item in &buffer_prog.items {
+            let Item::Use(u) = item else { continue };
+            let Some(names) = &u.selective else { continue };
+            for name in names.iter() {
+                let prefixed = AstSymbol::intern(&format!("{}.{}", u.module, name));
+                if let Some(t) = external_rets.get(&prefixed).cloned() {
+                    external_rets.insert(name.clone(), t);
+                }
+            }
+        }
+    }
     // Augment with `module.const_name` entries — the loader inlines
     // constants away, so they're not in the merged program. Parse
     // each `use module` source separately to recover them.
