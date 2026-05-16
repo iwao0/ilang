@@ -12,18 +12,43 @@
 // support exists in ilang (`@objc class MyDelegate : NSObject`)
 // but isn't exercised here.
 
-// ─── NSWindow style mask / backing / activation constants ────────
-// Matches AppKit's NSWindowStyleMask* / NSBackingStore* values.
-pub const STYLE_BORDERLESS:     u64 = 0
-pub const STYLE_TITLED:         u64 = 1
-pub const STYLE_CLOSABLE:       u64 = 2
-pub const STYLE_MINIATURIZABLE: u64 = 4
-pub const STYLE_RESIZABLE:      u64 = 8
+// ─── NSWindow.StyleMask ──────────────────────────────────────────
+// Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
+// `<AppKit/NSWindow.h>` `NSWindowStyleMask*`). `borderless` is
+// the empty mask; combine the rest with `|`:
+//
+//     let mask = cocoa.StyleMask.titled
+//         | cocoa.StyleMask.closable
+//         | cocoa.StyleMask.miniaturizable
+//         | cocoa.StyleMask.resizable
+@flags
+pub enum StyleMask: u64 {
+    borderless             = 0
+    titled                 = 1
+    closable               = 2
+    miniaturizable         = 4
+    resizable              = 8
+    utilityWindow          = 16
+    docModalWindow         = 64
+    nonactivatingPanel     = 128
+    texturedBackground     = 256
+    unifiedTitleAndToolbar = 4096
+    hudWindow              = 8192
+    fullScreen             = 16384
+    fullSizeContentView    = 32768
+}
 
-pub const BACKING_BUFFERED:     u64 = 2
+// NSBackingStoreType — buffered is the only useful value
+// today (the others are deprecated).
+pub const BACKING_BUFFERED:    u64 = 2
 
-pub const ACTIVATION_REGULAR:   i64 = 0
-pub const BEZEL_ROUNDED:        u64 = 1
+// NSApplicationActivationPolicy — regular makes the app
+// appear in the Dock and accept keyboard focus.
+pub const ACTIVATION_REGULAR:  i64 = 0
+
+// NSButton.BezelStyle — rounded is the standard macOS push
+// button.
+pub const BEZEL_ROUNDED:       u64 = 1
 
 // ─── Foundation geometry types (HFA-passed) ──────────────────────
 // NSPoint / NSSize / NSRect are plain f64 structs. The AArch64
@@ -87,7 +112,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("alloc") static fn alloc(): NSWindow
         @objc("initWithContentRect:styleMask:backing:defer:")
             fn initWithContentRect(
-                rect: NSRect, mask: u64, backing: u64, defer: i8
+                rect: NSRect, mask: StyleMask, backing: u64, defer: i8
             ): NSWindow
 
         @objc("setTitle:")           fn setTitle(title: NSString)
@@ -139,7 +164,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     pub fn makeWindow(
         title: string,
         x: f64, y: f64, w: f64, h: f64,
-        mask: u64
+        mask: StyleMask
     ): NSWindow {
         let win = NSWindow.alloc()
             .initWithContentRect(makeRect(x, y, w, h), mask, BACKING_BUFFERED, 0)

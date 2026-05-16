@@ -11,10 +11,12 @@ use cocoa
 let app = cocoa.sharedApplication()
 app.setActivationPolicy(cocoa.ACTIVATION_REGULAR)
 
-let mask = cocoa.STYLE_TITLED
-    | cocoa.STYLE_CLOSABLE
-    | cocoa.STYLE_MINIATURIZABLE
-    | cocoa.STYLE_RESIZABLE
+// Swift's `[.titled, .closable, .miniaturizable, .resizable]`
+// in ilang's bitwise-OR form on the typed flags enum.
+let mask = cocoa.StyleMask.titled
+    | cocoa.StyleMask.closable
+    | cocoa.StyleMask.miniaturizable
+    | cocoa.StyleMask.resizable
 let win = cocoa.makeWindow("ilang × Cocoa", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
