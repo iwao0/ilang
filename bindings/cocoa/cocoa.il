@@ -287,6 +287,14 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     @lib("objc") @symbol("objc_autoreleasePoolPop")
         fn _autoreleasepool_pop(token: i64)
 
+    // Heap-allocates an ObjC `void(^)(void)` block whose `invoke`
+    // trampoline calls the captured ilang closure. The block is
+    // autoreleased before return so callers can pass it straight
+    // to APIs that take a completion handler without manual
+    // `Block_release`. Implemented in `ilang-runtime/objc_blocks.rs`.
+    @lib("c") @symbol("__ilang_make_void_block")
+        fn _make_void_block(closure: fn()): i64
+
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
     /// `button.setAction(cocoa.selectorPtr("clicked:"))`.
@@ -333,6 +341,16 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
             .init(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
         win.setTitle(nsstr(title))
         win
+    }
+
+    /// Build an ObjC `void(^)(void)` block from an ilang closure.
+    /// Returns the block as an opaque `i64` pointer suitable for
+    /// passing to any `@objc` method whose selector takes a
+    /// `void(^)(void)` (completion handlers etc.). The block is
+    /// autoreleased — let it die with the surrounding pool, or
+    /// retain it via `objc_retain` if you need a longer lifetime.
+    pub fn makeBlock(body: fn()): i64 {
+        _make_void_block(body)
     }
 
     /// Run `body` inside a fresh ObjC autorelease pool. Mirrors
