@@ -404,12 +404,22 @@ impl<'a> Walker<'a> {
                     // Implicit-`this` member access inside a class method.
                     self.push_ref(name.as_str(), e.span, m.span, name.as_str().len() as u32, m.signature.clone());
                 } else if let Some(sym) = self.symbols.get(name) {
+                    // Top-level lets are registered in `symbols` with
+                    // a bare `let X` signature (collect_symbols can't
+                    // see the inferred type). The diag pre-pass fills
+                    // in `var_types` with the resolved type, so prefer
+                    // that for the rendered signature here.
+                    let sig = self
+                        .var_types
+                        .get(name)
+                        .map(|t| format!("let {name}: {t}"))
+                        .unwrap_or_else(|| sym.signature.clone());
                     self.push_ref(
                         name.as_str(),
                         e.span,
                         sym.span,
                         sym.name.as_str().len() as u32,
-                        sym.signature.clone(),
+                        sig,
                     );
                 } else if let Some(sig) = self.external_signatures.get(name) {
                     // Selectively-imported bare name (`use M { X }`).

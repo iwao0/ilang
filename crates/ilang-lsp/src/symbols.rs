@@ -221,6 +221,28 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
             _ => {}
         }
     }
+    // Top-level `let X = ...` bindings. Type is unknown here (no
+    // checker output to lean on), so the signature is the bare
+    // `let X` form; the diag pre-pass that runs before walking
+    // upgrades it to `let X: T` inside `var_types` once `T` is
+    // inferred. This entry's job is just to make `doc.symbols`
+    // know `X` exists so hover from inside item bodies resolves
+    // to the let's declaration site.
+    for s in &prog.stmts {
+        if let ilang_ast::StmtKind::Let { name, .. } = &s.kind {
+            if name.as_str() == "_" {
+                continue;
+            }
+            let name_span = text::locate_let_name(src, s.span, name.as_str())
+                .unwrap_or(s.span);
+            out.entry(name.clone()).or_insert(Symbol {
+                name: name.as_str().to_string(),
+                span: name_span,
+                signature: format!("let {name}"),
+                doc: text::extract_doc_above(src, s.span.line),
+            });
+        }
+    }
     out
 }
 
