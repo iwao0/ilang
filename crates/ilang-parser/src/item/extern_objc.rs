@@ -1436,9 +1436,16 @@ fn build_class_method(
     //   * Anything else is autoreleased — `objc_retain` first so our
     //     wrapper holds a stable +1 once the pool drains.
     let retained_return = returns_retained_selector(&m.selector);
-    let consumes_self = retained_return
-        && !m.is_static
-        && m.selector.starts_with("init");
+    // `init`-family instance methods are special: ilang's MIR
+    // ignores the body's tail value for any method literally named
+    // `init` and synthesises a return of `this` instead (so that
+    // `new C(args)` callers get the constructed instance back).
+    // We therefore don't wrap a fresh `new T(...)`; we overwrite
+    // `this.handle` with the pointer ObjC's `init` returned (same
+    // pointer in the common case, a substituted one for the rare
+    // `self = [super init]` pattern). The +1 alloc'd into `this`
+    // is now balanced by `this`'s own deinit when it drops.
+    let init_returns_this = !m.is_static && m.name.as_str() == "init";
     let tail = match &m.ret {
         Some(t) if is_objc_class_ty(t, ctx.class_names) => {
             let result_name = Symbol::intern("__raw");
@@ -1464,58 +1471,71 @@ fn build_class_method(
             // so our outer wrapper's deinit doesn't release the
             // pointer init just returned to us (same +1 the caller
             // now owns through the new wrapper).
-            if consumes_self {
-                let zero_handle = Expr::new(
+            if init_returns_this {
+                // `init` family: adopt the returned pointer onto
+                // `this.handle` (typically a no-op since the pointer
+                // matches the alloc'd one). MIR will synthesise
+                // `return this` for us, so building a fresh
+                // wrapper here would be both wasteful and wrong —
+                // the caller never sees it.
+                let assign_handle = Expr::new(
                     ExprKind::AssignField {
                         obj: Box::new(Expr::new(ExprKind::This, m.span)),
                         field: Symbol::intern("handle"),
-                        value: Box::new(Expr::new(ExprKind::Int(0), m.span)),
+                        value: Box::new(Expr::new(ExprKind::Var(result_name), m.span)),
                         is_init: false,
                     },
                     m.span,
                 );
-                stmts.push(Stmt::new(StmtKind::Expr(zero_handle), m.span));
-            }
-            // If the selector returns autoreleased, retain the raw
-            // pointer before wrapping so it survives the next pool drain.
-            let raw_for_wrap = if retained_return {
-                Expr::new(ExprKind::Var(result_name), m.span)
+                stmts.push(Stmt::new(StmtKind::Expr(assign_handle), m.span));
+                // Tail = `this` so the type checker sees the
+                // declared `: Self` return type satisfied. MIR
+                // would have synthesised a return-this anyway for
+                // any method literally named `init`.
+                Some(Box::new(Expr::new(ExprKind::This, m.span)))
             } else {
-                let raw_as_ptr = Expr::new(
-                    ExprKind::Cast {
-                        expr: Box::new(Expr::new(ExprKind::Var(result_name), m.span)),
-                        ty: Type::RawPtr {
-                            is_const: false,
-                            inner: Box::new(Type::Object(ctx.object_struct)),
+                // If the selector returns autoreleased, retain the
+                // raw pointer before wrapping so it survives the
+                // next pool drain.
+                let raw_for_wrap = if retained_return {
+                    Expr::new(ExprKind::Var(result_name), m.span)
+                } else {
+                    let raw_as_ptr = Expr::new(
+                        ExprKind::Cast {
+                            expr: Box::new(Expr::new(ExprKind::Var(result_name), m.span)),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(ctx.object_struct)),
+                            },
                         },
+                        m.span,
+                    );
+                    let retain_call = Expr::new(
+                        ExprKind::Call {
+                            callee: ctx.retain,
+                            args: Box::new([raw_as_ptr]),
+                        },
+                        m.span,
+                    );
+                    Expr::new(
+                        ExprKind::Cast {
+                            expr: Box::new(retain_call),
+                            ty: Type::I64,
+                        },
+                        m.span,
+                    )
+                };
+                let new_expr = Expr::new(
+                    ExprKind::New {
+                        class: ret_class_symbol(t),
+                        type_args: Box::new([]),
+                        args: Box::new([raw_for_wrap]),
+                        init_method: Some(Symbol::intern("__bind_handle")),
                     },
                     m.span,
                 );
-                let retain_call = Expr::new(
-                    ExprKind::Call {
-                        callee: ctx.retain,
-                        args: Box::new([raw_as_ptr]),
-                    },
-                    m.span,
-                );
-                Expr::new(
-                    ExprKind::Cast {
-                        expr: Box::new(retain_call),
-                        ty: Type::I64,
-                    },
-                    m.span,
-                )
-            };
-            let new_expr = Expr::new(
-                ExprKind::New {
-                    class: ret_class_symbol(t),
-                    type_args: Box::new([]),
-                    args: Box::new([raw_for_wrap]),
-                    init_method: Some(Symbol::intern("__bind_handle")),
-                },
-                m.span,
-            );
-            Some(Box::new(new_expr))
+                Some(Box::new(new_expr))
+            }
         }
         Some(_) => Some(Box::new(call_expr)),
         None => {
