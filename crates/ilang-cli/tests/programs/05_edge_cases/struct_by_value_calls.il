@@ -64,13 +64,30 @@ test.expect(sum_big(make_big()), 10)
 test.expectF64((sum_vec3(make_vec3()) as f64) - 6.0, 0.0)
 
 // Mutating the callee's copy doesn't touch the caller's value —
-// the whole point of value semantics.
-fn mutate_then_drop(p: Small) {
+// the whole point of value semantics. Cover the small (chunked)
+// and big (caller-side memcpy) paths separately because they go
+// through different ABI code: chunks bypass the caller's pointer
+// entirely (the bytes ride in registers), while >16 B sends a
+// pointer to a scratch StackSlot the caller copied into.
+fn mutate_small(p: Small) {
     p.x = 999
     p.y = 999
 }
+fn mutate_big(b: Big) {
+    b.a = 999
+    b.b = 999
+    b.c = 999
+    b.d = 999
+}
 
-let original = Small { x: 11, y: 22 }
-mutate_then_drop(original)
-test.expect(original.x as i64, 11)
-test.expect(original.y as i64, 22)
+let orig_small = Small { x: 11, y: 22 }
+mutate_small(orig_small)
+test.expect(orig_small.x as i64, 11)
+test.expect(orig_small.y as i64, 22)
+
+let orig_big = Big { a: 11, b: 22, c: 33, d: 44 }
+mutate_big(orig_big)
+test.expect(orig_big.a, 11)
+test.expect(orig_big.b, 22)
+test.expect(orig_big.c, 33)
+test.expect(orig_big.d, 44)

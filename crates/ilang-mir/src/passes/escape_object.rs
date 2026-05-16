@@ -173,36 +173,23 @@ fn resolve_alias(mut v: ValueId, alias: &HashMap<ValueId, ValueId>) -> ValueId {
     v
 }
 
-/// `true` when an arg passed to a Call would be consumed by-value
-/// (chunked into i64/float regs at the call site, callee gets its
-/// own frame copy). Such args don't escape the caller — the
-/// pointer never reaches the callee, only the bytes do. >16 B
-/// structs that aren't HFA fall back to pointer-passing today
-/// and DO escape, hence the explicit `<= 16` check.
+/// `true` when an arg passed to a Call would be consumed by-value:
+/// the call site either explodes it into HFA float regs / i64
+/// chunks, or memcpys it into a scratch buffer (>16 B) before the
+/// call. In all three shapes the callee gets its own frame copy
+/// and the caller's pointer never reaches it, so the arg doesn't
+/// escape and a stack-promoted local can survive being passed
+/// through the call. ArcObject / Array / etc. stay reference-
+/// typed and are NOT covered.
 fn arg_passed_by_value(arg_ty: &crate::types::MirTy, prog: &Program) -> bool {
     if let crate::types::MirTy::Object(cid) = arg_ty {
         let layout = &prog.classes[cid.0 as usize];
-        let crepr = matches!(
+        matches!(
             layout.repr,
             crate::program::ClassRepr::CRepr
                 | crate::program::ClassRepr::CPacked
                 | crate::program::ClassRepr::CUnion
-        );
-        if !crepr {
-            return false;
-        }
-        // HFA: 1–4 same-type-float fields. Chunks: ≤16 B.
-        let is_hfa = !layout.fields.is_empty()
-            && layout.fields.len() <= 4
-            && layout.fields.iter().all(|f| matches!(
-                f.ty,
-                crate::types::MirTy::F32 | crate::types::MirTy::F64
-            ))
-            && {
-                let first = &layout.fields[0].ty;
-                layout.fields.iter().all(|f| &f.ty == first)
-            };
-        is_hfa || layout.c_size <= 16
+        )
     } else {
         false
     }

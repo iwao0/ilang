@@ -63,6 +63,13 @@ pub(super) fn clif_signature_for<M: Module>(
             }
             continue;
         }
+        // >16 B CRepr (neither HFA nor chunkable): the param is a
+        // single pointer at the ABI level, but the call site
+        // memcpys the bytes into a scratch buffer before the call
+        // (see `lower_inst::calls`) — the callee sees a pointer to
+        // *that* copy, preserving value semantics. Cranelift's
+        // `StructArgument` purpose would also do this but it isn't
+        // supported on AArch64, so the copy is emitted manually.
         if let Some(ct) = mir_to_clif(&p.ty) {
             sig.params.push(AbiParam::new(ct));
         } else {
@@ -153,6 +160,29 @@ pub(super) fn struct_hfa(ty: &MirTy, prog: &Program) -> Option<(cranelift::prelu
 /// Larger CRepr structs (> 16 B) are returned through a hidden
 /// pointer (`ArgumentPurpose::StructReturn`). Returns `Some(c_size)`
 /// for those, `None` for chunkable / non-CRepr / non-Object types.
+/// `Some(c_size)` for a CRepr struct / union / packed that's
+/// passed by value as a single ABI param-pointer (the
+/// `StructArgument(size)` shape — Cranelift will memcpy at the
+/// call boundary). Returns `None` for types that get the chunked /
+/// HFA treatment, or for non-CRepr Object types (which stay
+/// pointer-typed with reference semantics).
+pub(super) fn struct_byval_size(ty: &MirTy, prog: &Program) -> Option<i64> {
+    if let MirTy::Object(cid) = ty {
+        let layout = &prog.classes[cid.0 as usize];
+        if matches!(
+            layout.repr,
+            ilang_mir::ClassRepr::CRepr
+                | ilang_mir::ClassRepr::CPacked
+                | ilang_mir::ClassRepr::CUnion
+        ) && layout.c_size > 16
+            && struct_hfa(ty, prog).is_none()
+        {
+            return Some(layout.c_size);
+        }
+    }
+    None
+}
+
 pub(super) fn struct_indirect(ty: &MirTy, prog: &Program) -> Option<i64> {
     if let MirTy::Object(cid) = ty {
         let layout = &prog.classes[cid.0 as usize];

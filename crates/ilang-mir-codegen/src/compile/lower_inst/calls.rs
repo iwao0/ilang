@@ -200,6 +200,32 @@ pub(super) fn lower_call<M: Module>(
                 }
                 continue;
             }
+            // >16 B CRepr (non-HFA, non-chunkable): emit the
+            // caller-side memcpy manually. Cranelift's
+            // `StructArgument(size)` purpose would do the same
+            // thing but it isn't implemented on AArch64. Allocate
+            // a scratch StackSlot of c_size, byte-copy the source
+            // struct into it, and pass that slot's pointer — the
+            // callee can mutate fields freely without reaching
+            // back into the caller's value.
+            if let Some(size) = crate::compile::abi::struct_byval_size(aty, prog) {
+                let slot = fb.create_sized_stack_slot(
+                    cranelift_codegen::ir::StackSlotData::new(
+                        cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
+                        size as u32,
+                        3,
+                    ),
+                );
+                let copy_ptr = fb.ins().stack_addr(types::I64, slot, 0);
+                let mut off: i32 = 0;
+                while (off as i64) < size {
+                    let cell = fb.ins().load(types::I64, MemFlags::trusted(), av, off);
+                    fb.ins().store(MemFlags::trusted(), cell, copy_ptr, off);
+                    off += 8;
+                }
+                arg_vs.push(copy_ptr);
+                continue;
+            }
         }
         arg_vs.push(av);
     }
