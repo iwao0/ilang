@@ -1260,6 +1260,13 @@ impl<'a> Walker<'a> {
                 } else if name == "console" {
                     // Built-in singleton: maps to the `Console` class.
                     Some("Console".to_string())
+                } else if let Some(t) = self.var_types.get(name) {
+                    // Top-level `let` whose type was inferred during
+                    // the diag pre-pass — not in the per-method
+                    // scope, but the class info still applies for
+                    // `topLevelLet.method()` lookups inside item
+                    // bodies.
+                    type_to_class(t)
                 } else {
                     None
                 }
