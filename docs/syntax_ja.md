@@ -1721,14 +1721,7 @@ async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
 }
 ```
 
-**Lowering:** `async fn` は AST 段階で 4 項目に展開される。本体は N 個の `await` で N+1 個の **セグメント**(await や制御フロー境界で区切られた直線チャンク)に分割され、各セグメントが state enum の variant 1 個に対応する:
-
-- `__foo_State` enum — セグメントごとに variant が 1 個。各 variant はそのセグメント開始時点で生きている local だけを struct フィールドとして持つ(全部入りではない)
-- `__foo_StateRef` クラス — 現在の `__foo_State` を入れるセル + 結果の `Promise<T>` を持ち、`.then` コールバックから state を書き換えるために共有される
-- `__foo_poll(state_ref, _)` 関数 — `loop { match state_ref.current { ... } }` で dispatch し、await に当たったら resolve 時に再度 poll を呼ぶ continuation closure を登録して return
-- 元の名前のままの wrapper — `StateRef` を確保して最初の poll を kick し、`Promise<T>` を返す
-
-await 1 つにつき heap 割当の continuation closure 1 個 + state enum の現 variant 分のフィールド。enum の値も `StateRef` も heap 上にあり ARC はアトミックなので、work-stealing pool が worker 間で持ち回しても安全。
+内部的には `async fn foo` は小さな状態機械に展開されます。実行時のエラーやスタックには `__foo_State` / `__foo_StateRef` / `__foo_poll` といった生成名が現れることがあります。
 
 **現状の制約:**
 - desugar 内のミニ型推論器が、よくある RHS 形 (リテラル、param、`await Var(p)`、`await fn_call()` (呼ばれる fn の戻り値型を参照)、`await Promise.resolve(arg)`、単純な算術 etc.) からは binding の型を導出する。認識できない形だけ `let x: T = ...` の明示注釈が要る

@@ -2291,31 +2291,9 @@ async fn sumThree(a: Promise<i64>, b: Promise<i64>, c: Promise<i64>): i64 {
 }
 ```
 
-**Lowering:** each `async fn` becomes four top-level items
-generated at AST-rewrite time. The body is split into N+1
-*segments* (straight-line chunks separated by the N awaits and
-other control-flow boundaries); each segment becomes one variant
-of the state enum:
-- a `__foo_State` enum with one variant per segment. Each
-  variant is a struct that carries only the locals that are
-  live at that segment's entry (not every local in the body).
-- a `__foo_StateRef` class holding a cell for the current
-  `__foo_State` value plus the result `Promise<T>`. Shared by
-  the `.then` callbacks so they can mutate state across the
-  chain.
-- a `__foo_poll(state_ref, _)` fn shaped as
-  `loop { match state_ref.current { ... } }`. Each arm runs
-  its segment, and on hitting an await registers a
-  continuation closure that re-enters poll when the awaited
-  promise resolves, then returns.
-- a wrapper that keeps the original name, allocates the
-  `StateRef`, kicks the first poll, and returns the promise.
-
-Each await costs one heap-allocated continuation closure plus
-the current state enum variant's fields; both the enum value
-and the `StateRef` live on the heap and are atomically
-refcounted, so the work-stealing pool can pass them between
-workers safely.
+Internally an `async fn foo` is desugared into a small state
+machine — runtime errors and stack frames may mention generated
+names like `__foo_State`, `__foo_StateRef`, or `__foo_poll`.
 
 **Current restrictions:**
 - The desugar's mini-inferencer recovers the binding's type from
