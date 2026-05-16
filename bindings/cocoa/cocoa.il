@@ -98,8 +98,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
 
     /// `NSString` — Cocoa's UTF-16 string type. We expose the
     /// C-string constructor and `UTF8String` accessor; ilang code
-    /// works in UTF-8 so the round-trip is `nsstr(s) ↔ s.toIlang()`
-    /// (use the `toIlang` helper below).
+    /// works in UTF-8 so the round-trip is `nsstr(s) ↔ ilstr(ns)`
+    /// (see the `ilstr` helper below).
     @objc pub class NSString : NSObject {
         @objc("stringWithUTF8String:")
         pub static fromCStr(s: *const char): NSString
@@ -402,12 +402,13 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         btn
     }
 
-    /// Convert an `NSString` back to an ilang `string`. Internally
-    /// `[NSString UTF8String]` returns a C `const char *` whose
-    /// lifetime is tied to the autorelease pool, so call this
-    /// inside an `autoreleasepool { ... }` if the string is
-    /// long-lived or you'll race the pool drain.
-    pub fn toIlang(s: NSString): string {
+    /// Convert an `NSString` back to an ilang `string` — the
+    /// mirror of `nsstr`. Internally `[NSString UTF8String]`
+    /// returns a C `const char *` whose lifetime is tied to the
+    /// autorelease pool, so call this inside an
+    /// `autoreleasepool { ... }` if the string is long-lived or
+    /// you'll race the pool drain.
+    pub fn ilstr(s: NSString): string {
         stringFromCstr(s.utf8String())
     }
 

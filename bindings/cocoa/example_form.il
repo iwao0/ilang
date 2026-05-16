@@ -11,7 +11,7 @@
 use cocoa { NSObject, NSTextField, NSSlider, NSView,
             StyleMask, ACTIVATION_REGULAR, LAYOUT_VERTICAL, nil,
             sharedApplication, makeWindow, makeButton, makeLabel,
-            makeTextField, makeSlider, makeStackView, toIlang,
+            makeTextField, makeSlider, makeStackView, ilstr,
             selectorPtr }
 
 // Module-level state the handler reads. Built below as the
@@ -30,7 +30,7 @@ let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
         @objc("submit:")
         pub submit(sender: NSObject) {
             let text = textField.stringValue()
-            console.log("text =", toIlang(text))
+            console.log("text =", ilstr(text))
             console.log("slider =", slider.doubleValue())
         }
     }
