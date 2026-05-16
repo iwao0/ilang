@@ -1195,6 +1195,17 @@ impl<'a> Walker<'a> {
         target_name_len: u32,
         signature: String,
     ) {
+        // Parser-synthesised calls (the `@objc class` desugar emits
+        // a pile of `cstrFromString("ClassName")`, `__get_class(...)`,
+        // etc.) reuse user spans so error messages stay anchored
+        // somewhere sensible. They confuse hover though — without
+        // this check, hovering on the class name picks up the
+        // synthesised Call ref instead of `class ClassName`. Drop
+        // any push whose use_span doesn't actually contain `name`
+        // in the source text.
+        if !text::text_at_span_starts_with(self.text, use_span, name) {
+            return;
+        }
         self.refs.push(RefEntry {
             line: use_span.line,
             start_col: use_span.col,

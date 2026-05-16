@@ -27,6 +27,21 @@ pub(crate) fn line_col_to_offset(text: &str, line: u32, col: u32) -> Option<usiz
     None
 }
 
+/// `true` when the source text starting at `span` (1-based line /
+/// col) begins with `name`. Used to drop parser-synthesised refs
+/// whose AST span borrows a nearby user span but doesn't actually
+/// hold the callee text — those would otherwise hijack hover on
+/// neighbouring identifiers.
+pub(crate) fn text_at_span_starts_with(text: &str, span: ilang_ast::Span, name: &str) -> bool {
+    let Some(off) = line_col_to_offset(text, span.line, span.col) else {
+        return false;
+    };
+    text.as_bytes()
+        .get(off..off + name.len())
+        .map(|s| s == name.as_bytes())
+        .unwrap_or(false)
+}
+
 /// Inverse of `line_col_to_offset`.
 pub(crate) fn offset_to_line_col(text: &str, offset: usize) -> Option<(u32, u32)> {
     let bytes = text.as_bytes();
