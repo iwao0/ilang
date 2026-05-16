@@ -39,11 +39,12 @@ use cocoa { NSObject, StyleMask, ActivationPolicy, nil,
             })
         }
 
-        // BOOL return — ObjC encodes BOOL as `c` (signed char) on
-        // every Apple-supported arch, hence `i8` here.
+        // BOOL return. ilang `bool` matches ObjC `BOOL`'s i8 ABI —
+        // the IMP trampoline hands the value back as the C return
+        // value unchanged.
         @objc("applicationShouldTerminateAfterLastWindowClosed:")
-        shouldTerminateAfterLastWindowClosed(app: NSObject): i8 {
-            1
+        shouldTerminateAfterLastWindowClosed(app: NSObject): bool {
+            true
         }
 
         @objc("applicationWillTerminate:")
@@ -68,5 +69,5 @@ let win = makeWindow("Cocoa delegate", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
 win.makeKeyAndOrderFront(nil)
-app.activateIgnoringOtherApps(1)
+app.activateIgnoringOtherApps(true)
 app.run()

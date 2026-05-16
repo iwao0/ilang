@@ -27,5 +27,5 @@ win.contentView().addSubview(btn)
 // the desugar passes its handle (`0 as *objc_object`, a.k.a. nil)
 // through.
 win.makeKeyAndOrderFront(cocoa.nil)
-app.activateIgnoringOtherApps(1)
+app.activateIgnoringOtherApps(true)
 app.run()

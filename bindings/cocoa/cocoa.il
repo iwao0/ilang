@@ -142,9 +142,9 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("sharedApplication")
         pub static sharedApplication(): NSApplication
         @objc("setActivationPolicy:")
-        pub setActivationPolicy(policy: ActivationPolicy): i8
+        pub setActivationPolicy(policy: ActivationPolicy): bool
         @objc("activateIgnoringOtherApps:")
-        pub activateIgnoringOtherApps(flag: i8)
+        pub activateIgnoringOtherApps(flag: bool)
         @objc("run")
         pub run()
         @objc("terminate:")
@@ -176,7 +176,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         // C ABI sees the raw NSUInteger that AppKit expects.
         @objc("initWithContentRect:styleMask:backing:defer:")
         pub init(
-            rect: NSRect, mask: StyleMask, backing: BackingStore, defer: i8
+            rect: NSRect, mask: StyleMask, backing: BackingStore, defer: bool
         ): NSWindow
 
         @objc("setTitle:")
@@ -219,8 +219,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     }
 
     /// NSTextField. Doubles as both an editable text input and a
-    /// non-editable label (set `setEditable(0)` + `setBordered(0)` +
-    /// `setDrawsBackground(0)` for the label look — `makeLabel`
+    /// non-editable label (set `setEditable(false)` + `setBordered(false)` +
+    /// `setDrawsBackground(false)` for the label look — `makeLabel`
     /// below does that for you).
     @objc pub class NSTextField : NSView {
         @objc("alloc")
@@ -234,15 +234,15 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         pub stringValue(): NSString
 
         @objc("setEditable:")
-        pub setEditable(flag: i8)
+        pub setEditable(flag: bool)
         @objc("setBordered:")
-        pub setBordered(flag: i8)
+        pub setBordered(flag: bool)
         @objc("setBezeled:")
-        pub setBezeled(flag: i8)
+        pub setBezeled(flag: bool)
         @objc("setDrawsBackground:")
-        pub setDrawsBackground(flag: i8)
+        pub setDrawsBackground(flag: bool)
         @objc("setSelectable:")
-        pub setSelectable(flag: i8)
+        pub setSelectable(flag: bool)
     }
 
     /// NSSlider — continuous horizontal slider by default. `min`,
@@ -365,7 +365,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         mask: StyleMask
     ): NSWindow {
         let win = NSWindow.alloc()
-            .init(makeRect(x, y, w, h), mask, BackingStore.buffered, 0)
+            .init(makeRect(x, y, w, h), mask, BackingStore.buffered, false)
         win.setTitle(nsstr(title))
         win
     }
@@ -444,11 +444,11 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     ): NSTextField {
         let f = NSTextField.alloc().init(makeRect(x, y, w, h))
         f.setStringValue(nsstr(text))
-        f.setEditable(0)
-        f.setBordered(0)
-        f.setBezeled(0)
-        f.setDrawsBackground(0)
-        f.setSelectable(1)
+        f.setEditable(false)
+        f.setBordered(false)
+        f.setBezeled(false)
+        f.setDrawsBackground(false)
+        f.setSelectable(true)
         f
     }
 
@@ -459,8 +459,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     ): NSTextField {
         let f = NSTextField.alloc().init(makeRect(x, y, w, h))
         f.setStringValue(nsstr(text))
-        f.setEditable(1)
-        f.setBezeled(1)
+        f.setEditable(true)
+        f.setBezeled(true)
         f
     }
 
