@@ -19,11 +19,13 @@ use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
 
 @extern(ObjC) {
     @objc class ClickHandler : NSObject {
-        @objc("alloc") static fn alloc(): ClickHandler
-        @objc("init")  fn doInit(): ClickHandler
+        @objc("alloc")
+        static alloc(): ClickHandler
+        @objc("init")
+        doInit(): ClickHandler
 
         @objc("clicked:")
-        fn clicked(sender: NSObject) {
+        clicked(sender: NSObject) {
             console.log("clicked!")
         }
     }

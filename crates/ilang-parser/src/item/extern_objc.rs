@@ -59,16 +59,11 @@ impl<'a> Parser<'a> {
             // Look for @objc(...). Two shapes:
             //   @objc                 → followed by `class Name { ... }`
             //   @objc("selector:")    → followed by `fn name(...)`
-            // @objc items default to `pub` since Cocoa-style bindings
-            // typically want the class / fn visible to importers.
-            // Plain (non-@objc) items fall back to ilang's default
-            // (module-private) unless the user explicitly says `pub`.
+            // Visibility follows ilang's normal rule — `pub` is
+            // required for cross-module access, no default-pub for
+            // @objc items.
             let objc_attr_pos = inner_attrs.iter().position(|a| a.name.as_str() == "objc");
-            let item_is_pub = if objc_attr_pos.is_some() {
-                true
-            } else {
-                explicit_pub
-            };
+            let item_is_pub = explicit_pub;
             if let Some(pos) = objc_attr_pos {
                 if inner_attrs.len() != 1 {
                     let t = self.peek();
@@ -113,7 +108,12 @@ impl<'a> Parser<'a> {
                             span: t.span,
                         });
                     }
-                    let m = self.parse_objc_method(selector, item_is_pub, /*is_static*/ false)?;
+                    let m = self.parse_objc_method(
+                        selector,
+                        item_is_pub,
+                        /*is_static*/ false,
+                        /*require_fn_kw*/ true,
+                    )?;
                     objc_fns.push(m);
                     continue;
                 }
@@ -445,9 +445,12 @@ impl<'a> Parser<'a> {
         selector: String,
         is_pub: bool,
         is_static: bool,
+        require_fn_kw: bool,
     ) -> Result<ObjcMethod, ParseError> {
         let span = self.peek().span;
-        self.expect(&TokenKind::Fn, "'fn'")?;
+        if require_fn_kw {
+            self.expect(&TokenKind::Fn, "'fn'")?;
+        }
         let name = self.expect_ident("function name")?;
         self.expect(&TokenKind::LParen, "'('")?;
         let params = self.parse_param_list()?;
@@ -505,11 +508,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 true
             } else {
-                // Default class methods to `pub` so the desugared
-                // ilang class methods can be called from outside
-                // the block without the user having to spell `pub`
-                // on every line.
-                true
+                false
             };
             // Every method must carry an @objc("selector:") attr.
             let objc_pos = attrs
@@ -539,12 +538,19 @@ impl<'a> Parser<'a> {
                     });
                 }
             };
-            // Optional `static` modifier before `fn`.
+            // Optional `static` modifier before the method name.
             let is_static = matches!(&self.peek().kind, TokenKind::Ident(n) if n.as_str() == "static");
             if is_static {
                 self.bump();
             }
-            let m = self.parse_objc_method(selector, method_is_pub, is_static)?;
+            // Class methods follow the regular-class convention: no
+            // `fn` keyword, just `[pub] [static] name(params): ret`.
+            let m = self.parse_objc_method(
+                selector,
+                method_is_pub,
+                is_static,
+                /*require_fn_kw*/ false,
+            )?;
             methods.push(m);
         }
         self.expect(&TokenKind::RBrace, "'}'")?;

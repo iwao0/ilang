@@ -650,6 +650,13 @@ fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
     let mut prev_kind: Option<&TokenKind> = None;
     let mut prev_prev_kind: Option<&TokenKind> = None;
     let mut at_line_start = true;
+    // `@objc(...)` attribute tracking. Set when we see the leading
+    // `@ objc (` triple; each nested `(` bumps, each `)` decrements;
+    // when it returns to 0 the matching close of the attribute has
+    // been emitted and we force a newline before the next token so
+    // `@objc("sel") pub release()` always reflows to two lines.
+    let mut objc_attr_depth: i32 = 0;
+    let mut just_closed_objc_attr = false;
 
     for (idx, tok) in tokens.iter().enumerate() {
         if matches!(tok.kind, TokenKind::Eof) {
@@ -684,14 +691,31 @@ fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
             total_depth.max(0)
         };
 
-        emit_gap(
-            &mut out,
-            gap,
-            indent_depth,
-            prev_kind,
-            Some((&tok.kind, prev_prev_kind)),
-            &mut at_line_start,
-        );
+        // If the previous gap closed an `@objc(...)` attribute and
+        // the user didn't already put a newline before this token,
+        // force one so the next item (method header, class header,
+        // etc.) sits on its own indented line.
+        let force_break = just_closed_objc_attr
+            && !matches!(tok.kind, TokenKind::At)
+            && !gap.contains('\n');
+        if force_break {
+            // Strip any trailing space that emit_gap may have added.
+            while out.ends_with(' ') {
+                out.pop();
+            }
+            out.push('\n');
+            push_indent(&mut out, indent_depth);
+        } else {
+            emit_gap(
+                &mut out,
+                gap,
+                indent_depth,
+                prev_kind,
+                Some((&tok.kind, prev_prev_kind)),
+                &mut at_line_start,
+            );
+        }
+        just_closed_objc_attr = false;
 
         // Emit the token's source slice verbatim — this preserves
         // numeric suffixes / hex / escapes / Unicode in identifiers.
@@ -713,11 +737,24 @@ fn format_tokens(src: &str, tokens: &[Token], line_starts: &[usize]) -> String {
                 if multi {
                     paren_depth += 1;
                 }
+                if objc_attr_depth > 0 && matches!(tok.kind, TokenKind::LParen) {
+                    objc_attr_depth += 1;
+                } else if matches!(tok.kind, TokenKind::LParen)
+                    && is_objc_attr_open(prev_kind, prev_prev_kind)
+                {
+                    objc_attr_depth = 1;
+                }
             }
             TokenKind::RParen | TokenKind::RBracket => {
                 let was_multi = paren_stack.pop().unwrap_or(false);
                 if was_multi {
                     paren_depth -= 1;
+                }
+                if objc_attr_depth > 0 && matches!(tok.kind, TokenKind::RParen) {
+                    objc_attr_depth -= 1;
+                    if objc_attr_depth == 0 {
+                        just_closed_objc_attr = true;
+                    }
                 }
             }
             _ => {}
@@ -843,6 +880,14 @@ fn emit_gap_with_breaks(
         push_indent(out, indent_depth);
     }
     last_inline_comment
+}
+
+/// `( ` just observed; was the run `@ objc (`? Used by the formatter
+/// to recognise the start of an `@objc("selector:")` attribute and
+/// force a newline once its matching `)` closes.
+fn is_objc_attr_open(prev: Option<&TokenKind>, prev_prev: Option<&TokenKind>) -> bool {
+    matches!(prev, Some(TokenKind::Ident(n)) if n.as_str() == "objc")
+        && matches!(prev_prev, Some(TokenKind::At))
 }
 
 fn push_indent(out: &mut String, depth: i32) {
@@ -1045,6 +1090,39 @@ mod tests {
 
     fn fmt(src: &str) -> String {
         format(src).unwrap_or_else(|| src.to_string())
+    }
+
+    #[test]
+    fn objc_attr_breaks_onto_its_own_line() {
+        let src = concat!(
+            "@extern(ObjC) {\n",
+            "    @objc pub class NSObject {\n",
+            "        @objc(\"release\") pub release()\n",
+            "    }\n",
+            "}\n",
+        );
+        let want = concat!(
+            "@extern(ObjC) {\n",
+            "    @objc pub class NSObject {\n",
+            "        @objc(\"release\")\n",
+            "        pub release()\n",
+            "    }\n",
+            "}\n",
+        );
+        assert_eq!(fmt(src), want);
+    }
+
+    #[test]
+    fn objc_attr_already_on_own_line_is_a_no_op() {
+        let src = concat!(
+            "@extern(ObjC) {\n",
+            "    @objc pub class NSObject {\n",
+            "        @objc(\"release\")\n",
+            "        pub release()\n",
+            "    }\n",
+            "}\n",
+        );
+        assert_eq!(format(src), None);
     }
 
     #[test]

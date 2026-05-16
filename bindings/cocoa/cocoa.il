@@ -72,18 +72,21 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
     /// instance.
-    @objc class NSObject {
-        @objc("release") fn release()
-        @objc("retain")  fn retain(): NSObject
-        @objc("hash")    fn hash(): i64
+    @objc pub class NSObject {
+        @objc("release")
+        pub release()
+        @objc("retain")
+        pub retain(): NSObject
+        @objc("hash")
+        pub hash(): i64
     }
 
     /// `NSString` — Cocoa's UTF-16 string type. We only expose
     /// the C-string constructor since ilang code already speaks
     /// UTF-8 natively.
-    @objc class NSString : NSObject {
+    @objc pub class NSString : NSObject {
         @objc("stringWithUTF8String:")
-            static fn fromCStr(s: *const char): NSString
+        pub static fromCStr(s: *const char): NSString
     }
 
     // ─── AppKit ──────────────────────────────────────────────────
@@ -92,48 +95,60 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// process. Use `cocoa.sharedApplication()` (defined below)
     /// instead of calling this directly so AppKit's framework
     /// load happens first.
-    @objc class NSApplication : NSObject {
-        @objc("sharedApplication")    static fn sharedApplication(): NSApplication
-        @objc("setActivationPolicy:") fn setActivationPolicy(policy: i64): i8
+    @objc pub class NSApplication : NSObject {
+        @objc("sharedApplication")
+        pub static sharedApplication(): NSApplication
+        @objc("setActivationPolicy:")
+        pub setActivationPolicy(policy: i64): i8
         @objc("activateIgnoringOtherApps:")
-                                      fn activateIgnoringOtherApps(flag: i8)
-        @objc("run")                  fn run()
-        @objc("terminate:")           fn terminate(sender: NSObject)
+        pub activateIgnoringOtherApps(flag: i8)
+        @objc("run")
+        pub run()
+        @objc("terminate:")
+        pub terminate(sender: NSObject)
         // NSApplicationDelegate is a protocol — any NSObject subclass
         // that implements the relevant `applicationDidFinishLaunching:`
         // / `applicationWillTerminate:` / etc. selectors can be the
         // delegate. ObjC's runtime doesn't enforce protocols, so we
         // just take an NSObject here.
-        @objc("setDelegate:")         fn setDelegate(d: NSObject)
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
     }
 
     /// NSView — base class for every visible AppKit object.
-    @objc class NSView : NSObject {
-        @objc("addSubview:") fn addSubview(v: NSView)
+    @objc pub class NSView : NSObject {
+        @objc("addSubview:")
+        pub addSubview(v: NSView)
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`
     /// pattern is the standard Cocoa instance-construction
     /// idiom; the convenience constructor below combines them.
-    @objc class NSWindow : NSObject {
-        @objc("alloc") static fn alloc(): NSWindow
+    @objc pub class NSWindow : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSWindow
         // The underlying ABI is u64 (`NSWindowStyleMask` is a
         // `NSUInteger`). `@flags` enum values are heap-boxed at
         // the ilang level, so they can't ride directly across
         // the objc_msgSend boundary — `makeWindow` below casts
         // `StyleMask as u64` before invoking this.
         @objc("initWithContentRect:styleMask:backing:defer:")
-            fn initWithContentRect(
-                rect: NSRect, mask: u64, backing: u64, defer: i8
-            ): NSWindow
+        pub initWithContentRect(
+            rect: NSRect, mask: u64, backing: u64, defer: i8
+        ): NSWindow
 
-        @objc("setTitle:")           fn setTitle(title: NSString)
-        @objc("center")              fn center()
-        @objc("makeKeyAndOrderFront:") fn makeKeyAndOrderFront(sender: NSObject)
-        @objc("contentView")         fn contentView(): NSView
+        @objc("setTitle:")
+        pub setTitle(title: NSString)
+        @objc("center")
+        pub center()
+        @objc("makeKeyAndOrderFront:")
+        pub makeKeyAndOrderFront(sender: NSObject)
+        @objc("contentView")
+        pub contentView(): NSView
         // NSWindowDelegate protocol — same ducktype story as
         // NSApplication.setDelegate.
-        @objc("setDelegate:")        fn setDelegate(d: NSObject)
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
     }
 
     /// NSButton. `alloc + initWithFrame:` follows the same
@@ -141,18 +156,24 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// Cocoa convention: pair `setTarget(handler)` with
     /// `setAction(selectorPtr("clicked:"))` so AppKit invokes
     /// `[handler clicked:button]` whenever the button is clicked.
-    @objc class NSButton : NSView {
-        @objc("alloc") static fn alloc(): NSButton
-        @objc("initWithFrame:")  fn initWithFrame(rect: NSRect): NSButton
+    @objc pub class NSButton : NSView {
+        @objc("alloc")
+        pub static alloc(): NSButton
+        @objc("initWithFrame:")
+        pub initWithFrame(rect: NSRect): NSButton
 
-        @objc("setTitle:")       fn setTitle(title: NSString)
-        @objc("setBezelStyle:")  fn setBezelStyle(style: u64)
+        @objc("setTitle:")
+        pub setTitle(title: NSString)
+        @objc("setBezelStyle:")
+        pub setBezelStyle(style: u64)
 
-        @objc("setTarget:")      fn setTarget(target: NSObject)
+        @objc("setTarget:")
+        pub setTarget(target: NSObject)
         // SEL doesn't have a user-facing ilang type today; the
         // action is passed as the raw SEL pointer cast to `i64`.
         // Use `selectorPtr("clicked:")` to build one from a name.
-        @objc("setAction:")      fn setAction(sel: i64)
+        @objc("setAction:")
+        pub setAction(sel: i64)
     }
 
     // ─── Convenience helpers ─────────────────────────────────────

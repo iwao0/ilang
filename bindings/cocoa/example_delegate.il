@@ -22,11 +22,13 @@ use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR,
 
 @extern(ObjC) {
     @objc class AppDelegate : NSObject {
-        @objc("alloc") static fn alloc(): AppDelegate
-        @objc("init")  fn doInit(): AppDelegate
+        @objc("alloc")
+        static alloc(): AppDelegate
+        @objc("init")
+        doInit(): AppDelegate
 
         @objc("applicationDidFinishLaunching:")
-        fn didFinishLaunching(notification: NSObject) {
+        didFinishLaunching(notification: NSObject) {
             console.log("AppDelegate: didFinishLaunching")
             autoreleasepool(fn() {
                 let i = 0
@@ -40,12 +42,12 @@ use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR,
         // BOOL return — ObjC encodes BOOL as `c` (signed char) on
         // every Apple-supported arch, hence `i8` here.
         @objc("applicationShouldTerminateAfterLastWindowClosed:")
-        fn shouldTerminateAfterLastWindowClosed(app: NSObject): i8 {
+        shouldTerminateAfterLastWindowClosed(app: NSObject): i8 {
             1
         }
 
         @objc("applicationWillTerminate:")
-        fn willTerminate(notification: NSObject) {
+        willTerminate(notification: NSObject) {
             console.log("AppDelegate: willTerminate")
         }
     }
