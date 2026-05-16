@@ -111,6 +111,7 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
     // signature.
     let mut fn_returns: HashMap<Symbol, Type> = HashMap::new();
     let mut enums: HashMap<Symbol, EnumDecl> = HashMap::new();
+    let mut classes: HashMap<Symbol, ClassDecl> = HashMap::new();
     for item in &prog.items {
         if let Item::Fn(f) = item {
             let ret = f.ret.clone().unwrap_or(Type::Unit);
@@ -135,12 +136,15 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
         if let Item::Enum(e) = item {
             enums.insert(e.name, e.clone());
         }
+        if let Item::Class(c) = item {
+            classes.insert(c.name, c.clone());
+        }
     }
     let mut errors: Vec<AsyncLowerError> = Vec::new();
     let mut items: Vec<Item> = Vec::with_capacity(prog.items.len());
     for item in prog.items {
         match item {
-            Item::Fn(f) => match lower_async_fn(f, &fn_returns, None, &enums) {
+            Item::Fn(f) => match lower_async_fn(f, &fn_returns, None, &enums, &classes) {
                 Ok(AsyncLowerOutput::Single(f)) => items.push(Item::Fn(f)),
                 Ok(AsyncLowerOutput::StateMachine {
                     wrapper,
@@ -160,7 +164,7 @@ pub fn lower_async(prog: Program) -> Result<Program, AsyncLowerError> {
                 }
             },
             Item::Class(c) => {
-                let lowered = lower_class(c, &mut items, &mut errors, &fn_returns, &enums);
+                let lowered = lower_class(c, &mut items, &mut errors, &fn_returns, &enums, &classes);
                 items.push(Item::Class(lowered));
             }
             other => items.push(other),
@@ -191,11 +195,12 @@ fn lower_class(
     errors: &mut Vec<AsyncLowerError>,
     fn_returns: &HashMap<Symbol, Type>,
     enums: &HashMap<Symbol, EnumDecl>,
+    classes: &HashMap<Symbol, ClassDecl>,
 ) -> ClassDecl {
     let class_name = c.name;
     let methods: Vec<FnDecl> = std::mem::take(&mut c.methods)
         .into_iter()
-        .map(|m| match lower_async_fn(m, fn_returns, Some(class_name), enums) {
+        .map(|m| match lower_async_fn(m, fn_returns, Some(class_name), enums, classes) {
             Ok(AsyncLowerOutput::Single(f)) => f,
             Ok(AsyncLowerOutput::StateMachine {
                 wrapper,
@@ -240,6 +245,7 @@ fn lower_async_fn(
     fn_returns: &HashMap<Symbol, Type>,
     enclosing_class: Option<Symbol>,
     enums: &HashMap<Symbol, EnumDecl>,
+    classes: &HashMap<Symbol, ClassDecl>,
 ) -> Result<AsyncLowerOutput, AsyncLowerError> {
     if !f.is_async {
         return Ok(AsyncLowerOutput::Single(f));
@@ -292,7 +298,7 @@ fn lower_async_fn(
     }
 
     // ≥1 await: lower to enum-variant state machine via v2.
-    let body_lets = collect_let_types(&f.params, &f.body, fn_returns).map_err(|missing| {
+    let body_lets = collect_let_types(&f.params, &f.body, fn_returns, classes).map_err(|missing| {
         AsyncLowerError {
             fn_name: f.name,
             span: f.span,
@@ -439,19 +445,30 @@ fn expr_contains_await(e: &Expr) -> bool {
     }
 }
 
+/// Side tables threaded through the mini-inferencer. `fn_returns`
+/// covers top-level fn return types; `classes` is consulted when
+/// the RHS is `obj.field` or `obj.method(...)` and we need to find
+/// the receiver class's field type / method return type.
+struct InferCtx<'a> {
+    fn_returns: &'a HashMap<Symbol, Type>,
+    classes: &'a HashMap<Symbol, ClassDecl>,
+}
+
 /// is un-annotated AND the inferencer can't handle its RHS shape.
 fn collect_let_types(
     params: &[Param],
     b: &Block,
     fn_returns: &HashMap<Symbol, Type>,
+    classes: &HashMap<Symbol, ClassDecl>,
 ) -> Result<Vec<(Symbol, Type)>, Symbol> {
+    let ctx = InferCtx { fn_returns, classes };
     let mut env: HashMap<Symbol, Type> = HashMap::new();
     for p in params {
         env.insert(p.name, p.ty.clone());
     }
     let mut out: Vec<(Symbol, Type)> = Vec::new();
     let mut seen: HashSet<Symbol> = HashSet::new();
-    walk_block_for_lets(b, &mut env, &mut out, &mut seen, fn_returns)?;
+    walk_block_for_lets(b, &mut env, &mut out, &mut seen, &ctx)?;
     Ok(out)
 }
 
@@ -465,7 +482,7 @@ fn walk_block_for_lets(
     env: &mut HashMap<Symbol, Type>,
     out: &mut Vec<(Symbol, Type)>,
     seen: &mut HashSet<Symbol>,
-    fn_returns: &HashMap<Symbol, Type>,
+    ctx: &InferCtx<'_>,
 ) -> Result<(), Symbol> {
     for s in &b.stmts {
         if let StmtKind::Let { name, ty, value, .. } = &s.kind {
@@ -473,7 +490,7 @@ fn walk_block_for_lets(
                 let t = if let Some(t) = ty {
                     t.clone()
                 } else {
-                    match infer_let_rhs(value, env, fn_returns) {
+                    match infer_let_rhs(value, env, ctx) {
                         Some(t) => t,
                         None => return Err(*name),
                     }
@@ -484,18 +501,18 @@ fn walk_block_for_lets(
             // Also walk the let's RHS — for `let r = if-else { ... }` /
             // `let r = match { ... }`, inner arm-local lets need
             // state-class fields too.
-            walk_expr_for_lets(value, env, out, seen, fn_returns)?;
+            walk_expr_for_lets(value, env, out, seen, ctx)?;
         } else if let StmtKind::Expr(e) = &s.kind {
             // Recurse into `while` bodies so loop-local lets get
             // a state-class field (any binding live across the
             // back-edge needs storage).
             if let ExprKind::While { body, .. } = &e.kind {
-                walk_block_for_lets(body, env, out, seen, fn_returns)?;
+                walk_block_for_lets(body, env, out, seen, ctx)?;
             }
         }
     }
     if let Some(tail) = &b.tail {
-        walk_if_tail_for_lets(tail, env, out, seen, fn_returns)?;
+        walk_if_tail_for_lets(tail, env, out, seen, ctx)?;
     }
     Ok(())
 }
@@ -509,14 +526,14 @@ fn walk_expr_for_lets(
     env: &mut HashMap<Symbol, Type>,
     out: &mut Vec<(Symbol, Type)>,
     seen: &mut HashSet<Symbol>,
-    fn_returns: &HashMap<Symbol, Type>,
+    ctx: &InferCtx<'_>,
 ) -> Result<(), Symbol> {
     match &e.kind {
-        ExprKind::Block(b) => walk_block_for_lets(b, env, out, seen, fn_returns)?,
+        ExprKind::Block(b) => walk_block_for_lets(b, env, out, seen, ctx)?,
         ExprKind::If { then_branch, else_branch, .. } => {
-            walk_block_for_lets(then_branch, env, out, seen, fn_returns)?;
+            walk_block_for_lets(then_branch, env, out, seen, ctx)?;
             if let Some(eb) = else_branch {
-                walk_expr_for_lets(eb, env, out, seen, fn_returns)?;
+                walk_expr_for_lets(eb, env, out, seen, ctx)?;
             }
         }
         ExprKind::Match { arms, .. } => {
@@ -528,7 +545,7 @@ fn walk_expr_for_lets(
                         out.push((binding, t));
                     }
                 }
-                walk_expr_for_lets(&arm.body, env, out, seen, fn_returns)?;
+                walk_expr_for_lets(&arm.body, env, out, seen, ctx)?;
             }
         }
         _ => {}
@@ -541,13 +558,13 @@ fn walk_if_tail_for_lets(
     env: &mut HashMap<Symbol, Type>,
     out: &mut Vec<(Symbol, Type)>,
     seen: &mut HashSet<Symbol>,
-    fn_returns: &HashMap<Symbol, Type>,
+    ctx: &InferCtx<'_>,
 ) -> Result<(), Symbol> {
     match &e.kind {
         ExprKind::If { then_branch, else_branch, .. } => {
-            walk_block_for_lets(then_branch, env, out, seen, fn_returns)?;
+            walk_block_for_lets(then_branch, env, out, seen, ctx)?;
             if let Some(eb) = else_branch {
-                walk_if_tail_for_lets(eb, env, out, seen, fn_returns)?;
+                walk_if_tail_for_lets(eb, env, out, seen, ctx)?;
             }
         }
         ExprKind::Match { scrutinee: _, arms } => {
@@ -572,11 +589,11 @@ fn walk_if_tail_for_lets(
                     }
                 }
                 // Then walk the arm body for further lets.
-                walk_if_tail_for_lets(&arm.body, env, out, seen, fn_returns)?;
+                walk_if_tail_for_lets(&arm.body, env, out, seen, ctx)?;
             }
         }
         ExprKind::Block(b) => {
-            walk_block_for_lets(b, env, out, seen, fn_returns)?;
+            walk_block_for_lets(b, env, out, seen, ctx)?;
         }
         _ => {}
     }
@@ -621,7 +638,7 @@ fn pattern_binding_names(p: &ilang_ast::Pattern) -> Vec<Symbol> {
 fn infer_let_rhs(
     e: &Expr,
     env: &HashMap<Symbol, Type>,
-    fn_returns: &HashMap<Symbol, Type>,
+    ctx: &InferCtx<'_>,
 ) -> Option<Type> {
     match &e.kind {
         ExprKind::Int(_) => Some(Type::I64),
@@ -629,10 +646,10 @@ fn infer_let_rhs(
         ExprKind::Bool(_) => Some(Type::Bool),
         ExprKind::Str(_) => Some(Type::Str),
         ExprKind::Var(n) => env.get(n).cloned(),
-        ExprKind::Call { callee, .. } => fn_returns.get(callee).cloned(),
+        ExprKind::Call { callee, .. } => ctx.fn_returns.get(callee).cloned(),
         ExprKind::New { class, .. } => Some(Type::Object(*class)),
         ExprKind::Await(inner) => {
-            let t = infer_let_rhs(inner, env, fn_returns)?;
+            let t = infer_let_rhs(inner, env, ctx)?;
             match t {
                 Type::Generic(g)
                     if g.base.as_str() == "Promise" && g.args.len() == 1 =>
@@ -650,7 +667,7 @@ fn infer_let_rhs(
                 if n.as_str() == "Promise" {
                     match method.as_str() {
                         "resolve" if args.len() == 1 => {
-                            let inner = infer_let_rhs(&args[0], env, fn_returns)?;
+                            let inner = infer_let_rhs(&args[0], env, ctx)?;
                             return Some(Type::generic("Promise", vec![inner]));
                         }
                         "reject" => {
@@ -667,11 +684,41 @@ fn infer_let_rhs(
                     }
                 }
             }
-            None
+            // Instance method call: infer the receiver's class and
+            // look up the method's declared return type.
+            let ot = infer_let_rhs(obj, env, ctx)?;
+            let class_name = match &ot {
+                Type::Object(n) => *n,
+                Type::Generic(g) => g.base,
+                _ => return None,
+            };
+            let cd = ctx.classes.get(&class_name)?;
+            // Both regular methods and static methods can be reached
+            // via `obj.method(...)` syntax; check both lists.
+            let m = cd
+                .methods
+                .iter()
+                .chain(cd.static_methods.iter())
+                .find(|m| m.name == *method)?;
+            let ret = m.ret.clone().unwrap_or(Type::Unit);
+            // async methods see Promise-wrapped returns from callers.
+            if m.is_async {
+                let already_promise = matches!(
+                    &ret,
+                    Type::Generic(g) if g.base.as_str() == "Promise"
+                );
+                if already_promise {
+                    Some(ret)
+                } else {
+                    Some(Type::generic("Promise", vec![ret]))
+                }
+            } else {
+                Some(ret)
+            }
         }
         ExprKind::Binary { op, lhs, rhs } => {
-            let lt = infer_let_rhs(lhs, env, fn_returns)?;
-            let rt = infer_let_rhs(rhs, env, fn_returns)?;
+            let lt = infer_let_rhs(lhs, env, ctx)?;
+            let rt = infer_let_rhs(rhs, env, ctx)?;
             use ilang_ast::BinOp;
             match op {
                 BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
@@ -688,16 +735,32 @@ fn infer_let_rhs(
                 }
             }
         }
-        ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env, fn_returns),
+        ExprKind::Unary { expr, .. } => infer_let_rhs(expr, env, ctx),
         ExprKind::Index { obj, .. } => {
             // `arr[i]` — element type of an Array. Other indexable
             // types (Map etc.) aren't covered here; an explicit
             // annotation lets the user override.
-            let ot = infer_let_rhs(obj, env, fn_returns)?;
+            let ot = infer_let_rhs(obj, env, ctx)?;
             match ot {
                 Type::Array { elem, .. } => Some(*elem),
                 _ => None,
             }
+        }
+        ExprKind::Field { obj, name } => {
+            // `obj.field` — look up the field type on the receiver's
+            // class. Only works when the receiver's type resolves to
+            // a known user class.
+            let ot = infer_let_rhs(obj, env, ctx)?;
+            let class_name = match &ot {
+                Type::Object(n) => *n,
+                Type::Generic(g) => g.base,
+                _ => return None,
+            };
+            let cd = ctx.classes.get(&class_name)?;
+            cd.fields
+                .iter()
+                .find(|f| f.name == *name)
+                .map(|f| f.ty.clone())
         }
         ExprKind::If { then_branch, else_branch, .. } => {
             // Type of `if-else` = type of either arm. Walk the
@@ -708,18 +771,18 @@ fn infer_let_rhs(
                 ExprKind::Block(then_branch.clone()),
                 Span::dummy(),
             );
-            if let Some(ty) = infer_let_rhs(&then_synth, env, fn_returns) {
+            if let Some(ty) = infer_let_rhs(&then_synth, env, ctx) {
                 return Some(ty);
             }
             if let Some(eb) = else_branch {
-                return infer_let_rhs(eb, env, fn_returns);
+                return infer_let_rhs(eb, env, ctx);
             }
             None
         }
         ExprKind::Match { arms, .. } => {
             // Type of match = type of any arm body. Try the first.
             for a in arms.iter() {
-                if let Some(ty) = infer_let_rhs(&a.body, env, fn_returns) {
+                if let Some(ty) = infer_let_rhs(&a.body, env, ctx) {
                     return Some(ty);
                 }
             }
@@ -732,7 +795,7 @@ fn infer_let_rhs(
             for s in &b.stmts {
                 if let StmtKind::Let { name, ty, value, .. } = &s.kind {
                     let t = ty.clone().or_else(|| {
-                        infer_let_rhs(value, &inner_env, fn_returns)
+                        infer_let_rhs(value, &inner_env, ctx)
                     });
                     if let Some(t) = t {
                         inner_env.insert(*name, t);
@@ -741,7 +804,7 @@ fn infer_let_rhs(
             }
             b.tail
                 .as_deref()
-                .and_then(|t| infer_let_rhs(t, &inner_env, fn_returns))
+                .and_then(|t| infer_let_rhs(t, &inner_env, ctx))
         }
         _ => None,
     }
