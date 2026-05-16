@@ -2,16 +2,67 @@
 //! its calling convention (host-form / ilang-form / `@extern(C)`),
 //! CRepr struct passing rules (chunked / HFA / indirect), and
 //! per-element clif type / stride utilities for arrays + raw fields.
+//!
+//! ## CRepr by-value byte thresholds
+//!
+//! Two thresholds bound how big a CRepr struct can be before the
+//! ABI switches from "chunk it into i64 registers" to "pass a
+//! pointer to a caller-side scratch copy". They differ by ABI:
+//!
+//! - **C ABI** (real C library / `@extern(C) @lib(...)` callees):
+//!   fixed at 16 bytes by the AArch64 AAPCS64 / x86_64 SysV
+//!   "≤2 integer regs" rule. Changing it would break interop
+//!   with every C function that takes a struct by value.
+//! - **ilang ABI** (`Local` / `ExternBody` callees): set higher
+//!   to keep moderate-sized structs in registers across ilang
+//!   call boundaries. This is purely a perf/codegen knob — both
+//!   sides of the call boundary use the same value, so any
+//!   number is sound; tune it where the chunk vs. memcpy
+//!   tradeoff makes sense for the workload.
+//!
+//! Sret (indirect return) uses the same threshold as the
+//! corresponding "chunkable" path on the same side, so any return
+//! that doesn't fit in chunks goes through a hidden pointer the
+//! caller pre-allocated.
 
 use cranelift::prelude::*;
 use cranelift_codegen::ir::{AbiParam, Signature};
 use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
 use cranelift_module::Module;
 
-use ilang_mir::{Function as MirFunction, MirTy, Program};
+use ilang_mir::{FunctionKind, Function as MirFunction, MirTy, Program};
 
 use crate::ty::mir_to_clif;
 use super::CompileError;
+
+/// C SysV / AArch64 AAPCS64 "≤2 integer registers" rule. Fixed
+/// by the platform ABI — do not change.
+pub(super) const C_BYVAL_CHUNK_MAX: i64 = 16;
+
+/// Cutoff for ilang's internal by-value calling convention.
+/// Structs up to this many bytes are passed as i64 chunks in
+/// registers; larger ones go through a caller-side memcpy into a
+/// scratch StackSlot whose pointer is then handed off. Tunable.
+pub(super) const IL_BYVAL_CHUNK_MAX: i64 = 64;
+
+/// Whether `f` follows the C ABI (real C functions, callbacks
+/// exposed under C ABI) vs the looser ilang ABI. The two differ
+/// only in the by-value chunk threshold.
+fn is_c_abi(f: &MirFunction) -> bool {
+    matches!(
+        f.kind,
+        FunctionKind::Extern { .. } | FunctionKind::ExternBody
+    )
+}
+
+/// Picks the right by-value chunk cap for the given callee: C
+/// functions stay at the platform-fixed 16 B; everything else
+/// uses the larger ilang cap. Call sites that already know the
+/// callee's `FunctionKind` should use this so the chunk schema
+/// matches what `clif_signature_for` declared.
+pub(super) fn chunk_max_for(f: &MirFunction) -> i64 {
+    if is_c_abi(f) { C_BYVAL_CHUNK_MAX } else { IL_BYVAL_CHUNK_MAX }
+}
 
 /// Build a Cranelift `Signature` matching the calling convention
 /// for `f`:
@@ -29,21 +80,14 @@ pub(super) fn clif_signature_for<M: Module>(
 ) -> Result<Signature, CompileError> {
     let mut sig = module.make_signature();
     let is_extern = matches!(f.kind, ilang_mir::FunctionKind::Extern { .. });
-    // CRepr / CPacked / CUnion params and returns ALWAYS use the
-    // by-value rules — chunked (≤16 B → 1-2 i64), HFA (≤4 same float),
-    // or indirect sret (>16 B). This was previously gated on
-    // `is_extern` (i.e. only `@extern(C)` fns got it), forcing every
-    // ilang→ilang call that passed a struct to fall back to pointer
-    // passing — which in turn defeated stack promotion since
-    // pointer-passing makes the value escape to the callee. Applying
-    // the same rules across all function kinds gives true value
-    // semantics: the callee gets its own copy in registers / its own
-    // frame slot, and the caller's stack-promoted struct survives
-    // the call unharmed.
-    //
-    // ArcObject params / returns stay pointer-typed (they're
-    // reference types — sharing the pointer IS the semantics).
-    let sret_size = struct_indirect(&f.ret, prog);
+    // CRepr / CPacked / CUnion params and returns use the by-value
+    // rules — chunked into i64 GPRs, HFA float regs, or an indirect
+    // sret return. The chunk-vs-memcpy threshold differs by ABI:
+    // C ABI is fixed at 16 B by the platform spec; ilang ABI uses
+    // the higher `IL_BYVAL_CHUNK_MAX`. ArcObject / Array / etc.
+    // stay pointer-typed (reference semantics).
+    let chunk_max = if is_c_abi(f) { C_BYVAL_CHUNK_MAX } else { IL_BYVAL_CHUNK_MAX };
+    let sret_size = struct_indirect_with_max(&f.ret, prog, chunk_max);
     if sret_size.is_some() {
         sig.params.push(AbiParam::special(
             types::I64,
@@ -57,19 +101,20 @@ pub(super) fn clif_signature_for<M: Module>(
             }
             continue;
         }
-        if let Some(chunks) = struct_chunks(&p.ty, prog) {
+        if let Some(chunks) = struct_chunks_with_max(&p.ty, prog, chunk_max) {
             for _ in 0..chunks {
                 sig.params.push(AbiParam::new(types::I64));
             }
             continue;
         }
-        // >16 B CRepr (neither HFA nor chunkable): the param is a
-        // single pointer at the ABI level, but the call site
-        // memcpys the bytes into a scratch buffer before the call
-        // (see `lower_inst::calls`) — the callee sees a pointer to
-        // *that* copy, preserving value semantics. Cranelift's
-        // `StructArgument` purpose would also do this but it isn't
-        // supported on AArch64, so the copy is emitted manually.
+        // CRepr over the chunk cap (neither HFA nor chunkable):
+        // the param is a single pointer at the ABI level, but the
+        // call site memcpys the bytes into a scratch buffer before
+        // the call (see `lower_inst::calls`) — the callee sees a
+        // pointer to *that* copy, preserving value semantics.
+        // Cranelift's `StructArgument` purpose would also do this
+        // but it isn't supported on AArch64, so the copy is
+        // emitted manually.
         if let Some(ct) = mir_to_clif(&p.ty) {
             sig.params.push(AbiParam::new(ct));
         } else {
@@ -91,7 +136,7 @@ pub(super) fn clif_signature_for<M: Module>(
             }
             return Ok(sig);
         }
-        if let Some(chunks) = struct_chunks(&f.ret, prog) {
+        if let Some(chunks) = struct_chunks_with_max(&f.ret, prog, chunk_max) {
             for _ in 0..chunks {
                 sig.returns.push(AbiParam::new(types::I64));
             }
@@ -104,22 +149,28 @@ pub(super) fn clif_signature_for<M: Module>(
     Ok(sig)
 }
 
-/// For an `@extern(C)` CRepr struct ≤ 16 B: returns `Some(chunks)`
-/// where `chunks` is 1 or 2 i64 GPR slots. > 16 B / non-CRepr / non-
-/// Object types return `None` (caller treats as pointer-sized i64).
-pub(super) fn struct_chunks(ty: &MirTy, prog: &Program) -> Option<usize> {
+/// Number of i64 chunk slots to pass `ty` in, capped at the given
+/// `max_bytes`. CRepr / CPacked structs ≤ `max_bytes` get
+/// `ceil(c_size / 8)` slots; everything else (>max_bytes, non-CRepr,
+/// non-Object) returns `None` so the caller falls back to either the
+/// memcpy-scratch path or plain pointer passing.
+pub(super) fn struct_chunks_with_max(
+    ty: &MirTy,
+    prog: &Program,
+    max_bytes: i64,
+) -> Option<usize> {
     if let MirTy::Object(cid) = ty {
         let layout = &prog.classes[cid.0 as usize];
         if matches!(
             layout.repr,
             ilang_mir::ClassRepr::CRepr | ilang_mir::ClassRepr::CPacked
-        ) {
-            if layout.c_size <= 8 {
-                return Some(1);
-            }
-            if layout.c_size <= 16 {
-                return Some(2);
-            }
+        ) && layout.c_size > 0
+            && layout.c_size <= max_bytes
+        {
+            // Round up to 8-byte cells: a 12 B struct rides in 2
+            // i64 chunks, a 24 B struct in 3, etc.
+            let chunks = ((layout.c_size + 7) / 8) as usize;
+            return Some(chunks);
         }
     }
     None
@@ -157,16 +208,17 @@ pub(super) fn struct_hfa(ty: &MirTy, prog: &Program) -> Option<(cranelift::prelu
     None
 }
 
-/// Larger CRepr structs (> 16 B) are returned through a hidden
-/// pointer (`ArgumentPurpose::StructReturn`). Returns `Some(c_size)`
-/// for those, `None` for chunkable / non-CRepr / non-Object types.
 /// `Some(c_size)` for a CRepr struct / union / packed that's
-/// passed by value as a single ABI param-pointer (the
-/// `StructArgument(size)` shape — Cranelift will memcpy at the
-/// call boundary). Returns `None` for types that get the chunked /
-/// HFA treatment, or for non-CRepr Object types (which stay
-/// pointer-typed with reference semantics).
-pub(super) fn struct_byval_size(ty: &MirTy, prog: &Program) -> Option<i64> {
+/// bigger than the given `max_bytes` chunk cap — these don't fit
+/// in the chunk path so the call site must memcpy the bytes into
+/// a scratch buffer and pass that buffer's pointer. Returns `None`
+/// for types that DO fit in chunks (or HFA float regs) and for
+/// non-CRepr Object types (which stay reference-typed).
+pub(super) fn struct_byval_size_with_max(
+    ty: &MirTy,
+    prog: &Program,
+    max_bytes: i64,
+) -> Option<i64> {
     if let MirTy::Object(cid) = ty {
         let layout = &prog.classes[cid.0 as usize];
         if matches!(
@@ -174,7 +226,7 @@ pub(super) fn struct_byval_size(ty: &MirTy, prog: &Program) -> Option<i64> {
             ilang_mir::ClassRepr::CRepr
                 | ilang_mir::ClassRepr::CPacked
                 | ilang_mir::ClassRepr::CUnion
-        ) && layout.c_size > 16
+        ) && layout.c_size > max_bytes
             && struct_hfa(ty, prog).is_none()
         {
             return Some(layout.c_size);
@@ -183,13 +235,21 @@ pub(super) fn struct_byval_size(ty: &MirTy, prog: &Program) -> Option<i64> {
     None
 }
 
-pub(super) fn struct_indirect(ty: &MirTy, prog: &Program) -> Option<i64> {
+/// Sret hidden-pointer return for any CRepr struct / packed whose
+/// bytes overflow the given `max_bytes` chunk cap on the return
+/// side. Returns `Some(c_size)` to size the caller's pre-allocated
+/// destination buffer.
+pub(super) fn struct_indirect_with_max(
+    ty: &MirTy,
+    prog: &Program,
+    max_bytes: i64,
+) -> Option<i64> {
     if let MirTy::Object(cid) = ty {
         let layout = &prog.classes[cid.0 as usize];
         if matches!(
             layout.repr,
             ilang_mir::ClassRepr::CRepr | ilang_mir::ClassRepr::CPacked
-        ) && layout.c_size > 16
+        ) && layout.c_size > max_bytes
         {
             return Some(layout.c_size);
         }

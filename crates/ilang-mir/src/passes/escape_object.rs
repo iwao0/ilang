@@ -175,12 +175,14 @@ fn resolve_alias(mut v: ValueId, alias: &HashMap<ValueId, ValueId>) -> ValueId {
 
 /// `true` when an arg passed to a Call would be consumed by-value:
 /// the call site either explodes it into HFA float regs / i64
-/// chunks, or memcpys it into a scratch buffer (>16 B) before the
-/// call. In all three shapes the callee gets its own frame copy
-/// and the caller's pointer never reaches it, so the arg doesn't
-/// escape and a stack-promoted local can survive being passed
-/// through the call. ArcObject / Array / etc. stay reference-
-/// typed and are NOT covered.
+/// chunks (size under the callee's chunk cap — 16 B for C ABI,
+/// `IL_BYVAL_CHUNK_MAX` for ilang ABI), or memcpys it into a
+/// scratch buffer (over the cap) before the call. In all shapes
+/// the callee gets its own frame copy and the caller's pointer
+/// never reaches it, so the arg doesn't escape and a stack-
+/// promoted local can survive being passed through the call.
+/// ArcObject / Array / etc. stay reference-typed and are NOT
+/// covered.
 fn arg_passed_by_value(arg_ty: &crate::types::MirTy, prog: &Program) -> bool {
     if let crate::types::MirTy::Object(cid) = arg_ty {
         let layout = &prog.classes[cid.0 as usize];
@@ -302,13 +304,14 @@ fn check_inst_escape(
                 leak(c);
             }
         }
-        // CRepr struct args (≤16 B chunks or HFA float regs) are
-        // consumed by-value at the call site: the callee gets a
-        // fresh frame copy and never sees the caller's pointer.
-        // Such args don't escape the caller, so a stack-promoted
-        // local can survive being passed through a function call —
-        // which is the whole point of the by-value ABI. Pointer-
-        // passed (>16 B, ArcObject, Array, Map, etc.) args still
+        // CRepr struct args are consumed by-value at the call site
+        // — chunked into i64 / float regs when they fit the ABI's
+        // chunk cap, otherwise memcpy'd into a scratch buffer the
+        // call site allocates. Either way the callee gets a fresh
+        // frame copy and never sees the caller's pointer, so a
+        // stack-promoted local can survive being passed through a
+        // function call (the whole point of the by-value ABI).
+        // Reference-typed args (ArcObject, Array, Map, etc.) still
         // leak as before.
         Call { args, .. } => {
             for a in args.iter() {

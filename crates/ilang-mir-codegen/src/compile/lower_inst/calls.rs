@@ -20,7 +20,8 @@ use ilang_mir::{
 use crate::ty::mir_to_clif;
 
 use super::super::abi::{
-    elem_byte_stride, elem_clif_type, struct_chunks, struct_hfa, struct_indirect,
+    chunk_max_for, elem_byte_stride, elem_clif_type, struct_byval_size_with_max,
+    struct_chunks_with_max, struct_hfa, struct_indirect_with_max,
 };
 use super::super::print_emit::emit_print_value;
 use super::super::{
@@ -92,9 +93,10 @@ pub(super) fn lower_call<M: Module>(
         }
     }
     let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len());
-    // Resolve callee FuncId early so we can know whether it's
-    // extern (and split CRepr struct args into chunks).
-    let (callee_cid, is_callee_extern, is_callee_builtin) = match callee {
+    // Resolve callee FuncId early so the by-value chunk schema
+    // matches what `clif_signature_for` declared on the callee
+    // side (C ABI vs ilang ABI cap).
+    let (callee_cid, is_callee_extern, is_callee_builtin, callee_chunk_max) = match callee {
         FuncRef::Local(id) => {
             let target_func = &prog.functions[id.0 as usize];
             let is_extern_callee =
@@ -102,17 +104,20 @@ pub(super) fn lower_call<M: Module>(
             let cid = *fn_ids.get(id).ok_or_else(|| {
                 CompileError::Other(format!("missing fn id #{}", id.0))
             })?;
-            (Some(cid), is_extern_callee, false)
+            (Some(cid), is_extern_callee, false, chunk_max_for(target_func))
         }
-        _ => (None, false, false),
+        // Builtins don't take CRepr struct args by the chunk path —
+        // any threshold works, pick the C one defensively.
+        _ => (None, false, false, super::super::abi::C_BYVAL_CHUNK_MAX),
     };
     // sret: pre-alloc the destination struct and pass its pointer
-    // as the hidden first arg. Triggered by any CRepr return >16 B
-    // regardless of who the callee is — the by-value ABI is now
-    // uniform across `@extern(C)` and ilang fns.
+    // as the hidden first arg. Triggered when the callee returns a
+    // CRepr struct that doesn't fit in its ABI's chunk budget.
     let sret_dst = if let Some(d) = dst {
         let dst_ty = func.ty_of(*d).clone();
-        if let Some(c_size) = struct_indirect(&dst_ty, prog) {
+        if let Some(c_size) =
+            struct_indirect_with_max(&dst_ty, prog, callee_chunk_max)
+        {
             let size_v = fb.ins().iconst(types::I64, c_size);
             let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
             let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
@@ -188,7 +193,7 @@ pub(super) fn lower_call<M: Module>(
                 }
                 continue;
             }
-            if let Some(chunks) = struct_chunks(aty, prog) {
+            if let Some(chunks) = struct_chunks_with_max(aty, prog, callee_chunk_max) {
                 for c in 0..chunks {
                     let cell = fb.ins().load(
                         types::I64,
@@ -200,15 +205,15 @@ pub(super) fn lower_call<M: Module>(
                 }
                 continue;
             }
-            // >16 B CRepr (non-HFA, non-chunkable): emit the
-            // caller-side memcpy manually. Cranelift's
-            // `StructArgument(size)` purpose would do the same
-            // thing but it isn't implemented on AArch64. Allocate
-            // a scratch StackSlot of c_size, byte-copy the source
-            // struct into it, and pass that slot's pointer — the
-            // callee can mutate fields freely without reaching
+            // CRepr above the callee's chunk cap (non-HFA, non-
+            // chunkable): emit the caller-side memcpy manually.
+            // Cranelift's `StructArgument(size)` purpose would do
+            // the same thing but it isn't implemented on AArch64.
+            // Allocate a scratch StackSlot of c_size, byte-copy the
+            // source struct into it, and pass that slot's pointer —
+            // the callee can mutate fields freely without reaching
             // back into the caller's value.
-            if let Some(size) = crate::compile::abi::struct_byval_size(aty, prog) {
+            if let Some(size) = struct_byval_size_with_max(aty, prog, callee_chunk_max) {
                 let slot = fb.create_sized_stack_slot(
                     cranelift_codegen::ir::StackSlotData::new(
                         cranelift_codegen::ir::StackSlotKind::ExplicitSlot,
@@ -508,7 +513,7 @@ pub(super) fn lower_call<M: Module>(
                 vmap.insert(*d, ptr);
                 return Ok(());
             }
-            if let Some(chunks) = struct_chunks(&dst_ty, prog) {
+            if let Some(chunks) = struct_chunks_with_max(&dst_ty, prog, callee_chunk_max) {
                 let layout = if let MirTy::Object(cid) = &dst_ty {
                     &prog.classes[cid.0 as usize]
                 } else {

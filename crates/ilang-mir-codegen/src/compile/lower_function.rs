@@ -13,7 +13,9 @@ use cranelift_module::{DataId, Module};
 use ilang_ast::Symbol;
 use ilang_mir::{FuncId, Function as MirFunction, MirTy, Program, StaticSlotId, ValueId};
 
-use crate::compile::abi::{struct_chunks, struct_hfa, struct_indirect};
+use crate::compile::abi::{
+    chunk_max_for, struct_chunks_with_max, struct_hfa, struct_indirect_with_max,
+};
 use crate::ty::mir_to_clif;
 
 use super::lower_inst::lower_inst;
@@ -46,14 +48,20 @@ pub(super) fn lower_function<M: Module>(
     //   [sret_ptr?] [param_0_chunks…] … [param_N_chunks…] [env_ptr (non-extern)]
     // where each `param_i_chunks…` is either:
     //   - HFA float regs (1–4 floats) for ≤4-field float-only CRepr
-    //   - 1–2 i64 GPR chunks for ≤16 B CRepr
+    //   - 1..N i64 GPR chunks for CRepr ≤ `chunk_max_for(func)` bytes
     //   - the sret pointer absorbs the return (no clif return)
     //   - or a single clif slot for non-CRepr (mir_to_clif).
+    // The `chunk_max` differs per ABI: C ABI is fixed at 16 B by
+    // the platform spec; ilang ABI uses `IL_BYVAL_CHUNK_MAX` so
+    // moderate-sized structs ride in registers across pure-ilang
+    // call boundaries.
+    //
     // Non-entry blocks keep the simple 1-slot-per-MIR-param shape:
     // SSA-style block args flowing between basic blocks are always
     // pointer-sized for Object types.
     let is_extern = matches!(func.kind, ilang_mir::FunctionKind::Extern { .. });
-    let sret_ret_size = struct_indirect(&func.ret, prog);
+    let chunk_max = chunk_max_for(func);
+    let sret_ret_size = struct_indirect_with_max(&func.ret, prog, chunk_max);
     let mut blocks: Vec<cranelift::prelude::Block> = Vec::with_capacity(func.blocks.len());
     for (i, blk) in func.blocks.iter().enumerate() {
         let b = fb.create_block();
@@ -71,7 +79,7 @@ pub(super) fn lower_function<M: Module>(
                     }
                     continue;
                 }
-                if let Some(chunks) = struct_chunks(pty, prog) {
+                if let Some(chunks) = struct_chunks_with_max(pty, prog, chunk_max) {
                     for _ in 0..chunks {
                         fb.append_block_param(b, types::I64);
                     }
@@ -142,7 +150,7 @@ pub(super) fn lower_function<M: Module>(
                 vmap.insert(p, ptr);
                 continue;
             }
-            if let Some(chunks) = struct_chunks(pty, prog) {
+            if let Some(chunks) = struct_chunks_with_max(pty, prog, chunk_max) {
                 let layout = match pty {
                     MirTy::Object(cid) => &prog.classes[cid.0 as usize],
                     _ => unreachable!(),
@@ -204,6 +212,7 @@ pub(super) fn lower_function<M: Module>(
     let ret_abi = ReturnAbi {
         sret_ptr,
         ret_ty: func.ret.clone(),
+        chunk_max,
     };
 
     // Declare a Cranelift `Variable` for every MIR local. Cranelift

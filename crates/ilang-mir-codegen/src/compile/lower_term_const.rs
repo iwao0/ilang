@@ -8,7 +8,7 @@ use cranelift_frontend::FunctionBuilder as ClifFnBuilder;
 
 use ilang_mir::{MirConst, MirTy, Program, Terminator, ValueId};
 
-use crate::compile::abi::{struct_chunks, struct_hfa, struct_indirect};
+use crate::compile::abi::{struct_chunks_with_max, struct_hfa, struct_indirect_with_max};
 use crate::ty::mir_to_clif;
 
 use super::CompileError;
@@ -22,6 +22,11 @@ use super::CompileError;
 pub(super) struct ReturnAbi {
     pub sret_ptr: Option<Value>,
     pub ret_ty: MirTy,
+    /// By-value chunk byte cap for this function's ABI (C vs ilang).
+    /// Determines whether the return's bytes get split into i64
+    /// chunks here or were absorbed by the sret hidden pointer
+    /// at the entry block.
+    pub chunk_max: i64,
 }
 
 pub(super) fn lower_term(
@@ -55,7 +60,9 @@ pub(super) fn lower_term(
             // single-value or void return path.
             if let Some(v) = value {
                 let cv_opt = vmap.get(v).copied();
-                if let Some(c_size) = struct_indirect(&ret_abi.ret_ty, prog) {
+                if let Some(c_size) =
+                    struct_indirect_with_max(&ret_abi.ret_ty, prog, ret_abi.chunk_max)
+                {
                     if let (Some(sret), Some(cv)) = (ret_abi.sret_ptr, cv_opt) {
                         // memcpy struct bytes (cv → sret) one i64 cell
                         // at a time. `c_size` already includes any
@@ -88,7 +95,9 @@ pub(super) fn lower_term(
                         return Ok(());
                     }
                 }
-                if let Some(chunks) = struct_chunks(&ret_abi.ret_ty, prog) {
+                if let Some(chunks) =
+                    struct_chunks_with_max(&ret_abi.ret_ty, prog, ret_abi.chunk_max)
+                {
                     if let Some(cv) = cv_opt {
                         let mut vs: Vec<Value> = Vec::with_capacity(chunks);
                         for c in 0..chunks {
