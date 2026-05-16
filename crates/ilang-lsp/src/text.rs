@@ -312,8 +312,13 @@ pub(crate) fn extract_doc_above(text: &str, decl_line: u32) -> Option<String> {
             continue;
         }
         // Allow `@attribute(args)` between docs and decl; everything
-        // else (blank line, code) ends the block.
-        if trimmed.starts_with('@') || trimmed.is_empty() && doc_lines.is_empty() {
+        // else (blank line, code) ends the block. A line that also
+        // contains `{` is a block-opening declaration (`@extern(C) {`,
+        // `@objc pub class NSObject {`), not a pure attribute — stop
+        // there so a method's `extract_doc_above` doesn't leak past
+        // the class opener and pick up the class's doc comment.
+        let pure_attr = trimmed.starts_with('@') && !trimmed.contains('{');
+        if pure_attr || (trimmed.is_empty() && doc_lines.is_empty()) {
             // Blank line *before* any doc lines → no doc block here.
             // `@attr` lines between docs and decl are silently skipped.
             if i == 0 {
