@@ -341,7 +341,10 @@ impl<'a> Parser<'a> {
                         ) =>
                 {
                     self.bump();
-                    let mut fs: Vec<(Symbol, Expr)> = Vec::new();
+                    // Struct literals typically have a handful of fields;
+                    // prealloc avoids the 0→4→8 reallocation pair for
+                    // the common 3–4-field case.
+                    let mut fs: Vec<(Symbol, Expr)> = Vec::with_capacity(4);
                     while !matches!(self.peek().kind, TokenKind::RBrace) {
                         let fname = self.expect_ident("field name")?;
                         self.expect(&TokenKind::Colon, "':'")?;
@@ -484,7 +487,7 @@ impl<'a> Parser<'a> {
             let name = self.expect_member_name("field or method name")?;
             if matches!(self.peek().kind, TokenKind::LParen) {
                 self.bump();
-                let mut args = Vec::new();
+                let mut args = Vec::with_capacity(4);
                 if !matches!(self.peek().kind, TokenKind::RParen) {
                     loop {
                         args.push(self.parse_expr(0)?);
@@ -524,7 +527,7 @@ impl<'a> Parser<'a> {
                 // (i.e. `EnumName`); chained access like `a.b.c { ... }`
                 // is not enum-ctor.
                 self.bump();
-                let mut fs = Vec::new();
+                let mut fs = Vec::with_capacity(4);
                 while !matches!(self.peek().kind, TokenKind::RBrace) {
                     let fname = self.expect_ident("field name")?;
                     self.expect(&TokenKind::Colon, "':'")?;
@@ -671,7 +674,7 @@ impl<'a> Parser<'a> {
                     Vec::new()
                 };
                 self.expect(&TokenKind::LParen, "'('")?;
-                let mut args = Vec::new();
+                let mut args = Vec::with_capacity(4);
                 if !matches!(self.peek().kind, TokenKind::RParen) {
                     loop {
                         args.push(self.parse_expr(0)?);
@@ -790,7 +793,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let scrutinee = self.parse_expr(0)?;
                 self.expect(&TokenKind::LBrace, "'{'")?;
-                let mut arms = Vec::new();
+                let mut arms = Vec::with_capacity(4);
                 while !matches!(self.peek().kind, TokenKind::RBrace) {
                     let arm_span = self.peek().span;
                     let pattern = self.parse_pattern_in_arm()?;
@@ -924,7 +927,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBracket => {
                 self.bump();
-                let mut elements = Vec::new();
+                let mut elements = Vec::with_capacity(4);
                 while !matches!(self.peek().kind, TokenKind::RBracket) {
                     elements.push(self.parse_expr(0)?);
                     // Trailing comma is allowed: stop the loop if the next
@@ -1100,7 +1103,7 @@ impl<'a> Parser<'a> {
     /// `new Map<K, V>()`).
     fn parse_map_literal(&mut self, span: ilang_ast::Span) -> Result<Expr, ParseError> {
         self.expect(&TokenKind::LBrace, "'{'")?;
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(4);
         while !matches!(self.peek().kind, TokenKind::RBrace) {
             let key = self.parse_expr(0)?;
             self.expect(&TokenKind::Colon, "':'")?;
@@ -1172,7 +1175,7 @@ impl<'a> Parser<'a> {
     /// here. Trailing comma is allowed (matches the rest of the
     /// language's punctuation flexibility).
     fn parse_call_args(&mut self) -> Result<Vec<Expr>, ParseError> {
-        let mut args = Vec::new();
+        let mut args = Vec::with_capacity(4);
         if !matches!(self.peek().kind, TokenKind::RParen) {
             loop {
                 args.push(self.parse_expr(0)?);

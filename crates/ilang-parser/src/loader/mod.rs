@@ -274,12 +274,16 @@ fn resolve_module(
     if builtin_module_source(module).is_some() {
         return Ok(builtin_path(module));
     }
-    let primary = dir.join(format!("{module}.il"));
+    // Build the `module.il` filename exactly once and reuse it for
+    // every candidate directory; the old version re-formatted it for
+    // each `extra_paths` entry.
+    let filename = format!("{module}.il");
+    let primary = dir.join(&filename);
     if primary.exists() {
         return canonicalize(&primary);
     }
     for extra in extra_paths {
-        let candidate = extra.join(format!("{module}.il"));
+        let candidate = extra.join(&filename);
         if candidate.exists() {
             return canonicalize(&candidate);
         }

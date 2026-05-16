@@ -32,6 +32,7 @@ pub(crate) fn is_block_like(e: &Expr) -> bool {
 }
 
 impl<'a> Parser<'a> {
+    #[inline]
     pub(crate) fn peek(&self) -> &'a Token {
         &self.tokens[self.pos]
     }
@@ -50,6 +51,7 @@ impl<'a> Parser<'a> {
         self.tokens.get(self.pos + n)
     }
 
+    #[inline]
     pub(crate) fn bump(&mut self) -> &'a Token {
         let t = &self.tokens[self.pos];
         if !matches!(t.kind, TokenKind::Eof) {
@@ -58,6 +60,14 @@ impl<'a> Parser<'a> {
         t
     }
 
+    /// The non-payload variants of `TokenKind` (the vast majority of
+    /// `expect` calls target these) are unit-like, so a single byte
+    /// discriminant comparison is enough. `#[inline]` lets LLVM fold
+    /// the discriminant lookup into a direct tag compare at each call
+    /// site, which is what a literal `matches!(t.kind, TokenKind::Foo)`
+    /// would compile to but without needing one bespoke wrapper per
+    /// variant.
+    #[inline]
     pub(crate) fn expect(
         &mut self,
         expected: &TokenKind,
@@ -77,13 +87,17 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn expect_ident(&mut self, label: &str) -> Result<ilang_ast::Symbol, ParseError> {
-        let t = self.peek().clone();
-        if let TokenKind::Ident(n) = t.kind {
+        // Peek by reference so the Token (and its String payload) is not
+        // cloned on the happy path; only the identifier's own String is
+        // cloned to be moved into the returned Symbol.
+        let t = self.peek();
+        if let TokenKind::Ident(n) = &t.kind {
+            let s = n.clone();
             self.bump();
-            Ok(n.into())
+            Ok(s.into())
         } else {
             Err(ParseError::Unexpected {
-                found: t.kind,
+                found: t.kind.clone(),
                 expected: label.into(),
                 span: t.span,
             })
@@ -103,7 +117,10 @@ impl<'a> Parser<'a> {
         &mut self,
         label: &str,
     ) -> Result<ilang_ast::Symbol, ParseError> {
-        let t = self.peek().clone();
+        // Reference-only inspection so non-identifier branches don't pay
+        // for a full Token clone (which would copy the kind's String
+        // payload when one is present).
+        let t = self.peek();
         let name: Option<&'static str> = match &t.kind {
             TokenKind::Ident(n) => {
                 let s = n.clone();
@@ -130,7 +147,7 @@ impl<'a> Parser<'a> {
             Ok(s.into())
         } else {
             Err(ParseError::Unexpected {
-                found: t.kind,
+                found: t.kind.clone(),
                 expected: label.into(),
                 span: t.span,
             })
@@ -141,6 +158,7 @@ impl<'a> Parser<'a> {
     /// becomes a statement (followed by `;`, JS-style implicit terminator
     /// from a leading newline on the next token, or block-like form) or the
     /// trailing expression (at end of program/block).
+    #[inline]
     pub(crate) fn classify_expr_end(
         &mut self,
         expr: &Expr,

@@ -4,7 +4,12 @@ use crate::token::{Span, Token, TokenKind};
 pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
     reject_invisible(src)?;
     let mut lexer = Lexer::new(src);
-    let mut tokens = Vec::new();
+    // Empirically ~1 token per ~4 bytes of source for this language;
+    // pre-allocating avoids the geometric reallocation traffic that a
+    // bare Vec::new() incurs on every push. Over-allocating slightly is
+    // cheaper than the 7+ reallocations the default growth would do for
+    // a moderate file.
+    let mut tokens = Vec::with_capacity(src.len() / 4 + 16);
     loop {
         let tok = lexer.next_token()?;
         let is_eof = matches!(tok.kind, TokenKind::Eof);
@@ -49,6 +54,16 @@ fn invisible_name(c: char) -> Option<&'static str> {
 }
 
 fn reject_invisible(src: &str) -> Result<(), LexError> {
+    // Fast path: invisible chars are all multi-byte (≥ 2 bytes in UTF-8).
+    // A pure-ASCII file (the common case) needs no per-char walk at all —
+    // a single bytes scan is enough to confirm we can skip the work.
+    if src.is_ascii() {
+        return Ok(());
+    }
+    // Slow path: at least one non-ASCII byte exists, so a forbidden code
+    // point may appear. Walk char-by-char and report position when found.
+    // `line`/`col` are kept just for error reporting; we don't pay the
+    // bookkeeping for files that don't reach the slow path.
     let mut line: u32 = 1;
     let mut col: u32 = 1;
     let mut byte_off: usize = 0;
@@ -87,6 +102,12 @@ fn is_ident_continue(c: char) -> bool {
 struct Lexer<'a> {
     chars: std::str::Chars<'a>,
     peeked: Option<char>,
+    /// Cached second-lookahead char. `None` means "not yet computed";
+    /// `Some(None)` means "already peeked, EOF reached"; `Some(Some(c))`
+    /// is a fresh value. Filled lazily by `peek_second` and invalidated
+    /// in `bump`. Avoids the per-call `Chars::clone()` the previous
+    /// implementation performed (which walks UTF-8 state internally).
+    peeked2: Option<Option<char>>,
     line: u32,
     col: u32,
     /// Position of the most recently bumped character (1-based, inclusive).
@@ -103,6 +124,7 @@ struct Lexer<'a> {
 struct LexerSnapshot<'a> {
     chars: std::str::Chars<'a>,
     peeked: Option<char>,
+    peeked2: Option<Option<char>>,
     line: u32,
     col: u32,
     last_line: u32,
@@ -119,6 +141,7 @@ impl<'a> Lexer<'a> {
         Self {
             chars: src.chars(),
             peeked: None,
+            peeked2: None,
             line: 1,
             col: 1,
             last_line: 1,
@@ -136,6 +159,11 @@ impl<'a> Lexer<'a> {
 
     fn bump(&mut self) -> Option<char> {
         let c = self.peeked.take().or_else(|| self.chars.next())?;
+        // The cached second-lookahead is for the *previous* position;
+        // invalidate so the next peek_second recomputes against the new
+        // position. We leave `chars` untouched (it was never advanced
+        // when `peeked2` was filled — see peek_second).
+        self.peeked2 = None;
         // Remember the position of *this* char so that token spans can
         // record their last char (inclusive end position).
         self.last_line = self.line;
@@ -218,9 +246,17 @@ impl<'a> Lexer<'a> {
 
     fn peek_second(&mut self) -> Option<char> {
         // Need to materialize the first peeked char first so the underlying
-        // iterator advances to the second one.
+        // iterator sits at the second char. We clone once per position (the
+        // old code re-cloned on every call) and cache the result in
+        // `peeked2`; `bump()` invalidates the cache. `chars` itself is not
+        // advanced, so other helpers that do their own `chars.clone()` for
+        // deeper lookahead (numeric prefix, float-suffix probe) keep
+        // working unchanged.
         let _ = self.peek();
-        self.chars.clone().next()
+        if self.peeked2.is_none() {
+            self.peeked2 = Some(self.chars.clone().next());
+        }
+        self.peeked2.unwrap()
     }
 
     fn next_token(&mut self) -> Result<Token, LexError> {
@@ -517,6 +553,7 @@ impl<'a> Lexer<'a> {
         let snap = LexerSnapshot {
             chars: self.chars.clone(),
             peeked: self.peeked,
+            peeked2: self.peeked2,
             line: self.line,
             col: self.col,
             last_line: self.last_line,
@@ -524,35 +561,55 @@ impl<'a> Lexer<'a> {
             pending_newline: self.pending_newline,
         };
         let suffix_span = Span::new(self.line, self.col);
-        let mut full = String::new();
+        // Numeric type suffixes are short, fixed-vocabulary tokens
+        // (`i8`..`u64`, `f32`, `f64`, optionally preceded by one `_`).
+        // The longest valid suffix has 4 bytes (`_u64`), so a tiny
+        // stack buffer is enough — no `String` allocation needed on
+        // the hot numeric-literal path.
+        let mut buf = [0u8; 8];
+        let mut len = 0usize;
+        let mut overflowed = false;
         while let Some(c) = self.peek() {
-            if is_ident_continue(c) {
-                full.push(c);
-                self.bump();
-            } else {
+            if !is_ident_continue(c) {
                 break;
             }
+            // ident chars here are ASCII (`is_ident_continue`).
+            if len < buf.len() {
+                buf[len] = c as u8;
+                len += 1;
+            } else {
+                overflowed = true;
+            }
+            self.bump();
         }
-        let candidate = full.strip_prefix('_').unwrap_or(&full);
-        let ty = match candidate {
-            "i8" => Some(ilang_ast::Type::I8),
-            "i16" => Some(ilang_ast::Type::I16),
-            "i32" => Some(ilang_ast::Type::I32),
-            "i64" => Some(ilang_ast::Type::I64),
-            "u8" => Some(ilang_ast::Type::U8),
-            "u16" => Some(ilang_ast::Type::U16),
-            "u32" => Some(ilang_ast::Type::U32),
-            "u64" => Some(ilang_ast::Type::U64),
-            "f32" => Some(ilang_ast::Type::F32),
-            "f64" => Some(ilang_ast::Type::F64),
-            _ => None,
+        // SAFETY: every byte pushed above came from an ASCII char.
+        let full = std::str::from_utf8(&buf[..len]).unwrap();
+        let leading_underscore = full.starts_with('_');
+        let candidate = if leading_underscore { &full[1..] } else { full };
+        let ty = if overflowed {
+            None
+        } else {
+            match candidate {
+                "i8" => Some(ilang_ast::Type::I8),
+                "i16" => Some(ilang_ast::Type::I16),
+                "i32" => Some(ilang_ast::Type::I32),
+                "i64" => Some(ilang_ast::Type::I64),
+                "u8" => Some(ilang_ast::Type::U8),
+                "u16" => Some(ilang_ast::Type::U16),
+                "u32" => Some(ilang_ast::Type::U32),
+                "u64" => Some(ilang_ast::Type::U64),
+                "f32" => Some(ilang_ast::Type::F32),
+                "f64" => Some(ilang_ast::Type::F64),
+                _ => None,
+            }
         };
         if let Some(t) = ty {
             return Ok(Some(t));
         }
-        if full.starts_with('_') {
+        if leading_underscore {
             self.chars = snap.chars;
             self.peeked = snap.peeked;
+            self.peeked2 = snap.peeked2;
             self.line = snap.line;
             self.col = snap.col;
             self.last_line = snap.last_line;
@@ -560,8 +617,26 @@ impl<'a> Lexer<'a> {
             self.pending_newline = snap.pending_newline;
             return Ok(None);
         }
+        // Unknown suffix that wasn't underscore-prefixed: error out. We
+        // have to materialize a String for the diagnostic, but only on
+        // the error path (the happy / rollback paths above stay
+        // allocation-free).
+        let name = if overflowed {
+            // Recover the full text past the cache by replaying from
+            // the snapshot. Rare path — only triggered by inputs like
+            // `1u12345`.
+            let mut s = String::new();
+            let mut iter = snap.chars.clone();
+            if let Some(p) = snap.peeked { s.push(p); }
+            while let Some(c) = iter.next() {
+                if is_ident_continue(c) { s.push(c); } else { break; }
+            }
+            s
+        } else {
+            full.to_string()
+        };
         Err(LexError::InvalidNumericSuffix {
-            name: full,
+            name,
             span: suffix_span,
         })
     }
