@@ -133,7 +133,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         // the objc_msgSend boundary — `makeWindow` below casts
         // `StyleMask as u64` before invoking this.
         @objc("initWithContentRect:styleMask:backing:defer:")
-        pub initWithContentRect(
+        pub init(
             rect: NSRect, mask: u64, backing: u64, defer: i8
         ): NSWindow
 
@@ -160,7 +160,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         @objc("alloc")
         pub static alloc(): NSButton
         @objc("initWithFrame:")
-        pub initWithFrame(rect: NSRect): NSButton
+        pub init(rect: NSRect): NSButton
 
         @objc("setTitle:")
         pub setTitle(title: NSString)
@@ -240,7 +240,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         // `mask as u64` extracts the @flags tag (the OR'd bits),
         // matching the `NSUInteger` shape `objc_msgSend` expects.
         let win = NSWindow.alloc()
-            .initWithContentRect(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
+            .init(makeRect(x, y, w, h), mask as u64, BACKING_BUFFERED, 0)
         win.setTitle(nsstr(title))
         win
     }
@@ -263,7 +263,7 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         title: string,
         x: f64, y: f64, w: f64, h: f64
     ): NSButton {
-        let btn = NSButton.alloc().initWithFrame(makeRect(x, y, w, h))
+        let btn = NSButton.alloc().init(makeRect(x, y, w, h))
         btn.setTitle(nsstr(title))
         btn.setBezelStyle(BEZEL_ROUNDED)
         btn
