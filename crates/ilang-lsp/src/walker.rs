@@ -235,7 +235,7 @@ impl<'a> Walker<'a> {
             self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
-                format!("(method) {}.{}", c.name, fn_body(m)),
+                format!("{}(method) {}.{}", render_user_attrs(m), c.name, fn_body(m)),
                 text::extract_doc_above(self.text, m.span.line),
             );
             self.walk_fn(m, Some(c.name.as_str()));
@@ -244,7 +244,12 @@ impl<'a> Walker<'a> {
             self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
-                format!("(static method) {}.{}", c.name, fn_body(m)),
+                format!(
+                    "{}(static method) {}.{}",
+                    render_user_attrs(m),
+                    c.name,
+                    fn_body(m)
+                ),
                 text::extract_doc_above(self.text, m.span.line),
             );
             self.walk_fn(m, None);

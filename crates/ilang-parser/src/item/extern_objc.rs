@@ -1120,11 +1120,18 @@ fn build_class_method(
         // The wrapper's signature may reference raw `*objc_*`
         // types when the user's @objc method declared them; flag
         // so the type checker's pointer-in-signature rejection
-        // doesn't trip on us.
-        attrs: Box::new([Attribute {
-            name: Symbol::intern("__objc_wrapper"),
-            args: Box::new([]),
-        }]),
+        // doesn't trip on us. The trailing `@objc("selector:")`
+        // is purely informational — kept so LSP hover renders it.
+        attrs: Box::new([
+            Attribute {
+                name: Symbol::intern("__objc_wrapper"),
+                args: Box::new([]),
+            },
+            Attribute {
+                name: Symbol::intern("objc"),
+                args: Box::new([AttrArg::Str(m.selector.clone())]),
+            },
+        ]),
         name: m.name,
         type_params: Box::new([]),
         params: m.params.clone(),

@@ -395,7 +395,12 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
             for m in &c.methods {
                 let info = MemberInfo {
                     span: m.span,
-                    signature: format!("(method) {}.{}", c.name, fn_body(m)),
+                    signature: format!(
+                        "{}(method) {}.{}",
+                        render_user_attrs(m),
+                        c.name,
+                        fn_body(m)
+                    ),
                     ret_ty: m.ret.clone(),
                     is_static: false,
                     doc: text::extract_doc_above(src, m.span.line),
@@ -409,7 +414,12 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
             for m in &c.static_methods {
                 methods.entry(m.name.clone()).or_insert(MemberInfo {
                     span: m.span,
-                    signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                    signature: format!(
+                        "{}(static method) {}.{}",
+                        render_user_attrs(m),
+                        c.name,
+                        fn_body(m)
+                    ),
                     ret_ty: m.ret.clone(),
                     is_static: true,
                     doc: text::extract_doc_above(src, m.span.line),
@@ -435,7 +445,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
 }
 
 pub(crate) fn fn_signature(f: &FnDecl) -> String {
-    format!("fn {}", fn_body(f))
+    format!("{}fn {}", render_user_attrs(f), fn_body(f))
 }
 
 /// `name(params): ret` — the part that comes after `fn` / `(method)` /
@@ -452,4 +462,39 @@ pub(crate) fn fn_body(f: &FnDecl) -> String {
         None => String::new(),
     };
     format!("{}({}){}", f.name, params, ret)
+}
+
+/// Render the user-visible attributes (e.g. `@objc("alloc")`) as a
+/// newline-terminated prefix. Parser-internal markers like
+/// `__objc_wrapper` are filtered out — they exist only to disable
+/// downstream checks, not for documentation.
+pub(crate) fn render_user_attrs(f: &FnDecl) -> String {
+    use ilang_ast::AttrArg;
+    let mut out = String::new();
+    for a in f.attrs.iter() {
+        let n = a.name.as_str();
+        if n.starts_with("__") {
+            continue;
+        }
+        let args = a
+            .args
+            .iter()
+            .map(|x| match x {
+                AttrArg::Str(s) => format!("\"{s}\""),
+                AttrArg::Path(p) => p
+                    .iter()
+                    .map(|s| s.as_str().to_string())
+                    .collect::<Vec<_>>()
+                    .join("."),
+                _ => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        if args.is_empty() {
+            out.push_str(&format!("@{n}\n"));
+        } else {
+            out.push_str(&format!("@{n}({args})\n"));
+        }
+    }
+    out
 }

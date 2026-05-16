@@ -699,7 +699,12 @@ pub(crate) fn collect_external_classes(
         for m in &c.methods {
             let info = MemberInfo {
                 span: m.span,
-                signature: format!("(method) {}.{}", c.name, fn_body(m)),
+                signature: format!(
+                    "{}(method) {}.{}",
+                    render_user_attrs(m),
+                    c.name,
+                    fn_body(m)
+                ),
                 ret_ty: m.ret.clone(),
                 is_static: false,
                 doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
@@ -713,7 +718,12 @@ pub(crate) fn collect_external_classes(
         for m in &c.static_methods {
             methods.entry(m.name.clone()).or_insert(MemberInfo {
                 span: m.span,
-                signature: format!("(static method) {}.{}", c.name, fn_body(m)),
+                signature: format!(
+                    "{}(static method) {}.{}",
+                    render_user_attrs(m),
+                    c.name,
+                    fn_body(m)
+                ),
                 is_static: true,
                 ret_ty: m.ret.clone(),
                 doc: field_doc_at(&mut src_cache, sources, &c.name, m.span.line),
