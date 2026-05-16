@@ -1794,6 +1794,27 @@ class Worker {
 
 - `let x = ...` の RHS の形が desugar 側のミニ型推論器の範囲を超えている場合、型注釈が必要です。リテラル / `param` 参照 / `await Var` / `await fn(...)` / `await Promise.resolve(...)` / 配列リテラル / 単純な算術 / フィールド・メソッド呼び出しは推論できます。それ以外で `let x = ...` の型が決まらないと desugar 時にエラーになるので `let x: T = ...` で型を書きます。
 
+- top-level に `await` は書けません(top-level let が他の top-level fn から見える ilang のスコープ規則と、`await` 直前/直後をひとつのスコープに収める実装が両立しないため)。`.then(...)` で繋ぐか、`async fn` でくるんで kick します:
+
+  ```rust
+  // ❌
+  let v = await Promise.resolve(42)
+  console.log(v.toString())
+
+  // ⭕ .then で繋ぐ
+  let _ = Promise.resolve(42).then(fn(v: i64) {
+      console.log(v.toString())
+  })
+
+  // ⭕ async fn にまとめて kick
+  async fn run(): i64 {
+      let v = await Promise.resolve(42)
+      console.log(v.toString())
+      0
+  }
+  let _ = run()
+  ```
+
 - `throw` 構文が無いので、`async fn` の中から reject するには `Promise.reject(...)` か executor を使います:
 
   ```rust

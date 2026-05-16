@@ -2376,6 +2376,31 @@ class Worker {
   simple arithmetic, and field / method accesses on known types.
   Anything else needs `let x: T = ...`.
 
+- `await` isn't allowed at the top level. (ilang's scope rule
+  exposes top-level `let` bindings to every top-level fn, which
+  doesn't compose with splitting the script body across an
+  awaited continuation.) Chain with `.then(...)` or wrap in an
+  `async fn` and kick it:
+
+  ```rust
+  // ❌
+  let v = await Promise.resolve(42)
+  console.log(v.toString())
+
+  // ⭕ chain with .then
+  let _ = Promise.resolve(42).then(fn(v: i64) {
+      console.log(v.toString())
+  })
+
+  // ⭕ wrap in async fn and kick
+  async fn run(): i64 {
+      let v = await Promise.resolve(42)
+      console.log(v.toString())
+      0
+  }
+  let _ = run()
+  ```
+
 - There's no `throw` keyword, so rejecting from an `async fn`
   body uses `Promise.reject(...)` or the executor form:
 

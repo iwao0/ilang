@@ -556,9 +556,12 @@ impl TypeChecker {
                 let _ = inner_ty;
                 Err(TypeError::Unsupported {
                     what:
-                        "`await` is only allowed inside an `async fn` body. \
-                         In a sync context, use `.then(fn(v) { ... })` on \
-                         the promise instead."
+                        "`await` is only allowed inside an `async fn` body \
+                         (top-level / sync fn / lambda bodies aren't \
+                         covered). Either call `.then(fn(v) { ... })` on \
+                         the promise, or wrap the awaiting code in an \
+                         `async fn run() { ... await ... }` and kick it \
+                         with `let _ = run()`."
                             .to_string(),
                     span,
                 })
