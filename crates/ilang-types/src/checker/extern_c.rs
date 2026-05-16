@@ -146,20 +146,32 @@ impl TypeChecker {
                 }
                 ilang_ast::ExternCItem::Class(c) => {
                     for m in &c.methods {
-                        self.reject_pointer_in_signature(
-                            &format!("method {:?}.{:?}", c.name, m.name),
-                            m.params.iter().map(|p| &p.ty),
-                            m.ret.as_ref(),
-                            m.span,
-                        )?;
+                        let is_objc_wrapper = m
+                            .attrs
+                            .iter()
+                            .any(|a| a.name.as_str() == "__objc_wrapper");
+                        if !is_objc_wrapper {
+                            self.reject_pointer_in_signature(
+                                &format!("method {:?}.{:?}", c.name, m.name),
+                                m.params.iter().map(|p| &p.ty),
+                                m.ret.as_ref(),
+                                m.span,
+                            )?;
+                        }
                     }
                     for m in &c.static_methods {
-                        self.reject_pointer_in_signature(
-                            &format!("static {:?}.{:?}", c.name, m.name),
-                            m.params.iter().map(|p| &p.ty),
-                            m.ret.as_ref(),
-                            m.span,
-                        )?;
+                        let is_objc_wrapper = m
+                            .attrs
+                            .iter()
+                            .any(|a| a.name.as_str() == "__objc_wrapper");
+                        if !is_objc_wrapper {
+                            self.reject_pointer_in_signature(
+                                &format!("static {:?}.{:?}", c.name, m.name),
+                                m.params.iter().map(|p| &p.ty),
+                                m.ret.as_ref(),
+                                m.span,
+                            )?;
+                        }
                     }
                     self.check_class(c)?;
                 }

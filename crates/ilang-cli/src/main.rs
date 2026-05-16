@@ -62,6 +62,27 @@ fn main() -> ExitCode {
 /// there (e.g. the user copied just the `ilang` binary somewhere) so
 /// the linker step still runs — programs that don't pull in any
 /// runtime symbol will link fine without it.
+/// If `lib` is a macOS framework path (e.g.
+/// `/System/Library/Frameworks/AppKit.framework/AppKit`), pull
+/// out the framework's name (`AppKit`). Returns `None` for plain
+/// library names so they fall through to the regular `-l<lib>`
+/// path.
+#[cfg(target_os = "macos")]
+fn extract_framework_name(lib: &str) -> Option<String> {
+    let path = std::path::Path::new(lib);
+    let mut comps = path.components().rev();
+    let last = comps.next()?.as_os_str().to_string_lossy().to_string();
+    let parent = comps.next()?.as_os_str().to_string_lossy().to_string();
+    // Path looks like `.../Name.framework/Name` when the last
+    // two components match modulo the `.framework` suffix.
+    let stripped = parent.strip_suffix(".framework")?;
+    if stripped == last {
+        Some(last)
+    } else {
+        None
+    }
+}
+
 fn locate_runtime_lib() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
@@ -325,6 +346,17 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
             }
         }
         for lib in &seen_libs {
+            // macOS framework path detection: `@lib("/System/
+            // Library/Frameworks/AppKit.framework/AppKit")`-style
+            // entries are routed through the linker's
+            // `-framework <name>` flag, not `-l<path>`. dyld
+            // resolves them by walking `DYLD_FRAMEWORK_PATH`
+            // / standard framework search paths.
+            #[cfg(target_os = "macos")]
+            if let Some(fw_name) = extract_framework_name(lib) {
+                cmd.arg("-framework").arg(fw_name);
+                continue;
+            }
             cmd.arg(format!("-l{lib}"));
         }
         // Linux: the runtime's `math.*` wrappers pull in glibc's libm

@@ -51,17 +51,24 @@ impl<'a> Parser<'a> {
                 break;
             }
             let inner_attrs = self.parse_attributes()?;
-            let item_is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
+            let explicit_pub = matches!(self.peek().kind, TokenKind::Pub);
+            if explicit_pub {
                 self.bump();
-                true
-            } else {
-                false
-            };
+            }
 
             // Look for @objc(...). Two shapes:
             //   @objc                 → followed by `class Name { ... }`
             //   @objc("selector:")    → followed by `fn name(...)`
+            // @objc items default to `pub` since Cocoa-style bindings
+            // typically want the class / fn visible to importers.
+            // Plain (non-@objc) items fall back to ilang's default
+            // (module-private) unless the user explicitly says `pub`.
             let objc_attr_pos = inner_attrs.iter().position(|a| a.name.as_str() == "objc");
+            let item_is_pub = if objc_attr_pos.is_some() {
+                true
+            } else {
+                explicit_pub
+            };
             if let Some(pos) = objc_attr_pos {
                 if inner_attrs.len() != 1 {
                     let t = self.peek();
@@ -127,7 +134,15 @@ impl<'a> Parser<'a> {
         // class-registration helpers — objc_allocateClassPair /
         // objc_registerClassPair — plus objc_getClass for the
         // idempotency check inside `register()`.
-        let any_subclass = objc_classes.iter().any(|c| c.parent.is_some());
+        // "Real" subclass = has a parent AND adds at least one
+        // method with a body. Plain `: Parent` inheritance with
+        // no bodies is just an ilang type-system relationship
+        // (no ObjC-runtime registration / IMPs needed); skip the
+        // libobjc class-helper extern decls and the per-class
+        // `register()` static for those.
+        let any_subclass = objc_classes
+            .iter()
+            .any(|c| c.parent.is_some() && c.methods.iter().any(|m| m.body.is_some()));
         let allocate_pair_name: Symbol = format!("{tag}_allocate_class_pair").into();
         let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
         let class_add_method_name: Symbol = format!("{tag}_class_add_method").into();
@@ -829,11 +844,14 @@ fn build_objc_class(
         }
     }
 
-    // Subclass: emit per-instance-method `__super_<method>` helpers
-    // and rewrite `super.method(args)` in every method body to the
-    // corresponding helper. The helper does the actual
-    // `objc_msgSendSuper` dance with a stack-built super struct.
-    if let Some(parent_name) = c.parent {
+    // Only emit the subclass machinery (super helpers, register
+    // static, libobjc dispatch) when this class actually overrides
+    // at least one method. A bare `@objc class A : B { }` is a
+    // pure ilang-type-system inheritance and needs no runtime
+    // registration — the parent class already exists in libobjc.
+    let is_real_subclass = c.parent.is_some() && !imps_to_attach.is_empty();
+    if is_real_subclass {
+        let parent_name = c.parent.unwrap();
         for m in &c.methods {
             if m.is_static {
                 continue;
@@ -845,13 +863,6 @@ fn build_objc_class(
         }
         rewrite_super_in_methods(&mut methods);
         rewrite_super_in_methods(&mut static_methods);
-    }
-
-    // ilang-defined subclass: emit a `register()` static method
-    // that registers the class with the ObjC runtime and attaches
-    // every IMP we generated. Idempotent — re-running returns
-    // immediately after the existence probe.
-    if let Some(parent_name) = c.parent {
         static_methods.push(build_register_class_fn(
             class_name, parent_name, &imps_to_attach, ctx, span,
         ));
@@ -1089,7 +1100,14 @@ fn build_class_method(
 
     let method_fn = FnDecl {
         is_pub: m.is_pub,
-        attrs: Box::new([]),
+        // The wrapper's signature may reference raw `*objc_*`
+        // types when the user's @objc method declared them; flag
+        // so the type checker's pointer-in-signature rejection
+        // doesn't trip on us.
+        attrs: Box::new([Attribute {
+            name: Symbol::intern("__objc_wrapper"),
+            args: Box::new([]),
+        }]),
         name: m.name,
         type_params: Box::new([]),
         params: m.params.clone(),
