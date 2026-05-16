@@ -299,11 +299,19 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         cmd.arg(&object_path).arg("-o").arg(output);
         // Dead-strip unused runtime helpers from the archive. The flag
         // name differs per linker: ld64 (macOS) takes `-dead_strip`,
-        // GNU/LLD use `--gc-sections`.
-        #[cfg(target_os = "macos")]
-        cmd.arg("-Wl,-dead_strip");
-        #[cfg(all(not(windows), not(target_os = "macos")))]
-        cmd.arg("-Wl,--gc-sections");
+        // GNU/LLD use `--gc-sections`. Skip the strip when any
+        // `ilang_objc_imp__*` IMPs are present — those are referenced
+        // only via `dlsym` at runtime, so the linker can't tell they're
+        // live and would otherwise prune them.
+        let has_objc_imp = mir.functions.iter().any(|f| {
+            f.name.as_str().starts_with("ilang_objc_imp__")
+        });
+        if !has_objc_imp {
+            #[cfg(target_os = "macos")]
+            cmd.arg("-Wl,-dead_strip");
+            #[cfg(all(not(windows), not(target_os = "macos")))]
+            cmd.arg("-Wl,--gc-sections");
+        }
         if let Some(rt) = locate_runtime_lib() {
             cmd.arg(&rt);
         }
@@ -344,7 +352,11 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
             }
         }
         // Strip symbol table (non-fatal). link.exe does this by default.
-        let _ = std::process::Command::new("strip").arg(output).status();
+        // Skip when ObjC IMP fns are present — strip would remove them
+        // and the runtime `dlsym` lookup in `register()` would NULL out.
+        if !has_objc_imp {
+            let _ = std::process::Command::new("strip").arg(output).status();
+        }
     }
 
     // ---- Windows / MSVC linker ----

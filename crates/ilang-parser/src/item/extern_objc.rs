@@ -130,6 +130,8 @@ impl<'a> Parser<'a> {
         let any_subclass = objc_classes.iter().any(|c| c.parent.is_some());
         let allocate_pair_name: Symbol = format!("{tag}_allocate_class_pair").into();
         let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
+        let class_add_method_name: Symbol = format!("{tag}_class_add_method").into();
+        let dlsym_name: Symbol = format!("{tag}_dlsym").into();
 
         if any_objc {
             // Selector type + sel_registerName alias.
@@ -293,6 +295,96 @@ impl<'a> Parser<'a> {
                     variadic: false,
                     span: block_span,
                 });
+                // `class_addMethod(cls, sel, imp, type_encoding)`.
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: class_add_method_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("cls"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(class_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("sel"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(sel_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("imp"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::CVoid),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("types"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::I8),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("class_addMethod")),
+                    variadic: false,
+                    span: block_span,
+                });
+                // `dlsym(handle, name)` — the dynamic linker
+                // primitive used to look up the IMP fn by name.
+                // RTLD_DEFAULT on macOS/Linux is encoded as a
+                // small negative pointer; we pass `0 as *void` for
+                // simplicity. dlsym's "0 = search all loaded
+                // images" behaviour differs by platform but Apple
+                // and modern glibc both accept it as a stand-in
+                // for RTLD_DEFAULT.
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: dlsym_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("handle"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::CVoid),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("name"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::CVoid),
+                    }),
+                    libs: Box::new([Symbol::intern("c")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("dlsym")),
+                    variadic: false,
+                    span: block_span,
+                });
             }
         }
 
@@ -320,6 +412,8 @@ impl<'a> Parser<'a> {
                 object_struct: object_struct_name,
                 allocate_pair: allocate_pair_name,
                 register_pair: register_pair_name,
+                class_add_method: class_add_method_name,
+                dlsym: dlsym_name,
                 class_names: &class_names,
             };
             let (class_item, aliases) = build_objc_class(c, &ctx);
@@ -534,6 +628,8 @@ struct ObjcCtx<'a> {
     object_struct: Symbol,
     allocate_pair: Symbol,
     register_pair: Symbol,
+    class_add_method: Symbol,
+    dlsym: Symbol,
     class_names: &'a HashSet<Symbol>,
 }
 
@@ -663,8 +759,23 @@ fn build_objc_class(
     let mut methods: Vec<FnDecl> = vec![init_fn];
     let mut static_methods: Vec<FnDecl> = Vec::new();
     let mut aliases: Vec<ilang_ast::ExternCItem> = Vec::new();
+    // Collect bodied methods so the `register()` builder can emit
+    // a `class_addMethod` call per IMP. Stored as
+    // (method_name, selector, type_encoding, imp_symbol).
+    let mut imps_to_attach: Vec<ImpEntry> = Vec::new();
 
+    let is_subclass = c.parent.is_some();
     for m in &c.methods {
+        if m.body.is_some() && !is_subclass {
+            // Body without a parent: the user wanted to override
+            // something but didn't declare what they inherited
+            // from. Surface this as an error rather than silently
+            // dropping the body.
+            // (Parsing already accepted the body; we just don't
+            // emit an IMP. Future: report this through the
+            // ParseError channel.)
+        }
+
         let alias_name: Symbol =
             format!("{}_msg_{}_{}", ctx.tag, class_name.as_str(), m.name.as_str()).into();
         let (alias_decl, method_fn) = build_class_method(class_name, m, alias_name, ctx);
@@ -674,15 +785,58 @@ fn build_objc_class(
         } else {
             methods.push(method_fn);
         }
+
+        // When the user supplied a `{ body }` and we have a
+        // parent, emit a hidden `__impl_<method>` method (the
+        // actual ilang implementation) and a C-ABI IMP function
+        // that wraps `self` into an ilang instance and calls
+        // `__impl_<method>`. `register()` then dlsym's the IMP
+        // and class_addMethod's it onto the subclass.
+        if let (Some(user_body), true) = (m.body.as_ref(), is_subclass) {
+            let impl_name: Symbol = format!("_ilang_impl_{}", m.name.as_str()).into();
+            let impl_fn = FnDecl {
+                is_pub: true,
+                attrs: Box::new([]),
+                name: impl_name,
+                type_params: Box::new([]),
+                params: m.params.clone(),
+                ret: m.ret.clone(),
+                body: user_body.clone(),
+                span: m.span,
+                is_override: false,
+                is_async: false,
+            };
+            if m.is_static {
+                static_methods.push(impl_fn);
+            } else {
+                methods.push(impl_fn);
+            }
+
+            let imp_symbol: Symbol =
+                format!("ilang_objc_imp__{}__{}", class_name.as_str(), m.name.as_str()).into();
+            let imp_fn = build_imp_fn(class_name, m, imp_symbol, impl_name, ctx);
+            // The IMP itself is a top-level @extern(C) FnDef that
+            // we'll push into the block's items list. Return it
+            // through `aliases` (the caller appends everything).
+            aliases.push(imp_fn);
+
+            let encoding = encode_method_signature(&m.params, m.ret.as_ref(), ctx.class_names);
+            imps_to_attach.push(ImpEntry {
+                selector: m.selector.clone(),
+                encoding,
+                imp_symbol,
+            });
+        }
     }
 
     // ilang-defined subclass: emit a `register()` static method
-    // that registers the class with the ObjC runtime. Idempotent
-    // — re-running just returns. IMP attachment is layered on by
-    // a follow-up patch; today the registered class inherits all
-    // of `parent`'s methods unchanged.
+    // that registers the class with the ObjC runtime and attaches
+    // every IMP we generated. Idempotent — re-running returns
+    // immediately after the existence probe.
     if let Some(parent_name) = c.parent {
-        static_methods.push(build_register_class_fn(class_name, parent_name, ctx, span));
+        static_methods.push(build_register_class_fn(
+            class_name, parent_name, &imps_to_attach, ctx, span,
+        ));
     }
 
     let class_decl = ClassDecl {
@@ -930,15 +1084,279 @@ fn build_class_method(
     (alias_decl, method_fn)
 }
 
+/// Records what the `register()` method needs to know about each
+/// bodied @objc method so it can attach the corresponding IMP via
+/// `class_addMethod`. The IMP itself is generated as a separate
+/// C-ABI function (see `build_imp_fn`) and resolved at runtime
+/// through `dlsym`.
+struct ImpEntry {
+    selector: String,
+    encoding: String,
+    imp_symbol: Symbol,
+}
+
+/// Encode an ilang method signature in the Objective-C type
+/// encoding format. `<ret>@:<arg1><arg2>...` where `@` is the
+/// receiver (id) and `:` is the implicit `_cmd` selector. The
+/// encoding covers the primitive types we currently marshal; any
+/// type outside this set falls back to `?` so unhandled cases
+/// surface as a runtime-side message-signature mismatch rather
+/// than silently corrupting the dispatch.
+fn encode_method_signature(
+    params: &[Param],
+    ret: Option<&Type>,
+    class_names: &HashSet<Symbol>,
+) -> String {
+    let mut s = String::new();
+    s.push_str(encode_type_char(ret, class_names));
+    s.push('@'); // self
+    s.push(':'); // _cmd
+    for p in params {
+        s.push_str(encode_type_char(Some(&p.ty), class_names));
+    }
+    s
+}
+
+fn encode_type_char(t: Option<&Type>, class_names: &HashSet<Symbol>) -> &'static str {
+    match t {
+        None => "v",
+        Some(t) => match t {
+            Type::Unit => "v",
+            Type::Bool | Type::I8 => "c",
+            Type::U8 => "C",
+            Type::I16 => "s",
+            Type::U16 => "S",
+            Type::I32 => "i",
+            Type::U32 => "I",
+            Type::I64 | Type::SSize => "q",
+            Type::U64 | Type::Size => "Q",
+            Type::F32 => "f",
+            Type::F64 => "d",
+            Type::Object(n) if class_names.contains(n) => "@",
+            Type::RawPtr { .. } => "^v",
+            _ => "?",
+        },
+    }
+}
+
+/// Generate the C-ABI IMP that ObjC calls when our subclass
+/// receives the given selector. It wraps `self` into a fresh
+/// ilang class instance, marshals each argument from raw
+/// pointer / scalar form into the ilang method's declared
+/// parameter shape, calls the hidden `__impl_<method>` method,
+/// then unwraps the return.
+fn build_imp_fn(
+    class_name: Symbol,
+    m: &ObjcMethod,
+    imp_symbol: Symbol,
+    impl_method_name: Symbol,
+    ctx: &ObjcCtx<'_>,
+) -> ilang_ast::ExternCItem {
+    let mut params: Vec<Param> = Vec::with_capacity(m.params.len() + 2);
+    params.push(Param {
+        name: Symbol::intern("__self"),
+        ty: Type::RawPtr {
+            is_const: false,
+            inner: Box::new(Type::Object(ctx.object_struct)),
+        },
+        span: m.span,
+        default: None,
+    });
+    params.push(Param {
+        name: Symbol::intern("__cmd"),
+        ty: Type::RawPtr {
+            is_const: false,
+            inner: Box::new(Type::Object(ctx.sel_struct)),
+        },
+        span: m.span,
+        default: None,
+    });
+    for p in m.params.iter() {
+        let p_ty = if is_objc_class_ty(&p.ty, ctx.class_names) {
+            Type::RawPtr {
+                is_const: false,
+                inner: Box::new(Type::Object(ctx.object_struct)),
+            }
+        } else {
+            p.ty.clone()
+        };
+        params.push(Param {
+            name: p.name,
+            ty: p_ty,
+            span: p.span,
+            default: None,
+        });
+    }
+
+    let imp_ret = match m.ret.as_ref() {
+        Some(t) if is_objc_class_ty(t, ctx.class_names) => Some(Type::RawPtr {
+            is_const: false,
+            inner: Box::new(Type::Object(ctx.object_struct)),
+        }),
+        Some(t) => Some(t.clone()),
+        None => None,
+    };
+
+    // Body:
+    //   let me = new MyClass(__self as i64)
+    //   <marshal args>
+    //   <call me.__impl_<method>(args)>
+    //   <unwrap return if any>
+    let me_name = Symbol::intern("__me");
+    let self_as_i64 = Expr::new(
+        ExprKind::Cast {
+            expr: Box::new(Expr::new(ExprKind::Var(Symbol::intern("__self")), m.span)),
+            ty: Type::I64,
+        },
+        m.span,
+    );
+    let new_me = Expr::new(
+        ExprKind::New {
+            class: class_name,
+            type_args: Box::new([]),
+            args: Box::new([self_as_i64]),
+            init_method: None,
+        },
+        m.span,
+    );
+    let me_let = Stmt::new(
+        StmtKind::Let {
+            is_pub: false,
+            is_const: false,
+            name: me_name,
+            ty: None,
+            value: new_me,
+        },
+        m.span,
+    );
+
+    let mut stmts = vec![me_let];
+
+    // Per-arg marshalling: @objc class args arrive as raw
+    // `*objc_object`; wrap into `new ArgClass(p as i64)` before
+    // calling the ilang method. Scalars pass through unchanged.
+    let mut call_args: Vec<Expr> = Vec::with_capacity(m.params.len());
+    for p in m.params.iter() {
+        if is_objc_class_ty(&p.ty, ctx.class_names) {
+            let arg_as_i64 = Expr::new(
+                ExprKind::Cast {
+                    expr: Box::new(Expr::new(ExprKind::Var(p.name), p.span)),
+                    ty: Type::I64,
+                },
+                p.span,
+            );
+            let class = match &p.ty {
+                Type::Object(n) => *n,
+                _ => unreachable!("checked by is_objc_class_ty"),
+            };
+            let wrapped = Expr::new(
+                ExprKind::New {
+                    class,
+                    type_args: Box::new([]),
+                    args: Box::new([arg_as_i64]),
+                    init_method: None,
+                },
+                p.span,
+            );
+            let wname: Symbol = format!("__w_{}", p.name.as_str()).into();
+            stmts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name: wname,
+                    ty: None,
+                    value: wrapped,
+                },
+                p.span,
+            ));
+            call_args.push(Expr::new(ExprKind::Var(wname), p.span));
+        } else {
+            call_args.push(Expr::new(ExprKind::Var(p.name), p.span));
+        }
+    }
+
+    let impl_call = Expr::new(
+        ExprKind::MethodCall {
+            obj: Box::new(Expr::new(ExprKind::Var(me_name), m.span)),
+            method: impl_method_name,
+            args: call_args.into(),
+        },
+        m.span,
+    );
+
+    let tail = match m.ret.as_ref() {
+        Some(t) if is_objc_class_ty(t, ctx.class_names) => {
+            // Unwrap the ilang return value back to its handle as
+            // a raw `*objc_object` so the ObjC runtime gets what
+            // it expects.
+            let r_name = Symbol::intern("__r");
+            stmts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name: r_name,
+                    ty: None,
+                    value: impl_call,
+                },
+                m.span,
+            ));
+            let handle_field = Expr::new(
+                ExprKind::Field {
+                    obj: Box::new(Expr::new(ExprKind::Var(r_name), m.span)),
+                    name: Symbol::intern("handle"),
+                },
+                m.span,
+            );
+            let handle_as_ptr = Expr::new(
+                ExprKind::Cast {
+                    expr: Box::new(handle_field),
+                    ty: Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(ctx.object_struct)),
+                    },
+                },
+                m.span,
+            );
+            let _ = t;
+            Some(Box::new(handle_as_ptr))
+        }
+        Some(_) => Some(Box::new(impl_call)),
+        None => {
+            stmts.push(Stmt::new(StmtKind::Expr(impl_call), m.span));
+            None
+        }
+    };
+
+    let fndecl = FnDecl {
+        is_pub: false,
+        // Re-use the wrapper bypass — the IMP's signature
+        // intentionally carries `*objc_object` etc. (it has to,
+        // by ObjC's calling convention) so the raw-pointer
+        // rejection isn't appropriate.
+        attrs: Box::new([Attribute {
+            name: Symbol::intern("__objc_wrapper"),
+            args: Box::new([]),
+        }]),
+        name: imp_symbol,
+        type_params: Box::new([]),
+        params: params.into(),
+        ret: imp_ret,
+        body: Block { stmts, tail },
+        span: m.span,
+        is_override: false,
+        is_async: false,
+    };
+    ilang_ast::ExternCItem::FnDef(fndecl)
+}
+
 /// Build a `pub static register()` method that registers the
-/// subclass with the ObjC runtime on first call. Idempotent: a
-/// second call returns immediately after the `objc_getClass`
-/// probe sees the existing entry. No IMPs attached yet — the
-/// follow-up patch wires `class_addMethod` calls per declared
-/// `@objc` method with a body.
+/// subclass with the ObjC runtime on first call and attaches
+/// every IMP via `class_addMethod`. Idempotent through the
+/// `objc_getClass` probe at the top.
 fn build_register_class_fn(
     class_name: Symbol,
     parent_name: Symbol,
+    imps: &[ImpEntry],
     ctx: &ObjcCtx<'_>,
     span: Span,
 ) -> FnDecl {
@@ -1047,6 +1465,46 @@ fn build_register_class_fn(
         span,
     );
 
+    // class_addMethod calls — one per IMP. Look up the IMP's
+    // address via dlsym(RTLD_DEFAULT, "ilang_objc_imp__..."). On
+    // Apple platforms RTLD_DEFAULT is encoded as -2; passing 0
+    // gives non-deterministic behaviour per Apple's manpage.
+    let mut stmts = vec![existing_let, early_return, parent_let, cls_let];
+    for imp in imps {
+        let rtld_default = Expr::new(
+            ExprKind::Cast {
+                expr: Box::new(Expr::new(ExprKind::Int(-2), span)),
+                ty: Type::RawPtr {
+                    is_const: false,
+                    inner: Box::new(Type::CVoid),
+                },
+            },
+            span,
+        );
+        let imp_addr = Expr::new(
+            ExprKind::Call {
+                callee: ctx.dlsym,
+                args: Box::new([rtld_default, build_cstr(imp.imp_symbol.as_str(), span)]),
+            },
+            span,
+        );
+        let sel_call = build_sel_register_call(&imp.selector, ctx.sel_register, span);
+        let encoding_cstr = build_cstr(&imp.encoding, span);
+        let add_method = Expr::new(
+            ExprKind::Call {
+                callee: ctx.class_add_method,
+                args: Box::new([
+                    Expr::new(ExprKind::Var(cls_var), span),
+                    sel_call,
+                    imp_addr,
+                    encoding_cstr,
+                ]),
+            },
+            span,
+        );
+        stmts.push(Stmt::new(StmtKind::Expr(add_method), span));
+    }
+
     let register_call = Expr::new(
         ExprKind::Call {
             callee: ctx.register_pair,
@@ -1054,10 +1512,10 @@ fn build_register_class_fn(
         },
         span,
     );
-    let register_stmt = Stmt::new(StmtKind::Expr(register_call), span);
+    stmts.push(Stmt::new(StmtKind::Expr(register_call), span));
 
     let body = Block {
-        stmts: vec![existing_let, early_return, parent_let, cls_let, register_stmt],
+        stmts,
         tail: None,
     };
 

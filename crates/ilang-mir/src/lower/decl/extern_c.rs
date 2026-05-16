@@ -523,7 +523,16 @@ impl Lower {
                 _ => {}
             }
         }
-        // Lower @extern(C) ilang-side fn definitions like normal fns.
+        // Declare class methods up-front so any FnDef bodies in the
+        // same block can resolve calls to them (e.g. an `@objc class`
+        // emits an IMP wrapper as a top-level `@extern(C)` FnDef
+        // whose body invokes a method declared on the same class).
+        for item in blk.items.iter() {
+            if let ast::ExternCItem::Class(cd) = item {
+                self.declare_class_methods(cd)?;
+            }
+        }
+        // Declare + lower @extern(C) ilang-side fn definitions.
         for item in blk.items.iter() {
             if let ast::ExternCItem::FnDef(fd) = item {
                 if !self.fn_ids.contains_key(&fd.name) {
@@ -540,12 +549,9 @@ impl Lower {
                 self.funcs[id.0 as usize].kind = FunctionKind::ExternBody;
             }
         }
-        // Wrapper classes: declare + lower their methods.
-        for item in blk.items.iter() {
-            if let ast::ExternCItem::Class(cd) = item {
-                self.declare_class_methods(cd)?;
-            }
-        }
+        // Lower class method bodies last — they can reference both
+        // sibling class methods and the @extern(C) FnDefs that we
+        // declared above.
         for item in blk.items.iter() {
             if let ast::ExternCItem::Class(cd) = item {
                 self.lower_class_methods(cd)?;

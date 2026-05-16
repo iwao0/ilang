@@ -594,6 +594,14 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
             } else {
                 Linkage::Import
             }
+        } else if symbol_name.starts_with("ilang_objc_imp__") {
+            // Parser-synthesised IMPs for `@objc class : Parent`
+            // overrides need to be discoverable from the runtime
+            // (`dlsym(RTLD_DEFAULT, ...)`) so the generated
+            // `register()` body can hand their addresses to
+            // `class_addMethod`. Tagging by the canonical name
+            // prefix avoids threading a new flag through MIR.
+            Linkage::Export
         } else {
             Linkage::Local
         };
