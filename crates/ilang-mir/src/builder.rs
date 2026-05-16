@@ -22,18 +22,24 @@ pub struct FunctionBuilder {
 
 impl FunctionBuilder {
     pub fn new(name: Symbol, display_name: Symbol, ret: MirTy, kind: FunctionKind) -> Self {
+        // SSA values dominate the per-function allocation: every const,
+        // every binary op, every call result gets one. Functions in the
+        // test corpus average a few dozen values; pre-sizing the value
+        // vectors avoids the 0→4→8→16→32 reallocation cascade for the
+        // common case. Blocks and locals stay small (single digits for
+        // typical functions) so a modest reservation is enough.
         Self {
             name,
             display_name,
             ret,
             kind,
-            value_tys: Vec::new(),
-            value_spans: Vec::new(),
-            blocks: Vec::new(),
+            value_tys: Vec::with_capacity(32),
+            value_spans: Vec::with_capacity(32),
+            blocks: Vec::with_capacity(4),
             cur_block: None,
             entry: None,
             span: None,
-            local_tys: Vec::new(),
+            local_tys: Vec::with_capacity(4),
         }
     }
 
@@ -51,10 +57,12 @@ impl FunctionBuilder {
     /// Reserve a new SSA value of the given type. Caller must ensure
     /// it is defined exactly once (by an `Inst` or as a `Block::params`
     /// entry).
+    #[inline]
     pub fn new_value(&mut self, ty: MirTy) -> ValueId {
         self.new_value_with_span(ty, None)
     }
 
+    #[inline]
     pub fn new_value_with_span(&mut self, ty: MirTy, span: Option<Span>) -> ValueId {
         let id = ValueId(self.value_tys.len() as u32);
         self.value_tys.push(ty);
@@ -62,6 +70,7 @@ impl FunctionBuilder {
         id
     }
 
+    #[inline]
     pub fn ty_of(&self, v: ValueId) -> &MirTy {
         &self.value_tys[v.0 as usize]
     }
@@ -71,9 +80,14 @@ impl FunctionBuilder {
     /// `set_terminator`) before the function is finalised.
     pub fn new_block(&mut self) -> BlockId {
         let id = BlockId(self.blocks.len() as u32);
+        // Most blocks have zero block-params (only loop / match join
+        // blocks take any) so leave `params` at its zero-capacity
+        // default. `insts` always gets at least one push before the
+        // block is terminated; a small reservation skips the first
+        // realloc without wasting much for tiny blocks.
         self.blocks.push(Some(Block {
             params: Vec::new(),
-            insts: Vec::new(),
+            insts: Vec::with_capacity(8),
             term: Terminator::Unreachable,
         }));
         if self.entry.is_none() {
@@ -104,6 +118,7 @@ impl FunctionBuilder {
             .expect("block taken / not yet defined")
     }
 
+    #[inline]
     pub fn push_inst(&mut self, inst: Inst) {
         let b = self.cur_block.expect("no current block");
         self.blocks[b.0 as usize]

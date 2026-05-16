@@ -915,10 +915,13 @@ dependencies = [
 name = "ilang-mir"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "ilang-ast",
  "ilang-lexer",
  "ilang-parser",
+ "ilang-types",
  "thiserror",
+ "walkdir",
 ]
 
 [[package]]

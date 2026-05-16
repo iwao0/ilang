@@ -104,6 +104,10 @@ impl Env {
     /// expression value. For locals, the caller passes a closure that
     /// allocates a fresh ValueId and pushes the UseLocal inst.
     pub(super) fn lookup_binding(&self, name: Symbol) -> Option<Binding> {
+        // Scopes are typically tiny (single-digit bindings each) so
+        // linear scan with Symbol == comparison (interned ids) beats
+        // HashMap hashing+probing. The reverse iteration honors the
+        // shadowing rule: inner scopes / later bindings win.
         for scope in self.scopes.iter().rev() {
             for (n, b) in scope.iter().rev() {
                 if *n == name {

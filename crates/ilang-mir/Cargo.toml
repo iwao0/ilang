@@ -12,3 +12,10 @@ thiserror = { workspace = true }
 ilang-ast = { workspace = true }
 ilang-lexer = { workspace = true }
 ilang-parser = { workspace = true }
+ilang-types = { workspace = true }
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+walkdir = "2"
+
+[[bench]]
+name = "check_lower"
+harness = false

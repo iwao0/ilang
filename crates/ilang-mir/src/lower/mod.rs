@@ -212,7 +212,7 @@ pub fn lower_program_with_slots(
     for item in &prog.items {
         if let Item::Interface(i) = item {
             for m in i.methods.iter() {
-                let mut params: Vec<MirTy> = Vec::new();
+                let mut params: Vec<MirTy> = Vec::with_capacity(m.params.len());
                 for p in m.params.iter() {
                     params.push(lower.resolve_ty(&p.ty)?);
                 }
