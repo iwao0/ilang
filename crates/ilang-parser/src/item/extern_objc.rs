@@ -123,6 +123,13 @@ impl<'a> Parser<'a> {
             .iter()
             .any(|c| c.methods.iter().any(|m| m.is_static));
         let any_class = !objc_classes.is_empty();
+        // ilang-defined subclasses (parent set) need the ObjC
+        // class-registration helpers — objc_allocateClassPair /
+        // objc_registerClassPair — plus objc_getClass for the
+        // idempotency check inside `register()`.
+        let any_subclass = objc_classes.iter().any(|c| c.parent.is_some());
+        let allocate_pair_name: Symbol = format!("{tag}_allocate_class_pair").into();
+        let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
 
         if any_objc {
             // Selector type + sel_registerName alias.
@@ -183,8 +190,10 @@ impl<'a> Parser<'a> {
             }
             // Class lookup helpers are only injected when at least
             // one class uses a static method (only static dispatch
-            // needs `objc_getClass`).
-            if any_static {
+            // needs `objc_getClass`). Subclass registration also
+            // requires objc_getClass for the idempotency check
+            // (avoid re-registering on second call).
+            if any_static || any_subclass {
                 items.insert(
                     2,
                     ilang_ast::ExternCItem::Struct {
@@ -222,6 +231,69 @@ impl<'a> Parser<'a> {
                     },
                 );
             }
+            // libobjc class-registration helpers — only needed
+            // when at least one declared @objc class is an
+            // ilang-defined subclass (has a parent set).
+            if any_subclass {
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: allocate_pair_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("parent"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(class_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("name"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("extra_bytes"),
+                            ty: Type::Size,
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(class_struct_name)),
+                    }),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_allocateClassPair")),
+                    variadic: false,
+                    span: block_span,
+                });
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: register_pair_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("cls"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(class_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: None,
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_registerClassPair")),
+                    variadic: false,
+                    span: block_span,
+                });
+            }
         }
 
         // Top-level @objc fns — same expansion as before.
@@ -246,6 +318,8 @@ impl<'a> Parser<'a> {
                 class_struct: class_struct_name,
                 get_class: get_class_name,
                 object_struct: object_struct_name,
+                allocate_pair: allocate_pair_name,
+                register_pair: register_pair_name,
                 class_names: &class_names,
             };
             let (class_item, aliases) = build_objc_class(c, &ctx);
@@ -274,19 +348,22 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        self.consume_stmt_terminator()?;
-        // Free fns need a receiver as first arg; class methods get
-        // one synthesised from `this` (or no receiver for static).
-        if !is_static && params.is_empty() {
-            // Class method without static + zero params: still
-            // legal (e.g., a no-arg instance method). The class
-            // method desugar inserts `this` as the receiver.
-        }
+        // `{ body }` makes this an ilang-defined IMP (subclass
+        // override). Without a body it's a binding-only declaration
+        // — the desugar generates an objc_msgSend wrapper but no
+        // IMP, matching the (iii) behaviour.
+        let body = if matches!(self.peek().kind, TokenKind::LBrace) {
+            Some(crate::stmt::parse_block(self)?)
+        } else {
+            self.consume_stmt_terminator()?;
+            None
+        };
         Ok(ObjcMethod {
             name,
             selector,
             params: params.into(),
             ret,
+            body,
             span,
             is_pub,
             is_static,
@@ -297,6 +374,16 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Class, "'class'")?;
         let name = self.expect_ident("class name")?;
+        // Optional `: Parent` — when present, this becomes an
+        // ilang-defined ObjC subclass. The desugar registers the
+        // class with libobjc at startup and exposes each ilang
+        // method as a C-ABI IMP that `class_addMethod` can install.
+        let parent = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.expect_ident("parent class name")?)
+        } else {
+            None
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut methods: Vec<ObjcMethod> = Vec::new();
         loop {
@@ -354,6 +441,7 @@ impl<'a> Parser<'a> {
         Ok(ObjcClass {
             name,
             is_pub,
+            parent,
             methods,
             span,
         })
@@ -416,6 +504,12 @@ struct ObjcMethod {
     selector: String,
     params: Box<[Param]>,
     ret: Option<Type>,
+    /// `Some(block)` when the user wrote `{ ... }` after the
+    /// signature — the body becomes the ilang-side IMP for an
+    /// `@objc class : Parent` subclass override. `None` for plain
+    /// declarations that just bind an existing ObjC method (the
+    /// (iii) wrapper does the dispatch).
+    body: Option<Block>,
     span: Span,
     is_pub: bool,
     is_static: bool,
@@ -424,6 +518,9 @@ struct ObjcMethod {
 struct ObjcClass {
     name: Symbol,
     is_pub: bool,
+    /// `Some(parent)` for ilang-defined subclasses (`@objc class Foo : NSObject`).
+    /// `None` for plain bindings to existing ObjC classes.
+    parent: Option<Symbol>,
     methods: Vec<ObjcMethod>,
     span: Span,
 }
@@ -435,6 +532,8 @@ struct ObjcCtx<'a> {
     class_struct: Symbol,
     get_class: Symbol,
     object_struct: Symbol,
+    allocate_pair: Symbol,
+    register_pair: Symbol,
     class_names: &'a HashSet<Symbol>,
 }
 
@@ -577,6 +676,15 @@ fn build_objc_class(
         }
     }
 
+    // ilang-defined subclass: emit a `register()` static method
+    // that registers the class with the ObjC runtime. Idempotent
+    // — re-running just returns. IMP attachment is layered on by
+    // a follow-up patch; today the registered class inherits all
+    // of `parent`'s methods unchanged.
+    if let Some(parent_name) = c.parent {
+        static_methods.push(build_register_class_fn(class_name, parent_name, ctx, span));
+    }
+
     let class_decl = ClassDecl {
         extern_lib: None,
         is_repr_c: false,
@@ -584,7 +692,12 @@ fn build_objc_class(
         is_union: false,
         is_pub: c.is_pub,
         name: class_name,
-        parent: None,
+        // ilang-side inheritance mirrors the declared ObjC parent.
+        // Methods declared on the parent (e.g. `hash`, `release`)
+        // become callable on the child instance, dispatched as
+        // normal ilang method calls through the desugared parent
+        // class (which itself does objc_msgSend).
+        parent: c.parent,
         interfaces: Box::new([]),
         type_params: Box::new([]),
         fields: Box::new([handle_field]),
@@ -815,6 +928,151 @@ fn build_class_method(
         is_async: false,
     };
     (alias_decl, method_fn)
+}
+
+/// Build a `pub static register()` method that registers the
+/// subclass with the ObjC runtime on first call. Idempotent: a
+/// second call returns immediately after the `objc_getClass`
+/// probe sees the existing entry. No IMPs attached yet — the
+/// follow-up patch wires `class_addMethod` calls per declared
+/// `@objc` method with a body.
+fn build_register_class_fn(
+    class_name: Symbol,
+    parent_name: Symbol,
+    ctx: &ObjcCtx<'_>,
+    span: Span,
+) -> FnDecl {
+    // let existing = __get_class(cstrFromString("ClassName"))
+    // if (existing as i64) != 0 { return }
+    // let parent = __get_class(cstrFromString("ParentName"))
+    // let cls = __allocate_class_pair(parent, cstrFromString("ClassName"), 0)
+    // __register_class_pair(cls)
+    let existing_name = Symbol::intern("__existing");
+    let parent_var = Symbol::intern("__parent");
+    let cls_var = Symbol::intern("__cls");
+
+    let get_existing = Expr::new(
+        ExprKind::Call {
+            callee: ctx.get_class,
+            args: Box::new([build_cstr(class_name.as_str(), span)]),
+        },
+        span,
+    );
+    let existing_let = Stmt::new(
+        StmtKind::Let {
+            is_pub: false,
+            is_const: false,
+            name: existing_name,
+            ty: None,
+            value: get_existing,
+        },
+        span,
+    );
+
+    // `if (existing as i64) != 0 { return }`
+    let existing_as_i64 = Expr::new(
+        ExprKind::Cast {
+            expr: Box::new(Expr::new(ExprKind::Var(existing_name), span)),
+            ty: Type::I64,
+        },
+        span,
+    );
+    let cond = Expr::new(
+        ExprKind::Binary {
+            op: ilang_ast::BinOp::Ne,
+            lhs: Box::new(existing_as_i64),
+            rhs: Box::new(Expr::new(ExprKind::Int(0), span)),
+        },
+        span,
+    );
+    let return_block = ilang_ast::Block {
+        stmts: Vec::new(),
+        tail: Some(Box::new(Expr::new(ExprKind::Return(None), span))),
+    };
+    let early_return = Stmt::new(
+        StmtKind::Expr(Expr::new(
+            ExprKind::If {
+                cond: Box::new(cond),
+                then_branch: return_block,
+                else_branch: None,
+            },
+            span,
+        )),
+        span,
+    );
+
+    let get_parent = Expr::new(
+        ExprKind::Call {
+            callee: ctx.get_class,
+            args: Box::new([build_cstr(parent_name.as_str(), span)]),
+        },
+        span,
+    );
+    let parent_let = Stmt::new(
+        StmtKind::Let {
+            is_pub: false,
+            is_const: false,
+            name: parent_var,
+            ty: None,
+            value: get_parent,
+        },
+        span,
+    );
+
+    let allocate_call = Expr::new(
+        ExprKind::Call {
+            callee: ctx.allocate_pair,
+            args: Box::new([
+                Expr::new(ExprKind::Var(parent_var), span),
+                build_cstr(class_name.as_str(), span),
+                Expr::new(
+                    ExprKind::Cast {
+                        expr: Box::new(Expr::new(ExprKind::Int(0), span)),
+                        ty: Type::Size,
+                    },
+                    span,
+                ),
+            ]),
+        },
+        span,
+    );
+    let cls_let = Stmt::new(
+        StmtKind::Let {
+            is_pub: false,
+            is_const: false,
+            name: cls_var,
+            ty: None,
+            value: allocate_call,
+        },
+        span,
+    );
+
+    let register_call = Expr::new(
+        ExprKind::Call {
+            callee: ctx.register_pair,
+            args: Box::new([Expr::new(ExprKind::Var(cls_var), span)]),
+        },
+        span,
+    );
+    let register_stmt = Stmt::new(StmtKind::Expr(register_call), span);
+
+    let body = Block {
+        stmts: vec![existing_let, early_return, parent_let, cls_let, register_stmt],
+        tail: None,
+    };
+
+    FnDecl {
+        is_pub: true,
+        attrs: Box::new([]),
+        name: Symbol::intern("register"),
+        type_params: Box::new([]),
+        params: Box::new([]),
+        ret: None,
+        body,
+        span,
+        is_override: false,
+        is_async: false,
+    }
 }
 
 fn is_objc_class_ty(t: &Type, class_names: &HashSet<Symbol>) -> bool {
