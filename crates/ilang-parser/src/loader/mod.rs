@@ -772,6 +772,13 @@ fn qualify_var_refs_in_item(
                 }
             }
         }
+        // `const NAME = expr` whose RHS contains a bare reference to
+        // a same-module class / fn / let needs the same qualification
+        // as fn bodies, otherwise `inline_constants`'s fold-fail
+        // demotion produces a runtime stmt whose `NSObject.wrap(0)`
+        // can't resolve once the class has been renamed to
+        // `module.NSObject`.
+        Item::Const(c) => qualify_var_refs_in_expr(&mut c.value, prefix, consts),
         _ => {}
     }
 }

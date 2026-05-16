@@ -283,4 +283,4 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
 /// `nil` sender — an NSObject wrapper around the zero pointer.
 /// Pass to AppKit calls that want an arbitrary "no sender"
 /// receiver (e.g. `win.makeKeyAndOrderFront(cocoa.nil)`).
-pub let nil = NSObject.wrap(0)
+pub const nil = NSObject.wrap(0)
