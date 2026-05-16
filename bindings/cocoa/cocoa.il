@@ -127,16 +127,40 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     }
 
     /// NSButton. `alloc + initWithFrame:` follows the same
-    /// two-step pattern.
+    /// two-step pattern. Target/action follows the standard
+    /// Cocoa convention: pair `setTarget(handler)` with
+    /// `setAction(selectorPtr("clicked:"))` so AppKit invokes
+    /// `[handler clicked:button]` whenever the button is clicked.
     @objc class NSButton : NSView {
         @objc("alloc") static fn alloc(): NSButton
         @objc("initWithFrame:")  fn initWithFrame(rect: NSRect): NSButton
 
         @objc("setTitle:")       fn setTitle(title: NSString)
         @objc("setBezelStyle:")  fn setBezelStyle(style: u64)
+
+        @objc("setTarget:")      fn setTarget(target: NSObject)
+        // SEL doesn't have a user-facing ilang type today; the
+        // action is passed as the raw SEL pointer cast to `i64`.
+        // Use `selectorPtr("clicked:")` to build one from a name.
+        @objc("setAction:")      fn setAction(sel: i64)
     }
 
     // ─── Convenience helpers ─────────────────────────────────────
+
+    // libobjc's `sel_registerName` exposed under an ilang-side
+    // name with an `i64` return so user code (which can't name
+    // raw pointer types) can shuffle a SEL around. The cast back
+    // to a typed selector happens automatically inside @objc
+    // wrappers; user code just treats SEL as opaque i64.
+    @lib("objc") @symbol("sel_registerName")
+        fn _sel_register_name(name: *const char): i64
+
+    /// Intern an Objective-C selector by name and return its
+    /// stable SEL pointer (as `i64`). Use it with
+    /// `button.setAction(cocoa.selectorPtr("clicked:"))`.
+    pub fn selectorPtr(name: string): i64 {
+        _sel_register_name(cstrFromString(name))
+    }
 
     /// Build an `NSString` from an ilang `string`. Wraps the
     /// `cstrFromString` + `NSString.fromCStr` two-step.
