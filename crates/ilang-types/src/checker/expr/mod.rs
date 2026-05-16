@@ -549,16 +549,17 @@ impl TypeChecker {
                         });
                     }
                 };
-                // The MIR lowering / desugar pass that turns `await`
-                // into a state-machine isn't implemented yet — reject
-                // here with an actionable error so users don't run
-                // into the cryptic MIR-level "outside async fn" message.
+                // Async-fn bodies are rewritten to a state machine
+                // before the type checker sees them, so an `await`
+                // reaching here means it appears outside an `async
+                // fn` body. Surface that directly.
+                let _ = inner_ty;
                 Err(TypeError::Unsupported {
-                    what: format!(
-                        "`await` lowering is not yet implemented (would yield {:?}); \
-                         use `.then(fn(v) {{ ... }})` chains for now",
-                        inner_ty
-                    ),
+                    what:
+                        "`await` is only allowed inside an `async fn` body. \
+                         In a sync context, use `.then(fn(v) { ... })` on \
+                         the promise instead."
+                            .to_string(),
                     span,
                 })
             }
