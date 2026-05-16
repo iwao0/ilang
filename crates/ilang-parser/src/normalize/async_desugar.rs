@@ -298,6 +298,16 @@ fn lower_async_fn(
     }
 
     // ≥1 await: lower to enum-variant state machine via v2.
+    //
+    // After type inference, stamp every desugar-inferred type back
+    // onto the originating `let` statement (when the user omitted
+    // the annotation). Reason: the state enum's variant field is
+    // typed from `body_lets`, and the segment builder also reads
+    // back from the same source AST `let` to compute V_{k+1}'s
+    // ctor args. Without an annotation the post-desugar type
+    // checker may pick a different shape (e.g. `i64[]` vs the
+    // `i64[3]` we baked into the variant field), causing a layout
+    // mismatch when the value flows through the variant cell.
     let body_lets = collect_let_types(&f.params, &f.body, fn_returns, classes).map_err(|missing| {
         AsyncLowerError {
             fn_name: f.name,
@@ -314,6 +324,8 @@ fn lower_async_fn(
             ),
         }
     })?;
+    let body_lets_map: HashMap<Symbol, Type> = body_lets.iter().cloned().collect();
+    stamp_inferred_let_types_block(&mut f.body, &body_lets_map);
     match state_machine::lower(&f, &body_lets, enclosing_class, enums) {
         state_machine::LowerOutput::Built(out) => Ok(AsyncLowerOutput::StateMachine {
             wrapper: out.wrapper,
@@ -436,6 +448,60 @@ fn expr_contains_await(e: &Expr) -> bool {
 struct InferCtx<'a> {
     fn_returns: &'a HashMap<Symbol, Type>,
     classes: &'a HashMap<Symbol, ClassDecl>,
+}
+
+/// Walk the body and stamp inferred types onto un-annotated `let`s.
+/// Done in-place; only writes when the let had `ty=None`. The state
+/// machine builds variant fields from `body_lets`, so unannotated
+/// `let`s would otherwise let the post-desugar type checker re-infer
+/// a possibly different shape (notably `i64[]` vs `i64[3]` for array
+/// literals), causing layout mismatches at the variant cell.
+fn stamp_inferred_let_types_block(b: &mut Block, m: &HashMap<Symbol, Type>) {
+    for s in b.stmts.iter_mut() {
+        stamp_inferred_let_types_stmt(s, m);
+    }
+    if let Some(t) = b.tail.as_deref_mut() {
+        stamp_inferred_let_types_expr(t, m);
+    }
+}
+
+fn stamp_inferred_let_types_stmt(s: &mut Stmt, m: &HashMap<Symbol, Type>) {
+    match &mut s.kind {
+        StmtKind::Let { name, ty, value, .. } => {
+            if ty.is_none() {
+                if let Some(t) = m.get(name) {
+                    *ty = Some(t.clone());
+                }
+            }
+            stamp_inferred_let_types_expr(value, m);
+        }
+        StmtKind::LetTuple { value, .. } | StmtKind::LetStruct { value, .. } => {
+            stamp_inferred_let_types_expr(value, m);
+        }
+        StmtKind::Expr(e) => stamp_inferred_let_types_expr(e, m),
+    }
+}
+
+fn stamp_inferred_let_types_expr(e: &mut Expr, m: &HashMap<Symbol, Type>) {
+    match &mut e.kind {
+        ExprKind::Block(b) => stamp_inferred_let_types_block(b, m),
+        ExprKind::If { then_branch, else_branch, .. } => {
+            stamp_inferred_let_types_block(then_branch, m);
+            if let Some(eb) = else_branch.as_deref_mut() {
+                stamp_inferred_let_types_expr(eb, m);
+            }
+        }
+        ExprKind::While { body, .. } | ExprKind::Loop { body } => {
+            stamp_inferred_let_types_block(body, m);
+        }
+        ExprKind::ForIn { body, .. } => stamp_inferred_let_types_block(body, m),
+        ExprKind::Match { arms, .. } => {
+            for a in arms.iter_mut() {
+                stamp_inferred_let_types_expr(&mut a.body, m);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// is un-annotated AND the inferencer can't handle its RHS shape.
@@ -629,6 +695,14 @@ fn infer_let_rhs(
         ExprKind::Float(_) => Some(Type::F64),
         ExprKind::Bool(_) => Some(Type::Bool),
         ExprKind::Str(_) => Some(Type::Str),
+        ExprKind::Array(es) => {
+            // Element type comes from the first element. Empty
+            // arrays still need a `let xs: T[] = []` annotation
+            // (no element to infer from).
+            let first = es.first()?;
+            let elem = infer_let_rhs(first, env, ctx)?;
+            Some(Type::Array { elem: Box::new(elem), fixed: Some(es.len()) })
+        }
         ExprKind::Var(n) => env.get(n).cloned(),
         ExprKind::Call { callee, .. } => ctx.fn_returns.get(callee).cloned(),
         ExprKind::New { class, .. } => Some(Type::Object(*class)),

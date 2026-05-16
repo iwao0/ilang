@@ -232,7 +232,31 @@ impl<'a> BodyCx<'a> {
                 let mut out = Vec::with_capacity(tys.len());
                 for (i, ae) in arg_exprs.iter().enumerate() {
                     let arg_is_fresh = self.is_fresh_object_expr(ae);
-                    let (v, vty) = self.lower_expr(ae)?;
+                    // Fixed-length array payload + bare array literal:
+                    // lower with the payload's len hint so the literal
+                    // picks the inline (header-less) layout that
+                    // ArrayLoad/ArrayLen expect for `Array { len:
+                    // Some(n) }`. Without the hint the literal lowers
+                    // to a dynamic-header array and the no-op
+                    // dynamic↔fixed identity-coerce later silently
+                    // hands a header pointer where inline data is
+                    // expected.
+                    let (v, vty) = if let (
+                        ExprKind::Array(items),
+                        MirTy::Array { elem, len: Some(_) },
+                    ) = (&ae.kind, &tys[i])
+                    {
+                        self.lower_array_literal_with_hint(
+                            items,
+                            Some((**elem).clone()),
+                            match &tys[i] {
+                                MirTy::Array { len, .. } => *len,
+                                _ => None,
+                            },
+                        )?
+                    } else {
+                        self.lower_expr(ae)?
+                    };
                     let coerced = if vty == tys[i] {
                         v
                     } else {
@@ -280,7 +304,24 @@ impl<'a> BodyCx<'a> {
                             ))
                         })?;
                     let arg_is_fresh = self.is_fresh_object_expr(ae);
-                    let (v, vty) = self.lower_expr(ae)?;
+                    // See tuple-variant branch above — same fixed-array
+                    // hint propagation reason.
+                    let (v, vty) = if let (
+                        ExprKind::Array(items),
+                        MirTy::Array { elem, len: Some(_) },
+                    ) = (&ae.kind, &fty)
+                    {
+                        self.lower_array_literal_with_hint(
+                            items,
+                            Some((**elem).clone()),
+                            match &fty {
+                                MirTy::Array { len, .. } => *len,
+                                _ => None,
+                            },
+                        )?
+                    } else {
+                        self.lower_expr(ae)?
+                    };
                     let coerced = if vty == fty {
                         v
                     } else {
