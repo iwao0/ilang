@@ -87,6 +87,12 @@ pub(super) fn clif_signature_for<M: Module>(
     // the higher `IL_BYVAL_CHUNK_MAX`. ArcObject / Array / etc.
     // stay pointer-typed (reference semantics).
     let chunk_max = if is_c_abi(f) { C_BYVAL_CHUNK_MAX } else { IL_BYVAL_CHUNK_MAX };
+    // HFA (spreading a float struct across multiple float return
+    // registers) only works on System V AMD64 and AArch64 AAPCS64.
+    // Windows fastcall allows only one return-value register, so the
+    // HFA path is disabled there — float structs fall through to the
+    // i64 chunks path instead (1 i64 per 8 bytes, bit-packed).
+    let hfa_ok = sig.call_conv != cranelift_codegen::isa::CallConv::WindowsFastcall;
     let sret_size = struct_indirect_with_max(&f.ret, prog, chunk_max);
     if sret_size.is_some() {
         sig.params.push(AbiParam::special(
@@ -95,11 +101,13 @@ pub(super) fn clif_signature_for<M: Module>(
         ));
     }
     for p in f.params.iter() {
-        if let Some((elem_ct, count)) = struct_hfa(&p.ty, prog) {
-            for _ in 0..count {
-                sig.params.push(AbiParam::new(elem_ct));
+        if hfa_ok {
+            if let Some((elem_ct, count)) = struct_hfa(&p.ty, prog) {
+                for _ in 0..count {
+                    sig.params.push(AbiParam::new(elem_ct));
+                }
+                continue;
             }
-            continue;
         }
         if let Some(chunks) = struct_chunks_with_max(&p.ty, prog, chunk_max) {
             for _ in 0..chunks {
@@ -130,11 +138,13 @@ pub(super) fn clif_signature_for<M: Module>(
         return Ok(sig);
     }
     if !matches!(f.ret, MirTy::Unit) {
-        if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
-            for _ in 0..count {
-                sig.returns.push(AbiParam::new(elem_ct));
+        if hfa_ok {
+            if let Some((elem_ct, count)) = struct_hfa(&f.ret, prog) {
+                for _ in 0..count {
+                    sig.returns.push(AbiParam::new(elem_ct));
+                }
+                return Ok(sig);
             }
-            return Ok(sig);
         }
         if let Some(chunks) = struct_chunks_with_max(&f.ret, prog, chunk_max) {
             for _ in 0..chunks {

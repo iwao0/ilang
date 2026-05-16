@@ -62,6 +62,11 @@ pub(super) fn lower_function<M: Module>(
     let is_extern = matches!(func.kind, ilang_mir::FunctionKind::Extern { .. });
     let chunk_max = chunk_max_for(func);
     let sret_ret_size = struct_indirect_with_max(&func.ret, prog, chunk_max);
+    // HFA param/return spreading is only valid on System V / AArch64.
+    // Windows fastcall allows one register per arg/return, so HFA
+    // is skipped there and float structs fall through to i64 chunks.
+    let hfa_ok = fb.func.signature.call_conv
+        != cranelift_codegen::isa::CallConv::WindowsFastcall;
     let mut blocks: Vec<cranelift::prelude::Block> = Vec::with_capacity(func.blocks.len());
     for (i, blk) in func.blocks.iter().enumerate() {
         let b = fb.create_block();
@@ -73,11 +78,13 @@ pub(super) fn lower_function<M: Module>(
             // Per-MIR-param: chunks / HFA / single slot.
             for &p in &blk.params {
                 let pty = func.ty_of(p);
-                if let Some((elem_ct, count)) = struct_hfa(pty, prog) {
-                    for _ in 0..count {
-                        fb.append_block_param(b, elem_ct);
+                if hfa_ok {
+                    if let Some((elem_ct, count)) = struct_hfa(pty, prog) {
+                        for _ in 0..count {
+                            fb.append_block_param(b, elem_ct);
+                        }
+                        continue;
                     }
-                    continue;
                 }
                 if let Some(chunks) = struct_chunks_with_max(pty, prog, chunk_max) {
                     for _ in 0..chunks {
@@ -122,33 +129,35 @@ pub(super) fn lower_function<M: Module>(
         }
         for &p in &func.blocks[func.entry.0 as usize].params {
             let pty = func.ty_of(p);
-            if let Some((elem_ct, count)) = struct_hfa(pty, prog) {
-                // Reassemble HFA floats into a fresh stack buffer
-                // and bind the param's ValueId to its pointer. The
-                // buffer's lifetime is the callee's frame — exactly
-                // what value semantics needs.
-                let layout = match pty {
-                    MirTy::Object(cid) => &prog.classes[cid.0 as usize],
-                    _ => unreachable!(),
-                };
-                let slot = fb.create_sized_stack_slot(StackSlotData::new(
-                    StackSlotKind::ExplicitSlot,
-                    layout.c_size.max(1) as u32,
-                    3,
-                ));
-                let ptr = fb.ins().stack_addr(types::I64, slot, 0);
-                let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
-                for c in 0..count {
-                    fb.ins().store(
-                        MemFlags::trusted(),
-                        entry_bps[clif_idx + c],
-                        ptr,
-                        (c as i32) * elem_size,
-                    );
+            if hfa_ok {
+                if let Some((elem_ct, count)) = struct_hfa(pty, prog) {
+                    // Reassemble HFA floats into a fresh stack buffer
+                    // and bind the param's ValueId to its pointer. The
+                    // buffer's lifetime is the callee's frame — exactly
+                    // what value semantics needs.
+                    let layout = match pty {
+                        MirTy::Object(cid) => &prog.classes[cid.0 as usize],
+                        _ => unreachable!(),
+                    };
+                    let slot = fb.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        layout.c_size.max(1) as u32,
+                        3,
+                    ));
+                    let ptr = fb.ins().stack_addr(types::I64, slot, 0);
+                    let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                    for c in 0..count {
+                        fb.ins().store(
+                            MemFlags::trusted(),
+                            entry_bps[clif_idx + c],
+                            ptr,
+                            (c as i32) * elem_size,
+                        );
+                    }
+                    clif_idx += count;
+                    vmap.insert(p, ptr);
+                    continue;
                 }
-                clif_idx += count;
-                vmap.insert(p, ptr);
-                continue;
             }
             if let Some(chunks) = struct_chunks_with_max(pty, prog, chunk_max) {
                 let layout = match pty {

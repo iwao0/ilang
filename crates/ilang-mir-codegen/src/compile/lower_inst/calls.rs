@@ -180,18 +180,24 @@ pub(super) fn lower_call<M: Module>(
         // arg_vs.push below.
         if !is_callee_builtin {
             let aty = func.ty_of(*a);
-            if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
-                let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
-                for c in 0..count {
-                    let v = fb.ins().load(
-                        elem_ct,
-                        MemFlags::trusted(),
-                        av,
-                        (c as i32) * elem_size,
-                    );
-                    arg_vs.push(v);
+            // HFA param passing (spreading float struct fields across
+            // float arg registers) is not valid on Windows fastcall.
+            let hfa_ok = fb.func.signature.call_conv
+                != cranelift_codegen::isa::CallConv::WindowsFastcall;
+            if hfa_ok {
+                if let Some((elem_ct, count)) = struct_hfa(aty, prog) {
+                    let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                    for c in 0..count {
+                        let v = fb.ins().load(
+                            elem_ct,
+                            MemFlags::trusted(),
+                            av,
+                            (c as i32) * elem_size,
+                        );
+                        arg_vs.push(v);
+                    }
+                    continue;
                 }
-                continue;
             }
             if let Some(chunks) = struct_chunks_with_max(aty, prog, callee_chunk_max) {
                 for c in 0..chunks {
@@ -490,28 +496,35 @@ pub(super) fn lower_call<M: Module>(
         // this allocation to a StackSlot at the NewObject site, but
         // call-result buffers always go through alloc.
         if !is_callee_builtin {
-            if let Some((elem_ct, count)) = struct_hfa(&dst_ty, prog) {
-                let layout = if let MirTy::Object(cid) = &dst_ty {
-                    &prog.classes[cid.0 as usize]
-                } else {
-                    unreachable!()
-                };
-                let size_v = fb.ins().iconst(types::I64, layout.c_size.max(1));
-                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-                let ptr = fb.inst_results(alloc_call)[0];
-                let results: Vec<Value> = fb.inst_results(inst_ref).to_vec();
-                let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
-                for (i, &v) in results.iter().take(count).enumerate() {
-                    fb.ins().store(
-                        MemFlags::trusted(),
-                        v,
-                        ptr,
-                        (i as i32) * elem_size,
-                    );
+            // HFA result unpacking is not valid on Windows fastcall;
+            // those calls return i64 chunks instead (matched by the
+            // chunks path below).
+            let hfa_ok = fb.func.signature.call_conv
+                != cranelift_codegen::isa::CallConv::WindowsFastcall;
+            if hfa_ok {
+                if let Some((elem_ct, count)) = struct_hfa(&dst_ty, prog) {
+                    let layout = if let MirTy::Object(cid) = &dst_ty {
+                        &prog.classes[cid.0 as usize]
+                    } else {
+                        unreachable!()
+                    };
+                    let size_v = fb.ins().iconst(types::I64, layout.c_size.max(1));
+                    let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                    let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                    let ptr = fb.inst_results(alloc_call)[0];
+                    let results: Vec<Value> = fb.inst_results(inst_ref).to_vec();
+                    let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                    for (i, &v) in results.iter().take(count).enumerate() {
+                        fb.ins().store(
+                            MemFlags::trusted(),
+                            v,
+                            ptr,
+                            (i as i32) * elem_size,
+                        );
+                    }
+                    vmap.insert(*d, ptr);
+                    return Ok(());
                 }
-                vmap.insert(*d, ptr);
-                return Ok(());
             }
             if let Some(chunks) = struct_chunks_with_max(&dst_ty, prog, callee_chunk_max) {
                 let layout = if let MirTy::Object(cid) = &dst_ty {

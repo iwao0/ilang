@@ -79,20 +79,28 @@ pub(super) fn lower_term(
                         return Ok(());
                     }
                 }
-                if let Some((elem_ct, count)) = struct_hfa(&ret_abi.ret_ty, prog) {
-                    if let Some(cv) = cv_opt {
-                        let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
-                        let mut vs: Vec<Value> = Vec::with_capacity(count);
-                        for c in 0..count {
-                            vs.push(fb.ins().load(
-                                elem_ct,
-                                MemFlags::trusted(),
-                                cv,
-                                (c as i32) * elem_size,
-                            ));
+                // HFA is not valid on Windows fastcall (one return
+                // register only); those functions fall through to the
+                // i64 chunks path below, matching the signature that
+                // `clif_signature_for` generated.
+                let hfa_ok = fb.func.signature.call_conv
+                    != cranelift_codegen::isa::CallConv::WindowsFastcall;
+                if hfa_ok {
+                    if let Some((elem_ct, count)) = struct_hfa(&ret_abi.ret_ty, prog) {
+                        if let Some(cv) = cv_opt {
+                            let elem_size: i32 = if elem_ct == types::F32 { 4 } else { 8 };
+                            let mut vs: Vec<Value> = Vec::with_capacity(count);
+                            for c in 0..count {
+                                vs.push(fb.ins().load(
+                                    elem_ct,
+                                    MemFlags::trusted(),
+                                    cv,
+                                    (c as i32) * elem_size,
+                                ));
+                            }
+                            fb.ins().return_(&vs);
+                            return Ok(());
                         }
-                        fb.ins().return_(&vs);
-                        return Ok(());
                     }
                 }
                 if let Some(chunks) =
