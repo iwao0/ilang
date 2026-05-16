@@ -116,6 +116,30 @@ pub(crate) fn build_doc(
             var_types: &mut var_types,
             consts: &consts,
         };
+        // Pre-pass: register every top-level `let X = expr`'s
+        // inferred type into `var_types` (and a hover decl into
+        // `symbols`) so item bodies that reference `X` resolve to
+        // the right signature. The full walk below re-walks each
+        // stmt to push value-expression refs; `push_decl` /
+        // `var_types` are idempotent, so the second visit
+        // overwrites with the same data.
+        for s in &prog.stmts {
+            if let StmtKind::Let { name, ty, value, .. } = &s.kind {
+                let inferred = ty
+                    .clone()
+                    .or_else(|| walker.infer_expr(value, &[]));
+                let sig = BindKind::Let.render(name.as_str(), inferred.as_ref());
+                let name_span = text::locate_let_name(&text, s.span, name.as_str())
+                    .unwrap_or(s.span);
+                walker.push_decl(name.as_str(), name_span, sig);
+                if let Some(t) = inferred {
+                    walker.var_types.insert(name.clone(), t.clone());
+                    if let Some(c) = type_to_class(&t) {
+                        walker.var_classes.insert(name.clone(), c);
+                    }
+                }
+            }
+        }
         for item in &prog.items {
             match item {
                 Item::Fn(f) => walker.walk_fn(f, None),
