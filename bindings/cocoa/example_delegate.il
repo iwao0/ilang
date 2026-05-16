@@ -17,7 +17,7 @@
 // Run with:
 //   cargo run --release -p ilang -- run bindings/cocoa/example_delegate.il
 
-use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR,
+use cocoa { NSObject, StyleMask, ACTIVATION_REGULAR, nil,
             sharedApplication, makeWindow, autoreleasepool, nsstr }
 
 @extern(ObjC) {
@@ -67,6 +67,6 @@ let mask = StyleMask.titled
 let win = makeWindow("Cocoa delegate", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
-win.makeKeyAndOrderFront(NSObject.wrap(0))
+win.makeKeyAndOrderFront(nil)
 app.activateIgnoringOtherApps(1)
 app.run()

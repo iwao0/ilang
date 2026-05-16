@@ -79,6 +79,16 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         pub retain(): NSObject
         @objc("hash")
         pub hash(): i64
+
+        /// Wrap a raw ObjC `id` (the `i64` pointer value) into an
+        /// `NSObject` instance without going through `alloc + init`.
+        /// Bridges to the @objc-desugar's hidden `__wrap_handle`
+        /// helper, which simply stores `h` into the object's
+        /// `handle` field. Use this for `nil` (handle = 0) or for
+        /// adopting an `id` returned from a C-side bridge.
+        pub static wrap(h: i64): NSObject {
+            NSObject.__wrap_handle(h)
+        }
     }
 
     /// `NSString` — Cocoa's UTF-16 string type. We only expose
@@ -269,3 +279,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         btn
     }
 }
+
+/// `nil` sender — an NSObject wrapper around the zero pointer.
+/// Pass to AppKit calls that want an arbitrary "no sender"
+/// receiver (e.g. `win.makeKeyAndOrderFront(cocoa.nil)`).
+pub let nil = NSObject.wrap(0)

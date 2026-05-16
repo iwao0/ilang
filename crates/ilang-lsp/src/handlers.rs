@@ -422,6 +422,13 @@ impl LanguageServer for Backend {
             if name == "init" {
                 continue;
             }
+            // Parser-synthesised helpers (the `@objc class` desugar's
+            // `__bind_handle` / `__wrap_handle` etc.) shouldn't show in
+            // completion. They're invoked only from cocoa.il's wrap()
+            // bridge, not by user code directly.
+            if is_synthesized_objc_helper(name.as_str()) {
+                continue;
+            }
             if m.is_static != want_static {
                 continue;
             }

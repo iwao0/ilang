@@ -510,48 +510,67 @@ impl<'a> Parser<'a> {
             } else {
                 false
             };
-            // Every method must carry an @objc("selector:") attr.
-            let objc_pos = attrs
-                .iter()
-                .position(|a| a.name.as_str() == "objc")
-                .ok_or_else(|| ParseError::Unexpected {
-                    found: self.peek().kind.clone(),
-                    expected: "every method inside @objc class needs @objc(\"selector:\")".into(),
-                    span: self.peek().span,
-                })?;
-            if attrs.len() != 1 {
-                let t = self.peek();
-                return Err(ParseError::Unexpected {
-                    found: t.kind.clone(),
-                    expected: "@objc(...) cannot be combined with other attributes on a method".into(),
-                    span: t.span,
-                });
-            }
-            let selector = match &attrs[objc_pos].args[..] {
-                [AttrArg::Str(s)] => s.clone(),
-                _ => {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "@objc(\"selector:\") takes exactly one string argument".into(),
-                        span: t.span,
-                    });
-                }
-            };
             // Optional `static` modifier before the method name.
             let is_static = matches!(&self.peek().kind, TokenKind::Ident(n) if n.as_str() == "static");
             if is_static {
                 self.bump();
             }
-            // Class methods follow the regular-class convention: no
-            // `fn` keyword, just `[pub] [static] name(params): ret`.
-            let m = self.parse_objc_method(
-                selector,
-                method_is_pub,
-                is_static,
-                /*require_fn_kw*/ false,
-            )?;
-            methods.push(m);
+            // `@objc("selector:")` → ObjC dispatch wrapper.
+            // No attribute → plain ilang method living inside the
+            // @objc class. Useful for static helpers like
+            // `pub static wrap(h: i64): Self { __wrap_handle(h) }`
+            // that bridge the desugar's internal `__wrap_handle`
+            // out to a friendly user-facing name.
+            let objc_pos = attrs.iter().position(|a| a.name.as_str() == "objc");
+            if let Some(pos) = objc_pos {
+                if attrs.len() != 1 {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "@objc(...) cannot be combined with other attributes on a method".into(),
+                        span: t.span,
+                    });
+                }
+                let selector = match &attrs[pos].args[..] {
+                    [AttrArg::Str(s)] => s.clone(),
+                    _ => {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected: "@objc(\"selector:\") takes exactly one string argument".into(),
+                            span: t.span,
+                        });
+                    }
+                };
+                let m = self.parse_objc_method(
+                    selector,
+                    method_is_pub,
+                    is_static,
+                    /*require_fn_kw*/ false,
+                )?;
+                methods.push(m);
+            } else {
+                if !attrs.is_empty() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "only @objc(...) or no attribute is allowed on methods inside @objc class".into(),
+                        span: t.span,
+                    });
+                }
+                // Plain method: same shape as `parse_objc_method`
+                // but flagged so the caller knows to skip the
+                // ObjC dispatch wrapper.
+                let m = self.parse_objc_method(
+                    String::new(),
+                    method_is_pub,
+                    is_static,
+                    /*require_fn_kw*/ false,
+                )?;
+                let mut plain = m;
+                plain.selector = String::new();
+                methods.push(plain);
+            }
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
         Ok(ObjcClass {
@@ -807,11 +826,11 @@ fn build_objc_class(
     } else {
         vec![init_fn]
     };
-    // `pub static wrap(h: i64): Self` — the user-facing way to
-    // produce an ilang wrapper around a raw ObjC id. Bridges to
-    // the private `__bind_handle` init. Replaces the older
-    // `new ClassName(h)` form that conflicted with user-defined
-    // `@objc("init") pub init(...)`.
+    // `pub static __wrap_handle(h: i64): Self` — internal helper
+    // the @objc desugar leans on to wrap a raw ObjC id into an
+    // ilang instance. Hidden from LSP through the `__` prefix
+    // filter; user code in cocoa.il references it explicitly to
+    // expose a friendly `wrap(h: i64): NSObject` on top of it.
     let wrap_param = Param {
         name: Symbol::intern("h"),
         ty: Type::I64,
@@ -833,7 +852,7 @@ fn build_objc_class(
     let wrap_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
-        name: Symbol::intern("wrap"),
+        name: Symbol::intern("__wrap_handle"),
         type_params: Box::new([]),
         params: Box::new([wrap_param]),
         ret: Some(Type::Object(class_name)),
@@ -862,6 +881,35 @@ fn build_objc_class(
             // (Parsing already accepted the body; we just don't
             // emit an IMP. Future: report this through the
             // ParseError channel.)
+        }
+
+        // Plain (non-@objc) method living inside the @objc class:
+        // pass it through as a regular ilang method, no
+        // `objc_msgSend` wrapper. The parser flags these with an
+        // empty selector. Used for static helpers like
+        // `pub static wrap(h: i64): NSObject { __wrap_handle(h) }`.
+        if m.selector.is_empty() {
+            let plain_fn = FnDecl {
+                is_pub: m.is_pub,
+                attrs: Box::new([]),
+                name: m.name,
+                type_params: Box::new([]),
+                params: m.params.clone(),
+                ret: m.ret.clone(),
+                body: m.body.clone().unwrap_or(Block {
+                    stmts: Vec::new(),
+                    tail: None,
+                }),
+                span: m.span,
+                is_override: false,
+                is_async: false,
+            };
+            if m.is_static {
+                static_methods.push(plain_fn);
+            } else {
+                methods.push(plain_fn);
+            }
+            continue;
         }
 
         let alias_name: Symbol =

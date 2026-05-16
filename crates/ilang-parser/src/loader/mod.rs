@@ -682,6 +682,15 @@ fn apply_use(
                     }
                 }
             }
+            // Top-level `pub let X = ...` lives in `p.stmts`, not in
+            // `p.items`. The loader still rewrites these into
+            // `let module.X = ...` during prefixing, so they're
+            // valid selective-import targets — list them here.
+            for s in p.stmts.iter() {
+                if let StmtKind::Let { is_pub: true, name, .. } = &s.kind {
+                    local_names.insert(name.as_str());
+                }
+            }
         }
         let module_dir = canon
             .parent()

@@ -14,7 +14,7 @@
 // quit.
 
 use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
-            StyleMask, ACTIVATION_REGULAR,
+            StyleMask, ACTIVATION_REGULAR, nil,
             sharedApplication, makeWindow, makeButton, selectorPtr }
 
 @extern(ObjC) {
@@ -51,6 +51,6 @@ btn.setTarget(handler)
 btn.setAction(selectorPtr("clicked:"))
 win.contentView().addSubview(btn)
 
-win.makeKeyAndOrderFront(NSObject.wrap(0))
+win.makeKeyAndOrderFront(nil)
 app.activateIgnoringOtherApps(1)
 app.run()
