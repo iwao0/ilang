@@ -1060,40 +1060,61 @@ fn build_objc_class(
     // ilang instance. Hidden from LSP through the `__` prefix
     // filter; user code in cocoa.il references it explicitly to
     // expose a friendly `wrap(h: i64): NSObject` on top of it.
-    let wrap_param = Param {
+    let wrap_param = || Param {
         name: Symbol::intern("h"),
         ty: Type::I64,
         span,
         default: None,
     };
-    let wrap_body_new = Expr::new(
-        ExprKind::New {
-            class: class_name,
-            type_args: Box::new([]),
-            args: Box::new([Expr::new(
-                ExprKind::Var(Symbol::intern("h")),
-                span,
-            )]),
-            init_method: Some(Symbol::intern("__bind_handle")),
-        },
-        span,
-    );
+    let wrap_body_new = |init: &'static str| {
+        Expr::new(
+            ExprKind::New {
+                class: class_name,
+                type_args: Box::new([]),
+                args: Box::new([Expr::new(
+                    ExprKind::Var(Symbol::intern("h")),
+                    span,
+                )]),
+                init_method: Some(Symbol::intern(init)),
+            },
+            span,
+        )
+    };
     let wrap_fn = FnDecl {
         is_pub: true,
         attrs: Box::new([]),
         name: Symbol::intern("__wrap_handle"),
         type_params: Box::new([]),
-        params: Box::new([wrap_param]),
+        params: Box::new([wrap_param()]),
         ret: Some(Type::Object(class_name)),
         body: Block {
             stmts: Vec::new(),
-            tail: Some(Box::new(wrap_body_new)),
+            tail: Some(Box::new(wrap_body_new("__bind_handle"))),
         },
         span,
         is_override: false,
         is_async: false,
     };
-    let mut static_methods: Vec<FnDecl> = vec![wrap_fn];
+    // Mirror of `__wrap_handle` for the non-owning case — wraps a
+    // handle whose retain count we don't manage. Block callback
+    // bodies use this to view an AppKit-owned id (NSEvent etc.)
+    // without our deinit double-releasing it.
+    let wrap_unowned_fn = FnDecl {
+        is_pub: true,
+        attrs: Box::new([]),
+        name: Symbol::intern("__wrap_handle_unowned"),
+        type_params: Box::new([]),
+        params: Box::new([wrap_param()]),
+        ret: Some(Type::Object(class_name)),
+        body: Block {
+            stmts: Vec::new(),
+            tail: Some(Box::new(wrap_body_new("__bind_handle_unowned"))),
+        },
+        span,
+        is_override: false,
+        is_async: false,
+    };
+    let mut static_methods: Vec<FnDecl> = vec![wrap_fn, wrap_unowned_fn];
     let mut aliases: Vec<ilang_ast::ExternCItem> = Vec::new();
     // Collect bodied methods so the `register()` builder can emit
     // a `class_addMethod` call per IMP. Stored as

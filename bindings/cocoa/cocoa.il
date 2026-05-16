@@ -296,6 +296,8 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         fn _make_void_block(closure: fn()): i64
     @lib("c") @symbol("__ilang_make_obj_block")
         fn _make_obj_block(closure: fn(i64)): i64
+    @lib("c") @symbol("__ilang_make_obj_to_obj_block")
+        fn _make_obj_to_obj_block(closure: fn(i64): i64): i64
 
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
@@ -363,6 +365,17 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
     /// subclass equivalent) inside if you want a typed view.
     pub fn makeObjectBlock(body: fn(i64)): i64 {
         _make_obj_block(body)
+    }
+
+    /// Build an ObjC `id(^)(id)` block — the monitoring callback
+    /// shape used by `addLocalMonitorForEventsMatchingMask:handler:`
+    /// where the handler returns the event to forward (often the
+    /// same one), a replacement, or `0` to swallow. The ilang
+    /// closure is `fn(handle: i64): i64` — both sides traffic in
+    /// raw `id`s, so wrap them with `NSObject.__wrap_handle_unowned`
+    /// for AppKit-owned arguments to avoid double-release.
+    pub fn makeObjectToObjectBlock(body: fn(i64): i64): i64 {
+        _make_obj_to_obj_block(body)
     }
 
     /// Run `body` inside a fresh ObjC autorelease pool. Mirrors

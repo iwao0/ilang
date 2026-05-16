@@ -75,6 +75,8 @@ static VOID_VOID_SIGNATURE: &[u8] = b"v8@?0\0";
 // `void(^)(id)` — block + one id arg = 16 bytes total. `@8` says
 // the second arg is an id starting at offset 8 in the arg frame.
 static VOID_OBJ_SIGNATURE: &[u8] = b"v16@?0@8\0";
+// `id(^)(id)` — return id, block + id args.
+static OBJ_TO_OBJ_SIGNATURE: &[u8] = b"@16@?0@8\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -91,6 +93,25 @@ extern "C" fn invoke_void_block(b: *mut BlockLayout) {
         let fn_ptr = *(closure_ptr as *const usize);
         let f: extern "C" fn(i64) = std::mem::transmute(fn_ptr);
         f(closure_ptr);
+    }
+}
+
+/// `id(^)(id)` trampoline. The ilang closure signature is
+/// `fn(arg: i64): i64` — receives a raw `id` and returns a raw
+/// `id` (or 0 for nil). Same env-is-last calling convention as
+/// `invoke_obj_block`.
+extern "C" fn invoke_obj_to_obj_block(b: *mut BlockLayout, arg: i64) -> i64 {
+    if b.is_null() {
+        return 0;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(fn_ptr);
+        f(arg, closure_ptr)
     }
 }
 
@@ -176,6 +197,14 @@ static OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: VOID_OBJ_SIGNATURE.as_ptr(),
 });
 
+static OBJ_TO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: OBJ_TO_OBJ_SIGNATURE.as_ptr(),
+});
+
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
 /// call it with the block as the sole argument. The standard
 /// `void(^)(void)` calling convention. Exposed for unit-test
@@ -212,6 +241,24 @@ pub extern "C" fn invoke_obj_block_via_runtime(block_ptr: i64, arg: i64) {
         }
         let f: extern "C" fn(i64, i64) = std::mem::transmute(invoke_addr);
         f(block_ptr, arg);
+    }
+}
+
+/// Same idea for `id(^)(id)` — invoke and return the result.
+/// Test-only driver for `make_obj_to_obj_block`.
+#[unsafe(export_name = "__ilang_invoke_obj_to_obj_block")]
+pub extern "C" fn invoke_obj_to_obj_block_via_runtime(block_ptr: i64, arg: i64) -> i64 {
+    if block_ptr == 0 {
+        return 0;
+    }
+    unsafe {
+        let invoke_slot = (block_ptr + 16) as *const usize;
+        let invoke_addr = *invoke_slot;
+        if invoke_addr == 0 {
+            return 0;
+        }
+        let f: extern "C" fn(i64, i64) -> i64 = std::mem::transmute(invoke_addr);
+        f(block_ptr, arg)
     }
 }
 
@@ -288,6 +335,31 @@ pub extern "C" fn make_obj_block(closure_ptr: i64) -> i64 {
             closure_ptr,
             invoke_obj_block as *const c_void,
             &OBJ_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
+/// Build a heap ObjC `id(^)(id)` block. The ilang closure is
+/// `fn(handle: i64): i64` — returns a raw `id` (or 0 for nil).
+/// Used for monitoring APIs (`addLocalMonitorForEventsMatchingMask
+/// :handler:`) where the handler decides whether to forward,
+/// replace, or swallow the event.
+#[unsafe(export_name = "__ilang_make_obj_to_obj_block")]
+pub extern "C" fn make_obj_to_obj_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_obj_to_obj_block as *const c_void,
+            &OBJ_TO_OBJ_DESCRIPTOR.0,
         );
     }
     #[cfg(not(target_os = "macos"))]
