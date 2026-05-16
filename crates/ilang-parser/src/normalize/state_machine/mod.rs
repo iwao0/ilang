@@ -223,17 +223,6 @@ pub fn lower(
     enclosing_class: Option<Symbol>,
     enums: &HashMap<Symbol, EnumDecl>,
 ) -> LowerOutput {
-    // Generic `async fn first<T>(...)`: hand-written generic class
-    // instantiation inside a generic fn now typechecks and MIR
-    // monomorphizes properly. The v2-generated state items
-    // (state enum / state ref class / poll fn) ARE wired up to
-    // carry the user fn's type params; however the poll fn body
-    // — with its loop/match dispatch, state-transition Blocks,
-    // and Suspend `.then` closure — still hits a TypeVar-vs-Object
-    // unification edge somewhere typecheck can't square. Defer.
-    if !f.type_params.is_empty() {
-        return LowerOutput::NeedsFallback;
-    }
     if !segments::body_is_supported(&f.body) {
         return LowerOutput::NeedsFallback;
     }

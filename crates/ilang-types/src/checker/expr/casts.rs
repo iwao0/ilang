@@ -151,12 +151,26 @@ impl TypeChecker {
         if let Some(r) = ret {
             self.validate_type(r, span, &[])?;
         }
+        // The enclosing fn's type params are in scope inside the
+        // closure too. Rewrite `Object("T")` in param/ret
+        // annotations to `TypeVar("T")` so they unify with the
+        // outer fn's already-rewritten signature shapes (e.g.
+        // a `__first_State<T>` payload binding flows into the
+        // closure via a same-name capture).
+        let outer_tps = self.current_type_params.borrow().clone();
+        let rewrite = |t: &Type| -> Type {
+            if outer_tps.is_empty() {
+                t.clone()
+            } else {
+                crate::checker::sigs::rewrite_type_params(t, &outer_tps)
+            }
+        };
         // Closures capture outer locals by value. The body's
         // local env starts from the outer env so free vars
         // resolve, then params overlay.
         let mut inner: Vars = env.clone();
         for Param { name, ty, .. } in params {
-            inner.insert(name.clone(), ty.clone());
+            inner.insert(name.clone(), rewrite(ty));
         }
         // Compute captures: free vars in the body that come
         // from the OUTER `env` (not the closure's own params,
@@ -196,7 +210,7 @@ impl TypeChecker {
                     .insert(span, class_name);
             }
         }
-        let expected = ret.clone().unwrap_or(Type::Unit);
+        let expected = rewrite(&ret.clone().unwrap_or(Type::Unit));
         let body_ty =
             self.check_block(body, &inner, Some(&expected), in_class, 0)?;
         let tail_check = body
@@ -220,8 +234,8 @@ impl TypeChecker {
             });
         }
         Ok(Type::func(
-            params.iter().map(|p| p.ty.clone()).collect(),
-            ret.clone().unwrap_or(Type::Unit),
+            params.iter().map(|p| rewrite(&p.ty)).collect(),
+            expected,
         ))
     }
 }
