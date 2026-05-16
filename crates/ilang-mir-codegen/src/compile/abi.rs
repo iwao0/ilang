@@ -191,31 +191,64 @@ pub(super) fn struct_chunks_with_max(
 /// Returns `Some((elem_clif_type, count))` so the caller can push a
 /// matching `AbiParam(F32|F64)` per element.
 pub(super) fn struct_hfa(ty: &MirTy, prog: &Program) -> Option<(cranelift::prelude::Type, usize)> {
-    use cranelift::prelude::types as ct;
-    if let MirTy::Object(cid) = ty {
-        let layout = &prog.classes[cid.0 as usize];
-        if !matches!(layout.repr, ilang_mir::ClassRepr::CRepr) {
-            return None;
-        }
-        if layout.fields.is_empty() || layout.fields.len() > 4 {
-            return None;
-        }
-        let mut clif_ty: Option<cranelift::prelude::Type> = None;
-        for f in &layout.fields {
-            let ct_for = match &f.ty {
-                MirTy::F32 => ct::F32,
-                MirTy::F64 => ct::F64,
-                _ => return None,
-            };
-            match clif_ty {
-                None => clif_ty = Some(ct_for),
-                Some(prev) if prev != ct_for => return None,
-                _ => {}
-            }
-        }
-        return clif_ty.map(|c| (c, layout.fields.len()));
+    if !matches!(ty, MirTy::Object(_)) {
+        return None;
     }
-    None
+    let mut floats: Vec<cranelift::prelude::Type> = Vec::new();
+    if !flatten_hfa_floats(ty, prog, &mut floats) {
+        return None;
+    }
+    if floats.is_empty() || floats.len() > 4 {
+        return None;
+    }
+    let first = floats[0];
+    if floats.iter().all(|t| *t == first) {
+        Some((first, floats.len()))
+    } else {
+        None
+    }
+}
+
+/// Recursively collect every float leaf of a CRepr struct so
+/// HFA detection can see through nested geometry types like
+/// `NSRect { origin: NSPoint, size: NSSize }`. Returns `false`
+/// the moment a non-float / non-CRepr / non-fit element is hit
+/// so callers can short-circuit.
+fn flatten_hfa_floats(
+    ty: &MirTy,
+    prog: &Program,
+    out: &mut Vec<cranelift::prelude::Type>,
+) -> bool {
+    use cranelift::prelude::types as ct;
+    if out.len() > 4 {
+        return false;
+    }
+    match ty {
+        MirTy::F32 => {
+            out.push(ct::F32);
+            true
+        }
+        MirTy::F64 => {
+            out.push(ct::F64);
+            true
+        }
+        MirTy::Object(cid) => {
+            let layout = &prog.classes[cid.0 as usize];
+            if !matches!(layout.repr, ilang_mir::ClassRepr::CRepr) {
+                return false;
+            }
+            if layout.fields.is_empty() {
+                return false;
+            }
+            for f in &layout.fields {
+                if !flatten_hfa_floats(&f.ty, prog, out) {
+                    return false;
+                }
+            }
+            true
+        }
+        _ => false,
+    }
 }
 
 /// `Some(c_size)` for a CRepr struct / union / packed that's
