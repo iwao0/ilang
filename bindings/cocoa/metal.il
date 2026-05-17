@@ -47,10 +47,13 @@
 //                           fill mode, blend colour, RT array
 //                           length, debug labels) + compute
 //                           threadgroup-memory binding
+//   * Tier (g):             MTLHeap (resource pooling) +
+//                           MTLFence (intra-queue ordering) +
+//                           updateFence/waitForFence on all
+//                           three encoder kinds
 //
 // Surface still intentionally absent (add per-need):
 //   * CAMetalLayer / CAMetalDrawable + on-screen presentation
-//   * MTLHeap / MTLFence (resource pooling + intra-queue sync)
 //   * MTLEvent / MTLSharedEvent (cross-queue / CPU↔GPU events)
 //   * MTLArgumentEncoder + argument buffers
 //   * MTLIndirectCommandBuffer (Tier-2 indirect dispatch)
@@ -278,6 +281,31 @@ pub enum MTLSamplerBorderColor: u64 {
     opaqueWhite      = 2
 }
 
+/// `MTLHeapType` — placement policy for resources allocated out
+/// of an `MTLHeap`. `.automatic` is the casual choice: the driver
+/// suballocates from the heap freely and tracks lifetimes for you.
+/// `.placement` hands you explicit byte offsets (advanced — for
+/// aliasing or transient memory). `.sparse` backs sparse textures.
+pub enum MTLHeapType: u64 {
+    automatic = 0
+    placement = 1
+    sparse    = 2
+}
+
+/// `MTLRenderStages` — bitmask of pipeline stages a fence /
+/// barrier applies to. Used with
+/// `MTLRenderCommandEncoder.updateFence:afterStages:` /
+/// `waitForFence:beforeStages:`. Pass the OR of the stages the
+/// resource is read / written in.
+@flags
+pub enum MTLRenderStages: u64 {
+    vertex   = 0x01
+    fragment = 0x02
+    tile     = 0x04
+    object   = 0x08
+    mesh     = 0x10
+}
+
 /// `MTLCullMode` — which side of a triangle the rasteriser
 /// discards before fragment shading. `.none` disables culling
 /// (both sides shade); `.back` is the conventional default.
@@ -371,6 +399,15 @@ pub struct MTLViewport {
     zfar:    f64
 }
 
+/// `MTLSizeAndAlign` — the `(size, align)` pair returned by the
+/// device's `heapBufferSizeAndAlignWithLength:options:` /
+/// `heapTextureSizeAndAlignWithDescriptor:` size-query selectors.
+/// Both fields are byte counts. Plain C struct, 16 bytes.
+pub struct MTLSizeAndAlign {
+    size:  u64
+    align: u64
+}
+
 /// `MTLScissorRect` — fragment-discard rectangle for the render
 /// encoder. Fragments outside `(x, y, x+width, y+height)` are
 /// thrown away before reaching the colour attachment. 32 bytes
@@ -446,6 +483,28 @@ pub struct MTLScissorRect {
         ): MTLBuffer
         @objc("newBufferWithLength:options:")
         pub newBufferWithLength(length: u64, options: MTLResourceOptions): MTLBuffer
+
+        // Heap factories + size queries. `newHeapWithDescriptor:`
+        // allocates a backing region the caller suballocates from
+        // via `heap.newBuffer/Texture(...)`. The two size queries
+        // report the (size, align) pair a resource would consume
+        // *if* it were placed on a heap with those options — use
+        // them to total up the heap size before creating it.
+        @objc("newHeapWithDescriptor:")
+        pub newHeapWithDescriptor(d: MTLHeapDescriptor): MTLHeap
+        @objc("heapBufferSizeAndAlignWithLength:options:")
+        pub heapBufferSizeAndAlign(
+            length: u64, options: MTLResourceOptions
+        ): MTLSizeAndAlign
+        @objc("heapTextureSizeAndAlignWithDescriptor:")
+        pub heapTextureSizeAndAlign(d: MTLTextureDescriptor): MTLSizeAndAlign
+
+        // Fence factory — a single-queue synchronisation primitive
+        // updated by one encoder's `updateFence:` and waited on
+        // by a later encoder's `waitForFence:`. Cheap; reuse one
+        // per producer/consumer pair per frame.
+        @objc("newFence")
+        pub newFence(): MTLFence
 
         // Sampler / depth-stencil state factories. Both are
         // immutable handles built from a mutable descriptor, the
@@ -901,6 +960,17 @@ pub struct MTLScissorRect {
         @objc("setBlendColorRed:green:blue:alpha:")
         pub setBlendColor(r: f32, green: f32, blue: f32, alpha: f32)
 
+        // Intra-queue fence ordering. `updateFence:afterStages:`
+        // signals the fence after the named pipeline stages
+        // complete; `waitForFence:beforeStages:` blocks the named
+        // stages from starting until the fence is signalled. The
+        // stage bitmask is `MTLRenderStages` — typically
+        // `.vertex | .fragment` for a full-pipeline barrier.
+        @objc("updateFence:afterStages:")
+        pub updateFence(fence: MTLFence, afterStages: MTLRenderStages)
+        @objc("waitForFence:beforeStages:")
+        pub waitForFence(fence: MTLFence, beforeStages: MTLRenderStages)
+
         // Debug labels — visible in Xcode's GPU frame capture. The
         // push/pop pair brackets a span of encoder calls; `setLabel`
         // names the encoder itself.
@@ -997,6 +1067,84 @@ pub struct MTLScissorRect {
     ///   * `dispatchThreadgroups:threadsPerThreadgroup:` — works
     ///     on every Metal-capable device; total threads =
     ///     threadgroups × threadsPerThreadgroup.
+    // ─── Heap (resource pooling) ──────────────────────────────────
+
+    /// `MTLHeapDescriptor` — pre-creation knobs for an `MTLHeap`.
+    /// Set at minimum `size` and (usually) `storageMode`; leave
+    /// `type` at the `.automatic` default unless you have a
+    /// reason to manage offsets yourself. `setResourceOptions:`
+    /// composes storage / cache / hazard-tracking bits in one
+    /// call instead of three.
+    @objc pub class MTLHeapDescriptor : NSObject {
+        @objc("alloc")
+        pub static alloc(): MTLHeapDescriptor
+        @objc("init")
+        pub init(): MTLHeapDescriptor
+
+        @objc("setSize:")
+        pub setSize(s: u64)
+        @objc("setStorageMode:")
+        pub setStorageMode(m: MTLStorageMode)
+        @objc("setHazardTrackingMode:")
+        pub setHazardTrackingMode(m: u64)
+        @objc("setResourceOptions:")
+        pub setResourceOptions(o: MTLResourceOptions)
+        @objc("setType:")
+        pub setType(t: MTLHeapType)
+    }
+
+    /// `id<MTLHeap>` — pooled GPU memory. Build via
+    /// `device.newHeapWithDescriptor(desc)`, then carve out
+    /// buffers / textures with `heap.newBuffer/Texture(...)`. The
+    /// pool's lifetime owns every suballocation; releasing the
+    /// heap frees everything it holds.
+    ///
+    /// `usedSize` is the running total of bytes allocated out of
+    /// the heap; `currentAllocatedSize` is what the driver has
+    /// physically reserved (≥ usedSize, may grow on demand for
+    /// `.automatic` heaps). `maxAvailableSizeWithAlignment:`
+    /// queries the largest contiguous block of free space.
+    @objc pub class MTLHeap : NSObject {
+        @objc("newBufferWithLength:options:")
+        pub newBufferWithLength(
+            length: u64, options: MTLResourceOptions
+        ): MTLBuffer
+        @objc("newTextureWithDescriptor:")
+        pub newTextureWithDescriptor(d: MTLTextureDescriptor): MTLTexture
+
+        @objc("size")
+        pub size(): u64
+        @objc("usedSize")
+        pub usedSize(): u64
+        @objc("currentAllocatedSize")
+        pub currentAllocatedSize(): u64
+        @objc("maxAvailableSizeWithAlignment:")
+        pub maxAvailableSizeWithAlignment(align: u64): u64
+
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("label")
+        pub label(): NSString
+    }
+
+    // ─── Fence (intra-queue synchronisation) ──────────────────────
+
+    /// `id<MTLFence>` — single-queue synchronisation token. One
+    /// encoder calls `updateFence:` to "set" it after its work;
+    /// a later encoder on the same queue calls `waitForFence:`
+    /// to gate its work until the fence is set. Use this when an
+    /// untracked-storage heap or a `useResource:` declared
+    /// resource needs explicit ordering — automatic hazard
+    /// tracking handles tracked resources for you. For
+    /// cross-queue or CPU-side waits, reach for `MTLEvent` /
+    /// `MTLSharedEvent` instead.
+    @objc pub class MTLFence : NSObject {
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("label")
+        pub label(): NSString
+    }
+
     // ─── Sampler state ────────────────────────────────────────────
 
     /// `MTLSamplerDescriptor` — describes how a texture is
@@ -1185,6 +1333,13 @@ pub struct MTLScissorRect {
             threadgroups: MTLSize, threadsPerThreadgroup: MTLSize
         )
 
+        // Intra-queue fences. Compute encoders don't have a
+        // stage mask — the whole dispatch is the "stage".
+        @objc("updateFence:")
+        pub updateFence(fence: MTLFence)
+        @objc("waitForFence:")
+        pub waitForFence(fence: MTLFence)
+
         @objc("endEncoding")
         pub endEncoding()
     }
@@ -1296,6 +1451,12 @@ pub struct MTLScissorRect {
         pub pushDebugGroup(s: NSString)
         @objc("popDebugGroup")
         pub popDebugGroup()
+
+        // Intra-queue fences (blit has no stage mask either).
+        @objc("updateFence:")
+        pub updateFence(fence: MTLFence)
+        @objc("waitForFence:")
+        pub waitForFence(fence: MTLFence)
 
         @objc("endEncoding")
         pub endEncoding()
