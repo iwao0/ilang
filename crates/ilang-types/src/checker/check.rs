@@ -59,6 +59,7 @@ impl TypeChecker {
                         name: m.name.clone(),
                         params: m.params.iter().map(|p| p.ty.clone()).collect(),
                         ret: m.ret.clone().unwrap_or(Type::Unit),
+                        is_optional: m.is_optional,
                     });
                 }
                 let module = module_of_name(i.name.as_str()).to_string();
@@ -196,6 +197,7 @@ impl TypeChecker {
                             name: m.name.clone(),
                             params: m.params.iter().map(|p| p.ty.clone()).collect(),
                             ret: m.ret.clone().unwrap_or(Type::Unit),
+                            is_optional: m.is_optional,
                         });
                     }
                     let module = module_of_name(i.name.as_str()).to_string();

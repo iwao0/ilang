@@ -178,7 +178,7 @@ impl TypeChecker {
                         break;
                     }
                 }
-                if !matched {
+                if !matched && !im.is_optional {
                     return Err(TypeError::Unsupported {
                         what: format!(
                             "class {:?} does not implement {:?}.{:?} (expected fn(...) matching the interface signature)",

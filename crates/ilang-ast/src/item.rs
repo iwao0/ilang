@@ -270,6 +270,14 @@ pub struct InterfaceMethod {
     pub name: Symbol,
     pub params: Box<[Param]>,
     pub ret: Option<crate::types::Type>,
+    /// `@optional` attribute. When `true`, an implementing class
+    /// may omit this method without failing the interface
+    /// conformance check; the slot remains in the dispatch table
+    /// so virtual calls compile, but the implementation lookup at
+    /// the call site is the caller's responsibility (used to
+    /// model Objective-C `@optional` protocol methods, which the
+    /// ObjC runtime probes via `respondsToSelector:`).
+    pub is_optional: bool,
     pub span: Span,
 }
 

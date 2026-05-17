@@ -333,6 +333,10 @@ pub(super) struct InterfaceMethodSig {
     pub(super) name: Symbol,
     pub(super) params: Vec<Type>,
     pub(super) ret: Type,
+    /// `@optional` on the interface declaration. Implementing
+    /// classes don't have to provide a body for this method; the
+    /// conformance check skips it.
+    pub(super) is_optional: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -830,6 +830,15 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
+            // Attributes on interface methods. Currently the only
+            // attribute we recognise is `@optional`, which marks
+            // the method as not-required-to-implement. Unknown
+            // attributes are kept in the parsed list and ignored
+            // here; later passes may complain.
+            let m_attrs = self.parse_attributes()?;
+            let is_optional = m_attrs
+                .iter()
+                .any(|a| a.name.as_str() == "optional");
             let m_span = self.peek().span;
             // Method declarations mirror the class-body shape:
             // `name(params): ret` — no leading `fn` keyword. A
@@ -879,6 +888,7 @@ impl<'a> Parser<'a> {
                 name: m_name,
                 params: params.into(),
                 ret,
+                is_optional,
                 span: m_span,
             });
         }
