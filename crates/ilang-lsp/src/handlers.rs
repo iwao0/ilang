@@ -290,6 +290,52 @@ impl LanguageServer for Backend {
                 push_ffi_helper_completions(&mut items);
                 push_extern_c_keywords(&mut items);
             }
+            // Inside a method body: surface the enclosing class's
+            // instance fields / methods as bare-name candidates that
+            // expand to `this.<name>` on accept. ilang requires the
+            // explicit `this.` prefix, so the insert_text adds it
+            // while the label stays bare for natural fuzzy matching.
+            if !at_top_level {
+                if let Some(class) = enclosing_class(&doc.text, off) {
+                    if let Some(info) = doc.classes.get(&AstSymbol::intern(&class)) {
+                        for (name, m) in info.fields.iter() {
+                            if m.is_static {
+                                continue;
+                            }
+                            let s = name.as_str();
+                            if crate::symbols::is_synthesized_objc_helper(s) {
+                                continue;
+                            }
+                            items.push(CompletionItem {
+                                label: s.to_string(),
+                                kind: Some(CompletionItemKind::FIELD),
+                                detail: Some(m.signature.clone()),
+                                insert_text: Some(format!("this.{s}")),
+                                ..CompletionItem::default()
+                            });
+                        }
+                        for (name, m) in info.methods.iter() {
+                            if m.is_static {
+                                continue;
+                            }
+                            let s = name.as_str();
+                            if s == "init" || s == "deinit" {
+                                continue;
+                            }
+                            if crate::symbols::is_synthesized_objc_helper(s) {
+                                continue;
+                            }
+                            items.push(CompletionItem {
+                                label: s.to_string(),
+                                kind: Some(CompletionItemKind::METHOD),
+                                detail: Some(m.signature.clone()),
+                                insert_text: Some(format!("this.{s}")),
+                                ..CompletionItem::default()
+                            });
+                        }
+                    }
+                }
+            }
             return Ok(Some(CompletionResponse::Array(items)));
         };
         // Receiver can be:
@@ -302,6 +348,14 @@ impl LanguageServer for Backend {
         } else if receiver == "console" {
             // Built-in singleton: instance of `Console`.
             "Console".to_string()
+        } else if receiver == "this" {
+            // `this.` inside a method body — resolve to the
+            // enclosing class via a text-level scan, since `this`
+            // never lands in `var_classes` (it's the implicit
+            // receiver, not a let-bound).
+            let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
+                .unwrap_or(doc.text.len());
+            enclosing_class(&doc.text, off).unwrap_or_default()
         } else {
             doc.var_classes.get(&AstSymbol::intern(&receiver)).cloned().unwrap_or_default()
         };

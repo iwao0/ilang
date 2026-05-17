@@ -382,6 +382,125 @@ pub(crate) fn enclosing_use_module(text: &str, offset: usize) -> Option<String> 
     None
 }
 
+/// If `offset` sits inside the body of a `class Foo { ... }` (or
+/// `pub class Foo : Parent { ... }`) declaration, returns the
+/// outermost enclosing class name. Used by completion to map a bare
+/// `this.` receiver to the class whose fields / methods should be
+/// listed.
+///
+/// Implementation: forward scan with brace-tracking. Each open brace
+/// pushes the most-recently-seen `class Name` token onto a stack
+/// (or `None` if the brace came from a non-class construct); each
+/// close pops. At the end, the first `Some` on the stack from the
+/// outside in is the enclosing class.
+pub(crate) fn enclosing_class(text: &str, offset: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    let end = offset.min(bytes.len());
+    let mut stack: Vec<Option<String>> = Vec::new();
+    let mut pending_class: Option<String> = None;
+    let mut i = 0;
+    let mut in_line_comment = false;
+    let mut block_depth: u32 = 0;
+    let mut in_string = false;
+    while i < end {
+        let b = bytes[i];
+        if in_line_comment {
+            if b == b'\n' {
+                in_line_comment = false;
+            }
+            i += 1;
+            continue;
+        }
+        if block_depth > 0 {
+            if b == b'/' && i + 1 < end && bytes[i + 1] == b'*' {
+                block_depth += 1;
+                i += 2;
+                continue;
+            }
+            if b == b'*' && i + 1 < end && bytes[i + 1] == b'/' {
+                block_depth -= 1;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if in_string {
+            if b == b'\\' && i + 1 < end {
+                i += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'/' && i + 1 < end {
+            if bytes[i + 1] == b'/' {
+                in_line_comment = true;
+                i += 2;
+                continue;
+            }
+            if bytes[i + 1] == b'*' {
+                block_depth = 1;
+                i += 2;
+                continue;
+            }
+        }
+        if b == b'"' {
+            in_string = true;
+            i += 1;
+            continue;
+        }
+        if b.is_ascii_alphabetic() || b == b'_' {
+            let start = i;
+            let mut j = i;
+            while j < end && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                j += 1;
+            }
+            let prev_boundary = start == 0
+                || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+            if prev_boundary && &bytes[start..j] == b"class" {
+                let mut k = j;
+                while k < end && matches!(bytes[k], b' ' | b'\t') {
+                    k += 1;
+                }
+                let name_start = k;
+                while k < end && (bytes[k].is_ascii_alphanumeric() || bytes[k] == b'_') {
+                    k += 1;
+                }
+                if k > name_start {
+                    if let Ok(name) = std::str::from_utf8(&bytes[name_start..k]) {
+                        pending_class = Some(name.to_string());
+                    }
+                }
+                i = k;
+                continue;
+            }
+            i = j;
+            continue;
+        }
+        match b {
+            b'{' => {
+                stack.push(pending_class.take());
+            }
+            b'}' => {
+                stack.pop();
+                pending_class = None;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    for entry in &stack {
+        if let Some(name) = entry {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
 pub(crate) fn at_type_position(text: &str, offset: usize) -> bool {
     let bytes = text.as_bytes();
     let end = offset.min(bytes.len());
@@ -763,5 +882,44 @@ mod use_completion_tests {
     fn after_closed_use_brace_returns_none() {
         let src = "use cocoa { NSObject }\nlet x = ";
         assert!(enclosing_use_module(src, src.len()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod enclosing_class_tests {
+    use super::enclosing_class;
+
+    #[test]
+    fn inside_method_body_simple() {
+        let src = "\
+pub class Foo {
+    pub init() {
+        ";
+        assert_eq!(enclosing_class(src, src.len()).as_deref(), Some("Foo"));
+    }
+
+    #[test]
+    fn inside_method_with_inheritance() {
+        let src = "\
+pub class Bar : Parent, Iface {
+    pub run() {
+        ";
+        assert_eq!(enclosing_class(src, src.len()).as_deref(), Some("Bar"));
+    }
+
+    #[test]
+    fn between_class_decls_returns_none() {
+        let src = "class A { fn a() {} }\nclass B { fn b() {} }\n";
+        assert!(enclosing_class(src, src.len()).is_none());
+    }
+
+    #[test]
+    fn inside_method_after_block_statement() {
+        let src = "\
+class Foo {
+    pub run() {
+        if x == 0 { return }
+        ";
+        assert_eq!(enclosing_class(src, src.len()).as_deref(), Some("Foo"));
     }
 }
