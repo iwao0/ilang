@@ -14,6 +14,40 @@ pub struct NSPoint { x: f64; y: f64 }
 pub struct NSSize  { width: f64; height: f64 }
 pub struct NSRect  { origin: NSPoint; size: NSSize }
 
+// NSRange — Foundation's `(location, length)` pair. NSUInteger
+// fields, so 8 bytes each on 64-bit. Passed by value through the
+// integer-register ABI. Build with `makeRange(loc, len)`.
+pub struct NSRange { location: u64; length: u64 }
+
+// NSRegularExpressionOptions — bit flags controlling how the
+// regex pattern is compiled. Mirrors the
+// `NSRegularExpressionOptions` enum from `<Foundation/NSRegularExpression.h>`.
+@flags
+pub enum RegexOptions: u64 {
+    none                       = 0x00
+    caseInsensitive            = 0x01
+    allowCommentsAndWhitespace = 0x02
+    ignoreMetacharacters       = 0x04
+    dotMatchesLineSeparators   = 0x08
+    anchorsMatchLines          = 0x10
+    useUnixLineSeparators      = 0x20
+    useUnicodeWordBoundaries   = 0x40
+}
+
+// NSMatchingOptions — bit flags controlling a single regex match
+// operation (anchoring, partial-match behaviour, …). The
+// progress / completion bits are only meaningful for the
+// block-taking enumerator API, which we don't bind here.
+@flags
+pub enum MatchOptions: u64 {
+    none                     = 0x00
+    reportProgress           = 0x01
+    reportCompletion         = 0x02
+    anchored                 = 0x04
+    withTransparentBounds    = 0x08
+    withoutAnchoringBounds   = 0x10
+}
+
 @extern(ObjC) {
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
@@ -164,6 +198,127 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         pub path(): NSString
     }
 
+    /// `NSError` — error value passed through Cocoa APIs that fail
+    /// in non-fatal ways. Most factories that produce one take an
+    /// `NSError **` out-parameter; the ilang side exposes it as a
+    /// raw `i64` slot so callers can pass `0` to ignore the error
+    /// or hold one address-of-`i64` value (`&local as *void as i64`)
+    /// to receive it. The accessors below read from a wrapper you
+    /// already have in hand.
+    @objc pub class NSError : NSObject {
+        @objc("code")
+        pub code(): i64
+        @objc("domain")
+        pub domain(): NSString
+        @objc("localizedDescription")
+        pub localizedDescription(): NSString
+        @objc("userInfo")
+        pub userInfo(): NSDictionary
+    }
+
+    /// `NSFileManager` — filesystem operations. `defaultManager`
+    /// returns the process-wide shared instance. Methods that take
+    /// an `NSError **` out-parameter expose it as a raw `i64`
+    /// (`0` discards). Returned `NSArray`s of names are UTF-8
+    /// strings reachable via `ilstr(arr.objectAtIndex(i) as NSString)`.
+    @objc pub class NSFileManager : NSObject {
+        @objc("defaultManager")
+        pub static defaultManager(): NSFileManager
+
+        @objc("fileExistsAtPath:")
+        pub fileExistsAtPath(path: NSString): bool
+        @objc("contentsOfDirectoryAtPath:error:")
+        pub contentsOfDirectoryAtPath(path: NSString, error: i64): NSArray
+        @objc("createDirectoryAtPath:withIntermediateDirectories:attributes:error:")
+        pub createDirectoryAtPath(
+            path: NSString, intermediates: bool, attrs: NSObject, error: i64
+        ): bool
+        @objc("removeItemAtPath:error:")
+        pub removeItemAtPath(path: NSString, error: i64): bool
+        @objc("copyItemAtPath:toPath:error:")
+        pub copyItemAtPath(src: NSString, dst: NSString, error: i64): bool
+        @objc("moveItemAtPath:toPath:error:")
+        pub moveItemAtPath(src: NSString, dst: NSString, error: i64): bool
+        @objc("attributesOfItemAtPath:error:")
+        pub attributesOfItemAtPath(path: NSString, error: i64): NSDictionary
+        @objc("currentDirectoryPath")
+        pub currentDirectoryPath(): NSString
+    }
+
+    /// `NSBundle` — read-only access to a code+resources bundle.
+    /// `mainBundle` is the running executable's bundle; useful for
+    /// finding resource files shipped alongside the binary.
+    @objc pub class NSBundle : NSObject {
+        @objc("mainBundle")
+        pub static mainBundle(): NSBundle
+
+        @objc("bundlePath")
+        pub bundlePath(): NSString
+        @objc("resourcePath")
+        pub resourcePath(): NSString
+        @objc("bundleIdentifier")
+        pub bundleIdentifier(): NSString
+        @objc("infoDictionary")
+        pub infoDictionary(): NSDictionary
+        @objc("pathForResource:ofType:")
+        pub pathForResource(name: NSString, ofType: NSString): NSString
+    }
+
+    /// `NSCharacterSet` — immutable set of Unicode characters,
+    /// commonly used to drive `NSString` tokenising / trimming
+    /// (`componentsSeparatedByCharactersInSet:`,
+    /// `stringByTrimmingCharactersInSet:`). The class methods
+    /// return the standard predefined sets.
+    @objc pub class NSCharacterSet : NSObject {
+        @objc("whitespaceCharacterSet")
+        pub static whitespace(): NSCharacterSet
+        @objc("whitespaceAndNewlineCharacterSet")
+        pub static whitespaceAndNewline(): NSCharacterSet
+        @objc("newlineCharacterSet")
+        pub static newline(): NSCharacterSet
+        @objc("letterCharacterSet")
+        pub static letter(): NSCharacterSet
+        @objc("decimalDigitCharacterSet")
+        pub static decimalDigit(): NSCharacterSet
+        @objc("alphanumericCharacterSet")
+        pub static alphanumeric(): NSCharacterSet
+        @objc("punctuationCharacterSet")
+        pub static punctuation(): NSCharacterSet
+    }
+
+    /// `NSRegularExpression` — ICU-backed pattern matching.
+    /// Construct with `regex(pattern, options)` (see helpers
+    /// below) which folds away the `NSError **` out-parameter at
+    /// the cost of returning a nil-handle wrapper on a bad
+    /// pattern.
+    ///
+    /// Match-introspection (NSTextCheckingResult) is intentionally
+    /// not bound yet — its `range:` / `rangeAtIndex:` API leans on
+    /// `NSRange`-returning selectors that need careful ABI work to
+    /// pass back the struct via objc_msgSend_stret on x86_64. Use
+    /// `numberOfMatches` for presence checks and `replaceAll` for
+    /// substitution; richer match details await a follow-up.
+    @objc pub class NSRegularExpression : NSObject {
+        @objc("regularExpressionWithPattern:options:error:")
+        pub static regularExpressionWithPattern(
+            pattern: NSString, options: RegexOptions, error: i64
+        ): NSRegularExpression
+
+        @objc("pattern")
+        pub pattern(): NSString
+        @objc("options")
+        pub options(): RegexOptions
+
+        @objc("numberOfMatchesInString:options:range:")
+        pub numberOfMatchesInString(
+            s: NSString, options: MatchOptions, range: NSRange
+        ): i64
+        @objc("stringByReplacingMatchesInString:options:range:withTemplate:")
+        pub stringByReplacingMatchesInString(
+            s: NSString, options: MatchOptions, range: NSRange, template: NSString
+        ): NSString
+    }
+
     // ─── Convenience helpers ─────────────────────────────────────
 
     // libobjc's `sel_registerName` exposed under an ilang-side
@@ -228,6 +383,34 @@ pub struct NSRect  { origin: NSPoint; size: NSSize }
         r.size.width = w
         r.size.height = h
         r
+    }
+
+    /// Build an `NSRange` from `(location, length)`. Both fields
+    /// are NSUInteger; pass non-negative values.
+    pub fn makeRange(location: u64, length: u64): NSRange {
+        let r = new NSRange()
+        r.location = location
+        r.length = length
+        r
+    }
+
+    /// `{location: 0, length: s.length()}` — the range covering
+    /// every UTF-16 unit in `s`. Hand it to the `NSRegularExpression`
+    /// match / replace selectors when you want to operate on the
+    /// whole string.
+    pub fn fullRange(s: NSString): NSRange {
+        makeRange(0 as u64, s.length() as u64)
+    }
+
+    /// Compile a regex pattern. Discards the `NSError **` —
+    /// callers get a wrapper whose `handle` is nil on a bad
+    /// pattern. Cheap form of
+    /// `NSRegularExpression.regularExpressionWithPattern(pattern,
+    /// options, 0)`.
+    pub fn regex(pattern: string, options: RegexOptions): NSRegularExpression {
+        NSRegularExpression.regularExpressionWithPattern(
+            nsstr(pattern), options, 0
+        )
     }
 
     /// Build an ObjC `void(^)(void)` block from an ilang closure.
