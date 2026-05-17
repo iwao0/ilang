@@ -347,16 +347,57 @@ impl LanguageServer for Backend {
         } else if receiver == "console" {
             // Built-in singleton: instance of `Console`.
             "Console".to_string()
-        } else if receiver == "this" {
-            // `this.` inside a method body — resolve to the
-            // enclosing class via a text-level scan, since `this`
-            // never lands in `var_classes` (it's the implicit
-            // receiver, not a let-bound).
-            let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
-                .unwrap_or(doc.text.len());
-            enclosing_class(&doc.text, off).unwrap_or_default()
         } else {
-            doc.var_classes.get(&AstSymbol::intern(&receiver)).cloned().unwrap_or_default()
+            // Dotted receiver (`this.starTex`, `obj.foo.bar`) — walk
+            // the chain segment by segment. The first segment resolves
+            // to a class via `this` / `var_classes` / a registered
+            // class name; each subsequent segment looks up a field /
+            // getter on the current class and continues with the
+            // declared type's class. Single-ident receivers fall
+            // through the loop body with no extra hops.
+            let segments: Vec<&str> = receiver.split('.').collect();
+            let mut current = if segments[0] == "this" {
+                let off = text::line_col_to_offset(
+                    &doc.text,
+                    pos.line + 1,
+                    pos.character + 1,
+                )
+                .unwrap_or(doc.text.len());
+                enclosing_class(&doc.text, off).unwrap_or_default()
+            } else if doc
+                .classes
+                .contains_key(&AstSymbol::intern(segments[0]))
+            {
+                segments[0].to_string()
+            } else {
+                doc.var_classes
+                    .get(&AstSymbol::intern(segments[0]))
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            for seg in &segments[1..] {
+                if current.is_empty() {
+                    break;
+                }
+                let info = match doc.classes.get(&AstSymbol::intern(&current)) {
+                    Some(i) => i,
+                    None => {
+                        current.clear();
+                        break;
+                    }
+                };
+                let key = AstSymbol::intern(seg);
+                let m = info
+                    .getters
+                    .get(&key)
+                    .or_else(|| info.fields.get(&key))
+                    .or_else(|| info.methods.get(&key));
+                current = match m.and_then(|m| m.ret_ty.as_ref()) {
+                    Some(t) => helpers::type_to_class(t).unwrap_or_default(),
+                    None => String::new(),
+                };
+            }
+            current
         };
         if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
             // Built-in receiver: string / array. Their member sets are
