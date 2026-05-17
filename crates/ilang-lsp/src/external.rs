@@ -621,7 +621,7 @@ pub(crate) fn collect_external_classes(
             _ => {}
         }
     }
-    for c in classes {
+    for c in &classes {
         let mut fields = HashMap::new();
         for f in &c.fields {
             fields.insert(
@@ -743,6 +743,75 @@ pub(crate) fn collect_external_classes(
                 kind: ClassKind::Class,
             },
         );
+    }
+    // Inherit members from the parent chain. Without this, hovering
+    // `sprite.setPosition(...)` where `sprite: SKSpriteNode` would
+    // fail because `setPosition` is declared on `SKNode` (the
+    // parent) and only sits in `SKNode`'s methods map. Walk every
+    // class's parent chain and copy fields / methods / getters /
+    // setters into the child, leaving existing keys alone so
+    // direct overrides win.
+    let parents: HashMap<AstSymbol, AstSymbol> = classes
+        .iter()
+        .filter_map(|c| c.parent.as_ref().map(|p| (c.name.clone(), p.clone())))
+        .collect();
+    let class_names: Vec<AstSymbol> = out.keys().cloned().collect();
+    for child_name in class_names {
+        // Walk the parent chain. Each step looks the parent up
+        // either by the recorded (possibly already-prefixed) name
+        // or by any `*.<bare>` match — same fallback used at the
+        // call-site alias pass — so an umbrella-imported parent
+        // resolves too.
+        let mut visited: std::collections::HashSet<AstSymbol> =
+            std::collections::HashSet::new();
+        let mut accumulated_fields: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+        let mut accumulated_methods: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+        let mut accumulated_getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+        let mut accumulated_setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
+        let mut cursor = parents.get(&child_name).cloned();
+        while let Some(parent_name) = cursor {
+            if !visited.insert(parent_name.clone()) {
+                break;
+            }
+            let resolved_key = if out.contains_key(&parent_name) {
+                Some(parent_name.clone())
+            } else {
+                let suffix = format!(".{}", parent_name.as_str());
+                out.keys()
+                    .find(|k| k.as_str().ends_with(&suffix))
+                    .cloned()
+            };
+            let Some(key) = resolved_key else { break };
+            if let Some(info) = out.get(&key) {
+                for (k, v) in &info.fields {
+                    accumulated_fields.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.methods {
+                    accumulated_methods.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.getters {
+                    accumulated_getters.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &info.setters {
+                    accumulated_setters.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+            }
+            cursor = parents.get(&key).cloned();
+        }
+        if let Some(info) = out.get_mut(&child_name) {
+            for (k, v) in accumulated_fields {
+                info.fields.entry(k).or_insert(v);
+            }
+            for (k, v) in accumulated_methods {
+                info.methods.entry(k).or_insert(v);
+            }
+            for (k, v) in accumulated_getters {
+                info.getters.entry(k).or_insert(v);
+            }
+            for (k, v) in accumulated_setters {
+                info.setters.entry(k).or_insert(v);
+            }
+        }
     }
     out
 }
