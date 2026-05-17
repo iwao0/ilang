@@ -569,6 +569,12 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if doc.symbols.contains_key(name) || doc.var_types.contains_key(name) {
             continue;
         }
+        // Hide @objc desugar internals that the wildcard / selective
+        // harvest may have re-keyed as bare entries — they live in
+        // the module's namespace but aren't user-callable surface.
+        if crate::symbols::is_synthesized_objc_helper(s) {
+            continue;
+        }
         let kind = if sig.starts_with("class ")
             || sig.starts_with("struct ")
             || sig.starts_with("union ")

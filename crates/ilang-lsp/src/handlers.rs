@@ -355,6 +355,14 @@ impl LanguageServer for Backend {
                     if suffix.contains('.') {
                         return None;
                     }
+                    // Hide @objc desugar's internal scaffolding —
+                    // the per-block `__objc_<hash>_class_t` etc.
+                    // structs and bookkeeping wrappers are emitted
+                    // into the module's namespace but aren't user-
+                    // facing.
+                    if crate::symbols::is_synthesized_objc_helper(suffix) {
+                        return None;
+                    }
                     let kind = if sig.starts_with("class ")
                         || sig.starts_with("struct ")
                         || sig.starts_with("union ")
