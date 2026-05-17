@@ -112,11 +112,9 @@ pub enum InterpolationMode: i64 {
 }
 
 // SKRepeatMode — what happens past the last keyframe.
-// `loop_` is named with a trailing underscore to dodge the
-// reserved `loop` keyword.
 pub enum RepeatMode: i64 {
     clamp = 1
-    loop_ = 2
+    loop  = 2
 }
 
 // SKTileAdjacencyMask — bitmask describing which neighbouring

@@ -118,12 +118,19 @@ impl<'a> Parser<'a> {
     /// Like `expect_ident` but additionally accepts a fixed set of
     /// keyword tokens as if they were identifiers. Used in
     /// member-access / enum-variant positions so the user can name a
-    /// variant after a C constant like `SDL_HINT_OVERRIDE`.
+    /// variant after a C constant like `SDL_HINT_OVERRIDE` or a
+    /// SpriteKit `loop` repeat mode without trailing-underscore
+    /// dodges.
     ///
     /// The promoted set is the keywords most likely to appear as C
-    /// enum members: `class`, `enum`, `fn`, `none`, `override`,
-    /// `true`, `false`, `some`, `as`, `in`, `super`, `this`,
-    /// `return`. (`static` already lexes as an ident.)
+    /// / Cocoa enum members: declaration / type forms (`class`,
+    /// `enum`, `interface`, `struct`, `union`, `fn`, `const`,
+    /// `let`, `pub`, `use`), control-flow keywords (`if`, `elif`,
+    /// `else`, `while`, `for`, `loop`, `match`, `break`,
+    /// `continue`, `return`), and the literal-shaped keywords
+    /// (`true`, `false`, `none`, `some`, `as`, `in`, `super`,
+    /// `this`, `override`, `async`, `await`). (`static` already
+    /// lexes as an ident.)
     pub(crate) fn expect_member_name(
         &mut self,
         label: &str,
@@ -140,7 +147,21 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Class => Some("class"),
             TokenKind::Enum => Some("enum"),
+            TokenKind::Interface => Some("interface"),
             TokenKind::Fn => Some("fn"),
+            TokenKind::Let => Some("let"),
+            TokenKind::Const => Some("const"),
+            TokenKind::Pub => Some("pub"),
+            TokenKind::Use => Some("use"),
+            TokenKind::If => Some("if"),
+            TokenKind::Elif => Some("elif"),
+            TokenKind::Else => Some("else"),
+            TokenKind::While => Some("while"),
+            TokenKind::For => Some("for"),
+            TokenKind::Loop => Some("loop"),
+            TokenKind::Match => Some("match"),
+            TokenKind::Break => Some("break"),
+            TokenKind::Continue => Some("continue"),
             TokenKind::None_ => Some("none"),
             TokenKind::Override => Some("override"),
             TokenKind::True => Some("true"),
@@ -151,6 +172,8 @@ impl<'a> Parser<'a> {
             TokenKind::Super => Some("super"),
             TokenKind::This => Some("this"),
             TokenKind::Return => Some("return"),
+            TokenKind::Async => Some("async"),
+            TokenKind::Await => Some("await"),
             _ => None,
         };
         if let Some(s) = name {
