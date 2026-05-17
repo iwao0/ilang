@@ -303,22 +303,39 @@ impl<'a> BodyCx<'a> {
                 // occupant. Without this, `this.balls = newArr` etc.
                 // leaks the prior array's refcount on every frame
                 // of `examples/sdl_breakout`'s game loop.
-                let is_heap = matches!(
-                    fty,
-                    MirTy::Object(_)
-                        | MirTy::Array { .. }
-                        | MirTy::Tuple(_)
-                        | MirTy::Map { .. }
-                        | MirTy::Optional(_)
-                        | MirTy::Fn(_)
-                        // Str was missing here: assigning a
-                        // function-local `let s = fnReturning(); ...
-                        // this.f = s` skipped the retain, so when `s`
-                        // released at scope exit the field's pointer
-                        // dangled. Treat string fields like every
-                        // other heap-typed field.
-                        | MirTy::Str
-                );
+                // CRepr/CPacked/CUnion `Object` fields are inline
+                // struct bytes, not heap pointers. LoadField on such
+                // a field returns the inline address (obj+offset);
+                // Releasing that would corrupt memory. Exclude them
+                // from the ARC retain/release path — StoreField
+                // already performs an inline struct-copy.
+                let fty_is_crepr_obj = if let MirTy::Object(cid) = &fty {
+                    matches!(
+                        self.classes[cid.0 as usize].repr,
+                        crate::program::ClassRepr::CRepr
+                            | crate::program::ClassRepr::CPacked
+                            | crate::program::ClassRepr::CUnion
+                    )
+                } else {
+                    false
+                };
+                let is_heap = !fty_is_crepr_obj
+                    && matches!(
+                        fty,
+                        MirTy::Object(_)
+                            | MirTy::Array { .. }
+                            | MirTy::Tuple(_)
+                            | MirTy::Map { .. }
+                            | MirTy::Optional(_)
+                            | MirTy::Fn(_)
+                            // Str was missing here: assigning a
+                            // function-local `let s = fnReturning(); ...
+                            // this.f = s` skipped the retain, so when `s`
+                            // released at scope exit the field's pointer
+                            // dangled. Treat string fields like every
+                            // other heap-typed field.
+                            | MirTy::Str
+                    );
                 if is_heap {
                     if !value_is_fresh {
                         self.fb.push_inst(Inst::Retain { value: vv });

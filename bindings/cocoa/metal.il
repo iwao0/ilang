@@ -779,17 +779,14 @@ pub fn origin2D(x: u64, y: u64): MTLOrigin {
 }
 
 /// Build an `MTLRegion` from raw `(x, y, z, w, h, d)` components.
-/// The whole-struct nested assignment (`r.size = s`) hits an
-/// ilang codegen issue today — drilling down field-by-field
-/// sidesteps it.
 pub fn region(x: u64, y: u64, z: u64, w: u64, h: u64, d: u64): MTLRegion {
+    let o = new MTLOrigin()
+    o.x = x ; o.y = y ; o.z = z
+    let s = new MTLSize()
+    s.width = w ; s.height = h ; s.depth = d
     let r = new MTLRegion()
-    r.origin.x = x
-    r.origin.y = y
-    r.origin.z = z
-    r.size.width = w
-    r.size.height = h
-    r.size.depth = d
+    r.origin = o
+    r.size = s
     r
 }
 
