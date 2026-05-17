@@ -423,7 +423,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setSize:")
         pub set size(s: NSSize)
         @objc("isValid")
-        pub get valid(): bool
+        pub get isValid(): bool
     }
 
     /// `NSImageView` — view that draws an `NSImage`. Build with
@@ -809,9 +809,9 @@ pub enum EventModifierFlags: u64 {
         pub init(rect: NSRect): NSSplitView
 
         @objc("isVertical")
-        pub get vertical(): bool
+        pub get isVertical(): bool
         @objc("setVertical:")
-        pub set vertical(flag: bool)
+        pub set isVertical(flag: bool)
         @objc("setDividerStyle:")
         pub setDividerStyle(style: i64)
         @objc("adjustSubviews")
@@ -938,7 +938,7 @@ pub enum EventModifierFlags: u64 {
         @objc("charactersIgnoringModifiers")
         pub get charactersIgnoringModifiers(): NSString
         @objc("isARepeat")
-        pub get aRepeat(): bool
+        pub get isARepeat(): bool
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

@@ -386,7 +386,7 @@ pub enum MatchOptions: u64 {
         pub static scannerWithString(s: NSString): NSScanner
 
         @objc("isAtEnd")
-        pub get atEnd(): bool
+        pub get isAtEnd(): bool
         @objc("scanLocation")
         pub get scanLocation(): u64
         @objc("setScanLocation:")

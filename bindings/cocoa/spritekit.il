@@ -188,19 +188,19 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setAlpha:")
         pub set alpha(a: f64)
         @objc("isHidden")
-        pub get hidden(): bool
+        pub get isHidden(): bool
         @objc("setHidden:")
-        pub set hidden(flag: bool)
+        pub set isHidden(flag: bool)
 
         // Identity / state
         @objc("setName:")
         pub setName(n: NSString)
         @objc("name")
         pub name(): NSString
-        @objc("setPaused:")
-        pub setPaused(flag: bool)
         @objc("isPaused")
-        pub isPaused(): bool
+        pub get isPaused(): bool
+        @objc("setPaused:")
+        pub set isPaused(flag: bool)
         @objc("setSpeed:")
         pub setSpeed(s: f64)
         @objc("setUserInteractionEnabled:")
@@ -631,10 +631,10 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("bodyWithEdgeLoopFromRect:")
         pub static bodyWithEdgeLoopFromRect(r: NSRect): SKPhysicsBody
 
-        @objc("setDynamic:")
-        pub setDynamic(flag: bool)
         @objc("isDynamic")
-        pub isDynamic(): bool
+        pub get isDynamic(): bool
+        @objc("setDynamic:")
+        pub set isDynamic(flag: bool)
         @objc("setAffectedByGravity:")
         pub setAffectedByGravity(flag: bool)
         @objc("setAllowsRotation:")
