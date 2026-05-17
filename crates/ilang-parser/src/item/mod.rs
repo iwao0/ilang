@@ -270,7 +270,7 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace
                 if attrs.iter().any(|a| {
                     a.name == "extern"
-                        && a.args.len() == 1
+                        && !a.args.is_empty()
                         && matches!(
                             &a.args[0],
                             ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["ObjC"]
@@ -283,6 +283,18 @@ impl<'a> Parser<'a> {
                 // wrapper that interns the selector and forwards.
                 // The output is an ordinary `ExternCBlock` so the
                 // rest of the compiler sees no new construct.
+                //
+                // Optional trailing string args after `ObjC` are
+                // dylib / framework paths to dlopen at JIT init so
+                // the @objc classes inside resolve via libobjc's
+                // global registry. They also become the default
+                // `@lib(...)` for any plain `pub fn` declared in
+                // the block (the C fn doesn't need its own @lib).
+                //
+                //   @extern(ObjC, "/System/.../AppKit.framework/AppKit") {
+                //       pub fn NSApplicationLoad(): bool        // dlsym'd from path
+                //       @objc pub class NSWindow : NSObject { ... }
+                //   }
                 if is_pub {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
@@ -301,7 +313,25 @@ impl<'a> Parser<'a> {
                         span: t.span,
                     });
                 }
-                let block = self.parse_extern_objc_block()?;
+                // Extract dylib paths from `@extern(ObjC, "p1", "p2", ...)`.
+                let mut block_libs: Vec<ilang_ast::Symbol> = Vec::new();
+                let attr = &attrs[0];
+                for arg in attr.args.iter().skip(1) {
+                    match arg {
+                        ilang_ast::AttrArg::Str(s) => {
+                            block_libs.push(ilang_ast::Symbol::intern(s));
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "string library paths after `ObjC` in @extern(ObjC, \"path\", ...)".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
+                }
+                let block = self.parse_extern_objc_block(block_libs)?;
                 Ok(Item::ExternC(block))
             }
             _ => {

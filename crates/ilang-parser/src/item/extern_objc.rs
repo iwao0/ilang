@@ -32,6 +32,7 @@ use crate::parser::Parser;
 impl<'a> Parser<'a> {
     pub(super) fn parse_extern_objc_block(
         &mut self,
+        block_libs: Vec<Symbol>,
     ) -> Result<ilang_ast::ExternCBlock, ParseError> {
         let block_span = self.peek().span;
         self.expect(&TokenKind::LBrace, "'{'")?;
@@ -496,6 +497,41 @@ impl<'a> Parser<'a> {
             let (class_item, aliases) = build_objc_class(c, &ctx);
             items.push(class_item);
             items.extend(aliases);
+        }
+
+        // Block-level `@extern(ObjC, "path", ...)` library handling.
+        // The paths serve two purposes:
+        //   1. Trigger an eager `dlopen` at JIT init so the @objc
+        //      classes inside resolve via libobjc's class registry.
+        //   2. Provide the default `@lib(...)` for any plain `pub fn`
+        //      declared in the block — the C fn binds to a symbol
+        //      dlsym'd from one of the listed dylibs.
+        if !block_libs.is_empty() {
+            // (2) For every `ExternCItem::FnDecl` without its own
+            //     `libs`, attach the block-level libs.
+            for it in items.iter_mut() {
+                if let ilang_ast::ExternCItem::FnDecl { libs, .. } = it {
+                    if libs.is_empty() {
+                        *libs = block_libs.clone().into_boxed_slice();
+                    }
+                }
+            }
+            // (1) Synthesise a no-op `@extern(C) @lib(paths) fn
+            //     __objc_load_<tag>()` so the JIT's startup walk over
+            //     `f.libs` picks up these paths even when the block
+            //     declares zero plain C fns.
+            let loader_name: Symbol = format!("{tag}_load").into();
+            items.push(ilang_ast::ExternCItem::FnDecl {
+                is_pub: false,
+                name: loader_name,
+                params: Box::new([]),
+                ret: None,
+                libs: block_libs.into_boxed_slice(),
+                optional: true,
+                c_symbol: Some(Symbol::intern("__objc_block_load_phantom")),
+                variadic: false,
+                span: block_span,
+            });
         }
 
         Ok(ilang_ast::ExternCBlock { items: items.into(), span: block_span })

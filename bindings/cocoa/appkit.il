@@ -137,15 +137,16 @@ pub enum DatePickerStyle: u64 {
 // Standard `NSPasteboard` type for UTF-8 plain text.
 pub const PasteboardTypeString: string = "public.utf8-plain-text"
 
-// Force AppKit (and transitively Foundation + libobjc) to be
-// resolved at @lib-probe time so subsequent `objc_getClass` calls
-// can find NSApplication / NSWindow / NSButton / NSString.
-@extern(C) {
-    @lib("/System/Library/Frameworks/AppKit.framework/AppKit")
-        pub fn NSApplicationLoad(): bool
-}
+// The `@extern(ObjC, "path")` form names the framework dylib so
+// the JIT dlopens it eagerly at startup — that's what registers
+// `NSApplication` / `NSWindow` / NSString etc. with libobjc's
+// global class registry, so the `@objc` desugar's
+// `objc_getClass("NSWindow")` calls below can find them. Plain
+// `pub fn` items in the block (like `NSApplicationLoad`) get
+// their C symbol dlsym'd from the same path.
+@extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
+    pub fn NSApplicationLoad(): bool
 
-@extern(ObjC) {
     /// The shared application object — there's only ever one per
     /// process. Use `cocoa.sharedApplication()` (defined below)
     /// instead of calling this directly so AppKit's framework
