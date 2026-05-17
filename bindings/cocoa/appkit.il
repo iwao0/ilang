@@ -4,7 +4,7 @@
 // with them. Depends on `foundation` for NSObject / NSString /
 // geometry types.
 
-use foundation { NSObject, NSString, NSArray, NSURL, NSSize, NSRect, nsstr, ilstr, makeRect }
+use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSSize, NSRect, nsstr, ilstr, makeRect }
 
 // ─── NSWindow.StyleMask ──────────────────────────────────────────
 // Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
@@ -91,6 +91,51 @@ pub const ModalResponseCancel: i64 = 0
 pub const AlertFirstButtonReturn: i64 = 1000
 pub const AlertSecondButtonReturn: i64 = 1001
 pub const AlertThirdButtonReturn: i64 = 1002
+
+// NSBorderType — frame style for `NSScrollView` / `NSBox`.
+pub enum BorderType: u64 {
+    noBorder     = 0
+    lineBorder   = 1
+    bezelBorder  = 2
+    grooveBorder = 3
+}
+
+// NSBoxType — visual role of an `NSBox`. `primary` is the
+// titled-frame default; `separator` draws as a horizontal /
+// vertical rule.
+pub enum BoxType: u64 {
+    primary   = 0
+    secondary = 1
+    separator = 2
+    oldStyle  = 3
+    custom    = 4
+}
+
+// NSProgressIndicatorStyle — bar (determinate / linear) vs.
+// spinning (indeterminate circular).
+pub enum ProgressIndicatorStyle: u64 {
+    bar      = 0
+    spinning = 1
+}
+
+// NSSegmentSwitchTracking — how an `NSSegmentedControl` reacts
+// to clicks: single-select, multi-select, or momentary
+// highlight (no persistent selection).
+pub enum SegmentSwitchTracking: u64 {
+    selectOne = 0
+    selectAny = 1
+    momentary = 2
+}
+
+// NSDatePickerStyle — visual form of an `NSDatePicker`.
+pub enum DatePickerStyle: u64 {
+    textFieldAndStepper = 0
+    clockAndCalendar    = 1
+    textField           = 2
+}
+
+// Standard `NSPasteboard` type for UTF-8 plain text.
+pub const PasteboardTypeString: string = "public.utf8-plain-text"
 
 // Force AppKit (and transitively Foundation + libobjc) to be
 // resolved at @lib-probe time so subsequent `objc_getClass` calls
@@ -459,6 +504,367 @@ pub const AlertThirdButtonReturn: i64 = 1002
         pub URLs(): NSArray
     }
 
+    /// `NSFont` — typeface + point size. Class methods give you
+    /// the system fonts at a chosen size; `fontWithName:size:`
+    /// resolves a named family. Pass into `setFont:` on any
+    /// text-bearing control.
+    @objc pub class NSFont : NSObject {
+        @objc("systemFontOfSize:")
+        pub static systemFontOfSize(size: f64): NSFont
+        @objc("boldSystemFontOfSize:")
+        pub static boldSystemFontOfSize(size: f64): NSFont
+        @objc("fontWithName:size:")
+        pub static fontWithName(name: NSString, size: f64): NSFont
+
+        @objc("familyName")
+        pub familyName(): NSString
+        @objc("pointSize")
+        pub pointSize(): f64
+    }
+
+    /// `NSScrollView` — wraps a document view (typically an
+    /// `NSTextView` or `NSTableView`) and adds scroll bars / a
+    /// border. Build via the standard `alloc + initWithFrame:`,
+    /// then `setDocumentView:` to hand it the content view.
+    @objc pub class NSScrollView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSScrollView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSScrollView
+
+        @objc("setDocumentView:")
+        pub setDocumentView(v: NSView)
+        @objc("setHasVerticalScroller:")
+        pub setHasVerticalScroller(flag: bool)
+        @objc("setHasHorizontalScroller:")
+        pub setHasHorizontalScroller(flag: bool)
+        @objc("setAutohidesScrollers:")
+        pub setAutohidesScrollers(flag: bool)
+        @objc("setBorderType:")
+        pub setBorderType(b: BorderType)
+        @objc("contentSize")
+        pub contentSize(): NSSize
+    }
+
+    /// `NSTextView` — editable multi-line text view. Usually
+    /// embedded in an `NSScrollView`. `string` returns the
+    /// current buffer as `NSString`; `setString:` replaces it.
+    @objc pub class NSTextView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSTextView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSTextView
+
+        @objc("setString:")
+        pub setString(s: NSString)
+        @objc("string")
+        pub string(): NSString
+        @objc("setEditable:")
+        pub setEditable(flag: bool)
+        @objc("setSelectable:")
+        pub setSelectable(flag: bool)
+        @objc("setFont:")
+        pub setFont(f: NSFont)
+        @objc("setRichText:")
+        pub setRichText(flag: bool)
+    }
+
+    /// `NSPopUpButton` — drop-down menu button. `pullsDown=true`
+    /// turns it into the menu-button shape (title fixed, items
+    /// drop down underneath); `false` is the standard pop-up
+    /// (title reflects the selected item).
+    @objc pub class NSPopUpButton : NSButton {
+        @objc("alloc")
+        pub static alloc(): NSPopUpButton
+        @objc("initWithFrame:pullsDown:")
+        pub init(rect: NSRect, pullsDown: bool): NSPopUpButton
+
+        @objc("addItemWithTitle:")
+        pub addItemWithTitle(title: NSString)
+        @objc("addItemsWithTitles:")
+        pub addItemsWithTitles(titles: NSArray)
+        @objc("removeAllItems")
+        pub removeAllItems()
+        @objc("numberOfItems")
+        pub numberOfItems(): i64
+        @objc("indexOfSelectedItem")
+        pub indexOfSelectedItem(): i64
+        @objc("titleOfSelectedItem")
+        pub titleOfSelectedItem(): NSString
+        @objc("selectItemAtIndex:")
+        pub selectItemAtIndex(i: i64)
+        @objc("selectItemWithTitle:")
+        pub selectItemWithTitle(s: NSString)
+    }
+
+    /// `NSComboBox` — editable text field with a drop-down list
+    /// of suggestions. Reads its current value via `stringValue`
+    /// (inherited from `NSTextField`).
+    @objc pub class NSComboBox : NSTextField {
+        @objc("alloc")
+        pub static alloc(): NSComboBox
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSComboBox
+
+        @objc("addItemWithObjectValue:")
+        pub addItemWithObjectValue(o: NSObject)
+        @objc("removeAllItems")
+        pub removeAllItems()
+        @objc("numberOfItems")
+        pub numberOfItems(): i64
+        @objc("indexOfSelectedItem")
+        pub indexOfSelectedItem(): i64
+        @objc("selectItemAtIndex:")
+        pub selectItemAtIndex(i: i64)
+        @objc("setNumberOfVisibleItems:")
+        pub setNumberOfVisibleItems(n: i64)
+    }
+
+    /// `NSProgressIndicator` — bar or spinner. Determinate mode
+    /// (default for `.bar`) reads `doubleValue` against the
+    /// configured `[min, max]` range; indeterminate mode
+    /// requires `startAnimation:` / `stopAnimation:` to spin.
+    @objc pub class NSProgressIndicator : NSView {
+        @objc("alloc")
+        pub static alloc(): NSProgressIndicator
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSProgressIndicator
+
+        @objc("setStyle:")
+        pub setStyle(s: ProgressIndicatorStyle)
+        @objc("setMinValue:")
+        pub setMinValue(v: f64)
+        @objc("setMaxValue:")
+        pub setMaxValue(v: f64)
+        @objc("setDoubleValue:")
+        pub setDoubleValue(v: f64)
+        @objc("doubleValue")
+        pub doubleValue(): f64
+        @objc("setIndeterminate:")
+        pub setIndeterminate(flag: bool)
+        @objc("startAnimation:")
+        pub startAnimation(sender: NSObject)
+        @objc("stopAnimation:")
+        pub stopAnimation(sender: NSObject)
+    }
+
+    /// `NSSegmentedControl` — row of buttons with shared
+    /// selection. After `setSegmentCount:`, label each slot with
+    /// `setLabel:forSegment:`; read the active one via
+    /// `selectedSegment`.
+    @objc pub class NSSegmentedControl : NSView {
+        @objc("alloc")
+        pub static alloc(): NSSegmentedControl
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSSegmentedControl
+
+        @objc("setSegmentCount:")
+        pub setSegmentCount(n: i64)
+        @objc("segmentCount")
+        pub segmentCount(): i64
+        @objc("setLabel:forSegment:")
+        pub setLabel(label: NSString, forSegment: i64)
+        @objc("labelForSegment:")
+        pub labelForSegment(seg: i64): NSString
+        @objc("setSelected:forSegment:")
+        pub setSelected(flag: bool, forSegment: i64)
+        @objc("isSelectedForSegment:")
+        pub isSelectedForSegment(seg: i64): bool
+        @objc("selectedSegment")
+        pub selectedSegment(): i64
+        @objc("setSegmentedTrackingMode:")
+        pub setTrackingMode(m: SegmentSwitchTracking)
+    }
+
+    /// `NSStepper` — pair of up / down arrows over a value with
+    /// configurable bounds and increment. Pair with an
+    /// `NSTextField` via target/action when you want a numeric
+    /// input.
+    @objc pub class NSStepper : NSView {
+        @objc("alloc")
+        pub static alloc(): NSStepper
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSStepper
+
+        @objc("setMinValue:")
+        pub setMinValue(v: f64)
+        @objc("setMaxValue:")
+        pub setMaxValue(v: f64)
+        @objc("setIncrement:")
+        pub setIncrement(v: f64)
+        @objc("setDoubleValue:")
+        pub setDoubleValue(v: f64)
+        @objc("doubleValue")
+        pub doubleValue(): f64
+        @objc("setValueWraps:")
+        pub setValueWraps(flag: bool)
+    }
+
+    /// `NSDatePicker` — graphical or text-field date editor.
+    /// Defaults to `cocoa.DatePickerStyle.textFieldAndStepper`;
+    /// switch to `.clockAndCalendar` for the round-clock /
+    /// month-calendar combo.
+    @objc pub class NSDatePicker : NSView {
+        @objc("alloc")
+        pub static alloc(): NSDatePicker
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSDatePicker
+
+        @objc("setDatePickerStyle:")
+        pub setDatePickerStyle(s: DatePickerStyle)
+        @objc("setDateValue:")
+        pub setDateValue(d: NSDate)
+        @objc("dateValue")
+        pub dateValue(): NSDate
+        @objc("setMinDate:")
+        pub setMinDate(d: NSDate)
+        @objc("setMaxDate:")
+        pub setMaxDate(d: NSDate)
+    }
+
+    /// `NSBox` — titled / bordered container view. Wraps a
+    /// `contentView` you set yourself (default is a blank
+    /// `NSView`).
+    @objc pub class NSBox : NSView {
+        @objc("alloc")
+        pub static alloc(): NSBox
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSBox
+
+        @objc("setTitle:")
+        pub setTitle(s: NSString)
+        @objc("setBorderType:")
+        pub setBorderType(b: BorderType)
+        @objc("setBoxType:")
+        pub setBoxType(t: BoxType)
+        @objc("contentView")
+        pub contentView(): NSView
+        @objc("setContentView:")
+        pub setContentView(v: NSView)
+    }
+
+    /// `NSSplitView` — divider-separated stack of subviews the
+    /// user can re-proportion. `setVertical:` toggles between a
+    /// row of columns (`true`) and a column of rows (`false`).
+    @objc pub class NSSplitView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSSplitView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSSplitView
+
+        @objc("setVertical:")
+        pub setVertical(flag: bool)
+        @objc("isVertical")
+        pub isVertical(): bool
+        @objc("setDividerStyle:")
+        pub setDividerStyle(style: i64)
+        @objc("adjustSubviews")
+        pub adjustSubviews()
+    }
+
+    /// `NSGridView` — 2-D grid layout. Build top-down with
+    /// `addRow:` / `addColumn:` (each takes an `NSArray` of
+    /// views); the grid auto-aligns cells. Spacing is per-axis.
+    @objc pub class NSGridView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSGridView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSGridView
+        @objc("gridViewWithViews:")
+        pub static gridViewWithViews(rows: NSArray): NSGridView
+
+        @objc("numberOfRows")
+        pub numberOfRows(): i64
+        @objc("numberOfColumns")
+        pub numberOfColumns(): i64
+        @objc("addRowWithViews:")
+        pub addRowWithViews(views: NSArray): NSObject
+        @objc("addColumnWithViews:")
+        pub addColumnWithViews(views: NSArray): NSObject
+        @objc("setRowSpacing:")
+        pub setRowSpacing(s: f64)
+        @objc("setColumnSpacing:")
+        pub setColumnSpacing(s: f64)
+    }
+
+    /// `NSPasteboard` — system clipboard. `generalPasteboard`
+    /// is the standard "copy / paste" surface; per-type APIs
+    /// (`stringForType:` / `setString:forType:`) read or write
+    /// individual representations. `clearContents` resets the
+    /// pasteboard's change count and removes all data.
+    @objc pub class NSPasteboard : NSObject {
+        @objc("generalPasteboard")
+        pub static generalPasteboard(): NSPasteboard
+
+        @objc("clearContents")
+        pub clearContents(): i64
+        @objc("setString:forType:")
+        pub setString(s: NSString, forType: NSString): bool
+        @objc("stringForType:")
+        pub stringForType(t: NSString): NSString
+    }
+
+    /// `NSWorkspace` — Finder / Launch-Services bridge. Use
+    /// `openURL:` to hand a URL off to the default handler app,
+    /// or `openFile:` to open a filesystem path in its default
+    /// application.
+    @objc pub class NSWorkspace : NSObject {
+        @objc("sharedWorkspace")
+        pub static sharedWorkspace(): NSWorkspace
+
+        @objc("openURL:")
+        pub openURL(u: NSURL): bool
+        @objc("openFile:")
+        pub openFile(path: NSString): bool
+    }
+
+    /// `NSCursor` — mouse-cursor sprite. The class methods
+    /// return the standard system cursors; `push` adds the
+    /// receiver to the cursor stack and `pop` removes the
+    /// top of the stack.
+    @objc pub class NSCursor : NSObject {
+        @objc("arrowCursor")
+        pub static arrow(): NSCursor
+        @objc("IBeamCursor")
+        pub static iBeam(): NSCursor
+        @objc("pointingHandCursor")
+        pub static pointingHand(): NSCursor
+        @objc("crosshairCursor")
+        pub static crosshair(): NSCursor
+        @objc("openHandCursor")
+        pub static openHand(): NSCursor
+        @objc("closedHandCursor")
+        pub static closedHand(): NSCursor
+
+        @objc("push")
+        pub push()
+        @objc("pop")
+        pub static pop()
+        @objc("set")
+        pub set()
+        @objc("hide")
+        pub static hide()
+        @objc("unhide")
+        pub static unhide()
+    }
+
+    /// `NSScreen` — physical display. `mainScreen` is the one
+    /// hosting the menu bar; `screens` enumerates every
+    /// connected display. `frame` returns the screen's bounds
+    /// in global coordinates; `visibleFrame` subtracts the menu
+    /// bar and Dock.
+    @objc pub class NSScreen : NSObject {
+        @objc("mainScreen")
+        pub static mainScreen(): NSScreen
+        @objc("screens")
+        pub static screens(): NSArray
+
+        @objc("frame")
+        pub frame(): NSRect
+        @objc("visibleFrame")
+        pub visibleFrame(): NSRect
+    }
+
     // ─── Convenience helpers ─────────────────────────────────────
 
     /// Fetch the singleton NSApplication, forcing AppKit to load
@@ -597,5 +1003,70 @@ pub const AlertThirdButtonReturn: i64 = 1002
         p.setNameFieldStringValue(nsstr(suggestedName))
         if p.runModal() != ModalResponseOK { return none }
         some(ilstr(p.URL().path()))
+    }
+
+    /// Scroll view wrapping `doc` as its document view, with a
+    /// vertical scroller and a bezel border. Mirrors the
+    /// `NSScrollView` Interface-Builder default.
+    pub fn makeScrollView(doc: NSView, x: f64, y: f64, w: f64, h: f64): NSScrollView {
+        let s = NSScrollView.alloc().init(makeRect(x, y, w, h))
+        s.setHasVerticalScroller(true)
+        s.setBorderType(BorderType.bezelBorder)
+        s.setDocumentView(doc)
+        s
+    }
+
+    /// Multi-line editable text view pre-seeded with `text`.
+    /// Wrap in `makeScrollView` if you want scroll bars.
+    pub fn makeTextView(text: string, x: f64, y: f64, w: f64, h: f64): NSTextView {
+        let tv = NSTextView.alloc().init(makeRect(x, y, w, h))
+        tv.setString(nsstr(text))
+        tv.setEditable(true)
+        tv
+    }
+
+    /// `NSPopUpButton` pre-populated with `items`. The first
+    /// entry is selected by default.
+    pub fn makePopUp(items: NSArray, x: f64, y: f64, w: f64, h: f64): NSPopUpButton {
+        let p = NSPopUpButton.alloc().init(makeRect(x, y, w, h), false)
+        p.addItemsWithTitles(items)
+        p
+    }
+
+    /// Determinate horizontal progress bar over `[min, max]`.
+    pub fn makeProgressBar(
+        min: f64, max: f64, value: f64,
+        x: f64, y: f64, w: f64, h: f64
+    ): NSProgressIndicator {
+        let p = NSProgressIndicator.alloc().init(makeRect(x, y, w, h))
+        p.setStyle(ProgressIndicatorStyle.bar)
+        p.setIndeterminate(false)
+        p.setMinValue(min)
+        p.setMaxValue(max)
+        p.setDoubleValue(value)
+        p
+    }
+
+    /// Copy `s` to the general pasteboard as UTF-8 plain text.
+    pub fn pasteboardCopy(s: string) {
+        let pb = NSPasteboard.generalPasteboard()
+        pb.clearContents()
+        pb.setString(nsstr(s), nsstr(PasteboardTypeString))
+    }
+
+    /// Read the current UTF-8 plain-text contents of the general
+    /// pasteboard, if any.
+    pub fn pasteboardPaste(): string? {
+        let pb = NSPasteboard.generalPasteboard()
+        let v = pb.stringForType(nsstr(PasteboardTypeString))
+        if v.handle == 0 { return none }
+        some(ilstr(v))
+    }
+
+    /// Open `url` in its registered default application via
+    /// LaunchServices (`http(s)://`, `mailto:`, `file://`, …).
+    pub fn openURL(url: string) {
+        let ws = NSWorkspace.sharedWorkspace()
+        ws.openURL(NSURL.fromString(nsstr(url)))
     }
 }
