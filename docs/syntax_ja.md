@@ -19,14 +19,7 @@ super     this      true      use       while
 
 これらは予約語で、変数 / 引数 / フィールド / 関数 / クラス名には使えません。
 
-**例外**: 以下の予約語は **enum の variant 名としてのみ** 使えます (宣言、`Enum.<name>` アクセス、match の短縮形 / 修飾形パターン):
-
-```
-as       class    enum     false    fn       in       none     override
-return   some     super    this     true
-```
-
-C ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`, `SDL_FALSE` / `SDL_TRUE`, `SDL_SCANCODE_RETURN` など) と衝突しないようにするための実用上の配慮です。
+**例外**: 上記の予約語は **すべて** enum の variant 名および `obj.<name>` のメンバアクセス位置で使えます (宣言、`Enum.<name>` アクセス、match の短縮形 / 修飾形パターン、`instance.method()` など)。C / Cocoa ヘッダ由来の enum (`SDL_HINT_OVERRIDE`, `SKRepeatMode.loop`, `SDL_SCANCODE_RETURN`, `SDL_FALSE` / `SDL_TRUE` など) と衝突しないようにするための実用上の配慮です。
 
 **文脈依存キーワード** — 特定位置でのみキーワード扱い、それ以外では通常の識別子:
 
@@ -768,6 +761,7 @@ match day {
 
 - **enum 宣言**: ペイロード持ちのバリアントは名前と型を `:` で区切る (`circle: (f64)`)。ユニットバリアントは `:` なし (`red`)。
 - **バリアント名のケース**: 大文字でも小文字でも構文的には OK。ただし組み込み `Result.ok` / `Result.err` と統一して **小文字始まり推奨**。
+- **予約語バリアント名**: あらゆる予約語 (`override`, `class`, `none`, `loop`, `if`, `return`, …) を variant 名として使え、`Enum.<keyword>` でアクセスできます。C / Cocoa 由来の enum で予約語と衝突しがちなメンバ (`SDL_HINT_OVERRIDE`, `SKRepeatMode.loop`, `SDL_FLIP_NONE` 等) をそのまま命名するための配慮です。`static` は元々予約されていないので特別扱い不要。
 - **match arm**: `=>` を使わず、パターンの直後に `{ body }` を書く (`Color.red { "red" }`)。
 - 構築は `Enum.` プレフィクス必須 (`Shape.circle(3.0)`)。
 - **match のパターン側は `Enum.` を省略可** — scrutinee の静的型から推論される (`circle(r)` は `Shape.circle(r)` と同義)。長い形 (`Shape.circle(r)`) も引き続き有効。

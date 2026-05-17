@@ -27,18 +27,13 @@ super     this      true      use       while
 These tokens are reserved and cannot be used as variable / parameter
 / field / function / class names.
 
-**Carve-outs** — the following reserved words *can* be used as enum
-variant names (declaration, `Enum.<name>` access, and short / qualified
-match patterns):
-
-```
-as       class    enum     false    fn       in       none     override
-return   some     super    this     true
-```
-
-This is a practical concession for binding to C enums whose members
-happen to collide (e.g. `SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`,
-`SDL_FALSE` / `SDL_TRUE`, `SDL_SCANCODE_RETURN`).
+**Carve-out** — **every reserved word above** can also be used as an
+enum variant name and as an `obj.<name>` member-access name
+(declaration, `Enum.<name>` access, short / qualified match
+patterns, `instance.method()` etc.). This is a practical concession
+for binding to C / Cocoa enums whose members happen to collide
+(e.g. `SDL_HINT_OVERRIDE`, `SKRepeatMode.loop`,
+`SDL_SCANCODE_RETURN`, `SDL_FALSE` / `SDL_TRUE`).
 
 **Contextual keywords** — only special inside specific positions,
 otherwise plain identifiers:
@@ -970,12 +965,13 @@ match day {
   colon (`red`).
 - **Variant casing**: any case is syntactically OK, but lowercase
   is recommended to match the built-in `Result.ok` / `Result.err`.
-- **Keyword-named variants**: `override`, `class`, and `none` can
-  be used as variant names (and accessed as `Enum.override` etc.)
-  even though they're reserved elsewhere. Useful when binding to C
-  enums whose members happen to collide with ilang keywords (e.g.
-  `SDL_HINT_OVERRIDE`, `SDL_FLIP_NONE`). `static` was never
-  reserved, so it works without any special handling.
+- **Keyword-named variants**: every reserved word (`override`,
+  `class`, `none`, `loop`, `if`, `return`, …) can be used as a
+  variant name and accessed as `Enum.<keyword>`. Useful when
+  binding to C / Cocoa enums whose members happen to collide
+  with ilang keywords (`SDL_HINT_OVERRIDE`, `SKRepeatMode.loop`,
+  `SDL_FLIP_NONE`, …). `static` was never reserved, so it works
+  without any special handling.
 - **Match arms**: no `=>`, just write `{ body }` after the
   pattern (`Color.red { "red" }`).
 - Construction needs the `Enum.` prefix (`Shape.circle(3.0)`).

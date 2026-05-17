@@ -169,6 +169,8 @@ impl<'a> Parser<'a> {
             TokenKind::Some_ => Some("some"),
             TokenKind::As => Some("as"),
             TokenKind::In => Some("in"),
+            TokenKind::Is => Some("is"),
+            TokenKind::New => Some("new"),
             TokenKind::Super => Some("super"),
             TokenKind::This => Some("this"),
             TokenKind::Return => Some("return"),
