@@ -63,11 +63,13 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
             }
         }
 
-        // NOTE: overriding `update:(NSTimeInterval)` would go
-        // here, but the parser-generated super-call shim for
-        // f64 args currently mis-types the bitcast (see
-        // codegen TODO). Game-loop work can still be driven by
-        // running an `SKAction.runBlock(...)` instead.
+        // Frame hook — SpriteKit calls this every frame with
+        // the current time (seconds, monotonic). Use it for
+        // game-loop logic (input polling, AI, etc.).
+        @objc("update:")
+        update(currentTime: f64) {
+            let _ = currentTime
+        }
     }
 }
 

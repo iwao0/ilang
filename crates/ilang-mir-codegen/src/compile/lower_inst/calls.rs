@@ -383,6 +383,24 @@ pub(super) fn lower_call<M: Module>(
         let zero = fb.ins().iconst(types::I64, 0);
         arg_vs.push(zero);
     }
+    // Detect "extern alias" calls early — the FuncId is shared
+    // with another extern declaration but each call site needs
+    // its own per-callee signature. The alias_dispatch arm
+    // below builds that signature from the MIR target and
+    // call_indirects with it; the canonical declaration's
+    // signature (which the is_builtin normalisation below would
+    // consult) is the wrong reference in that case. Skip the
+    // normalisation so the args keep their original types and
+    // match the per-callee sig.
+    let alias_dispatch_early = if is_callee_extern {
+        if let FuncRef::Local(fid) = callee {
+            extern_alias_fn_ids.contains(fid)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     // For builtins like the map / array / str runtime, the
     // declared sig is uniformly i64. Auto-extend any narrower
     // arg so the verifier doesn't complain (bool/i32/f64
@@ -392,7 +410,7 @@ pub(super) fn lower_call<M: Module>(
     // `4294967295` to `__int_to_string` and display the
     // unsigned bit pattern instead of `-1` (mirrored across
     // i8 / i16 / i32 — see int_to_string_signed.il).
-    if is_builtin {
+    if is_builtin && !alias_dispatch_early {
         let sig_params = module.declarations()
             .get_function_decl(cid)
             .signature
