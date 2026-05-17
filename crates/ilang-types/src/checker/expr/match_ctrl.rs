@@ -740,6 +740,30 @@ impl TypeChecker {
                         return Ok(Type::Object(anc));
                     }
                 }
+                // Optional unification: a bare `none` arm has
+                // inferred type `any?`, while a `some(v)` arm
+                // has `T?`. Prefer the concrete `T?` so
+                // `if cond { some(v) } else { none }` infers
+                // cleanly against an annotated `T?` slot.
+                // Also handle the recursive Object-ancestor case
+                // for `T?` ↔ `U?` where T and U share a parent.
+                if let (Type::Optional(a), Type::Optional(b)) =
+                    (&then_ty, &else_ty)
+                {
+                    if matches!(**a, Type::Any) {
+                        return Ok(Type::Optional(b.clone()));
+                    }
+                    if matches!(**b, Type::Any) {
+                        return Ok(Type::Optional(a.clone()));
+                    }
+                    if let (Type::Object(ca), Type::Object(cb)) =
+                        (&**a, &**b)
+                    {
+                        if let Some(anc) = self.common_ancestor(*ca, *cb) {
+                            return Ok(Type::Optional(Box::new(Type::Object(anc))));
+                        }
+                    }
+                }
                 // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
                 // ぶつけたらエラー)。例外として、片方のアームの末尾式
                 // が「素の数値リテラル」 (整数/浮動小数、単項マイナス
