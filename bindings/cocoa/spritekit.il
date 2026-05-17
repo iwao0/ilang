@@ -80,6 +80,42 @@ pub enum SceneScaleMode: i64 {
     resizeFill  = 3
 }
 
+// SKTransitionDirection — direction for `SKTransition.push…` /
+// `reveal…` / `moveIn…` factories.
+pub enum TransitionDirection: i64 {
+    up    = 0
+    down  = 1
+    right = 2
+    left  = 3
+}
+
+// SKAttributeType — value type for a custom `SKAttribute` slot
+// exposed to a fragment shader.
+pub enum AttributeType: i64 {
+    none             = 0
+    float            = 1
+    vectorFloat2     = 2
+    vectorFloat3     = 3
+    vectorFloat4     = 4
+    halfFloat        = 5
+    vectorHalfFloat2 = 6
+    vectorHalfFloat3 = 7
+    vectorHalfFloat4 = 8
+}
+
+// SKTileAdjacencyMask — bitmask describing which neighbouring
+// tiles a `SKTileGroupRule` is supposed to match. Bound as raw
+// `u32` flags — combine via bitwise OR. Mirrors
+// `<SpriteKit/SKTileSet.h>` `SKTileAdjacency*`.
+pub const TileAdjacencyUp:        u32 = 0x01
+pub const TileAdjacencyUpperRight: u32 = 0x02
+pub const TileAdjacencyRight:     u32 = 0x04
+pub const TileAdjacencyLowerRight: u32 = 0x08
+pub const TileAdjacencyDown:      u32 = 0x10
+pub const TileAdjacencyLowerLeft: u32 = 0x20
+pub const TileAdjacencyLeft:      u32 = 0x40
+pub const TileAdjacencyUpperLeft: u32 = 0x80
+
 @extern(ObjC, "/System/Library/Frameworks/SpriteKit.framework/SpriteKit") {
     /// Root of the SpriteKit scene-graph hierarchy. Holds
     /// position / scale / z-position / actions; every visible
@@ -171,6 +207,13 @@ pub enum SceneScaleMode: i64 {
         pub setPhysicsBody(b: SKPhysicsBody)
         @objc("physicsBody")
         pub physicsBody(): SKPhysicsBody
+
+        // Constraints — apply an array of `SKConstraint`s
+        // after every frame's transform update.
+        @objc("setConstraints:")
+        pub setConstraints(arr: NSArray)
+        @objc("constraints")
+        pub constraints(): NSArray
     }
 
     /// The top-level scene rendered by an `SKView`. Size is in
@@ -229,6 +272,10 @@ pub enum SceneScaleMode: i64 {
         pub setColorBlendFactor(f: f64)
         @objc("setBlendMode:")
         pub setBlendMode(m: BlendMode)
+        @objc("setShader:")
+        pub setShader(s: SKShader)
+        @objc("shader")
+        pub shader(): SKShader
     }
 
     /// Vector shape node — circles / rects / arbitrary paths.
@@ -300,6 +347,8 @@ pub enum SceneScaleMode: i64 {
 
         @objc("presentScene:")
         pub presentScene(s: SKScene)
+        @objc("presentScene:transition:")
+        pub presentSceneTransition(s: SKScene, transition: SKTransition)
         @objc("setShowsFPS:")
         pub setShowsFPS(flag: bool)
         @objc("setShowsNodeCount:")
@@ -407,6 +456,29 @@ pub enum SceneScaleMode: i64 {
         pub static removeFromParent(): SKAction
         @objc("waitForDuration:")
         pub static waitForDuration(d: f64): SKAction
+        @objc("waitForDuration:withRange:")
+        pub static waitForDurationRange(d: f64, withRange: f64): SKAction
+
+        // Sprite colourise (only meaningful on SKSpriteNode receivers)
+        @objc("colorizeWithColor:colorBlendFactor:duration:")
+        pub static colorizeWithColor(c: NSColor, colorBlendFactor: f64, duration: f64): SKAction
+        @objc("colorizeWithColorBlendFactor:duration:")
+        pub static colorizeWithColorBlendFactor(blend: f64, duration: f64): SKAction
+
+        // Audio — file is looked up in the main bundle
+        @objc("playSoundFileNamed:waitForCompletion:")
+        pub static playSoundFileNamed(name: NSString, waitForCompletion: bool): SKAction
+
+        // Dispatch to a named descendant — the action runs on the
+        // first node found by `childNodeWithName:` at the target.
+        @objc("runAction:onChildWithName:")
+        pub static runActionOnChild(action: SKAction, onChildWithName: NSString): SKAction
+
+        // ObjC selector — `[target performSelector]` fires
+        // synchronously when the action runs. Build the SEL via
+        // `cocoa.selectorPtr("name")`.
+        @objc("performSelector:onTarget:")
+        pub static performSelectorOnTarget(sel: i64, onTarget: NSObject): SKAction
 
         // Block — fires once. ObjC signature is
         // `+ (SKAction *)runBlock:(dispatch_block_t)block` which
@@ -522,6 +594,13 @@ pub enum SceneScaleMode: i64 {
         pub setSpeed(s: f64)
         @objc("setContactDelegate:")
         pub setContactDelegate(d: NSObject)
+
+        @objc("addJoint:")
+        pub addJoint(j: SKPhysicsJoint)
+        @objc("removeJoint:")
+        pub removeJoint(j: SKPhysicsJoint)
+        @objc("removeAllJoints")
+        pub removeAllJoints()
     }
 
     /// `SKFieldNode` — physics field that perturbs nearby
@@ -596,6 +675,10 @@ pub enum SceneScaleMode: i64 {
         pub setShouldEnableEffects(flag: bool)
         @objc("setBlendMode:")
         pub setBlendMode(m: BlendMode)
+        @objc("setShader:")
+        pub setShader(s: SKShader)
+        @objc("shader")
+        pub shader(): SKShader
     }
 
     /// `SKEmitterNode` — particle source. The setters here
@@ -686,4 +769,368 @@ pub enum SceneScaleMode: i64 {
         pub setPositional(flag: bool)
     }
 
+    // ─── Tile maps ───────────────────────────────────────────────
+
+    /// `SKTileDefinition` — one paintable tile, backed by an
+    /// `SKTexture`. Carries the tile's pixel size and optional
+    /// debug name.
+    @objc pub class SKTileDefinition : NSObject {
+        @objc("tileDefinitionWithTexture:")
+        pub static tileDefinitionWithTexture(t: SKTexture): SKTileDefinition
+        @objc("tileDefinitionWithTexture:size:")
+        pub static tileDefinitionWithTextureAndSize(t: SKTexture, size: NSSize): SKTileDefinition
+
+        @objc("setSize:")
+        pub setSize(s: NSSize)
+        @objc("size")
+        pub size(): NSSize
+        @objc("setName:")
+        pub setName(n: NSString)
+        @objc("name")
+        pub name(): NSString
+    }
+
+    /// `SKTileGroup` — paintable cluster of tile definitions
+    /// (typically one definition for the simple case, multiple
+    /// rules for auto-tiling). Painted into an `SKTileMapNode`
+    /// at a (column, row) cell.
+    @objc pub class SKTileGroup : NSObject {
+        @objc("tileGroupWithTileDefinition:")
+        pub static tileGroupWithTileDefinition(def: SKTileDefinition): SKTileGroup
+        @objc("tileGroupWithRules:")
+        pub static tileGroupWithRules(rules: NSArray): SKTileGroup
+        @objc("emptyTileGroup")
+        pub static emptyTileGroup(): SKTileGroup
+
+        @objc("setName:")
+        pub setGroupName(n: NSString)
+        @objc("rules")
+        pub rules(): NSArray
+    }
+
+    /// `SKTileSet` — collection of `SKTileGroup`s loaded from
+    /// the asset catalog. Pass into `SKTileMapNode`'s factory to
+    /// pick the brush palette.
+    @objc pub class SKTileSet : NSObject {
+        @objc("tileSetNamed:")
+        pub static tileSetNamed(name: NSString): SKTileSet
+        @objc("tileSetWithTileGroups:")
+        pub static tileSetWithTileGroups(groups: NSArray): SKTileSet
+
+        @objc("tileGroups")
+        pub tileGroups(): NSArray
+        @objc("setName:")
+        pub setSetName(n: NSString)
+        @objc("setDefaultTileSize:")
+        pub setDefaultTileSize(s: NSSize)
+    }
+
+    /// `SKTileMapNode` — grid of tiles drawn from one or more
+    /// `SKTileGroup`s. Build via
+    /// `tileMapNodeWithTileSet:columns:rows:tileSize:`, then
+    /// paint cells with `setTileGroup:forColumn:row:`.
+    @objc pub class SKTileMapNode : SKNode {
+        @objc("tileMapNodeWithTileSet:columns:rows:tileSize:")
+        pub static tileMapNodeWithTileSet(
+            tileSet: SKTileSet, columns: i64, rows: i64, tileSize: NSSize
+        ): SKTileMapNode
+
+        @objc("numberOfColumns")
+        pub numberOfColumns(): i64
+        @objc("numberOfRows")
+        pub numberOfRows(): i64
+        @objc("tileSize")
+        pub tileSize(): NSSize
+        @objc("mapSize")
+        pub mapSize(): NSSize
+
+        @objc("setTileGroup:forColumn:row:")
+        pub setTileGroup(g: SKTileGroup, forColumn: i64, row: i64)
+        @objc("tileGroupAtColumn:row:")
+        pub tileGroupAtColumn(col: i64, row: i64): SKTileGroup
+        @objc("fillWithTileGroup:")
+        pub fillWithTileGroup(g: SKTileGroup)
+        @objc("setEnableAutomapping:")
+        pub setEnableAutomapping(flag: bool)
+    }
+
+    /// `SKReferenceNode` — load a `.sks` scene file at runtime
+    /// and present it as a sub-node. Useful for splitting scene
+    /// editor work across files.
+    @objc pub class SKReferenceNode : SKNode {
+        @objc("referenceNodeWithFileNamed:")
+        pub static referenceNodeWithFileNamed(name: NSString): SKReferenceNode
+        @objc("referenceNodeWithURL:")
+        pub static referenceNodeWithURL(url: NSURL): SKReferenceNode
+    }
+
+    /// `SKVideoNode` — plays a movie file inside the scene
+    /// graph. Use `play` / `pause` for transport, and embed the
+    /// node like any other `SKNode`.
+    @objc pub class SKVideoNode : SKNode {
+        @objc("videoNodeWithFileNamed:")
+        pub static videoNodeWithFileNamed(name: NSString): SKVideoNode
+        @objc("videoNodeWithURL:")
+        pub static videoNodeWithURL(url: NSURL): SKVideoNode
+
+        @objc("play")
+        pub play()
+        @objc("pause")
+        pub pause()
+        @objc("setSize:")
+        pub setSize(s: NSSize)
+        @objc("size")
+        pub size(): NSSize
+    }
+
+    // ─── Physics joints ──────────────────────────────────────────
+
+    /// `SKPhysicsJoint` — abstract base for the joint classes
+    /// below. Holds the two bodies it connects.
+    @objc pub class SKPhysicsJoint : NSObject {
+        @objc("bodyA")
+        pub bodyA(): SKPhysicsBody
+        @objc("bodyB")
+        pub bodyB(): SKPhysicsBody
+    }
+
+    /// `SKPhysicsJointPin` — hinges two bodies around a shared
+    /// anchor; bodies rotate around the anchor but can't
+    /// translate apart from it.
+    @objc pub class SKPhysicsJointPin : SKPhysicsJoint {
+        @objc("jointWithBodyA:bodyB:anchor:")
+        pub static jointWithBodies(
+            a: SKPhysicsBody, bodyB: SKPhysicsBody, anchor: NSPoint
+        ): SKPhysicsJointPin
+
+        @objc("setShouldEnableLimits:")
+        pub setShouldEnableLimits(flag: bool)
+        @objc("setLowerAngleLimit:")
+        pub setLowerAngleLimit(v: f64)
+        @objc("setUpperAngleLimit:")
+        pub setUpperAngleLimit(v: f64)
+        @objc("setFrictionTorque:")
+        pub setFrictionTorque(v: f64)
+        @objc("setRotationSpeed:")
+        pub setRotationSpeed(v: f64)
+    }
+
+    /// `SKPhysicsJointSpring` — soft constraint between two
+    /// anchor points; configurable frequency and damping.
+    @objc pub class SKPhysicsJointSpring : SKPhysicsJoint {
+        @objc("jointWithBodyA:bodyB:anchorA:anchorB:")
+        pub static jointWithBodies(
+            a: SKPhysicsBody, bodyB: SKPhysicsBody, anchorA: NSPoint, anchorB: NSPoint
+        ): SKPhysicsJointSpring
+
+        @objc("setFrequency:")
+        pub setFrequency(v: f64)
+        @objc("setDamping:")
+        pub setDamping(v: f64)
+    }
+
+    /// `SKPhysicsJointFixed` — rigidly bonds two bodies at a
+    /// common anchor — they move together as one rigid body.
+    @objc pub class SKPhysicsJointFixed : SKPhysicsJoint {
+        @objc("jointWithBodyA:bodyB:anchor:")
+        pub static jointWithBodies(
+            a: SKPhysicsBody, bodyB: SKPhysicsBody, anchor: NSPoint
+        ): SKPhysicsJointFixed
+    }
+
+    /// `SKPhysicsJointLimit` — caps the distance between two
+    /// anchor points to `maxLength`. Bodies can swing around
+    /// the anchor but never get further apart.
+    @objc pub class SKPhysicsJointLimit : SKPhysicsJoint {
+        @objc("jointWithBodyA:bodyB:anchorA:anchorB:")
+        pub static jointWithBodies(
+            a: SKPhysicsBody, bodyB: SKPhysicsBody, anchorA: NSPoint, anchorB: NSPoint
+        ): SKPhysicsJointLimit
+
+        @objc("setMaxLength:")
+        pub setMaxLength(v: f64)
+        @objc("maxLength")
+        pub maxLength(): f64
+    }
+
+    /// `SKPhysicsJointSliding` — slider along an axis;
+    /// optionally clamps the distance with lower / upper limits.
+    @objc pub class SKPhysicsJointSliding : SKPhysicsJoint {
+        @objc("jointWithBodyA:bodyB:anchor:axis:")
+        pub static jointWithBodies(
+            a: SKPhysicsBody, bodyB: SKPhysicsBody, anchor: NSPoint, axis: NSVector
+        ): SKPhysicsJointSliding
+
+        @objc("setShouldEnableLimits:")
+        pub setShouldEnableLimits(flag: bool)
+        @objc("setLowerDistanceLimit:")
+        pub setLowerDistanceLimit(v: f64)
+        @objc("setUpperDistanceLimit:")
+        pub setUpperDistanceLimit(v: f64)
+    }
+
+    /// `SKPhysicsContact` — read-only contact record passed to
+    /// `SKPhysicsContactDelegate.didBeginContact:` /
+    /// `…didEndContact:`. The fields are derived from the
+    /// physics step; don't mutate.
+    @objc pub class SKPhysicsContact : NSObject {
+        @objc("bodyA")
+        pub bodyA(): SKPhysicsBody
+        @objc("bodyB")
+        pub bodyB(): SKPhysicsBody
+        @objc("contactPoint")
+        pub contactPoint(): NSPoint
+        @objc("contactNormal")
+        pub contactNormal(): NSVector
+        @objc("collisionImpulse")
+        pub collisionImpulse(): f64
+    }
+
+    // ─── Constraints ─────────────────────────────────────────────
+
+    /// `SKRange` — open-ended numeric interval. Used by
+    /// `SKConstraint` to express the allowed band for a
+    /// position / rotation / distance.
+    @objc pub class SKRange : NSObject {
+        @objc("rangeWithLowerLimit:upperLimit:")
+        pub static rangeWithLowerUpper(lower: f64, upperLimit: f64): SKRange
+        @objc("rangeWithConstantValue:")
+        pub static rangeWithConstantValue(v: f64): SKRange
+        @objc("rangeWithLowerLimit:")
+        pub static rangeWithLowerLimit(v: f64): SKRange
+        @objc("rangeWithUpperLimit:")
+        pub static rangeWithUpperLimit(v: f64): SKRange
+        @objc("rangeWithNoLimits")
+        pub static rangeWithNoLimits(): SKRange
+
+        @objc("setLowerLimit:")
+        pub setLowerLimit(v: f64)
+        @objc("setUpperLimit:")
+        pub setUpperLimit(v: f64)
+    }
+
+    /// `SKConstraint` — applied to an `SKNode` to clamp its
+    /// position / rotation / orientation / distance to a target.
+    /// Multiple constraints run in declaration order.
+    @objc pub class SKConstraint : NSObject {
+        @objc("positionX:")
+        pub static positionX(range: SKRange): SKConstraint
+        @objc("positionY:")
+        pub static positionY(range: SKRange): SKConstraint
+        @objc("positionX:y:")
+        pub static positionXY(rx: SKRange, y: SKRange): SKConstraint
+        @objc("distance:toNode:")
+        pub static distanceToNode(range: SKRange, toNode: SKNode): SKConstraint
+        @objc("distance:toPoint:")
+        pub static distanceToPoint(range: SKRange, toPoint: NSPoint): SKConstraint
+        @objc("orientToNode:offset:")
+        pub static orientToNode(node: SKNode, offset: SKRange): SKConstraint
+        @objc("orientToPoint:offset:")
+        pub static orientToPoint(point: NSPoint, offset: SKRange): SKConstraint
+        @objc("zRotation:")
+        pub static zRotation(range: SKRange): SKConstraint
+
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("enabled")
+        pub enabled(): bool
+    }
+
+    // ─── Shader / attribute ──────────────────────────────────────
+
+    /// `SKUniform` — named scalar / texture value handed to a
+    /// fragment shader. Construct with the typed factory that
+    /// matches the GLSL uniform's declared type.
+    @objc pub class SKUniform : NSObject {
+        @objc("uniformWithName:")
+        pub static uniformWithName(name: NSString): SKUniform
+        @objc("uniformWithName:float:")
+        pub static uniformWithNameFloat(name: NSString, v: f32): SKUniform
+        @objc("uniformWithName:texture:")
+        pub static uniformWithNameTexture(name: NSString, texture: SKTexture): SKUniform
+
+        @objc("setFloatValue:")
+        pub setFloatValue(v: f32)
+        @objc("floatValue")
+        pub floatValue(): f32
+        @objc("setTextureValue:")
+        pub setTextureValue(t: SKTexture)
+    }
+
+    /// `SKAttribute` — per-node shader input declaration. The
+    /// fragment shader reads it as `a_<name>`; runtime values are
+    /// supplied per-node via `SKNode.setValue:forAttributeNamed:`
+    /// (not yet bound — use raw `objc_msgSend` if you need it).
+    @objc pub class SKAttribute : NSObject {
+        @objc("attributeWithName:type:")
+        pub static attributeWithName(name: NSString, type: AttributeType): SKAttribute
+
+        @objc("name")
+        pub name(): NSString
+        @objc("type")
+        pub attrType(): AttributeType
+    }
+
+    /// `SKShader` — custom fragment shader (GLSL ES). Attach via
+    /// `SKSpriteNode.setShader:` / `SKEffectNode.setShader:`;
+    /// per-shader globals are passed as `SKUniform`s,
+    /// per-node values as `SKAttribute`s.
+    @objc pub class SKShader : NSObject {
+        @objc("shaderWithSource:")
+        pub static shaderWithSource(source: NSString): SKShader
+        @objc("shaderWithFileNamed:")
+        pub static shaderWithFileNamed(name: NSString): SKShader
+
+        @objc("setSource:")
+        pub setSource(source: NSString)
+        @objc("setUniforms:")
+        pub setUniforms(arr: NSArray)
+        @objc("uniforms")
+        pub uniforms(): NSArray
+        @objc("addUniform:")
+        pub addUniform(u: SKUniform)
+        @objc("uniformNamed:")
+        pub uniformNamed(name: NSString): SKUniform
+        @objc("setAttributes:")
+        pub setAttributes(arr: NSArray)
+        @objc("attributes")
+        pub attributes(): NSArray
+    }
+
+    // ─── Scene transitions ───────────────────────────────────────
+
+    /// `SKTransition` — animated swap between scenes. Pair with
+    /// `SKView.presentScene:transition:` to fade / push / flip
+    /// from the outgoing scene to the new one.
+    @objc pub class SKTransition : NSObject {
+        @objc("crossFadeWithDuration:")
+        pub static crossFade(d: f64): SKTransition
+        @objc("fadeWithDuration:")
+        pub static fade(d: f64): SKTransition
+        @objc("fadeWithColor:duration:")
+        pub static fadeWithColor(c: NSColor, duration: f64): SKTransition
+        @objc("revealWithDirection:duration:")
+        pub static reveal(dir: TransitionDirection, duration: f64): SKTransition
+        @objc("pushWithDirection:duration:")
+        pub static push(dir: TransitionDirection, duration: f64): SKTransition
+        @objc("moveInWithDirection:duration:")
+        pub static moveIn(dir: TransitionDirection, duration: f64): SKTransition
+        @objc("doorsOpenHorizontalWithDuration:")
+        pub static doorsOpenHorizontal(d: f64): SKTransition
+        @objc("doorsOpenVerticalWithDuration:")
+        pub static doorsOpenVertical(d: f64): SKTransition
+        @objc("doorsCloseHorizontalWithDuration:")
+        pub static doorsCloseHorizontal(d: f64): SKTransition
+        @objc("doorsCloseVerticalWithDuration:")
+        pub static doorsCloseVertical(d: f64): SKTransition
+        @objc("flipHorizontalWithDuration:")
+        pub static flipHorizontal(d: f64): SKTransition
+        @objc("flipVerticalWithDuration:")
+        pub static flipVertical(d: f64): SKTransition
+
+        @objc("setPausesIncomingScene:")
+        pub setPausesIncomingScene(flag: bool)
+        @objc("setPausesOutgoingScene:")
+        pub setPausesOutgoingScene(flag: bool)
+    }
 }
