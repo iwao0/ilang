@@ -111,7 +111,10 @@ pub const AlertThirdButtonReturn: i64 = 1002
         @objc("setActivationPolicy:")
         pub setActivationPolicy(policy: ActivationPolicy): bool
         @objc("activateIgnoringOtherApps:")
+        @deprecated("deprecated in macOS 14.0 — call `activate()` instead.")
         pub activateIgnoringOtherApps(flag: bool)
+        @objc("activate")
+        pub activate()
         @objc("run")
         pub run()
         @objc("terminate:")

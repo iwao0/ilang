@@ -66,5 +66,5 @@ stack.addArrangedSubview(submit)
 win.contentView().addSubview(stack)
 
 win.makeKeyAndOrderFront(nil)
-app.activateIgnoringOtherApps(true)
+app.activate()
 app.run()

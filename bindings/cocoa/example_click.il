@@ -52,5 +52,5 @@ btn.setAction(selectorPtr("clicked:"))
 win.contentView().addSubview(btn)
 
 win.makeKeyAndOrderFront(nil)
-app.activateIgnoringOtherApps(true)
+app.activate()
 app.run()

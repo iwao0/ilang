@@ -30,6 +30,21 @@ pub(crate) fn diag(span: Span, msg: String) -> Diagnostic {
     }
 }
 
+/// Same shape as `diag`, but tagged as a warning so editors paint
+/// it in the non-fatal style (yellow squiggle by default in
+/// VS Code). Used for `@deprecated` call-site notices and any
+/// other non-fatal type-checker outputs.
+pub(crate) fn warn_diag(span: Span, msg: String) -> Diagnostic {
+    Diagnostic {
+        range: span_full_to_range(span),
+        severity: Some(DiagnosticSeverity::WARNING),
+        source: Some("ilang".into()),
+        message: msg,
+        tags: Some(vec![DiagnosticTag::DEPRECATED]),
+        ..Diagnostic::default()
+    }
+}
+
 pub(crate) fn build_doc(
     text: String,
     prog: &Program,

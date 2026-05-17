@@ -315,6 +315,19 @@ pub(super) fn signature_of(f: &FnDecl) -> Signature {
                 .iter()
                 .any(|x| matches!(x, ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["variadic"]))
     });
+    // `@deprecated` / `@deprecated("reason")` flows into the
+    // Signature so call sites can surface a warning. No-arg form
+    // becomes `Some("")`.
+    let deprecated = f.attrs.iter().find_map(|a| {
+        if a.name.as_str() != "deprecated" {
+            return None;
+        }
+        let reason = a.args.iter().find_map(|x| match x {
+            ilang_ast::AttrArg::Str(s) => Some(s.clone()),
+            _ => None,
+        });
+        Some(reason.unwrap_or_default())
+    });
     Signature {
         params,
         ret,
@@ -323,6 +336,7 @@ pub(super) fn signature_of(f: &FnDecl) -> Signature {
         type_params: Vec::from(f.type_params.clone()),
         defaults: f.params.iter().map(|p| p.default.clone()).collect(),
         is_pub: f.is_pub,
+        deprecated,
     }
 }
 

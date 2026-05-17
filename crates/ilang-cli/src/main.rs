@@ -143,6 +143,12 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         eprintln!("{display_path} {e}");
         return ExitCode::FAILURE;
     }
+    for w in tc.warnings() {
+        eprintln!(
+            "{display_path} [{}:{}]: warning: {}",
+            w.span.line, w.span.col, w.message
+        );
+    }
     let prog = ilang_types::mangle::mangle_overloads(
         prog,
         &tc.fn_overload_picks(),
@@ -700,6 +706,12 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         if let Err(e) = tc.check(&prog) {
             eprintln!("{display_path} {e}");
             return ExitCode::FAILURE;
+        }
+        for w in tc.warnings() {
+            eprintln!(
+                "{display_path} [{}:{}]: warning: {}",
+                w.span.line, w.span.col, w.message
+            );
         }
         let prog = ilang_types::mangle::mangle_overloads(
             prog,

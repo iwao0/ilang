@@ -87,9 +87,11 @@ impl TypeChecker {
                     .map(|p| subst_type(p, &sig.type_params, &inferred_args))
                     .collect();
                 chosen.type_params = Vec::new();
+                self.warn_if_deprecated(class_name, method, &chosen, span);
                 return Ok(chosen);
             }
             self.check_args(method, &sigs[0], args, env, ret_ty, in_class, loop_depth, span)?;
+            self.warn_if_deprecated(class_name, method, &sigs[0], span);
             return Ok(sigs[0].clone());
         }
         // Multiple overloads: score and pick.
@@ -110,7 +112,34 @@ impl TypeChecker {
             .borrow_mut()
             .insert(span, (class_name.into(), method.into(), chosen));
         self.check_args(method, &cs, args, env, ret_ty, in_class, loop_depth, span)?;
+        self.warn_if_deprecated(class_name, method, &cs, span);
         Ok(cs)
+    }
+
+    /// Emit a `@deprecated` call-site warning when the chosen
+    /// signature carries one. Stores into
+    /// `TypeChecker::type_warnings`, which the CLI prints to
+    /// stderr after a successful check and the LSP surfaces as a
+    /// `DiagnosticSeverity::WARNING`.
+    fn warn_if_deprecated(
+        &self,
+        class_name: Symbol,
+        method: Symbol,
+        sig: &Signature,
+        span: Span,
+    ) {
+        let Some(reason) = sig.deprecated.as_deref() else {
+            return;
+        };
+        let suffix = if reason.is_empty() {
+            String::new()
+        } else {
+            format!(": {reason}")
+        };
+        self.warn(
+            span,
+            format!("`{}.{}` is deprecated{}", class_name, method, suffix),
+        );
     }
 
     pub(super) fn check_args(

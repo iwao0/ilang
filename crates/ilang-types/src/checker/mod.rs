@@ -218,6 +218,12 @@ pub(super) struct Signature {
     /// (or class member) defined in module `M` is reachable from a
     /// different module only when `is_pub` is `true`.
     pub(super) is_pub: bool,
+    /// `Some(reason)` when the original `FnDecl` carries a
+    /// `@deprecated("reason")` attribute. The reason may be the
+    /// empty string for a no-arg `@deprecated`. Surfaces as a
+    /// non-fatal warning at every call site, accumulated into
+    /// `TypeChecker::type_warnings`.
+    pub(super) deprecated: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -469,6 +475,21 @@ pub struct TypeChecker {
     /// boundaries — assigning to a top-level const from anywhere
     /// is rejected.
     pub(super) top_level_consts: std::cell::RefCell<HashSet<Symbol>>,
+    /// Non-fatal diagnostics surfaced during checking — currently
+    /// just `@deprecated` call-site notices. CLI prints them to
+    /// stderr after a successful `check`; LSP emits them as
+    /// `DiagnosticSeverity::WARNING`. Accumulated via `warn(...)`,
+    /// consumed via `warnings()`.
+    pub(super) type_warnings: std::cell::RefCell<Vec<TypeWarning>>,
+}
+
+/// A non-fatal diagnostic — surfaced alongside (not instead of)
+/// successful type checking. Today's only producer is the
+/// `@deprecated` attribute on a class method.
+#[derive(Debug, Clone)]
+pub struct TypeWarning {
+    pub message: String,
+    pub span: Span,
 }
 
 /// Extract the module portion from a possibly-prefixed item name.
@@ -504,6 +525,17 @@ impl TypeChecker {
     /// chunks so they can be promoted to persistent host slots.
     pub fn lookup_global(&self, name: Symbol) -> Option<Type> {
         self.vars.get(&name).cloned()
+    }
+
+    /// Non-fatal diagnostics accumulated during the last `check`
+    /// call (mainly `@deprecated` call-site notices). Empty when
+    /// nothing was flagged.
+    pub fn warnings(&self) -> Vec<TypeWarning> {
+        self.type_warnings.borrow().clone()
+    }
+
+    pub(super) fn warn(&self, span: Span, message: String) {
+        self.type_warnings.borrow_mut().push(TypeWarning { message, span });
     }
 
     /// Map of generic-fn call site → (callee name, inferred type args).

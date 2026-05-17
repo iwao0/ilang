@@ -13,7 +13,7 @@ mod ops;
 
 use ilang_ast::{Program, Type};
 
-pub use checker::TypeChecker;
+pub use checker::{TypeChecker, TypeWarning};
 pub use error::TypeError;
 
 /// One-shot type check for callers that don't need to keep state.

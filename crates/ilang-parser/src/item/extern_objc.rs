@@ -113,6 +113,7 @@ impl<'a> Parser<'a> {
                         item_is_pub,
                         /*is_static*/ false,
                         /*require_fn_kw*/ true,
+                        /*extra_attrs*/ Vec::new(),
                     )?;
                     objc_fns.push(m);
                     continue;
@@ -506,6 +507,7 @@ impl<'a> Parser<'a> {
         is_pub: bool,
         is_static: bool,
         require_fn_kw: bool,
+        extra_attrs: Vec<Attribute>,
     ) -> Result<ObjcMethod, ParseError> {
         let span = self.peek().span;
         if require_fn_kw {
@@ -540,6 +542,7 @@ impl<'a> Parser<'a> {
             span,
             is_pub,
             is_static,
+            extra_attrs,
         })
     }
 
@@ -582,15 +585,37 @@ impl<'a> Parser<'a> {
             // that bridge the desugar's internal `__wrap_handle`
             // out to a friendly user-facing name.
             let objc_pos = attrs.iter().position(|a| a.name.as_str() == "objc");
-            if let Some(pos) = objc_pos {
-                if attrs.len() != 1 {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "@objc(...) cannot be combined with other attributes on a method".into(),
-                        span: t.span,
-                    });
+            // Sibling attributes the desugar passes through to the
+            // synthesised FnDecl. Currently:
+            //   * `@deprecated("reason")` — type-checker warning at
+            //     call site.
+            // Anything else is rejected to keep typos / unsupported
+            // attributes from silently disappearing.
+            let split_extra = |attrs: Vec<Attribute>,
+                               skip_pos: Option<usize>,
+                               err_span: Span|
+             -> Result<Vec<Attribute>, ParseError> {
+                let mut extra: Vec<Attribute> = Vec::new();
+                for (i, a) in attrs.into_iter().enumerate() {
+                    if Some(i) == skip_pos {
+                        continue;
+                    }
+                    match a.name.as_str() {
+                        "deprecated" => extra.push(a),
+                        other => {
+                            return Err(ParseError::Unexpected {
+                                found: TokenKind::At,
+                                expected: format!(
+                                    "unsupported attribute `@{other}` on @objc class method (allowed: @objc, @deprecated)"
+                                ),
+                                span: err_span,
+                            });
+                        }
+                    }
                 }
+                Ok(extra)
+            };
+            if let Some(pos) = objc_pos {
                 let selector = match &attrs[pos].args[..] {
                     [AttrArg::Str(s)] => s.clone(),
                     _ => {
@@ -602,22 +627,19 @@ impl<'a> Parser<'a> {
                         });
                     }
                 };
+                let err_span = self.peek().span;
+                let extra = split_extra(attrs, Some(pos), err_span)?;
                 let m = self.parse_objc_method(
                     selector,
                     method_is_pub,
                     is_static,
                     /*require_fn_kw*/ false,
+                    extra,
                 )?;
                 methods.push(m);
             } else {
-                if !attrs.is_empty() {
-                    let t = self.peek();
-                    return Err(ParseError::Unexpected {
-                        found: t.kind.clone(),
-                        expected: "only @objc(...) or no attribute is allowed on methods inside @objc class".into(),
-                        span: t.span,
-                    });
-                }
+                let err_span = self.peek().span;
+                let extra = split_extra(attrs, None, err_span)?;
                 // Plain method: same shape as `parse_objc_method`
                 // but flagged so the caller knows to skip the
                 // ObjC dispatch wrapper.
@@ -626,6 +648,7 @@ impl<'a> Parser<'a> {
                     method_is_pub,
                     is_static,
                     /*require_fn_kw*/ false,
+                    extra,
                 )?;
                 let mut plain = m;
                 plain.selector = String::new();
@@ -708,6 +731,12 @@ struct ObjcMethod {
     span: Span,
     is_pub: bool,
     is_static: bool,
+    /// User-supplied attributes other than `@objc(...)` —
+    /// currently just `@deprecated("reason")` for ObjC-side
+    /// soft-removal markers. Propagated onto the synthesised
+    /// dispatch wrapper so the type checker can warn at call
+    /// sites.
+    extra_attrs: Vec<Attribute>,
 }
 
 struct ObjcClass {
@@ -1576,6 +1605,19 @@ fn build_class_method(
         }
     };
 
+    // Base attrs the synthesised dispatch wrapper always carries,
+    // plus any user-supplied passthrough attrs (`@deprecated`, …).
+    let mut wrapper_attrs: Vec<Attribute> = vec![
+        Attribute {
+            name: Symbol::intern("__objc_wrapper"),
+            args: Box::new([]),
+        },
+        Attribute {
+            name: Symbol::intern("objc"),
+            args: Box::new([AttrArg::Str(m.selector.clone())]),
+        },
+    ];
+    wrapper_attrs.extend(m.extra_attrs.iter().cloned());
     let method_fn = FnDecl {
         is_pub: m.is_pub,
         // The wrapper's signature may reference raw `*objc_*`
@@ -1583,16 +1625,7 @@ fn build_class_method(
         // so the type checker's pointer-in-signature rejection
         // doesn't trip on us. The trailing `@objc("selector:")`
         // is purely informational — kept so LSP hover renders it.
-        attrs: Box::new([
-            Attribute {
-                name: Symbol::intern("__objc_wrapper"),
-                args: Box::new([]),
-            },
-            Attribute {
-                name: Symbol::intern("objc"),
-                args: Box::new([AttrArg::Str(m.selector.clone())]),
-            },
-        ]),
+        attrs: wrapper_attrs.into_boxed_slice(),
         name: m.name,
         type_params: Box::new([]),
         params: m.params.clone(),

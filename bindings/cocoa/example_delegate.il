@@ -69,5 +69,5 @@ let win = makeWindow("Cocoa delegate", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
 win.makeKeyAndOrderFront(nil)
-app.activateIgnoringOtherApps(true)
+app.activate()
 app.run()

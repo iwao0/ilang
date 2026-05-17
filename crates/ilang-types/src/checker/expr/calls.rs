@@ -429,6 +429,7 @@ impl TypeChecker {
                     decl_span: span,
                     defaults: vec![None; im.params.len()],
                     is_pub: true,
+            deprecated: None,
                 };
                 let chosen = self.resolve_method_call(
                     class_name.into(), *method, &[sig], args, env, ret_ty, in_class,
@@ -478,6 +479,7 @@ impl TypeChecker {
                 decl_span: raw.decl_span,
                 defaults: raw.defaults.clone(),
                 is_pub: raw.is_pub,
+                deprecated: raw.deprecated.clone(),
             })
             .collect();
         // At least one overload must be reachable from the
@@ -546,7 +548,7 @@ impl TypeChecker {
                 params: ft.params.to_vec(),
                 ret: ft.ret.clone(),
                 variadic: false, decl_span: Span::dummy(), type_params: Vec::new(),
-                defaults: Vec::new(), is_pub: true };
+                defaults: Vec::new(), is_pub: true, deprecated: None };
             self.check_args(*callee, &sig, args, env, ret_ty, in_class, loop_depth, span)?;
             return Ok(sig.ret);
         }
@@ -746,6 +748,7 @@ impl TypeChecker {
                     decl_span: init.decl_span,
                     defaults: init.defaults.clone(),
                     is_pub: init.is_pub,
+                    deprecated: init.deprecated.clone(),
                 })
                 .collect();
             let chosen = self.resolve_method_call(

@@ -166,6 +166,9 @@ pub(crate) fn analyse(
         if let Err(e) = tc.check(prog) {
             out.push(diag(e.span(), e.to_string()));
         }
+        for w in tc.warnings() {
+            out.push(crate::diag::warn_diag(w.span, w.message));
+        }
         return out;
     }
     // Fallback: in-memory parse + typecheck (no module resolution, no
@@ -177,6 +180,9 @@ pub(crate) fn analyse(
     let mut tc = TypeChecker::new();
     if let Err(e) = tc.check(&prog) {
         out.push(diag(e.span(), e.to_string()));
+    }
+    for w in tc.warnings() {
+        out.push(crate::diag::warn_diag(w.span, w.message));
     }
     out
 }
