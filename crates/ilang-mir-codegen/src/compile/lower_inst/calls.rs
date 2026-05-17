@@ -291,6 +291,7 @@ pub(super) fn lower_call<M: Module>(
                     | "freeCstr"
                     | "errnoCheck"
                     | "errnoCheckI64"
+                    | "bytesFromBuffer"
                     | "os.errno"
                     | "os.setErrno"
             ) {

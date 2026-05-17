@@ -205,6 +205,17 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.returns.push(AbiParam::new(types::I64));
         module.declare_function("__c_array_to_array", Linkage::Import, &sig)?;
     }
+    {
+        // bytesFromBuffer(p: *const void, n: size_t) -> u8[] — thin
+        // 2-arg wrapper over __c_array_to_array; user-facing FFI
+        // helper for `@extern(C)` bindings that turn a
+        // `(const char *, size_t)` pair into an owned `u8[]`.
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.returns.push(AbiParam::new(types::I64));
+        module.declare_function("bytesFromBuffer", Linkage::Import, &sig)?;
+    }
     // `read*(p: i64, off: i64) -> {i64|f32|f64}` declarations.
     for name in &[
         "__read_i8", "__read_i16", "__read_i32", "__read_i64",

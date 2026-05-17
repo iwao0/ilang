@@ -191,14 +191,30 @@ pub enum MatchOptions: u64 {
         pub removeAllObjects()
     }
 
-    /// `NSData` — immutable byte buffer.
+    /// `NSData` — immutable byte buffer. The raw selectors traffic
+    /// in `*const char`; user code drives them through the pub
+    /// wrappers that take / return ilang `u8[]`. The wrappers
+    /// copy bytes both ways (NSData's `bytes` pointer is owned by
+    /// the autoreleased instance and shouldn't outlive it).
     @objc pub class NSData : NSObject {
         @objc("dataWithBytes:length:")
-        pub static fromBytes(bytes: *const char, length: i64): NSData
+        static _fromBytes(bytes: *const char, length: i64): NSData
         @objc("length")
         pub length(): i64
         @objc("bytes")
-        pub bytes(): *const char
+        _bytes(): *const char
+
+        /// Build an `NSData` from a byte buffer (copies the bytes).
+        pub static fromBytes(buf: u8[]): NSData {
+            let p: *u8 = buf
+            NSData._fromBytes(p as *char, buf.length)
+        }
+
+        /// Copy this NSData's bytes into a fresh `u8[]`. Safe to
+        /// keep the result past the autorelease pool drain.
+        pub bytes(): u8[] {
+            bytesFromBuffer(this._bytes() as *void, this.length() as size_t)
+        }
     }
 
     /// `NSDate` — a moment in time. `date` is "now"; the interval

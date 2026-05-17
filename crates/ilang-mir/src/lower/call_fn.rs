@@ -144,6 +144,10 @@ impl<'a> BodyCx<'a> {
             "freeCstr" => Some(MirTy::Unit),
             "errnoCheck" => Some(MirTy::Optional(Box::new(MirTy::I32))),
             "errnoCheckI64" => Some(MirTy::Optional(Box::new(MirTy::I64))),
+            "bytesFromBuffer" => Some(MirTy::Array {
+                elem: Box::new(MirTy::U8),
+                len: None,
+            }),
             _ => None,
         };
         if let Some(ret_ty) = ffi_helper {

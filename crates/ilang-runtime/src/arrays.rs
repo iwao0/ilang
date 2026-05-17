@@ -128,6 +128,17 @@ pub extern "C" fn __array_data_ptr(arr: i64) -> i64 {
     unsafe { *((arr + 16) as *const i64) }
 }
 
+/// `bytesFromBuffer(p, n)` — copy `n` bytes from `p` into a fresh
+/// `u8[]`. Thin wrapper over `__c_array_to_array` with stride=1
+/// and kind_tag=0 (PK_INT/byte). Exposed as an ilang-callable FFI
+/// helper so `@extern(C)` bindings can build an owned byte array
+/// from a C function's `(const char *, size_t)` output without
+/// hand-rolling the array header.
+#[unsafe(export_name = "bytesFromBuffer")]
+pub extern "C" fn bytes_from_buffer(p: i64, n: i64) -> i64 {
+    __c_array_to_array(p, n, 1, 0)
+}
+
 /// `arrayFromCArray<T>(src, n, stride, kind_tag)` — copy `n × stride`
 /// bytes from a C-side array into a fresh ilang dyn-array.
 #[unsafe(no_mangle)]
