@@ -663,11 +663,16 @@ pub const nil = NSObject.wrap(0)
 /// Used by per-API wrappers like
 /// `MTLDevice.newLibraryWithSourceOrError` — see metal.il for
 /// concrete examples.
-pub fn withObjcError(body: fn(i64): i64): (i64, i64) {
+pub fn withObjcError(body: fn(i64): i64): (i64, NSError?) {
     let slot = _objc_err_slot_ptr()
     // Drain any stale value before the call.
     _objc_take_err()
     let result = body(slot)
     let err_ptr = _objc_take_err()
-    (result, err_ptr)
+    let err: NSError? = if err_ptr == 0 {
+        none
+    } else {
+        some(NSError.__wrap_handle_unowned(err_ptr))
+    }
+    (result, err)
 }

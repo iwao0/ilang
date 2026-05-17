@@ -33,16 +33,39 @@ impl<'a> BodyCx<'a> {
 
         self.fb.switch_to(then_blk);
         let then_tail = self.lower_block(then_branch)?;
+        // Remember the then-block we ended up at (the body may have
+        // emitted control-flow that landed us in a successor) so we
+        // can come back to it and emit the join terminator after
+        // we've lowered the else side too.
+        let then_end_blk = self.fb.current_block();
 
-        // Determine result type from then-branch tail (or Unit).
-        // Without an `else` branch, an `if` is statement-like — the
-        // tail value (if any) is discarded and the overall result is
-        // Unit. Otherwise we adopt the then-branch tail's type so
-        // the join block carries the value through a block param.
-        let result_ty = match (else_branch, &then_tail) {
-            (None, _) => MirTy::Unit,
-            (Some(_), Some((_, t))) => t.clone(),
-            (Some(_), None) => MirTy::Unit,
+        // Lower the else branch first so we can pick a join type
+        // that subsumes both arms. Lowering happens in `else_blk`'s
+        // context.
+        self.fb.switch_to(else_blk);
+        let else_tail: Option<(ValueId, MirTy)> = match else_branch {
+            Some(e) => Some(self.lower_expr(e)?),
+            None => None,
+        };
+        let else_end_blk = self.fb.current_block();
+
+        // Pick the join type. With no else branch, `if` is
+        // statement-shaped and yields Unit. With both branches:
+        //   * pick the then-tail's type by default, but
+        //   * if then is `Optional<Unit>` (i.e. `none`) and else is
+        //     `Optional<T>` for some non-Unit T, use the wider
+        //     `Optional<T>` — otherwise the join collapses to
+        //     `Optional<Unit>` and the `Optional<T> → Optional<Unit>`
+        //     coerce rule double-wraps the some-arm in another
+        //     Optional, corrupting cross-function return values.
+        //   * symmetrically prefer else's type when else is the
+        //     none arm and then carries the value.
+        let result_ty = match (else_branch, &then_tail, &else_tail) {
+            (None, _, _) => MirTy::Unit,
+            (Some(_), Some((_, tt)), Some((_, et))) => widen_optional(tt, et),
+            (Some(_), Some((_, t)), None) => t.clone(),
+            (Some(_), None, Some((_, t))) => t.clone(),
+            (Some(_), None, None) => MirTy::Unit,
         };
 
         let cont = self.fb.new_block();
@@ -58,6 +81,7 @@ impl<'a> BodyCx<'a> {
         // `if cond { some_i8 } else { some_i64 }` where unify
         // pushed the result to i64 but one branch's value stayed
         // narrower.
+        self.fb.switch_to(then_end_blk);
         let then_arg: Box<[ValueId]> = match (&result_ty, then_tail) {
             (MirTy::Unit, _) => Box::new([]),
             (rt, Some((v, t))) if &t == rt => Box::new([v]),
@@ -69,10 +93,9 @@ impl<'a> BodyCx<'a> {
         };
         self.fb.set_terminator(Terminator::Br { dst: cont, args: then_arg });
 
-        self.fb.switch_to(else_blk);
-        let else_arg: Box<[ValueId]> = match else_branch {
-            Some(e) => {
-                let (v, vty) = self.lower_expr(e)?;
+        self.fb.switch_to(else_end_blk);
+        let else_arg: Box<[ValueId]> = match (else_branch, else_tail) {
+            (Some(_), Some((v, vty))) => {
                 if matches!(result_ty, MirTy::Unit) {
                     Box::new([])
                 } else if vty == result_ty {
@@ -82,7 +105,14 @@ impl<'a> BodyCx<'a> {
                     Box::new([coerced])
                 }
             }
-            None => {
+            (Some(_), None) => {
+                if matches!(result_ty, MirTy::Unit) {
+                    Box::new([])
+                } else {
+                    Box::new([self.const_unit()])
+                }
+            }
+            (None, _) => {
                 if matches!(result_ty, MirTy::Unit) {
                     Box::new([])
                 } else {
@@ -333,5 +363,32 @@ impl<'a> BodyCx<'a> {
         let dead = self.fb.new_block();
         self.fb.switch_to(dead);
         Ok((self.const_unit(), MirTy::Unit))
+    }
+}
+
+/// Pick the wider join type when two `if`-branch tails carry
+/// related Optional shapes. The only asymmetry that matters today
+/// is `Optional<Unit>` (the type of the bare `none` literal) vs
+/// `Optional<T>` for some non-Unit `T` — the `none` side fits any
+/// `Optional<T>` at the bit level, but going the other way runs
+/// through `coerce`'s `T → Optional<T>` rule and double-wraps the
+/// some-arm in another Optional, which then ripples into a broken
+/// `OptionalUnwrap` at call sites (the unwrap reads the inner
+/// box's `kind_tag` byte instead of the stored value). For all
+/// other shapes, prefer the then-branch type to preserve the
+/// previous behaviour.
+fn widen_optional(then_ty: &MirTy, else_ty: &MirTy) -> MirTy {
+    match (then_ty, else_ty) {
+        (MirTy::Optional(ti), MirTy::Optional(ei))
+            if matches!(**ti, MirTy::Unit) && !matches!(**ei, MirTy::Unit) =>
+        {
+            else_ty.clone()
+        }
+        (MirTy::Optional(ti), MirTy::Optional(ei))
+            if !matches!(**ti, MirTy::Unit) && matches!(**ei, MirTy::Unit) =>
+        {
+            then_ty.clone()
+        }
+        _ => then_ty.clone(),
     }
 }

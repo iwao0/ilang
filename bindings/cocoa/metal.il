@@ -695,52 +695,34 @@ pub fn size2D(w: u64, h: u64): MTLSize {
 // second is `some(NSError)` — inspect via
 // `e.localizedDescription` / `e.domain` / `e.code`.
 
-// The wrappers below surface the error as a raw `i64` handle in
-// the second tuple slot rather than the obvious `NSError?` form
-// because ilang's `Optional<Object>` unwrap doesn't survive
-// crossing a function-call boundary intact today — `match
-// some(e)` reads the box's `__owns` field (`1`) into `e.handle`
-// instead of the original handle pointer. Callers check
-// `err_handle != 0` to detect failure, then wrap manually:
-//
-// ```ignore
-// let (lib, err_h) = metal.newLibraryWithSourceOrError(device, nsstr(src))
-// if err_h != 0 {
-//     let e = NSError.__wrap_handle(err_h)
-//     console.log(ilstr(e.localizedDescription))
-// }
-// ```
-
 /// Compile MSL source into an `MTLLibrary` (default
-/// `MTLCompileOptions`). Returns `(library, error_handle)`;
-/// `error_handle == 0` on success.
+/// `MTLCompileOptions`).
 pub fn newLibraryWithSourceOrError(
     device: MTLDevice, source: NSString
-): (MTLLibrary, i64) {
-    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+): (MTLLibrary, NSError?) {
+    let (h, err) = withObjcError(fn(slot: i64): i64 {
         device.newLibraryWithSource(source, NSObject.wrap(0), slot).handle
     })
-    (MTLLibrary.__wrap_handle(h), err_h)
+    (MTLLibrary.__wrap_handle(h), err)
 }
 
 /// Compile + link an `MTLRenderPipelineState` from the descriptor.
-/// Returns `(pipeline_state, error_handle)`.
 pub fn newRenderPipelineStateOrError(
     device: MTLDevice, descriptor: MTLRenderPipelineDescriptor
-): (MTLRenderPipelineState, i64) {
-    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+): (MTLRenderPipelineState, NSError?) {
+    let (h, err) = withObjcError(fn(slot: i64): i64 {
         device.newRenderPipelineStateWithDescriptor(descriptor, slot).handle
     })
-    (MTLRenderPipelineState.__wrap_handle(h), err_h)
+    (MTLRenderPipelineState.__wrap_handle(h), err)
 }
 
 /// Compile + link an `MTLComputePipelineState` from a kernel
-/// function. Returns `(pipeline_state, error_handle)`.
+/// function.
 pub fn newComputePipelineStateOrError(
     device: MTLDevice, function: MTLFunction
-): (MTLComputePipelineState, i64) {
-    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+): (MTLComputePipelineState, NSError?) {
+    let (h, err) = withObjcError(fn(slot: i64): i64 {
         device.newComputePipelineStateWithFunction(function, slot).handle
     })
-    (MTLComputePipelineState.__wrap_handle(h), err_h)
+    (MTLComputePipelineState.__wrap_handle(h), err)
 }
