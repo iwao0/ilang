@@ -62,6 +62,37 @@ pub(crate) fn build_doc(
     for (k, v) in external_classes {
         classes.entry(k.clone()).or_insert_with(|| v.clone());
     }
+    // Selective imports — `use M { X }` — also need the bare-name
+    // entry so `resolve_obj_class(Var("X"))` and the static-method
+    // dispatch (`X.alloc()`) find the class via `classes.get("X")`.
+    // The merged-program scan only registered the dotted `M.X`
+    // key; alias it back to the bare key the source actually
+    // uses. Falls through to any `*.X` match in
+    // `external_classes` so a name imported from an umbrella
+    // module (`use cocoa { NSWindow }`, where cocoa.il does `pub
+    // use appkit as _ { * }`) still finds its underlying
+    // `appkit.NSWindow` entry.
+    for item in &prog.items {
+        let Item::Use(u) = item else { continue };
+        let Some(names) = &u.selective else { continue };
+        let module = u.module.as_str();
+        for name in names.iter() {
+            if classes.contains_key(name) {
+                continue;
+            }
+            let direct = AstSymbol::intern(&format!("{module}.{name}"));
+            let found = external_classes.get(&direct).cloned().or_else(|| {
+                let suffix = format!(".{}", name.as_str());
+                external_classes
+                    .iter()
+                    .find(|(k, _)| k.as_str().ends_with(&suffix))
+                    .map(|(_, v)| v.clone())
+            });
+            if let Some(info) = found {
+                classes.insert(name.clone(), info);
+            }
+        }
+    }
     // Register `<Enum>.<Variant>` entries for buffer-local enums so
     // `Enum.` completion (the `external_signatures`-prefix path)
     // surfaces variants alongside cross-module enums. Sub-modules
