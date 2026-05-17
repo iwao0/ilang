@@ -81,17 +81,15 @@ pub enum MTLTextureUsage: u64 {
 
 // ─── Structs ──────────────────────────────────────────────────────
 
-@extern(C) {
-    /// `MTLClearColor` — RGBA values in `[0, 1]` used when a
-    /// colour attachment's `loadAction` is `.clear`. Plain C
-    /// struct, 4× f64 = 32 bytes (HFA on arm64, passes via v0–v3
-    /// at the ABI boundary).
-    pub struct MTLClearColor {
-        red: f64
-        green: f64
-        blue: f64
-        alpha: f64
-    }
+/// `MTLClearColor` — RGBA values in `[0, 1]` used when a colour
+/// attachment's `loadAction` is `.clear`. Plain C struct, 4× f64
+/// = 32 bytes (HFA on arm64, passes via v0–v3 at the ABI
+/// boundary).
+pub struct MTLClearColor {
+    red: f64
+    green: f64
+    blue: f64
+    alpha: f64
 }
 
 // ─── Metal classes / protocols ────────────────────────────────────
