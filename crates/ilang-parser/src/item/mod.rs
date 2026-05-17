@@ -437,6 +437,32 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Use, "'use'")?;
         let module = self.expect_ident("module name")?;
+        // `use M.*` — short form for `use M as _ { * }`. Produces the
+        // same UseDecl shape (Discard alias + wildcard) so the loader's
+        // wildcard branch picks it up unchanged. The Discard alias
+        // keeps the `pub use M.*` re-export form rendering correctly:
+        // the namespace is suppressed, items live flattened under the
+        // umbrella.
+        if matches!(self.peek().kind, TokenKind::Dot) {
+            self.bump();
+            let next = self.peek().clone();
+            if !matches!(next.kind, TokenKind::Star) {
+                return Err(ParseError::Unexpected {
+                    found: next.kind,
+                    expected: "`*` after `.` in `use M.*`".into(),
+                    span: next.span,
+                });
+            }
+            self.bump();
+            return Ok(ilang_ast::UseDecl {
+                module,
+                alias: ilang_ast::UseAlias::Discard,
+                selective: None,
+                wildcard: true,
+                re_export: false,
+                span,
+            });
+        }
         // Optional `as <ident>` / `as _` alias.
         let alias = if matches!(self.peek().kind, TokenKind::As) {
             self.bump();
