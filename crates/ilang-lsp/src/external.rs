@@ -422,11 +422,31 @@ pub(crate) fn walk_module(
                                 format!("{libs_prefix}fn {prefix}.{name}({ps}){r}"),
                             )
                         }
-                        ilang_ast::ExternCItem::FnDef(f) => (
-                            f.name.into(),
-                            f.span,
-                            format!("fn {prefix}.{} {}", f.name, fn_body(f)).trim_start_matches("fn ").to_string(),
-                        ),
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            // Mirror the FnDecl arm above
+                            // (`fn {prefix}.name(params): ret`).
+                            // Previously the format string used
+                            // `fn_body(f)` (which already renders
+                            // `name(params): ret`) *and* prepended
+                            // `{prefix}.{name}` — producing
+                            // `cocoa.sharedApplication sharedApplication(): NSApplication`
+                            // in hover.
+                            let ps = f
+                                .params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match &f.ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            (
+                                f.name.into(),
+                                f.span,
+                                format!("fn {prefix}.{}({ps}){r}", f.name),
+                            )
+                        }
                         ilang_ast::ExternCItem::Struct { name, span, .. } => (
                             *name,
                             *span,
@@ -615,13 +635,25 @@ pub(crate) fn walk_module_aliased(
                                 format!("{libs_prefix}fn {alias_prefix}.{name}({ps}){r}"),
                             ))
                         }
-                        ilang_ast::ExternCItem::FnDef(f) => Some((
-                            f.name.into(),
-                            f.span,
-                            format!("fn {alias_prefix}.{} {}", f.name, fn_body(f))
-                                .trim_start_matches("fn ")
-                                .to_string(),
-                        )),
+                        ilang_ast::ExternCItem::FnDef(f) => {
+                            // See `walk_module`'s same arm — the
+                            // double-name bug applies here too.
+                            let ps = f
+                                .params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match &f.ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            Some((
+                                f.name.into(),
+                                f.span,
+                                format!("fn {alias_prefix}.{}({ps}){r}", f.name),
+                            ))
+                        }
                         ilang_ast::ExternCItem::Struct { name, span, .. } => Some((
                             (*name).into(),
                             *span,
