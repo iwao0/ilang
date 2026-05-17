@@ -109,6 +109,26 @@ pub(crate) async fn refresh_impl(
     if let Ok(buffer_prog) = &parsed_buffer {
         for item in &buffer_prog.items {
             let Item::Use(u) = item else { continue };
+            if u.wildcard && u.selective.is_none() {
+                // `use M { * }` — mirror every `M.<X>` ret type
+                // under its bare name. Matches the selective-import
+                // path below; same rationale (the buffer references
+                // `<X>(...)` bare, but `collect_external_signatures`
+                // only emitted the `M.<X>` key).
+                let module_dot = format!("{}.", u.module);
+                let bare: Vec<(AstSymbol, _)> = external_rets
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        k.as_str()
+                            .strip_prefix(&module_dot)
+                            .map(|tail| (AstSymbol::intern(tail), v.clone()))
+                    })
+                    .collect();
+                for (k, v) in bare {
+                    external_rets.entry(k).or_insert(v);
+                }
+                continue;
+            }
             let Some(names) = &u.selective else { continue };
             for name in names.iter() {
                 let prefixed = AstSymbol::intern(&format!("{}.{}", u.module, name));

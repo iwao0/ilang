@@ -89,6 +89,24 @@ pub(crate) fn harvest_from_program(
     let mut visited: HashSet<PathBuf> = HashSet::new();
     for item in &prog.items {
         let Item::Use(u) = item else { continue };
+        if u.wildcard && u.selective.is_none() {
+            // `use M { * }` — walk M, then re-key every `M.<X>`
+            // entry as bare `<X>` so completion / hover / F12
+            // treat the wildcard'd names the same way they treat
+            // a `use M { X }` selective list. Mirrors the loader's
+            // rename-rule expansion that turns the bare reference
+            // into `M.<X>` at call time.
+            harvest_wildcard_names(
+                u.module.as_str(),
+                &entry_dir,
+                &extra,
+                &mut visited,
+                out,
+                sources,
+                docs,
+            );
+            continue;
+        }
         if let Some(names) = &u.selective {
             // `use M { X1, X2 }` — pull X1/X2's hover info from M
             // (or its `pub use` chain) and key them under their
@@ -122,6 +140,57 @@ pub(crate) fn harvest_from_program(
 /// fills in `module.X` keys that the merged-program scan misses
 /// (`Item::Const` is inlined out of the merged program; umbrella
 /// `walk_module_aliased` only registers consts in `out`).
+/// `use M { * }` — walk `M`, then promote every `M.<X>` entry (and
+/// nested `M.<X>.<variant>` enum-variant key) to a bare `<X>` /
+/// `<X>.<variant>` key. The buffer-side walker can then resolve a
+/// bare `sharedApplication()` call the same way it resolves an
+/// explicit `use cocoa { sharedApplication }`.
+pub(crate) fn harvest_wildcard_names(
+    module: &str,
+    entry_dir: &Path,
+    extra: &[PathBuf],
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashMap<AstSymbol, String>,
+    sources: &mut ExternalSources,
+    docs: &mut HashMap<AstSymbol, String>,
+) {
+    walk_module(module, entry_dir, extra, visited, out, sources, docs);
+    let module_dot = format!("{module}.");
+    let bare_entries: Vec<(AstSymbol, String)> = out
+        .iter()
+        .filter_map(|(k, v)| {
+            k.as_str()
+                .strip_prefix(&module_dot)
+                .map(|tail| (AstSymbol::intern(tail), v.clone()))
+        })
+        .collect();
+    for (k, v) in bare_entries {
+        out.entry(k).or_insert(v);
+    }
+    let bare_sources: Vec<(AstSymbol, ExternalLoc)> = sources
+        .iter()
+        .filter_map(|(k, v)| {
+            k.as_str()
+                .strip_prefix(&module_dot)
+                .map(|tail| (AstSymbol::intern(tail), v.clone()))
+        })
+        .collect();
+    for (k, v) in bare_sources {
+        sources.entry(k).or_insert(v);
+    }
+    let bare_docs: Vec<(AstSymbol, String)> = docs
+        .iter()
+        .filter_map(|(k, v)| {
+            k.as_str()
+                .strip_prefix(&module_dot)
+                .map(|tail| (AstSymbol::intern(tail), v.clone()))
+        })
+        .collect();
+    for (k, v) in bare_docs {
+        docs.entry(k).or_insert(v);
+    }
+}
+
 pub(crate) fn harvest_selective_names(
     module: &str,
     names: &[AstSymbol],

@@ -555,6 +555,50 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
             ..CompletionItem::default()
         });
     }
+    // Names brought into the buffer's bare namespace via a selective
+    // (`use M { X, Y }`) or wildcard (`use M { * }`) import. The
+    // harvest pass keys those entries under the bare name in
+    // `external_signatures`; everything containing a `.` is a
+    // module-qualified entry that surfaces through the module-name
+    // listing further down instead.
+    for (name, sig) in doc.external_signatures.iter() {
+        let s = name.as_str();
+        if s.contains('.') {
+            continue;
+        }
+        if doc.symbols.contains_key(name) || doc.var_types.contains_key(name) {
+            continue;
+        }
+        let kind = if sig.starts_with("class ")
+            || sig.starts_with("struct ")
+            || sig.starts_with("union ")
+        {
+            CompletionItemKind::CLASS
+        } else if sig.starts_with("enum ") {
+            CompletionItemKind::ENUM
+        } else if sig.starts_with("const ") {
+            CompletionItemKind::CONSTANT
+        } else {
+            CompletionItemKind::FUNCTION
+        };
+        let (insert_text, fmt) = call_snippet(s, kind);
+        let command = trigger_sig_help_command(kind);
+        out.push(CompletionItem {
+            label: s.to_string(),
+            kind: Some(kind),
+            detail: Some(sig.clone()),
+            documentation: doc.external_docs.get(name).cloned().map(|d| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: d,
+                })
+            }),
+            insert_text,
+            insert_text_format: fmt,
+            command,
+            ..CompletionItem::default()
+        });
+    }
     let mut modules: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for key in doc.external_signatures.keys() {
         if let Some((m, _)) = key.as_str().split_once('.') {
