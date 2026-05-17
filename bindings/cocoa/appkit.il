@@ -137,6 +137,43 @@ pub enum DatePickerStyle: u64 {
 // Standard `NSPasteboard` type for UTF-8 plain text.
 pub const PasteboardTypeString: string = "public.utf8-plain-text"
 
+// NSEventType — the discriminator for `NSEvent.eventType()`.
+// Only the values you'll see in a typical app are listed; full
+// set is in `<AppKit/NSEvent.h>`.
+pub enum EventType: u64 {
+    leftMouseDown      = 1
+    leftMouseUp        = 2
+    rightMouseDown     = 3
+    rightMouseUp       = 4
+    mouseMoved         = 5
+    leftMouseDragged   = 6
+    rightMouseDragged  = 7
+    mouseEntered       = 8
+    mouseExited        = 9
+    keyDown            = 10
+    keyUp              = 11
+    flagsChanged       = 12
+    scrollWheel        = 22
+    otherMouseDown     = 25
+    otherMouseUp       = 26
+    otherMouseDragged  = 27
+}
+
+// NSEventModifierFlags — bitmask read off `event.modifierFlags()`.
+// Bitwise-OR the relevant flags to test composite modifiers.
+@flags
+pub enum EventModifierFlags: u64 {
+    none      = 0
+    capsLock  = 0x10000
+    shift     = 0x20000
+    control   = 0x40000
+    option    = 0x80000
+    command   = 0x100000
+    numericPad = 0x200000
+    help      = 0x400000
+    function  = 0x800000
+}
+
 // The `@extern(ObjC, "path")` form names the framework dylib so
 // the JIT dlopens it eagerly at startup — that's what registers
 // `NSApplication` / `NSWindow` / NSString etc. with libobjc's
@@ -184,6 +221,20 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
     @objc pub class NSView : NSObject {
         @objc("addSubview:")
         pub addSubview(v: NSView)
+        // Coordinate conversion. The `fromView` / `toView` slot
+        // is typed `NSObject` so `cocoa.nil` can be passed to
+        // mean "convert from / to window coordinates" — the
+        // same coordinate space `NSEvent.locationInWindow()`
+        // returns. A real NSView wrapper is accepted too
+        // (ObjC dispatches the same way either way).
+        @objc("convertPoint:fromView:")
+        pub convertPointFromView(p: NSPoint, fromView: NSObject): NSPoint
+        @objc("convertPoint:toView:")
+        pub convertPointToView(p: NSPoint, toView: NSObject): NSPoint
+        @objc("frame")
+        pub frame(): NSRect
+        @objc("bounds")
+        pub bounds(): NSRect
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`
@@ -851,6 +902,43 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
         pub static hide()
         @objc("unhide")
         pub static unhide()
+    }
+
+    /// `NSEvent` — keyboard / mouse / scroll wheel event passed
+    /// to `SKScene.mouseDown:` and friends when subclassing for
+    /// input. Read the discriminant via `eventType()`, then pull
+    /// the type-specific fields (`keyCode`, `characters`,
+    /// `locationInWindow`, `deltaX/Y`, `buttonNumber`,
+    /// `clickCount`).
+    @objc pub class NSEvent : NSObject {
+        @objc("type")
+        pub eventType(): EventType
+        @objc("locationInWindow")
+        pub locationInWindow(): NSPoint
+        @objc("modifierFlags")
+        pub modifierFlags(): EventModifierFlags
+        @objc("timestamp")
+        pub timestamp(): f64
+        @objc("clickCount")
+        pub clickCount(): i64
+        @objc("buttonNumber")
+        pub buttonNumber(): i64
+        @objc("deltaX")
+        pub deltaX(): f64
+        @objc("deltaY")
+        pub deltaY(): f64
+        @objc("deltaZ")
+        pub deltaZ(): f64
+
+        // Keyboard
+        @objc("keyCode")
+        pub keyCode(): u16
+        @objc("characters")
+        pub characters(): NSString
+        @objc("charactersIgnoringModifiers")
+        pub charactersIgnoringModifiers(): NSString
+        @objc("isARepeat")
+        pub isARepeat(): bool
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one

@@ -103,6 +103,22 @@ pub enum AttributeType: i64 {
     vectorHalfFloat4 = 8
 }
 
+// SKInterpolationMode — how an `SKKeyframeSequence` blends
+// between successive keyframes.
+pub enum InterpolationMode: i64 {
+    linear = 1
+    spline = 2
+    step   = 3
+}
+
+// SKRepeatMode — what happens past the last keyframe.
+// `loop_` is named with a trailing underscore to dodge the
+// reserved `loop` keyword.
+pub enum RepeatMode: i64 {
+    clamp = 1
+    loop_ = 2
+}
+
 // SKTileAdjacencyMask — bitmask describing which neighbouring
 // tiles a `SKTileGroupRule` is supposed to match. Bound as raw
 // `u32` flags — combine via bitwise OR. Mirrors
@@ -214,6 +230,25 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setConstraints(arr: NSArray)
         @objc("constraints")
         pub constraints(): NSArray
+
+        // Scene-graph search — `nodeAtPoint:` finds the
+        // top-most node whose accumulated frame contains
+        // `point` (in this node's coordinate system).
+        // `nodesAtPoint:` returns every match.
+        @objc("nodeAtPoint:")
+        pub nodeAtPoint(p: NSPoint): SKNode
+        @objc("nodesAtPoint:")
+        pub nodesAtPoint(p: NSPoint): NSArray
+        @objc("intersectsNode:")
+        pub intersectsNode(n: SKNode): bool
+
+        // Coordinate conversion between two nodes in the same
+        // scene graph (or between scene-graph and view space —
+        // bridge via `SKScene.convertPointFromView:` first).
+        @objc("convertPoint:toNode:")
+        pub convertPointToNode(p: NSPoint, toNode: SKNode): NSPoint
+        @objc("convertPoint:fromNode:")
+        pub convertPointFromNode(p: NSPoint, fromNode: SKNode): NSPoint
     }
 
     /// The top-level scene rendered by an `SKView`. Size is in
@@ -239,6 +274,20 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
         @objc("physicsWorld")
         pub physicsWorld(): SKPhysicsWorld
+
+        // View ↔ scene point conversion. Used inside
+        // `mouseDown:` overrides to turn an
+        // `event.locationInWindow()` into scene-graph
+        // coordinates the hit-testing helpers understand.
+        @objc("convertPointFromView:")
+        pub convertPointFromView(p: NSPoint): NSPoint
+        @objc("convertPointToView:")
+        pub convertPointToView(p: NSPoint): NSPoint
+
+        // The view currently hosting the scene (`nil`-handle
+        // until `presentScene:` runs).
+        @objc("view")
+        pub view(): SKView
     }
 
     /// Coloured / textured rectangular sprite. The
@@ -371,6 +420,8 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     @objc pub class SKTexture : NSObject {
         @objc("textureWithImageNamed:")
         pub static textureWithImageNamed(name: NSString): SKTexture
+        @objc("textureWithImageNamed:normalMap:")
+        pub static textureWithImageNamedAndNormalMap(name: NSString, normalMap: bool): SKTexture
         @objc("textureWithRect:inTexture:")
         pub static textureWithRect(r: NSRect, inTexture: SKTexture): SKTexture
         @objc("textureWithData:size:")
@@ -382,6 +433,38 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setFilteringMode(m: TextureFilteringMode)
         @objc("filteringMode")
         pub filteringMode(): TextureFilteringMode
+
+        // Normal-map generation. The first form computes a
+        // default-tuned normal map; the second lets you dial
+        // `smoothness` (0..1) and `contrast` (≥ 1).
+        @objc("textureByGeneratingNormalMap")
+        pub textureByGeneratingNormalMap(): SKTexture
+        @objc("textureByGeneratingNormalMapWithSmoothness:contrast:")
+        pub textureByGeneratingNormalMapWithParams(smoothness: f64, contrast: f64): SKTexture
+
+        // Async preload — the block is invoked on the main
+        // queue once the texture's pixels are uploaded.
+        // Build the block via `cocoa.makeBlock(fn)`.
+        @objc("preloadWithCompletionHandler:")
+        pub preloadWithCompletionHandler(block: i64)
+        @objc("preloadTextures:withCompletionHandler:")
+        pub static preloadTexturesWithCompletionHandler(
+            textures: NSArray, withCompletionHandler: i64
+        )
+    }
+
+    /// `SKMutableTexture` — texture whose pixel data can be
+    /// updated post-creation. Useful for procedurally generated
+    /// textures or per-frame readback. Pixel mutation goes
+    /// through `modifyPixelDataWithBlock:` whose block has a
+    /// 2-arg signature that the runtime doesn't currently
+    /// expose, so the actual write APIs need a follow-up; the
+    /// class itself is bound so handles can be passed around.
+    @objc pub class SKMutableTexture : SKTexture {
+        @objc("mutableTextureWithSize:")
+        pub static mutableTextureWithSize(s: NSSize): SKMutableTexture
+        @objc("mutableTextureWithSize:pixelFormat:")
+        pub static mutableTextureWithSizeAndPixelFormat(s: NSSize, pixelFormat: i32): SKMutableTexture
     }
 
     /// `SKTextureAtlas` — collection of textures loaded as one
@@ -726,6 +809,117 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setParticleBlendMode(m: BlendMode)
         @objc("resetSimulation")
         pub resetSimulation()
+
+        // Rendering target — particles are emitted into
+        // `targetNode`'s coordinate space if set. Useful when
+        // the emitter is mounted on a moving parent but the
+        // particles should stay in world space.
+        @objc("setTargetNode:")
+        pub setTargetNode(n: SKNode)
+        @objc("targetNode")
+        pub targetNode(): SKNode
+
+        // Constant per-frame acceleration applied to each
+        // particle (world units / s²). Combine with the
+        // particle's initial `Speed` / `EmissionAngle` for
+        // gravity-like fall-off, smoke drift, etc.
+        @objc("setXAcceleration:")
+        pub setXAcceleration(a: f64)
+        @objc("setYAcceleration:")
+        pub setYAcceleration(a: f64)
+
+        // Spread the spawn point over a rectangular range
+        // (`dx`, `dy` half-widths). Default `(0, 0)` emits
+        // every particle from the node's exact position.
+        @objc("setParticlePositionRange:")
+        pub setParticlePositionRange(v: NSVector)
+
+        // Each emitted particle runs `action` for its lifetime
+        // — handy for per-particle rotation / scale tweens
+        // beyond the built-in `setParticleScaleSpeed` etc.
+        @objc("setParticleAction:")
+        pub setParticleAction(a: SKAction)
+        @objc("particleAction")
+        pub particleAction(): SKAction
+
+        // Keyframe-sequenced animation of per-particle colour
+        // / colour-blend-factor. The sequence is sampled
+        // against each particle's normalised lifetime
+        // (0.0 = birth, 1.0 = death).
+        @objc("setParticleColorSequence:")
+        pub setParticleColorSequence(s: SKKeyframeSequence)
+        @objc("setParticleColorBlendFactor:")
+        pub setParticleColorBlendFactor(f: f64)
+        @objc("setParticleColorBlendFactorSequence:")
+        pub setParticleColorBlendFactorSequence(s: SKKeyframeSequence)
+
+        // Per-channel drift speeds — combine with the
+        // particle's starting `particleColor` for fade /
+        // tint-shift effects.
+        @objc("setParticleColorRedSpeed:")
+        pub setParticleColorRedSpeed(s: f64)
+        @objc("setParticleColorGreenSpeed:")
+        pub setParticleColorGreenSpeed(s: f64)
+        @objc("setParticleColorBlueSpeed:")
+        pub setParticleColorBlueSpeed(s: f64)
+        @objc("setParticleColorAlphaSpeed:")
+        pub setParticleColorAlphaSpeed(s: f64)
+
+        // Per-channel jitter ranges (added randomly at spawn).
+        @objc("setParticleColorRedRange:")
+        pub setParticleColorRedRange(r: f64)
+        @objc("setParticleColorGreenRange:")
+        pub setParticleColorGreenRange(r: f64)
+        @objc("setParticleColorBlueRange:")
+        pub setParticleColorBlueRange(r: f64)
+        @objc("setParticleColorAlphaRange:")
+        pub setParticleColorAlphaRange(r: f64)
+
+        // Particle scale rate of change (units / s) — combine
+        // with `setParticleScale` / `setParticleScaleRange`.
+        @objc("setParticleScaleSpeed:")
+        pub setParticleScaleSpeed(s: f64)
+
+        // Z-rotation animation parameters for the particle's
+        // own coordinate frame (radians + radians/s).
+        @objc("setParticleRotation:")
+        pub setParticleRotation(r: f64)
+        @objc("setParticleRotationRange:")
+        pub setParticleRotationRange(r: f64)
+        @objc("setParticleRotationSpeed:")
+        pub setParticleRotationSpeed(r: f64)
+
+        // Custom shader applied to each particle quad.
+        @objc("setShader:")
+        pub setShader(s: SKShader)
+    }
+
+    /// `SKKeyframeSequence` — list of `(value, time)` pairs
+    /// sampled by `SKEmitterNode.setParticleColorSequence:` and
+    /// friends. Time values are in seconds; the interpolation
+    /// mode controls how successive frames blend
+    /// (linear / spline / step).
+    @objc pub class SKKeyframeSequence : NSObject {
+        @objc("keyframeSequenceWithKeyframeValues:times:")
+        pub static keyframeSequenceWithValuesAndTimes(
+            values: NSArray, times: NSArray
+        ): SKKeyframeSequence
+
+        @objc("addKeyframeValue:time:")
+        pub addKeyframeValue(value: NSObject, time: f64)
+        @objc("removeKeyframeAtIndex:")
+        pub removeKeyframeAtIndex(i: i64)
+        @objc("removeLastKeyframe")
+        pub removeLastKeyframe()
+        @objc("count")
+        pub count(): i64
+
+        @objc("setInterpolationMode:")
+        pub setInterpolationMode(m: InterpolationMode)
+        @objc("setRepeatMode:")
+        pub setRepeatMode(m: RepeatMode)
+        @objc("sampleAtTime:")
+        pub sampleAtTime(t: f64): NSObject
     }
 
     /// `SKLightNode` — point light. Sprites whose
