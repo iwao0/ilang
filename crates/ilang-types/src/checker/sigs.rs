@@ -664,6 +664,7 @@ pub(super) fn class_signature(
                 has_get: prop.getter.is_some(),
                 has_set: prop.setter.is_some(),
                 is_pub: prop.is_pub,
+                is_static: prop.is_static,
             },
         );
     }

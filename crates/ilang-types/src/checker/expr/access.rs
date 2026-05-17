@@ -27,13 +27,34 @@ impl TypeChecker {
         loop_depth: u32,
         span: Span,
     ) -> Result<Type, TypeError> {
-        // Static field read: `ClassName.field` when there's
-        // no shadowing local and the class declares a
-        // static field by that name.
+        // Static field / static getter read: `ClassName.name` when
+        // there's no shadowing local and the class declares either a
+        // static field or a `pub static get name(): T` accessor.
+        // Static getters take precedence over fields (mirrors the
+        // instance-side property-vs-field precedence below).
         if let ExprKind::Var(rname) = &obj.kind {
             let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
             if !is_local_shadow {
                 if let Some(cls) = self.classes.get(&rname) {
+                    if let Some(p) = cls.properties.get(name) {
+                        if p.is_static {
+                            if !p.has_get {
+                                return Err(TypeError::Unsupported {
+                                    what: format!(
+                                        "static property {}.{} has no getter (write-only)",
+                                        rname, name
+                                    ),
+                                    span,
+                                });
+                            }
+                            let cmod = cls.module.clone();
+                            self.require_visible(
+                                rname.as_str(), &cmod, "static property",
+                                name.as_str(), p.is_pub, span,
+                            )?;
+                            return Ok(p.ty.clone());
+                        }
+                    }
                     if let Some(t) = cls.static_fields.get(name) {
                         let is_pub = cls.static_field_pub.get(name).copied().unwrap_or(false);
                         let cmod = cls.module.clone();
@@ -149,11 +170,40 @@ impl TypeChecker {
         loop_depth: u32,
         span: Span,
     ) -> Result<Type, TypeError> {
-        // Static field write: `ClassName.field = v`.
+        // Static getter / static field write: `ClassName.name = v`.
+        // A `pub static set name(v: T)` takes precedence; a read-only
+        // static property rejects the assignment up front.
         if let ExprKind::Var(rname) = &obj.kind {
             let is_local_shadow = env.contains_key(rname) || self.vars.contains_key(rname);
             if !is_local_shadow {
                 if let Some(cls) = self.classes.get(&rname) {
+                    if let Some(p) = cls.properties.get(field).cloned() {
+                        if p.is_static {
+                            if !p.has_set {
+                                return Err(TypeError::Unsupported {
+                                    what: format!(
+                                        "static property {}.{} has no setter (read-only)",
+                                        rname, field
+                                    ),
+                                    span,
+                                });
+                            }
+                            let cmod = cls.module.clone();
+                            self.require_visible(
+                                rname.as_str(), &cmod, "static property",
+                                field.as_str(), p.is_pub, span,
+                            )?;
+                            let vt = self.check_expr(value, env, ret_ty, in_class, loop_depth)?;
+                            if !self.value_assignable(value, &vt, &p.ty) {
+                                return Err(TypeError::Mismatch {
+                                    expected: p.ty.clone(),
+                                    got: vt,
+                                    span: value.span,
+                                });
+                            }
+                            return Ok(Type::Unit);
+                        }
+                    }
                     if let Some(ft) = cls.static_fields.get(field).cloned() {
                         if cls.static_const_fields.contains(field) && !*is_init {
                             return Err(TypeError::Unsupported {

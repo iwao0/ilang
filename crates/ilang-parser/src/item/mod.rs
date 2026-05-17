@@ -718,12 +718,38 @@ impl<'a> Parser<'a> {
                     }
                     // `static <ident> (` → class-level method.
                     // `static <ident> :` → class-level (mutable) field.
+                    // `static get <ident> (` / `static set <ident> (` →
+                    //   class-level property accessor (`pub static get
+                    //   black(): NSColor { ... }` etc.).
                     if name == "static"
                         && matches!(
                             self.tokens.get(self.pos + 1).map(|t| &t.kind),
                             Some(TokenKind::Ident(_))
                         )
                     {
+                        // Lookahead for `static get/set <ident> (`.
+                        let kw_after_static = match self.tokens.get(self.pos + 1).map(|t| &t.kind) {
+                            Some(TokenKind::Ident(n)) if n == "get" || n == "set" => Some(n.clone()),
+                            _ => None,
+                        };
+                        if kw_after_static.is_some()
+                            && matches!(
+                                self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                                Some(TokenKind::Ident(_))
+                            )
+                            && matches!(
+                                self.tokens.get(self.pos + 3).map(|t| &t.kind),
+                                Some(TokenKind::LParen)
+                            )
+                        {
+                            self.bump(); // consume `static`
+                            self.parse_property_accessor_pub_with_static(
+                                &mut properties,
+                                member_is_pub,
+                                /*is_static*/ true,
+                            )?;
+                            continue;
+                        }
                         match self.tokens.get(self.pos + 2).map(|t| &t.kind) {
                             Some(TokenKind::LParen) => {
                                 self.bump(); // consume `static`
@@ -888,6 +914,18 @@ impl<'a> Parser<'a> {
         properties: &mut Vec<PropertyDecl>,
         is_pub: bool,
     ) -> Result<(), ParseError> {
+        self.parse_property_accessor_pub_with_static(properties, is_pub, /*is_static*/ false)
+    }
+
+    /// Same as `parse_property_accessor_pub`, but stamps the resulting
+    /// (or pre-existing) `PropertyDecl` as static. Caller is
+    /// responsible for already having consumed any `static` keyword.
+    fn parse_property_accessor_pub_with_static(
+        &mut self,
+        properties: &mut Vec<PropertyDecl>,
+        is_pub: bool,
+        is_static: bool,
+    ) -> Result<(), ParseError> {
         let kw_span = self.peek().span;
         let kw = match &self.peek().kind {
             TokenKind::Ident(s) => s.clone(),
@@ -942,6 +980,15 @@ impl<'a> Parser<'a> {
         // Find existing entry, or create a new one. Once one accessor
         // sets `is_pub`, the merged property is `pub`.
         if let Some(existing) = properties.iter_mut().find(|p| p.name == prop_name) {
+            if existing.is_static != is_static {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::Ident(if is_static { "static" } else { "get" }.into()),
+                    expected: format!(
+                        "`{prop_name}` accessor mixes static and instance forms; pick one"
+                    ),
+                    span: kw_span,
+                });
+            }
             if is_pub {
                 existing.is_pub = true;
             }
@@ -972,6 +1019,7 @@ impl<'a> Parser<'a> {
             };
             properties.push(PropertyDecl {
                 is_pub,
+                is_static,
                 name: prop_name,
                 ty: prop_ty,
                 getter,

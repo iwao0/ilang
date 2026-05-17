@@ -446,7 +446,7 @@ pub(super) fn specialize_class(c: &ClassDecl, args: &[Type], mangled: &str) -> C
     let properties = c
         .properties
         .iter()
-        .map(|p| ilang_ast::PropertyDecl {
+        .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
             is_pub: false,
             name: p.name.clone(),
             ty: subst_type(&p.ty, &params, args),
@@ -819,7 +819,7 @@ pub(super) fn rewrite_item(item: &Item) -> Item {
             properties: c
                 .properties
                 .iter()
-                .map(|p| ilang_ast::PropertyDecl {
+                .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
                     is_pub: false,
                     name: p.name.clone(),
                     ty: rewrite_type(&p.ty),

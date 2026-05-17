@@ -848,14 +848,19 @@ pub(crate) fn collect_external_classes(
                     doc: prop_doc.clone(),
                 },
             );
+            let getter_label = if prop.is_static { "static getter" } else { "getter" };
+            let setter_label = if prop.is_static { "static setter" } else { "setter" };
             if let Some(g) = &prop.getter {
                 getters.insert(
                     prop.name.into(),
                     MemberInfo {
                         span: g.span,
-                        signature: format!("(getter) {}.{}: {}", c.name, prop.name, prop.ty),
+                        signature: format!(
+                            "({getter_label}) {}.{}: {}",
+                            c.name, prop.name, prop.ty
+                        ),
                         ret_ty: Some(prop.ty.clone()),
-                        is_static: false,
+                        is_static: prop.is_static,
                         doc: field_doc_at(&mut src_cache, sources, &c.name, g.span.line).or_else(|| prop_doc.clone()),
                     },
                 );
@@ -865,9 +870,12 @@ pub(crate) fn collect_external_classes(
                     prop.name.into(),
                     MemberInfo {
                         span: s.span,
-                        signature: format!("(setter) {}.{}: {}", c.name, prop.name, prop.ty),
+                        signature: format!(
+                            "({setter_label}) {}.{}: {}",
+                            c.name, prop.name, prop.ty
+                        ),
                         ret_ty: Some(prop.ty.clone()),
-                        is_static: false,
+                        is_static: prop.is_static,
                         doc: field_doc_at(&mut src_cache, sources, &c.name, s.span.line).or_else(|| prop_doc.clone()),
                     },
                 );

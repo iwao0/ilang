@@ -1419,11 +1419,14 @@ fn build_objc_class(
         // getter's return type (or the setter's sole param type
         // if the getter is declared later).
         if let Some(kind) = m.accessor {
-            if m.is_static {
-                // Static property accessors aren't a thing in
-                // Cocoa; reject to keep the surface honest.
-                continue;
-            }
+            // Static `pub static get blackColor(): NSColor` etc.
+            // are common in Cocoa (`+[NSColor blackColor]`,
+            // `+[NSApplication sharedApplication]`, ...). The
+            // synthesised getter / setter FnDecl is treated as a
+            // class-level method by the rest of the desugar; we
+            // just mark the resulting PropertyDecl as static so
+            // the type checker / MIR dispatch reads / writes via
+            // `ClassName.name` instead of `obj.name`.
             let prop_ty = match kind {
                 AccessorKind::Getter => method_fn
                     .ret
@@ -1448,6 +1451,7 @@ fn build_objc_class(
                 };
                 properties.push(PropertyDecl {
                     is_pub: m.is_pub,
+                    is_static: m.is_static,
                     name: m.name,
                     ty: prop_ty,
                     getter,

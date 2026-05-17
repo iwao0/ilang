@@ -217,7 +217,9 @@ impl<'a> BodyCx<'a> {
                 self.lower_new(*class, args, *init_method)
             }
             ExprKind::AssignField { obj, field, value, is_init } => {
-                // `ClassName.field = v` on a static slot.
+                // `ClassName.name = v` — static setter takes
+                // precedence over static slot writes, mirroring the
+                // read-side precedence in `lower_field`.
                 if let ExprKind::Var(maybe_class) = &obj.kind {
                     if self.lookup_var(*maybe_class).is_none() {
                         if let Some(cid) = self.class_meta.iter().find_map(|(cid, _)| {
@@ -228,6 +230,22 @@ impl<'a> BodyCx<'a> {
                             }
                         }) {
                             let meta = self.class_meta.get(&cid).unwrap();
+                            if let Some((fid, prop_ty)) =
+                                meta.static_property_setter.get(field).cloned()
+                            {
+                                let (vv, vty) = self.lower_expr(value)?;
+                                let coerced = if vty == prop_ty {
+                                    vv
+                                } else {
+                                    self.coerce(vv, &vty, &prop_ty, expr.span)?
+                                };
+                                self.fb.push_inst(Inst::Call {
+                                    dst: None,
+                                    callee: crate::inst::FuncRef::Local(fid),
+                                    args: Box::new([coerced]),
+                                });
+                                return Ok((self.const_unit(), MirTy::Unit));
+                            }
                             if let Some(&slot) = meta.static_slots.get(field) {
                                 let s = self.statics_by_id(slot);
                                 if s.is_const && !*is_init {

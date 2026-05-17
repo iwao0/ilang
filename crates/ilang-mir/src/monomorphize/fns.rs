@@ -341,7 +341,7 @@ pub(super) fn rewrite_calls_in_item(
             properties: c
                 .properties
                 .iter()
-                .map(|p| ilang_ast::PropertyDecl {
+                .map(|p| ilang_ast::PropertyDecl { is_static: p.is_static,
                     is_pub: false,
                     name: p.name.clone(),
                     ty: p.ty.clone(),

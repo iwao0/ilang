@@ -380,11 +380,35 @@ impl Lower {
                         .collect()
                 })
                 .unwrap_or_default();
+            // Static accessors mirror the inheritance rule of static
+            // methods — subclass call sites can reach the parent's
+            // `pub static get` / `pub static set` via the child's
+            // class name (`Child.blackColor` finds `Parent`'s slot).
+            let parent_static_props: Vec<(Symbol, (FuncId, MirTy), Option<(FuncId, MirTy)>)> =
+                self
+                    .class_meta
+                    .get(&pid)
+                    .map(|m| {
+                        m.static_property_getter
+                            .iter()
+                            .map(|(name, get)| {
+                                let set = m.static_property_setter.get(name).cloned();
+                                (*name, get.clone(), set)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
             let meta = self.class_meta.get_mut(&class_id).unwrap();
             for (name, get, set) in parent_props {
                 meta.property_getter.insert(name, get);
                 if let Some(s) = set {
                     meta.property_setter.insert(name, s);
+                }
+            }
+            for (name, get, set) in parent_static_props {
+                meta.static_property_getter.insert(name, get);
+                if let Some(s) = set {
+                    meta.static_property_setter.insert(name, s);
                 }
             }
         }
@@ -496,16 +520,26 @@ impl Lower {
             meta.static_method_sigs.insert(sm.name, FnSig { params, ret });
         }
 
-        // Properties — synthesise getter/setter as methods.
+        // Properties — synthesise getter/setter as methods. Static
+        // accessors (`pub static get/set`) drop the implicit `this`
+        // param and register into the static-property maps instead;
+        // dispatch at `Class.name` read / write sites reads them
+        // directly without passing a receiver.
         for prop in cd.properties.iter() {
             let prop_ty = self.resolve_ty(&prop.ty)?;
             let class_obj_ty = MirTy::Object(class_id);
+            let mangle_prefix = if prop.is_static { "get_static" } else { "get" };
             if let Some(_getter_decl) = &prop.getter {
-                let mangled = Symbol::intern(&format!("{}.get_{}", cd.name, prop.name));
+                let mangled =
+                    Symbol::intern(&format!("{}.{}_{}", cd.name, mangle_prefix, prop.name));
                 let id = FuncId(self.funcs.len() as u32);
                 self.funcs.push(placeholder_function(mangled));
                 self.fn_ids.insert(mangled, id);
-                let params = vec![class_obj_ty.clone()];
+                let params = if prop.is_static {
+                    Vec::new()
+                } else {
+                    vec![class_obj_ty.clone()]
+                };
                 let ret = prop_ty.clone();
                 self.fn_sigs.insert(
                     mangled,
@@ -513,21 +547,37 @@ impl Lower {
                 );
                 self.funcs[id.0 as usize].name = mangled;
                 self.funcs[id.0 as usize].kind = FunctionKind::Local;
-                // Synthesise unique keys for property getter/setter so
-                // they don't collide with each other or with regular
-                // methods of the same name.
-                let key = Symbol::intern(&format!("{}::get", prop.name));
                 let meta = self.class_meta.get_mut(&class_id).unwrap();
-                meta.property_getter.insert(prop.name, (id, prop_ty.clone()));
-                meta.method_sigs.insert(key, FnSig { params, ret });
-                meta.method_ids.insert(key, id);
+                if prop.is_static {
+                    meta.static_property_getter.insert(prop.name, (id, prop_ty.clone()));
+                    // Mirror into `static_method_ids` so the shared
+                    // `lower_static_method` body-lowerer can find it
+                    // by the mangled name we passed for the FnDecl.
+                    let body_name = Symbol::intern(&format!("get_static_{}", prop.name));
+                    meta.static_method_ids.insert(body_name, id);
+                    meta.static_method_sigs.insert(body_name, FnSig { params, ret });
+                } else {
+                    // Synthesise unique keys for property getter/setter so
+                    // they don't collide with each other or with regular
+                    // methods of the same name.
+                    let key = Symbol::intern(&format!("{}::get", prop.name));
+                    meta.property_getter.insert(prop.name, (id, prop_ty.clone()));
+                    meta.method_sigs.insert(key, FnSig { params, ret });
+                    meta.method_ids.insert(key, id);
+                }
             }
+            let mangle_setter = if prop.is_static { "set_static" } else { "set" };
             if let Some(_setter_decl) = &prop.setter {
-                let mangled = Symbol::intern(&format!("{}.set_{}", cd.name, prop.name));
+                let mangled =
+                    Symbol::intern(&format!("{}.{}_{}", cd.name, mangle_setter, prop.name));
                 let id = FuncId(self.funcs.len() as u32);
                 self.funcs.push(placeholder_function(mangled));
                 self.fn_ids.insert(mangled, id);
-                let params = vec![class_obj_ty.clone(), prop_ty.clone()];
+                let params = if prop.is_static {
+                    vec![prop_ty.clone()]
+                } else {
+                    vec![class_obj_ty.clone(), prop_ty.clone()]
+                };
                 let ret = MirTy::Unit;
                 self.fn_sigs.insert(
                     mangled,
@@ -535,11 +585,18 @@ impl Lower {
                 );
                 self.funcs[id.0 as usize].name = mangled;
                 self.funcs[id.0 as usize].kind = FunctionKind::Local;
-                let key = Symbol::intern(&format!("{}::set", prop.name));
                 let meta = self.class_meta.get_mut(&class_id).unwrap();
-                meta.property_setter.insert(prop.name, (id, prop_ty.clone()));
-                meta.method_sigs.insert(key, FnSig { params, ret });
-                meta.method_ids.insert(key, id);
+                if prop.is_static {
+                    meta.static_property_setter.insert(prop.name, (id, prop_ty.clone()));
+                    let body_name = Symbol::intern(&format!("set_static_{}", prop.name));
+                    meta.static_method_ids.insert(body_name, id);
+                    meta.static_method_sigs.insert(body_name, FnSig { params, ret });
+                } else {
+                    let key = Symbol::intern(&format!("{}::set", prop.name));
+                    meta.property_setter.insert(prop.name, (id, prop_ty.clone()));
+                    meta.method_sigs.insert(key, FnSig { params, ret });
+                    meta.method_ids.insert(key, id);
+                }
             }
         }
 
@@ -635,16 +692,29 @@ impl Lower {
         // Property getters/setters — lowered like instance methods,
         // but the m.name passed in for the lookup is a synthetic
         // `prop::get` / `prop::set` key (built in declare_class_methods).
+        // Static accessors take a different path: their body has no
+        // `this`, and the synthesised fn is registered as a top-level
+        // static method under a distinct mangled name.
         for prop in cd.properties.iter() {
             if let Some(g) = &prop.getter {
                 let mut g2 = g.clone();
-                g2.name = Symbol::intern(&format!("{}::get", prop.name));
-                self.lower_method(class_id, cd.name, &g2)?;
+                if prop.is_static {
+                    g2.name = Symbol::intern(&format!("get_static_{}", prop.name));
+                    self.lower_static_method(class_id, cd.name, &g2)?;
+                } else {
+                    g2.name = Symbol::intern(&format!("{}::get", prop.name));
+                    self.lower_method(class_id, cd.name, &g2)?;
+                }
             }
             if let Some(s) = &prop.setter {
                 let mut s2 = s.clone();
-                s2.name = Symbol::intern(&format!("{}::set", prop.name));
-                self.lower_method(class_id, cd.name, &s2)?;
+                if prop.is_static {
+                    s2.name = Symbol::intern(&format!("set_static_{}", prop.name));
+                    self.lower_static_method(class_id, cd.name, &s2)?;
+                } else {
+                    s2.name = Symbol::intern(&format!("{}::set", prop.name));
+                    self.lower_method(class_id, cd.name, &s2)?;
+                }
             }
         }
         Ok(())

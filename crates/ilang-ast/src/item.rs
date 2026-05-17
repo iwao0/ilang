@@ -176,6 +176,11 @@ pub struct StaticFieldDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyDecl {
     pub is_pub: bool,
+    /// `true` for `pub static get name(): T` / `pub static set name(v: T)`.
+    /// Class-level accessors invoked via `ClassName.name` (read) and
+    /// `ClassName.name = v` (write); no `this` is bound during the
+    /// body. False for ordinary instance property accessors.
+    pub is_static: bool,
     pub name: Symbol,
     /// The property's value type. For getters it's the return type; for
     /// setters it's the (single) parameter type. The type checker

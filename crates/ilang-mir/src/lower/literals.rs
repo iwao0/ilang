@@ -393,8 +393,10 @@ impl<'a> BodyCx<'a> {
                 }
             }
         }
-        // `ClassName.field` — static/const access. The receiver is
-        // a bare identifier that names a class, not an instance.
+        // `ClassName.field` — static access. The receiver is a bare
+        // identifier that names a class, not an instance. Static
+        // getter accessors take precedence over fields; the call
+        // takes no arguments since there's no `this`.
         if let ExprKind::Var(maybe_class) = &obj.kind {
             if self.lookup_var(*maybe_class).is_none() {
                 if let Some((cid, _)) = self
@@ -403,6 +405,15 @@ impl<'a> BodyCx<'a> {
                     .find(|(cid, _)| self.classes[cid.0 as usize].name == *maybe_class)
                 {
                     let meta = self.class_meta.get(cid).unwrap();
+                    if let Some((fid, prop_ty)) = meta.static_property_getter.get(&name).cloned() {
+                        let v = self.fb.new_value(prop_ty.clone());
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(v),
+                            callee: FuncRef::Local(fid),
+                            args: Box::new([]),
+                        });
+                        return Ok((v, prop_ty));
+                    }
                     if let Some(&slot) = meta.static_slots.get(&name) {
                         let slot_owner = &self.classes[cid.0 as usize];
                         let ty = self

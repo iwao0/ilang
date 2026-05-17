@@ -341,6 +341,9 @@ pub(super) struct PropertySig {
     pub(super) has_get: bool,
     pub(super) has_set: bool,
     pub(super) is_pub: bool,
+    /// `true` for `pub static get name(): T` / `pub static set name(v: T)`.
+    /// Read sites: `ClassName.name`. Write sites: `ClassName.name = v`.
+    pub(super) is_static: bool,
 }
 
 /// Type-checker view of an enum. Variants preserve declaration order so

@@ -389,17 +389,19 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         doc: text::extract_doc_above(src, prop.span.line),
                     },
                 );
+                let getter_label = if prop.is_static { "static getter" } else { "getter" };
+                let setter_label = if prop.is_static { "static setter" } else { "setter" };
                 if let Some(g) = &prop.getter {
                     getters.insert(
                         prop.name.into(),
                         MemberInfo {
                             span: g.span,
                             signature: format!(
-                                "(getter) {}.{}: {}",
+                                "({getter_label}) {}.{}: {}",
                                 c.name, prop.name, prop.ty
                             ),
                             ret_ty: Some(prop.ty.clone()),
-                            is_static: false,
+                            is_static: prop.is_static,
                             doc: text::extract_doc_above(src, g.span.line),
                         },
                     );
@@ -410,11 +412,11 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                         MemberInfo {
                             span: s.span,
                             signature: format!(
-                                "(setter) {}.{}: {}",
+                                "({setter_label}) {}.{}: {}",
                                 c.name, prop.name, prop.ty
                             ),
                             ret_ty: Some(prop.ty.clone()),
-                            is_static: false,
+                            is_static: prop.is_static,
                             doc: text::extract_doc_above(src, s.span.line),
                         },
                     );

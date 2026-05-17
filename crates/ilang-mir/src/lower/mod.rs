@@ -426,6 +426,13 @@ struct ClassMeta {
     property_getter: HashMap<Symbol, (FuncId, MirTy)>,
     /// `set name(v: T)` — synthesised method id for the setter.
     property_setter: HashMap<Symbol, (FuncId, MirTy)>,
+    /// `pub static get name(): T` — synthesised receiver-less getter
+    /// fn id for the static property. Dispatched at `Class.name`
+    /// read sites; no `this` is passed.
+    static_property_getter: HashMap<Symbol, (FuncId, MirTy)>,
+    /// `pub static set name(v: T)` — synthesised receiver-less
+    /// setter fn id. Dispatched at `Class.name = v` write sites.
+    static_property_setter: HashMap<Symbol, (FuncId, MirTy)>,
 }
 
 #[derive(Clone)]
