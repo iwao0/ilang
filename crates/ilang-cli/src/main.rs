@@ -140,12 +140,16 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
     let display_path = path.display().to_string();
     let mut tc = TypeChecker::new();
     if let Err(e) = tc.check(&prog) {
-        eprintln!("{display_path} {e}");
+        let err_file = e.span().source_file.as_str();
+        let path_for_err = if err_file.is_empty() { display_path.as_str() } else { err_file };
+        eprintln!("{path_for_err} {e}");
         return ExitCode::FAILURE;
     }
     for w in tc.warnings() {
+        let warn_file = w.span.source_file.as_str();
+        let path_for_warn = if warn_file.is_empty() { display_path.as_str() } else { warn_file };
         eprintln!(
-            "{display_path} [{}:{}]: warning: {}",
+            "{path_for_warn} [{}:{}]: warning: {}",
             w.span.line, w.span.col, w.message
         );
     }
@@ -704,12 +708,16 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
         let prog = wrap_trailing_print(prog);
         let mut tc = TypeChecker::new();
         if let Err(e) = tc.check(&prog) {
-            eprintln!("{display_path} {e}");
+            let err_file = e.span().source_file.as_str();
+            let path_for_err = if err_file.is_empty() { display_path.as_str() } else { err_file };
+            eprintln!("{path_for_err} {e}");
             return ExitCode::FAILURE;
         }
         for w in tc.warnings() {
+            let warn_file = w.span.source_file.as_str();
+            let path_for_warn = if warn_file.is_empty() { display_path.as_str() } else { warn_file };
             eprintln!(
-                "{display_path} [{}:{}]: warning: {}",
+                "{path_for_warn} [{}:{}]: warning: {}",
                 w.span.line, w.span.col, w.message
             );
         }

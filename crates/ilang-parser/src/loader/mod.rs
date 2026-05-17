@@ -29,9 +29,11 @@ use crate::ParseError;
 
 mod consts;
 mod rename;
+mod spans;
 
 use consts::inline_constants;
 use rename::{rename_in_item, rename_in_program, rename_in_stmt};
+use spans::tag_program_spans;
 
 /// Modules whose source is shipped inside the compiler. `use math`
 /// resolves here before consulting the filesystem.
@@ -331,6 +333,13 @@ fn load_recursive(
         .map_err(LoadError::ParseError)?;
     expand_embeds(&mut prog, file)?;
     collect_objc_class_names(&prog, objc_registry);
+    // Stamp every span in this file's Program with the canonical
+    // path so cross-module errors report the right source. Parser-
+    // generated spans (which borrow line / col of the closest
+    // user token) inherit the file too; that's accurate enough —
+    // they always live in the same file as the trigger token.
+    let file_symbol = Symbol::intern(&file.display().to_string());
+    tag_program_spans(&mut prog, file_symbol);
     loaded.insert(file.to_path_buf(), prog);
     visiting.remove(file);
     chain.pop();
