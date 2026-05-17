@@ -71,14 +71,17 @@ pub enum MatchOptions: u64 {
         }
     }
 
-    /// `NSString` — Cocoa's UTF-16 string type. We expose the
-    /// C-string constructor and `UTF8String` accessor; ilang code
-    /// works in UTF-8 so the round-trip is `nsstr(s) ↔ ilstr(ns)`.
+    /// `NSString` — Cocoa's UTF-16 string type. ilang code works
+    /// in UTF-8, so the user-facing round-trip is
+    /// `nsstr(s) ↔ ilstr(ns)`; the raw `*const char` selectors
+    /// (`stringWithUTF8String:` and `UTF8String`) stay
+    /// module-private and are only invoked through those
+    /// helpers.
     @objc pub class NSString : NSObject {
         @objc("stringWithUTF8String:")
-        pub static fromCStr(s: *const char): NSString
+        static _fromCStr(s: *const char): NSString
         @objc("UTF8String")
-        pub utf8String(): *const char
+        _utf8String(): *const char
         @objc("length")
         pub length(): i64
         @objc("isEqualToString:")
@@ -443,9 +446,10 @@ pub enum MatchOptions: u64 {
     }
 
     /// Build an `NSString` from an ilang `string`. Wraps the
-    /// `cstrFromString` + `NSString.fromCStr` two-step.
+    /// `cstrFromString` + `[NSString stringWithUTF8String:]`
+    /// two-step.
     pub fn nsstr(s: string): NSString {
-        NSString.fromCStr(cstrFromString(s))
+        NSString._fromCStr(cstrFromString(s))
     }
 
     /// Convert an `NSString` back to an ilang `string` — the
@@ -455,7 +459,7 @@ pub enum MatchOptions: u64 {
     /// `autoreleasepool { ... }` if the string is long-lived or
     /// you'll race the pool drain.
     pub fn ilstr(s: NSString): string {
-        stringFromCstr(s.utf8String())
+        stringFromCstr(s._utf8String())
     }
 
     /// Construct an `NSRect` from primitive components.
