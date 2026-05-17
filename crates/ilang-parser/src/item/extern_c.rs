@@ -101,6 +101,22 @@ impl<'a> Parser<'a> {
         &mut self,
         attrs: Vec<Attribute>,
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
+        self.parse_extern_c_fn_with_default_libs(attrs, &[])
+    }
+
+    /// Same as `parse_extern_c_fn` but lets the caller supply a
+    /// list of default library paths. Inside an
+    /// `@extern(ObjC, "path", ...)` block this is the block-level
+    /// path list, and a bare `@lib` (no args) on a fn means "use
+    /// the block's libraries", which is the explicit marker that
+    /// flags the fn as a C symbol from the framework. Top-level
+    /// `@extern(C)` callers pass an empty slice, keeping the
+    /// original "@lib requires strings" rule.
+    pub(super) fn parse_extern_c_fn_with_default_libs(
+        &mut self,
+        attrs: Vec<Attribute>,
+        default_libs: &[Symbol],
+    ) -> Result<ilang_ast::ExternCItem, ParseError> {
         // Accepted: `@lib("name", "fallback", ...)` (one or more strings),
         // `@optional` and `@symbol("c_name")`. Anything else is rejected
         // so users notice the legacy flags are gone.
@@ -111,12 +127,16 @@ impl<'a> Parser<'a> {
             match a.name.as_str() {
                 "lib" => {
                     if a.args.is_empty() {
-                        let t = self.peek();
-                        return Err(ParseError::Unexpected {
-                            found: t.kind.clone(),
-                            expected: "@lib(\"libname\", ...) requires at least one string argument".into(),
-                            span: t.span,
-                        });
+                        if default_libs.is_empty() {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "bare `@lib` (no args) is only valid inside `@extern(ObjC, \"path\", ...)`; top-level @extern(C) fns need `@lib(\"libname\", ...)`".into(),
+                                span: t.span,
+                            });
+                        }
+                        libs.extend(default_libs.iter().cloned());
+                        continue;
                     }
                     for arg in &a.args {
                         match arg {

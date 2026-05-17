@@ -141,11 +141,15 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
 // the JIT dlopens it eagerly at startup — that's what registers
 // `NSApplication` / `NSWindow` / NSString etc. with libobjc's
 // global class registry, so the `@objc` desugar's
-// `objc_getClass("NSWindow")` calls below can find them. Plain
-// `pub fn` items in the block (like `NSApplicationLoad`) get
-// their C symbol dlsym'd from the same path.
+// `objc_getClass("NSWindow")` calls below can find them.
+//
+// Inside the block, items are explicitly marked:
+//   * `@objc(...)` on a class / method → objc_msgSend dispatch.
+//   * `@lib` (no args) on a fn → dlsym this C symbol from one
+//     of the block's listed dylibs. `NSApplicationLoad` is the
+//     framework's own plain C entry point.
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
-    pub fn NSApplicationLoad(): bool
+    @lib pub fn NSApplicationLoad(): bool
 
     /// The shared application object — there's only ever one per
     /// process. Use `cocoa.sharedApplication()` (defined below)

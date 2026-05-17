@@ -122,7 +122,9 @@ impl<'a> Parser<'a> {
             }
 
             // Non-@objc — regular @extern(C) item.
-            let item = self.parse_extern_c_item_for_objc_block(inner_attrs, item_is_pub)?;
+            let item = self.parse_extern_c_item_for_objc_block(
+                inner_attrs, item_is_pub, &block_libs,
+            )?;
             items.push(item);
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
@@ -500,26 +502,17 @@ impl<'a> Parser<'a> {
         }
 
         // Block-level `@extern(ObjC, "path", ...)` library handling.
-        // The paths serve two purposes:
-        //   1. Trigger an eager `dlopen` at JIT init so the @objc
-        //      classes inside resolve via libobjc's class registry.
-        //   2. Provide the default `@lib(...)` for any plain `pub fn`
-        //      declared in the block — the C fn binds to a symbol
-        //      dlsym'd from one of the listed dylibs.
+        // The paths trigger an eager `dlopen` at JIT init so the
+        // @objc classes inside resolve via libobjc's class
+        // registry. A plain `pub fn` declared in the block must
+        // mark itself with bare `@lib` (no args) to opt into
+        // dlsym-from-the-block-path; that's handled in
+        // `parse_extern_c_fn_with_default_libs` and not here. To
+        // keep the dlopen firing when the block declares zero C
+        // fns, synthesise a one-off optional loader fn whose only
+        // purpose is to carry the `libs` field through to the JIT
+        // startup walk.
         if !block_libs.is_empty() {
-            // (2) For every `ExternCItem::FnDecl` without its own
-            //     `libs`, attach the block-level libs.
-            for it in items.iter_mut() {
-                if let ilang_ast::ExternCItem::FnDecl { libs, .. } = it {
-                    if libs.is_empty() {
-                        *libs = block_libs.clone().into_boxed_slice();
-                    }
-                }
-            }
-            // (1) Synthesise a no-op `@extern(C) @lib(paths) fn
-            //     __objc_load_<tag>()` so the JIT's startup walk over
-            //     `f.libs` picks up these paths even when the block
-            //     declares zero plain C fns.
             let loader_name: Symbol = format!("{tag}_load").into();
             items.push(ilang_ast::ExternCItem::FnDecl {
                 is_pub: false,
@@ -707,10 +700,13 @@ impl<'a> Parser<'a> {
         &mut self,
         inner_attrs: Vec<Attribute>,
         item_is_pub: bool,
+        block_libs: &[Symbol],
     ) -> Result<ilang_ast::ExternCItem, ParseError> {
         match &self.peek().kind {
             TokenKind::Fn => {
-                let mut it = self.parse_extern_c_fn(inner_attrs)?;
+                let mut it = self.parse_extern_c_fn_with_default_libs(
+                    inner_attrs, block_libs,
+                )?;
                 match &mut it {
                     ilang_ast::ExternCItem::FnDecl { is_pub, .. } => *is_pub = item_is_pub,
                     ilang_ast::ExternCItem::FnDef(f) => f.is_pub = item_is_pub,
