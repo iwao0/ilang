@@ -427,7 +427,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                 let info = MemberInfo {
                     span: m.span,
                     signature: format!(
-                        "{}(method) {}.{}",
+                        "(method) {}{}.{}",
                         render_user_attrs(&m.attrs),
                         c.name,
                         fn_body(m)
@@ -446,7 +446,7 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
                 methods.entry(m.name.clone()).or_insert(MemberInfo {
                     span: m.span,
                     signature: format!(
-                        "{}(static method) {}.{}",
+                        "(static method) {}{}.{}",
                         render_user_attrs(&m.attrs),
                         c.name,
                         fn_body(m)
