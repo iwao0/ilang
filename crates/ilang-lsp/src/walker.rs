@@ -323,12 +323,24 @@ impl<'a> Walker<'a> {
         }
         for prop in &c.properties {
             // Treat the getter/setter body like a method body so locals
-            // and `this.X` resolve normally.
+            // and `this.X` resolve normally. Skip @objc-desugared
+            // synthetic bodies (marked with `__objc_wrapper`): their
+            // synthetic `let __recv = ...` / `let __sel = ...`
+            // statements borrow the property declaration's span, and
+            // pushing decls for them turns hover on `NSColor.black`
+            // into a let-binding hover for the internal receiver
+            // local.
+            let is_synth_body =
+                |f: &FnDecl| f.attrs.iter().any(|a| a.name.as_str() == "__objc_wrapper");
             if let Some(g) = &prop.getter {
-                self.walk_fn(g, Some(c.name.as_str()));
+                if !is_synth_body(g) {
+                    self.walk_fn(g, Some(c.name.as_str()));
+                }
             }
             if let Some(s) = &prop.setter {
-                self.walk_fn(s, Some(c.name.as_str()));
+                if !is_synth_body(s) {
+                    self.walk_fn(s, Some(c.name.as_str()));
+                }
             }
         }
     }
