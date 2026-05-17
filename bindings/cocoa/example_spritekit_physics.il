@@ -10,8 +10,8 @@
 //   cargo run --release -p ilang -- run bindings/cocoa/example_spritekit_physics.il
 
 use cocoa
-use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode,
-                SKPhysicsBody, makeSize, makePoint, makeVector }
+use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode, SKPhysicsBody }
+use foundation { makeSize, makePoint, makeVector }
 
 let app = cocoa.sharedApplication()
 app.setActivationPolicy(cocoa.ActivationPolicy.regular)

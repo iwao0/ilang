@@ -24,13 +24,8 @@
 //     — the runtime's block helpers only ship void / single-id
 //     trampolines today.
 
-use foundation { NSObject, NSString, NSArray, NSData, NSPoint, NSSize, NSRect, NSURL, nsstr }
+use foundation { NSObject, NSString, NSArray, NSData, NSPoint, NSSize, NSRect, NSVector, NSURL, nsstr }
 use appkit { NSView, NSColor }
-
-// CGVector — `(dx, dy)` pair Foundation uses for velocities,
-// gravity, impulses, etc. Same layout as `NSSize` but the field
-// names differ; using a dedicated type keeps call sites readable.
-pub struct NSVector { dx: f64; dy: f64 }
 
 // SKBlendMode — composition mode for SKSpriteNode / SKShapeNode
 // / SKEmitterNode / SKEffectNode. `alpha` is the default
@@ -691,31 +686,4 @@ pub enum SceneScaleMode: i64 {
         pub setPositional(flag: bool)
     }
 
-    // ─── Convenience helpers ─────────────────────────────────────
-
-    /// Build an `NSPoint` (= `CGPoint` on macOS) — handy when
-    /// dropping sprites at specific scene-graph coordinates.
-    pub fn makePoint(x: f64, y: f64): NSPoint {
-        let p = new NSPoint()
-        p.x = x
-        p.y = y
-        p
-    }
-
-    /// Build an `NSSize` (= `CGSize` on macOS).
-    pub fn makeSize(w: f64, h: f64): NSSize {
-        let s = new NSSize()
-        s.width = w
-        s.height = h
-        s
-    }
-
-    /// Build an `NSVector` (= `CGVector` on macOS). Used for
-    /// gravity / velocity / impulse / force.
-    pub fn makeVector(dx: f64, dy: f64): NSVector {
-        let v = new NSVector()
-        v.dx = dx
-        v.dy = dy
-        v
-    }
 }

@@ -7,12 +7,16 @@
 // or directly with `use foundation { ... }`.
 
 // ─── Foundation geometry types (HFA-passed) ──────────────────────
-// NSPoint / NSSize / NSRect are plain f64 structs. The AArch64
-// ABI rides them through v0..v3 (HFA path) when passed to
+// NSPoint / NSSize / NSRect / NSVector are plain f64 structs. The
+// AArch64 ABI rides them through v0..v3 (HFA path) when passed to
 // objc_msgSend — same layout C uses, no shim needed.
-pub struct NSPoint { x: f64; y: f64 }
-pub struct NSSize  { width: f64; height: f64 }
-pub struct NSRect  { origin: NSPoint; size: NSSize }
+pub struct NSPoint  { x: f64; y: f64 }
+pub struct NSSize   { width: f64; height: f64 }
+pub struct NSRect   { origin: NSPoint; size: NSSize }
+// CGVector — `(dx, dy)` pair Foundation uses for velocities,
+// gravity, impulses, etc. Same layout as `NSSize` but the field
+// names differ; a dedicated type keeps call sites readable.
+pub struct NSVector { dx: f64; dy: f64 }
 
 // NSRange — Foundation's `(location, length)` pair. NSUInteger
 // fields, so 8 bytes each on 64-bit. Passed by value through the
@@ -478,6 +482,22 @@ pub enum MatchOptions: u64 {
         stringFromCstr(s._utf8String())
     }
 
+    /// Construct an `NSPoint` (= `CGPoint` on macOS).
+    pub fn makePoint(x: f64, y: f64): NSPoint {
+        let p = new NSPoint()
+        p.x = x
+        p.y = y
+        p
+    }
+
+    /// Construct an `NSSize` (= `CGSize` on macOS).
+    pub fn makeSize(w: f64, h: f64): NSSize {
+        let s = new NSSize()
+        s.width = w
+        s.height = h
+        s
+    }
+
     /// Construct an `NSRect` from primitive components.
     pub fn makeRect(x: f64, y: f64, w: f64, h: f64): NSRect {
         let r = new NSRect()
@@ -486,6 +506,15 @@ pub enum MatchOptions: u64 {
         r.size.width = w
         r.size.height = h
         r
+    }
+
+    /// Construct an `NSVector` (= `CGVector` on macOS). Used for
+    /// gravity / velocity / impulse / force in physics APIs.
+    pub fn makeVector(dx: f64, dy: f64): NSVector {
+        let v = new NSVector()
+        v.dx = dx
+        v.dy = dy
+        v
     }
 
     /// Build an `NSRange` from `(location, length)`. Both fields

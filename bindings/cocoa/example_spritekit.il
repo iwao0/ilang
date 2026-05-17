@@ -7,8 +7,8 @@
 //   cargo run --release -p ilang -- run bindings/cocoa/example_spritekit.il
 
 use cocoa
-use spritekit { SKView, SKScene, SKSpriteNode, SKLabelNode, SKAction,
-                makeSize, makePoint }
+use spritekit { SKView, SKScene, SKSpriteNode, SKLabelNode, SKAction }
+use foundation { makeSize, makePoint }
 
 let app = cocoa.sharedApplication()
 app.setActivationPolicy(cocoa.ActivationPolicy.regular)
