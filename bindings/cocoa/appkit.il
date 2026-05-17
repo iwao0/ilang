@@ -97,7 +97,7 @@ pub const AlertThirdButtonReturn: i64 = 1002
 // can find NSApplication / NSWindow / NSButton / NSString.
 @extern(C) {
     @lib("/System/Library/Frameworks/AppKit.framework/AppKit")
-        pub fn NSApplicationLoad(): i8
+        pub fn NSApplicationLoad(): bool
 }
 
 @extern(ObjC) {
