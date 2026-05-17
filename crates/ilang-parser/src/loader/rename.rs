@@ -21,6 +21,17 @@ fn rename_sym(name: &Symbol, rules: &HashMap<Symbol, Symbol>) -> Option<Symbol> 
     rules.get(name).cloned()
 }
 
+/// `true` if `name` is a sub-module item that was merged in via a
+/// previous `prefix_item` pass — those names contain a `.` because the
+/// loader rewrote them as `module.original`. Such items already went
+/// through their own module's `module_rename_rules`, and their bodies'
+/// bare references legitimately point at FFI builtins or in-module
+/// symbols that share a name with an umbrella-level export (e.g.
+/// `cocoa.writeU8`). The entry's rules must not touch them.
+fn is_submodule_name(name: &Symbol) -> bool {
+    name.as_str().contains('.')
+}
+
 pub(super) fn rename_in_program(prog: &mut Program, rules: &HashMap<Symbol, Symbol>) {
     for item in prog.items.iter_mut() {
         rename_in_item(item, rules);
@@ -36,6 +47,9 @@ pub(super) fn rename_in_program(prog: &mut Program, rules: &HashMap<Symbol, Symb
 pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
     match item {
         Item::Fn(f) => {
+            if is_submodule_name(&f.name) {
+                return;
+            }
             for p in f.params.iter_mut() {
                 rename_in_type(&mut p.ty, rules);
                 if let Some(d) = p.default.as_mut() {
@@ -47,10 +61,18 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
             }
             rename_in_block(&mut f.body, rules);
         }
-        Item::Class(c) => rename_in_class(c, rules),
+        Item::Class(c) => {
+            if is_submodule_name(&c.name) {
+                return;
+            }
+            rename_in_class(c, rules);
+        }
         Item::Enum(_) => {}
         Item::Use(_) => {}
         Item::Const(c) => {
+            if is_submodule_name(&c.name) {
+                return;
+            }
             if let Some(t) = c.ty.as_mut() {
                 rename_in_type(t, rules);
             }
@@ -60,6 +82,9 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
             for inner in b.items.iter_mut() {
                 match inner {
                     ilang_ast::ExternCItem::FnDef(f) => {
+                        if is_submodule_name(&f.name) {
+                            continue;
+                        }
                         for p in f.params.iter_mut() {
                             rename_in_type(&mut p.ty, rules);
                             if let Some(d) = p.default.as_mut() {
@@ -71,7 +96,10 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                         }
                         rename_in_block(&mut f.body, rules);
                     }
-                    ilang_ast::ExternCItem::FnDecl { params, ret, .. } => {
+                    ilang_ast::ExternCItem::FnDecl { name, params, ret, .. } => {
+                        if is_submodule_name(name) {
+                            continue;
+                        }
                         for p in params.iter_mut() {
                             rename_in_type(&mut p.ty, rules);
                             if let Some(d) = p.default.as_mut() {
@@ -82,13 +110,21 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                             rename_in_type(t, rules);
                         }
                     }
-                    ilang_ast::ExternCItem::Struct { fields, .. }
-                    | ilang_ast::ExternCItem::Union { fields, .. } => {
+                    ilang_ast::ExternCItem::Struct { name, fields, .. }
+                    | ilang_ast::ExternCItem::Union { name, fields, .. } => {
+                        if is_submodule_name(name) {
+                            continue;
+                        }
                         for f in fields.iter_mut() {
                             rename_in_type(&mut f.ty, rules);
                         }
                     }
-                    ilang_ast::ExternCItem::Class(c) => rename_in_class(c, rules),
+                    ilang_ast::ExternCItem::Class(c) => {
+                        if is_submodule_name(&c.name) {
+                            continue;
+                        }
+                        rename_in_class(c, rules);
+                    }
                 }
             }
         }

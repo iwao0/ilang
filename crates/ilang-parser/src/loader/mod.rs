@@ -700,6 +700,36 @@ fn apply_use(
         }
     }
 
+    // Wildcard selective import (`use M { * }`): pull every
+    // pub-exported name into the caller's bare namespace. Same
+    // mechanism as the explicit `use M { X, Y }` form, but the
+    // name list comes from `collect_export_names` (which walks
+    // `pub use` chains for umbrella modules like `cocoa.il`).
+    // Re-exports (`pub use M { * }`) are handled separately by
+    // the nested-uses loop above and don't reach here.
+    if u.wildcard && !u.re_export {
+        let module_dir = importer_canon
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let mut visited: HashSet<PathBuf> = HashSet::new();
+        let mut names: HashSet<Symbol> = HashSet::new();
+        collect_export_names(
+            u.module.as_str(),
+            &module_dir,
+            extra_paths,
+            loaded,
+            &mut visited,
+            &mut names,
+        )?;
+        for name in names {
+            rename_rules.insert(
+                name,
+                Symbol::intern(&format!("{effective_prefix}.{name}")).into(),
+            );
+        }
+        return Ok(());
+    }
     // Selective imports record one rename rule per requested name so
     // the final pass rewrites bare references in the entry's content
     // to the prefixed form `effective_prefix.name`. We rely on the
@@ -1054,6 +1084,93 @@ fn qualify_var_refs_in_expr(e: &mut Expr, prefix: &str, consts: &HashSet<Symbol>
 /// `visited` is shared across the walk to avoid revisiting modules in
 /// diamond `pub use` graphs. The returned `Item` is cloned and
 /// keeps its bare name (the caller pushes it under that name).
+/// Walk a module's `pub` items + `pub use` re-export chains and
+/// return every export name reachable from a call site. Used by
+/// the `use M { * }` wildcard selective import to mint a rename
+/// rule for each export (so `NSWindow` referenced in the entry
+/// rewrites to `cocoa.NSWindow` after the umbrella's `pub use`
+/// already merged that item into `merged`). Only `pub` items
+/// count — module-private names stay invisible.
+fn collect_export_names(
+    module: &str,
+    importer_dir: &Path,
+    extra_paths: &[PathBuf],
+    loaded: &HashMap<PathBuf, Program>,
+    visited: &mut HashSet<PathBuf>,
+    out: &mut HashSet<Symbol>,
+) -> Result<(), LoadError> {
+    let canon = resolve_module(module, importer_dir, extra_paths)?;
+    if !visited.insert(canon.clone()) {
+        return Ok(());
+    }
+    let prog = loaded
+        .get(&canon)
+        .expect("module pre-loaded by load_recursive");
+    for item in &prog.items {
+        match item {
+            Item::Fn(f) if f.is_pub => {
+                out.insert(f.name.clone());
+            }
+            Item::Class(c) if c.is_pub => {
+                out.insert(c.name.clone());
+            }
+            Item::Enum(e) if e.is_pub => {
+                out.insert(e.name.clone());
+            }
+            Item::Const(c) if c.is_pub => {
+                out.insert(c.name.clone());
+            }
+            Item::Interface(i) if i.is_pub => {
+                out.insert(i.name.clone());
+            }
+            Item::ExternC(b) => {
+                for inner in &b.items {
+                    match inner {
+                        ilang_ast::ExternCItem::Struct { is_pub: true, name, .. }
+                        | ilang_ast::ExternCItem::Union { is_pub: true, name, .. }
+                        | ilang_ast::ExternCItem::FnDecl { is_pub: true, name, .. } => {
+                            out.insert(*name);
+                        }
+                        ilang_ast::ExternCItem::FnDef(f) if f.is_pub => {
+                            out.insert(f.name.clone());
+                        }
+                        ilang_ast::ExternCItem::Class(c) if c.is_pub => {
+                            out.insert(c.name.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for s in &prog.stmts {
+        if let StmtKind::Let { is_pub: true, name, .. } = &s.kind {
+            out.insert(name.clone());
+        }
+    }
+    let module_dir = canon
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    for item in &prog.items {
+        if let Item::Use(nu) = item {
+            if !nu.re_export {
+                continue;
+            }
+            collect_export_names(
+                nu.module.as_str(),
+                &module_dir,
+                extra_paths,
+                loaded,
+                visited,
+                out,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn find_in_export_chain(
     module: &str,
     name: &str,
