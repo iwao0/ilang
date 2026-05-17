@@ -46,7 +46,13 @@ pub enum MTLPixelFormat: u64 {
     bgra8Unorm_sRGB     = 81
     rgba16Float         = 115
     rgba32Float         = 125
+    depth16Unorm        = 250
     depth32Float        = 252
+    stencil8            = 253
+    depth24Unorm_stencil8 = 255
+    depth32Float_stencil8 = 260
+    x32_stencil8        = 261
+    x24_stencil8        = 262
 }
 
 /// `MTLLoadAction` — what the GPU does with an attachment's
@@ -174,6 +180,74 @@ pub enum MTLVertexStepFunction: u64 {
     perInstance      = 2
 }
 
+/// `MTLCompareFunction` — predicate used for depth tests and
+/// sampler comparison sampling, and for the stencil-test
+/// comparator on each face of a depth-stencil state. `.always`
+/// disables the test (every fragment passes).
+pub enum MTLCompareFunction: u64 {
+    never        = 0
+    less         = 1
+    equal        = 2
+    lessEqual    = 3
+    greater      = 4
+    notEqual     = 5
+    greaterEqual = 6
+    always       = 7
+}
+
+/// `MTLStencilOperation` — what the GPU does to the stencil
+/// buffer value when the stencil test (or the depth test, in the
+/// depth-fail slot) fires. `keep` leaves the value untouched.
+pub enum MTLStencilOperation: u64 {
+    keep           = 0
+    zero           = 1
+    replace        = 2
+    incrementClamp = 3
+    decrementClamp = 4
+    invert         = 5
+    incrementWrap  = 6
+    decrementWrap  = 7
+}
+
+/// `MTLSamplerMinMagFilter` — interpolation kernel used when the
+/// sampled texel grid is denser (min) or sparser (mag) than the
+/// destination pixel grid. `linear` does bilinear filtering;
+/// `nearest` picks the closest texel.
+pub enum MTLSamplerMinMagFilter: u64 {
+    nearest = 0
+    linear  = 1
+}
+
+/// `MTLSamplerMipFilter` — how the sampler picks (and blends) mip
+/// levels. `notMipmapped` forces level 0; `linear` does trilinear
+/// blending between two adjacent mip levels.
+pub enum MTLSamplerMipFilter: u64 {
+    notMipmapped = 0
+    nearest      = 1
+    linear       = 2
+}
+
+/// `MTLSamplerAddressMode` — wrap mode for one texture-coordinate
+/// axis (s/t/r). `clampToEdge` is the casual default; `repeat` is
+/// tiling; `clampToBorderColor` uses `borderColor` for samples
+/// outside `[0, 1]`.
+pub enum MTLSamplerAddressMode: u64 {
+    clampToEdge        = 0
+    mirrorClampToEdge  = 1
+    repeat             = 2
+    mirrorRepeat       = 3
+    clampToZero        = 4
+    clampToBorderColor = 5
+}
+
+/// `MTLSamplerBorderColor` — colour returned for out-of-range
+/// samples when address mode is `.clampToBorderColor`.
+pub enum MTLSamplerBorderColor: u64 {
+    transparentBlack = 0
+    opaqueBlack      = 1
+    opaqueWhite      = 2
+}
+
 // ─── Structs ──────────────────────────────────────────────────────
 
 /// `MTLClearColor` — RGBA values in `[0, 1]` used when a colour
@@ -277,6 +351,18 @@ pub struct MTLRegion {
         ): MTLBuffer
         @objc("newBufferWithLength:options:")
         pub newBufferWithLength(length: u64, options: MTLResourceOptions): MTLBuffer
+
+        // Sampler / depth-stencil state factories. Both are
+        // immutable handles built from a mutable descriptor, the
+        // same pattern as `MTLRenderPipelineState`; reuse the
+        // resulting state across frames (cheap to bind, more
+        // expensive to build).
+        @objc("newSamplerStateWithDescriptor:")
+        pub newSamplerStateWithDescriptor(d: MTLSamplerDescriptor): MTLSamplerState
+        @objc("newDepthStencilStateWithDescriptor:")
+        pub newDepthStencilStateWithDescriptor(
+            d: MTLDepthStencilDescriptor
+        ): MTLDepthStencilState
 
         @objc("name")
         pub deviceName(): NSObject
@@ -422,6 +508,21 @@ pub struct MTLRegion {
 
         @objc("colorAttachments")
         pub colorAttachments(): MTLRenderPassColorAttachmentDescriptorArray
+
+        // Depth / stencil attachments. Unlike colour attachments
+        // there's only one slot each (no array), so these come
+        // back as plain attachment descriptors directly. Configure
+        // via the `setTexture:`, `setLoadAction:`, `setStoreAction:`,
+        // and `setClearDepth:` / `setClearStencil:` setters on the
+        // returned descriptor.
+        @objc("depthAttachment")
+        pub depthAttachment(): MTLRenderPassDepthAttachmentDescriptor
+        @objc("setDepthAttachment:")
+        pub setDepthAttachment(a: MTLRenderPassDepthAttachmentDescriptor)
+        @objc("stencilAttachment")
+        pub stencilAttachment(): MTLRenderPassStencilAttachmentDescriptor
+        @objc("setStencilAttachment:")
+        pub setStencilAttachment(a: MTLRenderPassStencilAttachmentDescriptor)
     }
 
     /// Subscriptable collection of colour attachments on an
@@ -521,6 +622,16 @@ pub struct MTLRegion {
         pub setVertexDescriptor(v: MTLVertexDescriptor)
         @objc("colorAttachments")
         pub colorAttachments(): MTLRenderPipelineColorAttachmentDescriptorArray
+
+        // Depth / stencil pixel formats for the pipeline. Must
+        // match the matching attachment's texture format on the
+        // active render pass, otherwise pipeline creation fails.
+        // Use `.invalid` (the default) to declare no
+        // depth / stencil buffer.
+        @objc("setDepthAttachmentPixelFormat:")
+        pub setDepthAttachmentPixelFormat(f: MTLPixelFormat)
+        @objc("setStencilAttachmentPixelFormat:")
+        pub setStencilAttachmentPixelFormat(f: MTLPixelFormat)
     }
 
     /// Subscriptable collection of colour-attachment slots on an
@@ -646,6 +757,24 @@ pub struct MTLRegion {
         @objc("setFragmentTexture:atIndex:")
         pub setFragmentTexture(t: MTLTexture, atIndex: u64)
 
+        // Sampler-state bindings — one per shader stage, indexed by
+        // the `[[sampler(n)]]` slot in the shader.
+        @objc("setVertexSamplerState:atIndex:")
+        pub setVertexSamplerState(s: MTLSamplerState, atIndex: u64)
+        @objc("setFragmentSamplerState:atIndex:")
+        pub setFragmentSamplerState(s: MTLSamplerState, atIndex: u64)
+
+        // Depth / stencil pipeline. `setDepthStencilState:` binds
+        // a compiled depth-stencil state; `setStencilReferenceValue:`
+        // sets the reference compared against the buffer; the
+        // depth-bias triple feeds the rasteriser's polygon-offset.
+        @objc("setDepthStencilState:")
+        pub setDepthStencilState(s: MTLDepthStencilState)
+        @objc("setStencilReferenceValue:")
+        pub setStencilReferenceValue(ref: u32)
+        @objc("setDepthBias:slopeScale:clamp:")
+        pub setDepthBias(depthBias: f32, slopeScale: f32, clamp: f32)
+
         @objc("drawPrimitives:vertexStart:vertexCount:")
         pub drawPrimitives(
             primitiveType: MTLPrimitiveType, vertexStart: u64, vertexCount: u64
@@ -700,6 +829,158 @@ pub struct MTLRegion {
     ///   * `dispatchThreadgroups:threadsPerThreadgroup:` — works
     ///     on every Metal-capable device; total threads =
     ///     threadgroups × threadsPerThreadgroup.
+    // ─── Sampler state ────────────────────────────────────────────
+
+    /// `MTLSamplerDescriptor` — describes how a texture is
+    /// filtered / addressed when sampled in the shader. Build via
+    /// `MTLSamplerDescriptor.alloc().init()` (no class-level
+    /// factory exists), tune the filter / address / clamp / lod
+    /// values, then bake into a state with
+    /// `device.newSamplerStateWithDescriptor(desc)`. The descriptor
+    /// is mutable and one-shot — the resulting `MTLSamplerState`
+    /// captures the values; you can free the descriptor afterwards.
+    @objc pub class MTLSamplerDescriptor : NSObject {
+        @objc("alloc")
+        pub static alloc(): MTLSamplerDescriptor
+        @objc("init")
+        pub init(): MTLSamplerDescriptor
+
+        @objc("setMinFilter:")
+        pub setMinFilter(f: MTLSamplerMinMagFilter)
+        @objc("setMagFilter:")
+        pub setMagFilter(f: MTLSamplerMinMagFilter)
+        @objc("setMipFilter:")
+        pub setMipFilter(f: MTLSamplerMipFilter)
+        @objc("setSAddressMode:")
+        pub setSAddressMode(m: MTLSamplerAddressMode)
+        @objc("setTAddressMode:")
+        pub setTAddressMode(m: MTLSamplerAddressMode)
+        @objc("setRAddressMode:")
+        pub setRAddressMode(m: MTLSamplerAddressMode)
+        @objc("setBorderColor:")
+        pub setBorderColor(c: MTLSamplerBorderColor)
+        @objc("setNormalizedCoordinates:")
+        pub setNormalizedCoordinates(flag: bool)
+        @objc("setMaxAnisotropy:")
+        pub setMaxAnisotropy(n: u64)
+        @objc("setLodMinClamp:")
+        pub setLodMinClamp(v: f32)
+        @objc("setLodMaxClamp:")
+        pub setLodMaxClamp(v: f32)
+        @objc("setCompareFunction:")
+        pub setCompareFunction(f: MTLCompareFunction)
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+    }
+
+    /// `id<MTLSamplerState>` — compiled sampler ready to bind on
+    /// an encoder via the various `setVertex/FragmentSamplerState:`
+    /// / `setSamplerState:` selectors. Cheap to keep across
+    /// frames; build once per material.
+    @objc pub class MTLSamplerState : NSObject {}
+
+    // ─── Depth-stencil state ──────────────────────────────────────
+
+    /// `MTLStencilDescriptor` — one face's stencil-test
+    /// configuration. Embedded inside an `MTLDepthStencilDescriptor`
+    /// twice (front face / back face); pass the same descriptor
+    /// to both setters when both faces should use identical
+    /// rules. `setStencilCompareFunction:` selects the predicate;
+    /// the three operation setters pick what to write to the
+    /// stencil buffer on stencil-fail / depth-fail / pass.
+    @objc pub class MTLStencilDescriptor : NSObject {
+        @objc("alloc")
+        pub static alloc(): MTLStencilDescriptor
+        @objc("init")
+        pub init(): MTLStencilDescriptor
+
+        @objc("setStencilCompareFunction:")
+        pub setStencilCompareFunction(f: MTLCompareFunction)
+        @objc("setStencilFailureOperation:")
+        pub setStencilFailureOperation(op: MTLStencilOperation)
+        @objc("setDepthFailureOperation:")
+        pub setDepthFailureOperation(op: MTLStencilOperation)
+        @objc("setDepthStencilPassOperation:")
+        pub setDepthStencilPassOperation(op: MTLStencilOperation)
+        @objc("setReadMask:")
+        pub setReadMask(m: u32)
+        @objc("setWriteMask:")
+        pub setWriteMask(m: u32)
+    }
+
+    /// `MTLDepthStencilDescriptor` — combined depth + stencil
+    /// configuration. Build via
+    /// `MTLDepthStencilDescriptor.alloc().init()`, then bake with
+    /// `device.newDepthStencilStateWithDescriptor(desc)`. The
+    /// depth side has just a compare function (`.always` disables
+    /// the test) + write flag; the stencil side wires two
+    /// `MTLStencilDescriptor`s in.
+    @objc pub class MTLDepthStencilDescriptor : NSObject {
+        @objc("alloc")
+        pub static alloc(): MTLDepthStencilDescriptor
+        @objc("init")
+        pub init(): MTLDepthStencilDescriptor
+
+        @objc("setDepthCompareFunction:")
+        pub setDepthCompareFunction(f: MTLCompareFunction)
+        @objc("setDepthWriteEnabled:")
+        pub setDepthWriteEnabled(flag: bool)
+        @objc("setFrontFaceStencil:")
+        pub setFrontFaceStencil(s: MTLStencilDescriptor)
+        @objc("setBackFaceStencil:")
+        pub setBackFaceStencil(s: MTLStencilDescriptor)
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+    }
+
+    /// `id<MTLDepthStencilState>` — compiled depth/stencil state
+    /// bound onto a render encoder via `setDepthStencilState:`.
+    /// Build once per render mode and reuse.
+    @objc pub class MTLDepthStencilState : NSObject {}
+
+    // ─── Render-pass depth / stencil attachments ─────────────────
+
+    /// Depth attachment slot on an `MTLRenderPassDescriptor`.
+    /// Inherits load/store/level/slice from
+    /// `MTLRenderPassAttachmentDescriptor`; adds `setClearDepth:`
+    /// (a `double` in `[0, 1]`, used when `loadAction == .clear`).
+    @objc pub class MTLRenderPassDepthAttachmentDescriptor : NSObject {
+        @objc("setTexture:")
+        pub setTexture(t: MTLTexture)
+        @objc("texture")
+        pub texture(): MTLTexture
+        @objc("setLoadAction:")
+        pub setLoadAction(a: MTLLoadAction)
+        @objc("setStoreAction:")
+        pub setStoreAction(a: MTLStoreAction)
+        @objc("setLevel:")
+        pub setLevel(l: u64)
+        @objc("setSlice:")
+        pub setSlice(s: u64)
+        @objc("setClearDepth:")
+        pub setClearDepth(d: f64)
+    }
+
+    /// Stencil attachment slot on an `MTLRenderPassDescriptor`.
+    /// Mirrors the depth attachment but with `setClearStencil:`
+    /// (a `uint32_t` value).
+    @objc pub class MTLRenderPassStencilAttachmentDescriptor : NSObject {
+        @objc("setTexture:")
+        pub setTexture(t: MTLTexture)
+        @objc("texture")
+        pub texture(): MTLTexture
+        @objc("setLoadAction:")
+        pub setLoadAction(a: MTLLoadAction)
+        @objc("setStoreAction:")
+        pub setStoreAction(a: MTLStoreAction)
+        @objc("setLevel:")
+        pub setLevel(l: u64)
+        @objc("setSlice:")
+        pub setSlice(s: u64)
+        @objc("setClearStencil:")
+        pub setClearStencil(v: u32)
+    }
+
     @objc pub class MTLComputeCommandEncoder : NSObject {
         @objc("setComputePipelineState:")
         pub setComputePipelineState(s: MTLComputePipelineState)
@@ -710,6 +991,8 @@ pub struct MTLRegion {
         pub setBytes(bytes: i64, length: u64, atIndex: u64)
         @objc("setTexture:atIndex:")
         pub setTexture(t: MTLTexture, atIndex: u64)
+        @objc("setSamplerState:atIndex:")
+        pub setSamplerState(s: MTLSamplerState, atIndex: u64)
 
         @objc("dispatchThreads:threadsPerThreadgroup:")
         pub dispatchThreads(
