@@ -7,16 +7,16 @@
     { "include": "#strings" },
     { "include": "#attributes" },
     { "include": "#enum-variant-keyword" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#constants" },
-    { "include": "#numbers" },
     { "include": "#fn-decl" },
     { "include": "#class-decl" },
     { "include": "#interface-decl" },
     { "include": "#enum-decl" },
     { "include": "#struct-decl" },
     { "include": "#union-decl" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#numbers" },
     { "include": "#fn-call" },
     { "include": "#type-name" },
     { "include": "#operators" }
@@ -124,7 +124,8 @@
       ]
     },
     "fn-decl": {
-      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "comment": "Function / property-accessor declaration: `fn name`, `get name`, `set name`. Captures the name explicitly so it renders as an identifier even when it shadows a type keyword (`pub get string(): NSString` etc.).",
+      "match": "\\b(fn|get|set)\\s+([A-Za-z_][A-Za-z0-9_]*)",
       "captures": {
         "1": { "name": "keyword.declaration.ilang" },
         "2": { "name": "entity.name.function.ilang" }
