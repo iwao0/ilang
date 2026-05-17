@@ -515,13 +515,32 @@ impl<'a> Parser<'a> {
                     self.bump();
                     wildcard = true;
                 } else {
+                    // Comma- or newline-separated list. A trailing
+                    // separator is allowed; a newline before the next
+                    // ident also counts so multi-line bodies don't
+                    // require explicit commas.
                     loop {
                         names.push(self.expect_ident("imported name")?);
                         if matches!(self.peek().kind, TokenKind::Comma) {
                             self.bump();
-                        } else {
-                            break;
+                            // Trailing comma before `}` ends the list.
+                            if matches!(self.peek().kind, TokenKind::RBrace) {
+                                break;
+                            }
+                            continue;
                         }
+                        // Implicit newline separator: keep looping
+                        // while the next token is an identifier on a
+                        // new line. Anything else (RBrace, or a
+                        // same-line non-ident token) ends the list
+                        // and falls through to the closing `}` check.
+                        let next = self.peek();
+                        if next.leading_newline
+                            && matches!(next.kind, TokenKind::Ident(_))
+                        {
+                            continue;
+                        }
+                        break;
                     }
                 }
             }
