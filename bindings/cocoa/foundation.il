@@ -48,7 +48,7 @@ pub enum MatchOptions: u64 {
     withoutAnchoringBounds   = 0x10
 }
 
-@extern(ObjC) {
+@extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
     /// instance.
