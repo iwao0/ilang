@@ -1159,6 +1159,9 @@ pub(crate) fn collect_external_signatures(
     for item in &prog.items {
         match item {
             Item::Fn(f) => {
+                if !f.is_pub {
+                    continue;
+                }
                 put_dotted(f.name.as_str(), fn_signature(f), &mut out);
                 if let Some(t) = &f.ret {
                     if f.name.as_str().contains('.') {
@@ -1167,6 +1170,9 @@ pub(crate) fn collect_external_signatures(
                 }
             }
             Item::Const(c) => {
+                if !c.is_pub {
+                    continue;
+                }
                 let ty = match c
                     .ty
                     .clone()
@@ -1181,6 +1187,9 @@ pub(crate) fn collect_external_signatures(
                 put_dotted(c.name.as_str(), format!("const {}{ty}{value}", c.name), &mut out);
             }
             Item::Class(c) => {
+                if !c.is_pub {
+                    continue;
+                }
                 put_dotted(
                     c.name.as_str(),
                     format!("{}class {}", render_user_attrs(&c.attrs), c.name),
@@ -1188,6 +1197,9 @@ pub(crate) fn collect_external_signatures(
                 );
             }
             Item::Enum(e) => {
+                if !e.is_pub {
+                    continue;
+                }
                 let repr = e
                     .repr_ty
                     .as_ref()
@@ -1207,6 +1219,9 @@ pub(crate) fn collect_external_signatures(
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
+                    if !is_extern_c_item_pub(inner) {
+                        continue;
+                    }
                     match inner {
                         ExternCItem::FnDecl {
                             name, params, ret, libs, ..
