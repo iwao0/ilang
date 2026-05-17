@@ -51,10 +51,16 @@
 //                           MTLFence (intra-queue ordering) +
 //                           updateFence/waitForFence on all
 //                           three encoder kinds
+//   * Tier (h):             MTLEvent + MTLSharedEvent
+//                           (cross-queue / CPU↔GPU rendezvous);
+//                           encodeSignalEvent: / encodeWaitForEvent:
+//                           on the command buffer; CPU-side
+//                           signaledValue / setSignaledValue: /
+//                           waitUntilSignaledValue:timeoutMS: on
+//                           MTLSharedEvent
 //
 // Surface still intentionally absent (add per-need):
 //   * CAMetalLayer / CAMetalDrawable + on-screen presentation
-//   * MTLEvent / MTLSharedEvent (cross-queue / CPU↔GPU events)
 //   * MTLArgumentEncoder + argument buffers
 //   * MTLIndirectCommandBuffer (Tier-2 indirect dispatch)
 //   * MTLCaptureManager / MTLCaptureScope (Xcode GPU frame capture)
@@ -506,6 +512,16 @@ pub struct MTLScissorRect {
         @objc("newFence")
         pub newFence(): MTLFence
 
+        // Event factories. `MTLEvent` is a private GPU-only signal
+        // (no CPU-visible value); `MTLSharedEvent` exposes a u64
+        // counter the CPU can poll, set, and `notifyListener:`
+        // wait on — the bridge for CPU↔GPU rendezvous and
+        // cross-process / cross-device GPU sync.
+        @objc("newEvent")
+        pub newEvent(): MTLEvent
+        @objc("newSharedEvent")
+        pub newSharedEvent(): MTLSharedEvent
+
         // Sampler / depth-stencil state factories. Both are
         // immutable handles built from a mutable descriptor, the
         // same pattern as `MTLRenderPipelineState`; reuse the
@@ -593,6 +609,16 @@ pub struct MTLScissorRect {
         pub addCompletedHandler(block: i64)
         @objc("addScheduledHandler:")
         pub addScheduledHandler(block: i64)
+
+        // GPU-side event signalling / waiting. Both selectors are
+        // queued into the command buffer; the GPU executes them
+        // in submit order against the event's u64 counter. Use
+        // `MTLSharedEvent` if a CPU thread also wants to observe
+        // or set the same counter.
+        @objc("encodeSignalEvent:value:")
+        pub encodeSignalEvent(event: MTLEvent, value: u64)
+        @objc("encodeWaitForEvent:value:")
+        pub encodeWaitForEvent(event: MTLEvent, value: u64)
     }
 
     /// `id<MTLTexture>` — opaque GPU image. Build via
@@ -1143,6 +1169,51 @@ pub struct MTLScissorRect {
         pub setLabel(s: NSString)
         @objc("label")
         pub label(): NSString
+    }
+
+    // ─── Events (CPU↔GPU / cross-queue synchronisation) ─────────
+
+    /// `id<MTLEvent>` — opaque, GPU-only synchronisation token
+    /// whose value is a 64-bit counter. Use
+    /// `commandBuffer.encodeSignalEvent(event, value)` to publish
+    /// a new value and `encodeWaitForEvent(event, value)` to
+    /// gate later GPU work on the counter reaching that value.
+    /// No CPU side — for that, use `MTLSharedEvent`.
+    @objc pub class MTLEvent : NSObject {
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("label")
+        pub label(): NSString
+    }
+
+    /// `id<MTLSharedEvent>` — same counter semantics as
+    /// `MTLEvent`, but the CPU can also read (`signaledValue`),
+    /// write (`setSignaledValue:`), and wait
+    /// (`waitUntilSignaledValue:timeoutMS:`) on it, and can
+    /// register a block-based listener for value transitions
+    /// (`notifyListener:atValue:block:`).
+    ///
+    /// Use this to (a) tell the GPU to wait for the CPU
+    /// (`encodeWaitForEvent(ev, n)` on the GPU side, then bump
+    /// the value from the CPU), or (b) the reverse (GPU signals
+    /// via `encodeSignalEvent`, CPU waits via the
+    /// `wait…timeoutMS:` selector below). Inherits the GPU-side
+    /// signal/wait API by responding to the `MTLEvent`
+    /// selectors transparently.
+    @objc pub class MTLSharedEvent : MTLEvent {
+        @objc("signaledValue")
+        pub signaledValue(): u64
+        @objc("setSignaledValue:")
+        pub setSignaledValue(v: u64)
+        @objc("waitUntilSignaledValue:timeoutMS:")
+        pub waitUntilSignaledValue(value: u64, timeoutMS: u64): bool
+        // The notify listener selector takes an
+        // `MTLSharedEventListener` + value + `void(^)(id<MTLSharedEvent>, u64)`
+        // block; bind that when there's a real CPU-side handler
+        // need — for the casual single-poll case
+        // `waitUntilSignaledValue:` is enough.
+
+        // setLabel / label are inherited from MTLEvent.
     }
 
     // ─── Sampler state ────────────────────────────────────────────
