@@ -41,8 +41,8 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
             let scenePt = this.convertPointFromView(inView)
 
             let dot = SKShapeNode.shapeNodeWithCircleOfRadius(4.0)
-            dot.setFillColor(cocoa.NSColor.yellow())
-            dot.setStrokeColor(cocoa.NSColor.clear())
+            dot.setFillColor(cocoa.NSColor.yellow)
+            dot.setStrokeColor(cocoa.NSColor.clear)
             dot.position = scenePt
             this.addChild(dot)
         }
@@ -88,19 +88,19 @@ view.setShowsFPS(true)
 
 InputScene.register()
 let scene = InputScene.sceneWithSize(cocoa.makeSize(480.0, 320.0))
-scene.setBackgroundColor(cocoa.NSColor.gray())
+scene.setBackgroundColor(cocoa.NSColor.gray)
 
 // Title + player.
 let title = SKLabelNode.labelNodeWithText(
     cocoa.nsstr("Click to drop dots — arrow keys move the player")
 )
 title.setFontSize(14.0)
-title.setFontColor(cocoa.NSColor.white())
+title.setFontColor(cocoa.NSColor.white)
 title.position = cocoa.makePoint(240.0, 290.0)
 scene.addChild(title)
 
-player.setFillColor(cocoa.NSColor.red())
-player.setStrokeColor(cocoa.NSColor.white())
+player.setFillColor(cocoa.NSColor.red)
+player.setStrokeColor(cocoa.NSColor.white)
 player.setLineWidth(1.5)
 player.position = cocoa.makePoint(240.0, 160.0)
 scene.addChild(player)

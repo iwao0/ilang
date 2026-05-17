@@ -27,7 +27,7 @@ view.setShowsFPS(true)
 view.setShowsPhysics(true)
 
 let scene = SKScene.sceneWithSize(cocoa.makeSize(480.0, 360.0))
-scene.setBackgroundColor(cocoa.NSColor.black())
+scene.setBackgroundColor(cocoa.NSColor.black)
 
 // Tune the gravity (default is 0, -9.8). Stronger for a snappier
 // feel inside the small play area.
@@ -44,7 +44,7 @@ scene.setPhysicsBody(wallBody)
 fn makeBall(radius: f64, x: f64, y: f64, colour: cocoa.NSColor): SKShapeNode {
     let n = SKShapeNode.shapeNodeWithCircleOfRadius(radius)
     n.setFillColor(colour)
-    n.setStrokeColor(cocoa.NSColor.white())
+    n.setStrokeColor(cocoa.NSColor.white)
     n.setLineWidth(1.5)
     n.position = cocoa.makePoint(x, y)
     let body = SKPhysicsBody.bodyWithCircleOfRadius(radius)
@@ -54,14 +54,14 @@ fn makeBall(radius: f64, x: f64, y: f64, colour: cocoa.NSColor): SKShapeNode {
     n
 }
 
-scene.addChild(makeBall(20.0, 120.0, 320.0, cocoa.NSColor.red()))
-scene.addChild(makeBall(28.0, 240.0, 300.0, cocoa.NSColor.green()))
-scene.addChild(makeBall(14.0, 360.0, 340.0, cocoa.NSColor.blue()))
+scene.addChild(makeBall(20.0, 120.0, 320.0, cocoa.NSColor.red))
+scene.addChild(makeBall(28.0, 240.0, 300.0, cocoa.NSColor.green))
+scene.addChild(makeBall(14.0, 360.0, 340.0, cocoa.NSColor.blue))
 
 // Title
 let label = SKLabelNode.labelNodeWithText(cocoa.nsstr("Drop & bounce"))
 label.setFontSize(16.0)
-label.setFontColor(cocoa.NSColor.white())
+label.setFontColor(cocoa.NSColor.white)
 label.position = cocoa.makePoint(240.0, 340.0)
 scene.addChild(label)
 

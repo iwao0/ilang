@@ -364,32 +364,32 @@ pub enum EventModifierFlags: u64 {
         pub setFrame(rect: NSRect)
     }
 
-    /// `NSColor` — a colour value. Use the named class methods
-    /// for system colours (`black`, `red`, `clearColor`, …) or
-    /// `colorWithRed:green:blue:alpha:` for RGBA values in
-    /// `[0, 1]`. RGBA component accessors only make sense on a
-    /// colour that lives in an RGB colour space.
+    /// `NSColor` — a colour value. Use the named system-colour
+    /// static getters (`NSColor.black`, `NSColor.red`,
+    /// `NSColor.clear`, …) or `NSColor.rgba(r, g, b, a)` for RGBA
+    /// values in `[0, 1]`. RGBA component accessors only make sense
+    /// on a colour that lives in an RGB colour space.
     @objc pub class NSColor : NSObject {
         @objc("blackColor")
-        pub static black(): NSColor
+        pub static get black(): NSColor
         @objc("whiteColor")
-        pub static white(): NSColor
+        pub static get white(): NSColor
         @objc("clearColor")
-        pub static clear(): NSColor
+        pub static get clear(): NSColor
         @objc("redColor")
-        pub static red(): NSColor
+        pub static get red(): NSColor
         @objc("greenColor")
-        pub static green(): NSColor
+        pub static get green(): NSColor
         @objc("blueColor")
-        pub static blue(): NSColor
+        pub static get blue(): NSColor
         @objc("grayColor")
-        pub static gray(): NSColor
+        pub static get gray(): NSColor
         @objc("yellowColor")
-        pub static yellow(): NSColor
+        pub static get yellow(): NSColor
         @objc("orangeColor")
-        pub static orange(): NSColor
+        pub static get orange(): NSColor
         @objc("purpleColor")
-        pub static purple(): NSColor
+        pub static get purple(): NSColor
 
         @objc("colorWithRed:green:blue:alpha:")
         pub static rgba(r: f64, g: f64, b: f64, a: f64): NSColor

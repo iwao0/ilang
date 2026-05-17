@@ -26,11 +26,11 @@ view.setShowsNodeCount(true)
 
 // Scene: dark grey background, same size as the view.
 let scene = SKScene.sceneWithSize(cocoa.makeSize(480.0, 320.0))
-scene.setBackgroundColor(cocoa.NSColor.gray())
+scene.setBackgroundColor(cocoa.NSColor.gray)
 
 // Red square centred in the scene.
 let sprite = SKSpriteNode.spriteNodeWithColor(
-    cocoa.NSColor.red(),
+    cocoa.NSColor.red,
     cocoa.makeSize(40.0, 40.0)
 )
 sprite.position = cocoa.makePoint(240.0, 160.0)
@@ -39,7 +39,7 @@ scene.addChild(sprite)
 // Title text at the top.
 let label = SKLabelNode.labelNodeWithText(cocoa.nsstr("Hello, SpriteKit"))
 label.setFontSize(20.0)
-label.setFontColor(cocoa.NSColor.white())
+label.setFontColor(cocoa.NSColor.white)
 label.position = cocoa.makePoint(240.0, 280.0)
 scene.addChild(label)
 
