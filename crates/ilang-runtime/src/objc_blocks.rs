@@ -429,3 +429,30 @@ pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
         0
     }
 }
+
+// ─── NSError ** out-parameter slot ─────────────────────────────────
+//
+// Most error-bearing @objc methods (`newLibraryWithSource:options:error:`
+// etc.) take an `NSError **` out-parameter. ilang's `&local`
+// syntax is only legal inside `@extern(C) {}` bodies, which the
+// public binding wrappers we expose to user code aren't — so we
+// host the slot on the runtime side and hand its address out via
+// `__ilang_objc_err_slot_ptr`. After the call returns,
+// `__ilang_objc_take_err` reads + clears the slot so a subsequent
+// call doesn't see a stale value. Thread-local so concurrent
+// callers get their own slot.
+use std::cell::Cell;
+
+thread_local! {
+    static OBJC_ERR_SLOT: Cell<i64> = const { Cell::new(0) };
+}
+
+#[unsafe(export_name = "__ilang_objc_err_slot_ptr")]
+pub extern "C" fn objc_err_slot_ptr() -> i64 {
+    OBJC_ERR_SLOT.with(|c| c.as_ptr() as i64)
+}
+
+#[unsafe(export_name = "__ilang_objc_take_err")]
+pub extern "C" fn objc_take_err() -> i64 {
+    OBJC_ERR_SLOT.with(|c| c.replace(0))
+}

@@ -1967,6 +1967,9 @@ fn prefix_type(t: &Type, prefix: &str) -> Type {
             is_const: *is_const,
             inner: Box::new(prefix_type(inner, prefix)),
         },
+        Type::Tuple(elems) => Type::Tuple(
+            elems.iter().map(|e| prefix_type(e, prefix)).collect(),
+        ),
         _ => t.clone(),
     }
 }

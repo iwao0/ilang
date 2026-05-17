@@ -28,7 +28,7 @@
 // omitted — it's a lot more surface, and SKRenderer doesn't
 // need it. Add per-need.
 
-use foundation { NSObject, NSString }
+use foundation { NSObject, NSString, NSError, withObjcError }
 
 // ─── Enums ────────────────────────────────────────────────────────
 
@@ -217,12 +217,11 @@ pub struct MTLSize {
         pub newTextureWithDescriptor(d: MTLTextureDescriptor): MTLTexture
 
         // Shader / pipeline construction. The `error:` parameter
-        // is an `NSError **` out-pointer — ilang doesn't have a
-        // first-class "address of local" so the binding takes
-        // it as an `i64` raw pointer. Pass `0` to ignore the
-        // error; if the call fails the returned handle is 0
-        // and the user is expected to detect it that way until
-        // a richer error-binding shape lands.
+        // is an `NSError **` out-pointer expressed as a raw `i64`
+        // slot address — pass `0` to ignore the error, or feed
+        // it the per-thread slot via `cocoa.withObjcError(...)`
+        // which is what the `OrError` top-level wrappers below
+        // use. Returned object handle is 0 on failure.
         @objc("newLibraryWithSource:options:error:")
         pub newLibraryWithSource(
             source: NSString, options: NSObject, error: i64
@@ -253,6 +252,7 @@ pub struct MTLSize {
 
         @objc("name")
         pub deviceName(): NSObject
+
     }
 
     /// `id<MTLCommandQueue>` — mint command buffers off this.
@@ -682,4 +682,65 @@ pub fn size1D(n: u64): MTLSize {
 /// `MTLSize` for a 2D dispatch (`w` × `h`).
 pub fn size2D(w: u64, h: u64): MTLSize {
     size(w, h, 1)
+}
+
+// ─── Error-aware shader / pipeline wrappers ──────────────────────
+//
+// Pair-return wrappers around the @objc `…error:` methods on
+// MTLDevice. They run the call through `foundation.withObjcError`,
+// which hands its per-thread `NSError *` slot address to the
+// `error:` argument and reads back whatever the runtime wrote
+// into it. On success the second tuple element is `none`; on
+// failure the first element's `handle` is typically 0 and the
+// second is `some(NSError)` — inspect via
+// `e.localizedDescription` / `e.domain` / `e.code`.
+
+// The wrappers below surface the error as a raw `i64` handle in
+// the second tuple slot rather than the obvious `NSError?` form
+// because ilang's `Optional<Object>` unwrap doesn't survive
+// crossing a function-call boundary intact today — `match
+// some(e)` reads the box's `__owns` field (`1`) into `e.handle`
+// instead of the original handle pointer. Callers check
+// `err_handle != 0` to detect failure, then wrap manually:
+//
+// ```ignore
+// let (lib, err_h) = metal.newLibraryWithSourceOrError(device, nsstr(src))
+// if err_h != 0 {
+//     let e = NSError.__wrap_handle(err_h)
+//     console.log(ilstr(e.localizedDescription))
+// }
+// ```
+
+/// Compile MSL source into an `MTLLibrary` (default
+/// `MTLCompileOptions`). Returns `(library, error_handle)`;
+/// `error_handle == 0` on success.
+pub fn newLibraryWithSourceOrError(
+    device: MTLDevice, source: NSString
+): (MTLLibrary, i64) {
+    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+        device.newLibraryWithSource(source, NSObject.wrap(0), slot).handle
+    })
+    (MTLLibrary.__wrap_handle(h), err_h)
+}
+
+/// Compile + link an `MTLRenderPipelineState` from the descriptor.
+/// Returns `(pipeline_state, error_handle)`.
+pub fn newRenderPipelineStateOrError(
+    device: MTLDevice, descriptor: MTLRenderPipelineDescriptor
+): (MTLRenderPipelineState, i64) {
+    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+        device.newRenderPipelineStateWithDescriptor(descriptor, slot).handle
+    })
+    (MTLRenderPipelineState.__wrap_handle(h), err_h)
+}
+
+/// Compile + link an `MTLComputePipelineState` from a kernel
+/// function. Returns `(pipeline_state, error_handle)`.
+pub fn newComputePipelineStateOrError(
+    device: MTLDevice, function: MTLFunction
+): (MTLComputePipelineState, i64) {
+    let (h, err_h) = withObjcError(fn(slot: i64): i64 {
+        device.newComputePipelineStateWithFunction(function, slot).handle
+    })
+    (MTLComputePipelineState.__wrap_handle(h), err_h)
 }

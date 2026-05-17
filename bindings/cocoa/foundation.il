@@ -460,6 +460,17 @@ pub enum MatchOptions: u64 {
     @lib("c") @symbol("__ilang_make_void_bytes_block")
         fn _make_void_bytes_block(closure: fn(i64, i64)): i64
 
+    // Per-thread `NSError *` slot used by the public
+    // `withObjcError` wrapper at module scope. The runtime hosts
+    // the slot so binding wrappers outside any @extern(C) block
+    // can hand its address to `NSError **` out-parameters without
+    // needing ilang's `&local` syntax (which only works inside
+    // @extern(C)).
+    @lib("c") @symbol("__ilang_objc_err_slot_ptr")
+        fn _objc_err_slot_ptr(): i64
+    @lib("c") @symbol("__ilang_objc_take_err")
+        fn _objc_take_err(): i64
+
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
     /// `button.setAction(selectorPtr("clicked:"))`.
@@ -639,3 +650,24 @@ pub enum MatchOptions: u64 {
 /// Pass to AppKit calls that want an arbitrary "no sender"
 /// receiver (e.g. `win.makeKeyAndOrderFront(cocoa.nil)`).
 pub const nil = NSObject.wrap(0)
+
+/// Run `body` with an `NSError **` slot address that the body
+/// passes into an error-bearing @objc call's `error:` argument.
+/// The body's return value is the call's result (any type the
+/// caller wants to surface); the wrapper returns it paired with
+/// an `NSError?` populated from whatever the slot ended up
+/// holding. On success the error is `none`; on failure it's
+/// `some(NSError)` (call `e.localizedDescription`, `e.domain`,
+/// `e.code` to inspect).
+///
+/// Used by per-API wrappers like
+/// `MTLDevice.newLibraryWithSourceOrError` — see metal.il for
+/// concrete examples.
+pub fn withObjcError(body: fn(i64): i64): (i64, i64) {
+    let slot = _objc_err_slot_ptr()
+    // Drain any stale value before the call.
+    _objc_take_err()
+    let result = body(slot)
+    let err_ptr = _objc_take_err()
+    (result, err_ptr)
+}

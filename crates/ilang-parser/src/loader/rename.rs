@@ -410,6 +410,11 @@ fn rename_in_type(t: &mut Type, rules: &HashMap<Symbol, Symbol>) {
             rename_in_type(&mut ft.ret, rules);
         }
         Type::RawPtr { inner, .. } => rename_in_type(inner, rules),
+        Type::Tuple(elems) => {
+            for e in elems.iter_mut() {
+                rename_in_type(e, rules);
+            }
+        }
         _ => {}
     }
 }
