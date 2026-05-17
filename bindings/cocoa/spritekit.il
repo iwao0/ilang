@@ -454,17 +454,21 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     }
 
     /// `SKMutableTexture` — texture whose pixel data can be
-    /// updated post-creation. Useful for procedurally generated
+    /// updated post-creation. Useful for procedurally-generated
     /// textures or per-frame readback. Pixel mutation goes
-    /// through `modifyPixelDataWithBlock:` whose block has a
-    /// 2-arg signature that the runtime doesn't currently
-    /// expose, so the actual write APIs need a follow-up; the
-    /// class itself is bound so handles can be passed around.
+    /// through `modifyPixelDataWithBlock:` — pass a block built
+    /// with `cocoa.makeBytesBlock(fn(ptr, len) { … })` and write
+    /// into the buffer via the `writeU8` / `writeU32` runtime
+    /// helpers. The buffer is the texture's backing store, so
+    /// mutations are persisted into the texture.
     @objc pub class SKMutableTexture : SKTexture {
         @objc("mutableTextureWithSize:")
         pub static mutableTextureWithSize(s: NSSize): SKMutableTexture
         @objc("mutableTextureWithSize:pixelFormat:")
         pub static mutableTextureWithSizeAndPixelFormat(s: NSSize, pixelFormat: i32): SKMutableTexture
+
+        @objc("modifyPixelDataWithBlock:")
+        pub modifyPixelDataWithBlock(block: i64)
     }
 
     /// `SKTextureAtlas` — collection of textures loaded as one

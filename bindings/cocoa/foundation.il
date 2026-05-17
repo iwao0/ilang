@@ -457,6 +457,8 @@ pub enum MatchOptions: u64 {
         fn _make_obj_block(closure: fn(i64)): i64
     @lib("c") @symbol("__ilang_make_obj_to_obj_block")
         fn _make_obj_to_obj_block(closure: fn(i64): i64): i64
+    @lib("c") @symbol("__ilang_make_void_bytes_block")
+        fn _make_void_bytes_block(closure: fn(i64, i64)): i64
 
     /// Intern an Objective-C selector by name and return its
     /// stable SEL pointer (as `i64`). Use it with
@@ -574,6 +576,50 @@ pub enum MatchOptions: u64 {
     /// for AppKit-owned arguments to avoid double-release.
     pub fn makeObjectToObjectBlock(body: fn(i64): i64): i64 {
         _make_obj_to_obj_block(body)
+    }
+
+    /// Build an ObjC `void(^)(void *, size_t)` block — the
+    /// callback shape used by
+    /// `SKMutableTexture.modifyPixelDataWithBlock:` etc. The
+    /// ilang closure receives a raw bytes pointer (as `i64`) and
+    /// a length; mutate individual cells via the
+    /// `cocoa.writeU8` / `readU8` / `writeU32` / `readU32` etc.
+    /// helpers below. The buffer is owned by the caller — don't
+    /// keep the pointer past the block invocation.
+    pub fn makeBytesBlock(body: fn(i64, i64)): i64 {
+        _make_void_bytes_block(body)
+    }
+
+    // Raw-pointer helpers — call from inside a `makeBytesBlock`
+    // body (or any code that has an `i64` pointer in hand) to
+    // poke individual primitive cells. The underlying
+    // `writeU8` / `readU8` / … FFI helpers are gated to
+    // `@extern(C)` context, so these wrappers do the
+    // `i64 → *void` cast that user code can't write directly.
+
+    pub fn writeU8(ptr: i64, offset: i64, value: u8) {
+        writeU8(ptr as *void, offset, value)
+    }
+    pub fn readU8(ptr: i64, offset: i64): u8 {
+        readU8(ptr as *const void, offset)
+    }
+    pub fn writeU16(ptr: i64, offset: i64, value: u16) {
+        writeU16(ptr as *void, offset, value)
+    }
+    pub fn readU16(ptr: i64, offset: i64): u16 {
+        readU16(ptr as *const void, offset)
+    }
+    pub fn writeU32(ptr: i64, offset: i64, value: u32) {
+        writeU32(ptr as *void, offset, value)
+    }
+    pub fn readU32(ptr: i64, offset: i64): u32 {
+        readU32(ptr as *const void, offset)
+    }
+    pub fn writeF32(ptr: i64, offset: i64, value: f32) {
+        writeF32(ptr as *void, offset, value)
+    }
+    pub fn readF32(ptr: i64, offset: i64): f32 {
+        readF32(ptr as *const void, offset)
     }
 
     /// Run `body` inside a fresh ObjC autorelease pool. Mirrors

@@ -77,6 +77,12 @@ static VOID_VOID_SIGNATURE: &[u8] = b"v8@?0\0";
 static VOID_OBJ_SIGNATURE: &[u8] = b"v16@?0@8\0";
 // `id(^)(id)` — return id, block + id args.
 static OBJ_TO_OBJ_SIGNATURE: &[u8] = b"@16@?0@8\0";
+// `void(^)(void *, size_t)` — block + raw bytes pointer + length.
+// Used by `SKMutableTexture.modifyPixelDataWithBlock:` and the
+// like. Arg-frame layout: block@0 (8B), pointer@8 (8B), length@16
+// (8B) = 24B total. `^v` is `void *`; `Q` is `unsigned long long`
+// (size_t on 64-bit).
+static VOID_BYTES_SIGNATURE: &[u8] = b"v24@?0^v8Q16\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -134,6 +140,29 @@ extern "C" fn invoke_obj_block(b: *mut BlockLayout, arg: i64) {
         let fn_ptr = *(closure_ptr as *const usize);
         let f: extern "C" fn(i64, i64) = std::mem::transmute(fn_ptr);
         f(arg, closure_ptr);
+    }
+}
+
+/// `void(^)(void *, size_t)` trampoline. The ilang closure
+/// signature is `fn(ptr: i64, len: i64): unit` — raw bytes
+/// pointer and length in bytes. Used by
+/// `SKMutableTexture.modifyPixelDataWithBlock:` where the
+/// callback writes pixel data into the texture's backing store
+/// in-place; the user reaches for `readU8` / `writeU8` etc. to
+/// poke individual bytes.
+extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
+    if b.is_null() {
+        return;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        // Lifted closure shape: (user_args..., env).
+        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(fn_ptr);
+        f(ptr, len, closure_ptr);
     }
 }
 
@@ -203,6 +232,14 @@ static OBJ_TO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     copy_helper,
     dispose_helper,
     signature: OBJ_TO_OBJ_SIGNATURE.as_ptr(),
+});
+
+static VOID_BYTES_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: VOID_BYTES_SIGNATURE.as_ptr(),
 });
 
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
@@ -360,6 +397,30 @@ pub extern "C" fn make_obj_to_obj_block(closure_ptr: i64) -> i64 {
             closure_ptr,
             invoke_obj_to_obj_block as *const c_void,
             &OBJ_TO_OBJ_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
+/// Build a heap ObjC `void(^)(void *, size_t)` block. The ilang
+/// closure is `fn(ptr: i64, len: i64): unit` — receives a raw
+/// bytes pointer and length so the body can mutate the buffer
+/// in-place via `writeU8` etc.
+#[unsafe(export_name = "__ilang_make_void_bytes_block")]
+pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_void_bytes_block as *const c_void,
+            &VOID_BYTES_DESCRIPTOR.0,
         );
     }
     #[cfg(not(target_os = "macos"))]

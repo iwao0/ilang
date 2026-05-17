@@ -262,6 +262,10 @@ pub fn compile_with_builtins(
         "__ilang_invoke_obj_to_obj_block",
         ilang_runtime::invoke_obj_to_obj_block_via_runtime as *const u8,
     );
+    jit_builder.symbol(
+        "__ilang_make_void_bytes_block",
+        ilang_runtime::make_void_bytes_block as *const u8,
+    );
     // fs.* — `stdlib/fs.il`'s `@extern(C)` block.
     jit_builder.symbol("fs.__hasError", ilang_runtime::fs::fs_has_error as *const u8);
     jit_builder.symbol("fs.__errorCode", ilang_runtime::fs::fs_error_code as *const u8);
