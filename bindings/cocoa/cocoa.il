@@ -1,2 +1,2 @@
-pub use foundation as _ { * }
-pub use appkit as _ { * }
+pub use foundation.*
+pub use appkit.*
