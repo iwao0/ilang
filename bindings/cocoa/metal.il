@@ -75,7 +75,7 @@
 //   * Tessellation / mesh-shading pipeline knobs
 //   * Acceleration structures / ray tracing
 
-use foundation { NSObject, NSString, NSError, NSRange, withObjcError, makeObjectBlock }
+use foundation { NSObject, NSString, NSError, NSRange, withObjcError, makeObjectBlock, objcRetain }
 
 // ─── Enums ────────────────────────────────────────────────────────
 
@@ -1843,7 +1843,17 @@ pub fn newLibraryWithSourceOrError(
     device: MTLDevice, source: NSString
 ): (MTLLibrary, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
-        device.newLibraryWithSource(source, NSObject.wrap(0), slot).handle
+        // The typed wrapper returned by `newLibraryWithSource…`
+        // owns the `+1` ObjC handed back. Bind it to a local so
+        // it stays alive through the `objcRetain` call below;
+        // an inline `…newLibraryWithSource(…).handle` would
+        // release the wrapper between the field access and
+        // `objcRetain`, leaving us retaining a freed pointer.
+        // The retain balances the wrapper's scope-exit release
+        // so the handle is `+1` net at closure return — exactly
+        // what the outer `__wrap_handle` expects.
+        let lib = device.newLibraryWithSource(source, NSObject.wrap(0), slot)
+        objcRetain(lib.handle)
     })
     (MTLLibrary.__wrap_handle(h), err)
 }
@@ -1853,7 +1863,8 @@ pub fn newRenderPipelineStateOrError(
     device: MTLDevice, descriptor: MTLRenderPipelineDescriptor
 ): (MTLRenderPipelineState, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
-        device.newRenderPipelineStateWithDescriptor(descriptor, slot).handle
+        let pso = device.newRenderPipelineStateWithDescriptor(descriptor, slot)
+        objcRetain(pso.handle)
     })
     (MTLRenderPipelineState.__wrap_handle(h), err)
 }
@@ -1864,7 +1875,8 @@ pub fn newComputePipelineStateOrError(
     device: MTLDevice, function: MTLFunction
 ): (MTLComputePipelineState, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
-        device.newComputePipelineStateWithFunction(function, slot).handle
+        let pso = device.newComputePipelineStateWithFunction(function, slot)
+        objcRetain(pso.handle)
     })
     (MTLComputePipelineState.__wrap_handle(h), err)
 }

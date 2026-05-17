@@ -446,6 +446,24 @@ pub enum MatchOptions: u64 {
     @lib("objc") @symbol("objc_autoreleasePoolPop")
         fn _autoreleasepool_pop(token: i64)
 
+    // `objc_retain` / `objc_release` as raw ObjC-id i64 thunks —
+    // exposed so the `OrError` wrappers below can keep an object's
+    // refcount stable across a `.handle` extraction. Without these
+    // the pattern
+    //   let (h, err) = withObjcError(fn(slot): i64 {
+    //       device.newLibraryWithSource(…, slot).handle
+    //   })
+    //   (MTLLibrary.__wrap_handle(h), err)
+    // double-releases: the closure's typed wrapper goes out of
+    // scope at the closure boundary (releasing the +1 from `new…`),
+    // and the outer `__wrap_handle` then thinks it owns a fresh
+    // +1. Adding one `_objc_retain` inside the closure balances
+    // the books.
+    @lib("objc") @symbol("objc_retain")
+        fn _objc_retain(obj: i64): i64
+    @lib("objc") @symbol("objc_release")
+        fn _objc_release(obj: i64)
+
     // Heap-allocates an ObjC block whose `invoke` trampoline calls
     // the captured ilang closure. The block is autoreleased before
     // return so callers can pass it straight to APIs that take a
@@ -650,6 +668,22 @@ pub enum MatchOptions: u64 {
 /// Pass to AppKit calls that want an arbitrary "no sender"
 /// receiver (e.g. `win.makeKeyAndOrderFront(cocoa.nil)`).
 pub const nil = NSObject.wrap(0)
+
+/// Apply `objc_retain` to a raw `id` (as `i64`) and return the
+/// same handle. Use this inside an `OrError` closure to balance
+/// the upcoming auto-release of the closure-local @objc wrapper
+/// that owns the `+1` returned by a `new…` / `alloc` /  `copy…`
+/// selector. See the implementation note next to `_objc_retain`
+/// for the full rationale.
+pub fn objcRetain(handle: i64): i64 {
+    if handle == 0 { 0 } else { _objc_retain(handle) }
+}
+
+/// Apply `objc_release` to a raw `id` (as `i64`). Symmetric to
+/// `objcRetain`. Pass `0` safely — it's a no-op.
+pub fn objcRelease(handle: i64) {
+    if handle != 0 { _objc_release(handle) }
+}
 
 /// Run `body` with an `NSError **` slot address that the body
 /// passes into an error-bearing @objc call's `error:` argument.
