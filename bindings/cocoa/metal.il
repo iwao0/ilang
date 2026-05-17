@@ -28,7 +28,7 @@
 // omitted — it's a lot more surface, and SKRenderer doesn't
 // need it. Add per-need.
 
-use foundation { NSObject, NSString, NSError, NSRange, withObjcError }
+use foundation { NSObject, NSString, NSError, NSRange, withObjcError, makeObjectBlock }
 
 // ─── Enums ────────────────────────────────────────────────────────
 
@@ -248,6 +248,21 @@ pub enum MTLSamplerBorderColor: u64 {
     opaqueWhite      = 2
 }
 
+/// `MTLCommandBufferStatus` — lifecycle position of a command
+/// buffer. The values progress notEnqueued → enqueued → committed
+/// → scheduled → completed in the happy path; on failure the
+/// buffer ends in `error` and `MTLCommandBuffer.error()` returns
+/// the diagnostic. Useful to inspect from inside a completion
+/// handler.
+pub enum MTLCommandBufferStatus: u64 {
+    notEnqueued = 0
+    enqueued    = 1
+    committed   = 2
+    scheduled   = 3
+    completed   = 4
+    error       = 5
+}
+
 // ─── Structs ──────────────────────────────────────────────────────
 
 /// `MTLClearColor` — RGBA values in `[0, 1]` used when a colour
@@ -412,6 +427,33 @@ pub struct MTLRegion {
         // buffer until `endEncoding`.
         @objc("blitCommandEncoder")
         pub blitCommandEncoder(): MTLBlitCommandEncoder
+
+        // Lifecycle inspection. `status` advances through the
+        // `MTLCommandBufferStatus` enum as the buffer is queued /
+        // scheduled / executed; `commandBufferError` returns the
+        // `NSError *` that caused a `.error` status (or a 0 handle
+        // when none).
+        @objc("status")
+        pub status(): MTLCommandBufferStatus
+        @objc("error")
+        pub commandBufferError(): NSError
+
+        // Completion / schedule callbacks. The raw `@objc` forms
+        // take a heap-allocated ObjC block pointer (a plain `i64`)
+        // built via `foundation.makeObjectBlock(...)`. Prefer the
+        // `onCompleted(...)` / `onScheduled(...)` top-level helpers
+        // below — they hide the block-creation boilerplate and
+        // wrap the incoming raw `id` back into an
+        // `MTLCommandBuffer` for the user-supplied closure.
+        //
+        // Apple documents these handlers as "may be called on
+        // a non-main thread"; if the closure has to touch UI
+        // state, hop back to the main queue (e.g. via
+        // `NSOperationQueue.mainQueue().addOperationWithBlock`).
+        @objc("addCompletedHandler:")
+        pub addCompletedHandler(block: i64)
+        @objc("addScheduledHandler:")
+        pub addScheduledHandler(block: i64)
     }
 
     /// `id<MTLTexture>` — opaque GPU image. Build via
@@ -1245,4 +1287,43 @@ pub fn newComputePipelineStateOrError(
         device.newComputePipelineStateWithFunction(function, slot).handle
     })
     (MTLComputePipelineState.__wrap_handle(h), err)
+}
+
+// ─── Command-buffer completion / schedule handlers ───────────────
+//
+// Ergonomic wrappers around `addCompletedHandler:` /
+// `addScheduledHandler:`. Each takes an ilang closure of type
+// `fn(MTLCommandBuffer)`, packs it into a `void(^)(id)` ObjC
+// block via `foundation.makeObjectBlock`, and feeds the block to
+// the underlying Metal selector. The runtime invokes the block
+// once the command buffer reaches the matching status; the raw
+// `id` it hands us is wrapped back into an `MTLCommandBuffer`
+// for the user-supplied closure.
+//
+// The blocks are autoreleased — let them die with the surrounding
+// autorelease pool (or hold them in `@autoreleasepool { ... }`
+// around the commit if the calling thread doesn't have one).
+// Apple may invoke the handler on a non-main thread, so any UI
+// work the closure does must hop to the main queue itself.
+
+/// Register a `fn(MTLCommandBuffer)` to fire once `buf` reaches
+/// `.completed` (or `.error`) status. Inspect `buf.status()` and
+/// `buf.commandBufferError()` inside the closure to distinguish
+/// the two.
+pub fn onCompleted(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
+    let block = makeObjectBlock(fn(raw: i64) {
+        handler(MTLCommandBuffer.__wrap_handle(raw))
+    })
+    buf.addCompletedHandler(block)
+}
+
+/// Register a `fn(MTLCommandBuffer)` to fire once `buf` reaches
+/// `.scheduled` status (GPU has accepted the work; execution
+/// hasn't necessarily finished). Useful for triple-buffered
+/// frame pacing.
+pub fn onScheduled(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
+    let block = makeObjectBlock(fn(raw: i64) {
+        handler(MTLCommandBuffer.__wrap_handle(raw))
+    })
+    buf.addScheduledHandler(block)
 }

@@ -54,10 +54,20 @@ struct BlockDescriptor {
 }
 
 // ObjC runtime symbols we lean on.
+//
+// `_NSConcreteMallocBlock` is a *data symbol* (clang declares it as
+// `void *_NSConcreteMallocBlock[32]`). The block ABI requires the
+// block's `isa` slot to hold the *address* of this symbol — not the
+// first 8 bytes of the array. Declaring it here as an opaque
+// `c_void` static and taking `&` gives us that address; declaring
+// it as `static FOO: *mut c_void` would instead read the first
+// pointer-sized slot of the array and feed garbage to
+// `objc_autorelease`'s class-object dereference, which is exactly
+// the SIGSEGV the previous form produced.
 #[cfg(target_os = "macos")]
 #[link(name = "objc")]
 unsafe extern "C" {
-    static _NSConcreteMallocBlock: *mut c_void;
+    static _NSConcreteMallocBlock: c_void;
     fn objc_autorelease(obj: *mut c_void) -> *mut c_void;
 }
 
@@ -315,7 +325,7 @@ fn make_block(
     }
     let b = raw as *mut BlockLayout;
     unsafe {
-        (*b).isa = _NSConcreteMallocBlock;
+        (*b).isa = &_NSConcreteMallocBlock as *const _ as *mut c_void;
         (*b).flags = BLOCK_NEEDS_FREE
             | BLOCK_HAS_COPY_DISPOSE
             | BLOCK_HAS_SIGNATURE

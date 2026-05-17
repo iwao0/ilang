@@ -21,8 +21,8 @@ use crate::ty::mir_to_clif;
 
 use super::super::abi::{
     chunk_max_for, clif_signature_for, elem_byte_stride, elem_clif_type,
-    struct_byval_size_with_max, struct_chunks_with_max, struct_hfa,
-    struct_indirect_with_max,
+    extend_to_i64, struct_byval_size_with_max, struct_chunks_with_max,
+    struct_hfa, struct_indirect_with_max,
 };
 use super::super::print_emit::emit_print_value;
 use super::super::{
@@ -632,9 +632,47 @@ pub(super) fn lower_call<M: Module>(
                 return Ok(());
             }
         }
-        let _ = is_callee_extern;
         let results = fb.inst_results(inst_ref);
         if let Some(&v) = results.first() {
+            // Extern C callees (objc_msgSend aliases, C FFI) return
+            // unit-only enum values as a raw NSUInteger / NSInteger
+            // discriminant — but ilang represents enum values as
+            // boxed `[disc | payload]` heap pointers, so downstream
+            // code (e.g. equality against an enum literal, which
+            // compares boxed-pointer identity) treats the raw
+            // integer as a pointer and never matches.  Pipe the
+            // raw value through `__enum_unit_get` to get the same
+            // cached box that `EnumName.variant` literals resolve
+            // to, then equality / load-offset-0 / etc. work
+            // uniformly.
+            if is_callee_extern {
+                if let MirTy::Enum(eid) = &dst_ty {
+                    let layout = &prog.enums[eid.0 as usize];
+                    let unit_only = layout
+                        .variants
+                        .iter()
+                        .all(|v| matches!(v.payload, ilang_mir::VariantPayload::Unit));
+                    if unit_only {
+                        // Widen the raw discriminant to i64 (some
+                        // selectors return narrower types, e.g.
+                        // BOOL i8) before handing it to the boxer.
+                        let v_i64 = extend_to_i64(fb, v);
+                        let global =
+                            enum_global[eid.0 as usize] as i64;
+                        let global_v =
+                            fb.ins().iconst(types::I64, global);
+                        let f = module.declare_func_in_func(
+                            panic_aux.enum_unit_get,
+                            fb.func,
+                        );
+                        let call =
+                            fb.ins().call(f, &[global_v, v_i64]);
+                        let boxed = fb.inst_results(call)[0];
+                        vmap.insert(*d, boxed);
+                        return Ok(());
+                    }
+                }
+            }
             let v_clif = fb.func.dfg.value_type(v);
             let want = mir_to_clif(&dst_ty);
             let v_adj = match (want, v_clif) {
