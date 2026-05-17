@@ -28,7 +28,7 @@
 // omitted — it's a lot more surface, and SKRenderer doesn't
 // need it. Add per-need.
 
-use foundation { NSObject, NSString, NSError, withObjcError }
+use foundation { NSObject, NSString, NSError, NSRange, withObjcError }
 
 // ─── Enums ────────────────────────────────────────────────────────
 
@@ -406,6 +406,12 @@ pub struct MTLRegion {
         // calls into this command buffer until `endEncoding`.
         @objc("computeCommandEncoder")
         pub computeCommandEncoder(): MTLComputeCommandEncoder
+        // Mint a blit (memory-transfer) encoder. The encoder
+        // records buffer ↔ texture copies, mipmap generation, and
+        // managed-storage synchronisation into this command
+        // buffer until `endEncoding`.
+        @objc("blitCommandEncoder")
+        pub blitCommandEncoder(): MTLBlitCommandEncoder
     }
 
     /// `id<MTLTexture>` — opaque GPU image. Build via
@@ -1002,6 +1008,118 @@ pub struct MTLRegion {
         pub dispatchThreadgroups(
             threadgroups: MTLSize, threadsPerThreadgroup: MTLSize
         )
+
+        @objc("endEncoding")
+        pub endEncoding()
+    }
+
+    // ─── Blit encoder ─────────────────────────────────────────────
+
+    /// `id<MTLBlitCommandEncoder>` — records memory-transfer work
+    /// (buffer ↔ buffer, buffer ↔ texture, texture ↔ texture) and
+    /// resource maintenance (mipmap generation, managed-storage
+    /// CPU/GPU synchronisation) into the parent command buffer.
+    /// Mint via `cmdBuf.blitCommandEncoder()`, queue copies, then
+    /// `endEncoding` before committing.
+    ///
+    /// The copy selectors take raw `MTLOrigin` / `MTLSize` structs
+    /// (build with `metal.origin(...)` / `metal.size(...)`), so
+    /// `bytesPerRow` and `bytesPerImage` are caller-computed —
+    /// `width * bytesPerTexel` for tight 2D packing,
+    /// `bytesPerRow * height` for tight 3D packing.
+    @objc pub class MTLBlitCommandEncoder : NSObject {
+        // Buffer ↔ buffer byte copy.
+        @objc("copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:")
+        pub copyFromBufferToBuffer(
+            src: MTLBuffer,
+            sourceOffset: u64,
+            toBuffer: MTLBuffer,
+            destinationOffset: u64,
+            length: u64
+        )
+
+        // Buffer → texture upload. `sourceBytesPerImage` should be
+        // 0 for 2D destinations (no slice stride).
+        @objc("copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:")
+        pub copyFromBufferToTexture(
+            src: MTLBuffer,
+            sourceOffset: u64,
+            sourceBytesPerRow: u64,
+            sourceBytesPerImage: u64,
+            sourceSize: MTLSize,
+            toTexture: MTLTexture,
+            destinationSlice: u64,
+            destinationLevel: u64,
+            destinationOrigin: MTLOrigin
+        )
+
+        // Texture → buffer readback. Mirrors the upload variant.
+        @objc("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toBuffer:destinationOffset:destinationBytesPerRow:destinationBytesPerImage:")
+        pub copyFromTextureToBuffer(
+            src: MTLTexture,
+            sourceSlice: u64,
+            sourceLevel: u64,
+            sourceOrigin: MTLOrigin,
+            sourceSize: MTLSize,
+            toBuffer: MTLBuffer,
+            destinationOffset: u64,
+            destinationBytesPerRow: u64,
+            destinationBytesPerImage: u64
+        )
+
+        // Texture → texture copy of a single region.
+        @objc("copyFromTexture:sourceSlice:sourceLevel:sourceOrigin:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:")
+        pub copyFromTextureToTexture(
+            src: MTLTexture,
+            sourceSlice: u64,
+            sourceLevel: u64,
+            sourceOrigin: MTLOrigin,
+            sourceSize: MTLSize,
+            toTexture: MTLTexture,
+            destinationSlice: u64,
+            destinationLevel: u64,
+            destinationOrigin: MTLOrigin
+        )
+
+        // Whole-texture copy — both textures must share the same
+        // descriptor (size, pixelFormat, mip count).
+        @objc("copyFromTexture:toTexture:")
+        pub copyTextureWhole(src: MTLTexture, toTexture: MTLTexture)
+
+        // Fill a byte range of a buffer with `value`. `range` is
+        // an `(location, length)` `NSRange`; build with
+        // `foundation.makeRange(...)`.
+        @objc("fillBuffer:range:value:")
+        pub fillBuffer(buffer: MTLBuffer, range: NSRange, value: u8)
+
+        // Compute the mip chain for `texture` from its level-0
+        // image. The texture must have been allocated with
+        // `mipmapped = true`.
+        @objc("generateMipmapsForTexture:")
+        pub generateMipmapsForTexture(texture: MTLTexture)
+
+        // Managed-storage synchronisation. macOS-only — pushes any
+        // GPU-side writes back to the CPU mapping. No-op (and
+        // wasted work) on Apple silicon shared-storage resources.
+        @objc("synchronizeResource:")
+        pub synchronizeResource(resource: NSObject)
+        @objc("synchronizeTexture:slice:level:")
+        pub synchronizeTexture(t: MTLTexture, slice: u64, level: u64)
+
+        // Hint the driver to reformat the texture's storage for
+        // GPU- or CPU-friendly access. macOS 10.14+ / iOS 12+;
+        // a no-op on shared-storage resources.
+        @objc("optimizeContentsForGPUAccess:")
+        pub optimizeContentsForGPUAccess(resource: NSObject)
+        @objc("optimizeContentsForCPUAccess:")
+        pub optimizeContentsForCPUAccess(resource: NSObject)
+
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("pushDebugGroup:")
+        pub pushDebugGroup(s: NSString)
+        @objc("popDebugGroup")
+        pub popDebugGroup()
 
         @objc("endEncoding")
         pub endEncoding()
