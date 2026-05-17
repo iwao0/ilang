@@ -20,6 +20,24 @@ use ilang_types::{check, TypeError};
 
 use crate::*;
 
+/// `true` if `inner` is exposed via `pub` and should appear in
+/// another module's `use M.` completion. Used by `walk_module` /
+/// `walk_module_aliased` to skip the module's internal helpers
+/// (dlsym'd C-runtime hooks like `_autoreleasepool_pop`, the
+/// `_make_*_block` thunks etc.) that live in the same `@extern(C)`
+/// block as the user-facing wrappers but aren't intended as
+/// surface API.
+fn is_extern_c_item_pub(inner: &ilang_ast::ExternCItem) -> bool {
+    use ilang_ast::ExternCItem;
+    match inner {
+        ExternCItem::FnDecl { is_pub, .. } => *is_pub,
+        ExternCItem::FnDef(f) => f.is_pub,
+        ExternCItem::Struct { is_pub, .. } => *is_pub,
+        ExternCItem::Union { is_pub, .. } => *is_pub,
+        ExternCItem::Class(c) => c.is_pub,
+    }
+}
+
 /// Pull top-level names with prefix-style identifiers (e.g.
 /// `math.sqrt`, `math.pi`) out of a loader-merged program so the LSP
 /// can answer hover queries on imported names. Plain (un-dotted) names
@@ -365,6 +383,16 @@ pub(crate) fn walk_module(
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
+                    // Skip module-private items — only `pub` inner
+                    // FnDecls / FnDefs / Structs / Unions / Classes
+                    // should surface in another file's `M.`
+                    // completion. The `_autoreleasepool_pop` /
+                    // `_make_obj_block` family live in foundation's
+                    // ObjC runtime block without `pub` precisely so
+                    // they stay internal.
+                    if !is_extern_c_item_pub(inner) {
+                        continue;
+                    }
                     let (n, span, sig): (AstSymbol, Span, String) = match inner {
                         ilang_ast::ExternCItem::FnDecl {
                             name, span, params, ret, libs, ..
@@ -553,6 +581,11 @@ pub(crate) fn walk_module_aliased(
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
+                    // See `walk_module`'s ExternC arm — same rule
+                    // applies to umbrella re-exports.
+                    if !is_extern_c_item_pub(inner) {
+                        continue;
+                    }
                     let entry: Option<(AstSymbol, Span, String)> = match inner {
                         ilang_ast::ExternCItem::FnDecl {
                             name, span, params, ret, libs, ..
