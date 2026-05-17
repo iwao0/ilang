@@ -276,6 +276,9 @@ impl<'a> Walker<'a> {
             }
         }
         for m in &c.methods {
+            if is_parser_synth_helper(m, c.span) {
+                continue;
+            }
             self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
@@ -285,6 +288,9 @@ impl<'a> Walker<'a> {
             self.walk_fn(m, Some(c.name.as_str()));
         }
         for m in &c.static_methods {
+            if is_parser_synth_helper(m, c.span) {
+                continue;
+            }
             self.push_decl_with_doc(
                 m.name.as_str(),
                 m.span,
@@ -1328,4 +1334,19 @@ impl<'a> Walker<'a> {
             _ => None,
         }
     }
+}
+
+/// `true` when this method came from a parser-side synthesis pass
+/// (mainly the `@objc class` desugar's `__wrap_handle` /
+/// `__bind_handle` / `__bind_handle_unowned` / `__super_…`
+/// helpers) and should NOT be surfaced as a hover entry. These
+/// methods carry the class-level span by construction — pushing
+/// a decl for them would paint the class name itself with the
+/// synthesised method's signature ("(static method)
+/// SKNode.__wrap_handle(h: i64): SKNode" instead of "class
+/// SKNode"). The `__` prefix combined with the span-equality
+/// check keeps the screen for any user code that happens to use
+/// double-underscore names with real spans of its own.
+fn is_parser_synth_helper(m: &FnDecl, class_span: Span) -> bool {
+    m.name.as_str().starts_with("__") && m.span == class_span
 }
