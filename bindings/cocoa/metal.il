@@ -79,6 +79,17 @@ pub enum MTLTextureUsage: u64 {
     pixelFormatView  = 0x0010
 }
 
+/// `MTLStorageMode` — bare storage-mode enum, used by
+/// `MTLTextureDescriptor.setStorageMode(...)`. Sits adjacent to
+/// `MTLResourceOptions` (which packs the same modes as bit
+/// fields for the buffer factories' `options:` argument).
+pub enum MTLStorageMode: u64 {
+    shared     = 0
+    managed    = 1
+    private    = 2
+    memoryless = 3
+}
+
 /// `MTLResourceOptions` — storage / cache / hazard-tracking mode
 /// for a buffer or texture. The shared / managed / private modes
 /// are the bits casual callers care about. `storageModeShared` is
@@ -183,6 +194,23 @@ pub struct MTLSize {
     width: u64
     height: u64
     depth: u64
+}
+
+/// `MTLOrigin` — 3D coordinate used as the base point of an
+/// `MTLRegion`. For 2D textures set `z = 0`; for 1D textures set
+/// `y` and `z` to 0.
+pub struct MTLOrigin {
+    x: u64
+    y: u64
+    z: u64
+}
+
+/// `MTLRegion` — rectangular sub-volume of a texture, used by
+/// `MTLTexture.replaceRegion(...)` (upload) and `getBytes(...)`
+/// (readback). 48 bytes total = 3× u64 origin + 3× u64 size.
+pub struct MTLRegion {
+    origin: MTLOrigin
+    size: MTLSize
 }
 
 // ─── Metal classes / protocols ────────────────────────────────────
@@ -297,9 +325,13 @@ pub struct MTLSize {
     /// `id<MTLTexture>` — opaque GPU image. Build via
     /// `device.newTextureWithDescriptor(desc)` from a configured
     /// `MTLTextureDescriptor`, then plug into a render-pass
-    /// colour attachment so SKRenderer draws into it. Reading
-    /// back to CPU (`getBytes:bytesPerRow:fromRegion:mipmapLevel:`)
-    /// isn't bound yet — add per-need.
+    /// colour attachment so SKRenderer draws into it, or move
+    /// raw bytes in / out via `replaceRegion(...)` /
+    /// `getBytes(...)`. The buffer the caller provides for those
+    /// is a raw `i64` pointer — see the
+    /// `cocoa.{writeU8, readU8, ...}` helpers (or `malloc` /
+    /// `MTLBuffer.contents` if you've got a staging buffer
+    /// already in hand).
     @objc pub class MTLTexture : NSObject {
         @objc("width")
         pub width(): u64
@@ -307,6 +339,48 @@ pub struct MTLSize {
         pub height(): u64
         @objc("pixelFormat")
         pub pixelFormat(): MTLPixelFormat
+
+        // ─── CPU ↔ GPU byte transfer ────────────────────────────
+        //
+        // `bytes` is a raw `i64` address (compute via `&local`
+        // inside an @extern(C) block, or take it from
+        // `mtlbuf.contents()`). `bytesPerRow` is the row stride
+        // in bytes — for tight packing pass `region.size.width *
+        // bytes_per_pixel` (e.g. 4 for BGRA8Unorm). The storage
+        // mode must allow CPU access; private-storage textures
+        // need a blit encoder + staging buffer instead.
+        @objc("replaceRegion:mipmapLevel:withBytes:bytesPerRow:")
+        pub replaceRegion(
+            r: MTLRegion,
+            mipmapLevel: u64,
+            withBytes: i64,
+            bytesPerRow: u64
+        )
+        @objc("replaceRegion:mipmapLevel:slice:withBytes:bytesPerRow:bytesPerImage:")
+        pub replaceRegionSlice(
+            r: MTLRegion,
+            mipmapLevel: u64,
+            slice: u64,
+            withBytes: i64,
+            bytesPerRow: u64,
+            bytesPerImage: u64
+        )
+        @objc("getBytes:bytesPerRow:fromRegion:mipmapLevel:")
+        pub getBytes(
+            bytes: i64,
+            bytesPerRow: u64,
+            fromRegion: MTLRegion,
+            mipmapLevel: u64
+        )
+        @objc("getBytes:bytesPerRow:bytesPerImage:fromRegion:mipmapLevel:slice:")
+        pub getBytesSlice(
+            bytes: i64,
+            bytesPerRow: u64,
+            bytesPerImage: u64,
+            fromRegion: MTLRegion,
+            mipmapLevel: u64,
+            slice: u64
+        )
     }
 
     /// `MTLTextureDescriptor` — describes a texture to create.
@@ -333,7 +407,7 @@ pub struct MTLSize {
         @objc("setUsage:")
         pub setUsage(u: MTLTextureUsage)
         @objc("setStorageMode:")
-        pub setStorageMode(m: u64)
+        pub setStorageMode(m: MTLStorageMode)
     }
 
     /// `MTLRenderPassDescriptor` — describes the attachments the
@@ -682,6 +756,54 @@ pub fn size1D(n: u64): MTLSize {
 /// `MTLSize` for a 2D dispatch (`w` × `h`).
 pub fn size2D(w: u64, h: u64): MTLSize {
     size(w, h, 1)
+}
+
+/// `MTLOrigin` constructor. For 2D textures pass `z = 0`; for 1D
+/// pass `y = z = 0`.
+pub fn origin(x: u64, y: u64, z: u64): MTLOrigin {
+    let o = new MTLOrigin()
+    o.x = x
+    o.y = y
+    o.z = z
+    o
+}
+
+/// `MTLOrigin` at the texture's top-left corner (all zero).
+pub fn originZero(): MTLOrigin {
+    origin(0, 0, 0)
+}
+
+/// `MTLOrigin` for a 2D texture (`z = 0`).
+pub fn origin2D(x: u64, y: u64): MTLOrigin {
+    origin(x, y, 0)
+}
+
+/// Build an `MTLRegion` from raw `(x, y, z, w, h, d)` components.
+/// The whole-struct nested assignment (`r.size = s`) hits an
+/// ilang codegen issue today — drilling down field-by-field
+/// sidesteps it.
+pub fn region(x: u64, y: u64, z: u64, w: u64, h: u64, d: u64): MTLRegion {
+    let r = new MTLRegion()
+    r.origin.x = x
+    r.origin.y = y
+    r.origin.z = z
+    r.size.width = w
+    r.size.height = h
+    r.size.depth = d
+    r
+}
+
+/// `MTLRegion` covering a 2D `w` × `h` rectangle starting at
+/// `(x, y)`. The 99% case for replaceRegion / getBytes on a 2D
+/// texture.
+pub fn region2D(x: u64, y: u64, w: u64, h: u64): MTLRegion {
+    region(x, y, 0, w, h, 1)
+}
+
+/// `MTLRegion` covering a 3D `w` × `h` × `d` volume at the
+/// origin.
+pub fn region3D(x: u64, y: u64, z: u64, w: u64, h: u64, d: u64): MTLRegion {
+    region(x, y, z, w, h, d)
 }
 
 // ─── Error-aware shader / pipeline wrappers ──────────────────────
