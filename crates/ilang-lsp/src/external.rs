@@ -518,6 +518,11 @@ pub(crate) fn walk_module_aliased(
             }
             Item::Fn(f) => {
                 let key = format!("{alias_prefix}.{}", f.name);
+                let sig = format!("fn {}", fn_body(f));
+                out.insert(
+                    AstSymbol::intern(&key),
+                    format!("fn {}", sig.trim_start_matches("fn ")),
+                );
                 put(&key, f.span, f.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, f.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -525,6 +530,7 @@ pub(crate) fn walk_module_aliased(
             }
             Item::Class(c) => {
                 let key = format!("{alias_prefix}.{}", c.name);
+                out.insert(AstSymbol::intern(&key), format!("class {key}"));
                 put(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -547,22 +553,62 @@ pub(crate) fn walk_module_aliased(
             }
             Item::ExternC(b) => {
                 for inner in &b.items {
-                    let entry = match inner {
-                        ilang_ast::ExternCItem::FnDecl { name, span, .. } => {
-                            Some((name.clone(), *span))
+                    let entry: Option<(AstSymbol, Span, String)> = match inner {
+                        ilang_ast::ExternCItem::FnDecl {
+                            name, span, params, ret, libs, ..
+                        } => {
+                            let ps = params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let r = match ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            let libs_prefix = if libs.is_empty() {
+                                String::new()
+                            } else {
+                                let names = libs
+                                    .iter()
+                                    .map(|l| format!("\"{l}\""))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("@lib({names})\n")
+                            };
+                            Some((
+                                (*name).into(),
+                                *span,
+                                format!("{libs_prefix}fn {alias_prefix}.{name}({ps}){r}"),
+                            ))
                         }
-                        ilang_ast::ExternCItem::FnDef(f) => Some((f.name.clone(), f.span)),
-                        ilang_ast::ExternCItem::Struct { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
-                        ilang_ast::ExternCItem::Union { name, span, .. } => {
-                            Some((name.clone(), *span))
-                        }
-                        ilang_ast::ExternCItem::Class(c) => Some((c.name.clone(), c.span)),
+                        ilang_ast::ExternCItem::FnDef(f) => Some((
+                            f.name.into(),
+                            f.span,
+                            format!("fn {alias_prefix}.{} {}", f.name, fn_body(f))
+                                .trim_start_matches("fn ")
+                                .to_string(),
+                        )),
+                        ilang_ast::ExternCItem::Struct { name, span, .. } => Some((
+                            (*name).into(),
+                            *span,
+                            format!("struct {alias_prefix}.{name}"),
+                        )),
+                        ilang_ast::ExternCItem::Union { name, span, .. } => Some((
+                            (*name).into(),
+                            *span,
+                            format!("union {alias_prefix}.{name}"),
+                        )),
+                        ilang_ast::ExternCItem::Class(c) => Some((
+                            c.name.into(),
+                            c.span,
+                            format!("class {alias_prefix}.{}", c.name),
+                        )),
                     };
-                    if let Some((n, span)) = entry {
+                    if let Some((n, span, sig)) = entry {
                         let len = n.as_str().len() as u32;
                         let key = format!("{alias_prefix}.{n}");
+                        out.insert(AstSymbol::intern(&key), sig);
                         put(&key, span, len, sources);
                         if let Some(d) = text::extract_doc_above(&module_src, span.line) {
                             docs.insert(AstSymbol::intern(&key), d);
