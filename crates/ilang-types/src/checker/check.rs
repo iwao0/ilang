@@ -42,7 +42,15 @@ impl TypeChecker {
         // `class C: Iface { ... }` (where the parser left the interface
         // name in the `parent` slot).
         for item in &prog.items {
-            if let Item::Interface(i) = item {
+            // Collect from both `Item::Interface` (top-level) and
+            // `@objc interface` declarations nested inside
+            // `@extern(ObjC)` blocks — both register identically.
+            let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
+                Item::Interface(i) => vec![i],
+                Item::ExternC(b) => b.interfaces.iter().collect(),
+                _ => continue,
+            };
+            for i in iface_list {
                 let mut methods = Vec::with_capacity(i.methods.len());
                 let mut seen: HashSet<Symbol> = HashSet::new();
                 for m in i.methods.iter() {
@@ -208,6 +216,10 @@ impl TypeChecker {
                 }
             }
         }
+        // (`@objc interface` declarations inside `@extern(ObjC)`
+        // blocks were already picked up by the pre-pass at the
+        // top of this function — they share `InterfaceSig` with
+        // top-level interfaces.)
         // Now every struct / union (both `@extern(C)` and top-level)
         // is registered in `self.classes`, so we can validate the
         // top-level (`restrict_c_types: true`) ones — they must not

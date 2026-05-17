@@ -94,7 +94,7 @@ impl<'a> Parser<'a> {
             items.push(item);
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCBlock { items: items.into(), span })
+        Ok(ilang_ast::ExternCBlock { items: items.into(), interfaces: Box::new([]), span })
     }
 
     pub(super) fn parse_extern_c_fn(

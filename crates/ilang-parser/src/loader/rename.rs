@@ -127,6 +127,22 @@ pub(super) fn rename_in_item(item: &mut Item, rules: &HashMap<Symbol, Symbol>) {
                     }
                 }
             }
+            // @objc interfaces declared alongside the FFI items
+            // — rename their method param / return types so
+            // cross-module references stay consistent.
+            for iface in b.interfaces.iter_mut() {
+                if is_submodule_name(&iface.name) {
+                    continue;
+                }
+                for m in iface.methods.iter_mut() {
+                    for p in m.params.iter_mut() {
+                        rename_in_type(&mut p.ty, rules);
+                    }
+                    if let Some(t) = m.ret.as_mut() {
+                        rename_in_type(t, rules);
+                    }
+                }
+            }
         }
         Item::Interface(_) => {}
     }

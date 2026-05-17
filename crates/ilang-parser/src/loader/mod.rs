@@ -1124,6 +1124,11 @@ fn collect_export_names(
                 out.insert(i.name.clone());
             }
             Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    if iface.is_pub {
+                        out.insert(iface.name);
+                    }
+                }
                 for inner in &b.items {
                     match inner {
                         ilang_ast::ExternCItem::Struct { is_pub: true, name, .. }

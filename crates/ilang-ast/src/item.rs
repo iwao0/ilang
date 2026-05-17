@@ -262,6 +262,12 @@ pub struct InterfaceDecl {
     pub is_pub: bool,
     pub name: Symbol,
     pub methods: Box<[InterfaceMethod]>,
+    /// `@objc` attribute. Set by the parser when the interface
+    /// is declared inside an `@extern(ObjC) { ... }` block; lets
+    /// downstream passes recognise a class that implements this
+    /// interface as an Objective-C subclass and emit the
+    /// `objc_msgSend` / class-registration plumbing automatically.
+    pub is_objc: bool,
     pub span: Span,
 }
 
@@ -278,6 +284,14 @@ pub struct InterfaceMethod {
     /// model Objective-C `@optional` protocol methods, which the
     /// ObjC runtime probes via `respondsToSelector:`).
     pub is_optional: bool,
+    /// Objective-C selector for `@objc` interface methods. `Some`
+    /// when the interface is declared inside `@extern(ObjC)` —
+    /// either explicit (`@objc("application:openFile:")`) or
+    /// auto-derived from the method name + parameter count by the
+    /// parser (`foo(a, b)` → `"foo::"`). Implementing classes
+    /// inherit this selector so users don't have to repeat
+    /// `@objc("...")` on each method body.
+    pub objc_selector: Option<Symbol>,
     pub span: Span,
 }
 
@@ -311,6 +325,13 @@ pub enum Item {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternCBlock {
     pub items: Box<[ExternCItem]>,
+    /// `@objc interface … { … }` declarations inside an
+    /// `@extern(ObjC) { … }` block. Kept here rather than inside
+    /// `items` because they're really top-level interfaces with
+    /// extra selector metadata, not C ABI declarations. The
+    /// loader / type checker walk this list alongside top-level
+    /// `Item::Interface` to register them globally.
+    pub interfaces: Box<[InterfaceDecl]>,
     pub span: Span,
 }
 

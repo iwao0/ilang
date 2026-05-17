@@ -99,6 +99,7 @@ impl<'a> Parser<'a> {
                 }
                 return Ok(Item::ExternC(ilang_ast::ExternCBlock {
                     items: Box::new([item]),
+                    interfaces: Box::new([]),
                     span,
                 }));
             }
@@ -830,15 +831,34 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
-            // Attributes on interface methods. Currently the only
-            // attribute we recognise is `@optional`, which marks
-            // the method as not-required-to-implement. Unknown
-            // attributes are kept in the parsed list and ignored
-            // here; later passes may complain.
+            // Attributes on interface methods:
+            //   `@optional`             — implementing classes may
+            //                             skip this method.
+            //   `@objc("selector:")`    — explicit Objective-C
+            //                             selector for an @objc
+            //                             interface method.
             let m_attrs = self.parse_attributes()?;
             let is_optional = m_attrs
                 .iter()
                 .any(|a| a.name.as_str() == "optional");
+            let mut objc_selector: Option<Symbol> = None;
+            for a in m_attrs.iter() {
+                if a.name.as_str() == "objc" {
+                    match &a.args[..] {
+                        [ilang_ast::AttrArg::Str(s)] => {
+                            objc_selector = Some(Symbol::intern(s));
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "@objc(\"selector:\") takes exactly one string argument".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
+                }
+            }
             let m_span = self.peek().span;
             // Method declarations mirror the class-body shape:
             // `name(params): ret` — no leading `fn` keyword. A
@@ -889,6 +909,7 @@ impl<'a> Parser<'a> {
                 params: params.into(),
                 ret,
                 is_optional,
+                objc_selector,
                 span: m_span,
             });
         }
@@ -897,6 +918,7 @@ impl<'a> Parser<'a> {
             is_pub: false,
             name,
             methods: methods.into(),
+            is_objc: false,
             span,
         })
     }

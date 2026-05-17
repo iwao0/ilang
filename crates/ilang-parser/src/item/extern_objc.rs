@@ -47,6 +47,7 @@ impl<'a> Parser<'a> {
         let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
         let mut objc_fns: Vec<ObjcMethod> = Vec::new();
         let mut objc_classes: Vec<ObjcClass> = Vec::new();
+        let mut objc_interfaces: Vec<ilang_ast::InterfaceDecl> = Vec::new();
 
         loop {
             if matches!(self.peek().kind, TokenKind::RBrace) {
@@ -77,18 +78,53 @@ impl<'a> Parser<'a> {
                 }
                 let attr = &inner_attrs[pos];
                 if attr.args.is_empty() {
-                    // @objc class Name { ... }
-                    if !matches!(self.peek().kind, TokenKind::Class) {
-                        let t = self.peek();
-                        return Err(ParseError::Unexpected {
-                            found: t.kind.clone(),
-                            expected: "`class` after bare @objc (use @objc(\"sel:\") for fns)".into(),
-                            span: t.span,
-                        });
+                    // @objc class Name { ... } OR @objc interface Name { ... }
+                    match self.peek().kind {
+                        TokenKind::Class => {
+                            let parsed = self.parse_objc_class_decl(item_is_pub)?;
+                            objc_classes.push(parsed);
+                            continue;
+                        }
+                        TokenKind::Interface => {
+                            let mut iface = self.parse_interface_decl()?;
+                            iface.is_pub = item_is_pub;
+                            iface.is_objc = true;
+                            // Auto-derive Objective-C selectors for
+                            // methods that didn't get an explicit
+                            // `@objc("…")` annotation. The rule is
+                            // method name + ':' × paramCount —
+                            // matches the common ObjC convention.
+                            // Methods with intermediate keywords
+                            // (`application:openFile:`) must use
+                            // explicit `@objc("…")`.
+                            let methods = std::mem::take(&mut iface.methods);
+                            iface.methods = methods
+                                .into_vec()
+                                .into_iter()
+                                .map(|mut m| {
+                                    if m.objc_selector.is_none() {
+                                        let mut s = m.name.as_str().to_string();
+                                        for _ in 0..m.params.len() {
+                                            s.push(':');
+                                        }
+                                        m.objc_selector =
+                                            Some(Symbol::intern(&s));
+                                    }
+                                    m
+                                })
+                                .collect();
+                            objc_interfaces.push(iface);
+                            continue;
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "`class` or `interface` after bare @objc (use @objc(\"sel:\") for fns)".into(),
+                                span: t.span,
+                            });
+                        }
                     }
-                    let parsed = self.parse_objc_class_decl(item_is_pub)?;
-                    objc_classes.push(parsed);
-                    continue;
                 } else {
                     // @objc("sel") fn name(...) — free-fn dispatch
                     let selector = match &attr.args[..] {
@@ -544,7 +580,11 @@ impl<'a> Parser<'a> {
             items.push(build_sel_cache_class(&sel_cache, block_span));
         }
 
-        Ok(ilang_ast::ExternCBlock { items: items.into(), span: block_span })
+        Ok(ilang_ast::ExternCBlock {
+            items: items.into(),
+            interfaces: objc_interfaces.into(),
+            span: block_span,
+        })
     }
 
     fn parse_objc_method(
