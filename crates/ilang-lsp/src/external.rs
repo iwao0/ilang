@@ -838,13 +838,17 @@ pub(crate) fn collect_external_classes(
         let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
         for prop in &c.properties {
             let prop_doc = field_doc_at(&mut src_cache, sources, &c.name, prop.span.line);
+            let prop_kind = if prop.is_static { "static property" } else { "property" };
             fields.insert(
                 prop.name.into(),
                 MemberInfo {
                     span: prop.span,
-                    signature: format!("(property) {}.{}: {}", c.name, prop.name, prop.ty),
+                    signature: format!(
+                        "({prop_kind}) {}.{}: {}",
+                        c.name, prop.name, prop.ty
+                    ),
                     ret_ty: Some(prop.ty.clone()),
-                    is_static: false,
+                    is_static: prop.is_static,
                     doc: prop_doc.clone(),
                 },
             );

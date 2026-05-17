@@ -376,16 +376,17 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
             let mut getters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
             let mut setters: HashMap<AstSymbol, MemberInfo> = HashMap::new();
             for prop in &c.properties {
+                let prop_kind = if prop.is_static { "static property" } else { "property" };
                 fields.insert(
                     prop.name.into(),
                     MemberInfo {
                         span: prop.span,
                         signature: format!(
-                            "(property) {}.{}: {}",
+                            "({prop_kind}) {}.{}: {}",
                             c.name, prop.name, prop.ty
                         ),
                         ret_ty: Some(prop.ty.clone()),
-                        is_static: false,
+                        is_static: prop.is_static,
                         doc: text::extract_doc_above(src, prop.span.line),
                     },
                 );
