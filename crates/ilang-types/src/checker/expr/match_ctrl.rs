@@ -742,27 +742,14 @@ impl TypeChecker {
                 }
                 // Optional unification: a bare `none` arm has
                 // inferred type `any?`, while a `some(v)` arm
-                // has `T?`. Prefer the concrete `T?` so
-                // `if cond { some(v) } else { none }` infers
-                // cleanly against an annotated `T?` slot.
-                // Also handle the recursive Object-ancestor case
-                // for `T?` ↔ `U?` where T and U share a parent.
-                if let (Type::Optional(a), Type::Optional(b)) =
-                    (&then_ty, &else_ty)
-                {
-                    if matches!(**a, Type::Any) {
-                        return Ok(Type::Optional(b.clone()));
-                    }
-                    if matches!(**b, Type::Any) {
-                        return Ok(Type::Optional(a.clone()));
-                    }
-                    if let (Type::Object(ca), Type::Object(cb)) =
-                        (&**a, &**b)
-                    {
-                        if let Some(anc) = self.common_ancestor(*ca, *cb) {
-                            return Ok(Type::Optional(Box::new(Type::Object(anc))));
-                        }
-                    }
+                // has `T?`. Prefer the concrete side at every
+                // Optional layer so nested cases like
+                // `if cond { some(some(v)) } else { none }`
+                // (`some(none)` etc.) infer as the user
+                // expects. Object-typed inners are joined via
+                // the existing common-ancestor rule.
+                if let Some(merged) = self.unify_optional_branches(&then_ty, &else_ty) {
+                    return Ok(merged);
                 }
                 // Rust 流: 暗黙の数値拡張は禁止 (i64 と f64 を
                 // ぶつけたらエラー)。例外として、片方のアームの末尾式
@@ -783,6 +770,35 @@ impl TypeChecker {
                     span: else_e.span,
                 })
             }
+        }
+    }
+
+    /// Walk down an Optional chain and pick the concrete side at
+    /// each layer. `Any` (the type a bare `none` literal carries)
+    /// yields to the sibling's more concrete type; Object inners
+    /// collapse to their common ancestor when both are object
+    /// types. Returns `None` when no consistent merge exists
+    /// (e.g. `Optional<i64>` ↔ `Optional<string>`), which lets
+    /// the caller fall through to the standard mismatch error.
+    pub(super) fn unify_optional_branches(
+        &self,
+        a: &Type,
+        b: &Type,
+    ) -> Option<Type> {
+        if a == b {
+            return Some(a.clone());
+        }
+        match (a, b) {
+            (Type::Any, _) => Some(b.clone()),
+            (_, Type::Any) => Some(a.clone()),
+            (Type::Optional(ia), Type::Optional(ib)) => {
+                let inner = self.unify_optional_branches(ia, ib)?;
+                Some(Type::Optional(Box::new(inner)))
+            }
+            (Type::Object(ca), Type::Object(cb)) => {
+                self.common_ancestor(*ca, *cb).map(Type::Object)
+            }
+            _ => None,
         }
     }
 }
