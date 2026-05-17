@@ -247,6 +247,13 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub convertPointToNode(p: NSPoint, toNode: SKNode): NSPoint
         @objc("convertPoint:fromNode:")
         pub convertPointFromNode(p: NSPoint, fromNode: SKNode): NSPoint
+
+        // Inverse-kinematics joint limits — consumed by
+        // `SKAction.reachTo:rootNode:duration:` and the like.
+        @objc("setReachConstraints:")
+        pub setReachConstraints(c: SKReachConstraints)
+        @objc("reachConstraints")
+        pub reachConstraints(): SKReachConstraints
     }
 
     /// The top-level scene rendered by an `SKView`. Size is in
@@ -323,6 +330,14 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setShader(s: SKShader)
         @objc("shader")
         pub shader(): SKShader
+
+        // Warp geometry (SKWarpable) — drives a per-frame
+        // vertex remap of the sprite quad. Pair with
+        // `SKAction.warpTo:duration:` (not bound) to animate.
+        @objc("setWarpGeometry:")
+        pub setWarpGeometry(g: SKWarpGeometry)
+        @objc("warpGeometry")
+        pub warpGeometry(): SKWarpGeometry
     }
 
     /// Vector shape node — circles / rects / arbitrary paths.
@@ -715,6 +730,10 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setFieldEnabled(flag: bool)
         @objc("setCategoryBitMask:")
         pub setCategoryBitMask(m: u32)
+        @objc("setRegion:")
+        pub setRegion(r: SKRegion)
+        @objc("region")
+        pub region(): SKRegion
     }
 
     // ─── Effect nodes ────────────────────────────────────────────
@@ -764,6 +783,13 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setShader(s: SKShader)
         @objc("shader")
         pub shader(): SKShader
+
+        // Warp geometry — same shape as `SKSpriteNode`'s; the
+        // EffectNode warps its rasterised subtree as a whole.
+        @objc("setWarpGeometry:")
+        pub setWarpGeometry(g: SKWarpGeometry)
+        @objc("warpGeometry")
+        pub warpGeometry(): SKWarpGeometry
     }
 
     /// `SKEmitterNode` — particle source. The setters here
@@ -1328,5 +1354,166 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setPausesIncomingScene(flag: bool)
         @objc("setPausesOutgoingScene:")
         pub setPausesOutgoingScene(flag: bool)
+    }
+
+    // ─── Shader / per-node attribute value ───────────────────────
+
+    /// `SKAttributeValue` — per-node value handed to a custom
+    /// shader, paired with the matching `SKAttribute` declared
+    /// on the shader. Vector setters (vec2 / vec3 / vec4)
+    /// require the SIMD struct types and are deferred; the
+    /// scalar `valueWithFloat:` covers the common 1-uniform
+    /// case.
+    @objc pub class SKAttributeValue : NSObject {
+        @objc("valueWithFloat:")
+        pub static valueWithFloat(v: f32): SKAttributeValue
+
+        @objc("setFloatValue:")
+        pub setFloatValue(v: f32)
+        @objc("floatValue")
+        pub floatValue(): f32
+    }
+
+    // ─── Tile auto-mapping rule ──────────────────────────────────
+
+    /// `SKTileGroupRule` — one entry in an `SKTileGroup`'s
+    /// `rules` array driving auto-tiling. Pair the adjacency
+    /// bitmask (combine `cocoa.TileAdjacency*` constants) with
+    /// the tile definitions to use when neighbouring cells
+    /// match.
+    @objc pub class SKTileGroupRule : NSObject {
+        @objc("tileGroupRuleWithAdjacency:tileDefinitions:")
+        pub static tileGroupRuleWithAdjacency(
+            adjacency: u32, tileDefinitions: NSArray
+        ): SKTileGroupRule
+
+        @objc("setAdjacency:")
+        pub setAdjacency(a: u32)
+        @objc("adjacency")
+        pub adjacency(): u32
+        @objc("setTileDefinitions:")
+        pub setTileDefinitions(defs: NSArray)
+        @objc("tileDefinitions")
+        pub tileDefinitions(): NSArray
+        @objc("setName:")
+        pub setRuleName(n: NSString)
+        @objc("name")
+        pub ruleName(): NSString
+    }
+
+    // ─── Field / emitter region ──────────────────────────────────
+
+    /// `SKRegion` — 2-D area, attached to `SKFieldNode` /
+    /// `SKEmitterNode` (and a few hit-test APIs) to clip the
+    /// effect's influence to a shape. Build with the size /
+    /// radius factories, then compose via the boolean helpers
+    /// (`union` / `intersection` / `difference`).
+    @objc pub class SKRegion : NSObject {
+        @objc("alloc")
+        pub static alloc(): SKRegion
+        @objc("infiniteRegion")
+        pub static infiniteRegion(): SKRegion
+        @objc("initWithRadius:")
+        pub initWithRadius(r: f32): SKRegion
+        @objc("initWithSize:")
+        pub initWithSize(s: NSSize): SKRegion
+
+        @objc("inverseRegion")
+        pub inverseRegion(): SKRegion
+        @objc("regionByUnionWithRegion:")
+        pub regionByUnion(other: SKRegion): SKRegion
+        @objc("regionByDifferenceFromRegion:")
+        pub regionByDifferenceFrom(other: SKRegion): SKRegion
+        @objc("regionByIntersectionWithRegion:")
+        pub regionByIntersection(other: SKRegion): SKRegion
+        @objc("containsPoint:")
+        pub containsPoint(p: NSPoint): bool
+    }
+
+    // ─── Inverse kinematics ──────────────────────────────────────
+
+    /// `SKReachConstraints` — per-joint angle limits used by
+    /// SpriteKit's IK solver
+    /// (`SKAction.reachTo:rootNode:duration:`). Both angles are
+    /// in radians; pass `±π` for "no limit".
+    @objc pub class SKReachConstraints : NSObject {
+        @objc("alloc")
+        pub static alloc(): SKReachConstraints
+        @objc("initWithLowerAngleLimit:upperAngleLimit:")
+        pub init(lower: f64, upperAngleLimit: f64): SKReachConstraints
+
+        @objc("setLowerAngleLimit:")
+        pub setLowerAngleLimit(v: f64)
+        @objc("setUpperAngleLimit:")
+        pub setUpperAngleLimit(v: f64)
+        @objc("lowerAngleLimit")
+        pub lowerAngleLimit(): f64
+        @objc("upperAngleLimit")
+        pub upperAngleLimit(): f64
+    }
+
+    // ─── Warp geometry ───────────────────────────────────────────
+
+    /// `SKWarpGeometry` — abstract base for the warp meshes
+    /// applied to `SKSpriteNode` / `SKEffectNode` via
+    /// `setWarpGeometry:`. Concrete shapes are subclasses
+    /// (today: `SKWarpGeometryGrid`).
+    @objc pub class SKWarpGeometry : NSObject {}
+
+    /// `SKWarpGeometryGrid` — `columns × rows` quad mesh that
+    /// remaps source positions (in normalised 0..1 texture
+    /// coords) to destination positions (in normalised 0..1
+    /// node coords). The position-array factories take
+    /// `const CGPoint *` arrays — unbind-able from ilang code
+    /// today, so only the count-only `gridWithColumns:rows:`
+    /// factory is exposed; per-vertex tweaks go through
+    /// `gridByReplacingDestPositions:` once SIMD-array support
+    /// lands.
+    @objc pub class SKWarpGeometryGrid : SKWarpGeometry {
+        @objc("gridWithColumns:rows:")
+        pub static gridWithColumns(columns: i64, rows: i64): SKWarpGeometryGrid
+
+        @objc("numberOfColumns")
+        pub numberOfColumns(): i64
+        @objc("numberOfRows")
+        pub numberOfRows(): i64
+        @objc("vertexCount")
+        pub vertexCount(): i64
+        @objc("sourcePositionAtIndex:")
+        pub sourcePositionAtIndex(i: i64): NSPoint
+        @objc("destPositionAtIndex:")
+        pub destPositionAtIndex(i: i64): NSPoint
+    }
+
+    // ─── Off-screen rendering ────────────────────────────────────
+
+    /// `SKRenderer` — render an SKScene through a caller-owned
+    /// Metal command buffer. Needs an `id<MTLDevice>` (slot
+    /// typed `NSObject` so an as-yet-unbound Metal handle can
+    /// flow in) and an `MTLCommandBuffer` /
+    /// `MTLRenderPassDescriptor` at draw time. The drawing
+    /// selector is intentionally not bound until the Metal
+    /// types get their own binding — for now `rendererWithDevice:`
+    /// + `setScene:` + `updateAtTime:` cover the setup half.
+    @objc pub class SKRenderer : NSObject {
+        @objc("rendererWithDevice:")
+        pub static rendererWithDevice(device: NSObject): SKRenderer
+
+        @objc("setScene:")
+        pub setScene(s: SKScene)
+        @objc("scene")
+        pub scene(): SKScene
+        @objc("updateAtTime:")
+        pub updateAtTime(t: f64)
+        @objc("setShowsFields:")
+        pub setShowsFields(flag: bool)
+        @objc("setShowsPhysics:")
+        pub setShowsPhysics(flag: bool)
+        @objc("setShowsQuadCount:")
+        pub setShowsQuadCount(flag: bool)
+        @objc("setShowsNodeCount:")
+        pub setShowsNodeCount(flag: bool)
+        @objc("setShowsDrawCount:")
+        pub setShowsDrawCount(flag: bool)
     }
 }
