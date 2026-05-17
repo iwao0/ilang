@@ -4,7 +4,7 @@
 // with them. Depends on `foundation` for NSObject / NSString /
 // geometry types.
 
-use foundation { NSObject, NSString, NSRect, nsstr, makeRect }
+use foundation { NSObject, NSString, NSArray, NSURL, NSSize, NSRect, nsstr, ilstr, makeRect }
 
 // ─── NSWindow.StyleMask ──────────────────────────────────────────
 // Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
@@ -74,6 +74,24 @@ pub enum LayoutOrientation: i64 {
     vertical   = 1
 }
 
+// NSAlertStyle — visual severity of an `NSAlert`. Affects the
+// icon and accent the system draws.
+pub enum AlertStyle: i64 {
+    warning       = 0
+    informational = 1
+    critical      = 2
+}
+
+// NSModalResponse — return value of `runModal` on save / open
+// panels and (for the OK/Cancel pair) modal sheets. NSAlert uses
+// a separate range starting at 1000 for "first button", "second
+// button", "third button" in addition order.
+pub const ModalResponseOK: i64 = 1
+pub const ModalResponseCancel: i64 = 0
+pub const AlertFirstButtonReturn: i64 = 1000
+pub const AlertSecondButtonReturn: i64 = 1001
+pub const AlertThirdButtonReturn: i64 = 1002
+
 // Force AppKit (and transitively Foundation + libobjc) to be
 // resolved at @lib-probe time so subsequent `objc_getClass` calls
 // can find NSApplication / NSWindow / NSButton / NSString.
@@ -105,6 +123,8 @@ pub enum LayoutOrientation: i64 {
         // just take an NSObject here.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
+        @objc("setMainMenu:")
+        pub setMainMenu(menu: NSMenu)
     }
 
     /// NSView — base class for every visible AppKit object.
@@ -240,6 +260,202 @@ pub enum LayoutOrientation: i64 {
         pub setFrame(rect: NSRect)
     }
 
+    /// `NSColor` — a colour value. Use the named class methods
+    /// for system colours (`black`, `red`, `clearColor`, …) or
+    /// `colorWithRed:green:blue:alpha:` for RGBA values in
+    /// `[0, 1]`. RGBA component accessors only make sense on a
+    /// colour that lives in an RGB colour space.
+    @objc pub class NSColor : NSObject {
+        @objc("blackColor")
+        pub static black(): NSColor
+        @objc("whiteColor")
+        pub static white(): NSColor
+        @objc("clearColor")
+        pub static clear(): NSColor
+        @objc("redColor")
+        pub static red(): NSColor
+        @objc("greenColor")
+        pub static green(): NSColor
+        @objc("blueColor")
+        pub static blue(): NSColor
+        @objc("grayColor")
+        pub static gray(): NSColor
+        @objc("yellowColor")
+        pub static yellow(): NSColor
+        @objc("orangeColor")
+        pub static orange(): NSColor
+        @objc("purpleColor")
+        pub static purple(): NSColor
+
+        @objc("colorWithRed:green:blue:alpha:")
+        pub static rgba(r: f64, g: f64, b: f64, a: f64): NSColor
+
+        @objc("redComponent")
+        pub redComponent(): f64
+        @objc("greenComponent")
+        pub greenComponent(): f64
+        @objc("blueComponent")
+        pub blueComponent(): f64
+        @objc("alphaComponent")
+        pub alphaComponent(): f64
+    }
+
+    /// `NSImage` — bitmap / vector image. Construct from a
+    /// filesystem path (`fromFile`), an asset-catalog / named
+    /// system image (`named` — returns nil if not found), or by
+    /// pointing at an `NSURL`.
+    @objc pub class NSImage : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSImage
+        @objc("initWithContentsOfFile:")
+        pub initWithContentsOfFile(path: NSString): NSImage
+        @objc("initWithContentsOfURL:")
+        pub initWithContentsOfURL(url: NSURL): NSImage
+        @objc("imageNamed:")
+        pub static imageNamed(name: NSString): NSImage
+
+        @objc("size")
+        pub size(): NSSize
+        @objc("setSize:")
+        pub setSize(s: NSSize)
+        @objc("isValid")
+        pub isValid(): bool
+    }
+
+    /// `NSImageView` — view that draws an `NSImage`. Build with
+    /// `imageViewWithImage:` (auto-sizes to the image) or the
+    /// usual `alloc + initWithFrame:` for an explicit frame.
+    @objc pub class NSImageView : NSView {
+        @objc("alloc")
+        pub static alloc(): NSImageView
+        @objc("initWithFrame:")
+        pub init(rect: NSRect): NSImageView
+        @objc("imageViewWithImage:")
+        pub static imageViewWithImage(img: NSImage): NSImageView
+
+        @objc("setImage:")
+        pub setImage(img: NSImage)
+        @objc("image")
+        pub image(): NSImage
+    }
+
+    /// `NSMenuItem` — one row in a menu. The standard ctor takes
+    /// `(title, action, keyEquivalent)`; pass `selectorPtr("...")`
+    /// for the action SEL (or `0` for none), and an empty string
+    /// for no shortcut. Use `setSubmenu:` to nest a submenu.
+    @objc pub class NSMenuItem : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSMenuItem
+        @objc("initWithTitle:action:keyEquivalent:")
+        pub init(title: NSString, action: i64, keyEquivalent: NSString): NSMenuItem
+
+        @objc("separatorItem")
+        pub static separatorItem(): NSMenuItem
+
+        @objc("setTitle:")
+        pub setTitle(s: NSString)
+        @objc("setTarget:")
+        pub setTarget(t: NSObject)
+        @objc("setAction:")
+        pub setAction(sel: i64)
+        @objc("setEnabled:")
+        pub setEnabled(flag: bool)
+        @objc("setSubmenu:")
+        pub setSubmenu(m: NSMenu)
+        @objc("setKeyEquivalent:")
+        pub setKeyEquivalent(s: NSString)
+    }
+
+    /// `NSMenu` — container of `NSMenuItem`s. For the app menu
+    /// bar: build a top-level NSMenu, add NSMenuItems each
+    /// carrying a submenu, then `app.setMainMenu(menu)`.
+    @objc pub class NSMenu : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSMenu
+        @objc("init")
+        pub init(): NSMenu
+        @objc("initWithTitle:")
+        pub initWithTitle(title: NSString): NSMenu
+
+        @objc("setTitle:")
+        pub setTitle(s: NSString)
+        @objc("addItem:")
+        pub addItem(item: NSMenuItem)
+        @objc("addItemWithTitle:action:keyEquivalent:")
+        pub addItemWithTitle(
+            title: NSString, action: i64, keyEquivalent: NSString
+        ): NSMenuItem
+        @objc("itemArray")
+        pub itemArray(): NSArray
+    }
+
+    /// `NSAlert` — modal dialog with message text, an optional
+    /// informative paragraph, an alert style, and one or more
+    /// buttons. `runModal` returns the matching
+    /// `cocoa.AlertFirstButtonReturn` + N constant for the button
+    /// the user clicked. Buttons added via `addButtonWithTitle:`
+    /// are ordered right-to-left in the dialog.
+    @objc pub class NSAlert : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSAlert
+        @objc("init")
+        pub init(): NSAlert
+
+        @objc("setMessageText:")
+        pub setMessageText(s: NSString)
+        @objc("setInformativeText:")
+        pub setInformativeText(s: NSString)
+        @objc("setAlertStyle:")
+        pub setAlertStyle(style: AlertStyle)
+        @objc("addButtonWithTitle:")
+        pub addButtonWithTitle(title: NSString): NSButton
+        @objc("runModal")
+        pub runModal(): i64
+    }
+
+    /// `NSSavePanel` — modal "save as" dialog. Configure with
+    /// `setNameFieldStringValue:` etc., then `runModal()`. On
+    /// `cocoa.ModalResponseOK`, read `URL()` for the chosen path.
+    @objc pub class NSSavePanel : NSObject {
+        @objc("savePanel")
+        pub static savePanel(): NSSavePanel
+
+        @objc("setTitle:")
+        pub setTitle(s: NSString)
+        @objc("setMessage:")
+        pub setMessage(s: NSString)
+        @objc("setPrompt:")
+        pub setPrompt(s: NSString)
+        @objc("setNameFieldStringValue:")
+        pub setNameFieldStringValue(s: NSString)
+        @objc("setDirectoryURL:")
+        pub setDirectoryURL(u: NSURL)
+        @objc("runModal")
+        pub runModal(): i64
+        @objc("URL")
+        pub URL(): NSURL
+    }
+
+    /// `NSOpenPanel` — modal "open" dialog. Toggle file / folder
+    /// / multi-select via the setters, then `runModal()`. On
+    /// `cocoa.ModalResponseOK`, read `URLs()` for the array of
+    /// selections, or `URL()` for the single-select case.
+    @objc pub class NSOpenPanel : NSSavePanel {
+        @objc("openPanel")
+        pub static openPanel(): NSOpenPanel
+
+        @objc("setCanChooseFiles:")
+        pub setCanChooseFiles(flag: bool)
+        @objc("setCanChooseDirectories:")
+        pub setCanChooseDirectories(flag: bool)
+        @objc("setAllowsMultipleSelection:")
+        pub setAllowsMultipleSelection(flag: bool)
+        @objc("setResolvesAliases:")
+        pub setResolvesAliases(flag: bool)
+        @objc("URLs")
+        pub URLs(): NSArray
+    }
+
     // ─── Convenience helpers ─────────────────────────────────────
 
     /// Fetch the singleton NSApplication, forcing AppKit to load
@@ -329,5 +545,54 @@ pub enum LayoutOrientation: i64 {
         s.setOrientation(orientation)
         s.setSpacing(spacing)
         s
+    }
+
+    /// Load an `NSImage` from a filesystem path. Returns a
+    /// wrapper whose `handle` is nil if the file can't be read
+    /// (use `img.isValid()` to check before drawing).
+    pub fn makeImage(path: string): NSImage {
+        NSImage.alloc().initWithContentsOfFile(nsstr(path))
+    }
+
+    /// `NSImageView` sized to its image — convenient for laying
+    /// out a thumbnail inside a stack view.
+    pub fn makeImageView(img: NSImage): NSImageView {
+        NSImageView.imageViewWithImage(img)
+    }
+
+    /// Simple modal alert. Two-button variant (OK + Cancel by
+    /// default — override via the `buttons` array). Returns
+    /// `cocoa.AlertFirstButtonReturn`, `…SecondButton…`, etc.
+    pub fn runAlert(
+        message: string,
+        informative: string,
+        style: AlertStyle
+    ): i64 {
+        let a = NSAlert.alloc().init()
+        a.setMessageText(nsstr(message))
+        a.setInformativeText(nsstr(informative))
+        a.setAlertStyle(style)
+        a.addButtonWithTitle(nsstr("OK"))
+        a.runModal()
+    }
+
+    /// Open-file dialog for a single file. Returns the chosen
+    /// path as an ilang string, or `none` if the user cancelled.
+    pub fn runOpenFileDialog(): string? {
+        let p = NSOpenPanel.openPanel()
+        p.setCanChooseFiles(true)
+        p.setCanChooseDirectories(false)
+        p.setAllowsMultipleSelection(false)
+        if p.runModal() != ModalResponseOK { return none }
+        some(ilstr(p.URL().path()))
+    }
+
+    /// Save-file dialog with a default filename. Returns the
+    /// chosen path, or `none` if the user cancelled.
+    pub fn runSaveFileDialog(suggestedName: string): string? {
+        let p = NSSavePanel.savePanel()
+        p.setNameFieldStringValue(nsstr(suggestedName))
+        if p.runModal() != ModalResponseOK { return none }
+        some(ilstr(p.URL().path()))
     }
 }
