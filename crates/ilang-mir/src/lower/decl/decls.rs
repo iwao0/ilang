@@ -362,6 +362,31 @@ impl Lower {
                     slot: None,
                 });
             }
+            // Inherit parent's property getter / setter slots too
+            // so a subclass's `child.pos` (where `pos` is declared
+            // on the parent as `pub get pos(): T`) resolves through
+            // the same FuncId. Child-declared accessors of the same
+            // name overwrite below in the `cd.properties` loop.
+            let parent_props: Vec<(Symbol, (FuncId, MirTy), Option<(FuncId, MirTy)>)> = self
+                .class_meta
+                .get(&pid)
+                .map(|m| {
+                    m.property_getter
+                        .iter()
+                        .map(|(name, get)| {
+                            let set = m.property_setter.get(name).cloned();
+                            (*name, get.clone(), set)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let meta = self.class_meta.get_mut(&class_id).unwrap();
+            for (name, get, set) in parent_props {
+                meta.property_getter.insert(name, get);
+                if let Some(s) = set {
+                    meta.property_setter.insert(name, s);
+                }
+            }
         }
 
         for m in cd.methods.iter() {

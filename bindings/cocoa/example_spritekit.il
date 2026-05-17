@@ -33,14 +33,14 @@ let sprite = SKSpriteNode.spriteNodeWithColor(
     cocoa.NSColor.red(),
     cocoa.makeSize(40.0, 40.0)
 )
-sprite.setPosition(cocoa.makePoint(240.0, 160.0))
+sprite.position = cocoa.makePoint(240.0, 160.0)
 scene.addChild(sprite)
 
 // Title text at the top.
 let label = SKLabelNode.labelNodeWithText(cocoa.nsstr("Hello, SpriteKit"))
 label.setFontSize(20.0)
 label.setFontColor(cocoa.NSColor.white())
-label.setPosition(cocoa.makePoint(240.0, 280.0))
+label.position = cocoa.makePoint(240.0, 280.0)
 scene.addChild(label)
 
 // Bounce: move right 150 over 1s, then back. `reversedAction`

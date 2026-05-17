@@ -602,7 +602,15 @@ pub(super) fn class_signature(
             vtable_len += 1;
         }
     }
-    let mut properties: HashMap<Symbol, PropertySig> = HashMap::new();
+    // Inherit the parent's properties so a subclass naturally
+    // sees `node.position` on every SKNode descendant once
+    // SKNode itself declares `position` as a `pub get / pub set`
+    // property. Child-declared accessors with the same name
+    // overwrite the parent entry (no `override` requirement —
+    // ObjC `@property` overrides don't carry one either).
+    let mut properties: HashMap<Symbol, PropertySig> = parent
+        .map(|p| p.properties.clone())
+        .unwrap_or_default();
     for prop in &c.properties {
         // Reject name collisions with fields and methods.
         if fields.contains_key(&prop.name) {

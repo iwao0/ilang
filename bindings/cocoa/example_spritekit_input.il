@@ -43,7 +43,7 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
             let dot = SKShapeNode.shapeNodeWithCircleOfRadius(4.0)
             dot.setFillColor(cocoa.NSColor.yellow())
             dot.setStrokeColor(cocoa.NSColor.clear())
-            dot.setPosition(scenePt)
+            dot.position = scenePt
             this.addChild(dot)
         }
 
@@ -58,8 +58,8 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
             elif code == 125 { dy = -20.0 }
             elif code == 126 { dy =  20.0 }
             if dx != 0.0 || dy != 0.0 {
-                let p = player.position()
-                player.setPosition(cocoa.makePoint(p.x + dx, p.y + dy))
+                let p = player.position
+                player.position = cocoa.makePoint(p.x + dx, p.y + dy)
             }
         }
 
@@ -96,13 +96,13 @@ let title = SKLabelNode.labelNodeWithText(
 )
 title.setFontSize(14.0)
 title.setFontColor(cocoa.NSColor.white())
-title.setPosition(cocoa.makePoint(240.0, 290.0))
+title.position = cocoa.makePoint(240.0, 290.0)
 scene.addChild(title)
 
 player.setFillColor(cocoa.NSColor.red())
 player.setStrokeColor(cocoa.NSColor.white())
 player.setLineWidth(1.5)
-player.setPosition(cocoa.makePoint(240.0, 160.0))
+player.position = cocoa.makePoint(240.0, 160.0)
 scene.addChild(player)
 
 view.presentScene(scene)

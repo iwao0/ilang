@@ -21,8 +21,8 @@
 use std::collections::HashSet;
 
 use ilang_ast::{
-    AttrArg, Attribute, Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Param, Span, Stmt,
-    StmtKind, Symbol, Type,
+    AttrArg, Attribute, Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Param, PropertyDecl,
+    Span, Stmt, StmtKind, Symbol, Type,
 };
 use ilang_lexer::TokenKind;
 
@@ -115,6 +115,7 @@ impl<'a> Parser<'a> {
                         /*is_static*/ false,
                         /*require_fn_kw*/ true,
                         /*extra_attrs*/ Vec::new(),
+                        /*accessor*/ None,
                     )?;
                     objc_fns.push(m);
                     continue;
@@ -537,6 +538,7 @@ impl<'a> Parser<'a> {
         is_static: bool,
         require_fn_kw: bool,
         extra_attrs: Vec<Attribute>,
+        accessor: Option<AccessorKind>,
     ) -> Result<ObjcMethod, ParseError> {
         let span = self.peek().span;
         if require_fn_kw {
@@ -562,6 +564,52 @@ impl<'a> Parser<'a> {
             self.consume_stmt_terminator()?;
             None
         };
+        // Accessor shape validation — getter is `(): T`, setter is
+        // `(v: T)` with no return. Bodies aren't allowed; the
+        // dispatch is auto-synthesised from the @objc selector.
+        if let Some(kind) = accessor {
+            if body.is_some() {
+                return Err(ParseError::Unexpected {
+                    found: TokenKind::LBrace,
+                    expected: "property accessor inside @objc class takes no body (the @objc(\"selector\") dispatch is auto-synthesised)".into(),
+                    span,
+                });
+            }
+            match kind {
+                AccessorKind::Getter => {
+                    if !params.is_empty() {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::LParen,
+                            expected: "@objc getter takes no parameters".into(),
+                            span,
+                        });
+                    }
+                    if ret.is_none() {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::RParen,
+                            expected: "@objc getter must declare a return type".into(),
+                            span,
+                        });
+                    }
+                }
+                AccessorKind::Setter => {
+                    if params.len() != 1 {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::LParen,
+                            expected: "@objc setter takes exactly one parameter".into(),
+                            span,
+                        });
+                    }
+                    if ret.is_some() {
+                        return Err(ParseError::Unexpected {
+                            found: TokenKind::Colon,
+                            expected: "@objc setter must not declare a return type".into(),
+                            span,
+                        });
+                    }
+                }
+            }
+        }
         Ok(ObjcMethod {
             name,
             selector,
@@ -572,6 +620,7 @@ impl<'a> Parser<'a> {
             is_pub,
             is_static,
             extra_attrs,
+            accessor,
         })
     }
 
@@ -607,6 +656,30 @@ impl<'a> Parser<'a> {
             if is_static {
                 self.bump();
             }
+            // Optional `get` / `set` accessor marker. Only valid
+            // alongside `@objc("selector")` (the dispatch is
+            // auto-synthesised from the selector). The next token
+            // must be an ident (the property name) — otherwise
+            // `get` / `set` is treated as a regular method name.
+            let accessor = if let TokenKind::Ident(n) = &self.peek().kind {
+                let next_is_ident = matches!(
+                    self.peek_n(1).map(|t| &t.kind),
+                    Some(TokenKind::Ident(_))
+                );
+                if next_is_ident && (n == "get" || n == "set") {
+                    let kind = if n == "get" {
+                        AccessorKind::Getter
+                    } else {
+                        AccessorKind::Setter
+                    };
+                    self.bump();
+                    Some(kind)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             // `@objc("selector:")` → ObjC dispatch wrapper.
             // No attribute → plain ilang method living inside the
             // @objc class. Useful for static helpers like
@@ -664,9 +737,18 @@ impl<'a> Parser<'a> {
                     is_static,
                     /*require_fn_kw*/ false,
                     extra,
+                    accessor,
                 )?;
                 methods.push(m);
             } else {
+                if accessor.is_some() {
+                    let t = self.peek();
+                    return Err(ParseError::Unexpected {
+                        found: t.kind.clone(),
+                        expected: "`pub get` / `pub set` inside an @objc class needs an @objc(\"selector\") attribute — the accessor body is the objc_msgSend dispatch".into(),
+                        span: t.span,
+                    });
+                }
                 let err_span = self.peek().span;
                 let extra = split_extra(attrs, None, err_span)?;
                 // Plain method: same shape as `parse_objc_method`
@@ -678,6 +760,7 @@ impl<'a> Parser<'a> {
                     is_static,
                     /*require_fn_kw*/ false,
                     extra,
+                    /*accessor*/ None,
                 )?;
                 let mut plain = m;
                 plain.selector = String::new();
@@ -769,6 +852,19 @@ struct ObjcMethod {
     /// dispatch wrapper so the type checker can warn at call
     /// sites.
     extra_attrs: Vec<Attribute>,
+    /// `Some(Getter)` / `Some(Setter)` when this method was
+    /// declared as `pub get name(): T` / `pub set name(v: T)`.
+    /// The desugar emits a `PropertyDecl` instead of a method
+    /// FnDecl so call sites read / write via the bare property
+    /// (`node.size` / `node.size = s`) and the parser-level
+    /// `properties` machinery handles dispatch.
+    accessor: Option<AccessorKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccessorKind {
+    Getter,
+    Setter,
 }
 
 struct ObjcClass {
@@ -1191,6 +1287,11 @@ fn build_objc_class(
     // a `class_addMethod` call per IMP. Stored as
     // (method_name, selector, type_encoding, imp_symbol).
     let mut imps_to_attach: Vec<ImpEntry> = Vec::new();
+    // `@objc("sel") pub get / pub set` accessors collect here;
+    // installed on the synthesised ClassDecl's `properties` slot
+    // below so `obj.name` / `obj.name = v` dispatch through
+    // ilang's property machinery onto the @objc-msgSend body.
+    let mut properties: Vec<PropertyDecl> = Vec::new();
 
     let is_subclass = c.parent.is_some();
     for m in &c.methods {
@@ -1233,10 +1334,74 @@ fn build_objc_class(
             continue;
         }
 
-        let alias_name: Symbol =
-            format!("{}_msg_{}_{}", ctx.tag, class_name.as_str(), m.name.as_str()).into();
+        // Property accessors share `m.name` (the bare property
+        // name) between getter and setter, so include the
+        // accessor kind in the alias name to keep their
+        // signatures distinct (`…msg_X_size_get` vs
+        // `…msg_X_size_set`). Plain methods stay
+        // `…msg_X_<name>` for backwards compatibility.
+        let alias_name: Symbol = match m.accessor {
+            Some(AccessorKind::Getter) => format!(
+                "{}_msg_{}_{}_get",
+                ctx.tag, class_name.as_str(), m.name.as_str()
+            ).into(),
+            Some(AccessorKind::Setter) => format!(
+                "{}_msg_{}_{}_set",
+                ctx.tag, class_name.as_str(), m.name.as_str()
+            ).into(),
+            None => format!(
+                "{}_msg_{}_{}",
+                ctx.tag, class_name.as_str(), m.name.as_str()
+            ).into(),
+        };
         let (alias_decl, method_fn) = build_class_method(class_name, m, alias_name, ctx);
         aliases.push(alias_decl);
+        // `pub get / pub set` inside an @objc class: install the
+        // synthesised dispatch FnDecl as the property's accessor
+        // instead of a regular method. The existing
+        // `class.properties` machinery handles `obj.name` /
+        // `obj.name = v` call sites; the field type is the
+        // getter's return type (or the setter's sole param type
+        // if the getter is declared later).
+        if let Some(kind) = m.accessor {
+            if m.is_static {
+                // Static property accessors aren't a thing in
+                // Cocoa; reject to keep the surface honest.
+                continue;
+            }
+            let prop_ty = match kind {
+                AccessorKind::Getter => method_fn
+                    .ret
+                    .clone()
+                    .expect("getter ret checked at parse"),
+                AccessorKind::Setter => method_fn.params[0].ty.clone(),
+            };
+            if let Some(existing) =
+                properties.iter_mut().find(|p: &&mut PropertyDecl| p.name == m.name)
+            {
+                match kind {
+                    AccessorKind::Getter => existing.getter = Some(method_fn),
+                    AccessorKind::Setter => existing.setter = Some(method_fn),
+                }
+                if m.is_pub {
+                    existing.is_pub = true;
+                }
+            } else {
+                let (getter, setter) = match kind {
+                    AccessorKind::Getter => (Some(method_fn), None),
+                    AccessorKind::Setter => (None, Some(method_fn)),
+                };
+                properties.push(PropertyDecl {
+                    is_pub: m.is_pub,
+                    name: m.name,
+                    ty: prop_ty,
+                    getter,
+                    setter,
+                    span: m.span,
+                });
+            }
+            continue;
+        }
         if m.is_static {
             static_methods.push(method_fn);
         } else {
@@ -1329,7 +1494,7 @@ fn build_objc_class(
         methods: methods.into(),
         static_methods: static_methods.into(),
         static_fields: Box::new([]),
-        properties: Box::new([]),
+        properties: properties.into_boxed_slice(),
         // Preserve `@objc` on the synthesised class so LSP hover
         // can render it. No args — `@objc class` carries no
         // selector at the class level.

@@ -160,31 +160,37 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("childNodeWithName:")
         pub childNodeWithName(name: NSString): SKNode
 
-        // Transform
-        @objc("setPosition:")
-        pub setPosition(p: NSPoint)
+        // Transform — exposed as properties so user code reads
+        // `node.position` / writes `node.position = p` rather
+        // than `node.position()` / `node.setPosition(p)`.
         @objc("position")
-        pub position(): NSPoint
-        @objc("setZPosition:")
-        pub setZPosition(z: f64)
+        pub get position(): NSPoint
+        @objc("setPosition:")
+        pub set position(p: NSPoint)
         @objc("zPosition")
-        pub zPosition(): f64
-        @objc("setZRotation:")
-        pub setZRotation(r: f64)
+        pub get zPosition(): f64
+        @objc("setZPosition:")
+        pub set zPosition(z: f64)
         @objc("zRotation")
-        pub zRotation(): f64
-        @objc("setXScale:")
-        pub setXScale(s: f64)
-        @objc("setYScale:")
-        pub setYScale(s: f64)
+        pub get zRotation(): f64
+        @objc("setZRotation:")
+        pub set zRotation(r: f64)
         @objc("xScale")
-        pub xScale(): f64
+        pub get xScale(): f64
+        @objc("setXScale:")
+        pub set xScale(s: f64)
         @objc("yScale")
-        pub yScale(): f64
+        pub get yScale(): f64
+        @objc("setYScale:")
+        pub set yScale(s: f64)
+        @objc("alpha")
+        pub get alpha(): f64
         @objc("setAlpha:")
-        pub setAlpha(a: f64)
+        pub set alpha(a: f64)
+        @objc("isHidden")
+        pub get hidden(): bool
         @objc("setHidden:")
-        pub setHidden(flag: bool)
+        pub set hidden(flag: bool)
 
         // Identity / state
         @objc("setName:")
