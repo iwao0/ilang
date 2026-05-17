@@ -282,6 +282,106 @@ pub(crate) fn attribute_completions() -> Vec<CompletionItem> {
 /// `true` when the cursor follows a `:` (with optional whitespace and
 /// a partial ident underway). That's the type slot of `let x: T`,
 /// `const x: T`, `fn f(x: T)`, `field: T` etc.
+/// If `offset` sits inside the body of a `use M { ... }` selective
+/// import (between the opening `{` and a matching `}` that hasn't yet
+/// been typed), returns the imported module name. Used by completion
+/// to swap the global candidate list for the target module's own
+/// exports — typing `N` after `use cocoa {` should offer `NSObject`,
+/// not the buffer-local fn names that `global_completions` would
+/// surface.
+pub(crate) fn enclosing_use_module(text: &str, offset: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    if offset > bytes.len() {
+        return None;
+    }
+    // Scan backward to find an unmatched `{`. Bail on `}` (balanced
+    // close) and on `;` / `\n\n` boundaries the parser would treat as
+    // a hard statement break — those can't sit inside a use list.
+    let mut depth = 0i32;
+    let mut i = offset;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'}' => depth += 1,
+            b'{' => {
+                if depth == 0 {
+                    // Found the candidate opener. Look at what
+                    // precedes it: skip whitespace, then an
+                    // identifier (and optional `as _` alias / `as
+                    // <name>`), then the `use` keyword.
+                    let mut j = i;
+                    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+                        j -= 1;
+                    }
+                    // Optional `as _` / `as <ident>`.
+                    let mut after_alias = j;
+                    if j >= 1 && (bytes[j - 1] == b'_' || bytes[j - 1].is_ascii_alphanumeric()) {
+                        let alias_end = j;
+                        let mut k = j;
+                        while k > 0 && (bytes[k - 1].is_ascii_alphanumeric() || bytes[k - 1] == b'_')
+                        {
+                            k -= 1;
+                        }
+                        let alias = &bytes[k..alias_end];
+                        // Need a preceding `as` token to treat this
+                        // as the alias rather than the module ident.
+                        let mut a = k;
+                        while a > 0 && matches!(bytes[a - 1], b' ' | b'\t') {
+                            a -= 1;
+                        }
+                        if a >= 2 && &bytes[a - 2..a] == b"as" {
+                            let before_as = a - 2;
+                            let prev_is_boundary = before_as == 0
+                                || !(bytes[before_as - 1].is_ascii_alphanumeric()
+                                    || bytes[before_as - 1] == b'_');
+                            if prev_is_boundary {
+                                after_alias = before_as;
+                                let _ = alias;
+                            }
+                        }
+                    }
+                    let mut j = after_alias;
+                    while j > 0 && matches!(bytes[j - 1], b' ' | b'\t') {
+                        j -= 1;
+                    }
+                    // Module ident.
+                    if j == 0 {
+                        return None;
+                    }
+                    let ident_end = j;
+                    while j > 0 && (bytes[j - 1].is_ascii_alphanumeric() || bytes[j - 1] == b'_') {
+                        j -= 1;
+                    }
+                    if j == ident_end {
+                        return None;
+                    }
+                    let module = std::str::from_utf8(&bytes[j..ident_end]).ok()?.to_string();
+                    let mut k = j;
+                    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+                        k -= 1;
+                    }
+                    // `use` keyword (3 chars), preceded by a token
+                    // boundary so we don't match e.g. `disuse`.
+                    if k < 3 || &bytes[k - 3..k] != b"use" {
+                        return None;
+                    }
+                    let before_use = k - 3;
+                    if before_use > 0
+                        && (bytes[before_use - 1].is_ascii_alphanumeric()
+                            || bytes[before_use - 1] == b'_')
+                    {
+                        return None;
+                    }
+                    return Some(module);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 pub(crate) fn at_type_position(text: &str, offset: usize) -> bool {
     let bytes = text.as_bytes();
     let end = offset.min(bytes.len());
@@ -629,4 +729,39 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
     keyword_completions(at_top_level, &mut out);
     out.sort_by(|a, b| a.label.cmp(&b.label));
     out
+}
+
+#[cfg(test)]
+mod use_completion_tests {
+    use super::enclosing_use_module;
+
+    #[test]
+    fn inside_single_line_use_brace() {
+        let src = "use cocoa { N";
+        assert_eq!(enclosing_use_module(src, src.len()).as_deref(), Some("cocoa"));
+    }
+
+    #[test]
+    fn inside_multiline_use_brace() {
+        let src = "use cocoa {\n    NSObject\n    N";
+        assert_eq!(enclosing_use_module(src, src.len()).as_deref(), Some("cocoa"));
+    }
+
+    #[test]
+    fn inside_use_with_alias_discard() {
+        let src = "use cocoa as _ { N";
+        assert_eq!(enclosing_use_module(src, src.len()).as_deref(), Some("cocoa"));
+    }
+
+    #[test]
+    fn outside_use_brace_returns_none() {
+        let src = "let x = { 1 + ";
+        assert!(enclosing_use_module(src, src.len()).is_none());
+    }
+
+    #[test]
+    fn after_closed_use_brace_returns_none() {
+        let src = "use cocoa { NSObject }\nlet x = ";
+        assert!(enclosing_use_module(src, src.len()).is_none());
+    }
 }

@@ -247,6 +247,43 @@ impl LanguageServer for Backend {
             if at_type_position(&doc.text, off) {
                 return Ok(Some(CompletionResponse::Array(type_completions(doc))));
             }
+            // Inside `use M { ... }` — list `M`'s exports.
+            if let Some(module) = enclosing_use_module(&doc.text, off) {
+                let prefix = format!("{module}.");
+                let mut items: Vec<CompletionItem> = doc
+                    .external_signatures
+                    .iter()
+                    .filter_map(|(k, sig)| {
+                        let suffix = k.as_str().strip_prefix(&prefix)?;
+                        if suffix.contains('.') {
+                            return None;
+                        }
+                        if crate::symbols::is_synthesized_objc_helper(suffix) {
+                            return None;
+                        }
+                        let kind = if sig.starts_with("class ")
+                            || sig.starts_with("struct ")
+                            || sig.starts_with("union ")
+                        {
+                            CompletionItemKind::CLASS
+                        } else if sig.starts_with("enum ") {
+                            CompletionItemKind::ENUM
+                        } else if sig.starts_with("const ") {
+                            CompletionItemKind::CONSTANT
+                        } else {
+                            CompletionItemKind::FUNCTION
+                        };
+                        Some(CompletionItem {
+                            label: suffix.to_string(),
+                            kind: Some(kind),
+                            detail: Some(sig.clone()),
+                            ..CompletionItem::default()
+                        })
+                    })
+                    .collect();
+                items.sort_by(|a, b| a.label.cmp(&b.label));
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
             let at_top_level = brace_depth_at(&doc.text, off) <= 0;
             let mut items = global_completions(doc, at_top_level);
             if in_extern_c_block(&doc.text, off) {

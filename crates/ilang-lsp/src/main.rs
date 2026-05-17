@@ -28,9 +28,9 @@ use walker::*;
 use code_actions::{fill_match_arms_at, generate_init_at};
 use completion::{
     at_attribute_position, at_type_position, attribute_completions, brace_depth_at, call_snippet,
-    global_completions, in_extern_c_block, literal_token_at, preceding_kw_introduces_binder,
-    push_extern_c_keywords, push_ffi_helper_completions, trigger_sig_help_command,
-    type_completions,
+    enclosing_use_module, global_completions, in_extern_c_block, literal_token_at,
+    preceding_kw_introduces_binder, push_extern_c_keywords, push_ffi_helper_completions,
+    trigger_sig_help_command, type_completions,
 };
 use imports::organize_imports;
 use text_utils::{byte_range_to_lsp_range, byte_to_position};
