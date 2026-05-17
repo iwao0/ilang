@@ -122,6 +122,7 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         | Inst::LoadField { dst, .. }
         | Inst::NewArray { dst, .. }
         | Inst::NewArrayEmpty { dst, .. }
+        | Inst::NewSimd { dst, .. }
         | Inst::ArrayLen { dst, .. }
         | Inst::ArrayLoad { dst, .. }
         | Inst::NewMap { dst, .. }

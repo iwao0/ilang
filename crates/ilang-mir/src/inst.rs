@@ -181,6 +181,13 @@ pub enum Inst {
 
     NewArray { dst: ValueId, elem: MirTy, items: Box<[ValueId]> },
     NewArrayEmpty { dst: ValueId, elem: MirTy, fixed_len: Option<usize> },
+
+    /// Build a SIMD vector value from `lanes` scalar values of
+    /// the lane element type. `dst`'s `MirTy` is `Simd { elem,
+    /// lanes }`. Codegen lowers via `scalar_to_vector` +
+    /// `insertlane` calls into the matching cranelift vector
+    /// type (`F32X4`, `I32X4`, …).
+    NewSimd { dst: ValueId, lanes: Box<[ValueId]> },
     ArrayLen { dst: ValueId, arr: ValueId },
     ArrayLoad { dst: ValueId, arr: ValueId, idx: ValueId },
     ArrayStore { arr: ValueId, idx: ValueId, value: ValueId },

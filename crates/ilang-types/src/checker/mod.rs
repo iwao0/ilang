@@ -156,6 +156,25 @@ where
             .iter()
             .all(|e| literal_assignable_with(e, &vt_elem, target_elem, is_sub));
     }
+    // Array literal → SIMD type. Same idea as array → array but
+    // length must match exactly and each element must fit the
+    // lane scalar type (`[1.0, 2.0, 3.0, 4.0]` → `simd.f32x4`,
+    // `[1, 2, 3, 4]` → `simd.i32x4` via int-narrowing).
+    if let (ExprKind::Array(elements), Type::Simd { elem, lanes }) =
+        (&value.kind, target)
+    {
+        if elements.len() != *lanes as usize {
+            return false;
+        }
+        let lane_ty = elem.as_scalar_type();
+        // Elements may carry any natural type (i64 from `1`, f64
+        // from `2.0`); each one is literal-assignable to the lane
+        // when its own bit-width / sign convention fits.
+        let dummy_vt = lane_ty.clone();
+        return elements
+            .iter()
+            .all(|e| literal_assignable_with(e, &dummy_vt, &lane_ty, is_sub));
+    }
     // (Map literal subtyping is intentionally not handled here:
     // the JIT lays out Map<K, V> per (K, V) pair via interned
     // `MapKind`s and has no coerce for `Map<K, B>` → `Map<K, A>`,

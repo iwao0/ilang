@@ -19,4 +19,4 @@ pub use program::Program;
 pub use span::Span;
 pub use stmt::{Block, Stmt, StmtKind};
 pub use intern::Symbol;
-pub use types::{FnTy, GenericTy, Type};
+pub use types::{FnTy, GenericTy, SimdElem, Type};

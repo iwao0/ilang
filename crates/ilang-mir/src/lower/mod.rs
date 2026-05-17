@@ -674,7 +674,7 @@ impl<'a> BodyCx<'a> {
                 // Unit slot: store a zero sentinel.
                 Ok(self.const_int(MirTy::I64, 0))
             }
-            MirTy::CVoid | MirTy::TypeVar(_) => Err(LowerError::Other(format!(
+            MirTy::CVoid | MirTy::TypeVar(_) | MirTy::Simd { .. } => Err(LowerError::Other(format!(
                 "REPL slot store: unsupported type {from}"
             ))),
         }
@@ -719,7 +719,7 @@ impl<'a> BodyCx<'a> {
                 Ok(dst)
             }
             MirTy::Unit => Ok(self.const_unit()),
-            MirTy::CVoid | MirTy::TypeVar(_) => Err(LowerError::Other(format!(
+            MirTy::CVoid | MirTy::TypeVar(_) | MirTy::Simd { .. } => Err(LowerError::Other(format!(
                 "REPL slot load: unsupported type {to}"
             ))),
         }

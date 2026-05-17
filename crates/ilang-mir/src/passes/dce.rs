@@ -119,6 +119,7 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         NewObject { .. }
         | NewArray { .. }
         | NewArrayEmpty { .. }
+        | NewSimd { .. }
         | NewMap { .. }
         | NewTuple { .. }
         | NewOptional { .. }
@@ -197,6 +198,11 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
         }
         NewArray { items, .. } | NewTuple { items, .. } => {
             for it in items.iter() {
+                set.insert(*it);
+            }
+        }
+        NewSimd { lanes, .. } => {
+            for it in lanes.iter() {
                 set.insert(*it);
             }
         }

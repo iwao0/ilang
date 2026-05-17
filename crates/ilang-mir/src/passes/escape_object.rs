@@ -285,6 +285,15 @@ fn check_inst_escape(
                 leak(it);
             }
         }
+        NewSimd { lanes, .. } => {
+            // SIMD lane values are by-value primitives; "leaking"
+            // them is a no-op (no heap pointer to preserve). The
+            // walker still has to mention the variant to stay
+            // exhaustive.
+            for it in lanes.iter() {
+                let _ = it;
+            }
+        }
         NewMap { entries, .. } => {
             for (k, v) in entries.iter() {
                 leak(k);

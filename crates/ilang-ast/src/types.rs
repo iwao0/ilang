@@ -79,6 +79,56 @@ pub enum Type {
     /// `ssize_t` — pointer-width signed integer. Aliases `i64` on
     /// 64-bit targets.
     SSize,
+    /// SIMD vector type — `simd.f32x4`, `simd.f32x2`, etc. Element
+    /// type and lane count describe what cranelift's
+    /// `F32X4` / `F32X2` etc. carries; construction is done via
+    /// array-literal coercion (`let v: simd.f32x4 = [1, 2, 3, 4]`).
+    /// First-class operations (element-wise add etc.) aren't
+    /// exposed yet — the type is here so SIMD values can flow
+    /// through ObjC binding boundaries that take Apple's
+    /// `vector_floatN` types.
+    Simd { elem: SimdElem, lanes: u32 },
+}
+
+/// Element type for `Type::Simd`. Mirrors the lane-type set
+/// cranelift can fit in a single NEON Q / D register on arm64
+/// (and equivalent SSE/AVX lane widths on x86). Other widths
+/// can be added once a binding actually needs them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdElem {
+    F32,
+    F64,
+    I8,
+    I16,
+    I32,
+    I64,
+}
+
+impl SimdElem {
+    /// Single-letter prefix used in the surface name (`f32x4`,
+    /// `i32x4`, ...).
+    pub fn name_prefix(self) -> &'static str {
+        match self {
+            SimdElem::F32 => "f32",
+            SimdElem::F64 => "f64",
+            SimdElem::I8 => "i8",
+            SimdElem::I16 => "i16",
+            SimdElem::I32 => "i32",
+            SimdElem::I64 => "i64",
+        }
+    }
+    /// `Type` corresponding to this element width, for the
+    /// element coercion check.
+    pub fn as_scalar_type(self) -> Type {
+        match self {
+            SimdElem::F32 => Type::F32,
+            SimdElem::F64 => Type::F64,
+            SimdElem::I8 => Type::I8,
+            SimdElem::I16 => Type::I16,
+            SimdElem::I32 => Type::I32,
+            SimdElem::I64 => Type::I64,
+        }
+    }
 }
 
 /// Inner data for `Type::Generic` — kept separate so `Type` can box it
@@ -200,6 +250,7 @@ impl std::fmt::Display for Type {
             Type::CChar => write!(f, "char"),
             Type::Size => write!(f, "size_t"),
             Type::SSize => write!(f, "ssize_t"),
+            Type::Simd { elem, lanes } => write!(f, "simd.{}x{}", elem.name_prefix(), lanes),
         }
     }
 }

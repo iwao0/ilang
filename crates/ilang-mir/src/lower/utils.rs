@@ -114,6 +114,17 @@ pub(super) fn mangle_ty_atom(t: &MirTy) -> String {
         MirTy::Size => "sz".into(),
         MirTy::SSize => "ssz".into(),
         MirTy::TypeVar(s) => format!("tv_{s}"),
+        MirTy::Simd { elem, lanes } => {
+            let p = match elem {
+                crate::types::SimdElem::F32 => "f32",
+                crate::types::SimdElem::F64 => "f64",
+                crate::types::SimdElem::I8 => "i8",
+                crate::types::SimdElem::I16 => "i16",
+                crate::types::SimdElem::I32 => "i32",
+                crate::types::SimdElem::I64 => "i64",
+            };
+            format!("simd_{p}x{lanes}")
+        }
     }
 }
 
@@ -288,6 +299,20 @@ pub fn ty_to_mir(t: &Type) -> Result<MirTy, LowerError> {
             MirTy::RawPtr {
                 is_const: *is_const,
                 inner: Box::new(inner_mir),
+            }
+        }
+        Type::Simd { elem, lanes } => {
+            let mir_elem = match elem {
+                ilang_ast::SimdElem::F32 => crate::types::SimdElem::F32,
+                ilang_ast::SimdElem::F64 => crate::types::SimdElem::F64,
+                ilang_ast::SimdElem::I8 => crate::types::SimdElem::I8,
+                ilang_ast::SimdElem::I16 => crate::types::SimdElem::I16,
+                ilang_ast::SimdElem::I32 => crate::types::SimdElem::I32,
+                ilang_ast::SimdElem::I64 => crate::types::SimdElem::I64,
+            };
+            MirTy::Simd {
+                elem: mir_elem,
+                lanes: *lanes,
             }
         }
     })

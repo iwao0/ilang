@@ -52,6 +52,49 @@ pub enum MirTy {
     SSize,
     /// Pre-monomorph type variable. Eliminated by `monomorphize`.
     TypeVar(Symbol),
+    /// SIMD vector — matches `ilang_ast::Type::Simd`. Element kind
+    /// is one of `F32/F64/I8/I16/I32/I64`; `lanes` is the lane count
+    /// (`F32X4` → `{elem: F32, lanes: 4}`). Construction is via array
+    /// literal coercion; values flow through cranelift as the
+    /// matching `F32X4` / `I32X4` etc. type.
+    Simd { elem: SimdElem, lanes: u32 },
+}
+
+/// MIR-side lane element type for `MirTy::Simd`. Mirrors
+/// `ilang_ast::SimdElem` 1:1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SimdElem {
+    F32,
+    F64,
+    I8,
+    I16,
+    I32,
+    I64,
+}
+
+impl SimdElem {
+    /// Lane width in bytes — `lanes * lane_bytes()` is the total
+    /// vector byte size.
+    pub fn lane_bytes(self) -> i64 {
+        match self {
+            SimdElem::I8 => 1,
+            SimdElem::I16 => 2,
+            SimdElem::I32 | SimdElem::F32 => 4,
+            SimdElem::I64 | SimdElem::F64 => 8,
+        }
+    }
+    /// Equivalent scalar `MirTy` for the lane (used when lowering
+    /// per-element loads / coercions).
+    pub fn as_scalar_mir(self) -> MirTy {
+        match self {
+            SimdElem::F32 => MirTy::F32,
+            SimdElem::F64 => MirTy::F64,
+            SimdElem::I8 => MirTy::I8,
+            SimdElem::I16 => MirTy::I16,
+            SimdElem::I32 => MirTy::I32,
+            SimdElem::I64 => MirTy::I64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -171,6 +214,17 @@ impl std::fmt::Display for MirTy {
             MirTy::Size => write!(f, "size_t"),
             MirTy::SSize => write!(f, "ssize_t"),
             MirTy::TypeVar(sym) => write!(f, "${sym}"),
+            MirTy::Simd { elem, lanes } => {
+                let p = match elem {
+                    SimdElem::F32 => "f32",
+                    SimdElem::F64 => "f64",
+                    SimdElem::I8 => "i8",
+                    SimdElem::I16 => "i16",
+                    SimdElem::I32 => "i32",
+                    SimdElem::I64 => "i64",
+                };
+                write!(f, "simd.{p}x{lanes}")
+            }
         }
     }
 }

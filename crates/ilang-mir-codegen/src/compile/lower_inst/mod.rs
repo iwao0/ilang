@@ -944,6 +944,20 @@ pub(super) fn lower_inst<M: Module>(
             fb.ins().store(MemFlags::trusted(), stride_v, ptr, 40);
             vmap.insert(*dst, ptr);
         }
+        Inst::NewSimd { dst, lanes } => {
+            // Pack `lanes` scalar values into a cranelift vector
+            // of the matching type. Start by broadcasting lane 0
+            // via `scalar_to_vector`, then `insertlane` the rest.
+            let dst_ty = func.ty_of(*dst).clone();
+            let cl_vec_ty = mir_to_clif(&dst_ty).ok_or(
+                CompileError::Unsupported("SIMD type with no cranelift mapping"),
+            )?;
+            let mut v = fb.ins().scalar_to_vector(cl_vec_ty, vmap[&lanes[0]]);
+            for (i, lane) in lanes.iter().enumerate().skip(1) {
+                v = fb.ins().insertlane(v, vmap[lane], i as u8);
+            }
+            vmap.insert(*dst, v);
+        }
         Inst::ArrayLen { dst, arr } => {
             let arr_ty = func.ty_of(*arr).clone();
             let v = if let MirTy::Array { len: Some(n), .. } = &arr_ty {

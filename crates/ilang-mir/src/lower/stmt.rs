@@ -72,6 +72,39 @@ impl<'a> BodyCx<'a> {
                             *len,
                         )?
                     }
+                } else if let (
+                    ExprKind::Array(items),
+                    Some(simd_ty @ MirTy::Simd { elem, lanes }),
+                ) = (&value.kind, &bind_hint)
+                {
+                    // Array literal → SIMD vector: each element
+                    // coerces to the lane scalar type, then
+                    // `NewSimd` packs them into a single cranelift
+                    // vector value.
+                    if items.len() != *lanes as usize {
+                        return Err(LowerError::Other(format!(
+                            "expected {} elements for {simd_ty}, got {}",
+                            lanes,
+                            items.len()
+                        )));
+                    }
+                    let lane_scalar = elem.as_scalar_mir();
+                    let mut lane_vals: Vec<crate::ValueId> = Vec::with_capacity(items.len());
+                    for it in items.iter() {
+                        let (vv, vty) = self.lower_expr(it)?;
+                        let coerced = if vty == lane_scalar {
+                            vv
+                        } else {
+                            self.coerce(vv, &vty, &lane_scalar, it.span)?
+                        };
+                        lane_vals.push(coerced);
+                    }
+                    let dst = self.fb.new_value(simd_ty.clone());
+                    self.fb.push_inst(Inst::NewSimd {
+                        dst,
+                        lanes: lane_vals.into_boxed_slice(),
+                    });
+                    (dst, simd_ty.clone())
                 } else {
                     self.lower_expr(value)?
                 };

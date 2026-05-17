@@ -1373,6 +1373,17 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     @objc pub class SKAttributeValue : NSObject {
         @objc("valueWithFloat:")
         pub static valueWithFloat(v: f32): SKAttributeValue
+        /// `vector_float3` shares ABI with `vector_float4` —
+        /// the 4th element is padding; supply 0.0 there.
+        @objc("valueWithVectorFloat3:")
+        pub static valueWithVectorFloat3(v: simd.f32x4): SKAttributeValue
+        @objc("valueWithVectorFloat4:")
+        pub static valueWithVectorFloat4(v: simd.f32x4): SKAttributeValue
+        // `valueWithVectorFloat2:` would need `simd.f32x2` but
+        // cranelift's arm64 backend doesn't implement
+        // `scalar_to_vector.f32x2` yet (ISLE TODO). Add once a
+        // pack-via-i64 fallback lands or the backend gains
+        // direct support.
 
         @objc("setFloatValue:")
         pub setFloatValue(v: f32)

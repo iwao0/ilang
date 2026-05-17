@@ -78,6 +78,12 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
             }
         }
         NewArrayEmpty { dst, .. } => remap(dst),
+        NewSimd { dst, lanes } => {
+            remap(dst);
+            for it in lanes.iter_mut() {
+                remap(it);
+            }
+        }
         ArrayLen { dst, arr } => {
             remap(dst);
             remap(arr);

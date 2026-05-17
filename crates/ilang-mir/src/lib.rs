@@ -38,5 +38,5 @@ pub use program::{
     FuncParam, Function, FunctionKind, MethodDecl, Program, StaticSlot, VTable, VariantDecl,
     VariantPayload,
 };
-pub use types::{ClassId, EnumId, MirFnTy, MirTy};
+pub use types::{ClassId, EnumId, MirFnTy, MirTy, SimdElem};
 pub use validate::{validate_function, validate_program, ValidateError};

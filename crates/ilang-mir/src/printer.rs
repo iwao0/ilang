@@ -198,6 +198,11 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
             elem,
             fmt_args(items)
         ),
+        Inst::NewSimd { dst, lanes } => format!(
+            "{}new_simd ({})",
+            dst_pre(*dst),
+            fmt_args(lanes),
+        ),
         Inst::NewArrayEmpty { dst, elem, fixed_len } => format!(
             "{}new_array_empty<{}> fixed={:?}",
             dst_pre(*dst),

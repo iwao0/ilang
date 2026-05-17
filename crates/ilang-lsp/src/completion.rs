@@ -316,6 +316,33 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
+    // SIMD vector types. Listed under `simd.<elem><N>` so typing
+    // `simd.` filters the completion list to just these entries.
+    // Element / lane combinations restricted to what cranelift's
+    // arm64 backend can lower today (omit f32x2 — `scalar_to_vector`
+    // isn't implemented there yet).
+    for name in &[
+        "simd.f32x4",
+        "simd.f64x2",
+        "simd.i8x16",
+        "simd.i16x8",
+        "simd.i32x4",
+        "simd.i64x2",
+    ] {
+        out.push(CompletionItem {
+            label: (*name).to_string(),
+            kind: Some(CompletionItemKind::STRUCT),
+            detail: Some(format!("SIMD vector — assign from a {}-element array literal",
+                match *name {
+                    "simd.f32x4" | "simd.i32x4" => 4,
+                    "simd.f64x2" | "simd.i64x2" => 2,
+                    "simd.i8x16" => 16,
+                    "simd.i16x8" => 8,
+                    _ => 0,
+                })),
+            ..CompletionItem::default()
+        });
+    }
     for (name, sym) in doc.symbols.iter() {
         let is_type = sym.signature.starts_with("class ")
             || sym.signature.starts_with("struct ")

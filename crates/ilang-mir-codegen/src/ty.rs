@@ -6,7 +6,7 @@
 
 use cranelift::prelude::types as ct;
 use cranelift::prelude::Type as ClifType;
-use ilang_mir::MirTy;
+use ilang_mir::{MirTy, types::SimdElem};
 
 /// Map a MIR type to its Cranelift representation. Heap-typed values
 /// land as a pointer-sized integer (`I64` on 64-bit targets); the
@@ -38,5 +38,38 @@ pub fn mir_to_clif(t: &MirTy) -> Option<ClifType> {
         MirTy::CVoid => return None,
         MirTy::Unit => return None,
         MirTy::TypeVar(_) => return None,
+        MirTy::Simd { elem, lanes } => simd_to_clif(*elem, *lanes)?,
+    })
+}
+
+/// Map a `(lane_elem, lane_count)` pair to the matching cranelift
+/// vector type. Returns `None` for combos cranelift doesn't carry
+/// a fixed-width type for (very wide or odd lane counts) — callers
+/// can fall back to memory-passing if they need to support those.
+fn simd_to_clif(elem: SimdElem, lanes: u32) -> Option<ClifType> {
+    Some(match (elem, lanes) {
+        (SimdElem::F32, 2) => ct::F32X2,
+        (SimdElem::F32, 4) => ct::F32X4,
+        (SimdElem::F32, 8) => ct::F32X8,
+        (SimdElem::F32, 16) => ct::F32X16,
+        (SimdElem::F64, 2) => ct::F64X2,
+        (SimdElem::F64, 4) => ct::F64X4,
+        (SimdElem::F64, 8) => ct::F64X8,
+        (SimdElem::I8, 8) => ct::I8X8,
+        (SimdElem::I8, 16) => ct::I8X16,
+        (SimdElem::I8, 32) => ct::I8X32,
+        (SimdElem::I8, 64) => ct::I8X64,
+        (SimdElem::I16, 4) => ct::I16X4,
+        (SimdElem::I16, 8) => ct::I16X8,
+        (SimdElem::I16, 16) => ct::I16X16,
+        (SimdElem::I16, 32) => ct::I16X32,
+        (SimdElem::I32, 2) => ct::I32X2,
+        (SimdElem::I32, 4) => ct::I32X4,
+        (SimdElem::I32, 8) => ct::I32X8,
+        (SimdElem::I32, 16) => ct::I32X16,
+        (SimdElem::I64, 2) => ct::I64X2,
+        (SimdElem::I64, 4) => ct::I64X4,
+        (SimdElem::I64, 8) => ct::I64X8,
+        _ => return None,
     })
 }

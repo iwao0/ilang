@@ -273,11 +273,19 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         }
-                        // After a class-like name, accept optional
-                        // `<T, U>` for generic instantiations:
-                        //   Box<i64>          → Generic { Box, [i64] }
-                        //   Pair<string, i64> → Generic { Pair, [Str, I64] }
-                        if matches!(self.peek().kind, TokenKind::Lt) {
+                        // `simd.<elem>x<lanes>` — first-class SIMD
+                        // vector type. Lift out of the generic
+                        // dotted-name path so call sites get a
+                        // typed `Type::Simd { elem, lanes }` they
+                        // can route through cranelift's native
+                        // F32X4 / etc. representation.
+                        if let Some(simd) = parse_simd_suffix(&full_name) {
+                            simd
+                        } else if matches!(self.peek().kind, TokenKind::Lt) {
+                            // After a class-like name, accept optional
+                            // `<T, U>` for generic instantiations:
+                            //   Box<i64>          → Generic { Box, [i64] }
+                            //   Pair<string, i64> → Generic { Pair, [Str, I64] }
                             let args = self.parse_type_args()?;
                             Type::generic(full_name, args)
                         } else {
@@ -346,4 +354,30 @@ impl<'a> Parser<'a> {
         }
         Ok(ty)
     }
+}
+
+/// Recognise `simd.<elem><N>` shapes:
+///   `simd.f32x4`, `simd.f32x2`, `simd.f64x2`, `simd.i32x4`, …
+/// Returns the matching `Type::Simd` when both halves parse,
+/// `None` otherwise so the caller falls back to `Type::Object`.
+fn parse_simd_suffix(full_name: &str) -> Option<ilang_ast::Type> {
+    let rest = full_name.strip_prefix("simd.")?;
+    // Element name is the prefix up to (but not including) `x`.
+    let x_idx = rest.find('x')?;
+    let (elem_str, lanes_str) = rest.split_at(x_idx);
+    let lanes_str = &lanes_str[1..]; // skip the `x`
+    let elem = match elem_str {
+        "f32" => ilang_ast::SimdElem::F32,
+        "f64" => ilang_ast::SimdElem::F64,
+        "i8" => ilang_ast::SimdElem::I8,
+        "i16" => ilang_ast::SimdElem::I16,
+        "i32" => ilang_ast::SimdElem::I32,
+        "i64" => ilang_ast::SimdElem::I64,
+        _ => return None,
+    };
+    let lanes: u32 = lanes_str.parse().ok()?;
+    if lanes == 0 {
+        return None;
+    }
+    Some(ilang_ast::Type::Simd { elem, lanes })
 }
