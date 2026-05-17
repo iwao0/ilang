@@ -11,7 +11,6 @@
 
 use cocoa
 use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode, SKPhysicsBody }
-use foundation { makeSize, makePoint, makeVector }
 
 let app = cocoa.sharedApplication()
 app.setActivationPolicy(cocoa.ActivationPolicy.regular)
@@ -27,13 +26,13 @@ let view = SKView.alloc().init(cocoa.makeRect(0.0, 0.0, 480.0, 360.0))
 view.setShowsFPS(true)
 view.setShowsPhysics(true)
 
-let scene = SKScene.sceneWithSize(makeSize(480.0, 360.0))
+let scene = SKScene.sceneWithSize(cocoa.makeSize(480.0, 360.0))
 scene.setBackgroundColor(cocoa.NSColor.black())
 
 // Tune the gravity (default is 0, -9.8). Stronger for a snappier
 // feel inside the small play area.
 let world = scene.physicsWorld()
-world.setGravity(makeVector(0.0, -16.0))
+world.setGravity(cocoa.makeVector(0.0, -16.0))
 
 // Box edge-loop covering most of the scene. Bodies set directly
 // on SKScene attach to the scene itself, no SKNode needed.
@@ -47,7 +46,7 @@ fn makeBall(radius: f64, x: f64, y: f64, colour: cocoa.NSColor): SKShapeNode {
     n.setFillColor(colour)
     n.setStrokeColor(cocoa.NSColor.white())
     n.setLineWidth(1.5)
-    n.setPosition(makePoint(x, y))
+    n.setPosition(cocoa.makePoint(x, y))
     let body = SKPhysicsBody.bodyWithCircleOfRadius(radius)
     body.setRestitution(0.85)
     body.setFriction(0.1)
@@ -63,7 +62,7 @@ scene.addChild(makeBall(14.0, 360.0, 340.0, cocoa.NSColor.blue()))
 let label = SKLabelNode.labelNodeWithText(cocoa.nsstr("Drop & bounce"))
 label.setFontSize(16.0)
 label.setFontColor(cocoa.NSColor.white())
-label.setPosition(makePoint(240.0, 340.0))
+label.setPosition(cocoa.makePoint(240.0, 340.0))
 scene.addChild(label)
 
 view.presentScene(scene)

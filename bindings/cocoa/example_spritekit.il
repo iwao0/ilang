@@ -8,7 +8,6 @@
 
 use cocoa
 use spritekit { SKView, SKScene, SKSpriteNode, SKLabelNode, SKAction }
-use foundation { makeSize, makePoint }
 
 let app = cocoa.sharedApplication()
 app.setActivationPolicy(cocoa.ActivationPolicy.regular)
@@ -26,22 +25,22 @@ view.setShowsFPS(true)
 view.setShowsNodeCount(true)
 
 // Scene: dark grey background, same size as the view.
-let scene = SKScene.sceneWithSize(makeSize(480.0, 320.0))
+let scene = SKScene.sceneWithSize(cocoa.makeSize(480.0, 320.0))
 scene.setBackgroundColor(cocoa.NSColor.gray())
 
 // Red square centred in the scene.
 let sprite = SKSpriteNode.spriteNodeWithColor(
     cocoa.NSColor.red(),
-    makeSize(40.0, 40.0)
+    cocoa.makeSize(40.0, 40.0)
 )
-sprite.setPosition(makePoint(240.0, 160.0))
+sprite.setPosition(cocoa.makePoint(240.0, 160.0))
 scene.addChild(sprite)
 
 // Title text at the top.
 let label = SKLabelNode.labelNodeWithText(cocoa.nsstr("Hello, SpriteKit"))
 label.setFontSize(20.0)
 label.setFontColor(cocoa.NSColor.white())
-label.setPosition(makePoint(240.0, 280.0))
+label.setPosition(cocoa.makePoint(240.0, 280.0))
 scene.addChild(label)
 
 // Bounce: move right 150 over 1s, then back. `reversedAction`
