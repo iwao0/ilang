@@ -176,6 +176,15 @@ pub struct MTLClearColor {
     alpha: f64
 }
 
+/// `MTLSize` — 3D dimensions, in elements (texels for textures,
+/// threads for compute dispatch). For 1D dispatches set `height`
+/// and `depth` to 1; for 2D set `depth` to 1.
+pub struct MTLSize {
+    width: u64
+    height: u64
+    depth: u64
+}
+
 // ─── Metal classes / protocols ────────────────────────────────────
 
 @extern(ObjC, "/System/Library/Frameworks/Metal.framework/Metal") {
@@ -224,6 +233,10 @@ pub struct MTLClearColor {
         pub newRenderPipelineStateWithDescriptor(
             descriptor: MTLRenderPipelineDescriptor, error: i64
         ): MTLRenderPipelineState
+        @objc("newComputePipelineStateWithFunction:error:")
+        pub newComputePipelineStateWithFunction(
+            function: MTLFunction, error: i64
+        ): MTLComputePipelineState
 
         // Buffer factories. `newBufferWithBytes` copies `length`
         // bytes from `ptr` into a fresh buffer; `newBufferWithLength`
@@ -275,6 +288,10 @@ pub struct MTLClearColor {
         pub renderCommandEncoderWithDescriptor(
             descriptor: MTLRenderPassDescriptor
         ): MTLRenderCommandEncoder
+        // Mint a compute encoder. The encoder records dispatch
+        // calls into this command buffer until `endEncoding`.
+        @objc("computeCommandEncoder")
+        pub computeCommandEncoder(): MTLComputeCommandEncoder
     }
 
     /// `id<MTLTexture>` — opaque GPU image. Build via
@@ -578,6 +595,60 @@ pub struct MTLClearColor {
         @objc("endEncoding")
         pub endEncoding()
     }
+
+    // ─── Compute pipeline ─────────────────────────────────────────
+
+    /// `id<MTLComputePipelineState>` — compiled compute kernel
+    /// ready to bind on a compute encoder. Built via
+    /// `device.newComputePipelineStateWithFunction(kernelFn, err)`
+    /// from an `MTLFunction` whose source was declared
+    /// `kernel ...` in the shader. Three read-only properties
+    /// expose the limits the runtime computed for the kernel:
+    /// `threadExecutionWidth` (preferred multiple for
+    /// threadgroup width), `maxTotalThreadsPerThreadgroup`
+    /// (upper bound), and `staticThreadgroupMemoryLength`.
+    @objc pub class MTLComputePipelineState : NSObject {
+        @objc("threadExecutionWidth")
+        pub threadExecutionWidth(): u64
+        @objc("maxTotalThreadsPerThreadgroup")
+        pub maxTotalThreadsPerThreadgroup(): u64
+        @objc("staticThreadgroupMemoryLength")
+        pub staticThreadgroupMemoryLength(): u64
+    }
+
+    /// `id<MTLComputeCommandEncoder>` — records compute dispatch
+    /// calls into the parent command buffer. Bind a pipeline
+    /// state, attach buffers / textures, then dispatch with one
+    /// of:
+    ///   * `dispatchThreads:threadsPerThreadgroup:` — Apple silicon
+    ///     (and recent discrete GPUs) only; thread count needn't
+    ///     be a multiple of the threadgroup size.
+    ///   * `dispatchThreadgroups:threadsPerThreadgroup:` — works
+    ///     on every Metal-capable device; total threads =
+    ///     threadgroups × threadsPerThreadgroup.
+    @objc pub class MTLComputeCommandEncoder : NSObject {
+        @objc("setComputePipelineState:")
+        pub setComputePipelineState(s: MTLComputePipelineState)
+
+        @objc("setBuffer:offset:atIndex:")
+        pub setBuffer(b: MTLBuffer, offset: u64, atIndex: u64)
+        @objc("setBytes:length:atIndex:")
+        pub setBytes(bytes: i64, length: u64, atIndex: u64)
+        @objc("setTexture:atIndex:")
+        pub setTexture(t: MTLTexture, atIndex: u64)
+
+        @objc("dispatchThreads:threadsPerThreadgroup:")
+        pub dispatchThreads(
+            threads: MTLSize, threadsPerThreadgroup: MTLSize
+        )
+        @objc("dispatchThreadgroups:threadsPerThreadgroup:")
+        pub dispatchThreadgroups(
+            threadgroups: MTLSize, threadsPerThreadgroup: MTLSize
+        )
+
+        @objc("endEncoding")
+        pub endEncoding()
+    }
 }
 
 /// Convenience: build an `MTLClearColor` literal. Pure-ilang
@@ -590,4 +661,25 @@ pub fn clearColor(r: f64, g: f64, b: f64, a: f64): MTLClearColor {
     c.blue = b
     c.alpha = a
     c
+}
+
+/// Convenience: build an `MTLSize`. Pass `1` for `height` /
+/// `depth` on 1D dispatches, or just `metal.size1D(n)` /
+/// `metal.size2D(w, h)` below.
+pub fn size(w: u64, h: u64, d: u64): MTLSize {
+    let s = new MTLSize()
+    s.width = w
+    s.height = h
+    s.depth = d
+    s
+}
+
+/// `MTLSize` for a 1D dispatch of `n` threads.
+pub fn size1D(n: u64): MTLSize {
+    size(n, 1, 1)
+}
+
+/// `MTLSize` for a 2D dispatch (`w` × `h`).
+pub fn size2D(w: u64, h: u64): MTLSize {
+    size(w, h, 1)
 }
