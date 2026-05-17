@@ -322,14 +322,41 @@ impl<'a> Walker<'a> {
             self.walk_fn(m, None);
         }
         for prop in &c.properties {
-            // Treat the getter/setter body like a method body so locals
-            // and `this.X` resolve normally. Skip @objc-desugared
-            // synthetic bodies (marked with `__objc_wrapper`): their
-            // synthetic `let __recv = ...` / `let __sel = ...`
-            // statements borrow the property declaration's span, and
-            // pushing decls for them turns hover on `NSColor.black`
-            // into a let-binding hover for the internal receiver
-            // local.
+            // Hover entry for the property name at its declaration
+            // site. Matches the static/instance method paths above so
+            // hovering on `pub static get black(): NSColor` (or a
+            // reference to it) lands on a `(static getter) ... :
+            // NSColor` signature instead of the @objc desugar's
+            // internal `let __recv` local.
+            let kind = match (prop.is_static, prop.getter.is_some(), prop.setter.is_some()) {
+                (true, true, _) => "static getter",
+                (true, false, true) => "static setter",
+                (false, true, _) => "getter",
+                (false, false, true) => "setter",
+                _ => "property",
+            };
+            let attr_prefix = prop
+                .getter
+                .as_ref()
+                .or(prop.setter.as_ref())
+                .map(|f| render_user_attrs(&f.attrs))
+                .unwrap_or_default();
+            self.push_decl_with_doc(
+                prop.name.as_str(),
+                prop.span,
+                format!(
+                    "({kind}) {attr_prefix}{}.{}: {}",
+                    c.name, prop.name, prop.ty
+                ),
+                text::extract_doc_above(self.text, prop.span.line),
+            );
+            // Walk the getter / setter bodies like ordinary method
+            // bodies so locals and `this.X` resolve normally. Skip
+            // @objc-desugared synthetic bodies (marked
+            // `__objc_wrapper`) — their `let __recv` / `let __sel`
+            // statements borrow the property declaration's span and
+            // would shadow the (getter)/(setter) signature pushed
+            // above.
             let is_synth_body =
                 |f: &FnDecl| f.attrs.iter().any(|a| a.name.as_str() == "__objc_wrapper");
             if let Some(g) = &prop.getter {
