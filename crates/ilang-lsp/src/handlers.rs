@@ -291,10 +291,11 @@ impl LanguageServer for Backend {
                 push_extern_c_keywords(&mut items);
             }
             // Inside a method body: surface the enclosing class's
-            // instance fields / methods as bare-name candidates that
-            // expand to `this.<name>` on accept. ilang requires the
-            // explicit `this.` prefix, so the insert_text adds it
-            // while the label stays bare for natural fuzzy matching.
+            // instance fields / methods as bare-name candidates.
+            // ilang resolves a bare ident inside a method body
+            // against the implicit `this` before falling back to
+            // module-level names, so the insert text is the bare
+            // name itself.
             if !at_top_level {
                 if let Some(class) = enclosing_class(&doc.text, off) {
                     if let Some(info) = doc.classes.get(&AstSymbol::intern(&class)) {
@@ -310,7 +311,6 @@ impl LanguageServer for Backend {
                                 label: s.to_string(),
                                 kind: Some(CompletionItemKind::FIELD),
                                 detail: Some(m.signature.clone()),
-                                insert_text: Some(format!("this.{s}")),
                                 ..CompletionItem::default()
                             });
                         }
@@ -329,7 +329,6 @@ impl LanguageServer for Backend {
                                 label: s.to_string(),
                                 kind: Some(CompletionItemKind::METHOD),
                                 detail: Some(m.signature.clone()),
-                                insert_text: Some(format!("this.{s}")),
                                 ..CompletionItem::default()
                             });
                         }
