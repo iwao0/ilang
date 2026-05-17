@@ -83,6 +83,30 @@ pub enum MatchOptions: u64 {
         pub length(): i64
         @objc("isEqualToString:")
         pub isEqualToString(other: NSString): bool
+
+        // ─── out-parameter wrapper pattern ──────────────────────
+        // The raw ObjC selector takes three `NSUInteger *` slots
+        // that the caller fills in. We bind the selector as a
+        // non-pub method whose params are raw `*u64` (legal inside
+        // `@extern(ObjC)` — same C-pointer surface as the rest of
+        // the block), then expose a `pub` wrapper that allocates
+        // three local `u64`s, takes their addresses via `&`, and
+        // returns the three values as a tuple. The raw method is
+        // not visible outside the class.
+        @objc("getLineStart:end:contentsEnd:forRange:")
+        _getLineBounds(start: *u64, end: *u64, contentsEnd: *u64, range: NSRange)
+
+        /// `(start, end, contentsEnd)` of the line containing
+        /// `range`. `end` includes the line terminator;
+        /// `contentsEnd` is just before it. Mirrors
+        /// `-[NSString getLineStart:end:contentsEnd:forRange:]`.
+        pub lineBounds(range: NSRange): (u64, u64, u64) {
+            let s: u64 = 0
+            let e: u64 = 0
+            let c: u64 = 0
+            this._getLineBounds(&s, &e, &c, range)
+            (s, e, c)
+        }
     }
 
     /// `NSNumber` — boxed numeric value. Read back as `intValue`,
@@ -317,6 +341,65 @@ pub enum MatchOptions: u64 {
         pub stringByReplacingMatchesInString(
             s: NSString, options: MatchOptions, range: NSRange, template: NSString
         ): NSString
+    }
+
+    /// `NSScanner` — stateful cursor over an NSString. The
+    /// underlying ObjC selectors return their parsed value
+    /// through an out-parameter (`int *`, `double *`, …) and
+    /// return `BOOL` to say whether a scan succeeded. We bind
+    /// each raw selector as a non-pub method whose out slot is
+    /// the matching ilang raw pointer (`*i32`, `*i64`, `*f64`,
+    /// `*f32`); the `pub` wrappers below take the address of a
+    /// local, call the raw method, and surface the result as a
+    /// `T?` Optional (`None` on a failed scan).
+    ///
+    /// String-out selectors (`scanString:intoString:` and
+    /// friends) hand back an `NSString * __autoreleasing *`,
+    /// which would need careful retain handling to wrap safely
+    /// into an ilang `NSString`. Deferred until the autorelease
+    /// semantics get their own pass.
+    @objc pub class NSScanner : NSObject {
+        @objc("scannerWithString:")
+        pub static scannerWithString(s: NSString): NSScanner
+
+        @objc("isAtEnd")
+        pub isAtEnd(): bool
+        @objc("scanLocation")
+        pub scanLocation(): u64
+        @objc("setScanLocation:")
+        pub setScanLocation(loc: u64)
+
+        // ── Raw out-param @objc selectors (non-pub) ────────────
+        @objc("scanInt:")
+        _scanInt(out: *i32): bool
+        @objc("scanInteger:")
+        _scanInteger(out: *i64): bool
+        @objc("scanDouble:")
+        _scanDouble(out: *f64): bool
+        @objc("scanFloat:")
+        _scanFloat(out: *f32): bool
+
+        // ── Public Optional-returning wrappers ─────────────────
+        pub scanInt(): i32? {
+            let v: i32 = 0
+            if !this._scanInt(&v) { return none }
+            some(v)
+        }
+        pub scanInteger(): i64? {
+            let v: i64 = 0
+            if !this._scanInteger(&v) { return none }
+            some(v)
+        }
+        pub scanDouble(): f64? {
+            let v: f64 = 0.0
+            if !this._scanDouble(&v) { return none }
+            some(v)
+        }
+        pub scanFloat(): f32? {
+            let v: f32 = 0.0 as f32
+            if !this._scanFloat(&v) { return none }
+            some(v)
+        }
     }
 
     // ─── Convenience helpers ─────────────────────────────────────

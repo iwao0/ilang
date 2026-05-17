@@ -134,6 +134,7 @@ impl TypeChecker {
         &mut self,
         block: &ilang_ast::ExternCBlock,
     ) -> Result<(), TypeError> {
+        use super::module_of_name;
         for item in &block.items {
             match item {
                 ilang_ast::ExternCItem::FnDef(f) => {
@@ -156,7 +157,23 @@ impl TypeChecker {
                             f.span,
                         )?;
                     }
-                    self.check_fn(f, None)?;
+                    // Same module-tracking rule as the outer loop in
+                    // `check_program`: every top-level item carries a
+                    // module prefix in its name (`cocoa.foo` ⇒ module
+                    // `cocoa`), and `current_module` must follow it
+                    // so member-access visibility checks judge the
+                    // call from the item's perspective. Without
+                    // this, a `pub` wrapper inside a sibling-file
+                    // `@extern(ObjC)` block calling its own non-pub
+                    // helper trips the "module-private" error
+                    // because `current_module` still points at the
+                    // entry.
+                    let saved_module = self.current_module.borrow().clone();
+                    *self.current_module.borrow_mut() =
+                        module_of_name(f.name.as_str()).to_string();
+                    let result = self.check_fn(f, None);
+                    *self.current_module.borrow_mut() = saved_module;
+                    result?;
                 }
                 ilang_ast::ExternCItem::Class(c) => {
                     for m in &c.methods {
@@ -187,7 +204,12 @@ impl TypeChecker {
                             )?;
                         }
                     }
-                    self.check_class(c)?;
+                    let saved_module = self.current_module.borrow().clone();
+                    *self.current_module.borrow_mut() =
+                        module_of_name(c.name.as_str()).to_string();
+                    let result = self.check_class(c);
+                    *self.current_module.borrow_mut() = saved_module;
+                    result?;
                 }
                 _ => {}
             }
