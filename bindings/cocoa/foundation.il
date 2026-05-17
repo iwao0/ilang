@@ -62,7 +62,7 @@ pub enum MatchOptions: u64 {
         @objc("retain")
         pub retain(): NSObject
         @objc("hash")
-        pub hash(): i64
+        pub get hash(): i64
 
         /// Wrap a raw ObjC `id` (the `i64` pointer value) into an
         /// `NSObject` instance without going through `alloc + init`.
@@ -87,7 +87,7 @@ pub enum MatchOptions: u64 {
         @objc("UTF8String")
         _utf8String(): *const char
         @objc("length")
-        pub length(): i64
+        pub get length(): i64
         @objc("isEqualToString:")
         pub isEqualToString(other: NSString): bool
 
@@ -127,11 +127,11 @@ pub enum MatchOptions: u64 {
         pub static fromBool(v: bool): NSNumber
 
         @objc("longLongValue")
-        pub i64Value(): i64
+        pub get i64Value(): i64
         @objc("doubleValue")
-        pub f64Value(): f64
+        pub get f64Value(): f64
         @objc("boolValue")
-        pub boolValue(): bool
+        pub get boolValue(): bool
     }
 
     /// `NSArray` — immutable ordered collection of `id`. Returned
@@ -140,7 +140,7 @@ pub enum MatchOptions: u64 {
     /// construction use `NSMutableArray`.
     @objc pub class NSArray : NSObject {
         @objc("count")
-        pub count(): i64
+        pub get count(): i64
         @objc("objectAtIndex:")
         pub objectAtIndex(i: i64): NSObject
         @objc("containsObject:")
@@ -170,11 +170,11 @@ pub enum MatchOptions: u64 {
     /// `NSDictionary` — immutable id→id map.
     @objc pub class NSDictionary : NSObject {
         @objc("count")
-        pub count(): i64
+        pub get count(): i64
         @objc("objectForKey:")
         pub objectForKey(k: NSObject): NSObject
         @objc("allKeys")
-        pub allKeys(): NSArray
+        pub get allKeys(): NSArray
     }
 
     /// `NSMutableDictionary` — dictionary you can write to. Keys
@@ -204,7 +204,7 @@ pub enum MatchOptions: u64 {
         @objc("dataWithBytes:length:")
         static _fromBytes(bytes: *const char, length: i64): NSData
         @objc("length")
-        pub length(): i64
+        pub get length(): i64
         @objc("bytes")
         _bytes(): *const char
 
@@ -217,7 +217,7 @@ pub enum MatchOptions: u64 {
         /// Copy this NSData's bytes into a fresh `u8[]`. Safe to
         /// keep the result past the autorelease pool drain.
         pub bytes(): u8[] {
-            bytesFromBuffer(this._bytes() as *void, this.length() as size_t)
+            bytesFromBuffer(this._bytes() as *void, this.length as size_t)
         }
     }
 
@@ -227,9 +227,9 @@ pub enum MatchOptions: u64 {
         @objc("date")
         pub static now(): NSDate
         @objc("timeIntervalSince1970")
-        pub timeIntervalSince1970(): f64
+        pub get timeIntervalSince1970(): f64
         @objc("timeIntervalSinceNow")
-        pub timeIntervalSinceNow(): f64
+        pub get timeIntervalSinceNow(): f64
     }
 
     /// `NSURL` — URL value. Use `fromString` for `http://...`
@@ -240,9 +240,9 @@ pub enum MatchOptions: u64 {
         @objc("fileURLWithPath:")
         pub static fromFilePath(s: NSString): NSURL
         @objc("absoluteString")
-        pub absoluteString(): NSString
+        pub get absoluteString(): NSString
         @objc("path")
-        pub path(): NSString
+        pub get path(): NSString
     }
 
     /// `NSError` — error value passed through Cocoa APIs that fail
@@ -254,13 +254,13 @@ pub enum MatchOptions: u64 {
     /// already have in hand.
     @objc pub class NSError : NSObject {
         @objc("code")
-        pub code(): i64
+        pub get code(): i64
         @objc("domain")
-        pub domain(): NSString
+        pub get domain(): NSString
         @objc("localizedDescription")
-        pub localizedDescription(): NSString
+        pub get localizedDescription(): NSString
         @objc("userInfo")
-        pub userInfo(): NSDictionary
+        pub get userInfo(): NSDictionary
     }
 
     /// `NSFileManager` — filesystem operations. `defaultManager`
@@ -289,7 +289,7 @@ pub enum MatchOptions: u64 {
         @objc("attributesOfItemAtPath:error:")
         pub attributesOfItemAtPath(path: NSString, error: i64): NSDictionary
         @objc("currentDirectoryPath")
-        pub currentDirectoryPath(): NSString
+        pub get currentDirectoryPath(): NSString
     }
 
     /// `NSBundle` — read-only access to a code+resources bundle.
@@ -300,13 +300,13 @@ pub enum MatchOptions: u64 {
         pub static mainBundle(): NSBundle
 
         @objc("bundlePath")
-        pub bundlePath(): NSString
+        pub get bundlePath(): NSString
         @objc("resourcePath")
-        pub resourcePath(): NSString
+        pub get resourcePath(): NSString
         @objc("bundleIdentifier")
-        pub bundleIdentifier(): NSString
+        pub get bundleIdentifier(): NSString
         @objc("infoDictionary")
-        pub infoDictionary(): NSDictionary
+        pub get infoDictionary(): NSDictionary
         @objc("pathForResource:ofType:")
         pub pathForResource(name: NSString, ofType: NSString): NSString
     }
@@ -352,9 +352,9 @@ pub enum MatchOptions: u64 {
         ): NSRegularExpression
 
         @objc("pattern")
-        pub pattern(): NSString
+        pub get pattern(): NSString
         @objc("options")
-        pub options(): RegexOptions
+        pub get options(): RegexOptions
 
         @objc("numberOfMatchesInString:options:range:")
         pub numberOfMatchesInString(
@@ -386,11 +386,11 @@ pub enum MatchOptions: u64 {
         pub static scannerWithString(s: NSString): NSScanner
 
         @objc("isAtEnd")
-        pub isAtEnd(): bool
+        pub get atEnd(): bool
         @objc("scanLocation")
-        pub scanLocation(): u64
+        pub get scanLocation(): u64
         @objc("setScanLocation:")
-        pub setScanLocation(loc: u64)
+        pub set scanLocation(loc: u64)
 
         // ── Raw out-param @objc selectors (non-pub) ────────────
         @objc("scanInt:")
@@ -528,12 +528,12 @@ pub enum MatchOptions: u64 {
         r
     }
 
-    /// `{location: 0, length: s.length()}` — the range covering
+    /// `{location: 0, length: s.length}` — the range covering
     /// every UTF-16 unit in `s`. Hand it to the `NSRegularExpression`
     /// match / replace selectors when you want to operate on the
     /// whole string.
     pub fn fullRange(s: NSString): NSRange {
-        makeRange(0 as u64, s.length() as u64)
+        makeRange(0 as u64, s.length as u64)
     }
 
     /// Compile a regex pattern. Discards the `NSError **` —

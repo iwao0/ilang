@@ -49,7 +49,7 @@ let handler = ClickHandler.alloc().init()
 let btn = makeButton("Click me", 180.0, 140.0, 120.0, 32.0)
 btn.setTarget(handler)
 btn.setAction(selectorPtr("clicked:"))
-win.contentView().addSubview(btn)
+win.contentView.addSubview(btn)
 
 win.makeKeyAndOrderFront(nil)
 app.activate()

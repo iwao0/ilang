@@ -29,9 +29,9 @@ let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
 
         @objc("submit:")
         pub submit(sender: NSObject) {
-            let text = textField.stringValue()
+            let text = textField.stringValue
             console.log("text =", ilstr(text))
-            console.log("slider =", slider.doubleValue())
+            console.log("slider =", slider.doubleValue)
         }
     }
 }
@@ -63,7 +63,7 @@ submit.setTarget(handler)
 submit.setAction(selectorPtr("submit:"))
 stack.addArrangedSubview(submit)
 
-win.contentView().addSubview(stack)
+win.contentView.addSubview(stack)
 
 win.makeKeyAndOrderFront(nil)
 app.activate()

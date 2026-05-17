@@ -232,9 +232,9 @@ pub enum EventModifierFlags: u64 {
         @objc("convertPoint:toView:")
         pub convertPointToView(p: NSPoint, toView: NSObject): NSPoint
         @objc("frame")
-        pub frame(): NSRect
+        pub get frame(): NSRect
         @objc("bounds")
-        pub bounds(): NSRect
+        pub get bounds(): NSRect
     }
 
     /// NSWindow. The two-step `alloc + initWithContentRect:...`
@@ -259,7 +259,7 @@ pub enum EventModifierFlags: u64 {
         @objc("makeKeyAndOrderFront:")
         pub makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")
-        pub contentView(): NSView
+        pub get contentView(): NSView
         // NSWindowDelegate protocol — same ducktype story as
         // NSApplication.setDelegate.
         @objc("setDelegate:")
@@ -301,10 +301,10 @@ pub enum EventModifierFlags: u64 {
         @objc("initWithFrame:")
         pub init(rect: NSRect): NSTextField
 
-        @objc("setStringValue:")
-        pub setStringValue(s: NSString)
         @objc("stringValue")
-        pub stringValue(): NSString
+        pub get stringValue(): NSString
+        @objc("setStringValue:")
+        pub set stringValue(s: NSString)
 
         @objc("setEditable:")
         pub setEditable(flag: bool)
@@ -332,10 +332,10 @@ pub enum EventModifierFlags: u64 {
         pub setMinValue(v: f64)
         @objc("setMaxValue:")
         pub setMaxValue(v: f64)
-        @objc("setDoubleValue:")
-        pub setDoubleValue(v: f64)
         @objc("doubleValue")
-        pub doubleValue(): f64
+        pub get doubleValue(): f64
+        @objc("setDoubleValue:")
+        pub set doubleValue(v: f64)
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)
@@ -395,13 +395,13 @@ pub enum EventModifierFlags: u64 {
         pub static rgba(r: f64, g: f64, b: f64, a: f64): NSColor
 
         @objc("redComponent")
-        pub redComponent(): f64
+        pub get redComponent(): f64
         @objc("greenComponent")
-        pub greenComponent(): f64
+        pub get greenComponent(): f64
         @objc("blueComponent")
-        pub blueComponent(): f64
+        pub get blueComponent(): f64
         @objc("alphaComponent")
-        pub alphaComponent(): f64
+        pub get alphaComponent(): f64
     }
 
     /// `NSImage` — bitmap / vector image. Construct from a
@@ -419,11 +419,11 @@ pub enum EventModifierFlags: u64 {
         pub static imageNamed(name: NSString): NSImage
 
         @objc("size")
-        pub size(): NSSize
+        pub get size(): NSSize
         @objc("setSize:")
-        pub setSize(s: NSSize)
+        pub set size(s: NSSize)
         @objc("isValid")
-        pub isValid(): bool
+        pub get valid(): bool
     }
 
     /// `NSImageView` — view that draws an `NSImage`. Build with
@@ -437,10 +437,10 @@ pub enum EventModifierFlags: u64 {
         @objc("imageViewWithImage:")
         pub static imageViewWithImage(img: NSImage): NSImageView
 
-        @objc("setImage:")
-        pub setImage(img: NSImage)
         @objc("image")
-        pub image(): NSImage
+        pub get image(): NSImage
+        @objc("setImage:")
+        pub set image(img: NSImage)
     }
 
     /// `NSMenuItem` — one row in a menu. The standard ctor takes
@@ -490,7 +490,7 @@ pub enum EventModifierFlags: u64 {
             title: NSString, action: i64, keyEquivalent: NSString
         ): NSMenuItem
         @objc("itemArray")
-        pub itemArray(): NSArray
+        pub get itemArray(): NSArray
     }
 
     /// `NSAlert` — modal dialog with message text, an optional
@@ -537,7 +537,7 @@ pub enum EventModifierFlags: u64 {
         @objc("runModal")
         pub runModal(): i64
         @objc("URL")
-        pub URL(): NSURL
+        pub get URL(): NSURL
     }
 
     /// `NSOpenPanel` — modal "open" dialog. Toggle file / folder
@@ -557,7 +557,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setResolvesAliases:")
         pub setResolvesAliases(flag: bool)
         @objc("URLs")
-        pub URLs(): NSArray
+        pub get URLs(): NSArray
     }
 
     /// `NSFont` — typeface + point size. Class methods give you
@@ -573,9 +573,9 @@ pub enum EventModifierFlags: u64 {
         pub static fontWithName(name: NSString, size: f64): NSFont
 
         @objc("familyName")
-        pub familyName(): NSString
+        pub get familyName(): NSString
         @objc("pointSize")
-        pub pointSize(): f64
+        pub get pointSize(): f64
     }
 
     /// `NSScrollView` — wraps a document view (typically an
@@ -599,7 +599,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setBorderType:")
         pub setBorderType(b: BorderType)
         @objc("contentSize")
-        pub contentSize(): NSSize
+        pub get contentSize(): NSSize
     }
 
     /// `NSTextView` — editable multi-line text view. Usually
@@ -611,10 +611,10 @@ pub enum EventModifierFlags: u64 {
         @objc("initWithFrame:")
         pub init(rect: NSRect): NSTextView
 
-        @objc("setString:")
-        pub setString(s: NSString)
         @objc("string")
-        pub string(): NSString
+        pub get string(): NSString
+        @objc("setString:")
+        pub set string(s: NSString)
         @objc("setEditable:")
         pub setEditable(flag: bool)
         @objc("setSelectable:")
@@ -642,11 +642,11 @@ pub enum EventModifierFlags: u64 {
         @objc("removeAllItems")
         pub removeAllItems()
         @objc("numberOfItems")
-        pub numberOfItems(): i64
+        pub get numberOfItems(): i64
         @objc("indexOfSelectedItem")
-        pub indexOfSelectedItem(): i64
+        pub get indexOfSelectedItem(): i64
         @objc("titleOfSelectedItem")
-        pub titleOfSelectedItem(): NSString
+        pub get titleOfSelectedItem(): NSString
         @objc("selectItemAtIndex:")
         pub selectItemAtIndex(i: i64)
         @objc("selectItemWithTitle:")
@@ -667,9 +667,9 @@ pub enum EventModifierFlags: u64 {
         @objc("removeAllItems")
         pub removeAllItems()
         @objc("numberOfItems")
-        pub numberOfItems(): i64
+        pub get numberOfItems(): i64
         @objc("indexOfSelectedItem")
-        pub indexOfSelectedItem(): i64
+        pub get indexOfSelectedItem(): i64
         @objc("selectItemAtIndex:")
         pub selectItemAtIndex(i: i64)
         @objc("setNumberOfVisibleItems:")
@@ -692,10 +692,10 @@ pub enum EventModifierFlags: u64 {
         pub setMinValue(v: f64)
         @objc("setMaxValue:")
         pub setMaxValue(v: f64)
-        @objc("setDoubleValue:")
-        pub setDoubleValue(v: f64)
         @objc("doubleValue")
-        pub doubleValue(): f64
+        pub get doubleValue(): f64
+        @objc("setDoubleValue:")
+        pub set doubleValue(v: f64)
         @objc("setIndeterminate:")
         pub setIndeterminate(flag: bool)
         @objc("startAnimation:")
@@ -714,10 +714,10 @@ pub enum EventModifierFlags: u64 {
         @objc("initWithFrame:")
         pub init(rect: NSRect): NSSegmentedControl
 
-        @objc("setSegmentCount:")
-        pub setSegmentCount(n: i64)
         @objc("segmentCount")
-        pub segmentCount(): i64
+        pub get segmentCount(): i64
+        @objc("setSegmentCount:")
+        pub set segmentCount(n: i64)
         @objc("setLabel:forSegment:")
         pub setLabel(label: NSString, forSegment: i64)
         @objc("labelForSegment:")
@@ -748,10 +748,10 @@ pub enum EventModifierFlags: u64 {
         pub setMaxValue(v: f64)
         @objc("setIncrement:")
         pub setIncrement(v: f64)
-        @objc("setDoubleValue:")
-        pub setDoubleValue(v: f64)
         @objc("doubleValue")
-        pub doubleValue(): f64
+        pub get doubleValue(): f64
+        @objc("setDoubleValue:")
+        pub set doubleValue(v: f64)
         @objc("setValueWraps:")
         pub setValueWraps(flag: bool)
     }
@@ -768,10 +768,10 @@ pub enum EventModifierFlags: u64 {
 
         @objc("setDatePickerStyle:")
         pub setDatePickerStyle(s: DatePickerStyle)
-        @objc("setDateValue:")
-        pub setDateValue(d: NSDate)
         @objc("dateValue")
-        pub dateValue(): NSDate
+        pub get dateValue(): NSDate
+        @objc("setDateValue:")
+        pub set dateValue(d: NSDate)
         @objc("setMinDate:")
         pub setMinDate(d: NSDate)
         @objc("setMaxDate:")
@@ -794,9 +794,9 @@ pub enum EventModifierFlags: u64 {
         @objc("setBoxType:")
         pub setBoxType(t: BoxType)
         @objc("contentView")
-        pub contentView(): NSView
+        pub get contentView(): NSView
         @objc("setContentView:")
-        pub setContentView(v: NSView)
+        pub set contentView(v: NSView)
     }
 
     /// `NSSplitView` — divider-separated stack of subviews the
@@ -808,10 +808,10 @@ pub enum EventModifierFlags: u64 {
         @objc("initWithFrame:")
         pub init(rect: NSRect): NSSplitView
 
-        @objc("setVertical:")
-        pub setVertical(flag: bool)
         @objc("isVertical")
-        pub isVertical(): bool
+        pub get vertical(): bool
+        @objc("setVertical:")
+        pub set vertical(flag: bool)
         @objc("setDividerStyle:")
         pub setDividerStyle(style: i64)
         @objc("adjustSubviews")
@@ -830,9 +830,9 @@ pub enum EventModifierFlags: u64 {
         pub static gridViewWithViews(rows: NSArray): NSGridView
 
         @objc("numberOfRows")
-        pub numberOfRows(): i64
+        pub get numberOfRows(): i64
         @objc("numberOfColumns")
-        pub numberOfColumns(): i64
+        pub get numberOfColumns(): i64
         @objc("addRowWithViews:")
         pub addRowWithViews(views: NSArray): NSObject
         @objc("addColumnWithViews:")
@@ -912,33 +912,33 @@ pub enum EventModifierFlags: u64 {
     /// `clickCount`).
     @objc pub class NSEvent : NSObject {
         @objc("type")
-        pub eventType(): EventType
+        pub get eventType(): EventType
         @objc("locationInWindow")
-        pub locationInWindow(): NSPoint
+        pub get locationInWindow(): NSPoint
         @objc("modifierFlags")
-        pub modifierFlags(): EventModifierFlags
+        pub get modifierFlags(): EventModifierFlags
         @objc("timestamp")
-        pub timestamp(): f64
+        pub get timestamp(): f64
         @objc("clickCount")
-        pub clickCount(): i64
+        pub get clickCount(): i64
         @objc("buttonNumber")
-        pub buttonNumber(): i64
+        pub get buttonNumber(): i64
         @objc("deltaX")
-        pub deltaX(): f64
+        pub get deltaX(): f64
         @objc("deltaY")
-        pub deltaY(): f64
+        pub get deltaY(): f64
         @objc("deltaZ")
-        pub deltaZ(): f64
+        pub get deltaZ(): f64
 
         // Keyboard
         @objc("keyCode")
-        pub keyCode(): u16
+        pub get keyCode(): u16
         @objc("characters")
-        pub characters(): NSString
+        pub get characters(): NSString
         @objc("charactersIgnoringModifiers")
-        pub charactersIgnoringModifiers(): NSString
+        pub get charactersIgnoringModifiers(): NSString
         @objc("isARepeat")
-        pub isARepeat(): bool
+        pub get aRepeat(): bool
     }
 
     /// `NSScreen` — physical display. `mainScreen` is the one
@@ -953,9 +953,9 @@ pub enum EventModifierFlags: u64 {
         pub static screens(): NSArray
 
         @objc("frame")
-        pub frame(): NSRect
+        pub get frame(): NSRect
         @objc("visibleFrame")
-        pub visibleFrame(): NSRect
+        pub get visibleFrame(): NSRect
     }
 
     // ─── Convenience helpers ─────────────────────────────────────
@@ -1003,7 +1003,7 @@ pub enum EventModifierFlags: u64 {
         x: f64, y: f64, w: f64, h: f64
     ): NSTextField {
         let f = NSTextField.alloc().init(makeRect(x, y, w, h))
-        f.setStringValue(nsstr(text))
+        f.stringValue = nsstr(text)
         f.setEditable(false)
         f.setBordered(false)
         f.setBezeled(false)
@@ -1018,7 +1018,7 @@ pub enum EventModifierFlags: u64 {
         x: f64, y: f64, w: f64, h: f64
     ): NSTextField {
         let f = NSTextField.alloc().init(makeRect(x, y, w, h))
-        f.setStringValue(nsstr(text))
+        f.stringValue = nsstr(text)
         f.setEditable(true)
         f.setBezeled(true)
         f
@@ -1032,7 +1032,7 @@ pub enum EventModifierFlags: u64 {
         let s = NSSlider.alloc().init(makeRect(x, y, w, h))
         s.setMinValue(min)
         s.setMaxValue(max)
-        s.setDoubleValue(value)
+        s.doubleValue = value
         s
     }
 
@@ -1086,7 +1086,7 @@ pub enum EventModifierFlags: u64 {
         p.setCanChooseDirectories(false)
         p.setAllowsMultipleSelection(false)
         if p.runModal() != ModalResponseOK { return none }
-        some(ilstr(p.URL().path()))
+        some(ilstr(p.URL.path))
     }
 
     /// Save-file dialog with a default filename. Returns the
@@ -1095,7 +1095,7 @@ pub enum EventModifierFlags: u64 {
         let p = NSSavePanel.savePanel()
         p.setNameFieldStringValue(nsstr(suggestedName))
         if p.runModal() != ModalResponseOK { return none }
-        some(ilstr(p.URL().path()))
+        some(ilstr(p.URL.path))
     }
 
     /// Scroll view wrapping `doc` as its document view, with a
@@ -1113,7 +1113,7 @@ pub enum EventModifierFlags: u64 {
     /// Wrap in `makeScrollView` if you want scroll bars.
     pub fn makeTextView(text: string, x: f64, y: f64, w: f64, h: f64): NSTextView {
         let tv = NSTextView.alloc().init(makeRect(x, y, w, h))
-        tv.setString(nsstr(text))
+        tv.string = nsstr(text)
         tv.setEditable(true)
         tv
     }
@@ -1136,7 +1136,7 @@ pub enum EventModifierFlags: u64 {
         p.setIndeterminate(false)
         p.setMinValue(min)
         p.setMaxValue(max)
-        p.setDoubleValue(value)
+        p.doubleValue = value
         p
     }
 

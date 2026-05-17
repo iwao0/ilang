@@ -55,7 +55,7 @@ let bounce = SKAction.sequence(arr)
 sprite.runAction(SKAction.repeatActionForever(bounce))
 
 view.presentScene(scene)
-win.contentView().addSubview(view)
+win.contentView.addSubview(view)
 
 win.makeKeyAndOrderFront(cocoa.nil)
 app.activate()

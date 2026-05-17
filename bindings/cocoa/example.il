@@ -21,7 +21,7 @@ let win = cocoa.makeWindow("ilang × Cocoa", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 
 let btn = cocoa.makeButton("Hello, ilang", 180.0, 140.0, 120.0, 32.0)
-win.contentView().addSubview(btn)
+win.contentView.addSubview(btn)
 
 // nil sender — `cocoa.nil` is a pre-built zero-handle NSObject;
 // the desugar passes its handle (`0 as *objc_object`, a.k.a. nil)

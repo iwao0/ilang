@@ -66,7 +66,7 @@ label.position = cocoa.makePoint(240.0, 340.0)
 scene.addChild(label)
 
 view.presentScene(scene)
-win.contentView().addSubview(view)
+win.contentView.addSubview(view)
 
 win.makeKeyAndOrderFront(cocoa.nil)
 app.activate()

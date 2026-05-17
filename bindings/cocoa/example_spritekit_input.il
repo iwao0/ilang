@@ -35,7 +35,7 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
 
         @objc("mouseDown:")
         mouseDown(event: NSEvent) {
-            let inWindow = event.locationInWindow()
+            let inWindow = event.locationInWindow
             let view = this.view()
             let inView = view.convertPointFromView(inWindow, cocoa.nil)
             let scenePt = this.convertPointFromView(inView)
@@ -50,7 +50,7 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
         @objc("keyDown:")
         keyDown(event: NSEvent) {
             // Arrow keys: 123=left 124=right 125=down 126=up
-            let code = event.keyCode() as i64
+            let code = event.keyCode as i64
             let dx = 0.0
             let dy = 0.0
             if      code == 123 { dx = -20.0 }
@@ -106,7 +106,7 @@ player.position = cocoa.makePoint(240.0, 160.0)
 scene.addChild(player)
 
 view.presentScene(scene)
-win.contentView().addSubview(view)
+win.contentView.addSubview(view)
 win.makeKeyAndOrderFront(cocoa.nil)
 app.activate()
 app.run()
