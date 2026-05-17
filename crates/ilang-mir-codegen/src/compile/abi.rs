@@ -93,7 +93,18 @@ pub(super) fn clif_signature_for<M: Module>(
     // HFA path is disabled there — float structs fall through to the
     // i64 chunks path instead (1 i64 per 8 bytes, bit-packed).
     let hfa_ok = sig.call_conv != cranelift_codegen::isa::CallConv::WindowsFastcall;
-    let sret_size = struct_indirect_with_max(&f.ret, prog, chunk_max);
+    // ABI decision tree for the return slot: HFA float regs first
+    // (4 floats fit even when c_size > chunk_max — e.g. NSRect is
+    // 32 bytes but rides v0..v3), then GPR chunks, then indirect
+    // sret. Without checking HFA first, NSRect-returning ObjC
+    // selectors (`-[NSScreen frame]` etc.) silently sret-pre-alloc
+    // a buffer the callee never writes to, leaving zeros.
+    let ret_is_hfa = hfa_ok && struct_hfa(&f.ret, prog).is_some();
+    let sret_size = if ret_is_hfa {
+        None
+    } else {
+        struct_indirect_with_max(&f.ret, prog, chunk_max)
+    };
     if sret_size.is_some() {
         sig.params.push(AbiParam::special(
             types::I64,

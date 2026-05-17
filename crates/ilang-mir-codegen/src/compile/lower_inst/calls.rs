@@ -114,18 +114,31 @@ pub(super) fn lower_call<M: Module>(
     };
     // sret: pre-alloc the destination struct and pass its pointer
     // as the hidden first arg. Triggered when the callee returns a
-    // CRepr struct that doesn't fit in its ABI's chunk budget.
+    // CRepr struct that doesn't fit in its ABI's chunk budget AND
+    // can't ride the HFA float-register return path (4 floats fit
+    // in v0..v3 even past the 16-byte C ABI chunk cap — e.g.
+    // NSRect's 4 doubles). Must mirror the same priority as
+    // `clif_signature_for`'s return-shape decision, otherwise the
+    // caller pre-allocs an sret buffer the HFA-returning callee
+    // never writes to and the values come back as zero.
+    let hfa_ok_for_ret = fb.func.signature.call_conv
+        != cranelift_codegen::isa::CallConv::WindowsFastcall;
     let sret_dst = if let Some(d) = dst {
         let dst_ty = func.ty_of(*d).clone();
-        if let Some(c_size) =
-            struct_indirect_with_max(&dst_ty, prog, callee_chunk_max)
-        {
-            let size_v = fb.ins().iconst(types::I64, c_size);
-            let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
-            let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
-            let ptr = fb.inst_results(alloc_call)[0];
-            arg_vs.push(ptr);
-            Some((*d, ptr))
+        let ret_is_hfa = hfa_ok_for_ret && struct_hfa(&dst_ty, prog).is_some();
+        if !ret_is_hfa {
+            if let Some(c_size) =
+                struct_indirect_with_max(&dst_ty, prog, callee_chunk_max)
+            {
+                let size_v = fb.ins().iconst(types::I64, c_size);
+                let alloc_ref = module.declare_func_in_func(alloc_id, fb.func);
+                let alloc_call = fb.ins().call(alloc_ref, &[size_v]);
+                let ptr = fb.inst_results(alloc_call)[0];
+                arg_vs.push(ptr);
+                Some((*d, ptr))
+            } else {
+                None
+            }
         } else {
             None
         }

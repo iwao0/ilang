@@ -60,29 +60,13 @@ pub(super) fn lower_term(
             // single-value or void return path.
             if let Some(v) = value {
                 let cv_opt = vmap.get(v).copied();
-                if let Some(c_size) =
-                    struct_indirect_with_max(&ret_abi.ret_ty, prog, ret_abi.chunk_max)
-                {
-                    if let (Some(sret), Some(cv)) = (ret_abi.sret_ptr, cv_opt) {
-                        // memcpy struct bytes (cv → sret) one i64 cell
-                        // at a time. `c_size` already includes any
-                        // tail padding (it rounds up to the largest
-                        // field's alignment), so 8-byte stores are
-                        // safe.
-                        let mut off: i32 = 0;
-                        while (off as i64) < c_size {
-                            let cell = fb.ins().load(types::I64, MemFlags::trusted(), cv, off);
-                            fb.ins().store(MemFlags::trusted(), cell, sret, off);
-                            off += 8;
-                        }
-                        fb.ins().return_(&[]);
-                        return Ok(());
-                    }
-                }
-                // HFA is not valid on Windows fastcall (one return
-                // register only); those functions fall through to the
-                // i64 chunks path below, matching the signature that
-                // `clif_signature_for` generated.
+                // Return-shape decision MUST mirror
+                // `clif_signature_for` / `lower_function`'s entry
+                // schema: HFA float regs first, then GPR chunks,
+                // then indirect sret. Picking sret here for a
+                // function whose signature actually returns
+                // floats directly would memcpy into a non-existent
+                // hidden pointer and the caller would see zeros.
                 let hfa_ok = fb.func.signature.call_conv
                     != cranelift_codegen::isa::CallConv::WindowsFastcall;
                 if hfa_ok {
@@ -101,6 +85,25 @@ pub(super) fn lower_term(
                             fb.ins().return_(&vs);
                             return Ok(());
                         }
+                    }
+                }
+                if let Some(c_size) =
+                    struct_indirect_with_max(&ret_abi.ret_ty, prog, ret_abi.chunk_max)
+                {
+                    if let (Some(sret), Some(cv)) = (ret_abi.sret_ptr, cv_opt) {
+                        // memcpy struct bytes (cv → sret) one i64 cell
+                        // at a time. `c_size` already includes any
+                        // tail padding (it rounds up to the largest
+                        // field's alignment), so 8-byte stores are
+                        // safe.
+                        let mut off: i32 = 0;
+                        while (off as i64) < c_size {
+                            let cell = fb.ins().load(types::I64, MemFlags::trusted(), cv, off);
+                            fb.ins().store(MemFlags::trusted(), cell, sret, off);
+                            off += 8;
+                        }
+                        fb.ins().return_(&[]);
+                        return Ok(());
                     }
                 }
                 if let Some(chunks) =

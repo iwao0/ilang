@@ -62,12 +62,24 @@ pub(super) fn lower_function<M: Module>(
     // pointer-sized for Object types.
     let is_extern = matches!(func.kind, ilang_mir::FunctionKind::Extern { .. });
     let chunk_max = chunk_max_for(func);
-    let sret_ret_size = struct_indirect_with_max(&func.ret, prog, chunk_max);
     // HFA param/return spreading is only valid on System V / AArch64.
     // Windows fastcall allows one register per arg/return, so HFA
     // is skipped there and float structs fall through to i64 chunks.
     let hfa_ok = fb.func.signature.call_conv
         != cranelift_codegen::isa::CallConv::WindowsFastcall;
+    // Return-shape decision MUST mirror the one in
+    // `clif_signature_for`: HFA float regs first (4 floats fit
+    // even when c_size > chunk_max — e.g. NSRect's 4 doubles),
+    // then GPR chunks, then indirect sret. Skipping the HFA
+    // pre-check would synthesise a hidden sret pointer for a
+    // function whose signature actually returns the floats
+    // directly, mis-aligning the entry-block param schema.
+    let ret_is_hfa = hfa_ok && struct_hfa(&func.ret, prog).is_some();
+    let sret_ret_size = if ret_is_hfa {
+        None
+    } else {
+        struct_indirect_with_max(&func.ret, prog, chunk_max)
+    };
     let mut blocks: Vec<cranelift::prelude::Block> = Vec::with_capacity(func.blocks.len());
     for (i, blk) in func.blocks.iter().enumerate() {
         let b = fb.create_block();
