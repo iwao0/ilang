@@ -248,6 +248,31 @@ pub enum MTLSamplerBorderColor: u64 {
     opaqueWhite      = 2
 }
 
+/// `MTLCullMode` — which side of a triangle the rasteriser
+/// discards before fragment shading. `.none` disables culling
+/// (both sides shade); `.back` is the conventional default.
+pub enum MTLCullMode: u64 {
+    none  = 0
+    front = 1
+    back  = 2
+}
+
+/// `MTLWinding` — vertex order that constitutes a front-facing
+/// triangle. `.counterClockwise` is the OpenGL / Metal default.
+pub enum MTLWinding: u64 {
+    clockwise        = 0
+    counterClockwise = 1
+}
+
+/// `MTLTriangleFillMode` — how the rasteriser fills triangle
+/// interiors. `.fill` is solid shading; `.lines` is the
+/// wireframe-debug mode (no fragment is generated for the
+/// interior, only along edges).
+pub enum MTLTriangleFillMode: u64 {
+    fill  = 0
+    lines = 1
+}
+
 /// `MTLCommandBufferStatus` — lifecycle position of a command
 /// buffer. The values progress notEnqueued → enqueued → committed
 /// → scheduled → completed in the happy path; on failure the
@@ -300,6 +325,31 @@ pub struct MTLOrigin {
 pub struct MTLRegion {
     origin: MTLOrigin
     size: MTLSize
+}
+
+/// `MTLViewport` — visible rectangle for the render encoder's
+/// rasteriser. `originX` / `originY` and `width` / `height` are
+/// in pixels (top-left origin in Metal); `znear` / `zfar` clamp
+/// the depth-buffer write to `[0, 1]` typically. 48 bytes total
+/// (6× f64) — passes as an HFA on arm64.
+pub struct MTLViewport {
+    originX: f64
+    originY: f64
+    width:   f64
+    height:  f64
+    znear:   f64
+    zfar:    f64
+}
+
+/// `MTLScissorRect` — fragment-discard rectangle for the render
+/// encoder. Fragments outside `(x, y, x+width, y+height)` are
+/// thrown away before reaching the colour attachment. 32 bytes
+/// (4× u64).
+pub struct MTLScissorRect {
+    x:      u64
+    y:      u64
+    width:  u64
+    height: u64
 }
 
 // ─── Metal classes / protocols ────────────────────────────────────
@@ -791,6 +841,46 @@ pub struct MTLRegion {
         @objc("setRenderPipelineState:")
         pub setRenderPipelineState(s: MTLRenderPipelineState)
 
+        // Rasteriser state. `setViewport:` sets the visible
+        // rectangle (and depth-clip range) the fragments are
+        // written into; `setScissorRect:` discards fragments
+        // outside the supplied rectangle. Cull / winding / fill
+        // configure the triangle pipeline:
+        //   * cull mode    — `.back` is the casual default
+        //   * winding      — `.counterClockwise` (front-facing) is
+        //                    the Metal default
+        //   * fill mode    — `.fill` is solid; `.lines` is wireframe
+        // `setRenderTargetArrayLength:` toggles between rendering
+        // into a single layer (0) and multi-layered rendering
+        // (matching the texture's `arrayLength` or `depth`).
+        // `setBlendColorRed:green:blue:alpha:` feeds the constant
+        // blend factor used by `.sourceConstantColor` /
+        // `.destinationConstantColor` blend factors.
+        @objc("setViewport:")
+        pub setViewport(v: MTLViewport)
+        @objc("setScissorRect:")
+        pub setScissorRect(r: MTLScissorRect)
+        @objc("setCullMode:")
+        pub setCullMode(m: MTLCullMode)
+        @objc("setFrontFacingWinding:")
+        pub setFrontFacingWinding(w: MTLWinding)
+        @objc("setTriangleFillMode:")
+        pub setTriangleFillMode(m: MTLTriangleFillMode)
+        @objc("setRenderTargetArrayLength:")
+        pub setRenderTargetArrayLength(n: u64)
+        @objc("setBlendColorRed:green:blue:alpha:")
+        pub setBlendColor(r: f32, green: f32, blue: f32, alpha: f32)
+
+        // Debug labels — visible in Xcode's GPU frame capture. The
+        // push/pop pair brackets a span of encoder calls; `setLabel`
+        // names the encoder itself.
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("pushDebugGroup:")
+        pub pushDebugGroup(s: NSString)
+        @objc("popDebugGroup")
+        pub popDebugGroup()
+
         @objc("setVertexBuffer:offset:atIndex:")
         pub setVertexBuffer(b: MTLBuffer, offset: u64, atIndex: u64)
         @objc("setVertexBytes:length:atIndex:")
@@ -1041,6 +1131,20 @@ pub struct MTLRegion {
         pub setTexture(t: MTLTexture, atIndex: u64)
         @objc("setSamplerState:atIndex:")
         pub setSamplerState(s: MTLSamplerState, atIndex: u64)
+
+        // Reserve threadgroup-local memory for a specific binding
+        // slot (`threadgroup` qualified storage in the kernel).
+        // `length` is in bytes; the kernel must declare a matching
+        // `[[threadgroup(n)]]` parameter at `atIndex`.
+        @objc("setThreadgroupMemoryLength:atIndex:")
+        pub setThreadgroupMemoryLength(length: u64, atIndex: u64)
+
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("pushDebugGroup:")
+        pub pushDebugGroup(s: NSString)
+        @objc("popDebugGroup")
+        pub popDebugGroup()
 
         @objc("dispatchThreads:threadsPerThreadgroup:")
         pub dispatchThreads(
@@ -1326,4 +1430,36 @@ pub fn onScheduled(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
         handler(MTLCommandBuffer.__wrap_handle(raw))
     })
     buf.addScheduledHandler(block)
+}
+
+// ─── Viewport / scissor convenience constructors ─────────────────
+
+/// Build an `MTLViewport`. Pass `znear = 0.0`, `zfar = 1.0` for the
+/// usual depth-clip range, or use `viewport2D(...)` to skip that
+/// pair for 2D rendering.
+pub fn viewport(
+    originX: f64, originY: f64,
+    width: f64, height: f64,
+    znear: f64, zfar: f64
+): MTLViewport {
+    let v = new MTLViewport()
+    v.originX = originX ; v.originY = originY
+    v.width = width ; v.height = height
+    v.znear = znear ; v.zfar = zfar
+    v
+}
+
+/// `MTLViewport` covering a 2D rectangle with the default
+/// `znear = 0.0` / `zfar = 1.0` depth-clip range — the casual
+/// case when not using depth testing.
+pub fn viewport2D(originX: f64, originY: f64, width: f64, height: f64): MTLViewport {
+    viewport(originX, originY, width, height, 0.0, 1.0)
+}
+
+/// Build an `MTLScissorRect`. All values in pixels, top-left
+/// origin (matches Metal's coordinate convention).
+pub fn scissorRect(x: u64, y: u64, width: u64, height: u64): MTLScissorRect {
+    let r = new MTLScissorRect()
+    r.x = x ; r.y = y ; r.width = width ; r.height = height
+    r
 }
