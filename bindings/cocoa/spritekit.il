@@ -260,6 +260,15 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub setReachConstraints(c: SKReachConstraints)
         @objc("reachConstraints")
         pub reachConstraints(): SKReachConstraints
+
+        // Per-node shader-attribute values — the fragment shader
+        // reads each `a_<name>` uniform from the value table set
+        // here. Pair with `SKAttribute.attributeWithName:type:`
+        // declared on the shader so the runtime knows the layout.
+        @objc("setValue:forAttributeNamed:")
+        pub setValueForAttributeNamed(value: SKAttributeValue, forAttributeNamed: NSString)
+        @objc("valueForAttributeNamed:")
+        pub valueForAttributeNamed(key: NSString): SKAttributeValue
     }
 
     /// The top-level scene rendered by an `SKView`. Size is in
@@ -339,7 +348,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
         // Warp geometry (SKWarpable) — drives a per-frame
         // vertex remap of the sprite quad. Pair with
-        // `SKAction.warpTo:duration:` (not bound) to animate.
+        // `SKAction.warpTo` to animate the transition.
         @objc("setWarpGeometry:")
         pub setWarpGeometry(g: SKWarpGeometry)
         @objc("warpGeometry")
@@ -612,6 +621,14 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub static repeatAction(action: SKAction, count: i64): SKAction
         @objc("repeatActionForever:")
         pub static repeatActionForever(action: SKAction): SKAction
+
+        // Warp geometry — animate a sprite's per-frame vertex
+        // remap from its current `SKWarpGeometry` to `warp` over
+        // `duration` seconds. `numberOfColumns` / `numberOfRows`
+        // must match for a smooth interpolation; mismatched
+        // dimensions snap to the new mesh instantly.
+        @objc("warpTo:duration:")
+        pub static warpTo(warp: SKWarpGeometry, duration: f64): SKAction
     }
 
     // ─── Physics ─────────────────────────────────────────────────
@@ -1287,8 +1304,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
     /// `SKAttribute` — per-node shader input declaration. The
     /// fragment shader reads it as `a_<name>`; runtime values are
-    /// supplied per-node via `SKNode.setValue:forAttributeNamed:`
-    /// (not yet bound — use raw `objc_msgSend` if you need it).
+    /// supplied per-node via `SKNode.setValueForAttributeNamed(...)`.
     @objc pub class SKAttribute : NSObject {
         @objc("attributeWithName:type:")
         pub static attributeWithName(name: NSString, type: AttributeType): SKAttribute
@@ -1366,24 +1382,20 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
     /// `SKAttributeValue` — per-node value handed to a custom
     /// shader, paired with the matching `SKAttribute` declared
-    /// on the shader. Vector setters (vec2 / vec3 / vec4)
-    /// require the SIMD struct types and are deferred; the
-    /// scalar `valueWithFloat:` covers the common 1-uniform
-    /// case.
+    /// on the shader. Scalar `valueWithFloat:` covers the common
+    /// 1-uniform case; the vector setters take SIMD literals
+    /// (`[x, y]` etc.) at the call site.
     @objc pub class SKAttributeValue : NSObject {
         @objc("valueWithFloat:")
         pub static valueWithFloat(v: f32): SKAttributeValue
+        @objc("valueWithVectorFloat2:")
+        pub static valueWithVectorFloat2(v: simd.f32x2): SKAttributeValue
         /// `vector_float3` shares ABI with `vector_float4` —
         /// the 4th element is padding; supply 0.0 there.
         @objc("valueWithVectorFloat3:")
         pub static valueWithVectorFloat3(v: simd.f32x4): SKAttributeValue
         @objc("valueWithVectorFloat4:")
         pub static valueWithVectorFloat4(v: simd.f32x4): SKAttributeValue
-        // `valueWithVectorFloat2:` would need `simd.f32x2` but
-        // cranelift's arm64 backend doesn't implement
-        // `scalar_to_vector.f32x2` yet (ISLE TODO). Add once a
-        // pack-via-i64 fallback lands or the backend gains
-        // direct support.
 
         @objc("setFloatValue:")
         pub setFloatValue(v: f32)
