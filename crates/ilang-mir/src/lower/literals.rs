@@ -496,18 +496,49 @@ impl<'a> BodyCx<'a> {
                 let fty = meta.field_ty.get(&fid).cloned().unwrap();
                 let v = self.fb.new_value(fty.clone());
                 self.fb.push_inst(Inst::LoadField { dst: v, obj: ov, field: fid });
-                // Release a fresh-receiver Object after extracting a
-                // non-Object field — the receiver is otherwise leaked.
-                // Heap-typed fields need a retain first so the
-                // cascade triggered by `Release v` doesn't tear the
-                // field down: the receiver owned a +1 on the field
-                // (the array / map / etc.), and once the receiver's
-                // rc hits zero its `__release_object_fields` cascade
-                // releases that same +1. Without the retain, the
-                // caller gets a dangling pointer.
+                // Release a fresh-receiver Object after extracting
+                // a non-Object field — the receiver is otherwise
+                // leaked. Heap-typed fields need a retain first
+                // so the cascade triggered by `Release v` doesn't
+                // tear the field down: the receiver owned a +1
+                // on the field (the array / map / etc.), and once
+                // the receiver's rc hits zero its
+                // `__release_object_fields` cascade releases that
+                // same +1. Without the retain, the caller gets
+                // a dangling pointer.
                 if obj_is_fresh && !matches!(fty, MirTy::Object(_)) {
                     retain_if_heap(&mut self.fb, v, &fty);
-                    self.fb.push_inst(Inst::Release { value: ov });
+                    // @objc-class receivers are a special case:
+                    // their `handle` field is the underlying
+                    // refcounted ObjC pointer, and the wrapper's
+                    // deinit calls `objc_release(handle)` to drop
+                    // it. If the caller extracts `.handle` and
+                    // hands it to something that uses it later
+                    // in the same statement
+                    // (e.g. `objcRetain(dev.newBuffer(…).handle)`),
+                    // releasing the wrapper here means the ObjC
+                    // object is freed before the consumer sees
+                    // the pointer. Defer the release: register
+                    // the receiver as an anonymous SSA binding in
+                    // the current scope so the scope-exit pass
+                    // picks it up, keeping the underlying ObjC
+                    // object alive through the rest of the
+                    // enclosing block.
+                    //
+                    // The @objc marker is the presence of a
+                    // `handle: i64` field on the receiver class.
+                    let is_objc_receiver = meta
+                        .field_ix
+                        .get(&Symbol::intern("handle"))
+                        .and_then(|h_fid| meta.field_ty.get(h_fid))
+                        .is_some_and(|t| matches!(t, MirTy::I64));
+                    if is_objc_receiver {
+                        let anon =
+                            Symbol::intern("__field_receiver_temp");
+                        self.env.bind(anon, ov, oty.clone());
+                    } else {
+                        self.fb.push_inst(Inst::Release { value: ov });
+                    }
                 }
                 return Ok((v, fty));
             }
