@@ -161,6 +161,7 @@ pub(crate) fn build_doc(
             var_classes: &mut var_classes,
             var_types: &mut var_types,
             consts: &consts,
+            current_this_class: None,
         };
         // Pre-pass: register every top-level `let X = expr`'s
         // inferred type into `var_types` (and a hover decl into

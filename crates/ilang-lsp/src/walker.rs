@@ -94,6 +94,14 @@ pub(crate) struct Walker<'a> {
     /// recover the const's static type for `let x = NAME`-style
     /// bindings.
     pub(crate) consts: &'a HashMap<AstSymbol, Type>,
+    /// Class name of the method body currently being walked, if any.
+    /// `walk_fn` saves the previous value before entering a method
+    /// body and restores it on return. `infer_expr` reads this when
+    /// resolving `Field { obj: This, name }` so hover on
+    /// `this.field.field2` chains can find the enclosing class
+    /// without `walk_fn`-style threading of `this_class` through
+    /// every recursive inference call.
+    pub(crate) current_this_class: Option<String>,
 }
 
 impl<'a> Walker<'a> {
@@ -203,7 +211,16 @@ impl<'a> Walker<'a> {
                 override_signature: None,
             });
         }
+        // Set `current_this_class` for the duration of the body so
+        // `infer_expr` can resolve `Field { obj: This, name }`
+        // (otherwise hover on `this.field.field2` chains misses the
+        // outer field's type and the inner field lookup fails). Save
+        // / restore the previous value to support nested method
+        // bodies (e.g. a closure that itself has a `this`).
+        let prev_this_class = self.current_this_class.take();
+        self.current_this_class = this_class.map(|s| s.to_string());
         self.walk_block(&f.body, &mut scope, this_class);
+        self.current_this_class = prev_this_class;
     }
 
     pub(crate) fn walk_class(&mut self, c: &ClassDecl) {
@@ -1083,7 +1100,8 @@ impl<'a> Walker<'a> {
                     info.methods.get(&AstSymbol::intern(m))?.ret_ty.clone()
                 }),
             ExprKind::MethodCall { obj, method, .. } => {
-                let class = self.resolve_obj_class(obj, scope, None)?;
+                let this_class = self.current_this_class.as_deref();
+                let class = self.resolve_obj_class(obj, scope, this_class)?;
                 let info = self.classes.get(&AstSymbol::intern(&class))?;
                 info.methods.get(&AstSymbol::intern(method.as_str()))?.ret_ty.clone()
             }
@@ -1095,7 +1113,13 @@ impl<'a> Walker<'a> {
                 // `EnumName.Variant` key) and lift the result to
                 // `Type::Object(EnumName)` so a chain like
                 // `Flag.a | Flag.b` carries the enum type up.
-                if let Some(class) = self.resolve_obj_class(obj, scope, None) {
+                //
+                // Use `current_this_class` so a `this.field` obj
+                // resolves to its class — without it,
+                // `this.foo.bar` hover misses the inner `foo`'s
+                // type and `bar` falls off the lookup.
+                let this_class = self.current_this_class.as_deref();
+                if let Some(class) = self.resolve_obj_class(obj, scope, this_class) {
                     if let Some(info) = self.classes.get(&AstSymbol::intern(&class)) {
                         if let Some(t) = info.fields.get(name).and_then(|f| f.ret_ty.clone()) {
                             return Some(t);
