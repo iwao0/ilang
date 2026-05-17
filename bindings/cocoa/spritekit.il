@@ -26,6 +26,7 @@
 
 use foundation { NSObject, NSString, NSArray, NSData, NSPoint, NSSize, NSRect, NSVector, NSURL, nsstr }
 use appkit { NSView, NSColor }
+use metal { MTLCommandBuffer, MTLRenderPassDescriptor }
 
 // SKBlendMode — composition mode for SKSpriteNode / SKShapeNode
 // / SKEmitterNode / SKEffectNode. `alpha` is the default
@@ -1529,13 +1530,13 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     // ─── Off-screen rendering ────────────────────────────────────
 
     /// `SKRenderer` — render an SKScene through a caller-owned
-    /// Metal command buffer. Needs an `id<MTLDevice>` (slot
-    /// typed `NSObject` so an as-yet-unbound Metal handle can
-    /// flow in) and an `MTLCommandBuffer` /
-    /// `MTLRenderPassDescriptor` at draw time. The drawing
-    /// selector is intentionally not bound until the Metal
-    /// types get their own binding — for now `rendererWithDevice:`
-    /// + `setScene:` + `updateAtTime:` cover the setup half.
+    /// Metal command buffer. Construct via `rendererWithDevice:`
+    /// passing the result of `MTLCreateSystemDefaultDevice()`
+    /// (the device handle flows through the `NSObject` slot —
+    /// SpriteKit's signature treats it as opaque `id`), attach
+    /// the scene with `setScene:`, advance simulation with
+    /// `updateAtTime:`, then issue `renderWithViewport:...` per
+    /// frame against a caller-prepared `MTLRenderPassDescriptor`.
     @objc pub class SKRenderer : NSObject {
         @objc("rendererWithDevice:")
         pub static rendererWithDevice(device: NSObject): SKRenderer
@@ -1546,6 +1547,12 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub scene(): SKScene
         @objc("updateAtTime:")
         pub updateAtTime(t: f64)
+        @objc("renderWithViewport:commandBuffer:renderPassDescriptor:")
+        pub renderWithViewport(
+            viewport: NSRect,
+            commandBuffer: MTLCommandBuffer,
+            renderPassDescriptor: MTLRenderPassDescriptor
+        )
         @objc("setShowsFields:")
         pub setShowsFields(flag: bool)
         @objc("setShowsPhysics:")
