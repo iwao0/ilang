@@ -73,6 +73,18 @@ pub enum SimdElem {
 }
 
 impl SimdElem {
+    /// Single-letter prefix used in the printed form (`f32x4`,
+    /// `i32x4`, ...). Mirrors `ilang_ast::SimdElem::name_prefix`.
+    pub fn name_prefix(self) -> &'static str {
+        match self {
+            SimdElem::F32 => "f32",
+            SimdElem::F64 => "f64",
+            SimdElem::I8 => "i8",
+            SimdElem::I16 => "i16",
+            SimdElem::I32 => "i32",
+            SimdElem::I64 => "i64",
+        }
+    }
     /// Lane width in bytes — `lanes * lane_bytes()` is the total
     /// vector byte size.
     pub fn lane_bytes(self) -> i64 {

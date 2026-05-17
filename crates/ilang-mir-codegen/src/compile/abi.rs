@@ -316,6 +316,10 @@ pub(super) fn elem_byte_stride(t: &MirTy) -> i64 {
         MirTy::I8 | MirTy::U8 | MirTy::CChar | MirTy::Bool => 1,
         MirTy::I16 | MirTy::U16 => 2,
         MirTy::I32 | MirTy::U32 | MirTy::F32 => 4,
+        // SIMD vector — packed `lanes × lane_bytes` so an array of
+        // `simd.f32x2` matches the C `vector_float2[]` layout that
+        // `const vector_float2 *` parameters expect.
+        MirTy::Simd { elem, lanes } => elem.lane_bytes() * (*lanes as i64),
         _ => 8,
     }
 }
@@ -331,6 +335,11 @@ pub(super) fn elem_clif_type(t: &MirTy) -> Option<cranelift::prelude::Type> {
         MirTy::I32 | MirTy::U32 => Some(ct::I32),
         MirTy::F32 => Some(ct::F32),
         MirTy::F64 => Some(ct::F64),
+        // SIMD lanes pack tightly; the cranelift vector type carries
+        // the full `lanes × lane_bytes` width so the array NewArray
+        // store / ArrayLoad load both hit the natural NEON D/Q-reg
+        // path instead of falling through to the i64 catch-all.
+        MirTy::Simd { .. } => crate::ty::mir_to_clif(t),
         _ => None,
     }
 }

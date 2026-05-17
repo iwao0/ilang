@@ -318,10 +318,12 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     }
     // SIMD vector types. Listed under `simd.<elem><N>` so typing
     // `simd.` filters the completion list to just these entries.
-    // Element / lane combinations restricted to what cranelift's
-    // arm64 backend can lower today (omit f32x2 — `scalar_to_vector`
-    // isn't implemented there yet).
+    // `NewSimd` lowers via a stack slot (store-each-lane + vector
+    // load), so element / lane combinations that hit cranelift
+    // arm64's `scalar_to_vector` ISLE-TODO (notably `f32x2`) are
+    // OK to expose — the path bypasses that instruction entirely.
     for name in &[
+        "simd.f32x2",
         "simd.f32x4",
         "simd.f64x2",
         "simd.i8x16",
@@ -335,7 +337,7 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             detail: Some(format!("SIMD vector — assign from a {}-element array literal",
                 match *name {
                     "simd.f32x4" | "simd.i32x4" => 4,
-                    "simd.f64x2" | "simd.i64x2" => 2,
+                    "simd.f32x2" | "simd.f64x2" | "simd.i64x2" => 2,
                     "simd.i8x16" => 16,
                     "simd.i16x8" => 8,
                     _ => 0,

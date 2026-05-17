@@ -117,6 +117,22 @@ impl TypeChecker {
         if is_raw_ptr(&from) && is_raw_ptr(ty) && *self.in_extern_c.borrow() {
             return Ok(ty.clone());
         }
+        // Array → raw pointer — hands the array's data buffer
+        // address to the C-ABI side. Element types must match
+        // (or be `void` on the target). Used by the @objc
+        // bridge to pass `simd.f32x2[]` as `const vector_float2 *`
+        // and similar SIMD-array factories. Restricted to
+        // inside an `@extern(C) {}` block so raw pointers stay
+        // confined to FFI scope, just like the ptr↔ptr case.
+        if let (Type::Array { elem: arr_elem, .. }, Type::RawPtr { inner: ptr_inner, .. }) =
+            (&from, ty)
+        {
+            if *self.in_extern_c.borrow()
+                && (arr_elem == ptr_inner || matches!(**ptr_inner, Type::CVoid))
+            {
+                return Ok(ty.clone());
+            }
+        }
         // Class subtype upcast: `b as A` where `B extends A`
         // — always safe and explicit, so accept. The
         // narrowing direction (parent → child) is reserved

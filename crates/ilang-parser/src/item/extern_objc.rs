@@ -1554,6 +1554,16 @@ fn build_class_method(
                 is_const: false,
                 inner: Box::new(Type::Object(ctx.object_struct)),
             }
+        } else if let Some(elem) = simd_array_elem(&p.ty) {
+            // `simd.f32x2[]` etc. — Apple's factories take a
+            // `const vector_floatN *`. Marshal as a const raw
+            // pointer to the SIMD elem; the wrapper body emits
+            // an `arr as *const simd.fNxM` cast which lowers to
+            // a `__array_data_ptr` extract.
+            Type::RawPtr {
+                is_const: true,
+                inner: Box::new(elem),
+            }
         } else {
             p.ty.clone()
         };
@@ -1664,6 +1674,21 @@ fn build_class_method(
                     ty: Type::RawPtr {
                         is_const: false,
                         inner: Box::new(Type::Object(ctx.object_struct)),
+                    },
+                },
+                p.span,
+            )
+        } else if let Some(elem) = simd_array_elem(&p.ty) {
+            // SIMD array → const raw pointer. The cast lowers
+            // to a `__array_data_ptr` extract (offset +16 of
+            // the ilang array header), matching the C ABI for
+            // `const vector_floatN *`.
+            Expr::new(
+                ExprKind::Cast {
+                    expr: Box::new(Expr::new(ExprKind::Var(p.name), p.span)),
+                    ty: Type::RawPtr {
+                        is_const: true,
+                        inner: Box::new(elem),
                     },
                 },
                 p.span,
@@ -2630,6 +2655,20 @@ fn is_objc_class_ty(t: &Type, class_names: &HashSet<Symbol>) -> bool {
     match t {
         Type::Object(name) => class_names.contains(name),
         _ => false,
+    }
+}
+
+/// `Some(Type::Simd { .. })` if `t` is `simd.fNxM[]` / `simd.fNxM[K]`,
+/// i.e. an array of SIMD values. The @objc desugar swaps such params
+/// to `*const simd.fNxM` on the alias and emits an
+/// `arr as *const simd.fNxM` cast in the wrapper body so the data
+/// pointer (not the header) is what reaches `objc_msgSend`.
+fn simd_array_elem(t: &Type) -> Option<Type> {
+    match t {
+        Type::Array { elem, .. } if matches!(**elem, Type::Simd { .. }) => {
+            Some((**elem).clone())
+        }
+        _ => None,
     }
 }
 

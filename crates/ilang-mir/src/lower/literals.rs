@@ -16,7 +16,7 @@
 use ilang_ast::{Expr, ExprKind, Span, Symbol};
 
 use crate::inst::{FuncRef, Inst, UnOp, ValueId};
-use crate::types::MirTy;
+use crate::types::{MirTy, SimdElem};
 
 use super::utils::retain_if_heap;
 use super::{BodyCx, LowerError};
@@ -100,9 +100,24 @@ impl<'a> BodyCx<'a> {
         }
         let mut elem_vals = Vec::with_capacity(items.len());
         let mut elem_ty: Option<MirTy> = elem_hint.clone();
+        // SIMD elements are constructed from an inner array literal
+        // (`[[0.0, 0.0], [0.5, 1.0], ...]` against `simd.f32x2[N]`).
+        // `lower_expr` of the inner `[0.0, 0.0]` would build an
+        // `f64[]` and there's no array → simd `coerce`; dispatch
+        // directly to the SIMD-construction path before recursing.
+        let simd_elem_hint = match &elem_hint {
+            Some(MirTy::Simd { elem, lanes }) => Some((*elem, *lanes)),
+            _ => None,
+        };
         for it in items {
             let elem_is_fresh = self.is_fresh_object_expr(it);
-            let (vv, vty) = self.lower_expr(it)?;
+            let (vv, vty) = if let (Some((selem, slanes)), ExprKind::Array(lane_items)) =
+                (simd_elem_hint, &it.kind)
+            {
+                self.lower_simd_from_array_literal(lane_items, selem, slanes, it.span)?
+            } else {
+                self.lower_expr(it)?
+            };
             let target = elem_ty.get_or_insert(vty.clone()).clone();
             let coerced = if target == vty {
                 vv
@@ -136,6 +151,49 @@ impl<'a> BodyCx<'a> {
             items: elem_vals.into_boxed_slice(),
         });
         Ok((v, ty))
+    }
+
+    /// Lower an inner `[a, b, ...]` against a SIMD type hint into a
+    /// `NewSimd` value. Mirrors the let-stmt's `simd_ty` path so
+    /// nested array literals (e.g. `simd.f32x2[N] = [[..], [..]]`)
+    /// can construct each element directly without going through
+    /// the general `[f64]` lowering + a non-existent array→simd
+    /// coerce.
+    pub(super) fn lower_simd_from_array_literal(
+        &mut self,
+        lane_items: &[Expr],
+        elem: SimdElem,
+        lanes: u32,
+        span: Span,
+    ) -> Result<(ValueId, MirTy), LowerError> {
+        let _ = span;
+        if lane_items.len() != lanes as usize {
+            return Err(LowerError::Other(format!(
+                "expected {} elements for simd.{}x{}, got {}",
+                lanes,
+                elem.name_prefix(),
+                lanes,
+                lane_items.len()
+            )));
+        }
+        let lane_scalar = elem.as_scalar_mir();
+        let mut lane_vals: Vec<ValueId> = Vec::with_capacity(lane_items.len());
+        for it in lane_items.iter() {
+            let (vv, vty) = self.lower_expr(it)?;
+            let coerced = if vty == lane_scalar {
+                vv
+            } else {
+                self.coerce(vv, &vty, &lane_scalar, it.span)?
+            };
+            lane_vals.push(coerced);
+        }
+        let simd_ty = MirTy::Simd { elem, lanes };
+        let dst = self.fb.new_value(simd_ty.clone());
+        self.fb.push_inst(Inst::NewSimd {
+            dst,
+            lanes: lane_vals.into_boxed_slice(),
+        });
+        Ok((dst, simd_ty))
     }
 
     pub(super) fn lower_array_literal(&mut self, items: &[Expr]) -> Result<(ValueId, MirTy), LowerError> {

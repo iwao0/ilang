@@ -1481,14 +1481,26 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     /// remaps source positions (in normalised 0..1 texture
     /// coords) to destination positions (in normalised 0..1
     /// node coords). The position-array factories take
-    /// `const CGPoint *` arrays — unbind-able from ilang code
-    /// today, so only the count-only `gridWithColumns:rows:`
-    /// factory is exposed; per-vertex tweaks go through
-    /// `gridByReplacingDestPositions:` once SIMD-array support
-    /// lands.
+    /// `const vector_float2 *` (= `simd.f32x2[]`); pass row-
+    /// major source / dest arrays of length `(cols+1)×(rows+1)`.
+    /// `sourcePositionAtIndex:` / `destPositionAtIndex:` return
+    /// `vector_float2`, not `CGPoint` — match Apple's header.
     @objc pub class SKWarpGeometryGrid : SKWarpGeometry {
         @objc("gridWithColumns:rows:")
         pub static gridWithColumns(columns: i64, rows: i64): SKWarpGeometryGrid
+
+        @objc("gridWithColumns:rows:sourcePositions:destPositions:")
+        pub static gridWithColumnsRowsSourceDest(
+            columns: i64,
+            rows: i64,
+            source: simd.f32x2[],
+            dest: simd.f32x2[]
+        ): SKWarpGeometryGrid
+
+        @objc("gridByReplacingSourcePositions:")
+        pub gridByReplacingSourcePositions(source: simd.f32x2[]): SKWarpGeometryGrid
+        @objc("gridByReplacingDestPositions:")
+        pub gridByReplacingDestPositions(dest: simd.f32x2[]): SKWarpGeometryGrid
 
         @objc("numberOfColumns")
         pub numberOfColumns(): i64
@@ -1497,9 +1509,9 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("vertexCount")
         pub vertexCount(): i64
         @objc("sourcePositionAtIndex:")
-        pub sourcePositionAtIndex(i: i64): NSPoint
+        pub sourcePositionAtIndex(i: i64): simd.f32x2
         @objc("destPositionAtIndex:")
-        pub destPositionAtIndex(i: i64): NSPoint
+        pub destPositionAtIndex(i: i64): simd.f32x2
     }
 
     // ─── Off-screen rendering ────────────────────────────────────

@@ -945,17 +945,36 @@ pub(super) fn lower_inst<M: Module>(
             vmap.insert(*dst, ptr);
         }
         Inst::NewSimd { dst, lanes } => {
-            // Pack `lanes` scalar values into a cranelift vector
-            // of the matching type. Start by broadcasting lane 0
-            // via `scalar_to_vector`, then `insertlane` the rest.
+            // Pack `lanes` scalar values into a cranelift vector via
+            // a temporary stack slot: store each lane at its byte
+            // offset, then issue one vector load. Avoids
+            // `scalar_to_vector` whose arm64 ISLE lowering is still
+            // a TODO for some lane widths (e.g. `f32x2`), and keeps
+            // the lowering uniform across all SIMD widths.
             let dst_ty = func.ty_of(*dst).clone();
             let cl_vec_ty = mir_to_clif(&dst_ty).ok_or(
                 CompileError::Unsupported("SIMD type with no cranelift mapping"),
             )?;
-            let mut v = fb.ins().scalar_to_vector(cl_vec_ty, vmap[&lanes[0]]);
-            for (i, lane) in lanes.iter().enumerate().skip(1) {
-                v = fb.ins().insertlane(v, vmap[lane], i as u8);
+            let (lane_elem, lane_count) = match &dst_ty {
+                MirTy::Simd { elem, lanes: n } => (*elem, *n as i64),
+                _ => return Err(CompileError::Unsupported("NewSimd on non-SIMD type")),
+            };
+            let lane_bytes = lane_elem.lane_bytes();
+            let total = (lane_bytes * lane_count) as u32;
+            let slot = fb.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                total,
+                0,
+            ));
+            let lane_scalar_ct = elem_clif_type(&lane_elem.as_scalar_mir())
+                .ok_or(CompileError::Unsupported("SIMD lane has no clif scalar type"))?;
+            for (i, lane) in lanes.iter().enumerate() {
+                let off = (i as i64 * lane_bytes) as i32;
+                let raw = vmap[lane];
+                let stored = ireduce_or_pass(fb, raw, lane_scalar_ct);
+                fb.ins().stack_store(stored, slot, off);
             }
+            let v = fb.ins().stack_load(cl_vec_ty, slot, 0);
             vmap.insert(*dst, v);
         }
         Inst::ArrayLen { dst, arr } => {
