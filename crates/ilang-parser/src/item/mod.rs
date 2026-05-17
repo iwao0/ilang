@@ -437,31 +437,48 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Use, "'use'")?;
         let module = self.expect_ident("module name")?;
-        // `use M.*` — short form for `use M as _ { * }`. Produces the
-        // same UseDecl shape (Discard alias + wildcard) so the loader's
-        // wildcard branch picks it up unchanged. The Discard alias
-        // keeps the `pub use M.*` re-export form rendering correctly:
-        // the namespace is suppressed, items live flattened under the
-        // umbrella.
+        // `use M.*` / `use M.Name` — short forms for
+        // `use M as _ { * }` / `use M as _ { Name }`. Both produce
+        // the Discard-alias UseDecl shape the loader already handles
+        // (wildcard branch for `.*`, selective branch for `.Name`),
+        // so callers can stack one-liners — `use cocoa.NSObject` on
+        // one line and `use cocoa.NSString` on another get merged the
+        // same way the long-form selective imports do.
         if matches!(self.peek().kind, TokenKind::Dot) {
             self.bump();
             let next = self.peek().clone();
-            if !matches!(next.kind, TokenKind::Star) {
-                return Err(ParseError::Unexpected {
-                    found: next.kind,
-                    expected: "`*` after `.` in `use M.*`".into(),
-                    span: next.span,
-                });
+            match next.kind {
+                TokenKind::Star => {
+                    self.bump();
+                    return Ok(ilang_ast::UseDecl {
+                        module,
+                        alias: ilang_ast::UseAlias::Discard,
+                        selective: None,
+                        wildcard: true,
+                        re_export: false,
+                        span,
+                    });
+                }
+                TokenKind::Ident(name) => {
+                    self.bump();
+                    let sym = ilang_ast::Symbol::intern(&name);
+                    return Ok(ilang_ast::UseDecl {
+                        module,
+                        alias: ilang_ast::UseAlias::Discard,
+                        selective: Some(Box::new([sym])),
+                        wildcard: false,
+                        re_export: false,
+                        span,
+                    });
+                }
+                _ => {
+                    return Err(ParseError::Unexpected {
+                        found: next.kind,
+                        expected: "`*` or an identifier after `.` in `use M.<name>`".into(),
+                        span: next.span,
+                    });
+                }
             }
-            self.bump();
-            return Ok(ilang_ast::UseDecl {
-                module,
-                alias: ilang_ast::UseAlias::Discard,
-                selective: None,
-                wildcard: true,
-                re_export: false,
-                span,
-            });
         }
         // Optional `as <ident>` / `as _` alias.
         let alias = if matches!(self.peek().kind, TokenKind::As) {
