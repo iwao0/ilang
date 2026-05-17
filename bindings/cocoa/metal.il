@@ -58,9 +58,15 @@
 //                           signaledValue / setSignaledValue: /
 //                           waitUntilSignaledValue:timeoutMS: on
 //                           MTLSharedEvent
+//   * Tier (i):             MTLArgumentEncoder
+//                           (function.newArgumentEncoderWithBufferIndex:)
+//                           + useResource:/useHeap: residency
+//                           declarations on render and compute
+//                           encoders; MTLResourceUsage flags
 //
 // Surface still intentionally absent (add per-need):
 //   * CAMetalLayer / CAMetalDrawable + on-screen presentation
+//   * MTLArgumentDescriptor (manual-layout argument encoders)
 //   * MTLArgumentEncoder + argument buffers
 //   * MTLIndirectCommandBuffer (Tier-2 indirect dispatch)
 //   * MTLCaptureManager / MTLCaptureScope (Xcode GPU frame capture)
@@ -312,6 +318,17 @@ pub enum MTLRenderStages: u64 {
     mesh     = 0x10
 }
 
+/// `MTLResourceUsage` — how the shader accesses an argument-buffer
+/// resource. Pass the OR of the bits that match the shader
+/// declaration to `useResource:usage:` so hazard tracking knows
+/// to fence the texture / buffer.
+@flags
+pub enum MTLResourceUsage: u64 {
+    read   = 0x01
+    write  = 0x02
+    sample = 0x04
+}
+
 /// `MTLCullMode` — which side of a triangle the rasteriser
 /// discards before fragment shading. `.none` disables culling
 /// (both sides shade); `.back` is the conventional default.
@@ -521,6 +538,13 @@ pub struct MTLScissorRect {
         pub newEvent(): MTLEvent
         @objc("newSharedEvent")
         pub newSharedEvent(): MTLSharedEvent
+
+        // Manual-layout argument-encoder factory takes an
+        // `NSArray<MTLArgumentDescriptor *>`. `MTLArgumentDescriptor`
+        // itself isn't bound yet — for the casual "let the shader
+        // describe its own argument buffer" path use
+        // `function.newArgumentEncoderWithBufferIndex(idx)` on
+        // `MTLFunction` instead.
 
         // Sampler / depth-stencil state factories. Both are
         // immutable handles built from a mutable descriptor, the
@@ -796,6 +820,15 @@ pub struct MTLScissorRect {
     @objc pub class MTLFunction : NSObject {
         @objc("name")
         pub functionName(): NSString
+        // Returns an argument encoder whose layout matches the
+        // function's `[[buffer(bufferIndex)]]` argument (which
+        // must be a struct of textures / samplers / buffers — the
+        // Metal argument-buffer feature). Write into an
+        // `MTLBuffer` of `encoder.encodedLength()` bytes using
+        // the encoder's `setBuffer/Texture/SamplerState:atIndex:`
+        // selectors.
+        @objc("newArgumentEncoderWithBufferIndex:")
+        pub newArgumentEncoderWithBufferIndex(idx: u64): MTLArgumentEncoder
     }
 
     // ─── Buffers ──────────────────────────────────────────────────
@@ -997,6 +1030,19 @@ pub struct MTLScissorRect {
         @objc("waitForFence:beforeStages:")
         pub waitForFence(fence: MTLFence, beforeStages: MTLRenderStages)
 
+        // Argument-buffer residency. Hazard tracking can't see
+        // resources reached through an argument buffer, so the
+        // caller must declare them explicitly. `useResource:usage:`
+        // marks one buffer/texture as in-use for the upcoming
+        // draws; `useResources:count:usage:` does N at once;
+        // `useHeap:` covers every resource in a heap.
+        @objc("useResource:usage:")
+        pub useResource(resource: NSObject, usage: MTLResourceUsage)
+        @objc("useResources:count:usage:")
+        pub useResources(resources: i64, count: u64, usage: MTLResourceUsage)
+        @objc("useHeap:")
+        pub useHeap(heap: MTLHeap)
+
         // Debug labels — visible in Xcode's GPU frame capture. The
         // push/pop pair brackets a span of encoder calls; `setLabel`
         // names the encoder itself.
@@ -1165,6 +1211,66 @@ pub struct MTLScissorRect {
     /// cross-queue or CPU-side waits, reach for `MTLEvent` /
     /// `MTLSharedEvent` instead.
     @objc pub class MTLFence : NSObject {
+        @objc("setLabel:")
+        pub setLabel(s: NSString)
+        @objc("label")
+        pub label(): NSString
+    }
+
+    // ─── Argument buffers ────────────────────────────────────────
+
+    /// `id<MTLArgumentEncoder>` — packs textures / samplers /
+    /// buffers / inline constants into a single `MTLBuffer` whose
+    /// layout matches a shader's argument-buffer struct. The
+    /// shader's `[[buffer(n)]]` argument is then a single pointer
+    /// to the packed buffer; this lets a fragment / vertex /
+    /// kernel function reach hundreds of resources without
+    /// burning bind slots.
+    ///
+    /// Typical use:
+    ///   1. `enc = fn.newArgumentEncoderWithBufferIndex(0)`
+    ///   2. `buf = device.newBufferWithLength(enc.encodedLength(), …)`
+    ///   3. `enc.setArgumentBuffer(buf, 0)`
+    ///   4. `enc.setTexture(t, 0) ; enc.setSamplerState(s, 1) ; …`
+    ///   5. Bind `buf` to the matching `[[buffer(0)]]` slot on the
+    ///      encoder with `setVertex/FragmentBuffer:offset:atIndex:`
+    ///      (you still need to call `renderEncoder.useResource:usage:`
+    ///      for each resource referenced inside, so hazard tracking
+    ///      knows).
+    @objc pub class MTLArgumentEncoder : NSObject {
+        @objc("encodedLength")
+        pub encodedLength(): u64
+        @objc("alignment")
+        pub alignment(): u64
+
+        // Bind the destination buffer + start offset the encoder
+        // writes into. The array-element variant points at one
+        // slot of an argument-buffer array.
+        @objc("setArgumentBuffer:offset:")
+        pub setArgumentBuffer(buffer: MTLBuffer, offset: u64)
+        @objc("setArgumentBuffer:startOffset:arrayElement:")
+        pub setArgumentBufferElement(
+            buffer: MTLBuffer, startOffset: u64, arrayElement: u64
+        )
+
+        // Resource setters — write each kind into the slot the
+        // shader's argument-buffer struct named at `atIndex`.
+        @objc("setBuffer:offset:atIndex:")
+        pub setBuffer(b: MTLBuffer, offset: u64, atIndex: u64)
+        @objc("setTexture:atIndex:")
+        pub setTexture(t: MTLTexture, atIndex: u64)
+        @objc("setSamplerState:atIndex:")
+        pub setSamplerState(s: MTLSamplerState, atIndex: u64)
+        // Inline-constant pointer for the slot at `atIndex` — write
+        // raw bytes there via `cocoa.writeU8` / `writeF32` etc.
+        @objc("constantDataAtIndex:")
+        pub constantDataAtIndex(atIndex: u64): i64
+        // Get an inner argument encoder for a nested argument-buffer
+        // slot (an argument buffer that itself contains another
+        // argument buffer).
+        @objc("newArgumentEncoderForBufferAtIndex:")
+        pub newArgumentEncoderForBufferAtIndex(idx: u64): MTLArgumentEncoder
+
         @objc("setLabel:")
         pub setLabel(s: NSString)
         @objc("label")
@@ -1410,6 +1516,16 @@ pub struct MTLScissorRect {
         pub updateFence(fence: MTLFence)
         @objc("waitForFence:")
         pub waitForFence(fence: MTLFence)
+
+        // Argument-buffer residency declarations — see the
+        // matching block on `MTLRenderCommandEncoder` for why
+        // these are necessary.
+        @objc("useResource:usage:")
+        pub useResource(resource: NSObject, usage: MTLResourceUsage)
+        @objc("useResources:count:usage:")
+        pub useResources(resources: i64, count: u64, usage: MTLResourceUsage)
+        @objc("useHeap:")
+        pub useHeap(heap: MTLHeap)
 
         @objc("endEncoding")
         pub endEncoding()
