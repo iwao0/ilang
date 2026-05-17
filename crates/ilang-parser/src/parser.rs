@@ -1,4 +1,6 @@
-use ilang_ast::{Expr, ExprKind};
+use std::collections::HashSet;
+
+use ilang_ast::{Expr, ExprKind, Symbol};
 use ilang_lexer::{Token, TokenKind};
 
 use crate::error::ParseError;
@@ -11,6 +13,15 @@ pub(crate) struct Parser<'a> {
     /// "virtual" `>` by leaving this counter at 1; the outer's close
     /// then decrements it instead of bumping `pos`.
     pub(crate) pending_close_gt: u32,
+    /// `@objc class` names declared in already-loaded dependency
+    /// modules. `@extern(ObjC)` block desugar unions this with the
+    /// current block's local class names so that a method like
+    /// `NSWindow.setTitle(title: NSString)` correctly unwraps the
+    /// foreign `NSString` wrapper's `.handle` even when NSString
+    /// lives in a different file's block. Loader populates this
+    /// after recursing into dependencies; empty for stand-alone
+    /// parses.
+    pub(crate) external_objc_classes: &'a HashSet<Symbol>,
 }
 
 pub(crate) enum ExprEnd {

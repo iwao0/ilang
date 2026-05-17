@@ -20,9 +20,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, Item, MatchArm, Program, Stmt, StmtKind, Symbol, Type,
-    UseDecl,
+    Block, ClassDecl, Expr, ExprKind, ExternCItem, Item, MatchArm, Program, Stmt, StmtKind, Symbol,
+    Type, UseDecl,
 };
+use ilang_lexer::TokenKind;
 
 use crate::ParseError;
 
@@ -159,13 +160,14 @@ pub fn load_program_with_overlay(
     let mut visiting: HashSet<PathBuf> = HashSet::new();
     let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
+    let mut objc_registry: HashSet<Symbol> = HashSet::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
 
     load_recursive(
         &entry_canon, &entry_dir, &extra_paths,
-        &mut visiting, &mut chain, &mut loaded, overlay,
+        &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
     )?;
 
     // Cross-module visibility check before merging: every `M.X`
@@ -301,6 +303,7 @@ fn load_recursive(
     chain: &mut Vec<Symbol>,
     loaded: &mut HashMap<PathBuf, Program>,
     overlay: &HashMap<PathBuf, String>,
+    objc_registry: &mut HashSet<Symbol>,
 ) -> Result<(), LoadError> {
     if loaded.contains_key(file) {
         return Ok(());
@@ -310,38 +313,82 @@ fn load_recursive(
         return Err(LoadError::CircularImport { chain: chain.clone() });
     }
     chain.push(file.display().to_string().into());
-    let prog = parse_file(file, overlay)?;
+    // Tokenize once. We need two passes over the same token stream:
+    // a cheap scan to discover `use` deps (so we can load them before
+    // parsing this file, populating `objc_registry`), then the full
+    // parse that consults the registry inside `@extern(ObjC)` blocks.
+    let src = read_source(file, overlay)?;
+    let toks = ilang_lexer::tokenize(&src)
+        .map_err(|e| LoadError::LexError(e.to_string()))?;
     let dir = file.parent().unwrap_or(base_dir).to_path_buf();
-    for item in &prog.items {
-        if let Item::Use(u) = item {
-            let canon = resolve_module(u.module.as_str(), &dir, extra_paths)?;
-            load_recursive(&canon, &dir, extra_paths, visiting, chain, loaded, overlay)?;
-        }
+    for dep_name in pre_scan_use_modules(&toks) {
+        let canon = resolve_module(&dep_name, &dir, extra_paths)?;
+        load_recursive(
+            &canon, &dir, extra_paths, visiting, chain, loaded, overlay, objc_registry,
+        )?;
     }
+    let mut prog = crate::parse_with_objc_registry(&toks, objc_registry)
+        .map_err(LoadError::ParseError)?;
+    expand_embeds(&mut prog, file)?;
+    collect_objc_class_names(&prog, objc_registry);
     loaded.insert(file.to_path_buf(), prog);
     visiting.remove(file);
     chain.pop();
     Ok(())
 }
 
-fn parse_file(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<Program, LoadError> {
-    let src = if let Some(s) = overlay.get(file) {
-        s.clone()
+fn read_source(file: &Path, overlay: &HashMap<PathBuf, String>) -> Result<String, LoadError> {
+    if let Some(s) = overlay.get(file) {
+        Ok(s.clone())
     } else if let Some(name) = is_builtin_path(file) {
-        builtin_module_source(name)
+        Ok(builtin_module_source(name)
             .expect("builtin path checked")
-            .to_string()
+            .to_string())
     } else {
         std::fs::read_to_string(file).map_err(|e| LoadError::ReadError {
             path: file.to_path_buf(),
             message: e.to_string(),
-        })?
-    };
-    let toks = ilang_lexer::tokenize(&src)
-        .map_err(|e| LoadError::LexError(e.to_string()))?;
-    let mut prog = crate::parse(&toks).map_err(LoadError::ParseError)?;
-    expand_embeds(&mut prog, file)?;
-    Ok(prog)
+        })
+    }
+}
+
+/// Cheap pre-scan: pluck `<module>` out of every `use <module>` (and
+/// `pub use <module>`) at the token level so the loader can resolve
+/// dependencies before doing the full parse of this file. Only the
+/// module identifier matters — selective imports / aliases are
+/// resolved later by `apply_use`. Spurious `use` tokens inside e.g.
+/// match arms or argument lists are not a concern: `use` is a keyword
+/// reserved for the import form.
+fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<String> {
+    let mut deps = Vec::new();
+    for (i, t) in tokens.iter().enumerate() {
+        if matches!(t.kind, TokenKind::Use) {
+            if let Some(next) = tokens.get(i + 1) {
+                if let TokenKind::Ident(name) = &next.kind {
+                    deps.push(name.clone());
+                }
+            }
+        }
+    }
+    deps
+}
+
+/// Collect every `@objc class` name declared in `prog` (i.e. classes
+/// the `@extern(ObjC)` desugar tagged with the `__objc_wrapper`
+/// attribute) and add them to `registry`. Called after each file's
+/// parse so that subsequently-loaded sibling modules see this file's
+/// @objc classes during their own `@extern(ObjC)` desugar.
+fn collect_objc_class_names(prog: &Program, registry: &mut HashSet<Symbol>) {
+    for item in &prog.items {
+        let Item::ExternC(blk) = item else { continue };
+        for it in blk.items.iter() {
+            if let ExternCItem::Class(cd) = it {
+                if cd.attrs.iter().any(|a| a.name.as_str() == "objc") {
+                    registry.insert(cd.name);
+                }
+            }
+        }
+    }
 }
 
 /// Resolve `@embed("path/to/file") const X: T` declarations. The

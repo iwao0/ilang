@@ -460,11 +460,21 @@ impl<'a> Parser<'a> {
             items.push(wrapper);
         }
 
-        // Names of @objc classes declared in this block — used by
-        // method-body desugar to decide which arg / return types
-        // get handle-extracted vs passed straight through.
-        let class_names: HashSet<Symbol> =
-            objc_classes.iter().map(|c| c.name).collect();
+        // Names of @objc classes the method-body desugar should
+        // treat as "wrapped" — those whose arg/return slots need
+        // `.handle` extraction and result re-wrapping. Includes:
+        //   1. Classes declared in this block.
+        //   2. `@objc class` names imported from already-loaded
+        //      dependency modules (populated by the loader). This is
+        //      what lets `NSWindow.setTitle(t: NSString)` in
+        //      `appkit.il` correctly unwrap a `foundation.NSString`
+        //      argument — without (2), the desugar would pass the
+        //      ilang wrapper pointer to `objc_msgSend` and crash.
+        let class_names: HashSet<Symbol> = objc_classes
+            .iter()
+            .map(|c| c.name)
+            .chain(self.external_objc_classes.iter().copied())
+            .collect();
 
         for c in objc_classes {
             let ctx = ObjcCtx {
