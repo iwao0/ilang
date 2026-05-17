@@ -20,6 +20,67 @@ use ilang_types::{check, TypeError};
 
 use crate::*;
 
+/// Walk a dotted receiver chain (`this.starTex`, `obj.foo.bar`, ...)
+/// and return the class name of the last segment, or `None` if any
+/// hop fails to resolve. Used by both completion and signature_help
+/// so the dispatch logic stays in one place.
+///
+/// The first segment resolves to a class via, in priority order:
+///   1. `this` -> the enclosing class found by a text-level scan
+///   2. a registered class name (`Counter.method`)
+///   3. a `var_classes` entry (let-bound / param)
+///   4. the enclosing class's fields / getters / methods (implicit
+///      `this` field access, since ilang resolves bare idents
+///      against `this` inside method bodies)
+///
+/// Each subsequent segment looks up a field / getter / method on
+/// the current class and continues with the declared return type's
+/// class.
+pub(crate) fn resolve_receiver_class(
+    doc: &Doc,
+    receiver: &str,
+    text_offset: usize,
+) -> Option<String> {
+    if receiver.is_empty() {
+        return None;
+    }
+    let segments: Vec<&str> = receiver.split('.').collect();
+    let mut current: Option<String> = if segments[0] == "this" {
+        completion::enclosing_class(&doc.text, text_offset)
+    } else if doc.classes.contains_key(&AstSymbol::intern(segments[0])) {
+        Some(segments[0].to_string())
+    } else if let Some(c) = doc
+        .var_classes
+        .get(&AstSymbol::intern(segments[0]))
+        .cloned()
+    {
+        Some(c)
+    } else {
+        completion::enclosing_class(&doc.text, text_offset).and_then(|cls| {
+            let info = doc.classes.get(&AstSymbol::intern(&cls))?;
+            let key = AstSymbol::intern(segments[0]);
+            let m = info
+                .getters
+                .get(&key)
+                .or_else(|| info.fields.get(&key))
+                .or_else(|| info.methods.get(&key))?;
+            helpers::type_to_class(m.ret_ty.as_ref()?)
+        })
+    };
+    for seg in &segments[1..] {
+        let cls = current.as_deref()?;
+        let info = doc.classes.get(&AstSymbol::intern(cls))?;
+        let key = AstSymbol::intern(seg);
+        let m = info
+            .getters
+            .get(&key)
+            .or_else(|| info.fields.get(&key))
+            .or_else(|| info.methods.get(&key))?;
+        current = helpers::type_to_class(m.ret_ty.as_ref()?);
+    }
+    current
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> LspResult<InitializeResult> {
@@ -348,81 +409,9 @@ impl LanguageServer for Backend {
             // Built-in singleton: instance of `Console`.
             "Console".to_string()
         } else {
-            // Dotted receiver (`this.starTex`, `obj.foo.bar`) — walk
-            // the chain segment by segment. The first segment resolves
-            // to a class via `this` / `var_classes` / a registered
-            // class name; each subsequent segment looks up a field /
-            // getter on the current class and continues with the
-            // declared type's class. Single-ident receivers fall
-            // through the loop body with no extra hops.
-            let segments: Vec<&str> = receiver.split('.').collect();
-            let mut current = if segments[0] == "this" {
-                let off = text::line_col_to_offset(
-                    &doc.text,
-                    pos.line + 1,
-                    pos.character + 1,
-                )
+            let off = text::line_col_to_offset(&doc.text, pos.line + 1, pos.character + 1)
                 .unwrap_or(doc.text.len());
-                enclosing_class(&doc.text, off).unwrap_or_default()
-            } else if doc
-                .classes
-                .contains_key(&AstSymbol::intern(segments[0]))
-            {
-                segments[0].to_string()
-            } else if let Some(c) = doc
-                .var_classes
-                .get(&AstSymbol::intern(segments[0]))
-                .cloned()
-            {
-                c
-            } else {
-                // Implicit-`this` field access: a bare receiver
-                // that isn't a let-bound / param may be an instance
-                // field of the enclosing class. ilang resolves bare
-                // idents against `this` inside method bodies, so the
-                // completion path needs to mirror that fallback.
-                let off = text::line_col_to_offset(
-                    &doc.text,
-                    pos.line + 1,
-                    pos.character + 1,
-                )
-                .unwrap_or(doc.text.len());
-                enclosing_class(&doc.text, off)
-                    .and_then(|cls| {
-                        let info = doc.classes.get(&AstSymbol::intern(&cls))?;
-                        let key = AstSymbol::intern(segments[0]);
-                        let m = info
-                            .getters
-                            .get(&key)
-                            .or_else(|| info.fields.get(&key))
-                            .or_else(|| info.methods.get(&key))?;
-                        helpers::type_to_class(m.ret_ty.as_ref()?)
-                    })
-                    .unwrap_or_default()
-            };
-            for seg in &segments[1..] {
-                if current.is_empty() {
-                    break;
-                }
-                let info = match doc.classes.get(&AstSymbol::intern(&current)) {
-                    Some(i) => i,
-                    None => {
-                        current.clear();
-                        break;
-                    }
-                };
-                let key = AstSymbol::intern(seg);
-                let m = info
-                    .getters
-                    .get(&key)
-                    .or_else(|| info.fields.get(&key))
-                    .or_else(|| info.methods.get(&key));
-                current = match m.and_then(|m| m.ret_ty.as_ref()) {
-                    Some(t) => helpers::type_to_class(t).unwrap_or_default(),
-                    None => String::new(),
-                };
-            }
-            current
+            resolve_receiver_class(doc, &receiver, off).unwrap_or_default()
         };
         if doc.classes.get(&AstSymbol::intern(&class_name)).is_none() {
             // Built-in receiver: string / array. Their member sets are
@@ -674,17 +663,23 @@ impl LanguageServer for Backend {
                     doc: None,
                 });
             } else if let Some((recv, method)) = call.callee.rsplit_once('.') {
-                // Method call: `obj.method(`. Resolve the receiver to a
-                // class (instance, class name, or `console` singleton),
-                // then look up the method on that class. Fall back to
-                // built-in string / array signatures when the receiver
+                // Method call: `obj.method(`. Walk the (possibly
+                // dotted) receiver via `resolve_receiver_class` so
+                // chains like `this.starTex.update(` resolve through
+                // the field's declared type, not just a single
+                // `var_classes` hop. Falls back to the built-in
+                // string / array signatures below when the receiver
                 // is one of those primitives.
-                let class = if doc.classes.contains_key(&AstSymbol::intern(recv)) {
-                    Some(recv.to_string())
-                } else if recv == "console" {
+                let class = if recv == "console" {
                     Some("Console".to_string())
                 } else {
-                    doc.var_classes.get(&AstSymbol::intern(recv)).cloned()
+                    let off = text::line_col_to_offset(
+                        &doc.text,
+                        pos.line + 1,
+                        pos.character + 1,
+                    )
+                    .unwrap_or(doc.text.len());
+                    resolve_receiver_class(doc, recv, off)
                 };
                 if let Some(c) = class {
                     if let Some(info) = doc.classes.get(&AstSymbol::intern(&c)) {
