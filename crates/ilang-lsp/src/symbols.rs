@@ -33,7 +33,10 @@ pub(crate) fn is_synthesized_objc_helper(name: &str) -> bool {
         || name.starts_with("_ilang_impl_")
         || name.starts_with("__super_")
         || name == "__wrap_handle"
+        || name == "__wrap_handle_unowned"
         || name == "__bind_handle"
+        || name == "__bind_handle_unowned"
+        || name == "__owns"
 }
 
 pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, Symbol> {

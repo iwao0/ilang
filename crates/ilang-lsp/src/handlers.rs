@@ -399,6 +399,12 @@ impl LanguageServer for Backend {
             if m.is_static != want_static {
                 continue;
             }
+            // Hide the @objc desugar's internal bookkeeping
+            // fields (`__owns`) — they're not part of the
+            // user-facing surface.
+            if crate::symbols::is_synthesized_objc_helper(name.as_str()) {
+                continue;
+            }
             // Properties live in both `fields` (the bare entry) and
             // `getters` / `setters`. Prefer the getter signature when
             // we have one so `c.a` shows `(getter)` not `(property)`.
@@ -419,7 +425,9 @@ impl LanguageServer for Backend {
         for (name, m) in info.methods.iter() {
             // `init` is callable through `new ClassName(...)`, not via
             // `ClassName.init(...)`, so hide it from static completion.
-            if name == "init" {
+            // `deinit` is auto-invoked by ARC at refcount-zero; user
+            // code shouldn't call it directly either.
+            if name == "init" || name == "deinit" {
                 continue;
             }
             // Parser-synthesised helpers (the `@objc class` desugar's
