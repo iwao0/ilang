@@ -274,6 +274,18 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
     /// The top-level scene rendered by an `SKView`. Size is in
     /// SpriteKit points; the view's `presentScene:` swaps it in.
+    ///
+    /// Per-frame update / physics / constraint hooks are
+    /// delivered through an `SKSceneDelegate` installed via
+    /// `setDelegate:`. The delegate is any ilang `@objc` class
+    /// implementing one or more of the `SKSceneDelegate`
+    /// selectors:
+    ///   * `@objc("update:forScene:")` — `(t: f64, scene: SKScene)`
+    ///   * `@objc("didEvaluateActionsForScene:")` — `(scene: SKScene)`
+    ///   * `@objc("didSimulatePhysicsForScene:")` — `(scene: SKScene)`
+    ///   * `@objc("didApplyConstraintsForScene:")` — `(scene: SKScene)`
+    ///   * `@objc("didFinishUpdateForScene:")` — `(scene: SKScene)`
+    /// All are optional. Methods left unimplemented stay silent.
     @objc pub class SKScene : SKNode {
         @objc("sceneWithSize:")
         pub static sceneWithSize(s: NSSize): SKScene
@@ -309,6 +321,15 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         // until `presentScene:` runs).
         @objc("view")
         pub view(): SKView
+
+        // Per-frame callback hook. The delegate is typed
+        // `NSObject` so any @objc subclass that implements the
+        // `SKSceneDelegate` selectors (see the class docstring)
+        // can be plugged in.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
+        @objc("delegate")
+        pub delegate(): NSObject
     }
 
     /// Coloured / textured rectangular sprite. The
@@ -707,8 +728,15 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
     /// `SKPhysicsWorld` — owned by each `SKScene`. Sets the
     /// simulation's gravity / speed; routes contact events to a
-    /// delegate object (an ObjC class implementing
-    /// `SKPhysicsContactDelegate`).
+    /// delegate.
+    ///
+    /// The delegate is any ilang `@objc` class implementing the
+    /// `SKPhysicsContactDelegate` selectors:
+    ///   * `@objc("didBeginContact:")` — `(contact: SKPhysicsContact)`
+    ///   * `@objc("didEndContact:")` — `(contact: SKPhysicsContact)`
+    /// Install via `world.setContactDelegate(delegate)`. Read
+    /// the contact off `contact.bodyA()` / `bodyB()` /
+    /// `contactPoint()` / `contactNormal()` / `collisionImpulse()`.
     @objc pub class SKPhysicsWorld : NSObject {
         @objc("setGravity:")
         pub setGravity(v: NSVector)
@@ -1488,6 +1516,13 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     /// applied to `SKSpriteNode` / `SKEffectNode` via
     /// `setWarpGeometry:`. Concrete shapes are subclasses
     /// (today: `SKWarpGeometryGrid`).
+    ///
+    /// Apple exposes the warp-enabled node set via the
+    /// `SKWarpable` protocol — `SKSpriteNode` and `SKEffectNode`
+    /// both adopt it. ilang code doesn't need a separate type
+    /// for the protocol; just call `setWarpGeometry:` /
+    /// `warpGeometry` directly on those nodes, and pair with
+    /// `SKAction.warpTo` for animated transitions.
     @objc pub class SKWarpGeometry : NSObject {}
 
     /// `SKWarpGeometryGrid` — `columns × rows` quad mesh that
