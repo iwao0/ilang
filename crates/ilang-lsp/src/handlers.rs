@@ -369,10 +369,35 @@ impl LanguageServer for Backend {
                 .contains_key(&AstSymbol::intern(segments[0]))
             {
                 segments[0].to_string()
+            } else if let Some(c) = doc
+                .var_classes
+                .get(&AstSymbol::intern(segments[0]))
+                .cloned()
+            {
+                c
             } else {
-                doc.var_classes
-                    .get(&AstSymbol::intern(segments[0]))
-                    .cloned()
+                // Implicit-`this` field access: a bare receiver
+                // that isn't a let-bound / param may be an instance
+                // field of the enclosing class. ilang resolves bare
+                // idents against `this` inside method bodies, so the
+                // completion path needs to mirror that fallback.
+                let off = text::line_col_to_offset(
+                    &doc.text,
+                    pos.line + 1,
+                    pos.character + 1,
+                )
+                .unwrap_or(doc.text.len());
+                enclosing_class(&doc.text, off)
+                    .and_then(|cls| {
+                        let info = doc.classes.get(&AstSymbol::intern(&cls))?;
+                        let key = AstSymbol::intern(segments[0]);
+                        let m = info
+                            .getters
+                            .get(&key)
+                            .or_else(|| info.fields.get(&key))
+                            .or_else(|| info.methods.get(&key))?;
+                        helpers::type_to_class(m.ret_ty.as_ref()?)
+                    })
                     .unwrap_or_default()
             };
             for seg in &segments[1..] {
