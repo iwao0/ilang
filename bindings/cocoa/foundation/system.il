@@ -396,7 +396,17 @@ pub enum ProcessInfoThermalState: i64 {
             target: NSObject, selector: i64, object: NSObject
         )
         @objc("registerUndoWithTarget:handler:")
-        pub registerUndoWithTargetAndHandler(target: NSObject, handler: i64)
+        _registerUndoWithTargetAndHandler(
+            target: NSObject, handler: ObjCBlock<fn(i64)>
+        )
+        /// `registerUndoWithTarget:handler:` — record an undo step
+        /// that invokes `body` (a `fn(id)` taking the target as a
+        /// raw handle) when `undo()` is called. The target's strong
+        /// reference is held by the undo manager so the closure
+        /// can safely capture it.
+        pub registerUndoWithTargetAndHandler(target: NSObject, body: fn(i64)) {
+            this._registerUndoWithTargetAndHandler(target, new ObjCBlock(body))
+        }
 
         @objc("undo")
         pub undo()
@@ -497,7 +507,7 @@ pub enum ProcessInfoThermalState: i64 {
         @objc("launchedTaskWithExecutableURL:arguments:error:terminationHandler:")
         pub static launchedTaskWithExecutableURL(
             url: NSURL, arguments: NSArray, error: i64,
-            terminationHandler: i64
+            terminationHandler: ObjCBlock<fn(i64)>
         ): NSTask
 
         @objc("executableURL")

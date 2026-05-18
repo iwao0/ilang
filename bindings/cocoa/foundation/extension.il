@@ -37,6 +37,15 @@ use network { NSURL }
         @objc("setSuggestedName:")
         pub set suggestedName(s: NSString)
 
+        // `loadItemForTypeIdentifier:options:completionHandler:` and
+        // `loadDataRepresentationForTypeIdentifier:completionHandler:`
+        // take a `void(^)(id, NSError *)` block — i.e. two `id`
+        // arguments. The runtime's currently bound 2-arg block
+        // trampoline targets `void(^)(void *, size_t)` instead, so
+        // a typed `ObjCBlock<fn(i64, i64)>` here would carry the
+        // wrong NSMethodSignature when ObjC introspects the block.
+        // Leave the raw `handler: i64` shape until a `(id, id)`
+        // trampoline is added to `ilang_runtime::objc_blocks`.
         @objc("loadItemForTypeIdentifier:options:completionHandler:")
         pub loadItemForTypeIdentifier(
             uti: NSString, options: NSDictionary, completionHandler: i64

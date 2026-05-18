@@ -373,7 +373,7 @@ pub enum StreamStatus: u64 {
         @objc("enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:")
         pub enumeratorAtURL(
             url: NSURL, includingPropertiesForKeys: NSArray,
-            options: u64, errorHandler: i64
+            options: u64, errorHandler: ObjCBlock<fn(i64): i64>
         ): NSDirectoryEnumerator
         @objc("URLsForDirectory:inDomains:")
         pub urlsForDirectory(directory: u64, inDomains: u64): NSArray
@@ -692,12 +692,16 @@ pub enum StreamStatus: u64 {
         @optional presentedItemDidChange()
         @optional @objc("presentedItemDidMoveToURL:")
         presentedItemDidMoveToURL(newURL: NSURL)
-        @optional accommodatePresentedItemDeletion(completionHandler: i64)
-        @optional savePresentedItemChangesWithCompletionHandler(completionHandler: i64)
+        @optional accommodatePresentedItemDeletion(
+            completionHandler: ObjCBlock<fn(i64)>
+        )
+        @optional savePresentedItemChangesWithCompletionHandler(
+            completionHandler: ObjCBlock<fn(i64)>
+        )
         @optional @objc("relinquishPresentedItemToReader:")
-        relinquishPresentedItemToReader(reader: i64)
+        relinquishPresentedItemToReader(reader: ObjCBlock<fn(i64)>)
         @optional @objc("relinquishPresentedItemToWriter:")
-        relinquishPresentedItemToWriter(writer: i64)
+        relinquishPresentedItemToWriter(writer: ObjCBlock<fn(i64)>)
     }
 
     /// `NSFileSecurity` — opaque value carrying a file's owner /

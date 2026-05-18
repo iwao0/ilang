@@ -425,14 +425,41 @@ pub enum URLCredentialPersistence: u64 {
         @objc("finishTasksAndInvalidate")
         pub finishTasksAndInvalidate()
         @objc("resetWithCompletionHandler:")
-        pub resetWithCompletionHandler(handler: i64)
+        _resetWithCompletionHandler(handler: ObjCBlock<fn()>)
         @objc("flushWithCompletionHandler:")
-        pub flushWithCompletionHandler(handler: i64)
+        _flushWithCompletionHandler(handler: ObjCBlock<fn()>)
 
         @objc("getTasksWithCompletionHandler:")
-        pub getTasksWithCompletionHandler(handler: i64)
+        _getTasksWithCompletionHandler(
+            handler: ObjCBlock<fn(i64, i64, i64)>
+        )
         @objc("getAllTasksWithCompletionHandler:")
-        pub getAllTasksWithCompletionHandler(handler: i64)
+        _getAllTasksWithCompletionHandler(
+            handler: ObjCBlock<fn(i64)>
+        )
+
+        /// `resetWithCompletionHandler:` — drop all cookies / cache
+        /// and call `body` when the reset is done. The body takes
+        /// no arguments.
+        pub resetWithHandler(body: fn()) {
+            this._resetWithCompletionHandler(new ObjCBlock(body))
+        }
+        /// `flushWithCompletionHandler:` — block until in-flight
+        /// writes are flushed; call `body` after.
+        pub flushWithHandler(body: fn()) {
+            this._flushWithCompletionHandler(new ObjCBlock(body))
+        }
+        /// `getTasksWithCompletionHandler:` — `body` receives
+        /// `(NSArray *dataTasks, NSArray *uploadTasks,
+        ///   NSArray *downloadTasks)` as raw `id` handles.
+        pub getTasksWithHandler(body: fn(i64, i64, i64)) {
+            this._getTasksWithCompletionHandler(new ObjCBlock(body))
+        }
+        /// `getAllTasksWithCompletionHandler:` — `body` receives an
+        /// `NSArray *` of every active task as a raw `id` handle.
+        pub getAllTasksWithHandler(body: fn(i64)) {
+            this._getAllTasksWithCompletionHandler(new ObjCBlock(body))
+        }
 
         @objc("webSocketTaskWithURL:")
         pub webSocketTaskWithURL(url: NSURL): NSURLSessionWebSocketTask
@@ -538,7 +565,16 @@ pub enum URLCredentialPersistence: u64 {
     /// it's auto-deleted.
     @objc pub class NSURLSessionDownloadTask : NSURLSessionTask {
         @objc("cancelByProducingResumeData:")
-        pub cancelByProducingResumeData(handler: i64)
+        _cancelByProducingResumeData(handler: ObjCBlock<fn(i64)>)
+        /// `cancelByProducingResumeData:` — cancel the in-flight
+        /// download and call `body` with an `NSData *resumeData`
+        /// (as a raw `id` handle, or `0` if no resume data was
+        /// produced). Pass the data back to
+        /// `NSURLSession.downloadTaskWithResumeData:` later to
+        /// continue from where we left off.
+        pub cancelWithResumeDataHandler(body: fn(i64)) {
+            this._cancelByProducingResumeData(new ObjCBlock(body))
+        }
     }
 
     /// `NSURLSessionUploadTask` — task that sends data as the
@@ -783,7 +819,14 @@ pub enum URLCredentialPersistence: u64 {
     /// either text or data frames.
     @objc pub class NSURLSessionWebSocketTask : NSURLSessionTask {
         @objc("sendPingWithPongReceiveHandler:")
-        pub sendPingWithPongReceiveHandler(handler: i64)
+        _sendPingWithPongReceiveHandler(handler: ObjCBlock<fn(i64)>)
+        /// `sendPingWithPongReceiveHandler:` — send a WebSocket
+        /// ping; `body` is invoked with `NSError *` (raw `id`
+        /// handle, or `0` for success) when the pong comes back
+        /// or the wait times out.
+        pub sendPingWithPongHandler(body: fn(i64)) {
+            this._sendPingWithPongReceiveHandler(new ObjCBlock(body))
+        }
         @objc("cancelWithCloseCode:reason:")
         pub cancelWithCloseCode(code: i64, reason: NSData)
         @objc("maximumMessageSize")

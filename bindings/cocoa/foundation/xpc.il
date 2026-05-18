@@ -45,18 +45,22 @@ use core { NSObject, NSString, NSArray, NSError }
         @objc("remoteObjectProxy")
         pub get remoteObjectProxy(): NSObject
         @objc("remoteObjectProxyWithErrorHandler:")
-        pub remoteObjectProxyWithErrorHandler(handler: i64): NSObject
+        pub remoteObjectProxyWithErrorHandler(
+            handler: ObjCBlock<fn(i64)>
+        ): NSObject
         @objc("synchronousRemoteObjectProxyWithErrorHandler:")
-        pub synchronousRemoteObjectProxyWithErrorHandler(handler: i64): NSObject
+        pub synchronousRemoteObjectProxyWithErrorHandler(
+            handler: ObjCBlock<fn(i64)>
+        ): NSObject
 
         @objc("interruptionHandler")
-        pub get interruptionHandler(): i64
+        pub get interruptionHandler(): ObjCBlock<fn()>
         @objc("setInterruptionHandler:")
-        pub set interruptionHandler(handler: i64)
+        pub set interruptionHandler(handler: ObjCBlock<fn()>)
         @objc("invalidationHandler")
-        pub get invalidationHandler(): i64
+        pub get invalidationHandler(): ObjCBlock<fn()>
         @objc("setInvalidationHandler:")
-        pub set invalidationHandler(handler: i64)
+        pub set invalidationHandler(handler: ObjCBlock<fn()>)
 
         @objc("resume")
         pub resume()
