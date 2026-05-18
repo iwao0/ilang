@@ -210,4 +210,130 @@ use core { NSObject, NSString, NSArray, NSRange }
         @objc("exchangeObjectAtIndex:withObjectAtIndex:")
         pub exchangeObjectAtIndex(i: u64, withObjectAtIndex: u64)
     }
+
+    /// `NSHashTable` — set-like container parameterised by
+    /// pointer-personality `options` (default = strong references
+    /// like NSMutableSet; `weakMemory()` factory drops entries
+    /// when their referent dies). Useful for "observer" registries
+    /// that shouldn't keep their observers alive.
+    @objc pub class NSHashTable : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSHashTable
+        @objc("init")
+        pub init(): NSHashTable
+        @objc("hashTableWithOptions:")
+        pub static hashTableWithOptions(options: u64): NSHashTable
+        @objc("weakObjectsHashTable")
+        pub static weakObjectsHashTable(): NSHashTable
+
+        @objc("count")
+        pub get count(): u64
+        @objc("addObject:")
+        pub addObject(o: NSObject)
+        @objc("removeObject:")
+        pub removeObject(o: NSObject)
+        @objc("removeAllObjects")
+        pub removeAllObjects()
+        @objc("containsObject:")
+        pub containsObject(o: NSObject): bool
+        @objc("member:")
+        pub member(o: NSObject): NSObject
+        @objc("allObjects")
+        pub get allObjects(): NSArray
+    }
+
+    /// `NSMapTable` — dictionary-like container parameterised by
+    /// key / value pointer-personality options. The two most
+    /// common shapes: `strongToWeakObjectsMapTable()` (strong
+    /// keys → weak values, the textbook observer table) and
+    /// `weakToStrongObjectsMapTable()`.
+    @objc pub class NSMapTable : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSMapTable
+        @objc("mapTableWithKeyOptions:valueOptions:")
+        pub static mapTableWithOptions(keyOptions: u64, valueOptions: u64): NSMapTable
+        @objc("strongToWeakObjectsMapTable")
+        pub static strongToWeakObjectsMapTable(): NSMapTable
+        @objc("weakToStrongObjectsMapTable")
+        pub static weakToStrongObjectsMapTable(): NSMapTable
+        @objc("strongToStrongObjectsMapTable")
+        pub static strongToStrongObjectsMapTable(): NSMapTable
+        @objc("weakToWeakObjectsMapTable")
+        pub static weakToWeakObjectsMapTable(): NSMapTable
+
+        @objc("count")
+        pub get count(): u64
+        @objc("objectForKey:")
+        pub objectForKey(k: NSObject): NSObject
+        @objc("setObject:forKey:")
+        pub setObject(o: NSObject, forKey: NSObject)
+        @objc("removeObjectForKey:")
+        pub removeObjectForKey(k: NSObject)
+        @objc("removeAllObjects")
+        pub removeAllObjects()
+    }
+
+    /// `NSPointerArray` — array variant with configurable
+    /// pointer-personality. Used internally by NSHashTable /
+    /// NSMapTable; surface here for the rare case where you
+    /// genuinely want an ordered weak-reference array. NULLs
+    /// are explicitly representable as slot values.
+    @objc pub class NSPointerArray : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSPointerArray
+        @objc("pointerArrayWithOptions:")
+        pub static pointerArrayWithOptions(options: u64): NSPointerArray
+        @objc("strongObjectsPointerArray")
+        pub static strongObjectsPointerArray(): NSPointerArray
+        @objc("weakObjectsPointerArray")
+        pub static weakObjectsPointerArray(): NSPointerArray
+
+        @objc("count")
+        pub get count(): u64
+        @objc("setCount:")
+        pub set count(n: u64)
+        @objc("pointerAtIndex:")
+        pub pointerAtIndex(i: u64): NSObject
+        @objc("addPointer:")
+        pub addPointer(p: NSObject)
+        @objc("removePointerAtIndex:")
+        pub removePointerAtIndex(i: u64)
+        @objc("insertPointer:atIndex:")
+        pub insertPointer(p: NSObject, atIndex: u64)
+        @objc("replacePointerAtIndex:withPointer:")
+        pub replacePointerAtIndex(i: u64, withPointer: NSObject)
+        @objc("compact")
+        pub compact()
+        @objc("allObjects")
+        pub get allObjects(): NSArray
+    }
+
+    /// `NSSortDescriptor` — single sort key + direction (and
+    /// optionally a comparison selector). Hand an array of
+    /// descriptors to `[NSArray sortedArrayUsingDescriptors:]`
+    /// to get a stable multi-key sort: the first descriptor
+    /// breaks ties first, then the second, and so on.
+    /// `reversedSortDescriptor` is the inverted-direction sibling
+    /// for the same key, handy for "click the column header to
+    /// flip the sort".
+    @objc pub class NSSortDescriptor : NSObject {
+        @objc("sortDescriptorWithKey:ascending:")
+        pub static sortDescriptorWithKey(
+            key: NSString, ascending: bool
+        ): NSSortDescriptor
+        @objc("sortDescriptorWithKey:ascending:selector:")
+        pub static sortDescriptorWithKeyAndSelector(
+            key: NSString, ascending: bool, selector: i64
+        ): NSSortDescriptor
+
+        @objc("key")
+        pub get key(): NSString
+        @objc("ascending")
+        pub get ascending(): bool
+        @objc("selector")
+        pub get selector(): i64
+
+        @objc("reversedSortDescriptor")
+        pub get reversedSortDescriptor(): NSSortDescriptor
+    }
 }

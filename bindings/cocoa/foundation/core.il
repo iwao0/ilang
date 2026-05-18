@@ -291,6 +291,76 @@ pub struct NSRange { location: u64; length: u64 }
         pub get userInfo(): NSDictionary
     }
 
+    /// `NSException` — legacy exception-style error carrier.
+    /// Modern Cocoa surfaces failures through `NSError **`
+    /// out-parameters; NSException is only used for programmer
+    /// errors (array out-of-range, invalid argument). Caught
+    /// natively by ObjC `@try`/`@catch`, but ilang code typically
+    /// just lets them propagate to crash.
+    @objc pub class NSException : NSObject {
+        @objc("exceptionWithName:reason:userInfo:")
+        pub static exceptionWithName(
+            name: NSString, reason: NSString, userInfo: NSDictionary
+        ): NSException
+        @objc("raise")
+        pub raise()
+        @objc("name")
+        pub get name(): NSString
+        @objc("reason")
+        pub get reason(): NSString
+        @objc("userInfo")
+        pub get userInfo(): NSDictionary
+        @objc("callStackSymbols")
+        pub get callStackSymbols(): NSArray
+    }
+
+    /// `NSMethodSignature` — describes an Objective-C method's
+    /// argument / return types. Used together with NSInvocation
+    /// for runtime dynamic dispatch; rarely needed in ordinary
+    /// code.
+    @objc pub class NSMethodSignature : NSObject {
+        @objc("numberOfArguments")
+        pub get numberOfArguments(): u64
+        @objc("frameLength")
+        pub get frameLength(): u64
+        @objc("methodReturnLength")
+        pub get methodReturnLength(): u64
+        @objc("isOneway")
+        pub get isOneway(): bool
+    }
+
+    /// `NSInvocation` — captured method call (selector + target +
+    /// arguments) you can replay later or queue. Use it for
+    /// runtime-driven dispatch when the selector / argument set
+    /// only known at call time. Construct via
+    /// `+invocationWithMethodSignature:`.
+    @objc pub class NSInvocation : NSObject {
+        @objc("invocationWithMethodSignature:")
+        pub static invocationWithMethodSignature(
+            sig: NSMethodSignature
+        ): NSInvocation
+
+        @objc("selector")
+        pub get selector(): i64
+        @objc("setSelector:")
+        pub set selector(s: i64)
+        @objc("target")
+        pub get target(): NSObject
+        @objc("setTarget:")
+        pub set target(t: NSObject)
+        @objc("methodSignature")
+        pub get methodSignature(): NSMethodSignature
+
+        @objc("invoke")
+        pub invoke()
+        @objc("invokeWithTarget:")
+        pub invokeWithTarget(t: NSObject)
+        @objc("retainArguments")
+        pub retainArguments()
+        @objc("argumentsRetained")
+        pub get argumentsRetained(): bool
+    }
+
     /// `NSCharacterSet` — immutable set of Unicode characters,
     /// commonly used to drive `NSString` tokenising / trimming
     /// (`componentsSeparatedByCharactersInSet:`,

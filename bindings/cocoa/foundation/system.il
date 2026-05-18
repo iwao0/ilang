@@ -293,4 +293,28 @@ pub enum ProcessInfoThermalState: i64 {
         @objc("displayNameForKey:value:")
         pub displayNameForKey(key: NSString, value: NSString): NSString
     }
+
+    /// `NSUUID` — RFC 4122 UUID. The default initialiser
+    /// (`UUID()`) mints a random v4 UUID; `initWithUUIDString:`
+    /// parses a canonical string like
+    /// `"550E8400-E29B-41D4-A716-446655440000"`. Use
+    /// `UUIDString` to round-trip back to text. Lives in `system`
+    /// because the runtime supplies the entropy.
+    @objc pub class NSUUID : NSObject {
+        @objc("UUID")
+        pub static UUID(): NSUUID
+        @objc("alloc")
+        pub static alloc(): NSUUID
+        @objc("init")
+        pub init(): NSUUID
+        @objc("initWithUUIDString:")
+        pub initWithUUIDString(s: NSString): NSUUID
+
+        @objc("UUIDString")
+        pub get UUIDString(): NSString
+        @objc("isEqual:")
+        pub isEqual(other: NSObject): bool
+        @objc("hash")
+        pub get hash(): i64
+    }
 }

@@ -298,4 +298,100 @@ pub enum StreamStatus: u64 {
         @objc("pathForResource:ofType:")
         pub pathForResource(name: NSString, ofType: NSString): NSString
     }
+
+    /// `NSPurgeableData` — NSMutableData variant whose bytes the
+    /// system can discard under memory pressure. Wrap accesses in
+    /// `beginContentAccess` / `endContentAccess` so the discard
+    /// can't race a read; `isContentDiscarded` tells you whether
+    /// the buffer is still backed.
+    @objc pub class NSPurgeableData : NSMutableData {
+        @objc("alloc")
+        pub static alloc(): NSPurgeableData
+        @objc("init")
+        pub init(): NSPurgeableData
+
+        @objc("beginContentAccess")
+        pub beginContentAccess(): bool
+        @objc("endContentAccess")
+        pub endContentAccess()
+        @objc("discardContentIfPossible")
+        pub discardContentIfPossible()
+        @objc("isContentDiscarded")
+        pub get isContentDiscarded(): bool
+    }
+
+    /// `NSFileWrapper` — file / directory representation NSDocument
+    /// uses for filesystem-bundle storage. A wrapper can be a
+    /// regular file (bytes + attributes), a directory (children
+    /// → wrappers map), or a symlink. Serialise to / from disk
+    /// via `writeToURL:options:originalContentsURL:error:` and
+    /// `initWithURL:options:error:`.
+    @objc pub class NSFileWrapper : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSFileWrapper
+        @objc("initRegularFileWithContents:")
+        pub initRegularFileWithContents(data: NSData): NSFileWrapper
+        @objc("initDirectoryWithFileWrappers:")
+        pub initDirectoryWithFileWrappers(wrappers: NSDictionary): NSFileWrapper
+        @objc("initSymbolicLinkWithDestinationURL:")
+        pub initSymbolicLinkWithDestinationURL(url: NSURL): NSFileWrapper
+        @objc("initWithURL:options:error:")
+        pub initWithURL(url: NSURL, options: u64, error: i64): NSFileWrapper
+
+        @objc("isRegularFile")
+        pub get isRegularFile(): bool
+        @objc("isDirectory")
+        pub get isDirectory(): bool
+        @objc("isSymbolicLink")
+        pub get isSymbolicLink(): bool
+
+        @objc("filename")
+        pub get filename(): NSString
+        @objc("setFilename:")
+        pub set filename(s: NSString)
+        @objc("preferredFilename")
+        pub get preferredFilename(): NSString
+        @objc("setPreferredFilename:")
+        pub set preferredFilename(s: NSString)
+
+        @objc("regularFileContents")
+        pub get regularFileContents(): NSData
+        @objc("fileWrappers")
+        pub get fileWrappers(): NSDictionary
+        @objc("symbolicLinkDestinationURL")
+        pub get symbolicLinkDestinationURL(): NSURL
+
+        @objc("addFileWrapper:")
+        pub addFileWrapper(child: NSFileWrapper): NSString
+        @objc("removeFileWrapper:")
+        pub removeFileWrapper(child: NSFileWrapper)
+
+        @objc("writeToURL:options:originalContentsURL:error:")
+        pub writeToURL(
+            url: NSURL, options: u64, originalContentsURL: NSURL, error: i64
+        ): bool
+    }
+
+    /// `NSDistributedLock` — file-backed cross-process lock. Pass
+    /// a path two cooperating processes both know; `tryLock`
+    /// creates the file atomically (fails fast if another holder
+    /// owns it). `unlock` deletes the file; `breakLock` removes
+    /// it forcibly if the previous holder crashed.
+    @objc pub class NSDistributedLock : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSDistributedLock
+        @objc("initWithPath:")
+        pub initWithPath(path: NSString): NSDistributedLock
+        @objc("lockWithPath:")
+        pub static lockWithPath(path: NSString): NSDistributedLock
+
+        @objc("tryLock")
+        pub tryLock(): bool
+        @objc("unlock")
+        pub unlock()
+        @objc("breakLock")
+        pub breakLock()
+        @objc("lockDate")
+        pub get lockDate(): NSObject
+    }
 }

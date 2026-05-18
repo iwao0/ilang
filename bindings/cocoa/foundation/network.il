@@ -514,4 +514,119 @@ pub enum URLCredentialPersistence: u64 {
         @objc("persistence")
         pub get persistence(): URLCredentialPersistence
     }
+
+    /// `NSURLProtectionSpace` — host / port / realm tuple
+    /// describing where a credential applies. Auth challenges
+    /// carry one of these; matching them is how the URL loading
+    /// system knows whether to reuse a stored credential.
+    @objc pub class NSURLProtectionSpace : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSURLProtectionSpace
+        @objc("initWithHost:port:protocol:realm:authenticationMethod:")
+        pub initWithHost(
+            host: NSString, port: i64, protocol: NSString,
+            realm: NSString, authenticationMethod: NSString
+        ): NSURLProtectionSpace
+
+        @objc("host")
+        pub get host(): NSString
+        @objc("port")
+        pub get port(): i64
+        @objc("protocol")
+        pub get protocolName(): NSString
+        @objc("realm")
+        pub get realm(): NSString
+        @objc("authenticationMethod")
+        pub get authenticationMethod(): NSString
+        @objc("isProxy")
+        pub get isProxy(): bool
+        @objc("receivesCredentialSecurely")
+        pub get receivesCredentialSecurely(): bool
+    }
+
+    /// `NSURLAuthenticationChallenge` — handed to the
+    /// `URLSession:task:didReceiveChallenge:completionHandler:`
+    /// delegate method. Pull the protection space off it, look up
+    /// a credential, then call the completion handler with a
+    /// disposition + optional NSURLCredential.
+    @objc pub class NSURLAuthenticationChallenge : NSObject {
+        @objc("protectionSpace")
+        pub get protectionSpace(): NSURLProtectionSpace
+        @objc("proposedCredential")
+        pub get proposedCredential(): NSURLCredential
+        @objc("previousFailureCount")
+        pub get previousFailureCount(): i64
+        @objc("failureResponse")
+        pub get failureResponse(): NSURLResponse
+        @objc("error")
+        pub get error(): NSError
+        @objc("sender")
+        pub get sender(): NSObject
+    }
+
+    /// `NSURLSessionWebSocketTask` — WebSocket task. Open via
+    /// `NSURLSession.webSocketTaskWithURL:` (added below); send
+    /// and receive `NSURLSessionWebSocketMessage` values for
+    /// either text or data frames.
+    @objc pub class NSURLSessionWebSocketTask : NSURLSessionTask {
+        @objc("sendPingWithPongReceiveHandler:")
+        pub sendPingWithPongReceiveHandler(handler: i64)
+        @objc("cancelWithCloseCode:reason:")
+        pub cancelWithCloseCode(code: i64, reason: NSData)
+        @objc("maximumMessageSize")
+        pub get maximumMessageSize(): i64
+        @objc("setMaximumMessageSize:")
+        pub set maximumMessageSize(n: i64)
+        @objc("closeCode")
+        pub get closeCode(): i64
+        @objc("closeReason")
+        pub get closeReason(): NSData
+    }
+
+    /// `NSURLSessionStreamTask` — raw bidirectional byte stream
+    /// over the URL loading system. Open via
+    /// `NSURLSession.streamTaskWithHostName:port:`; `readDataOfMinLength:`
+    /// / `writeData:` push bytes through.
+    @objc pub class NSURLSessionStreamTask : NSURLSessionTask {
+        @objc("startSecureConnection")
+        pub startSecureConnection()
+        @objc("stopSecureConnection")
+        pub stopSecureConnection()
+        @objc("closeRead")
+        pub closeRead()
+        @objc("closeWrite")
+        pub closeWrite()
+    }
+
+    /// `NSURLProtocol` — abstract base for custom URL-scheme
+    /// handlers. Subclass it (override `+canInitWithRequest:`,
+    /// `+canonicalRequestForRequest:`, `-startLoading`,
+    /// `-stopLoading`) then register your subclass with
+    /// `+registerClass:` to intercept matching URLs across the
+    /// process. Hand the request / response surface back through
+    /// the protocol's `client`.
+    @objc pub class NSURLProtocol : NSObject {
+        @objc("registerClass:")
+        pub static registerClass(cls: NSObject): bool
+        @objc("unregisterClass:")
+        pub static unregisterClass(cls: NSObject)
+        @objc("canInitWithRequest:")
+        pub static canInitWithRequest(req: NSURLRequest): bool
+        @objc("canonicalRequestForRequest:")
+        pub static canonicalRequestForRequest(req: NSURLRequest): NSURLRequest
+        @objc("requestIsCacheEquivalent:toRequest:")
+        pub static requestIsCacheEquivalent(a: NSURLRequest, toRequest: NSURLRequest): bool
+
+        @objc("request")
+        pub get request(): NSURLRequest
+        @objc("cachedResponse")
+        pub get cachedResponse(): NSObject
+        @objc("client")
+        pub get client(): NSObject
+
+        @objc("startLoading")
+        pub startLoading()
+        @objc("stopLoading")
+        pub stopLoading()
+    }
 }

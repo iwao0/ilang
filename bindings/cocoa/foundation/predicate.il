@@ -97,6 +97,33 @@ pub enum LinguisticTaggerOptions: u64 {
         pub get subpredicates(): NSArray
     }
 
+    /// `NSComparisonPredicate` — the leaf of the predicate tree.
+    /// Holds a left-side `NSExpression`, a right-side
+    /// `NSExpression`, the comparison operator
+    /// (`<` / `<=` / `>=` / `>` / `==` / `!=` / `contains` /
+    /// `between` / `beginsWith` / `endsWith` / `like` / `matches`
+    /// / `in`), and modifiers (case-insensitive, etc.). Build
+    /// directly with the static factory when format-string
+    /// parsing isn't expressive enough.
+    @objc pub class NSComparisonPredicate : NSPredicate {
+        @objc("predicateWithLeftExpression:rightExpression:modifier:type:options:")
+        pub static predicate(
+            left: NSExpression, rightExpression: NSExpression,
+            modifier: u64, type: u64, options: u64
+        ): NSComparisonPredicate
+
+        @objc("leftExpression")
+        pub get leftExpression(): NSExpression
+        @objc("rightExpression")
+        pub get rightExpression(): NSExpression
+        @objc("predicateOperatorType")
+        pub get predicateOperatorType(): u64
+        @objc("comparisonPredicateModifier")
+        pub get comparisonPredicateModifier(): u64
+        @objc("options")
+        pub get options(): u64
+    }
+
     /// `NSExpression` — a piece of a predicate that produces a
     /// value (constant, key-path traversal, function call, …).
     /// `expressionValueWithObject:context:` evaluates it against
