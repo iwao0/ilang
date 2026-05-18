@@ -59,6 +59,24 @@ pub enum DecimalNumberRoundingMode: u64 {
         pub editingStringForObjectValue(v: NSObject): NSString
     }
 
+    /// `NSDecimalNumberBehaviors` — protocol any
+    /// rounding-behaviour policy implements. NSDecimalNumber's
+    /// arithmetic methods take an
+    /// `id<NSDecimalNumberBehaviors>` to control rounding /
+    /// overflow / underflow / divide-by-zero handling.
+    /// NSDecimalNumberHandler is the canonical concrete
+    /// conformer; user types adopt this protocol for custom
+    /// per-operation policies (e.g. a currency-specific scale).
+    @objc pub interface NSDecimalNumberBehaviors {
+        roundingMode(): DecimalNumberRoundingMode
+        scale(): i16
+        @objc("exceptionDuringOperation:error:leftOperand:rightOperand:")
+        exceptionDuringOperation(
+            operation: i64, error: u64,
+            leftOperand: NSObject, rightOperand: NSObject
+        ): NSObject
+    }
+
     /// `NSDecimalNumberHandler` — rounding-behaviour policy for
     /// NSDecimalNumber arithmetic. The default-instance form
     /// (`defaultDecimalNumberHandler`) rounds plain to 0 decimals

@@ -73,6 +73,75 @@ pub enum DataBase64DecodingOptions: u64 {
     ignoreUnknownCharacters               = 0x01
 }
 
+// NSDataReadingOptions — flags for
+// `[NSData dataWithContentsOfFile:options:error:]` / the URL
+// variant. `mappedIfSafe` / `alwaysMapped` swap the read for an
+// mmap when the underlying device supports it; `uncached`
+// bypasses the disk cache for one-shot bulk reads.
+@flags
+pub enum DataReadingOptions: u64 {
+    none                  = 0x00
+    mappedIfSafe          = 0x01
+    uncached              = 0x02
+    alwaysMapped          = 0x08
+}
+
+// NSDataWritingOptions — flags for
+// `[NSData writeToFile:options:error:]`. `atomic` writes to a
+// temp file and renames into place; `withoutOverwriting` fails
+// when the destination already exists.
+@flags
+pub enum DataWritingOptions: u64 {
+    none                                  = 0x00
+    atomic                                = 0x01
+    withoutOverwriting                    = 0x02
+    fileProtectionNone                    = 0x10000000
+    fileProtectionComplete                = 0x20000000
+    fileProtectionCompleteUnlessOpen      = 0x30000000
+    fileProtectionCompleteUntilFirstUserAuthentication = 0x40000000
+}
+
+// NSDataSearchOptions — controls
+// `[NSData rangeOfData:options:range:]`. `backwards` searches
+// from the end; `anchored` requires the match at the range
+// start.
+@flags
+pub enum DataSearchOptions: u64 {
+    none      = 0x00
+    backwards = 0x01
+    anchored  = 0x02
+}
+
+// NSPropertyListMutabilityOptions — what
+// `[NSPropertyListSerialization propertyListWithData:options:
+//  format:error:]` should hand back. The default
+// `immutable` keeps every container immutable; `mutableContainers`
+// returns NSMutableArray / NSMutableDictionary instead;
+// `mutableContainersAndLeaves` also returns NSMutableString for
+// scalar values.
+pub enum PropertyListMutabilityOptions: u64 {
+    immutable                  = 0
+    mutableContainers          = 1
+    mutableContainersAndLeaves = 2
+}
+
+// NSFileVersionAddingOptions — flags for
+// `[NSFileVersion addVersionOfItemAtURL:withContentsOfURL:options:error:]`.
+@flags
+pub enum FileVersionAddingOptions: u64 {
+    none                      = 0x00
+    byMoving                  = 0x01
+}
+
+// NSFileVersionReplacingOptions — flags for
+// `[NSFileVersion replaceItemAtURL:options:error:]`. `byMoving`
+// renames into place instead of copy + delete.
+@flags
+pub enum FileVersionReplacingOptions: u64 {
+    none                      = 0x00
+    byMoving                  = 0x01
+}
+
 // NSComparisonResult — the three-way return value of every
 // Foundation `compare:` method. Mirrors C's strcmp / qsort
 // convention: negative = ascending, zero = same, positive =
@@ -701,6 +770,19 @@ pub enum BinarySearchingOptions: u64 {
     // wrappers; user code just treats SEL as opaque i64.
     @lib("objc") @symbol("sel_registerName")
         fn _sel_register_name(name: *const char): i64
+
+    // ObjC runtime Class ↔ NSString and SEL ↔ NSString helpers.
+    // The reverse-direction lookups (`NSClassFromString`,
+    // `NSSelectorFromString`) return 0 when the name doesn't
+    // resolve — wrap before dereferencing.
+    @symbol("NSStringFromClass")
+        fn NSStringFromClass(cls: NSObject): NSString
+    @symbol("NSClassFromString")
+        fn NSClassFromString(name: NSString): NSObject
+    @symbol("NSStringFromSelector")
+        fn NSStringFromSelector(sel: i64): NSString
+    @symbol("NSSelectorFromString")
+        fn NSSelectorFromString(name: NSString): i64
 
     // ObjC autorelease pool primitives. Mirror `@autoreleasepool {
     // ... }` in Cocoa: push a pool token, run the body, pop the

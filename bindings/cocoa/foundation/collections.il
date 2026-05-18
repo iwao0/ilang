@@ -337,6 +337,19 @@ use core { NSObject, NSString, NSArray, NSRange }
         pub compare(other: NSIndexPath): i64
     }
 
+    /// `NSFastEnumeration` — the protocol every NSArray /
+    /// NSDictionary / NSSet conforms to so it can drive ObjC's
+    /// `for (id obj in collection)` syntax. ilang code typically
+    /// uses `count` + `objectAtIndex:` or `objectEnumerator`
+    /// instead, but the protocol is here for custom collections
+    /// that want the same auto-loop behaviour.
+    @objc pub interface NSFastEnumeration {
+        @objc("countByEnumeratingWithState:objects:count:")
+        countByEnumeratingWithState(
+            state: *u64, objects: *u64, count: u64
+        ): u64
+    }
+
     /// `NSEnumerator` — abstract iterator handed out by Foundation
     /// collections (`-[NSArray objectEnumerator]`, etc.). Walk it
     /// by calling `nextObject` in a loop until it returns a
