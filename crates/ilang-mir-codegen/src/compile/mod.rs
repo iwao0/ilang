@@ -201,6 +201,11 @@ pub(super) struct PanicAux {
     pub(super) retain_enum: cranelift_module::FuncId,
     pub(super) release_promise: cranelift_module::FuncId,
     pub(super) retain_promise: cranelift_module::FuncId,
+    /// `__ilang_make_objc_block(closure, kind) -> i64` — wraps an
+    /// ilang closure as an Objective-C block via the per-shape
+    /// invoke trampolines living in `ilang_runtime::objc_blocks`.
+    /// Called from `new ObjCBlock(closure)` lowering.
+    pub(super) make_objc_block: cranelift_module::FuncId,
     pub(super) msg_div: DataId,
     pub(super) msg_mod: DataId,
     pub(super) msg_oob: DataId,

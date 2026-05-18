@@ -174,6 +174,13 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function("__promise_settle_reject", Linkage::Import, &sig)?
     };
+    // `__ilang_make_objc_block(closure: i64, kind: i64) -> i64`.
+    // Always declared even on non-macOS hosts so MIR programs that
+    // mention `new ObjCBlock(...)` can still link; on those hosts
+    // the runtime symbol returns 0 (the macOS-only impl is gated
+    // out) and the program fails at call time.
+    let make_objc_block_id =
+        declare_binary_i64(module, "__ilang_make_objc_block")?;
     // FFI marshalling helpers as imports.
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
@@ -696,6 +703,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 retain_enum: retain_enum_id,
                 release_promise: release_promise_id,
                 retain_promise: retain_promise_id,
+                make_objc_block: make_objc_block_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,

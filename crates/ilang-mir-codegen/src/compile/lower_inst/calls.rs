@@ -367,6 +367,7 @@ pub(super) fn lower_call<M: Module>(
                 "promise_pending" => Some(promise_ids.pending),
                 "promise_settle_resolve" => Some(promise_ids.settle_resolve),
                 "promise_settle_reject" => Some(promise_ids.settle_reject),
+                "make_objc_block" => Some(panic_aux.make_objc_block),
                 "class_name" => Some(panic_aux.class_name),
                 _ => None,
             };

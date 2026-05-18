@@ -118,6 +118,14 @@ pub fn compile_with_builtins(
     );
     jit_builder.symbol("__retain_promise", ilang_runtime::__retain_promise as *const u8);
     jit_builder.symbol("__release_promise", ilang_runtime::__release_promise as *const u8);
+    // ObjC block dispatcher — `new ObjCBlock(closure)` desugars to a
+    // call here with a kind selector chosen from the closure's fn
+    // signature.
+    #[cfg(target_os = "macos")]
+    jit_builder.symbol(
+        "__ilang_make_objc_block",
+        ilang_runtime::make_objc_block as *const u8,
+    );
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.

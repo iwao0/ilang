@@ -195,6 +195,43 @@ impl<'a> BodyCx<'a> {
                     });
                     return Ok((dst, prom_ty));
                 }
+                // `new ObjCBlock(closure)` — pick a kind code based on
+                // the closure's lowered MirTy and call the runtime
+                // dispatcher `__ilang_make_objc_block(closure, kind)`.
+                // Kinds are stable; they match `BlockKind` in
+                // `ilang_runtime::objc_blocks`. New shapes append.
+                if class.as_str() == "ObjCBlock" && args.len() == 1 {
+                    let (closure_v, closure_ty) = self.lower_expr(&args[0])?;
+                    let MirTy::Fn(ft) = closure_ty else {
+                        return Err(LowerError::Other(
+                            "new ObjCBlock(...) requires a fn closure argument"
+                                .into(),
+                        ));
+                    };
+                    let kind: i64 = match (ft.params.as_ref(), &ft.ret) {
+                        ([], MirTy::Unit) => 0,
+                        ([MirTy::I64], MirTy::Unit) => 1,
+                        ([MirTy::I64], MirTy::I64) => 2,
+                        ([MirTy::I64, MirTy::I64], MirTy::Unit) => 3,
+                        ([MirTy::I64, MirTy::I64, MirTy::I64], MirTy::Unit) => 4,
+                        _ => {
+                            return Err(LowerError::Other(format!(
+                                "new ObjCBlock(...) signature not yet supported: \
+                                 expected one of fn(), fn(i64), fn(i64): i64, \
+                                 fn(i64, i64), fn(i64, i64, i64); got {:?} -> {:?}",
+                                ft.params, ft.ret
+                            )));
+                        }
+                    };
+                    let kind_v = self.const_int(MirTy::I64, kind);
+                    let dst = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(dst),
+                        callee: FuncRef::Builtin(Symbol::intern("make_objc_block")),
+                        args: Box::new([closure_v, kind_v]),
+                    });
+                    return Ok((dst, MirTy::I64));
+                }
                 if class.as_str() == "Map" && type_args.len() == 2 && args.is_empty() {
                     let key = self.resolve_ty(&type_args[0])?;
                     let val = self.resolve_ty(&type_args[1])?;

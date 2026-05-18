@@ -502,6 +502,53 @@ pub extern "C" fn make_void_three_obj_block(closure_ptr: i64) -> i64 {
     }
 }
 
+// ─── Unified dispatcher for `new ObjCBlock(closure)` ────────────────
+//
+// MIR lowering of `new ObjCBlock(closure)` emits a single call to
+// this entry point with a `kind` selector chosen from the closure's
+// inspected ilang fn signature. The selector picks one of the
+// per-shape `make_*_block` paths above; if the inspected shape
+// doesn't match any pre-baked invoke trampoline, the lowerer
+// errors out at compile time and this dispatcher never sees an
+// unknown kind. We still guard the default arm so an obviously
+// bogus value can't silently autorelease a zero handle.
+//
+// Kind values are stable — they're baked into MIR by the lowerer,
+// so adding new shapes must append rather than re-number.
+
+/// Stable kind codes mapped to the existing per-shape helpers
+/// above. Append new shapes at the end so MIR programs compiled
+/// against older builds keep matching the same trampoline.
+#[repr(i64)]
+pub enum BlockKind {
+    /// `fn(): ()` — completion handler with no arguments.
+    Void = 0,
+    /// `fn(i64): ()` — single `id` argument, no return.
+    Obj = 1,
+    /// `fn(i64): i64` — single `id` argument, returns `id` (monitor
+    /// callbacks where the handler decides to forward / replace /
+    /// swallow).
+    ObjToObj = 2,
+    /// `fn(i64, i64): ()` — raw bytes pointer + length (e.g.
+    /// `SKMutableTexture.modifyPixelDataWithBlock:`).
+    VoidBytes = 3,
+    /// `fn(i64, i64, i64): ()` — three `id` arguments. Used by
+    /// every `NSURLSession` completion handler family.
+    VoidThreeObj = 4,
+}
+
+#[unsafe(export_name = "__ilang_make_objc_block")]
+pub extern "C" fn make_objc_block(closure_ptr: i64, kind: i64) -> i64 {
+    match kind {
+        0 => make_void_block(closure_ptr),
+        1 => make_obj_block(closure_ptr),
+        2 => make_obj_to_obj_block(closure_ptr),
+        3 => make_void_bytes_block(closure_ptr),
+        4 => make_void_three_obj_block(closure_ptr),
+        _ => 0,
+    }
+}
+
 // ─── NSError ** out-parameter slot ─────────────────────────────────
 //
 // Most error-bearing @objc methods (`newLibraryWithSource:options:error:`
