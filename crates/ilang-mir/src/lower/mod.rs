@@ -575,13 +575,14 @@ impl Lower {
                 if g.base.as_str() == "Promise" && g.args.len() == 1 {
                     return Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)));
                 }
-                // Built-in `Block<fn(...): R>` — an ObjC block. At
-                // the ABI level it's a pointer to a `Block_literal`
-                // struct, which we represent as `i64` for now. The
-                // inner `fn(...)` shape is preserved for the type
-                // checker so `Block.new` can match the callback
+                // Built-in `ObjCBlock<fn(...): R>` — an ObjC block.
+                // At the ABI level it's a pointer to a
+                // `Block_literal` struct, which we represent as
+                // `i64` for now. The inner `fn(...)` shape is
+                // preserved for the type checker so
+                // `new ObjCBlock(closure)` can match the callback
                 // signature against the surrounding binding.
-                if g.base.as_str() == "Block"
+                if g.base.as_str() == "ObjCBlock"
                     && g.args.len() == 1
                     && matches!(g.args[0], Type::Fn(_))
                 {
@@ -1264,7 +1265,7 @@ impl<'a> BodyCx<'a> {
                 Ok(MirTy::Promise(Box::new(self.resolve_ty(&g.args[0])?)))
             }
             Type::Generic(g)
-                if g.base.as_str() == "Block"
+                if g.base.as_str() == "ObjCBlock"
                     && g.args.len() == 1
                     && matches!(g.args[0], Type::Fn(_)) =>
             {
