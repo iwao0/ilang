@@ -485,6 +485,41 @@ fn outside() {}
     }
 
     #[test]
+    pub(crate) fn synthesized_objc_helpers_excluded_from_symbols_and_completion() {
+        // Source with one user @objc class triggers the desugar's
+        // sel-cache helper class; `collect_symbols` should not
+        // record it.
+        let src = "\
+@extern(ObjC) {
+    @objc pub class NSObject {
+        @objc(\"release\") release()
+    }
+    @objc pub class MyView : NSObject {
+        @objc(\"alloc\") pub static alloc(): MyView
+    }
+}
+";
+        let toks = ilang_lexer::tokenize(src).unwrap();
+        let prog = ilang_parser::parse(&toks).unwrap();
+        let syms = collect_symbols(&prog, src);
+        for key in syms.keys() {
+            assert!(
+                !key.as_str().contains("_sel_cache"),
+                "synth helper leaked: {}",
+                key.as_str()
+            );
+            assert!(
+                !key.as_str().starts_with("__objc_"),
+                "synth helper leaked: {}",
+                key.as_str()
+            );
+        }
+        // User-declared classes should still be present.
+        assert!(syms.contains_key(&AstSymbol::intern("MyView")));
+        assert!(syms.contains_key(&AstSymbol::intern("NSObject")));
+    }
+
+    #[test]
     pub(crate) fn implement_uses_external_interfaces_for_cross_module() {
         // Simulate `use cocoa { MyDel }` where MyDel lives in
         // another file: the local buffer has no `interface MyDel`

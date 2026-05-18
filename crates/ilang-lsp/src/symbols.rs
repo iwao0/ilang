@@ -204,6 +204,16 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                             );
                         }
                         ExternCItem::Class(c) => {
+                            // Skip the per-block selector-cache class
+                            // and similar @objc desugar helpers; their
+                            // names are stable artefacts of the
+                            // desugar (`__objc_b<line>c<col>_sel_cache`
+                            // etc.) and shouldn't surface in hover /
+                            // completion alongside user-declared
+                            // classes.
+                            if is_synthesized_objc_helper(c.name.as_str()) {
+                                continue;
+                            }
                             out.insert(
                                 c.name.into(),
                                 Symbol {

@@ -29,6 +29,21 @@ use crate::*;
 /// surface API.
 fn is_extern_c_item_pub(inner: &ilang_ast::ExternCItem) -> bool {
     use ilang_ast::ExternCItem;
+    // Treat parser-synthesised @objc desugar helpers as not-pub
+    // even though the parser marks them with `is_pub: true` (the
+    // per-block `<tag>_sel_cache` class etc. need to be reachable
+    // by sibling-file dispatch wrappers, but they're not user-
+    // facing names).
+    let name = match inner {
+        ExternCItem::FnDecl { name, .. } => name.as_str(),
+        ExternCItem::FnDef(f) => f.name.as_str(),
+        ExternCItem::Struct { name, .. } => name.as_str(),
+        ExternCItem::Union { name, .. } => name.as_str(),
+        ExternCItem::Class(c) => c.name.as_str(),
+    };
+    if crate::symbols::is_synthesized_objc_helper(name) {
+        return false;
+    }
     match inner {
         ExternCItem::FnDecl { is_pub, .. } => *is_pub,
         ExternCItem::FnDef(f) => f.is_pub,

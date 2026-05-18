@@ -641,6 +641,12 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         if !is_type_sig(&sym.signature) {
             continue;
         }
+        // Synthesised @objc desugar helpers (`__objc_b*_sel_cache`
+        // etc.) accidentally satisfy the class-prefix check; hide
+        // them.
+        if crate::symbols::is_synthesized_objc_helper(name.as_str()) {
+            continue;
+        }
         let kind = if is_interface_sig(&sym.signature) {
             CompletionItemKind::INTERFACE
         } else {
@@ -657,6 +663,16 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     // `module.TypeName`.
     for (name, sig) in doc.external_signatures.iter() {
         if !is_type_sig(sig) {
+            continue;
+        }
+        // Strip the module prefix before testing — the synthesised-
+        // helper check looks at the bare name suffix.
+        let bare = name
+            .as_str()
+            .rsplit_once('.')
+            .map(|(_, t)| t)
+            .unwrap_or(name.as_str());
+        if crate::symbols::is_synthesized_objc_helper(bare) {
             continue;
         }
         let kind = if is_interface_sig(sig) {
