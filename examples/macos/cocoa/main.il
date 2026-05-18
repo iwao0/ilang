@@ -1,32 +1,62 @@
 // 🪟 ilang × Cocoa — NSStackView form with an NSApplicationDelegate.
 //
-// Combines two patterns:
-//   * An `AppDelegate : NSObject` (`@objc class` in `@extern(ObjC)`)
-//     that logs the app lifecycle (`applicationDidFinishLaunching:`,
-//     `applicationWillTerminate:`) and tells the system to terminate
-//     when the last window closes.
-//   * A vertical NSStackView form: label + NSTextField, label +
-//     NSSlider, and a "Submit" button whose `target/action` calls
-//     into a second `@objc class FormHandler` that reads back the
-//     field + slider values.
+// Two ObjC classes, two ways to write them:
+//
+//   * `AppDelegate : NSApplicationDelegate` is a plain top-level
+//     class that names the `@objc interface` in its base list. The
+//     loader's auto-lift turns it into a real ObjC subclass of
+//     NSObject behind the scenes (NSObject parent, selector
+//     wiring, `alloc` / `init` / `register` injected) so the
+//     source stays free of `@extern(ObjC) { @objc class … }`
+//     boilerplate. Implement only the lifecycle methods you care
+//     about; everything else stays `@optional` no-op.
+//
+//   * `FormHandler` is a plain target/action receiver — not a
+//     protocol implementation. It stays in the explicit
+//     `@extern(ObjC) { @objc class FormHandler : NSObject { … } }`
+//     form because there's no `@objc interface` for "things that
+//     can be a button target"; the binding is selector-based.
 //
 // Run (the cocoa bindings dep is wired through this directory's
 // `ilang.toml`):
 //   ilang run examples/macos/cocoa/main.il
 
-use cocoa { NSObject, NSTextField, NSSlider,
+use cocoa { NSObject, NSTextField, NSSlider, NSApplicationDelegate,
+            NSApplication, NSNotification,
             StyleMask, ActivationPolicy, LayoutOrientation, nil,
             sharedApplication, makeWindow, makeButton, makeLabel,
             makeTextField, makeSlider, makeStackView, makeRect,
             ilstr, selectorPtr }
 
 // Module-level state. `textField` / `slider` are captured by the
-// FormHandler's `submit:` method; keeping them here (rather than
-// inside `applicationDidFinishLaunching:`) lets the @objc class
-// close over them without ARC tearing them down between events.
+// FormHandler's `submit:` method; keeping them here lets the
+// @objc class close over them without ARC tearing them down
+// between events.
 let textField = makeTextField("ada", 0.0, 0.0, 0.0, 22.0)
 let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
 
+// New-style ObjC delegate — plain class, auto-lifted by the
+// loader because its base list names an `@objc interface`.
+// `register()` and `alloc()`/`init()` are synthesized for you.
+class AppDelegate : NSApplicationDelegate {
+    pub applicationDidFinishLaunching(notification: NSNotification) {
+        console.log("AppDelegate: didFinishLaunching")
+    }
+
+    // BOOL return; ilang `bool` matches ObjC `BOOL`'s i8 ABI.
+    // Returning `true` here ends the app the moment the last
+    // window closes, so ⌘Q isn't required.
+    pub applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): bool {
+        true
+    }
+
+    pub applicationWillTerminate(notification: NSNotification) {
+        console.log("AppDelegate: willTerminate")
+    }
+}
+
+// Selector-action receiver — no `@objc interface` to claim, so
+// stays in the explicit form.
 @extern(ObjC) {
     @objc class FormHandler : NSObject {
         @objc("alloc") pub static alloc(): FormHandler
@@ -36,29 +66,6 @@ let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
         pub submit(sender: NSObject) {
             console.log("text =", ilstr(textField.stringValue))
             console.log("slider =", slider.doubleValue)
-        }
-    }
-
-    @objc class AppDelegate : NSObject {
-        @objc("alloc") static alloc(): AppDelegate
-        @objc("init")  init(): AppDelegate
-
-        @objc("applicationDidFinishLaunching:")
-        didFinishLaunching(notification: NSObject) {
-            console.log("AppDelegate: didFinishLaunching")
-        }
-
-        // BOOL return; ilang `bool` matches ObjC `BOOL`'s i8 ABI.
-        // Returning `true` here ends the app the moment the last
-        // window closes, so ⌘Q isn't required.
-        @objc("applicationShouldTerminateAfterLastWindowClosed:")
-        shouldTerminateAfterLastWindowClosed(app: NSObject): bool {
-            true
-        }
-
-        @objc("applicationWillTerminate:")
-        willTerminate(notification: NSObject) {
-            console.log("AppDelegate: willTerminate")
         }
     }
 }
