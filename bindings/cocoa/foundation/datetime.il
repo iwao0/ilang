@@ -18,6 +18,23 @@ pub enum DateFormatterStyle: u64 {
     full   = 4
 }
 
+// NSCalendarOptions — controls how
+// `dateByAddingComponents:toDate:options:` and the
+// `nextDateAfterDate:matchingComponents:options:` family
+// resolve missing / ambiguous time-zone transitions.
+@flags
+pub enum CalendarOptions: u64 {
+    none                              = 0x00
+    wrapCalendarComponents            = 1
+    matchStrictly                     = 2
+    searchBackwards                   = 4
+    matchPreviousTimePreservingSmallerUnits = 256
+    matchNextTimePreservingSmallerUnits     = 512
+    matchNextTime                     = 1024
+    matchFirst                        = 4096
+    matchLast                         = 8192
+}
+
 // NSCalendarUnit — bit set used by `[NSCalendar
 // components:fromDate:]` to say which fields the returned
 // `NSDateComponents` should be populated with. Combine with `|`.

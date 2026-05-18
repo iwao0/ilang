@@ -13,6 +13,27 @@ use core { NSObject, NSString, NSArray, NSDictionary, NSData,
            makeObjectBlock }
 use network { NSURL }
 
+// NSPostingStyle — when NSNotificationQueue actually fires
+// a queued notification. `whenIdle` waits for the run loop to
+// quiesce; `asap` runs at the next opportunity; `now` posts
+// synchronously (essentially defeats the queue).
+pub enum PostingStyle: u64 {
+    whenIdle = 1
+    asap     = 2
+    now      = 3
+}
+
+// NSNotificationCoalescing — bit flags telling
+// NSNotificationQueue which pending notifications to fold
+// together. Combine with `|` (`onName | onSender` is "same
+// name, same poster").
+@flags
+pub enum NotificationCoalescing: u64 {
+    none     = 0x00
+    onName   = 0x01
+    onSender = 0x02
+}
+
 // NSProcessInfoThermalState — system thermal pressure. `nominal`
 // means everything's fine; `serious` / `critical` are signals to
 // scale work back / pause it entirely to stop the CPU throttling

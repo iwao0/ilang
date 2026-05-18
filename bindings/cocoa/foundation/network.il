@@ -42,6 +42,32 @@ pub enum URLRequestCachePolicy: u64 {
     reloadRevalidatingCacheData       = 5
 }
 
+// NSURLBookmarkCreationOptions — bit flags for
+// `NSURL.bookmarkDataWithOptions:...`. `withSecurityScope` is
+// the App-Sandbox-friendly variant that survives a relaunch and
+// reopens via `startAccessingSecurityScopedResource`.
+@flags
+pub enum URLBookmarkCreationOptions: u64 {
+    none                              = 0x00
+    preferFileIDResolution            = 0x100
+    minimalBookmark                   = 0x200
+    suitableForBookmarkFile           = 0x400
+    withSecurityScope                 = 0x800
+    securityScopeAllowOnlyReadAccess  = 0x1000
+}
+
+// NSURLBookmarkResolutionOptions — flags for
+// `+URLByResolvingBookmarkData:options:...`. `withoutUI`
+// disables the prompt when the bookmark needs user interaction
+// to authorise.
+@flags
+pub enum URLBookmarkResolutionOptions: u64 {
+    none                  = 0x00
+    withoutUI             = 0x100
+    withoutMounting       = 0x200
+    withSecurityScope     = 0x400
+}
+
 // NSURLCredentialPersistence — how long a credential lives.
 // `none` is per-request; `forSession` covers the process
 // lifetime; `permanent` writes into the keychain; `synchronizable`

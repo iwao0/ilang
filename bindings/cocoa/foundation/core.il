@@ -73,6 +73,55 @@ pub enum DataBase64DecodingOptions: u64 {
     ignoreUnknownCharacters               = 0x01
 }
 
+// NSComparisonResult — the three-way return value of every
+// Foundation `compare:` method. Mirrors C's strcmp / qsort
+// convention: negative = ascending, zero = same, positive =
+// descending.
+pub enum ComparisonResult: i64 {
+    orderedAscending  = -1
+    orderedSame       = 0
+    orderedDescending = 1
+}
+
+// NSStringCompareOptions — bit flags for the locale / case /
+// numeric variants of NSString comparison. Combine with `|`.
+@flags
+pub enum StringCompareOptions: u64 {
+    none              = 0x00
+    caseInsensitive   = 0x01
+    literal           = 0x02
+    backwards         = 0x04
+    anchored          = 0x08
+    numeric           = 0x40
+    diacriticInsensitive = 0x80
+    widthInsensitive  = 0x100
+    forcedOrdering    = 0x200
+    regularExpression = 0x400
+}
+
+// NSEnumerationOptions — bit flags for the block-based
+// `enumerateObjectsUsingBlock:` family. `concurrent` lets the
+// system dispatch the body across threads; `reverse` iterates
+// back to front.
+@flags
+pub enum EnumerationOptions: u64 {
+    none       = 0x00
+    concurrent = 0x01
+    reverse    = 0x02
+}
+
+// NSBinarySearchingOptions — controls
+// `[NSArray indexOfObject:inSortedRange:options:usingComparator:]`.
+// Pick `insertionIndex` to learn where a fresh value should slot
+// in instead of "first matching index" / "last matching index".
+@flags
+pub enum BinarySearchingOptions: u64 {
+    none           = 0x00
+    firstEqual     = 0x100
+    lastEqual      = 0x200
+    insertionIndex = 0x400
+}
+
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
@@ -477,6 +526,43 @@ pub enum DataBase64DecodingOptions: u64 {
         pub get localizedRecoverySuggestion(): NSString
         @objc("userInfo")
         pub get userInfo(): NSDictionary
+    }
+
+    /// `NSObjectProtocol` — the root protocol every Objective-C
+    /// object conforms to. The instance methods (`-respondsToSelector:`,
+    /// `-isKindOfClass:`, etc.) are already exposed on NSObject;
+    /// this declaration exists so APIs that accept an `id<NSObject>`
+    /// have a concrete protocol to name.
+    @objc pub interface NSObjectProtocol {
+        @objc("class")
+        classObject(): NSObject
+        @objc("isKindOfClass:")
+        isKindOfClass(cls: NSObject): bool
+        @objc("isMemberOfClass:")
+        isMemberOfClass(cls: NSObject): bool
+        @objc("conformsToProtocol:")
+        conformsToProtocol(proto: NSObject): bool
+        @objc("respondsToSelector:")
+        respondsToSelector(sel: i64): bool
+        @objc("isEqual:")
+        isEqual(other: NSObject): bool
+        @objc("hash")
+        hash(): i64
+        @objc("description")
+        description(): NSString
+    }
+
+    /// `NSDiscardableContent` — protocol every type whose
+    /// backing buffer the system can drop under memory pressure
+    /// conforms to. NSPurgeableData is the concrete poster
+    /// child; user types that wrap discardable byte buffers
+    /// adopt it so cache APIs (NSCache etc.) can ask "is the
+    /// content still here?" before reading.
+    @objc pub interface NSDiscardableContent {
+        beginContentAccess(): bool
+        endContentAccess()
+        discardContentIfPossible()
+        isContentDiscarded(): bool
     }
 
     /// `NSException` — legacy exception-style error carrier.

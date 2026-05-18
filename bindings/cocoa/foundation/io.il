@@ -8,6 +8,7 @@
 // `bytesFromBuffer` round-trips (read side).
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSMutableData, NSError }
+use collections { NSEnumerator }
 use network { NSURL }
 
 // NSStreamStatus — current state of an NSInputStream /
@@ -340,6 +341,25 @@ pub enum StreamStatus: u64 {
         fileManagerShouldLinkItemAtPath(
             fileManager: NSFileManager, srcPath: NSString, toPath: NSString
         ): bool
+    }
+
+    /// `NSDirectoryEnumerator` — NSEnumerator subclass that walks
+    /// a directory tree. Returned by
+    /// `NSFileManager.enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:`;
+    /// each `nextObject` yields the next NSURL in the traversal.
+    /// `skipDescendants` tells the enumerator to skip the
+    /// subtree below the most recently yielded directory.
+    @objc pub class NSDirectoryEnumerator : NSEnumerator {
+        @objc("fileAttributes")
+        pub get fileAttributes(): NSDictionary
+        @objc("directoryAttributes")
+        pub get directoryAttributes(): NSDictionary
+        @objc("level")
+        pub get level(): u64
+        @objc("skipDescendants")
+        pub skipDescendants()
+        @objc("skipDescendents")
+        pub skipDescendents()
     }
 
     /// `NSPurgeableData` — NSMutableData variant whose bytes the
