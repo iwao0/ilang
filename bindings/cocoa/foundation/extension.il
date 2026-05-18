@@ -95,12 +95,12 @@ use network { NSURL }
 
         @objc("completeRequestReturningItems:completionHandler:")
         pub completeRequestReturningItems(
-            items: NSArray, completionHandler: i64
+            items: NSArray, completionHandler: ObjCBlock<fn(bool)>
         )
         @objc("cancelRequestWithError:")
         pub cancelRequestWithError(error: NSError)
         @objc("openURL:completionHandler:")
-        pub openURL(url: NSURL, completionHandler: i64)
+        pub openURL(url: NSURL, completionHandler: ObjCBlock<fn(bool)>)
     }
 
     /// `NSExtensionItem` — single item flowing through an

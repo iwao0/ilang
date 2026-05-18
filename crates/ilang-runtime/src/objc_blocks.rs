@@ -99,6 +99,11 @@ static VOID_BYTES_SIGNATURE: &[u8] = b"v24@?0^v8Q16\0";
 // family where the callback receives (NSData *, NSURLResponse *,
 // NSError *).
 static VOID_THREE_OBJ_SIGNATURE: &[u8] = b"v32@?0@8@16@24\0";
+// `void(^)(BOOL)` — `c` is `signed char` (Objective-C's BOOL is a
+// signed char on macOS x86_64 and a `_Bool` (i8) on arm64; the
+// encoding is `c` either way for the size 1, signed slot). Block
+// + BOOL = 9 bytes nominally, padded to 16 in the arg frame.
+static VOID_BOOL_SIGNATURE: &[u8] = b"v16@?0c8\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -188,6 +193,25 @@ extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
 /// each in `NSObject.wrap` (or a subclass equivalent) if it wants
 /// a typed view. Used by every Foundation completion handler that
 /// hands back `(NSData *, NSURLResponse *, NSError *)`.
+/// `void(^)(BOOL)` trampoline. ilang closure shape is
+/// `fn(b: bool): unit`. ObjC's BOOL is a signed char on
+/// macOS, which Rust models as `bool` (1-byte i8). The lifted
+/// closure trailing-env signature is `(bool, i64)`.
+extern "C" fn invoke_void_bool_block(b: *mut BlockLayout, val: bool) {
+    if b.is_null() {
+        return;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        let f: extern "C" fn(bool, i64) = std::mem::transmute(fn_ptr);
+        f(val, closure_ptr);
+    }
+}
+
 extern "C" fn invoke_void_three_obj_block(
     b: *mut BlockLayout, a: i64, c: i64, d: i64,
 ) {
@@ -287,6 +311,14 @@ static VOID_THREE_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor 
     copy_helper,
     dispose_helper,
     signature: VOID_THREE_OBJ_SIGNATURE.as_ptr(),
+});
+
+static VOID_BOOL_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: VOID_BOOL_SIGNATURE.as_ptr(),
 });
 
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
@@ -477,6 +509,30 @@ pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
     }
 }
 
+/// Build a heap ObjC `void(^)(BOOL)` block. The ilang closure is
+/// `fn(b: bool): unit`. Used by completion handlers that report
+/// a single success / failure flag (e.g.
+/// `NSExtensionContext.openURL:completionHandler:`).
+#[unsafe(export_name = "__ilang_make_void_bool_block")]
+pub extern "C" fn make_void_bool_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_void_bool_block as *const c_void,
+            &VOID_BOOL_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
 /// Build a heap ObjC `void(^)(id, id, id)` block. The ilang
 /// closure is `fn(a: i64, b: i64, c: i64): unit` — receives three
 /// raw `id` handles. Used by `NSURLSession`'s
@@ -535,6 +591,10 @@ pub enum BlockKind {
     /// `fn(i64, i64, i64): ()` — three `id` arguments. Used by
     /// every `NSURLSession` completion handler family.
     VoidThreeObj = 4,
+    /// `fn(bool): ()` — single BOOL argument. Used by completion
+    /// handlers that report success / failure (e.g.
+    /// `NSExtensionContext.openURL:completionHandler:`).
+    VoidBool = 5,
 }
 
 #[unsafe(export_name = "__ilang_make_objc_block")]
@@ -545,6 +605,7 @@ pub extern "C" fn make_objc_block(closure_ptr: i64, kind: i64) -> i64 {
         2 => make_obj_to_obj_block(closure_ptr),
         3 => make_void_bytes_block(closure_ptr),
         4 => make_void_three_obj_block(closure_ptr),
+        5 => make_void_bool_block(closure_ptr),
         _ => 0,
     }
 }

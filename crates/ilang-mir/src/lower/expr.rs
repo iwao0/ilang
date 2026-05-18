@@ -214,11 +214,13 @@ impl<'a> BodyCx<'a> {
                         ([MirTy::I64], MirTy::I64) => 2,
                         ([MirTy::I64, MirTy::I64], MirTy::Unit) => 3,
                         ([MirTy::I64, MirTy::I64, MirTy::I64], MirTy::Unit) => 4,
+                        ([MirTy::Bool], MirTy::Unit) => 5,
                         _ => {
                             return Err(LowerError::Other(format!(
                                 "new ObjCBlock(...) signature not yet supported: \
                                  expected one of fn(), fn(i64), fn(i64): i64, \
-                                 fn(i64, i64), fn(i64, i64, i64); got {:?} -> {:?}",
+                                 fn(i64, i64), fn(i64, i64, i64), fn(bool); \
+                                 got {:?} -> {:?}",
                                 ft.params, ft.ret
                             )));
                         }
