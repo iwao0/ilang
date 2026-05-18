@@ -1,22 +1,30 @@
 // `@objc interface` declarations inside `@extern(ObjC) { ... }`
 // register as ordinary ilang interfaces, with extra Objective-C
-// selector metadata that downstream passes can consume.
+// selector metadata that downstream passes consume:
 //
-// At the type-checker level the interface behaves exactly like a
-// regular interface: classes implement it via `: Iface` in the
-// base list, virtual dispatch on the interface-typed variable
-// reaches the concrete method body, `@optional` methods may be
-// omitted by the implementer.
+//   * The type-checker accepts the interface as a base in any
+//     `class C: Iface { … }` declaration and runs the same
+//     conformance check it does for plain interfaces; `@optional`
+//     methods may be skipped.
 //
-// (Wiring the implementing class through `objc_msgSend` instead
-// of ilang's normal virtual table is a separate downstream pass
-// and not exercised here; this fixture only proves the parser /
-// type-checker pieces of the @objc-interface story.)
-// expect: hello A
-// expect: hello B
-// expect: lazy-A skips the optional
+//   * The loader's auto-lift pass spots top-level classes naming
+//     an `@objc interface` as a base and wraps them in a
+//     synthesised `@extern(ObjC) { @objc class … }` block so the
+//     resulting class is registered with the ObjC runtime, with
+//     selectors inherited from the interface and `alloc` / `init`
+//     auto-injected.
+//
+// This fixture only proves the parser / type-checker pieces of
+// that story; the runtime dispatch path is exercised by the
+// example-driven smoke tests under `bindings/cocoa/` since it
+// needs Objective-C runtime symbols.
+//
+// jit: skip
 
 @extern(ObjC) {
+    @objc class NSObject {
+        @objc("release") release()
+    }
     @objc pub interface Greeter {
         // Auto-derived selector (= `hello:`) — the parser appends
         // ':' × paramCount when @objc("...") is absent.
@@ -27,8 +35,10 @@
     }
 }
 
+// A satisfies both interface methods (optional included). The
+// auto-lift turns it into an @objc class registered with the ObjC
+// runtime; selectors come from `Greeter`.
 class A: Greeter {
-    pub init() {}
     pub hello(name: i64) {
         console.log("hello A")
     }
@@ -37,17 +47,10 @@ class A: Greeter {
     }
 }
 
-// B skips the @optional helloWithSuffix — still implements the
-// interface because the conformance check honours @optional.
+// B skips the @optional helloWithSuffix — still legal because
+// `@optional` excuses it from the conformance check.
 class B: Greeter {
-    pub init() {}
     pub hello(name: i64) {
         console.log("hello B")
     }
 }
-
-let a: Greeter = new A()
-let b: Greeter = new B()
-a.hello(0)
-b.hello(0)
-console.log("lazy-A skips the optional")

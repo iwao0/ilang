@@ -1,6 +1,6 @@
 mod error;
 mod expr;
-mod item;
+pub(crate) mod item;
 pub mod loader;
 mod normalize;
 mod parser;

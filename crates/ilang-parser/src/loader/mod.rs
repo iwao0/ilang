@@ -20,8 +20,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, ExternCItem, Item, MatchArm, Program, Stmt, StmtKind, Symbol,
-    Type, UseDecl,
+    Block, ClassDecl, Expr, ExprKind, ExternCItem, InterfaceDecl, Item, MatchArm, Program, Stmt,
+    StmtKind, Symbol, Type, UseDecl,
 };
 use ilang_lexer::TokenKind;
 
@@ -240,6 +240,12 @@ pub fn load_program_with_overlay(
     // time; the merged Program has no `Item::Use`s, so use the
     // validation-skipping entry point here.
     let merged = crate::normalize::renormalize_merged(merged);
+    // Auto-lift top-level `class C: SomeObjcInterface { … }` into
+    // a synthesised `@extern(ObjC) { @objc class C : NSObject, … }`
+    // block so users can write Cocoa delegates without dropping into
+    // the FFI block themselves. Detection runs against the merged
+    // Items, so cross-module `@objc interface` references work.
+    let merged = auto_lift_objc_subclasses(merged);
     // Inline `const` declarations: collect every Item::Const in the
     // merged Program, then walk all expressions replacing
     // `Var(const_name)` with the literal value. Item::Const entries
@@ -2021,4 +2027,71 @@ fn is_builtin_type(name: &str) -> bool {
     // Built-in classes/enums that should never get prefixed even
     // when referenced inside a module body.
     matches!(name, "Console" | "Map" | "Promise" | "Result")
+}
+
+/// Walk the merged program and lift any top-level `Item::Class`
+/// that names at least one `@objc interface` in its base list into
+/// a synthesised `@extern(ObjC) { @objc class … { … } }` block.
+/// The conversion (selector wiring from the interface metadata,
+/// auto-injection of `alloc` / `init`, implicit NSObject parent)
+/// lives in `crate::item::extern_objc::lift_class_to_objc_block`.
+///
+/// Detection runs against the post-merge Items, so cross-module
+/// references to an `@objc interface` declared in a dependency
+/// module are found correctly.
+fn auto_lift_objc_subclasses(mut prog: Program) -> Program {
+    // 1. Collect every `@objc interface` declaration and every
+    //    `@objc class` name across the merged program.
+    let mut objc_ifaces: HashMap<Symbol, InterfaceDecl> = HashMap::new();
+    let mut objc_class_names: HashSet<Symbol> = HashSet::new();
+    for item in &prog.items {
+        if let Item::ExternC(blk) = item {
+            for iface in blk.interfaces.iter() {
+                if iface.is_objc {
+                    objc_ifaces.insert(iface.name, iface.clone());
+                }
+            }
+            for inner in blk.items.iter() {
+                if let ExternCItem::Class(cd) = inner {
+                    if cd.attrs.iter().any(|a| a.name.as_str() == "objc") {
+                        objc_class_names.insert(cd.name);
+                    }
+                }
+            }
+        }
+    }
+    if objc_ifaces.is_empty() {
+        return prog;
+    }
+
+    // 2. Partition top-level Items. Classes whose base list mentions
+    //    any @objc interface are extracted and lifted; everything
+    //    else stays put.
+    let old_items = std::mem::take(&mut prog.items);
+    let mut new_items: Vec<Item> = Vec::with_capacity(old_items.len());
+    for item in old_items {
+        match item {
+            Item::Class(cd) => {
+                let touches_objc_iface = cd
+                    .parent
+                    .iter()
+                    .copied()
+                    .chain(cd.interfaces.iter().copied())
+                    .any(|b| objc_ifaces.contains_key(&b));
+                if touches_objc_iface {
+                    let block = crate::item::extern_objc::lift_class_to_objc_block(
+                        cd,
+                        &objc_ifaces,
+                        &objc_class_names,
+                    );
+                    new_items.push(Item::ExternC(block));
+                } else {
+                    new_items.push(Item::Class(cd));
+                }
+            }
+            other => new_items.push(other),
+        }
+    }
+    prog.items = new_items;
+    prog
 }

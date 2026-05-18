@@ -19,11 +19,11 @@
 //! so multiple `@extern(ObjC)` blocks in the same file coexist.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use ilang_ast::{
-    AttrArg, Attribute, Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, Param, PropertyDecl,
-    Span, Stmt, StmtKind, Symbol, Type,
+    AttrArg, Attribute, Block, ClassDecl, Expr, ExprKind, FieldDecl, FnDecl, InterfaceDecl, Param,
+    PropertyDecl, Span, Stmt, StmtKind, Symbol, Type,
 };
 use ilang_lexer::TokenKind;
 
@@ -2240,10 +2240,19 @@ fn build_register_class_fn(
         span,
     );
 
+    // The loader's merge prefixes class names by module
+    // (`NSObject` → `foundation.NSObject`); `objc_getClass`
+    // needs the bare Objective-C name, so strip everything up
+    // to the last `.`.
+    let parent_objc_name = parent_name
+        .as_str()
+        .rsplit_once('.')
+        .map(|(_, tail)| tail)
+        .unwrap_or_else(|| parent_name.as_str());
     let get_parent = Expr::new(
         ExprKind::Call {
             callee: ctx.get_class,
-            args: Box::new([build_cstr(parent_name.as_str(), span)]),
+            args: Box::new([build_cstr(parent_objc_name, span)]),
         },
         span,
     );
@@ -3014,4 +3023,236 @@ fn finalize_objc_block(
             interfaces: objc_interfaces.into(),
             span: block_span,
         }
+}
+
+/// Convert a user-written top-level `class C: SomeObjcInterface { … }`
+/// declaration into a synthesized `@extern(ObjC)` block whose only
+/// content is the equivalent `@objc class` form. Selectors for each
+/// method are inherited from the matching `@objc interface` method;
+/// methods that don't appear on any implemented @objc interface get
+/// an auto-derived selector (`name` + `:` × paramCount). `@objc("…")`
+/// on a class method overrides the inherited / derived value.
+///
+/// Auto-injects bindings for the standard `alloc` / `init` ObjC
+/// selectors so the user only writes the method bodies the interface
+/// demands. If the user wrote their own `alloc` / `init` (with or
+/// without `@objc("…")`) the injection is skipped for that name.
+///
+/// The Objective-C parent class defaults to `NSObject` unless the
+/// declared parent name (the parser-level `cd.parent` slot) is in
+/// `objc_class_names`, in which case it's kept verbatim (used when
+/// the user wrote e.g. `class MyView: NSView, …`).
+pub(crate) fn lift_class_to_objc_block(
+    cd: ClassDecl,
+    objc_ifaces: &HashMap<Symbol, InterfaceDecl>,
+    objc_class_names: &HashSet<Symbol>,
+) -> ilang_ast::ExternCBlock {
+    let span = cd.span;
+    let class_name = cd.name;
+    let is_pub = cd.is_pub;
+
+    // Untangle the base list. The parser puts the FIRST base name
+    // in `cd.parent` regardless of whether it's a class or
+    // interface. Sort each name into one of three buckets so the
+    // ObjcClass we build has a real ObjC parent + the right
+    // interface list.
+    let mut parent_class: Option<Symbol> = None;
+    let mut iface_bases: Vec<Symbol> = Vec::new();
+    let bases: Vec<Symbol> = cd
+        .parent
+        .iter()
+        .copied()
+        .chain(cd.interfaces.iter().copied())
+        .collect();
+    for b in bases {
+        if objc_class_names.contains(&b) {
+            // Use the first @objc class as the parent; further @objc
+            // classes are unusual (no multiple inheritance) and
+            // ignored here — the type checker will complain later
+            // through normal channels.
+            if parent_class.is_none() {
+                parent_class = Some(b);
+            }
+        } else if objc_ifaces.contains_key(&b) {
+            iface_bases.push(b);
+        } else {
+            // Unknown name in base list — leave it as an interface,
+            // the type checker will surface the error.
+            iface_bases.push(b);
+        }
+    }
+    // Default Objective-C parent — pick the canonical NSObject
+    // from the post-merge registry so type checks find the right
+    // class. `build_register_class_fn` strips the module prefix
+    // when generating the `objc_getClass(<parent>)` call so the
+    // ObjC-runtime side sees the bare class name.
+    let parent = parent_class.unwrap_or_else(|| {
+        objc_class_names
+            .iter()
+            .copied()
+            .find(|n| {
+                let s = n.as_str();
+                s == "NSObject" || s.ends_with(".NSObject")
+            })
+            .unwrap_or_else(|| Symbol::intern("NSObject"))
+    });
+
+    // Build a method-name → selector map from every @objc interface
+    // we implement. Earlier entries win on collision (first interface
+    // in the base list takes precedence).
+    let mut selector_by_method: HashMap<Symbol, String> = HashMap::new();
+    for iface_name in iface_bases.iter() {
+        let Some(iface) = objc_ifaces.get(iface_name) else { continue };
+        for m in iface.methods.iter() {
+            if let Some(sel) = m.objc_selector {
+                selector_by_method
+                    .entry(m.name)
+                    .or_insert_with(|| sel.as_str().to_string());
+            }
+        }
+    }
+
+    // Convert each user method to an `ObjcMethod`.
+    let mut objc_methods: Vec<ObjcMethod> = Vec::new();
+    let mut have_alloc = false;
+    let mut have_init = false;
+    for m in cd.methods.iter() {
+        // Instance methods named "init" claim the ObjC init slot.
+        if m.name.as_str() == "init" {
+            have_init = true;
+        }
+        let explicit_sel = m
+            .attrs
+            .iter()
+            .find(|a| a.name.as_str() == "objc")
+            .and_then(|a| match &a.args[..] {
+                [AttrArg::Str(s)] => Some(s.clone()),
+                _ => None,
+            });
+        let selector = explicit_sel
+            .or_else(|| selector_by_method.get(&m.name).cloned())
+            .unwrap_or_else(|| {
+                let mut s = m.name.as_str().to_string();
+                for _ in 0..m.params.len() {
+                    s.push(':');
+                }
+                s
+            });
+        let extra_attrs: Vec<Attribute> = m
+            .attrs
+            .iter()
+            .filter(|a| a.name.as_str() != "objc")
+            .cloned()
+            .collect();
+        let body_is_empty =
+            m.body.stmts.is_empty() && m.body.tail.is_none();
+        let body = if body_is_empty { None } else { Some(m.body.clone()) };
+        objc_methods.push(ObjcMethod {
+            name: m.name,
+            selector,
+            params: m.params.clone(),
+            ret: m.ret.clone(),
+            body,
+            span: m.span,
+            is_pub: m.is_pub,
+            is_static: false,
+            extra_attrs,
+            accessor: None,
+        });
+    }
+    // Static methods sit in a separate field on ClassDecl; route
+    // them through the same selector-resolution logic.
+    for m in cd.static_methods.iter() {
+        if m.name.as_str() == "alloc" {
+            have_alloc = true;
+        }
+        let explicit_sel = m
+            .attrs
+            .iter()
+            .find(|a| a.name.as_str() == "objc")
+            .and_then(|a| match &a.args[..] {
+                [AttrArg::Str(s)] => Some(s.clone()),
+                _ => None,
+            });
+        let selector = explicit_sel.unwrap_or_else(|| {
+            let mut s = m.name.as_str().to_string();
+            for _ in 0..m.params.len() {
+                s.push(':');
+            }
+            s
+        });
+        let extra_attrs: Vec<Attribute> = m
+            .attrs
+            .iter()
+            .filter(|a| a.name.as_str() != "objc")
+            .cloned()
+            .collect();
+        let body_is_empty =
+            m.body.stmts.is_empty() && m.body.tail.is_none();
+        let body = if body_is_empty { None } else { Some(m.body.clone()) };
+        objc_methods.push(ObjcMethod {
+            name: m.name,
+            selector,
+            params: m.params.clone(),
+            ret: m.ret.clone(),
+            body,
+            span: m.span,
+            is_pub: m.is_pub,
+            is_static: true,
+            extra_attrs,
+            accessor: None,
+        });
+    }
+
+    // Auto-inject `@objc("alloc") static alloc(): Self` and
+    // `@objc("init") init(): Self` when missing. Lets users write
+    //   class MyApp: NSAppDel { … method bodies only … }
+    // and still have a usable `MyApp.alloc().init()` chain.
+    if !have_alloc {
+        objc_methods.push(ObjcMethod {
+            name: Symbol::intern("alloc"),
+            selector: "alloc".into(),
+            params: Box::new([]),
+            ret: Some(Type::Object(class_name)),
+            body: None,
+            span,
+            is_pub: true,
+            is_static: true,
+            extra_attrs: Vec::new(),
+            accessor: None,
+        });
+    }
+    if !have_init {
+        objc_methods.push(ObjcMethod {
+            name: Symbol::intern("init"),
+            selector: "init".into(),
+            params: Box::new([]),
+            ret: Some(Type::Object(class_name)),
+            body: None,
+            span,
+            is_pub: true,
+            is_static: false,
+            extra_attrs: Vec::new(),
+            accessor: None,
+        });
+    }
+
+    let objc_class = ObjcClass {
+        name: class_name,
+        is_pub,
+        parent: Some(parent),
+        interfaces: iface_bases,
+        methods: objc_methods,
+        span,
+    };
+
+    finalize_objc_block(
+        Vec::new(),
+        Vec::new(),
+        vec![objc_class],
+        Vec::new(),
+        Vec::new(),
+        span,
+        objc_class_names,
+    )
 }

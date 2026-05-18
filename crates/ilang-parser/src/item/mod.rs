@@ -9,7 +9,7 @@ use crate::stmt::parse_block;
 
 mod enum_;
 mod extern_c;
-mod extern_objc;
+pub(crate) mod extern_objc;
 mod types;
 
 /// True if `e` is a value-only literal — what `const` accepts as its
