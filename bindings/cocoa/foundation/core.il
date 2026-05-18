@@ -884,6 +884,42 @@ pub enum BinarySearchingOptions: u64 {
         pub get invertedSet(): NSCharacterSet
         @objc("hasMemberInPlane:")
         pub hasMemberInPlane(plane: u8): bool
+        @objc("characterIsMember:")
+        pub characterIsMember(c: u16): bool
+
+        // ─── URL percent-encoding character sets ─────────────
+        // Match each component's `allowedCharactersIn…` set from
+        // RFC 3986; hand to
+        // `NSString.stringByAddingPercentEncoding(allowedCharacters:)`
+        // to encode a piece of a URL safely.
+        @objc("URLPathAllowedCharacterSet")
+        pub static urlPathAllowed(): NSCharacterSet
+        @objc("URLHostAllowedCharacterSet")
+        pub static urlHostAllowed(): NSCharacterSet
+        @objc("URLUserAllowedCharacterSet")
+        pub static urlUserAllowed(): NSCharacterSet
+        @objc("URLPasswordAllowedCharacterSet")
+        pub static urlPasswordAllowed(): NSCharacterSet
+        @objc("URLQueryAllowedCharacterSet")
+        pub static urlQueryAllowed(): NSCharacterSet
+        @objc("URLFragmentAllowedCharacterSet")
+        pub static urlFragmentAllowed(): NSCharacterSet
+
+        // ─── More predefined sets ────────────────────────────
+        @objc("controlCharacterSet")
+        pub static controlCharacters(): NSCharacterSet
+        @objc("uppercaseLetterCharacterSet")
+        pub static uppercaseLetters(): NSCharacterSet
+        @objc("lowercaseLetterCharacterSet")
+        pub static lowercaseLetters(): NSCharacterSet
+        @objc("symbolCharacterSet")
+        pub static symbols(): NSCharacterSet
+        @objc("illegalCharacterSet")
+        pub static illegal(): NSCharacterSet
+        @objc("nonBaseCharacterSet")
+        pub static nonBase(): NSCharacterSet
+        @objc("capitalizedLetterCharacterSet")
+        pub static capitalizedLetters(): NSCharacterSet
     }
 
     /// `NSMutableCharacterSet` — writable variant. Mint with

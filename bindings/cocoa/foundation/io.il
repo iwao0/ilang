@@ -74,6 +74,54 @@ pub enum StreamStatus: u64 {
 
         @objc("fileDescriptor")
         pub get fileDescriptor(): i32
+
+        // ─── Error-returning variants (10.15+) ────────────────
+        // The plain `readDataOfLength:` / `writeData:` family
+        // raise NSExceptions on failure; the
+        // `…AndReturnError:` mirrors below take the error
+        // through an NSError ** slot instead.
+        @objc("readDataUpToLength:error:")
+        pub readDataUpToLength(length: u64, error: i64): NSData
+        @objc("readDataToEndOfFileAndReturnError:")
+        pub readDataToEndOfFileAndReturnError(error: i64): NSData
+        @objc("writeData:error:")
+        pub writeDataAndReturnError(data: NSData, error: i64): bool
+        @objc("getOffset:error:")
+        pub getOffset(offset: *u64, error: i64): bool
+        @objc("seekToOffset:error:")
+        pub seekToOffset(offset: u64, error: i64): bool
+        @objc("seekToEndReturningOffset:error:")
+        pub seekToEndReturningOffset(offset: *u64, error: i64): bool
+        @objc("truncateAtOffset:error:")
+        pub truncateAtOffset(offset: u64, error: i64): bool
+        @objc("synchronizeAndReturnError:")
+        pub synchronizeAndReturnError(error: i64): bool
+        @objc("closeAndReturnError:")
+        pub closeAndReturnError(error: i64): bool
+
+        // ─── Construction from descriptor / URL ──────────────
+        @objc("fileHandleWithFileDescriptor:closeOnDealloc:")
+        pub static fileHandleWithFileDescriptor(
+            fd: i32, closeOnDealloc: bool
+        ): NSFileHandle
+        @objc("alloc")
+        pub static alloc(): NSFileHandle
+        @objc("initWithFileDescriptor:closeOnDealloc:")
+        pub initWithFileDescriptor(
+            fd: i32, closeOnDealloc: bool
+        ): NSFileHandle
+
+        // ─── Async readability handlers ──────────────────────
+        // Block-based notifications fire on a background queue
+        // when data / EOF / error becomes available.
+        @objc("readabilityHandler")
+        pub get readabilityHandler(): i64
+        @objc("setReadabilityHandler:")
+        pub set readabilityHandler(h: i64)
+        @objc("writeabilityHandler")
+        pub get writeabilityHandler(): i64
+        @objc("setWriteabilityHandler:")
+        pub set writeabilityHandler(h: i64)
     }
 
     /// `NSPipe` — anonymous pipe + a pair of NSFileHandle ends.
@@ -110,6 +158,11 @@ pub enum StreamStatus: u64 {
         @objc("streamError")
         pub get streamError(): NSError
 
+        @objc("delegate")
+        pub get delegate(): NSObject
+        @objc("setDelegate:")
+        pub set delegate(d: NSObject)
+
         @objc("scheduleInRunLoop:forMode:")
         pub scheduleInRunLoop(runLoop: NSObject, forMode: NSString)
         @objc("removeFromRunLoop:forMode:")
@@ -119,6 +172,17 @@ pub enum StreamStatus: u64 {
         pub propertyForKey(key: NSString): NSObject
         @objc("setProperty:forKey:")
         pub setProperty(value: NSObject, forKey: NSString): bool
+
+        /// Pair of one input + one output stream connected to
+        /// the host `hostname` on the given `port`. The result
+        /// stays out-of-band; both streams come back via the
+        /// pointer slots (which the caller is expected to fill
+        /// in with `NSInputStream` / `NSOutputStream` pointers).
+        @objc("getStreamsToHostWithName:port:inputStream:outputStream:")
+        pub static getStreamsToHost(
+            hostname: NSString, port: i64,
+            inputStream: i64, outputStream: i64
+        )
     }
 
     /// `NSInputStream` — byte-reading stream over a file, NSData,

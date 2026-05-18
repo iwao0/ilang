@@ -426,6 +426,24 @@ pub enum URLCredentialPersistence: u64 {
         pub resetWithCompletionHandler(handler: i64)
         @objc("flushWithCompletionHandler:")
         pub flushWithCompletionHandler(handler: i64)
+
+        @objc("getTasksWithCompletionHandler:")
+        pub getTasksWithCompletionHandler(handler: i64)
+        @objc("getAllTasksWithCompletionHandler:")
+        pub getAllTasksWithCompletionHandler(handler: i64)
+
+        @objc("webSocketTaskWithURL:")
+        pub webSocketTaskWithURL(url: NSURL): NSURLSessionWebSocketTask
+        @objc("webSocketTaskWithRequest:")
+        pub webSocketTaskWithRequest(req: NSURLRequest): NSURLSessionWebSocketTask
+        @objc("webSocketTaskWithURL:protocols:")
+        pub webSocketTaskWithProtocols(
+            url: NSURL, protocols: NSArray
+        ): NSURLSessionWebSocketTask
+        @objc("streamTaskWithHostName:port:")
+        pub streamTaskWithHostName(
+            hostname: NSString, port: i64
+        ): NSURLSessionStreamTask
     }
 
     /// `NSURLSessionConfiguration` — session-level knobs:

@@ -6,7 +6,7 @@
 // moving them out would create a cyclic dependency between
 // `core` and `strings`.
 
-use core { NSObject, NSString, NSArray, NSDictionary, NSRange,
+use core { NSObject, NSString, NSArray, NSDictionary, NSCharacterSet, NSRange,
            nsstr, makeRange }
 
 // NSRegularExpressionOptions — bit flags controlling how the
@@ -109,13 +109,64 @@ pub enum MatchOptions: u64 {
     @objc pub class NSScanner : NSObject {
         @objc("scannerWithString:")
         pub static scannerWithString(s: NSString): NSScanner
+        @objc("localizedScannerWithString:")
+        pub static localizedScannerWithString(s: NSString): NSScanner
+        @objc("alloc")
+        pub static alloc(): NSScanner
+        @objc("initWithString:")
+        pub initWithString(s: NSString): NSScanner
 
+        @objc("string")
+        pub get string(): NSString
         @objc("isAtEnd")
         pub get isAtEnd(): bool
         @objc("scanLocation")
         pub get scanLocation(): u64
         @objc("setScanLocation:")
         pub set scanLocation(loc: u64)
+        @objc("caseSensitive")
+        pub get caseSensitive(): bool
+        @objc("setCaseSensitive:")
+        pub set caseSensitive(v: bool)
+        @objc("charactersToBeSkipped")
+        pub get charactersToBeSkipped(): NSCharacterSet
+        @objc("setCharactersToBeSkipped:")
+        pub set charactersToBeSkipped(s: NSCharacterSet)
+        @objc("locale")
+        pub get locale(): NSObject
+        @objc("setLocale:")
+        pub set locale(l: NSObject)
+
+        // ─── String / character-set scans (out-param NSString
+        //     handed back via autoreleased pointer) ────────────
+        @objc("scanString:intoString:")
+        _scanString(s: NSString, intoString: i64): bool
+        @objc("scanCharactersFromSet:intoString:")
+        _scanCharactersFromSet(set: NSCharacterSet, intoString: i64): bool
+        @objc("scanUpToString:intoString:")
+        _scanUpToString(s: NSString, intoString: i64): bool
+        @objc("scanUpToCharactersFromSet:intoString:")
+        _scanUpToCharactersFromSet(set: NSCharacterSet, intoString: i64): bool
+
+        /// Skip `s` if it appears at the current location.
+        /// Returns `true` on success; the location advances past
+        /// the matched substring. Returns `false` (location
+        /// unchanged) when `s` isn't there.
+        pub scanString(s: NSString): bool {
+            this._scanString(s, 0)
+        }
+        /// Same shape for a character set.
+        pub scanCharactersFromSet(set: NSCharacterSet): bool {
+            this._scanCharactersFromSet(set, 0)
+        }
+        /// Advance past any character not in `s`. Useful for
+        /// "scan everything until the next delimiter".
+        pub scanUpToString(s: NSString): bool {
+            this._scanUpToString(s, 0)
+        }
+        pub scanUpToCharactersFromSet(set: NSCharacterSet): bool {
+            this._scanUpToCharactersFromSet(set, 0)
+        }
 
         // ── Raw out-param @objc selectors (non-pub) ────────────
         @objc("scanInt:")

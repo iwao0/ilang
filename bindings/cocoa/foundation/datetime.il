@@ -4,7 +4,7 @@
 // / NSRelativeDateTimeFormatter trio that builds on the types
 // here.
 
-use core { NSObject, NSString, NSRange, ComparisonResult }
+use core { NSObject, NSString, NSArray, NSRange, ComparisonResult }
 
 // NSDateFormatterStyle — the locale-aware default presets you
 // pick by assigning to `dateStyle` / `timeStyle`. Setting
@@ -244,6 +244,52 @@ pub enum CalendarUnit: u64 {
         ): ComparisonResult
         @objc("isDateInWeekend:")
         pub isDateInWeekend(date: NSDate): bool
+
+        // ─── Configuration ───────────────────────────────────
+        @objc("calendarIdentifier")
+        pub get calendarIdentifier(): NSString
+        @objc("locale")
+        pub get locale(): NSObject
+        @objc("setLocale:")
+        pub set locale(l: NSObject)
+        @objc("timeZone")
+        pub get timeZone(): NSTimeZone
+        @objc("setTimeZone:")
+        pub set timeZone(tz: NSTimeZone)
+        @objc("firstWeekday")
+        pub get firstWeekday(): u64
+        @objc("setFirstWeekday:")
+        pub set firstWeekday(v: u64)
+        @objc("minimumDaysInFirstWeek")
+        pub get minimumDaysInFirstWeek(): u64
+        @objc("setMinimumDaysInFirstWeek:")
+        pub set minimumDaysInFirstWeek(v: u64)
+
+        // ─── Calendar symbol arrays ──────────────────────────
+        @objc("eraSymbols")
+        pub get eraSymbols(): NSArray
+        @objc("longEraSymbols")
+        pub get longEraSymbols(): NSArray
+        @objc("monthSymbols")
+        pub get monthSymbols(): NSArray
+        @objc("shortMonthSymbols")
+        pub get shortMonthSymbols(): NSArray
+        @objc("standaloneMonthSymbols")
+        pub get standaloneMonthSymbols(): NSArray
+        @objc("weekdaySymbols")
+        pub get weekdaySymbols(): NSArray
+        @objc("shortWeekdaySymbols")
+        pub get shortWeekdaySymbols(): NSArray
+        @objc("standaloneWeekdaySymbols")
+        pub get standaloneWeekdaySymbols(): NSArray
+        @objc("amSymbol")
+        pub get amSymbol(): NSString
+        @objc("pmSymbol")
+        pub get pmSymbol(): NSString
+        @objc("quarterSymbols")
+        pub get quarterSymbols(): NSArray
+        @objc("shortQuarterSymbols")
+        pub get shortQuarterSymbols(): NSArray
     }
 
     /// `NSDateInterval` — half-open date range `[startDate, endDate)`.
@@ -318,5 +364,47 @@ pub enum CalendarUnit: u64 {
         pub get weekday(): i64
         @objc("setWeekday:")
         pub set weekday(v: i64)
+        @objc("weekdayOrdinal")
+        pub get weekdayOrdinal(): i64
+        @objc("setWeekdayOrdinal:")
+        pub set weekdayOrdinal(v: i64)
+        @objc("weekOfMonth")
+        pub get weekOfMonth(): i64
+        @objc("setWeekOfMonth:")
+        pub set weekOfMonth(v: i64)
+        @objc("weekOfYear")
+        pub get weekOfYear(): i64
+        @objc("setWeekOfYear:")
+        pub set weekOfYear(v: i64)
+        @objc("yearForWeekOfYear")
+        pub get yearForWeekOfYear(): i64
+        @objc("setYearForWeekOfYear:")
+        pub set yearForWeekOfYear(v: i64)
+        @objc("quarter")
+        pub get quarter(): i64
+        @objc("setQuarter:")
+        pub set quarter(v: i64)
+        @objc("era")
+        pub get era(): i64
+        @objc("setEra:")
+        pub set era(v: i64)
+        @objc("nanosecond")
+        pub get nanosecond(): i64
+        @objc("setNanosecond:")
+        pub set nanosecond(v: i64)
+        @objc("calendar")
+        pub get calendar(): NSCalendar
+        @objc("setCalendar:")
+        pub set calendar(c: NSCalendar)
+        @objc("timeZone")
+        pub get timeZone(): NSTimeZone
+        @objc("setTimeZone:")
+        pub set timeZone(tz: NSTimeZone)
+        @objc("date")
+        pub get date(): NSDate
+        @objc("isValidDate")
+        pub get isValidDate(): bool
+        @objc("isValidDateInCalendar:")
+        pub isValidDateInCalendar(c: NSCalendar): bool
     }
 }
