@@ -639,3 +639,124 @@ fn default_value_for(ret: &Type) -> Option<&'static str> {
         _ => None,
     }
 }
+
+/// Per-method completion entries for interface methods that the
+/// enclosing class hasn't yet implemented. Used by the bare-ident
+/// completion path inside a class body — typing `app` inside
+/// `class MyApp : NSApplicationDelegate { … }` should surface
+/// `applicationDidFinishLaunching` etc. as one-tap stubs.
+///
+/// Each entry inserts a complete `pub <name>(<params>): <ret> {
+/// // TODO ; <default> }` snippet that mirrors what
+/// `implement_interface_methods_at` would emit for that one
+/// method.
+pub(crate) fn interface_method_stub_completions_at(
+    text: &str,
+    prog: &Program,
+    external_interfaces: &HashMap<AstSymbol, InterfaceDecl>,
+    cursor: Position,
+) -> Vec<(String, Option<String>, String)> {
+    // Returns (label, detail, snippet) triples. Caller converts
+    // into CompletionItem so we don't drag the lsp_types here.
+    let mut out: Vec<(String, Option<String>, String)> = Vec::new();
+    let Some(cursor_byte) =
+        text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)
+    else {
+        return out;
+    };
+    // Find the innermost class containing the cursor.
+    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
+    for it in &prog.items {
+        let Item::Class(c) = it else { continue };
+        let Some((open, close)) = match_brace_range(text, c.span) else {
+            continue;
+        };
+        if cursor_byte < open || cursor_byte > close {
+            continue;
+        }
+        let extent = close.saturating_sub(open);
+        match chosen {
+            None => chosen = Some((c, open, close)),
+            Some((_, o, cl)) => {
+                if extent < cl.saturating_sub(o) {
+                    chosen = Some((c, open, close));
+                }
+            }
+        }
+    }
+    let Some((cls, _open, _close)) = chosen else {
+        return out;
+    };
+
+    // Collect the interface decls the class's base list names.
+    let mut iface_decls: Vec<&InterfaceDecl> = Vec::new();
+    let bases: Vec<AstSymbol> = cls
+        .parent
+        .iter()
+        .copied()
+        .chain(cls.interfaces.iter().copied())
+        .collect();
+    for b in bases {
+        if let Some(decl) = find_interface_decl(prog, b) {
+            iface_decls.push(decl);
+        } else if let Some(decl) = external_interfaces.get(&b) {
+            iface_decls.push(decl);
+        }
+    }
+    if iface_decls.is_empty() {
+        return out;
+    }
+
+    // Skip methods the class already implements.
+    let mut existing: HashSet<&str> = HashSet::new();
+    for m in cls.methods.iter().chain(cls.static_methods.iter()) {
+        existing.insert(m.name.as_str());
+    }
+
+    let mut seen: HashSet<&str> = HashSet::new();
+    for iface in iface_decls {
+        for m in iface.methods.iter() {
+            let name = m.name.as_str();
+            if existing.contains(name) {
+                continue;
+            }
+            if !seen.insert(name) {
+                continue;
+            }
+            // Snippet body — newline-separated multi-line insertion.
+            // LSP snippet syntax: `$0` is the final cursor stop.
+            let params: Vec<String> = m
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
+                .collect();
+            let mut snippet = String::new();
+            snippet.push_str("pub ");
+            snippet.push_str(name);
+            snippet.push('(');
+            snippet.push_str(&params.join(", "));
+            snippet.push(')');
+            if let Some(ret) = &m.ret {
+                snippet.push_str(": ");
+                snippet.push_str(&format!("{ret}"));
+            }
+            snippet.push_str(" {\n    $0");
+            if let Some(ret) = &m.ret {
+                if let Some(default) = default_value_for(ret) {
+                    snippet.push('\n');
+                    snippet.push_str("    ");
+                    snippet.push_str(default);
+                }
+            }
+            snippet.push_str("\n}");
+            let detail = Some(format!(
+                "{} {}{}",
+                if m.is_optional { "@optional" } else { "required" },
+                iface.name.as_str(),
+                if m.is_optional { "" } else { " — implement" }
+            ));
+            out.push((name.to_string(), detail, snippet));
+        }
+    }
+    out
+}

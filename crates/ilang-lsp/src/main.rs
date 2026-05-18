@@ -25,7 +25,10 @@ use symbols::*;
 use types::*;
 use walker::*;
 
-use code_actions::{fill_match_arms_at, generate_init_at, implement_interface_methods_at};
+use code_actions::{
+    fill_match_arms_at, generate_init_at, implement_interface_methods_at,
+    interface_method_stub_completions_at,
+};
 use completion::{
     at_attribute_position, at_type_position, attribute_completions, brace_depth_at, call_snippet,
     enclosing_class, enclosing_use_module, global_completions, in_extern_c_block,
@@ -517,6 +520,77 @@ fn outside() {}
         // User-declared classes should still be present.
         assert!(syms.contains_key(&AstSymbol::intern("MyView")));
         assert!(syms.contains_key(&AstSymbol::intern("NSObject")));
+    }
+
+    #[test]
+    pub(crate) fn interface_method_completion_emits_snippets() {
+        // Cursor inside a class body that lists an interface as
+        // its base — completion should produce one entry per
+        // unimplemented interface method, with a snippet that
+        // inserts the full signature + body.
+        let src = "\
+interface Greeter {
+    hello(name: i64): bool
+    @optional bye()
+}
+class C : Greeter {
+    pub init() {}
+
+}
+";
+        let toks = ilang_lexer::tokenize(src).unwrap();
+        let prog = ilang_parser::parse(&toks).unwrap();
+        let empty: std::collections::HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+            std::collections::HashMap::new();
+        // Cursor inside the class body, just past `pub init() {}`
+        // on the next line.
+        let stubs =
+            interface_method_stub_completions_at(src, &prog, &empty, pos(5, 18));
+        // Two missing methods: `hello` and `bye`. `init` already
+        // exists.
+        assert_eq!(stubs.len(), 2, "stubs: {:?}", stubs);
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(labels.contains(&"hello"), "labels: {labels:?}");
+        assert!(labels.contains(&"bye"), "labels: {labels:?}");
+        // Snippet for `hello(name: i64): bool` should include the
+        // signature + a default `false` for the bool return.
+        let (_, _, hello_snippet) = stubs.iter().find(|(l, _, _)| l == "hello").unwrap();
+        assert!(hello_snippet.contains("pub hello(name: i64): bool"), "{}", hello_snippet);
+        assert!(hello_snippet.contains("false"), "{}", hello_snippet);
+    }
+
+    #[test]
+    pub(crate) fn implement_works_for_inline_empty_class_body() {
+        // `class MyApp : NSApplicationDelegate {}` on a single
+        // line with empty body — same shape the user reports.
+        let local_src = "class MyApp : MyDel {}\n";
+        let toks = ilang_lexer::tokenize(local_src).unwrap();
+        let local_prog = ilang_parser::parse(&toks).unwrap();
+
+        let ext_src = "\
+interface MyDel {
+    notifyMe(name: i64)
+}
+";
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut ext_ifaces: std::collections::HashMap<
+            AstSymbol,
+            ilang_ast::InterfaceDecl,
+        > = std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::Interface(i) = it {
+                ext_ifaces.insert(i.name, i.clone());
+            }
+        }
+        // Cursor between `{` and `}` on line 0 (column ~21).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(0, 21),
+        );
+        assert!(res.is_some(), "inline `{{}}` body should still trigger");
     }
 
     #[test]

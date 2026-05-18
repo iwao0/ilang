@@ -361,6 +361,34 @@ impl LanguageServer for Backend {
                 push_ffi_helper_completions(&mut items);
                 push_extern_c_keywords(&mut items);
             }
+            // Inside a class body: surface every unimplemented
+            // interface method the class is supposed to provide
+            // as a one-tap snippet candidate. Triggered by the
+            // bare-ident path (no `.` before cursor) so typing
+            // the start of the method name filters the list.
+            if !at_top_level {
+                let toks = tokenize(&doc.text);
+                if let Ok(tokens) = toks {
+                    if let Ok(prog) = parse(&tokens) {
+                        let stubs = interface_method_stub_completions_at(
+                            &doc.text,
+                            &prog,
+                            &doc.external_interfaces,
+                            pos,
+                        );
+                        for (label, detail, snippet) in stubs {
+                            items.push(CompletionItem {
+                                label,
+                                kind: Some(CompletionItemKind::METHOD),
+                                detail,
+                                insert_text: Some(snippet),
+                                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                                ..CompletionItem::default()
+                            });
+                        }
+                    }
+                }
+            }
             // Inside a method body: surface the enclosing class's
             // instance fields / methods as bare-name candidates.
             // ilang resolves a bare ident inside a method body
