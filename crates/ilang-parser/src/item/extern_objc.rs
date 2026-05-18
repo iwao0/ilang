@@ -2608,7 +2608,23 @@ fn finalize_objc_block(
     block_span: ilang_ast::Span,
     external_objc_classes: &HashSet<Symbol>,
 ) -> ilang_ast::ExternCBlock {
-    let tag = format!("__objc_b{}c{}", block_span.line, block_span.col);
+    // Process-wide unique sequence number per finalized
+    // `@extern(ObjC) { ... }` block so two blocks at the same
+    // line/col in different sibling files (e.g.
+    // `foundation/io.il` and `foundation/system.il` both opening
+    // at line 26 column 77) don't synthesize colliding
+    // `_sel_register` / `_get_class` helper names that the loader
+    // would later merge into a single module namespace and the
+    // type checker would reject as overloaded. `block_span` is
+    // still embedded in the tag for human debuggability — the
+    // sequence number just disambiguates collisions.
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static BLOCK_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let block_seq = BLOCK_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tag = format!(
+        "__objc_b{}c{}n{:x}",
+        block_span.line, block_span.col, block_seq
+    );
     let sel_struct_name: Symbol = format!("{tag}_sel_t").into();
     let sel_register_name: Symbol = format!("{tag}_sel_register").into();
     let class_struct_name: Symbol = format!("{tag}_class_t").into();

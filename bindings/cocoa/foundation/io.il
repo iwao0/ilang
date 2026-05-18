@@ -1,0 +1,252 @@
+// IO and stream bindings — NSFileHandle, NSPipe, the NSStream
+// tree (input / output), and NSCache.
+//
+// NSStream's `read:maxLength:` / `write:maxLength:` selectors
+// traffic in `uint8_t *` buffers. The raw selectors stay
+// module-private and the public wrappers expose
+// `u8[]` (write side, copies the bytes in) or
+// `bytesFromBuffer` round-trips (read side).
+
+use core { NSObject, NSString, NSData, NSURL, NSError }
+
+// NSStreamStatus — current state of an NSInputStream /
+// NSOutputStream. `notOpen` → `opening` → `open` → `reading` /
+// `writing` → `atEnd` / `error` / `closed`.
+pub enum StreamStatus: u64 {
+    notOpen = 0
+    opening = 1
+    open    = 2
+    reading = 3
+    writing = 4
+    atEnd   = 5
+    closed  = 6
+    error   = 7
+}
+
+@extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSFileHandle` — wraps an open file descriptor. The
+    /// reading / writing / updating factories open the file in
+    /// the matching mode and hand back a ready-to-use handle.
+    /// Use `NSFileHandle.standardOutput()` / `standardError()` to
+    /// write into a process's existing stdout / stderr without
+    /// opening them yourself.
+    @objc pub class NSFileHandle : NSObject {
+        @objc("fileHandleForReadingAtPath:")
+        pub static fileHandleForReadingAtPath(path: NSString): NSFileHandle
+        @objc("fileHandleForWritingAtPath:")
+        pub static fileHandleForWritingAtPath(path: NSString): NSFileHandle
+        @objc("fileHandleForUpdatingAtPath:")
+        pub static fileHandleForUpdatingAtPath(path: NSString): NSFileHandle
+
+        @objc("fileHandleWithStandardInput")
+        pub static standardInput(): NSFileHandle
+        @objc("fileHandleWithStandardOutput")
+        pub static standardOutput(): NSFileHandle
+        @objc("fileHandleWithStandardError")
+        pub static standardError(): NSFileHandle
+        @objc("fileHandleWithNullDevice")
+        pub static nullDevice(): NSFileHandle
+
+        @objc("readDataToEndOfFile")
+        pub readDataToEndOfFile(): NSData
+        @objc("readDataOfLength:")
+        pub readDataOfLength(length: u64): NSData
+        @objc("availableData")
+        pub get availableData(): NSData
+
+        @objc("writeData:")
+        pub writeData(data: NSData)
+
+        @objc("offsetInFile")
+        pub get offsetInFile(): u64
+        @objc("seekToFileOffset:")
+        pub seekToFileOffset(offset: u64)
+        @objc("seekToEndOfFile")
+        pub seekToEndOfFile(): u64
+        @objc("truncateFileAtOffset:")
+        pub truncateFileAtOffset(offset: u64)
+        @objc("synchronizeFile")
+        pub synchronizeFile()
+        @objc("closeFile")
+        pub closeFile()
+
+        @objc("fileDescriptor")
+        pub get fileDescriptor(): i32
+    }
+
+    /// `NSPipe` — anonymous pipe + a pair of NSFileHandle ends.
+    /// The standard recipe for capturing a child process's
+    /// stdout: build the pipe, hand the writing end to
+    /// `NSTask.setStandardOutput:`, read off the reading end
+    /// after the task exits.
+    @objc pub class NSPipe : NSObject {
+        @objc("pipe")
+        pub static pipe(): NSPipe
+        @objc("alloc")
+        pub static alloc(): NSPipe
+        @objc("init")
+        pub init(): NSPipe
+
+        @objc("fileHandleForReading")
+        pub get fileHandleForReading(): NSFileHandle
+        @objc("fileHandleForWriting")
+        pub get fileHandleForWriting(): NSFileHandle
+    }
+
+    /// `NSStream` — abstract base for NSInputStream /
+    /// NSOutputStream. Provides the lifecycle (`open` / `close`)
+    /// and status interrogation; the actual byte read / write
+    /// surface lives on the typed subclasses.
+    @objc pub class NSStream : NSObject {
+        @objc("open")
+        pub open()
+        @objc("close")
+        pub close()
+
+        @objc("streamStatus")
+        pub get streamStatus(): StreamStatus
+        @objc("streamError")
+        pub get streamError(): NSError
+
+        @objc("scheduleInRunLoop:forMode:")
+        pub scheduleInRunLoop(runLoop: NSObject, forMode: NSString)
+        @objc("removeFromRunLoop:forMode:")
+        pub removeFromRunLoop(runLoop: NSObject, forMode: NSString)
+
+        @objc("propertyForKey:")
+        pub propertyForKey(key: NSString): NSObject
+        @objc("setProperty:forKey:")
+        pub setProperty(value: NSObject, forKey: NSString): bool
+    }
+
+    /// `NSInputStream` — byte-reading stream over a file, NSData,
+    /// or NSURL. Construct via the typed factories; call
+    /// `.open()` then loop `read:maxLength:` until
+    /// `hasBytesAvailable` flips to `false`.
+    @objc pub class NSInputStream : NSStream {
+        @objc("inputStreamWithFileAtPath:")
+        pub static inputStreamWithFileAtPath(path: NSString): NSInputStream
+        @objc("inputStreamWithData:")
+        pub static inputStreamWithData(data: NSData): NSInputStream
+        @objc("inputStreamWithURL:")
+        pub static inputStreamWithURL(url: NSURL): NSInputStream
+
+        @objc("alloc")
+        pub static alloc(): NSInputStream
+        @objc("initWithFileAtPath:")
+        pub initWithFileAtPath(path: NSString): NSInputStream
+        @objc("initWithData:")
+        pub initWithData(data: NSData): NSInputStream
+        @objc("initWithURL:")
+        pub initWithURL(url: NSURL): NSInputStream
+
+        @objc("read:maxLength:")
+        _read(buffer: *u8, maxLength: u64): i64
+        @objc("hasBytesAvailable")
+        pub get hasBytesAvailable(): bool
+
+        /// Read up to `maxLength` bytes off the stream into a
+        /// fresh `u8[]`. Returns the slice of bytes actually
+        /// read (may be shorter than `maxLength`); a length-0
+        /// slice means EOF (call `streamError` to disambiguate
+        /// from a real error).
+        pub readBytes(maxLength: u64): u8[] {
+            let buf: u8[] = [0 as u8]
+            let i: u64 = 1 as u64
+            while i < maxLength {
+                buf.push(0 as u8)
+                i = i + (1 as u64)
+            }
+            let p: *u8 = buf
+            let got = this._read(p, maxLength)
+            if got < buf.length {
+                let trimmed: u8[] = []
+                let j = 0
+                while j < got {
+                    trimmed.push(buf[j])
+                    j = j + 1
+                }
+                return trimmed
+            }
+            buf
+        }
+    }
+
+    /// `NSOutputStream` — byte-writing stream over a file, an
+    /// in-memory buffer, or a caller-supplied byte buffer. Same
+    /// lifecycle as `NSInputStream`: open, write in a loop until
+    /// the source data is consumed, close. Pull the accumulated
+    /// bytes off an in-memory output stream via
+    /// `propertyForKey("NSStreamDataWrittenToMemoryStreamKey")`.
+    @objc pub class NSOutputStream : NSStream {
+        @objc("outputStreamToFileAtPath:append:")
+        pub static outputStreamToFileAtPath(
+            path: NSString, append: bool
+        ): NSOutputStream
+        @objc("outputStreamToMemory")
+        pub static outputStreamToMemory(): NSOutputStream
+        @objc("outputStreamWithURL:append:")
+        pub static outputStreamWithURL(
+            url: NSURL, append: bool
+        ): NSOutputStream
+
+        @objc("alloc")
+        pub static alloc(): NSOutputStream
+        @objc("initToFileAtPath:append:")
+        pub initToFileAtPath(path: NSString, append: bool): NSOutputStream
+        @objc("initToMemory")
+        pub initToMemory(): NSOutputStream
+        @objc("initWithURL:append:")
+        pub initWithURL(url: NSURL, append: bool): NSOutputStream
+
+        @objc("write:maxLength:")
+        _write(buffer: *const u8, maxLength: u64): i64
+        @objc("hasSpaceAvailable")
+        pub get hasSpaceAvailable(): bool
+
+        /// Write `buf` to the stream; returns the number of bytes
+        /// the stream accepted (may be less than `buf.length` for
+        /// a partial write — loop until you've consumed all of
+        /// `buf` if you need a complete send).
+        pub writeBytes(buf: u8[]): i64 {
+            let p: *u8 = buf
+            this._write(p as *const u8, buf.length as u64)
+        }
+    }
+
+    /// `NSCache` — bounded auto-evicting key/value store. Like
+    /// NSMutableDictionary but with a `totalCostLimit` and
+    /// `countLimit` the system enforces by dropping
+    /// least-recently-used entries under memory pressure.
+    /// Thread-safe for read + write.
+    @objc pub class NSCache : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSCache
+        @objc("init")
+        pub init(): NSCache
+
+        @objc("name")
+        pub get name(): NSString
+        @objc("setName:")
+        pub set name(s: NSString)
+        @objc("countLimit")
+        pub get countLimit(): u64
+        @objc("setCountLimit:")
+        pub set countLimit(n: u64)
+        @objc("totalCostLimit")
+        pub get totalCostLimit(): u64
+        @objc("setTotalCostLimit:")
+        pub set totalCostLimit(n: u64)
+
+        @objc("objectForKey:")
+        pub objectForKey(k: NSObject): NSObject
+        @objc("setObject:forKey:")
+        pub setObject(value: NSObject, forKey: NSObject)
+        @objc("setObject:forKey:cost:")
+        pub setObjectWithCost(value: NSObject, forKey: NSObject, cost: u64)
+        @objc("removeObjectForKey:")
+        pub removeObjectForKey(k: NSObject)
+        @objc("removeAllObjects")
+        pub removeAllObjects()
+    }
+}
