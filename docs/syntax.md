@@ -2027,45 +2027,74 @@ declaration shape is the same as an ordinary `interface I { ... }`
   NSMenuDelegate)` is type-checked, and ARC retain/release on the
   bridged side is wired automatically.
 
-#### Implementing an `@objc` protocol from a plain `class`
+#### Plain `class` form for ObjC subclasses
 
 You **do not** need to write the `@extern(ObjC) { ... }` wrapper
-or the `@objc class` attribute yourself when all you want is to
-implement an ObjC protocol from ilang. Just write a top-level
-class whose base list mentions an `@objc interface`:
+or the `@objc class` attribute yourself when defining an ObjC
+subclass from ilang. The loader's auto-lift pass triggers on
+either kind of Objective-C base:
+
+- **Protocol implementation** — base list names an `@objc
+  interface` (e.g. `class AppDelegate : NSApplicationDelegate`).
+- **Subclassing an ObjC class** — base list names an `@objc class`
+  (e.g. `class FormHandler : NSObject`, `class MyView : NSView`).
 
 ```rust
-use cocoa { NSApplicationDelegate, NSNotification,
-            sharedApplication, ActivationPolicy }
+use cocoa { NSObject, NSApplicationDelegate, NSNotification,
+            sharedApplication, ActivationPolicy, selectorPtr,
+            makeWindow, makeButton, StyleMask, nil }
 
+// Triggered by an `@objc interface` in the base list.
 class AppDelegate : NSApplicationDelegate {
     pub applicationDidFinishLaunching(notification: NSNotification) {
         console.log("launched")
     }
 }
 
+// Triggered by an `@objc class` parent. Default selector for
+// `submit(sender: …)` is `submit:` — what `selectorPtr("submit:")`
+// produces, so target/action wiring just works.
+class FormHandler : NSObject {
+    pub submit(sender: NSObject) {
+        console.log("clicked")
+    }
+}
+
 let app = sharedApplication()
 app.setActivationPolicy(ActivationPolicy.regular)
 AppDelegate.register()
+FormHandler.register()
 app.setDelegate(AppDelegate.alloc().init())
+
+let mask = StyleMask.titled | StyleMask.closable
+let win = makeWindow("Demo", 0.0, 0.0, 480.0, 320.0, mask)
+let handler = FormHandler.alloc().init()
+let btn = makeButton("Click", 180.0, 140.0, 120.0, 32.0)
+btn.setTarget(handler)
+btn.setAction(selectorPtr("submit:"))
+win.contentView.addSubview(btn)
+win.makeKeyAndOrderFront(nil)
 app.run()
 ```
 
-At load time the auto-lift pass detects that `AppDelegate`'s base
-list names an `@objc interface` and rewrites the declaration into
-the equivalent `@extern(ObjC) { @objc class AppDelegate : NSObject
-{ ... } }`. Selector wiring (`applicationDidFinishLaunching:`,
-etc.), the NSObject parent, and `alloc` / `init` are inserted
-automatically — you only write the methods you actually want to
-override.
+For each lifted class the loader inserts the NSObject (or named
+parent) ObjC parent, selector wiring (default = method name + `:`
+per parameter), and `alloc` / `init` / `register` stubs — you
+only write the methods you actually want to override.
 
-- Methods you don't implement stay as ObjC `@optional` no-ops;
-  the runtime simply answers `respondsToSelector: NO` for them.
+- Methods you don't implement on a protocol stay as ObjC
+  `@optional` no-ops; the runtime answers `respondsToSelector: NO`
+  for them.
 - The class is **not** treated as a plain ilang class for `new`
   construction — instantiate it through the lifted `alloc().init()`
   pair the runtime exposes (`AppDelegate.alloc().init()`).
 - Multiple `@objc interface`s in the same base list are allowed
-  (`class X : NSWindowDelegate, NSMenuDelegate { ... }`).
+  (`class X : NSWindowDelegate, NSMenuDelegate { ... }`); combine
+  freely with an `@objc class` parent for subclass-plus-protocols.
+- Drop to the explicit `@extern(ObjC) { @objc class … { … } }`
+  form when you need raw-pointer parameters / returns (`*u8`,
+  `*const char`, etc.) or per-method `@objc("selector:")`
+  overrides that don't fit the default selector shape.
 
 ### SIMD vector types (`simd.fNxM` / `simd.iNxM`)
 

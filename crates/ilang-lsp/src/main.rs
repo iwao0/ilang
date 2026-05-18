@@ -688,19 +688,20 @@ interface MyDel {
 
     #[test]
     pub(crate) fn type_completion_surfaces_cocoa_interface_for_example_click() {
-        // Load example_click.il through the same path the LSP uses
-        // and inspect `type_completions(doc)`. The buffer's `use cocoa
-        // { … }` does NOT list `NSApplicationDelegate`, so the
-        // completion should label it module-qualified
-        // (`cocoa.NSApplicationDelegate`). `NSApplication` IS in the
-        // use list, so it should appear bare.
+        // Load examples/macos/cocoa_click/main.il through the same
+        // path the LSP uses and inspect `type_completions(doc)`.
+        // The buffer's `use cocoa { … }` does NOT list
+        // `NSApplicationDelegate`, so the completion should label
+        // it module-qualified (`cocoa.NSApplicationDelegate`).
+        // `NSApplication` IS in the use list, so it should appear
+        // bare.
         use std::path::PathBuf;
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.pop();
         path.pop();
-        path.push("bindings/cocoa/example_click.il");
+        path.push("examples/macos/cocoa_click/main.il");
         let doc = analyse::analyse_path_to_doc(&path)
-            .expect("example_click.il must load");
+            .expect("examples/macos/cocoa_click/main.il must load");
         let items = type_completions(&doc);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(

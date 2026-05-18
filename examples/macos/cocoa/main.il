@@ -1,21 +1,19 @@
 // 🪟 ilang × Cocoa — NSStackView form with an NSApplicationDelegate.
 //
-// Two ObjC classes, two ways to write them:
+// Both ObjC classes are written in the plain top-level form. The
+// loader auto-lifts any class whose base list names an
+// Objective-C type — either an `@objc interface` (a protocol like
+// `NSApplicationDelegate`) or an `@objc class` (a real ObjC class
+// like `NSObject`) — into a synthesized `@extern(ObjC) { @objc
+// class … }` block with `alloc` / `init` / `register` injected.
 //
-//   * `AppDelegate : NSApplicationDelegate` is a plain top-level
-//     class that names the `@objc interface` in its base list. The
-//     loader's auto-lift turns it into a real ObjC subclass of
-//     NSObject behind the scenes (NSObject parent, selector
-//     wiring, `alloc` / `init` / `register` injected) so the
-//     source stays free of `@extern(ObjC) { @objc class … }`
-//     boilerplate. Implement only the lifecycle methods you care
-//     about; everything else stays `@optional` no-op.
-//
-//   * `FormHandler` is a plain target/action receiver — not a
-//     protocol implementation. It stays in the explicit
-//     `@extern(ObjC) { @objc class FormHandler : NSObject { … } }`
-//     form because there's no `@objc interface` for "things that
-//     can be a button target"; the binding is selector-based.
+//   * `AppDelegate : NSApplicationDelegate` implements an ObjC
+//     protocol — lift triggered by the interface in the base list.
+//   * `FormHandler : NSObject` is a target/action receiver subclass —
+//     lift triggered by the ObjC parent class. The button calls
+//     `[handler submit:sender]`; the default selector for
+//     `submit(sender: …)` is `submit:`, matching what
+//     `selectorPtr("submit:")` wants.
 //
 // Run (the cocoa bindings dep is wired through this directory's
 // `ilang.toml`):
@@ -35,9 +33,6 @@ use cocoa { NSObject, NSTextField, NSSlider, NSApplicationDelegate,
 let textField = makeTextField("ada", 0.0, 0.0, 0.0, 22.0)
 let slider = makeSlider(0.0, 1.0, 0.5, 0.0, 0.0, 0.0, 22.0)
 
-// New-style ObjC delegate — plain class, auto-lifted by the
-// loader because its base list names an `@objc interface`.
-// `register()` and `alloc()`/`init()` are synthesized for you.
 class AppDelegate : NSApplicationDelegate {
     pub applicationDidFinishLaunching(notification: NSNotification) {
         console.log("AppDelegate: didFinishLaunching")
@@ -55,20 +50,32 @@ class AppDelegate : NSApplicationDelegate {
     }
 }
 
-// Selector-action receiver — no `@objc interface` to claim, so
-// stays in the explicit form.
-@extern(ObjC) {
-    @objc class FormHandler : NSObject {
-        @objc("alloc") pub static alloc(): FormHandler
-        @objc("init")  pub init(): FormHandler
-
-        @objc("submit:")
-        pub submit(sender: NSObject) {
-            console.log("text =", ilstr(textField.stringValue))
-            console.log("slider =", slider.doubleValue)
-        }
+class FormHandler : NSObject {
+    pub submit(sender: NSObject) {
+        console.log("text =", ilstr(textField.stringValue))
+        console.log("slider =", slider.doubleValue)
     }
 }
+
+// Reference: the equivalent explicit form. Drop down to this
+// whenever you need things the auto-lift doesn't expose —
+// most importantly raw-pointer parameters / returns (`*u8`,
+// `*const char`, etc.) and per-method `@objc("selector:")`
+// overrides for selectors that don't follow the default
+// `name + ":" per param` shape.
+//
+//   @extern(ObjC) {
+//       @objc class FormHandler : NSObject {
+//           @objc("alloc") pub static alloc(): FormHandler
+//           @objc("init")  pub init(): FormHandler
+//
+//           @objc("submit:")
+//           pub submit(sender: NSObject) {
+//               console.log("text =", ilstr(textField.stringValue))
+//               console.log("slider =", slider.doubleValue)
+//           }
+//       }
+//   }
 
 let app = sharedApplication()
 app.setActivationPolicy(ActivationPolicy.regular)

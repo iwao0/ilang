@@ -2103,13 +2103,26 @@ fn auto_lift_objc_subclasses(mut prog: Program) -> Program {
     for item in old_items {
         match item {
             Item::Class(cd) => {
-                let touches_objc_iface = cd
+                // Lift when the class's base list mentions an
+                // `@objc interface` (protocol implementation), or
+                // when it directly inherits from an `@objc class`
+                // like NSObject / NSView / NSWindow — anything
+                // descended from an Objective-C class needs the
+                // ObjC runtime registration that the @extern(ObjC)
+                // desugar provides, so doing it automatically
+                // saves the user from writing a wrapper block plus
+                // `alloc` / `init` / `register` shims.
+                let bases: Vec<Symbol> = cd
                     .parent
                     .iter()
                     .copied()
                     .chain(cd.interfaces.iter().copied())
-                    .any(|b| objc_ifaces.contains_key(&b));
-                if touches_objc_iface {
+                    .collect();
+                let touches_objc_iface =
+                    bases.iter().any(|b| objc_ifaces.contains_key(b));
+                let touches_objc_class =
+                    bases.iter().any(|b| objc_class_names.contains(b));
+                if touches_objc_iface || touches_objc_class {
                     let block = crate::item::extern_objc::lift_class_to_objc_block(
                         cd,
                         &objc_ifaces,
