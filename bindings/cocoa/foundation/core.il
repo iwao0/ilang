@@ -35,6 +35,38 @@ pub struct NSRange { location: u64; length: u64 }
         @objc("hash")
         pub get hash(): i64
 
+        // ─── Key-Value Coding (NSKeyValueCoding) ──────────────
+        @objc("valueForKey:")
+        pub valueForKey(key: NSString): NSObject
+        @objc("setValue:forKey:")
+        pub setValueForKey(value: NSObject, forKey: NSString)
+        @objc("valueForKeyPath:")
+        pub valueForKeyPath(keyPath: NSString): NSObject
+        @objc("setValue:forKeyPath:")
+        pub setValueForKeyPath(value: NSObject, forKeyPath: NSString)
+        @objc("valueForUndefinedKey:")
+        pub valueForUndefinedKey(key: NSString): NSObject
+        @objc("mutableArrayValueForKey:")
+        pub mutableArrayValueForKey(key: NSString): NSObject
+        @objc("mutableSetValueForKey:")
+        pub mutableSetValueForKey(key: NSString): NSObject
+
+        // ─── Key-Value Observing (NSKeyValueObserving) ────────
+        @objc("addObserver:forKeyPath:options:context:")
+        pub addKVObserver(
+            observer: NSObject, forKeyPath: NSString, options: u64, context: i64
+        )
+        @objc("removeObserver:forKeyPath:")
+        pub removeKVObserver(observer: NSObject, forKeyPath: NSString)
+        @objc("removeObserver:forKeyPath:context:")
+        pub removeKVObserverWithContext(
+            observer: NSObject, forKeyPath: NSString, context: i64
+        )
+        @objc("willChangeValueForKey:")
+        pub willChangeValueForKey(key: NSString)
+        @objc("didChangeValueForKey:")
+        pub didChangeValueForKey(key: NSString)
+
         /// Wrap a raw ObjC `id` (the `i64` pointer value) into an
         /// `NSObject` instance without going through `alloc + init`.
         /// Bridges to the @objc-desugar's hidden `__wrap_handle`
@@ -44,6 +76,29 @@ pub struct NSRange { location: u64; length: u64 }
         pub static wrap(h: i64): NSObject {
             NSObject.__wrap_handle(h)
         }
+    }
+
+    /// `NSValueTransformer` — Key-Value Binding value
+    /// transformer. Register a named transformer via
+    /// `+setValueTransformer:forName:`; the Cocoa Bindings
+    /// layer looks them up by name to convert between model and
+    /// view values (e.g. negation, lookup-table mapping).
+    @objc pub class NSValueTransformer : NSObject {
+        @objc("valueTransformerForName:")
+        pub static valueTransformerForName(name: NSString): NSValueTransformer
+        @objc("setValueTransformer:forName:")
+        pub static setValueTransformer(t: NSValueTransformer, forName: NSString)
+        @objc("valueTransformerNames")
+        pub static valueTransformerNames(): NSArray
+
+        @objc("transformedValue:")
+        pub transformedValue(v: NSObject): NSObject
+        @objc("reverseTransformedValue:")
+        pub reverseTransformedValue(v: NSObject): NSObject
+        @objc("allowsReverseTransformation")
+        pub static allowsReverseTransformation(): bool
+        @objc("transformedValueClass")
+        pub static transformedValueClass(): NSObject
     }
 
     /// `NSString` — Cocoa's UTF-16 string type. ilang code works

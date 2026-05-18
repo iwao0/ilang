@@ -598,6 +598,124 @@ pub enum URLCredentialPersistence: u64 {
         pub closeWrite()
     }
 
+    /// `NSURLCache` — request / response cache. `shared()` is
+    /// the singleton every `NSURLSession.shared()` instance uses;
+    /// build your own with capacity limits for an isolated cache.
+    @objc pub class NSURLCache : NSObject {
+        @objc("sharedURLCache")
+        pub static shared(): NSURLCache
+        @objc("setSharedURLCache:")
+        pub static setShared(c: NSURLCache)
+
+        @objc("alloc")
+        pub static alloc(): NSURLCache
+        @objc("initWithMemoryCapacity:diskCapacity:directoryURL:")
+        pub initWithMemoryAndDiskCapacity(
+            memoryCapacity: u64, diskCapacity: u64, directoryURL: NSURL
+        ): NSURLCache
+
+        @objc("cachedResponseForRequest:")
+        pub cachedResponseForRequest(req: NSURLRequest): NSObject
+        @objc("storeCachedResponse:forRequest:")
+        pub storeCachedResponse(response: NSObject, forRequest: NSURLRequest)
+        @objc("removeCachedResponseForRequest:")
+        pub removeCachedResponseForRequest(req: NSURLRequest)
+        @objc("removeAllCachedResponses")
+        pub removeAllCachedResponses()
+        @objc("removeCachedResponsesSinceDate:")
+        pub removeCachedResponsesSinceDate(d: NSObject)
+
+        @objc("memoryCapacity")
+        pub get memoryCapacity(): u64
+        @objc("setMemoryCapacity:")
+        pub set memoryCapacity(c: u64)
+        @objc("diskCapacity")
+        pub get diskCapacity(): u64
+        @objc("setDiskCapacity:")
+        pub set diskCapacity(c: u64)
+        @objc("currentMemoryUsage")
+        pub get currentMemoryUsage(): u64
+        @objc("currentDiskUsage")
+        pub get currentDiskUsage(): u64
+    }
+
+    /// `NSNetService` — Bonjour / mDNS service publication +
+    /// resolution. Construct with a service `type` like
+    /// `"_http._tcp"`, a `name` for the human label, and a
+    /// `port`; call `publish()` to advertise on the local
+    /// network. To consume a service discovered through
+    /// `NSNetServiceBrowser`, set the delegate and call
+    /// `resolveWithTimeout:`.
+    @objc pub class NSNetService : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSNetService
+        @objc("initWithDomain:type:name:port:")
+        pub initWithDomain(
+            domain: NSString, type: NSString, name: NSString, port: i32
+        ): NSNetService
+        @objc("initWithDomain:type:name:")
+        pub initForBrowsing(
+            domain: NSString, type: NSString, name: NSString
+        ): NSNetService
+
+        @objc("name")
+        pub get name(): NSString
+        @objc("type")
+        pub get type(): NSString
+        @objc("domain")
+        pub get domain(): NSString
+        @objc("hostName")
+        pub get hostName(): NSString
+        @objc("port")
+        pub get port(): i64
+        @objc("addresses")
+        pub get addresses(): NSArray
+        @objc("TXTRecordData")
+        pub get txtRecordData(): NSData
+        @objc("setTXTRecordData:")
+        pub setTXTRecordData(data: NSData): bool
+
+        @objc("delegate")
+        pub get delegate(): NSObject
+        @objc("setDelegate:")
+        pub set delegate(d: NSObject)
+
+        @objc("publish")
+        pub publish()
+        @objc("publishWithOptions:")
+        pub publishWithOptions(options: u64)
+        @objc("resolveWithTimeout:")
+        pub resolveWithTimeout(timeout: f64)
+        @objc("stop")
+        pub stop()
+    }
+
+    /// `NSNetServiceBrowser` — Bonjour / mDNS service discovery.
+    /// Set the delegate, call
+    /// `searchForServicesOfType:inDomain:`, then receive
+    /// `NSNetService` instances through delegate callbacks.
+    /// `stop` cancels the search.
+    @objc pub class NSNetServiceBrowser : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSNetServiceBrowser
+        @objc("init")
+        pub init(): NSNetServiceBrowser
+
+        @objc("delegate")
+        pub get delegate(): NSObject
+        @objc("setDelegate:")
+        pub set delegate(d: NSObject)
+
+        @objc("searchForServicesOfType:inDomain:")
+        pub searchForServicesOfType(type: NSString, inDomain: NSString)
+        @objc("searchForBrowsableDomains")
+        pub searchForBrowsableDomains()
+        @objc("searchForRegistrationDomains")
+        pub searchForRegistrationDomains()
+        @objc("stop")
+        pub stop()
+    }
+
     /// `NSURLProtocol` — abstract base for custom URL-scheme
     /// handlers. Subclass it (override `+canInitWithRequest:`,
     /// `+canonicalRequestForRequest:`, `-startLoading`,

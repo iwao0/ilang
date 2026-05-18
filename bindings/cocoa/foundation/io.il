@@ -372,6 +372,59 @@ pub enum StreamStatus: u64 {
         ): bool
     }
 
+    /// `NSFileCoordinator` — serialises reads / writes to shared
+    /// files across processes. Wrap each access in a coordinate
+    /// call; the system pauses competing accesses (including
+    /// those from other apps via iCloud Drive / Document
+    /// Provider) until your closure returns. The block
+    /// `byAccessor:` receives the URL the system actually opened
+    /// (may be canonicalised) and returns nothing — perform the
+    /// IO inside it.
+    @objc pub class NSFileCoordinator : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSFileCoordinator
+        @objc("init")
+        pub init(): NSFileCoordinator
+        @objc("initWithFilePresenter:")
+        pub initWithFilePresenter(presenter: NSObject): NSFileCoordinator
+
+        @objc("coordinateReadingItemAtURL:options:error:byAccessor:")
+        pub coordinateReadingItemAtURL(
+            url: NSURL, options: u64, error: i64, byAccessor: i64
+        )
+        @objc("coordinateWritingItemAtURL:options:error:byAccessor:")
+        pub coordinateWritingItemAtURL(
+            url: NSURL, options: u64, error: i64, byAccessor: i64
+        )
+        @objc("itemAtURL:didMoveToURL:")
+        pub itemAtURL(url: NSURL, didMoveToURL: NSURL)
+        @objc("addFilePresenter:")
+        pub static addFilePresenter(p: NSObject)
+        @objc("removeFilePresenter:")
+        pub static removeFilePresenter(p: NSObject)
+        @objc("filePresenters")
+        pub static filePresenters(): NSArray
+    }
+
+    /// `NSFilePresenter` — protocol the coordinator dispatches
+    /// "another process changed this file" events into. Implement
+    /// the methods you care about on your class and register the
+    /// instance with `NSFileCoordinator.addFilePresenter(...)`.
+    @objc pub interface NSFilePresenter {
+        presentedItemURL(): NSURL
+        presentedItemOperationQueue(): NSObject
+
+        @optional presentedItemDidChange()
+        @optional @objc("presentedItemDidMoveToURL:")
+        presentedItemDidMoveToURL(newURL: NSURL)
+        @optional accommodatePresentedItemDeletion(completionHandler: i64)
+        @optional savePresentedItemChangesWithCompletionHandler(completionHandler: i64)
+        @optional @objc("relinquishPresentedItemToReader:")
+        relinquishPresentedItemToReader(reader: i64)
+        @optional @objc("relinquishPresentedItemToWriter:")
+        relinquishPresentedItemToWriter(writer: i64)
+    }
+
     /// `NSDistributedLock` — file-backed cross-process lock. Pass
     /// a path two cooperating processes both know; `tryLock`
     /// creates the file atomically (fails fast if another holder

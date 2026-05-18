@@ -72,6 +72,25 @@ pub enum MatchOptions: u64 {
         ): NSString
     }
 
+    /// `NSDataDetector` — `NSRegularExpression` subclass
+    /// pre-loaded with the system's URL / phone-number / date /
+    /// address / transit-information detectors. The
+    /// `checkingTypes` bitmask (`NSTextCheckingTypeLink` etc.)
+    /// selects which kinds of matches the detector reports.
+    /// Inherits the regex match / replace surface; for richer
+    /// per-match info (range, address components, etc.) the ObjC
+    /// API returns `NSTextCheckingResult` instances whose
+    /// `range:` getter we haven't bound yet (NSRange-returning
+    /// selector deferred).
+    @objc pub class NSDataDetector : NSRegularExpression {
+        @objc("dataDetectorWithTypes:error:")
+        pub static dataDetectorWithTypes(
+            types: u64, error: i64
+        ): NSDataDetector
+        @objc("checkingTypes")
+        pub get checkingTypes(): u64
+    }
+
     /// `NSScanner` — stateful cursor over an NSString. The
     /// underlying ObjC selectors return their parsed value
     /// through an out-parameter (`int *`, `double *`, …) and

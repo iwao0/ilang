@@ -294,6 +294,77 @@ pub enum ProcessInfoThermalState: i64 {
         pub displayNameForKey(key: NSString, value: NSString): NSString
     }
 
+    /// `NSTask` — launch and control a sub-process. The
+    /// `executableURL` / `arguments` / `currentDirectoryURL`
+    /// properties set up the spawn, `standardInput` /
+    /// `standardOutput` / `standardError` redirect the stdio
+    /// streams (assign an NSFileHandle or NSPipe to each), and
+    /// `launchAndReturnError:` actually starts it. macOS only.
+    @objc pub class NSTask : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSTask
+        @objc("init")
+        pub init(): NSTask
+
+        @objc("launchedTaskWithExecutableURL:arguments:error:terminationHandler:")
+        pub static launchedTaskWithExecutableURL(
+            url: NSURL, arguments: NSArray, error: i64,
+            terminationHandler: i64
+        ): NSTask
+
+        @objc("executableURL")
+        pub get executableURL(): NSURL
+        @objc("setExecutableURL:")
+        pub set executableURL(u: NSURL)
+        @objc("arguments")
+        pub get arguments(): NSArray
+        @objc("setArguments:")
+        pub set arguments(args: NSArray)
+        @objc("environment")
+        pub get environment(): NSDictionary
+        @objc("setEnvironment:")
+        pub set environment(env: NSDictionary)
+        @objc("currentDirectoryURL")
+        pub get currentDirectoryURL(): NSURL
+        @objc("setCurrentDirectoryURL:")
+        pub set currentDirectoryURL(u: NSURL)
+
+        @objc("standardInput")
+        pub get standardInput(): NSObject
+        @objc("setStandardInput:")
+        pub set standardInput(s: NSObject)
+        @objc("standardOutput")
+        pub get standardOutput(): NSObject
+        @objc("setStandardOutput:")
+        pub set standardOutput(s: NSObject)
+        @objc("standardError")
+        pub get standardError(): NSObject
+        @objc("setStandardError:")
+        pub set standardError(s: NSObject)
+
+        @objc("launchAndReturnError:")
+        pub launchAndReturnError(error: i64): bool
+        @objc("interrupt")
+        pub interrupt()
+        @objc("terminate")
+        pub terminate()
+        @objc("suspend")
+        pub suspend(): bool
+        @objc("resume")
+        pub resume(): bool
+        @objc("waitUntilExit")
+        pub waitUntilExit()
+
+        @objc("processIdentifier")
+        pub get processIdentifier(): i32
+        @objc("isRunning")
+        pub get isRunning(): bool
+        @objc("terminationStatus")
+        pub get terminationStatus(): i32
+        @objc("terminationReason")
+        pub get terminationReason(): i64
+    }
+
     /// `NSUUID` — RFC 4122 UUID. The default initialiser
     /// (`UUID()`) mints a random v4 UUID; `initWithUUIDString:`
     /// parses a canonical string like
