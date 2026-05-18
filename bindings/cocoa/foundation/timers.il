@@ -214,7 +214,17 @@ use concurrency { QualityOfService }
         pub get shouldDefer(): bool
 
         @objc("scheduleWithBlock:")
-        pub scheduleWithBlock(block: i64)
+        _scheduleWithBlock(block: ObjCBlock<fn(i64)>)
+        /// `scheduleWithBlock:` — register the periodic work
+        /// `body`. The argument the system hands you is itself a
+        /// `void(^)(NSBackgroundActivityResult)` completion
+        /// handler block (raw `id`); invoke it when the work is
+        /// done so the system can score the activity. Without
+        /// invoking, the scheduler considers the activity still
+        /// running and skips the next slot.
+        pub scheduleWithBlock(body: fn(i64)) {
+            this._scheduleWithBlock(new ObjCBlock(body))
+        }
         @objc("invalidate")
         pub invalidate()
     }

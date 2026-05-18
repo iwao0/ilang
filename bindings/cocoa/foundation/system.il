@@ -9,8 +9,7 @@
 //   * NSLocale — language / region / formatting locale lookup
 //     used by NSDateFormatter / NSNumberFormatter and friends.
 
-use core { NSObject, NSString, NSArray, NSDictionary, NSData,
-           makeObjectBlock }
+use core { NSObject, NSString, NSArray, NSDictionary, NSData }
 use network { NSURL }
 
 // NSPostingStyle — when NSNotificationQueue actually fires
@@ -78,7 +77,8 @@ pub enum ProcessInfoThermalState: i64 {
 
         @objc("addObserverForName:object:queue:usingBlock:")
         _addObserverWithBlock(
-            name: NSString, object: NSObject, queue: NSObject, block: i64
+            name: NSString, object: NSObject, queue: NSObject,
+            block: ObjCBlock<fn(i64)>
         ): NSObject
 
         /// Block-based subscription. `body` runs every time a
@@ -92,7 +92,7 @@ pub enum ProcessInfoThermalState: i64 {
             name: NSString, object: NSObject, queue: NSObject,
             body: fn(i64)
         ): NSObject {
-            this._addObserverWithBlock(name, object, queue, makeObjectBlock(body))
+            this._addObserverWithBlock(name, object, queue, new ObjCBlock(body))
         }
 
         @objc("removeObserver:")
