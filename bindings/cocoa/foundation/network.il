@@ -908,6 +908,30 @@ pub enum URLCredentialPersistence: u64 {
         )
     }
 
+    /// `NSURLSessionStreamDelegate` — refines NSURLSessionTaskDelegate
+    /// for raw stream tasks. Fires when the system reads ahead
+    /// from / writes ahead to the connection, when a better
+    /// route appears, or when one direction of the pipe closes.
+    @objc pub interface NSURLSessionStreamDelegate {
+        @optional @objc("URLSession:readClosedForStreamTask:")
+        URLSessionReadClosedForStreamTask(
+            session: NSURLSession, streamTask: NSURLSessionStreamTask
+        )
+        @optional @objc("URLSession:writeClosedForStreamTask:")
+        URLSessionWriteClosedForStreamTask(
+            session: NSURLSession, streamTask: NSURLSessionStreamTask
+        )
+        @optional @objc("URLSession:betterRouteDiscoveredForStreamTask:")
+        URLSessionBetterRouteDiscoveredForStreamTask(
+            session: NSURLSession, streamTask: NSURLSessionStreamTask
+        )
+        @optional @objc("URLSession:streamTask:didBecomeInputStream:outputStream:")
+        URLSessionStreamTaskDidBecomeStreams(
+            session: NSURLSession, streamTask: NSURLSessionStreamTask,
+            didBecomeInputStream: NSObject, outputStream: NSObject
+        )
+    }
+
     /// `NSURLSessionWebSocketDelegate` — open / close callbacks
     /// for WebSocket tasks.
     @objc pub interface NSURLSessionWebSocketDelegate {
