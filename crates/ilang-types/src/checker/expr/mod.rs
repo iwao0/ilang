@@ -122,45 +122,52 @@ impl TypeChecker {
                         });
                     }
                 }
-                // CRepr struct: every declared field must be
-                // explicitly initialized — no `init` exists to fill
-                // missing slots, so a partial literal would leave
-                // them at their zero-initialized default. Reject so
-                // the author has to spell out the field or change
-                // the declaration.
-                //
+                // Struct-literal construction is reserved for value
+                // types — top-level `struct` / `union` (CRepr). ARC
+                // classes must go through `new Name(...)` so their
+                // `init` actually runs and required-assignment
+                // invariants are enforced; allowing a literal there
+                // would silently skip the constructor and let
+                // partial states leak out.
+                if !cls.is_repr_c {
+                    return Err(TypeError::Unsupported {
+                        what: format!(
+                            "struct-literal construction `{class:?} {{ ... }}` is only \
+                             allowed for top-level `struct` / `union` (value types); use \
+                             `new {class:?}(...)` to construct a class instance"
+                        ),
+                        span,
+                    });
+                }
                 // CRepr union: exactly one field is initialized
                 // (variants share one storage slot — initializing
                 // zero or multiple has no meaningful semantics).
-                //
-                // Regular ARC classes deliberately keep the looser
-                // "any subset" behaviour — these may have an `init`
-                // that sets the rest, and partial literals are a
-                // long-standing idiom in the existing fixtures.
-                if cls.is_repr_c {
-                    if cls.is_union {
-                        if fields.len() != 1 {
+                // CRepr struct: every declared field must be
+                // explicitly initialized — no `init` exists to fill
+                // missing slots, so a partial literal would leave
+                // them at their zero-initialized default.
+                if cls.is_union {
+                    if fields.len() != 1 {
+                        return Err(TypeError::Unsupported {
+                            what: format!(
+                                "union literal for {class:?} must initialize exactly \
+                                 one field (got {})",
+                                fields.len()
+                            ),
+                            span,
+                        });
+                    }
+                } else {
+                    for declared in cls.fields.keys() {
+                        if !seen.contains(declared) {
                             return Err(TypeError::Unsupported {
                                 what: format!(
-                                    "union literal for {class:?} must initialize exactly \
-                                     one field (got {})",
-                                    fields.len()
+                                    "struct literal for {class:?} is missing field \
+                                     {declared:?} — CRepr struct literals must initialize \
+                                     every field"
                                 ),
                                 span,
                             });
-                        }
-                    } else {
-                        for declared in cls.fields.keys() {
-                            if !seen.contains(declared) {
-                                return Err(TypeError::Unsupported {
-                                    what: format!(
-                                        "struct literal for {class:?} is missing field \
-                                         {declared:?} — CRepr struct literals must initialize \
-                                         every field"
-                                    ),
-                                    span,
-                                });
-                            }
                         }
                     }
                 }
