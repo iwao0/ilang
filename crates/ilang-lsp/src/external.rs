@@ -470,6 +470,54 @@ pub(crate) fn walk_module(
                         docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
+                // @objc interfaces declared alongside the C / @objc
+                // items in the same block. Surface them in cross-module
+                // completion so `use cocoa { NSApplicationDelegate }`
+                // hovers and other-file references find the signature.
+                for iface in b.interfaces.iter() {
+                    if !iface.is_pub {
+                        continue;
+                    }
+                    let methods: Vec<String> = iface
+                        .methods
+                        .iter()
+                        .map(|m| {
+                            let opt = if m.is_optional { "@optional " } else { "" };
+                            let ps: Vec<String> = m
+                                .params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect();
+                            let r = match &m.ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            format!("    {opt}{}({}){}", m.name, ps.join(", "), r)
+                        })
+                        .collect();
+                    let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let sig = if methods.is_empty() {
+                        format!("{header} {prefix}.{} {{}}", iface.name)
+                    } else {
+                        format!(
+                            "{header} {prefix}.{} {{\n{}\n}}",
+                            iface.name,
+                            methods.join("\n")
+                        )
+                    };
+                    let key = format!("{prefix}.{}", iface.name);
+                    out.insert(AstSymbol::intern(&key), sig);
+                    track(
+                        &key,
+                        iface.span,
+                        iface.name.as_str().len() as u32,
+                        sources,
+                        &module_path,
+                    );
+                    if let Some(d) = text::extract_doc_above(&module_src, iface.span.line) {
+                        docs.insert(AstSymbol::intern(&key), d);
+                    }
+                }
             }
             // Follow `pub use` chains so umbrella modules
             // (e.g. `sdl.il` re-exporting `sdl_renderer.il`) flow the
@@ -678,6 +726,47 @@ pub(crate) fn walk_module_aliased(
                         if let Some(d) = text::extract_doc_above(&module_src, span.line) {
                             docs.insert(AstSymbol::intern(&key), d);
                         }
+                    }
+                }
+                // Aliased re-export side: same enumeration for
+                // @objc interfaces declared in the same block.
+                for iface in b.interfaces.iter() {
+                    if !iface.is_pub {
+                        continue;
+                    }
+                    let methods: Vec<String> = iface
+                        .methods
+                        .iter()
+                        .map(|m| {
+                            let opt = if m.is_optional { "@optional " } else { "" };
+                            let ps: Vec<String> = m
+                                .params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect();
+                            let r = match &m.ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            format!("    {opt}{}({}){}", m.name, ps.join(", "), r)
+                        })
+                        .collect();
+                    let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let sig = if methods.is_empty() {
+                        format!("{header} {alias_prefix}.{} {{}}", iface.name)
+                    } else {
+                        format!(
+                            "{header} {alias_prefix}.{} {{\n{}\n}}",
+                            iface.name,
+                            methods.join("\n")
+                        )
+                    };
+                    let key = format!("{alias_prefix}.{}", iface.name);
+                    let len = iface.name.as_str().len() as u32;
+                    out.insert(AstSymbol::intern(&key), sig);
+                    put(&key, iface.span, len, sources);
+                    if let Some(d) = text::extract_doc_above(&module_src, iface.span.line) {
+                        docs.insert(AstSymbol::intern(&key), d);
                     }
                 }
             }
@@ -1278,6 +1367,18 @@ pub(crate) fn collect_external_signatures(
                             );
                         }
                     }
+                }
+                // @objc interfaces declared in the same block.
+                for iface in b.interfaces.iter() {
+                    if !iface.is_pub {
+                        continue;
+                    }
+                    let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    put_dotted(
+                        iface.name.as_str(),
+                        format!("{header} {}", iface.name),
+                        &mut out,
+                    );
                 }
             }
             _ => {}

@@ -220,6 +220,44 @@ pub(crate) fn collect_symbols(prog: &Program, src: &str) -> HashMap<AstSymbol, S
                         }
                     }
                 }
+                // @objc interfaces declared inside the @extern(ObjC)
+                // block. The hover signature lists the interface
+                // methods so users can see the contract at a
+                // glance.
+                for iface in b.interfaces.iter() {
+                    let methods: Vec<String> = iface
+                        .methods
+                        .iter()
+                        .map(|m| {
+                            let prefix = if m.is_optional { "@optional " } else { "" };
+                            let ps: Vec<String> = m
+                                .params
+                                .iter()
+                                .map(|p| format!("{}: {}", p.name, p.ty))
+                                .collect();
+                            let r = match &m.ret {
+                                Some(t) => format!(": {t}"),
+                                None => String::new(),
+                            };
+                            format!("    {prefix}{}({}){}", m.name, ps.join(", "), r)
+                        })
+                        .collect();
+                    let header = if iface.is_objc { "@objc interface" } else { "interface" };
+                    let signature = if methods.is_empty() {
+                        format!("{header} {} {{}}", iface.name)
+                    } else {
+                        format!("{header} {} {{\n{}\n}}", iface.name, methods.join("\n"))
+                    };
+                    out.insert(
+                        iface.name.into(),
+                        Symbol {
+                            name: iface.name.as_str().to_string(),
+                            span: iface.span,
+                            signature,
+                            doc: text::extract_doc_above(src, iface.span.line),
+                        },
+                    );
+                }
             }
             _ => {}
         }

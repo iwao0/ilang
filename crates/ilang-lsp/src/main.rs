@@ -462,6 +462,33 @@ fn outside() {}
     }
 
     #[test]
+    pub(crate) fn collect_symbols_picks_up_objc_interface() {
+        // @objc interface declared inside @extern(ObjC) should
+        // surface in `doc.symbols` so hover over the name works.
+        let src = "\
+@extern(ObjC) {
+    @objc pub interface MyDel {
+        notifyMe(name: i64)
+        @optional cleanup()
+    }
+}
+";
+        let toks = ilang_lexer::tokenize(src).unwrap();
+        let prog = ilang_parser::parse(&toks).unwrap();
+        let syms = collect_symbols(&prog, src);
+        let key = AstSymbol::intern("MyDel");
+        let sym = syms.get(&key).expect("MyDel should be in symbols");
+        assert!(
+            sym.signature.contains("@objc interface MyDel"),
+            "signature: {}",
+            sym.signature
+        );
+        // The method list should be included in the hover detail.
+        assert!(sym.signature.contains("notifyMe(name: i64)"), "{}", sym.signature);
+        assert!(sym.signature.contains("@optional cleanup()"), "{}", sym.signature);
+    }
+
+    #[test]
     pub(crate) fn init_renders_complex_field_types() {
         let src = "\
 class Bag {

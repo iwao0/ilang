@@ -564,17 +564,29 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
             ..CompletionItem::default()
         });
     }
+    let is_type_sig = |sig: &str| -> bool {
+        sig.starts_with("class ")
+            || sig.starts_with("struct ")
+            || sig.starts_with("union ")
+            || sig.starts_with("enum ")
+            || sig.starts_with("interface ")
+            || sig.starts_with("@objc interface ")
+    };
+    let is_interface_sig = |sig: &str| -> bool {
+        sig.starts_with("interface ") || sig.starts_with("@objc interface ")
+    };
     for (name, sym) in doc.symbols.iter() {
-        let is_type = sym.signature.starts_with("class ")
-            || sym.signature.starts_with("struct ")
-            || sym.signature.starts_with("union ")
-            || sym.signature.starts_with("enum ");
-        if !is_type {
+        if !is_type_sig(&sym.signature) {
             continue;
         }
+        let kind = if is_interface_sig(&sym.signature) {
+            CompletionItemKind::INTERFACE
+        } else {
+            CompletionItemKind::CLASS
+        };
         out.push(CompletionItem {
             label: name.as_str().to_string(),
-            kind: Some(CompletionItemKind::CLASS),
+            kind: Some(kind),
             detail: Some(sym.signature.clone()),
             ..CompletionItem::default()
         });
@@ -582,16 +594,17 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
     // Imported types brought in via `use module` show as
     // `module.TypeName`.
     for (name, sig) in doc.external_signatures.iter() {
-        let is_type = sig.starts_with("class ")
-            || sig.starts_with("struct ")
-            || sig.starts_with("union ")
-            || sig.starts_with("enum ");
-        if !is_type {
+        if !is_type_sig(sig) {
             continue;
         }
+        let kind = if is_interface_sig(sig) {
+            CompletionItemKind::INTERFACE
+        } else {
+            CompletionItemKind::CLASS
+        };
         out.push(CompletionItem {
             label: name.as_str().to_string(),
-            kind: Some(CompletionItemKind::CLASS),
+            kind: Some(kind),
             detail: Some(sig.clone()),
             ..CompletionItem::default()
         });
