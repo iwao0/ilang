@@ -1410,6 +1410,19 @@ impl<'a> Walker<'a> {
 /// SKNode"). The `__` prefix combined with the span-equality
 /// check keeps the screen for any user code that happens to use
 /// double-underscore names with real spans of its own.
+///
+/// Also catches the auto-lift's synthesized `alloc` / `init` /
+/// `register` trio (no `__` prefix but always sit at the class
+/// declaration's span). Without this they'd register their decls
+/// at the class name's coordinates and hovering on
+/// `class InputScene : SKScene` would surface
+/// `(static method) InputScene.register()` instead of the class
+/// itself. User-written `alloc` / `init` / `register` keep their
+/// real source spans, so they sail through unchanged.
 fn is_parser_synth_helper(m: &FnDecl, class_span: Span) -> bool {
-    m.name.as_str().starts_with("__") && m.span == class_span
+    if m.span != class_span {
+        return false;
+    }
+    let n = m.name.as_str();
+    n.starts_with("__") || matches!(n, "alloc" | "init" | "register")
 }
