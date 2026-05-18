@@ -982,6 +982,13 @@ fn build_objc_class(
     };
     let mut static_methods: Vec<FnDecl> = vec![wrap_fn, wrap_unowned_fn];
     let mut aliases: Vec<ilang_ast::ExternCItem> = Vec::new();
+    // Track which `<tag>_msg_<class>_<name>` alias declarations
+    // we've already emitted in this class. Methods sharing an ObjC
+    // selector (typed-vs-NSObject `setDelegate:` overloads, etc.)
+    // would otherwise generate duplicate extern decls with the
+    // same signature, which the ilang type checker flags as an
+    // ambiguous overload.
+    let mut emitted_alias_names: HashSet<Symbol> = HashSet::new();
     // Collect bodied methods so the `register()` builder can emit
     // a `class_addMethod` call per IMP. Stored as
     // (method_name, selector, type_encoding, imp_symbol).
@@ -1054,7 +1061,9 @@ fn build_objc_class(
             ).into(),
         };
         let (alias_decl, method_fn) = build_class_method(class_name, m, alias_name, ctx);
-        aliases.push(alias_decl);
+        if emitted_alias_names.insert(alias_name) {
+            aliases.push(alias_decl);
+        }
         // `pub get / pub set` inside an @objc class: install the
         // synthesised dispatch FnDecl as the property's accessor
         // instead of a regular method. The existing

@@ -147,11 +147,30 @@ pub fn lower_program_with_slots(
             if !lower.class_ids.contains_key(&i.name) {
                 let id = crate::types::ClassId(lower.classes.len() as u32);
                 lower.class_ids.insert(i.name, id);
+                // `@objc interface` shells need a synthetic
+                // `handle: i64` field at index 0 — every @objc
+                // class that implements one carries the slot at
+                // HEADER+0, so dispatch wrappers that load
+                // `arg.handle as *id` from an interface-typed
+                // param can use the normal field-load path. Plain
+                // ilang interfaces leave the fields empty since
+                // their values are arbitrary ilang class
+                // instances with their own layouts.
+                let fields: Vec<crate::program::FieldDecl> = if i.is_objc {
+                    vec![crate::program::FieldDecl {
+                        id: crate::inst::FieldId(0),
+                        name: Symbol::intern("handle"),
+                        ty: MirTy::I64,
+                        bit_field: None,
+                    }]
+                } else {
+                    Vec::new()
+                };
                 lower.classes.push(crate::program::ClassLayout {
                     id,
                     name: i.name,
                     parent: None,
-                    fields: Vec::new(),
+                    fields,
                     methods: Vec::new(),
                     statics: Vec::new(),
                     drop_fn: FuncId(u32::MAX),
@@ -161,7 +180,13 @@ pub fn lower_program_with_slots(
                     c_size: 0,
                     flex_elem_size: 0,
                 });
-                lower.class_meta.insert(id, ClassMeta::default());
+                let mut meta = ClassMeta::default();
+                if i.is_objc {
+                    meta.field_ix
+                        .insert(Symbol::intern("handle"), crate::inst::FieldId(0));
+                    meta.field_ty.insert(crate::inst::FieldId(0), MirTy::I64);
+                }
+                lower.class_meta.insert(id, meta);
                 lower.interface_ids.insert(i.name, id);
             }
             // Allocate one global slot per interface-method-name —

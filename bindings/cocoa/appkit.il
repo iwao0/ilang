@@ -206,10 +206,14 @@ pub enum EventModifierFlags: u64 {
         pub run()
         @objc("terminate:")
         pub terminate(sender: NSObject)
-        // NSApplicationDelegate is the protocol an implementing
-        // class should declare via `class MyApp : NSApplicationDelegate {…}`.
-        // setDelegate takes NSObject for permissiveness — the
-        // type-safety affordance is on the implementer side.
+        // Two overloads of `setDelegate:` dispatch the same ObjC
+        // selector: the typed `NSApplicationDelegate` form for the
+        // casual case (compile-time conformance check), and the
+        // permissive `NSObject` form for `setDelegate(nil)` /
+        // framework-provided delegate objects already bound as
+        // bare NSObject.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSApplicationDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
         @objc("setMainMenu:")
@@ -259,9 +263,11 @@ pub enum EventModifierFlags: u64 {
         pub makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")
         pub get contentView(): NSView
-        // NSWindowDelegate protocol — declare conformance on the
-        // implementing class side (`class MyWin : NSWindowDelegate`)
-        // and pass the instance here as an NSObject.
+        // setDelegate overloads — typed `NSWindowDelegate` for
+        // the conformance-checked casual case, NSObject for nil
+        // clearing / framework-bound objects.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSWindowDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
     }
@@ -317,10 +323,14 @@ pub enum EventModifierFlags: u64 {
         @objc("setSelectable:")
         pub setSelectable(flag: bool)
 
-        // NSTextFieldDelegate / NSControlTextEditingDelegate
-        // protocols cover the edit callbacks; declare conformance
-        // on the implementing class and pass the instance through
-        // here as an NSObject.
+        // setDelegate overloads. NSTextField accepts either the
+        // text-field-specific protocol or the more general
+        // NSControlTextEditingDelegate; bind both typed forms plus
+        // an NSObject fallback. Same ObjC selector under the hood.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSTextFieldDelegate)
+        @objc("setDelegate:")
+        pub setDelegate(d: NSControlTextEditingDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
     }
@@ -499,8 +509,10 @@ pub enum EventModifierFlags: u64 {
         @objc("itemArray")
         pub get itemArray(): NSArray
 
-        // NSMenuDelegate protocol — pass an instance of an
-        // implementing class through as NSObject.
+        // setDelegate overloads — typed `NSMenuDelegate` plus
+        // NSObject fallback. Same ObjC selector.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSMenuDelegate)
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
     }
