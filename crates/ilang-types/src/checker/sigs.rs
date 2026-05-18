@@ -509,25 +509,58 @@ pub(super) fn class_signature(
             methods.insert(m.name.clone(), vec![sig]);
             continue;
         }
-        // Not inherited. With a parent, single-sig only.
+        // Not inherited. With a parent, allow overloading among
+        // child-declared overloads (the parent has no conflicting
+        // signature by construction — `inherited` was false above).
+        // The same dup / generic / generic-class checks Pass 2
+        // applies to root classes run here, just without the
+        // parent-aware vtable slot bookkeeping; slot allocation
+        // mirrors Pass 2 (first sig gets a slot, subsequent
+        // overloads share it — they can't be overridden anyway).
         if has_parent {
-            if methods.contains_key(&m.name) {
-                return Err(TypeError::Unsupported {
-                    what: format!(
-                        "method {:?} in class {:?} cannot be overloaded \
-                         (overloading is not supported in inheritance hierarchies)",
-                        m.name, c.name
-                    ),
-                    span: m.span,
-                });
-            }
             let mut sig = signature_of(m);
             for p in sig.params.iter_mut() {
                 *p = rewrite_type_params(p, &c.type_params);
             }
             sig.ret = rewrite_type_params(&sig.ret, &c.type_params);
-            methods.insert(m.name.clone(), vec![sig]);
-            if m.name != "init" && m.name != "deinit" {
+            let entry = methods.entry(m.name.clone()).or_default();
+            if entry.iter().any(|s| s.params == sig.params) {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "method {:?} in class {:?} has a duplicate overload \
+                         (same parameter types as a previous declaration)",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            let any_generic = !sig.type_params.is_empty()
+                || entry.iter().any(|s| !s.type_params.is_empty());
+            if any_generic && !entry.is_empty() {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "method {:?} in class {:?} mixes a generic declaration with another \
+                         overload — generic methods cannot share a name with other methods",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            if !c.type_params.is_empty() && !entry.is_empty() {
+                return Err(TypeError::Unsupported {
+                    what: format!(
+                        "method {:?} in generic class {:?} cannot be overloaded \
+                         (generic classes do not support method overloading)",
+                        m.name, c.name
+                    ),
+                    span: m.span,
+                });
+            }
+            entry.push(sig);
+            if m.name != "init"
+                && m.name != "deinit"
+                && !method_slots.contains_key(&m.name)
+            {
                 method_slots.insert(m.name.clone(), vtable_len);
                 vtable_len += 1;
             }
