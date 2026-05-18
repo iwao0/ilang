@@ -363,30 +363,26 @@ impl LanguageServer for Backend {
             }
             // Inside a class body: surface every unimplemented
             // interface method the class is supposed to provide
-            // as a one-tap snippet candidate. Triggered by the
-            // bare-ident path (no `.` before cursor) so typing
-            // the start of the method name filters the list.
+            // as a one-tap snippet candidate. The text-based
+            // discovery path (no AST parse needed) keeps working
+            // while the user is mid-typing and the buffer
+            // doesn't parse cleanly.
             if !at_top_level {
-                let toks = tokenize(&doc.text);
-                if let Ok(tokens) = toks {
-                    if let Ok(prog) = parse(&tokens) {
-                        let stubs = interface_method_stub_completions_at(
-                            &doc.text,
-                            &prog,
-                            &doc.external_interfaces,
-                            pos,
-                        );
-                        for (label, detail, snippet) in stubs {
-                            items.push(CompletionItem {
-                                label,
-                                kind: Some(CompletionItemKind::METHOD),
-                                detail,
-                                insert_text: Some(snippet),
-                                insert_text_format: Some(InsertTextFormat::SNIPPET),
-                                ..CompletionItem::default()
-                            });
-                        }
-                    }
+                let stubs = interface_method_stub_completions_textual(
+                    &doc.text,
+                    off,
+                    &doc.local_interfaces,
+                    &doc.external_interfaces,
+                );
+                for (label, detail, snippet) in stubs {
+                    items.push(CompletionItem {
+                        label,
+                        kind: Some(CompletionItemKind::METHOD),
+                        detail,
+                        insert_text: Some(snippet),
+                        insert_text_format: Some(InsertTextFormat::SNIPPET),
+                        ..CompletionItem::default()
+                    });
                 }
             }
             // Inside a method body: surface the enclosing class's

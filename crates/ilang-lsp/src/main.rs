@@ -27,8 +27,10 @@ use walker::*;
 
 use code_actions::{
     fill_match_arms_at, generate_init_at, implement_interface_methods_at,
-    interface_method_stub_completions_at,
+    interface_method_stub_completions_textual,
 };
+#[cfg(test)]
+use code_actions::interface_method_stub_completions_at;
 use completion::{
     at_attribute_position, at_type_position, attribute_completions, brace_depth_at, call_snippet,
     enclosing_class, enclosing_use_module, global_completions, in_extern_c_block,
@@ -557,6 +559,52 @@ class C : Greeter {
         let (_, _, hello_snippet) = stubs.iter().find(|(l, _, _)| l == "hello").unwrap();
         assert!(hello_snippet.contains("pub hello(name: i64): bool"), "{}", hello_snippet);
         assert!(hello_snippet.contains("false"), "{}", hello_snippet);
+    }
+
+    #[test]
+    pub(crate) fn interface_method_completion_textual_works_mid_edit() {
+        // The user is mid-typing inside a class body whose buffer
+        // doesn't yet parse cleanly. The text-based completion
+        // path should still surface the missing-method stubs.
+        let src = "\
+interface Greeter {
+    hello(name: i64): bool
+    @optional bye()
+}
+class C : Greeter {
+    pub init() {}
+    he
+}
+";
+        let ext_src = "\
+interface Greeter {
+    hello(name: i64): bool
+    @optional bye()
+}
+";
+        // Build local_interfaces map from a parse of the interface
+        // declaration (the LSP would normally have this populated
+        // from the last successful parse of the same buffer).
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut locals: std::collections::HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+            std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::Interface(i) = it {
+                locals.insert(i.name, i.clone());
+            }
+        }
+        let empty: std::collections::HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+            std::collections::HashMap::new();
+        // Cursor at line 6 col 6, right after `he` partial ident.
+        let off =
+            crate::text::line_col_to_offset(src, 7, 7).expect("offset");
+        let stubs =
+            interface_method_stub_completions_textual(src, off, &locals, &empty);
+        assert_eq!(stubs.len(), 2, "stubs: {:?}", stubs);
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(labels.contains(&"hello"));
+        assert!(labels.contains(&"bye"));
     }
 
     #[test]

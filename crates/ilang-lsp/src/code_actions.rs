@@ -650,6 +650,7 @@ fn default_value_for(ret: &Type) -> Option<&'static str> {
 /// // TODO ; <default> }` snippet that mirrors what
 /// `implement_interface_methods_at` would emit for that one
 /// method.
+#[allow(dead_code)]
 pub(crate) fn interface_method_stub_completions_at(
     text: &str,
     prog: &Program,
@@ -756,6 +757,273 @@ pub(crate) fn interface_method_stub_completions_at(
                 if m.is_optional { "" } else { " — implement" }
             ));
             out.push((name.to_string(), detail, snippet));
+        }
+    }
+    out
+}
+
+/// Text-based variant of `interface_method_stub_completions_at`.
+/// Doesn't need a parsed Program — scans the buffer to find the
+/// enclosing `class NAME : A, B, … {` header, extracts the base
+/// names, looks each up in the supplied local + external
+/// interface maps, and emits one snippet per unimplemented method.
+/// Lets the bare-ident completion path keep firing while the
+/// buffer is mid-edit (and therefore probably doesn't parse).
+pub(crate) fn interface_method_stub_completions_textual(
+    text: &str,
+    cursor_byte: usize,
+    local_interfaces: &HashMap<AstSymbol, InterfaceDecl>,
+    external_interfaces: &HashMap<AstSymbol, InterfaceDecl>,
+) -> Vec<(String, Option<String>, String)> {
+    let mut out = Vec::new();
+    let Some((bases, body_start, body_end)) =
+        enclosing_class_header(text, cursor_byte)
+    else {
+        return out;
+    };
+
+    // Collect interface decls referenced in the base list.
+    let mut iface_decls: Vec<&InterfaceDecl> = Vec::new();
+    for b in &bases {
+        let sym = AstSymbol::intern(b);
+        if let Some(d) = local_interfaces.get(&sym) {
+            iface_decls.push(d);
+        } else if let Some(d) = external_interfaces.get(&sym) {
+            iface_decls.push(d);
+        }
+    }
+    if iface_decls.is_empty() {
+        return out;
+    }
+
+    // Existing methods in the class body, harvested by text scan
+    // (regex-ish: lines containing `pub <name>(` / `<name>(` at
+    // the start, ignoring whitespace).
+    let existing = scan_class_method_names(&text[body_start..body_end]);
+
+    let mut seen: HashSet<&str> = HashSet::new();
+    for iface in iface_decls {
+        for m in iface.methods.iter() {
+            let name = m.name.as_str();
+            if existing.contains(name) {
+                continue;
+            }
+            if !seen.insert(name) {
+                continue;
+            }
+            let params: Vec<String> = m
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
+                .collect();
+            let mut snippet = String::new();
+            snippet.push_str("pub ");
+            snippet.push_str(name);
+            snippet.push('(');
+            snippet.push_str(&params.join(", "));
+            snippet.push(')');
+            if let Some(ret) = &m.ret {
+                snippet.push_str(": ");
+                snippet.push_str(&format!("{ret}"));
+            }
+            snippet.push_str(" {\n    $0");
+            if let Some(ret) = &m.ret {
+                if let Some(default) = default_value_for(ret) {
+                    snippet.push('\n');
+                    snippet.push_str("    ");
+                    snippet.push_str(default);
+                }
+            }
+            snippet.push_str("\n}");
+            let detail = Some(format!(
+                "{} {}",
+                if m.is_optional { "@optional" } else { "required" },
+                iface.name.as_str(),
+            ));
+            out.push((name.to_string(), detail, snippet));
+        }
+    }
+    out
+}
+
+/// Walk back from `cursor` in `text` to find the innermost
+/// `class NAME : A, B { … }` whose body brackets the cursor.
+/// Returns the comma-separated base list, the body's open-brace
+/// byte, and its close-brace byte. The close brace may not yet
+/// exist in the buffer (the user is mid-typing) — in that case
+/// we treat EOF as the closing brace.
+fn enclosing_class_header(
+    text: &str,
+    cursor: usize,
+) -> Option<(Vec<String>, usize, usize)> {
+    let bytes = text.as_bytes();
+    let end = cursor.min(bytes.len());
+
+    // Find the `{` that opens the enclosing block by tracking
+    // brace depth backward from `cursor`. The first `{` we
+    // un-balance (i.e. extra opens over closes) is the enclosing
+    // one.
+    let mut depth: i32 = 0;
+    let mut open: Option<usize> = None;
+    let mut i = end;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'}' => depth += 1,
+            b'{' => {
+                if depth == 0 {
+                    open = Some(i);
+                    break;
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    let open = open?;
+
+    // Walk forward from `open` to find the matching `}` (or use
+    // EOF if absent). Tolerant of unbalanced braces inside the
+    // body (user mid-typing) by capping at the next outermost
+    // close.
+    let mut depth = 0i32;
+    let mut close = bytes.len();
+    let mut j = open;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = j;
+                    break;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    if cursor > close {
+        return None;
+    }
+
+    // Walk back from `open` to find the `class NAME : …` header.
+    // Skip whitespace, then expect either a bare ident (the
+    // class name, with no base list) or `BASE_LIST class NAME`.
+    let mut k = open;
+    while k > 0 && matches!(bytes[k - 1], b' ' | b'\t' | b'\n') {
+        k -= 1;
+    }
+    // Collect bases until we hit `class NAME :` or some other
+    // sentinel. The bytes between `class NAME : ` and the brace
+    // are the comma-separated base names.
+    let header_end = k;
+    let mut header_start = k;
+    let mut found_class_kw = false;
+    while header_start > 0 {
+        let b = bytes[header_start - 1];
+        if b == b'\n' {
+            // Step over the newline; the class header may span
+            // multiple lines.
+            header_start -= 1;
+            continue;
+        }
+        header_start -= 1;
+        // Bail when we hit any other top-level closing brace —
+        // that means we're back in a sibling block, not a class
+        // declaration.
+        if b == b'}' || b == b';' {
+            break;
+        }
+        if b == b'{' {
+            return None;
+        }
+        // Detect the `class` keyword by looking for a 5-char
+        // window matching "class" preceded by whitespace.
+        if header_start + 5 <= bytes.len()
+            && &bytes[header_start..header_start + 5] == b"class"
+            && (header_start == 0
+                || matches!(
+                    bytes[header_start - 1],
+                    b' ' | b'\t' | b'\n' | b'{' | b'}' | b';'
+                ))
+        {
+            found_class_kw = true;
+            break;
+        }
+    }
+    if !found_class_kw {
+        return None;
+    }
+
+    let header_text = std::str::from_utf8(&bytes[header_start..header_end]).ok()?;
+    // Header looks like `class NAME : A, B, C` (or
+    // `class NAME` with no base list).
+    let after_class = header_text.strip_prefix("class")?.trim_start();
+    let (_, after_name) = after_class.split_once(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or((after_class, ""));
+    let after_colon = after_name.trim_start().strip_prefix(':').unwrap_or("");
+    let bases: Vec<String> = after_colon
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    Some((bases, open, close))
+}
+
+/// Harvest already-implemented method names from a class body
+/// chunk of text. Looks for `pub NAME(` / `NAME(` / `static NAME(`
+/// at indent boundaries. Best-effort — false positives (e.g. a
+/// call to a function inside a method body) just hide a
+/// completion candidate that wouldn't really be missing anyway.
+fn scan_class_method_names(body: &str) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    let bytes = body.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Find start of a line (skip leading whitespace).
+        while i < bytes.len() && matches!(bytes[i], b' ' | b'\t') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        // Skip `pub` / `static` keywords.
+        let mut j = i;
+        loop {
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_')
+            {
+                j += 1;
+            }
+            let kw = &bytes[i..j];
+            if kw == b"pub" || kw == b"static" || kw == b"async" || kw == b"override" {
+                while j < bytes.len() && matches!(bytes[j], b' ' | b'\t') {
+                    j += 1;
+                }
+                i = j;
+                continue;
+            }
+            break;
+        }
+        // Now bytes[i..j] should be the ident; check for `(` next.
+        if j > i {
+            let mut k = j;
+            while k < bytes.len() && matches!(bytes[k], b' ' | b'\t') {
+                k += 1;
+            }
+            if k < bytes.len() && bytes[k] == b'(' {
+                if let Ok(name) = std::str::from_utf8(&bytes[i..j]) {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+        // Advance past current line.
+        while i < bytes.len() && bytes[i] != b'\n' {
+            i += 1;
+        }
+        if i < bytes.len() {
+            i += 1;
         }
     }
     out

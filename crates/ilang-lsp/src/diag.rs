@@ -326,6 +326,25 @@ pub(crate) fn build_doc(
         }
     }
     refs.sort_by_key(|r| (r.line, r.start_col));
+    // Local-buffer interface declarations (top-level + @objc
+    // interfaces inside `@extern(ObjC)` blocks). Keyed by bare
+    // name so the partial-parse completion path can resolve a
+    // reference like `class C : MyDel { … }` without re-parsing.
+    let mut local_interfaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+        HashMap::new();
+    for item in &prog.items {
+        match item {
+            ilang_ast::Item::Interface(i) => {
+                local_interfaces.insert(i.name, i.clone());
+            }
+            ilang_ast::Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    local_interfaces.insert(iface.name, iface.clone());
+                }
+            }
+            _ => {}
+        }
+    }
     Doc {
         text,
         symbols,
@@ -338,5 +357,6 @@ pub(crate) fn build_doc(
         external_returns: external_returns.clone(),
         external_sources: external_sources.clone(),
         external_interfaces: external_interfaces.clone(),
+        local_interfaces,
     }
 }

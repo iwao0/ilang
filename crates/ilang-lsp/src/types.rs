@@ -155,5 +155,14 @@ pub(crate) struct Doc {
     #[allow(dead_code)]
     pub(crate) external_interfaces:
         HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    /// Interface declarations from the local buffer's last
+    /// successful parse, keyed by bare name. Kept here so the
+    /// completion / code-action paths can resolve interface
+    /// methods even while the user is mid-edit and the buffer's
+    /// current text doesn't parse (the previous `Doc` payload
+    /// stays put until a clean parse arrives).
+    #[allow(dead_code)]
+    pub(crate) local_interfaces:
+        HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
 }
 
