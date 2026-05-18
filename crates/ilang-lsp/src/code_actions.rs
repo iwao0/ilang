@@ -13,8 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, Item, PatternKind, Program, Span, StmtKind,
-    Symbol as AstSymbol, Type, VariantPayload,
+    Block, ClassDecl, Expr, ExprKind, InterfaceDecl, InterfaceMethod, Item, PatternKind, Program,
+    Span, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
 };
 use tower_lsp::lsp_types::Position;
 
@@ -450,6 +450,188 @@ fn scrutinee_enum_name(
     };
     match ty? {
         Type::Enum(name) | Type::Object(name) => Some(name),
+        _ => None,
+    }
+}
+
+/// `implement_interface_methods_at`: cursor inside a `class` body
+/// whose base list includes one or more `interface` declarations
+/// — emit one stub method per *missing* interface method (both
+/// required and `@optional`, with the `@optional` ones marked in
+/// a leading comment so the user knows they can delete the body
+/// if they don't actually want to override).
+///
+/// Returns `(insert_byte, source, missing_count)` or `None` when
+/// there's nothing to do (no enclosing class, no interface bases,
+/// or every interface method already has an implementation).
+pub(crate) fn implement_interface_methods_at(
+    text: &str,
+    prog: &Program,
+    cursor: Position,
+) -> Option<(usize, String, usize)> {
+    let cursor_byte =
+        text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
+
+    // Find the innermost `class … { … }` containing the cursor.
+    let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
+    for it in &prog.items {
+        let Item::Class(c) = it else { continue };
+        let Some((open, close)) = match_brace_range(text, c.span) else {
+            continue;
+        };
+        if cursor_byte < open || cursor_byte > close {
+            continue;
+        }
+        let extent = close.saturating_sub(open);
+        match chosen {
+            None => chosen = Some((c, open, close)),
+            Some((_, o, cl)) => {
+                if extent < cl.saturating_sub(o) {
+                    chosen = Some((c, open, close));
+                }
+            }
+        }
+    }
+    let (cls, _open, close) = chosen?;
+
+    // Collect every interface name in the class's base list.
+    // The parser puts the FIRST base name into `cd.parent`
+    // regardless of whether it's a class or interface, so check
+    // both slots and filter against the known interface registry.
+    let mut iface_decls: Vec<&InterfaceDecl> = Vec::new();
+    let bases: Vec<AstSymbol> = cls
+        .parent
+        .iter()
+        .copied()
+        .chain(cls.interfaces.iter().copied())
+        .collect();
+    for b in bases {
+        if let Some(decl) = find_interface_decl(prog, b) {
+            iface_decls.push(decl);
+        }
+    }
+    if iface_decls.is_empty() {
+        return None;
+    }
+
+    // Collect the class's existing method names (instance +
+    // static) so we don't re-stub anything the user already
+    // wrote.
+    let mut existing: HashSet<&str> = HashSet::new();
+    for m in cls.methods.iter().chain(cls.static_methods.iter()) {
+        existing.insert(m.name.as_str());
+    }
+
+    let mut missing: Vec<&InterfaceMethod> = Vec::new();
+    let mut seen_method_names: HashSet<&str> = HashSet::new();
+    for iface in iface_decls.iter() {
+        for m in iface.methods.iter() {
+            let n = m.name.as_str();
+            if existing.contains(n) {
+                continue;
+            }
+            // Skip duplicates across interfaces — two protocols
+            // declaring `controlTextDidChange` shouldn't insert
+            // two copies. First-listed wins.
+            if !seen_method_names.insert(n) {
+                continue;
+            }
+            missing.push(m);
+        }
+    }
+    if missing.is_empty() {
+        return None;
+    }
+
+    // Indentation: copy the closing `}`'s line indent for the
+    // class (whitespace before the brace's column) and add four
+    // spaces for the method body.
+    let close_line_start = {
+        let bytes = text.as_bytes();
+        let mut i = close;
+        while i > 0 && bytes[i - 1] != b'\n' {
+            i -= 1;
+        }
+        i
+    };
+    let base_indent: String = text[close_line_start..close]
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
+    let body_indent = format!("{base_indent}    ");
+    let inner_indent = format!("{body_indent}    ");
+
+    let mut out = String::new();
+    for m in &missing {
+        if m.is_optional {
+            out.push_str(&body_indent);
+            out.push_str("// @optional — delete if not overriding\n");
+        }
+        out.push_str(&body_indent);
+        out.push_str("pub ");
+        out.push_str(m.name.as_str());
+        out.push('(');
+        let params: Vec<String> = m
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name.as_str(), p.ty))
+            .collect();
+        out.push_str(&params.join(", "));
+        out.push(')');
+        if let Some(ret) = &m.ret {
+            out.push_str(": ");
+            out.push_str(&format!("{ret}"));
+        }
+        out.push_str(" {\n");
+        out.push_str(&inner_indent);
+        out.push_str("// TODO\n");
+        if let Some(ret) = &m.ret {
+            if let Some(default_lit) = default_value_for(ret) {
+                out.push_str(&inner_indent);
+                out.push_str(default_lit);
+                out.push('\n');
+            }
+        }
+        out.push_str(&body_indent);
+        out.push_str("}\n");
+    }
+    let count = missing.len();
+    Some((close_line_start, out, count))
+}
+
+/// Find an `Item::Interface` or `block.interfaces[name]` with the
+/// given name. Used by `implement_interface_methods_at` to look up
+/// the method list a class implements.
+fn find_interface_decl(prog: &Program, name: AstSymbol) -> Option<&InterfaceDecl> {
+    for it in &prog.items {
+        match it {
+            Item::Interface(i) if i.name == name => return Some(i),
+            Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    if iface.name == name {
+                        return Some(iface);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Pick a sensible default value literal for a return-typed
+/// interface-method stub. Returns `None` for types where no
+/// default makes sense (object refs, arrays, optionals, etc.) —
+/// those leave the body without a tail expression, which the
+/// compiler then flags so the user fills it in.
+fn default_value_for(ret: &Type) -> Option<&'static str> {
+    match ret {
+        Type::Bool => Some("false"),
+        Type::I8 | Type::I16 | Type::I32 | Type::I64 => Some("0"),
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 => Some("0"),
+        Type::F32 | Type::F64 => Some("0.0"),
+        Type::Str => Some("\"\""),
+        Type::Unit => None,
         _ => None,
     }
 }

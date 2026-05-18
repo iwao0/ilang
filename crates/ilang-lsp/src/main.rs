@@ -25,7 +25,7 @@ use symbols::*;
 use types::*;
 use walker::*;
 
-use code_actions::{fill_match_arms_at, generate_init_at};
+use code_actions::{fill_match_arms_at, generate_init_at, implement_interface_methods_at};
 use completion::{
     at_attribute_position, at_type_position, attribute_completions, brace_depth_at, call_snippet,
     enclosing_class, enclosing_use_module, global_completions, in_extern_c_block,
@@ -385,6 +385,80 @@ fn f() {}
 ";
         // cursor is on the `fn` line — outside the class.
         assert!(run_init(src, pos(3, 0)).is_none());
+    }
+
+    pub(crate) fn run_iface(src: &str, cursor: Position) -> Option<String> {
+        let toks = ilang_lexer::tokenize(src).ok()?;
+        let prog = ilang_parser::parse(&toks).ok()?;
+        let (insert, new_text, _) =
+            implement_interface_methods_at(src, &prog, cursor)?;
+        let mut out = src.to_string();
+        out.insert_str(insert, &new_text);
+        Some(out)
+    }
+
+    #[test]
+    pub(crate) fn implement_stubs_inserted_for_missing_methods() {
+        let src = "\
+interface Greeter {
+    hello(name: i64)
+    @optional goodbye(name: i64): bool
+}
+class Eager : Greeter {
+    pub init() {}
+}
+";
+        // cursor inside the class body
+        let out = run_iface(src, pos(5, 4)).unwrap();
+        assert!(out.contains("pub hello(name: i64) {"), "out:\n{out}");
+        assert!(out.contains("pub goodbye(name: i64): bool {"), "out:\n{out}");
+        assert!(out.contains("@optional"), "out:\n{out}");
+        assert!(out.contains("false"), "out:\n{out}");
+    }
+
+    #[test]
+    pub(crate) fn implement_skips_existing_methods() {
+        let src = "\
+interface Greet {
+    hi(): string
+    bye(): string
+}
+class C : Greet {
+    pub init() {}
+    pub hi(): string { \"hi\" }
+}
+";
+        // cursor inside class body
+        let out = run_iface(src, pos(5, 4)).unwrap();
+        // `hi` already implemented — only `bye` should be added.
+        assert!(out.contains("pub bye(): string {"), "out:\n{out}");
+        // Should NOT add a second `pub hi`.
+        assert_eq!(out.matches("pub hi(").count(), 1, "out:\n{out}");
+    }
+
+    #[test]
+    pub(crate) fn implement_returns_none_when_all_methods_present() {
+        let src = "\
+interface I {
+    f()
+}
+class D : I {
+    pub init() {}
+    pub f() {}
+}
+";
+        assert!(run_iface(src, pos(4, 4)).is_none());
+    }
+
+    #[test]
+    pub(crate) fn implement_returns_none_outside_class() {
+        let src = "\
+interface I { f() }
+class D : I { pub init() {} pub f() {} }
+fn outside() {}
+";
+        // cursor on the outside fn
+        assert!(run_iface(src, pos(2, 0)).is_none());
     }
 
     #[test]

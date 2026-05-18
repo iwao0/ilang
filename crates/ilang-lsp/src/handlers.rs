@@ -1131,6 +1131,36 @@ impl LanguageServer for Backend {
                     command: None,
                 }));
             }
+            if let Some((insert_byte, new_text, missing_count)) =
+                implement_interface_methods_at(&text, &prog, p.range.start)
+            {
+                let pos = byte_to_position(&text, insert_byte);
+                let range = Range { start: pos, end: pos };
+                let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit { range, new_text }],
+                );
+                let title = if missing_count == 1 {
+                    "Implement missing interface method".to_string()
+                } else {
+                    format!("Implement {missing_count} missing interface methods")
+                };
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title,
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        document_changes: None,
+                        change_annotations: None,
+                    }),
+                    diagnostics: None,
+                    is_preferred: Some(true),
+                    disabled: None,
+                    data: None,
+                    command: None,
+                }));
+            }
         }
         if actions.is_empty() {
             Ok(None)
