@@ -9,8 +9,9 @@
 //   * NSLocale — language / region / formatting locale lookup
 //     used by NSDateFormatter / NSNumberFormatter and friends.
 
-use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSURL,
-           NSNotification, makeObjectBlock }
+use core { NSObject, NSString, NSArray, NSDictionary, NSData,
+           makeObjectBlock }
+use network { NSURL }
 
 // NSProcessInfoThermalState — system thermal pressure. `nominal`
 // means everything's fine; `serious` / `critical` are signals to
@@ -24,6 +25,21 @@ pub enum ProcessInfoThermalState: i64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSNotification` — the value Cocoa hands delegate callbacks
+    /// (`applicationDidFinishLaunching:`, `windowDidResize:`, etc.).
+    /// `name` identifies what happened, `object` is whatever
+    /// posted it (the NSApplication, NSWindow, etc.), `userInfo`
+    /// is an optional payload dictionary. Lives here alongside
+    /// the centre that dispatches them.
+    @objc pub class NSNotification : NSObject {
+        @objc("name")
+        pub get name(): NSString
+        @objc("object")
+        pub get notificationObject(): NSObject
+        @objc("userInfo")
+        pub get userInfo(): NSDictionary
+    }
+
     /// `NSNotificationCenter` — in-process pub/sub. The selector-
     /// based `addObserver:selector:name:object:` is the canonical
     /// form for delegate-style code; for block-based receivers use

@@ -5,15 +5,17 @@
 
 pub use core.*
 pub use collections.*
+pub use datetime.*
+pub use network.*
+pub use serial.*
+pub use system.*
+pub use io.*
 pub use timers.*
 pub use numbers.*
 pub use uuid_sort.*
-pub use network.*
 pub use concurrency.*
-pub use system.*
-pub use io.*
 pub use archive.*
 pub use xml.*
-pub use attributed.*
+pub use strings.*
 pub use predicate.*
 pub use formatters.*

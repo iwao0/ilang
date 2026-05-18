@@ -8,7 +8,8 @@
 // also has a `+detachNewThreadSelector:toTarget:withObject:` form
 // for selector-driven dispatch.
 
-use core { NSObject, NSString, NSDate, NSArray, makeBlock }
+use core { NSObject, NSString, NSArray, makeBlock }
+use datetime { NSDate }
 
 // NSQualityOfService — scheduler hint for both NSThread and
 // NSOperation / NSOperationQueue. Higher numbers ask the system

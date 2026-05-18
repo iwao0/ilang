@@ -8,7 +8,8 @@
 // outlier whose input is a pair of dates rather than a
 // pre-built components value.
 
-use core { NSObject, NSString, NSDate, NSDateComponents }
+use core { NSObject, NSString }
+use datetime { NSDate, NSDateComponents }
 
 // NSDateComponentsFormatterUnitsStyle — text style for the
 // emitted duration (e.g. `"1h 23m"` vs `"1 hour, 23 minutes"`).

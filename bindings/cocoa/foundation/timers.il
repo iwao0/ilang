@@ -4,7 +4,8 @@
 // etc.) lean on the block helpers and pull in NSDate / NSString
 // from siblings.
 
-use core { NSObject, NSDate, NSString, makeObjectBlock }
+use core { NSObject, NSString, makeObjectBlock }
+use datetime { NSDate }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// `NSTimer` — fires a callback after a fixed delay (one-shot)

@@ -47,6 +47,24 @@ pub enum DecimalNumberRoundingMode: u64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSNumber` — boxed numeric value. Read back as `i64Value`,
+    /// `f64Value`, or `boolValue` depending on what's inside.
+    @objc pub class NSNumber : NSObject {
+        @objc("numberWithLongLong:")
+        pub static fromI64(v: i64): NSNumber
+        @objc("numberWithDouble:")
+        pub static fromF64(v: f64): NSNumber
+        @objc("numberWithBool:")
+        pub static fromBool(v: bool): NSNumber
+
+        @objc("longLongValue")
+        pub get i64Value(): i64
+        @objc("doubleValue")
+        pub get f64Value(): f64
+        @objc("boolValue")
+        pub get boolValue(): bool
+    }
+
     /// `NSValue` — wraps a C struct value (geometry / range) into
     /// an NSObject so it can ride inside an NSArray or NSDictionary.
     /// The typed factories below cover the four most common cases;

@@ -6,8 +6,9 @@
 // fits the standard `(NSData *, NSURLResponse *, NSError *)`
 // shape.
 
-use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSDate, NSURL, NSError,
+use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSError,
            makeThreeObjectBlock, makeObjectBlock }
+use datetime { NSDate }
 
 // NSURLSessionTaskState — `state` value on every URLSessionTask.
 // `running` / `suspended` are the two states a task spends most
@@ -53,6 +54,22 @@ pub enum URLCredentialPersistence: u64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSURL` — URL value. Use `fromString` for `http://...`
+    /// style URLs, `fromFilePath` for filesystem paths. Lives in
+    /// the network module because most callers reach for it from
+    /// HTTP / URL-loading contexts, even though `fileURLWithPath:`
+    /// is just as legitimate.
+    @objc pub class NSURL : NSObject {
+        @objc("URLWithString:")
+        pub static fromString(s: NSString): NSURL
+        @objc("fileURLWithPath:")
+        pub static fromFilePath(s: NSString): NSURL
+        @objc("absoluteString")
+        pub get absoluteString(): NSString
+        @objc("path")
+        pub get path(): NSString
+    }
+
     /// `NSURLRequest` — immutable URL request. Build one with
     /// `requestWithURL:` for a GET, or the longer form with
     /// `requestWithURL:cachePolicy:timeoutInterval:` when you

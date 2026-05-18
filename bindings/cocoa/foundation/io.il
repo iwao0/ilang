@@ -7,7 +7,8 @@
 // `u8[]` (write side, copies the bytes in) or
 // `bytesFromBuffer` round-trips (read side).
 
-use core { NSObject, NSString, NSData, NSURL, NSError }
+use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSError }
+use network { NSURL }
 
 // NSStreamStatus — current state of an NSInputStream /
 // NSOutputStream. `notOpen` → `opening` → `open` → `reading` /
@@ -248,5 +249,53 @@ pub enum StreamStatus: u64 {
         pub removeObjectForKey(k: NSObject)
         @objc("removeAllObjects")
         pub removeAllObjects()
+    }
+
+    /// `NSFileManager` — filesystem operations. `defaultManager`
+    /// returns the process-wide shared instance. Methods that take
+    /// an `NSError **` out-parameter expose it as a raw `i64`
+    /// (`0` discards). Returned `NSArray`s of names are UTF-8
+    /// strings reachable via `ilstr(arr.objectAtIndex(i) as NSString)`.
+    @objc pub class NSFileManager : NSObject {
+        @objc("defaultManager")
+        pub static defaultManager(): NSFileManager
+
+        @objc("fileExistsAtPath:")
+        pub fileExistsAtPath(path: NSString): bool
+        @objc("contentsOfDirectoryAtPath:error:")
+        pub contentsOfDirectoryAtPath(path: NSString, error: i64): NSArray
+        @objc("createDirectoryAtPath:withIntermediateDirectories:attributes:error:")
+        pub createDirectoryAtPath(
+            path: NSString, intermediates: bool, attrs: NSObject, error: i64
+        ): bool
+        @objc("removeItemAtPath:error:")
+        pub removeItemAtPath(path: NSString, error: i64): bool
+        @objc("copyItemAtPath:toPath:error:")
+        pub copyItemAtPath(src: NSString, dst: NSString, error: i64): bool
+        @objc("moveItemAtPath:toPath:error:")
+        pub moveItemAtPath(src: NSString, dst: NSString, error: i64): bool
+        @objc("attributesOfItemAtPath:error:")
+        pub attributesOfItemAtPath(path: NSString, error: i64): NSDictionary
+        @objc("currentDirectoryPath")
+        pub get currentDirectoryPath(): NSString
+    }
+
+    /// `NSBundle` — read-only access to a code+resources bundle.
+    /// `mainBundle` is the running executable's bundle; useful for
+    /// finding resource files shipped alongside the binary.
+    @objc pub class NSBundle : NSObject {
+        @objc("mainBundle")
+        pub static mainBundle(): NSBundle
+
+        @objc("bundlePath")
+        pub get bundlePath(): NSString
+        @objc("resourcePath")
+        pub get resourcePath(): NSString
+        @objc("bundleIdentifier")
+        pub get bundleIdentifier(): NSString
+        @objc("infoDictionary")
+        pub get infoDictionary(): NSDictionary
+        @objc("pathForResource:ofType:")
+        pub pathForResource(name: NSString, ofType: NSString): NSString
     }
 }

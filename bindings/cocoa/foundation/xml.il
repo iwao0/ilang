@@ -7,7 +7,8 @@
 // protocol; implement that interface and set it as the parser's
 // delegate before calling `parse()`.
 
-use core { NSObject, NSString, NSData, NSURL, NSError, NSDictionary, NSArray }
+use core { NSObject, NSString, NSData, NSError, NSDictionary, NSArray }
+use network { NSURL }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// `NSXMLParser` — event-based XML reader. Construct against
