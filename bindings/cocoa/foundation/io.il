@@ -468,6 +468,49 @@ pub enum StreamStatus: u64 {
         relinquishPresentedItemToWriter(writer: i64)
     }
 
+    /// `NSFileVersion` — a single saved revision of a document.
+    /// The system retains them automatically when the user enables
+    /// "auto-save" (the macOS document model); apps reach them via
+    /// `+otherVersionsOfItemAtURL:` for older snapshots or
+    /// `+currentVersionOfItemAtURL:` for the canonical current
+    /// one. `replaceItemAtURL:options:error:` rolls back to a
+    /// stored version; `removeAndReturnError:` discards one.
+    @objc pub class NSFileVersion : NSObject {
+        @objc("currentVersionOfItemAtURL:")
+        pub static currentVersionOfItemAtURL(url: NSURL): NSFileVersion
+        @objc("otherVersionsOfItemAtURL:")
+        pub static otherVersionsOfItemAtURL(url: NSURL): NSArray
+        @objc("unresolvedConflictVersionsOfItemAtURL:")
+        pub static unresolvedConflictVersionsOfItemAtURL(url: NSURL): NSArray
+
+        @objc("URL")
+        pub get url(): NSURL
+        @objc("localizedName")
+        pub get localizedName(): NSString
+        @objc("localizedNameOfSavingComputer")
+        pub get localizedNameOfSavingComputer(): NSString
+        @objc("modificationDate")
+        pub get modificationDate(): NSObject
+        @objc("persistentIdentifier")
+        pub get persistentIdentifier(): NSObject
+
+        @objc("isConflict")
+        pub get isConflict(): bool
+        @objc("isResolved")
+        pub get isResolved(): bool
+        @objc("setResolved:")
+        pub set isResolved(v: bool)
+        @objc("isDiscardable")
+        pub get isDiscardable(): bool
+        @objc("setDiscardable:")
+        pub set isDiscardable(v: bool)
+
+        @objc("replaceItemAtURL:options:error:")
+        pub replaceItemAtURL(url: NSURL, options: u64, error: i64): NSURL
+        @objc("removeAndReturnError:")
+        pub removeAndReturnError(error: i64): bool
+    }
+
     /// `NSDistributedLock` — file-backed cross-process lock. Pass
     /// a path two cooperating processes both know; `tryLock`
     /// creates the file atomically (fails fast if another holder

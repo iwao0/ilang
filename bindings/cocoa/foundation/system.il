@@ -294,6 +294,125 @@ pub enum ProcessInfoThermalState: i64 {
         pub displayNameForKey(key: NSString, value: NSString): NSString
     }
 
+    /// `NSUndoManager` — undo / redo stack. NSDocument owns one
+    /// per document; standalone uses construct their own. Drive
+    /// it by calling `registerUndoWithTarget:selector:object:`
+    /// (or the block-based
+    /// `registerUndoWithTarget:handler:` for ilang-friendly
+    /// closure registration) inside each mutating operation;
+    /// `undo` / `redo` then pop the matching stack.
+    @objc pub class NSUndoManager : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSUndoManager
+        @objc("init")
+        pub init(): NSUndoManager
+
+        @objc("beginUndoGrouping")
+        pub beginUndoGrouping()
+        @objc("endUndoGrouping")
+        pub endUndoGrouping()
+        @objc("groupingLevel")
+        pub get groupingLevel(): i64
+        @objc("groupsByEvent")
+        pub get groupsByEvent(): bool
+        @objc("setGroupsByEvent:")
+        pub set groupsByEvent(v: bool)
+        @objc("levelsOfUndo")
+        pub get levelsOfUndo(): u64
+        @objc("setLevelsOfUndo:")
+        pub set levelsOfUndo(n: u64)
+
+        @objc("registerUndoWithTarget:selector:object:")
+        pub registerUndoWithTarget(
+            target: NSObject, selector: i64, object: NSObject
+        )
+        @objc("registerUndoWithTarget:handler:")
+        pub registerUndoWithTargetAndHandler(target: NSObject, handler: i64)
+
+        @objc("undo")
+        pub undo()
+        @objc("redo")
+        pub redo()
+        @objc("canUndo")
+        pub get canUndo(): bool
+        @objc("canRedo")
+        pub get canRedo(): bool
+        @objc("undoActionName")
+        pub get undoActionName(): NSString
+        @objc("redoActionName")
+        pub get redoActionName(): NSString
+        @objc("setActionName:")
+        pub setActionName(name: NSString)
+        @objc("removeAllActions")
+        pub removeAllActions()
+        @objc("removeAllActionsWithTarget:")
+        pub removeAllActionsWithTarget(target: NSObject)
+        @objc("isUndoing")
+        pub get isUndoing(): bool
+        @objc("isRedoing")
+        pub get isRedoing(): bool
+        @objc("isUndoRegistrationEnabled")
+        pub get isUndoRegistrationEnabled(): bool
+        @objc("disableUndoRegistration")
+        pub disableUndoRegistration()
+        @objc("enableUndoRegistration")
+        pub enableUndoRegistration()
+    }
+
+    /// `NSUbiquitousKeyValueStore` — iCloud-backed key/value
+    /// store. Same `objectForKey:` / `setObject:forKey:` surface
+    /// as NSUserDefaults but synced through iCloud. Call
+    /// `synchronize()` after a batch of writes to push them
+    /// upstream sooner than the default coalescing interval. The
+    /// `default()` instance is the only one — there's no
+    /// per-suite variant.
+    @objc pub class NSUbiquitousKeyValueStore : NSObject {
+        @objc("defaultStore")
+        pub static default(): NSUbiquitousKeyValueStore
+
+        @objc("objectForKey:")
+        pub objectForKey(k: NSString): NSObject
+        @objc("setObject:forKey:")
+        pub setObject(o: NSObject, forKey: NSString)
+        @objc("removeObjectForKey:")
+        pub removeObjectForKey(k: NSString)
+
+        @objc("stringForKey:")
+        pub stringForKey(k: NSString): NSString
+        @objc("setString:forKey:")
+        pub setString(v: NSString, forKey: NSString)
+        @objc("dataForKey:")
+        pub dataForKey(k: NSString): NSData
+        @objc("setData:forKey:")
+        pub setData(v: NSData, forKey: NSString)
+        @objc("arrayForKey:")
+        pub arrayForKey(k: NSString): NSArray
+        @objc("setArray:forKey:")
+        pub setArray(v: NSArray, forKey: NSString)
+        @objc("dictionaryForKey:")
+        pub dictionaryForKey(k: NSString): NSDictionary
+        @objc("setDictionary:forKey:")
+        pub setDictionary(v: NSDictionary, forKey: NSString)
+
+        @objc("longLongForKey:")
+        pub longLongForKey(k: NSString): i64
+        @objc("setLongLong:forKey:")
+        pub setLongLong(v: i64, forKey: NSString)
+        @objc("doubleForKey:")
+        pub doubleForKey(k: NSString): f64
+        @objc("setDouble:forKey:")
+        pub setDouble(v: f64, forKey: NSString)
+        @objc("boolForKey:")
+        pub boolForKey(k: NSString): bool
+        @objc("setBool:forKey:")
+        pub setBool(v: bool, forKey: NSString)
+
+        @objc("dictionaryRepresentation")
+        pub get dictionaryRepresentation(): NSDictionary
+        @objc("synchronize")
+        pub synchronize(): bool
+    }
+
     /// `NSTask` — launch and control a sub-process. The
     /// `executableURL` / `arguments` / `currentDirectoryURL`
     /// properties set up the spawn, `standardInput` /

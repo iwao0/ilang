@@ -414,6 +414,14 @@ pub enum DataBase64DecodingOptions: u64 {
         ): NSData
     }
 
+    /// `NSDispatchData` — Foundation wrapper around the
+    /// libdispatch `dispatch_data_t` value. Lets a discontiguous
+    /// `dispatch_data_t` (often the result of a chained
+    /// `dispatch_io_read` callback) flow through APIs that
+    /// expect `NSData`. Read-only; the bytes are owned by the
+    /// underlying dispatch object.
+    @objc pub class NSDispatchData : NSData {}
+
     /// `NSMutableData` — appendable variant of NSData. Useful for
     /// building binary buffers piecewise before handing them to a
     /// `writeToFile:` or a `dataTaskWithRequest:`-style API.
