@@ -133,7 +133,17 @@ pub fn lower_program_with_slots(
     const IFACE_SLOT_BASE: u32 = 1 << 20;
     let mut next_iface_slot: u32 = IFACE_SLOT_BASE;
     for item in &prog.items {
-        if let Item::Interface(i) = item {
+        // Top-level `Item::Interface` and `@objc interface`
+        // declarations nested in `@extern(ObjC)` blocks share the
+        // same MIR registration — both produce a class-id shell
+        // that resolves as a type, with one virtual-dispatch slot
+        // per declared method.
+        let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
+            Item::Interface(i) => vec![i],
+            Item::ExternC(b) => b.interfaces.iter().collect(),
+            _ => continue,
+        };
+        for i in iface_list {
             if !lower.class_ids.contains_key(&i.name) {
                 let id = crate::types::ClassId(lower.classes.len() as u32);
                 lower.class_ids.insert(i.name, id);

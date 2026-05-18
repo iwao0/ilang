@@ -206,11 +206,12 @@ pub enum EventModifierFlags: u64 {
         pub run()
         @objc("terminate:")
         pub terminate(sender: NSObject)
-        // NSApplicationDelegate is a protocol — any NSObject subclass
-        // that implements the relevant `applicationDidFinishLaunching:`
-        // / `applicationWillTerminate:` / etc. selectors can be the
-        // delegate. ObjC's runtime doesn't enforce protocols, so we
-        // just take an NSObject here.
+        // NSApplicationDelegate is the protocol an implementing
+        // class should declare via `class MyApp : NSApplicationDelegate {…}`.
+        // The setDelegate slot itself is typed as the most permissive
+        // form (NSObject) so a one-off `setDelegate(nil)` to clear
+        // it, or framework-provided delegate objects bound elsewhere
+        // as bare NSObject, still go through.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
         @objc("setMainMenu:")
@@ -260,8 +261,9 @@ pub enum EventModifierFlags: u64 {
         pub makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")
         pub get contentView(): NSView
-        // NSWindowDelegate protocol — same ducktype story as
-        // NSApplication.setDelegate.
+        // NSWindowDelegate protocol — declare conformance on the
+        // implementing class side (`class MyWin : NSWindowDelegate`)
+        // and pass the instance here as an NSObject.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
     }
@@ -316,6 +318,13 @@ pub enum EventModifierFlags: u64 {
         pub setDrawsBackground(flag: bool)
         @objc("setSelectable:")
         pub setSelectable(flag: bool)
+
+        // NSTextFieldDelegate / NSControlTextEditingDelegate
+        // protocols cover the edit callbacks; declare conformance
+        // on the implementing class and pass the instance through
+        // here as an NSObject.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
     }
 
     /// NSSlider — continuous horizontal slider by default. `min`,
@@ -491,6 +500,11 @@ pub enum EventModifierFlags: u64 {
         ): NSMenuItem
         @objc("itemArray")
         pub get itemArray(): NSArray
+
+        // NSMenuDelegate protocol — pass an instance of an
+        // implementing class through as NSObject.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
     }
 
     /// `NSAlert` — modal dialog with message text, an optional

@@ -2957,10 +2957,18 @@ fn finalize_objc_block(
         //      `appkit.il` correctly unwrap a `foundation.NSString`
         //      argument — without (2), the desugar would pass the
         //      ilang wrapper pointer to `objc_msgSend` and crash.
+        // An @objc interface, when used as a parameter type on an
+        // @objc method, needs the same `arg.handle as i64`
+        // marshalling as an @objc class: the value at the call site
+        // is an ilang wrapper instance (the implementing class),
+        // and objc_msgSend wants the raw `id`. Fold interface
+        // names into `class_names` so `is_objc_class_ty` matches
+        // them too.
         let class_names: HashSet<Symbol> = objc_classes
             .iter()
             .map(|c| c.name)
             .chain(external_objc_classes.iter().copied())
+            .chain(objc_interfaces.iter().map(|i| i.name))
             .collect();
 
         for c in objc_classes {
