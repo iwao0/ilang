@@ -2,16 +2,25 @@
 // small dots at the cursor; arrow keys move a player sprite.
 // Exercises:
 //
-//   * `@objc class MyScene : SKScene` with overridden
-//     `mouseDown:` / `keyDown:` / `update:` selectors. The parser
-//     desugar registers the IMPs with libobjc so SpriteKit's
-//     responder chain dispatches into ilang code.
+//   * `@objc class InputScene : SKScene` with overridden
+//     `mouseDown:` / `keyDown:` / `update:` selectors and a typed
+//     `sceneWithSize:` factory. The parser desugar registers the
+//     IMPs with libobjc so SpriteKit's responder chain dispatches
+//     into ilang code.
 //   * NSEvent unpacking: `locationInWindow()` (window coords) →
 //     `view.convertPointFromView` (view coords, passing
 //     `cocoa.nil` to mean "from window") → `scene.convertPointFromView`
 //     (scene coords).
 //   * Module-level `let` bindings (the player sprite + velocity)
 //     captured by the overridden methods.
+//
+// Why the explicit `@extern(ObjC) { @objc class … }` form here:
+// the typed `pub static sceneWithSize(s: NSSize): InputScene`
+// factory is a signature-only declaration (the body lives on
+// SKScene's ObjC side; we just want a typed handle back). Regular
+// `class { ... }` bodies require every method to have an ilang
+// body, so this example can't drop down to the auto-lift form
+// without giving up the typed-factory shape.
 //
 // Run (the cocoa bindings dep is wired through this directory's
 // `ilang.toml`):

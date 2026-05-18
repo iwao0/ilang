@@ -1,10 +1,12 @@
 // 🖱️ ilang × Cocoa — minimal click handler.
 //
-// Defines `ClickHandler : NSObject` in ilang, registers it with
-// the ObjC runtime via `ClickHandler.register()`, and wires the
-// button's target/action to `[handler clicked:]`. When the button
-// is clicked, AppKit dispatches via objc_msgSend → our IMP → the
-// ilang `clicked` body.
+// `ClickHandler : NSObject` is a plain top-level class — the
+// loader's auto-lift picks it up because its parent is an
+// `@objc class`, generating the NSObject subclass machinery
+// (selector wiring, `alloc` / `init` / `register`) automatically.
+// `ClickHandler.register()` makes the subclass known to the ObjC
+// runtime; AppKit's target/action then dispatches the button
+// press via objc_msgSend → our IMP → the ilang `clicked` body.
 //
 // Run (the cocoa bindings dep is wired through this directory's
 // `ilang.toml`):
@@ -16,19 +18,30 @@ use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
             StyleMask, ActivationPolicy, nil,
             sharedApplication, makeWindow, makeButton, selectorPtr }
 
-@extern(ObjC) {
-    @objc class ClickHandler : NSObject {
-        @objc("alloc")
-        static alloc(): ClickHandler
-        @objc("init")
-        init(): ClickHandler
-
-        @objc("clicked:")
-        clicked(sender: NSObject) {
-            console.log("clicked!")
-        }
+class ClickHandler : NSObject {
+    pub clicked(sender: NSObject) {
+        console.log("clicked!")
     }
 }
+
+// Reference: the equivalent explicit form. Drop down to this
+// whenever you need things the auto-lift doesn't expose —
+// most importantly raw-pointer parameters / returns (`*u8`,
+// `*const char`, etc.) and per-method `@objc("selector:")`
+// overrides for selectors that don't follow the default
+// `name + ":" per param` shape.
+//
+//   @extern(ObjC) {
+//       @objc class ClickHandler : NSObject {
+//           @objc("alloc") static alloc(): ClickHandler
+//           @objc("init")  init(): ClickHandler
+//
+//           @objc("clicked:")
+//           clicked(sender: NSObject) {
+//               console.log("clicked!")
+//           }
+//       }
+//   }
 
 let app = sharedApplication()
 app.setActivationPolicy(ActivationPolicy.regular)
