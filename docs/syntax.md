@@ -1938,6 +1938,149 @@ qsort(...)                                            // pass cmp directly
 - Items inside an `@extern(C) { ... }` block can be declared in
   any order.
 
+### `@extern(ObjC) { ... }` — Objective-C bridging block
+
+macOS-only counterpart of `@extern(C)`. Holds the Objective-C
+runtime side: classes that bridge to ObjC types, interfaces that
+stand in for ObjC **protocols**, and selector metadata.
+
+```rust
+@extern(ObjC) {
+    @objc class NSObject {
+        @objc("alloc")   static alloc(): NSObject
+        @objc("release") release()
+    }
+
+    @objc pub interface NSMenuDelegate {
+        @optional menuWillOpen(menu: NSMenu)
+        @optional menuDidClose(menu: NSMenu)
+    }
+}
+```
+
+#### `@objc class Name { ... }` — bridged class
+
+- Each `@objc("selector:")` attribute names the ObjC selector the
+  method binds to. Method bodies type-check the same as a regular
+  class body; the loader generates a per-class IMP trampoline that
+  marshals between the Cranelift calling convention and `objc_msgSend`.
+- `alloc` / `init` declarations are usually written as
+  `@objc("alloc") static alloc(): Name` / `@objc("init") init(): Name`
+  so the runtime's allocation and initialiser paths are reachable.
+- The class must derive from `NSObject` (directly or through an
+  `@objc class` chain). The runtime side is registered the first
+  time `Name.register()` is called; subsequent calls are no-ops.
+
+#### `@objc interface I { ... }` — Objective-C protocol
+
+Where ObjC has a **protocol**, ilang has an `@objc interface`. The
+declaration shape is the same as an ordinary `interface I { ... }`
+(method signatures only, no bodies). What `@objc` adds:
+
+- Each method may carry `@objc("selector:")` to name a non-default
+  selector. Without it, the selector defaults to the method name
+  plus a trailing `:` per parameter (Cocoa-style).
+- Methods marked `@optional` mirror ObjC `@optional` protocol
+  methods — implementing them is not required, and at runtime the
+  ObjC machinery dispatches via `respondsToSelector:`.
+- `@objc interface` types can appear in parameter / property
+  positions the same as any other interface — `pub setDelegate(d:
+  NSMenuDelegate)` is type-checked, and ARC retain/release on the
+  bridged side is wired automatically.
+
+#### Implementing an `@objc` protocol from a plain `class`
+
+You **do not** need to write the `@extern(ObjC) { ... }` wrapper
+or the `@objc class` attribute yourself when all you want is to
+implement an ObjC protocol from ilang. Just write a top-level
+class whose base list mentions an `@objc interface`:
+
+```rust
+use cocoa { NSApplicationDelegate, NSNotification,
+            sharedApplication, ActivationPolicy }
+
+class AppDelegate : NSApplicationDelegate {
+    pub applicationDidFinishLaunching(notification: NSNotification) {
+        console.log("launched")
+    }
+}
+
+let app = sharedApplication()
+app.setActivationPolicy(ActivationPolicy.regular)
+AppDelegate.register()
+app.setDelegate(AppDelegate.alloc().init())
+app.run()
+```
+
+At load time the auto-lift pass detects that `AppDelegate`'s base
+list names an `@objc interface` and rewrites the declaration into
+the equivalent `@extern(ObjC) { @objc class AppDelegate : NSObject
+{ ... } }`. Selector wiring (`applicationDidFinishLaunching:`,
+etc.), the NSObject parent, and `alloc` / `init` are inserted
+automatically — you only write the methods you actually want to
+override.
+
+- Methods you don't implement stay as ObjC `@optional` no-ops;
+  the runtime simply answers `respondsToSelector: NO` for them.
+- The class is **not** treated as a plain ilang class for `new`
+  construction — instantiate it through the lifted `alloc().init()`
+  pair the runtime exposes (`AppDelegate.alloc().init()`).
+- Multiple `@objc interface`s in the same base list are allowed
+  (`class X : NSWindowDelegate, NSMenuDelegate { ... }`).
+
+### SIMD vector types (`simd.fNxM` / `simd.iNxM`)
+
+Fixed-width SIMD vectors carried in a single hardware register.
+Primarily exist so values can flow across ObjC binding boundaries
+that take Apple's `vector_floatN` / `vector_intN` types.
+
+```rust
+let v: simd.f32x4 = [1.0, 2.0, 3.0, 4.0]   // construction from array literal
+let p: simd.f32x2 = [0.5, 0.5]
+let row: simd.f32x2[] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
+```
+
+#### Available element / lane combinations
+
+| Type | Elem | Lanes | Notes |
+| --- | --- | --- | --- |
+| `simd.f32x2` | f32 | 2 | Apple `vector_float2` |
+| `simd.f32x4` | f32 | 4 | Apple `vector_float4` |
+| `simd.f64x2` | f64 | 2 | Apple `vector_double2` |
+| `simd.i8x16` | i8  | 16 | Apple `vector_char16` |
+| `simd.i16x8` | i16 | 8  | |
+| `simd.i32x4` | i32 | 4  | Apple `vector_int4` |
+| `simd.i64x2` | i64 | 2  | |
+
+#### Construction
+
+The only way to materialise a SIMD value today is **array-literal
+coercion against an annotated type slot** (`let v: simd.f32x4 =
+[...]`, function parameter / return, struct field, etc.). The
+literal's length must match the lane count exactly, and each
+element must fit the lane scalar type (integer literals narrow,
+float literals coerce f64→f32 the same as scalar assignment).
+
+```rust
+fn make(): simd.f32x4 {
+    [0.0, 0.0, 1.0, 1.0]                    // coerces against the return type
+}
+```
+
+#### What's supported / what isn't
+
+- **First-class operations are not exposed yet** — no element-wise
+  add / mul, no lane extract / insert, no shuffles. You can hold
+  and pass a SIMD value but can't compute on it from ilang.
+- **`simd.fNxM[]` arrays** are valid and laid out contiguously
+  (16-byte / 8-byte aligned per lane width). Passing a
+  `simd.f32x2[]` to an ObjC method expecting
+  `const vector_float2 *` works via an implicit `arr as *const
+  simd.f32x2` cast in the generated bridge.
+- **No `.x` / `.y` / `[i]` lane access** — round-trip values
+  through ObjC APIs or, when you need arithmetic, do it on plain
+  scalar arrays and only coerce to SIMD at the boundary.
+
 ### Built-in `math` module
 
 ```rust

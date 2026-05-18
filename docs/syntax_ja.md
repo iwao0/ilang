@@ -1462,6 +1462,103 @@ qsort(...)                                            // cmp を直接渡す
 - ライブラリ open 失敗 / シンボル未存在 (`@optional` なし) はコンパイル時 (JIT 構築時) エラー
 - 同じ `@extern(C) { ... }` ブロック内で複数の fn / struct を宣言する場合、宣言順序は自由
 
+### `@extern(ObjC) { ... }` — Objective-C ブリッジブロック
+
+macOS 専用の Objective-C ランタイム側を扱うブロック。`@extern(C)` の ObjC 版で、ObjC ランタイムとつなぐクラス、ObjC **プロトコル** に相当する interface、セレクタメタデータを置く。
+
+```rust
+@extern(ObjC) {
+    @objc class NSObject {
+        @objc("alloc")   static alloc(): NSObject
+        @objc("release") release()
+    }
+
+    @objc pub interface NSMenuDelegate {
+        @optional menuWillOpen(menu: NSMenu)
+        @optional menuDidClose(menu: NSMenu)
+    }
+}
+```
+
+#### `@objc class Name { ... }` — ブリッジクラス
+
+- `@objc("selector:")` 属性で、メソッドが結び付く ObjC セレクタを指定する。メソッド本体は通常のクラスと同様に型チェックされ、loader が各クラスに IMP トランポリンを生成して Cranelift 呼び出し規約と `objc_msgSend` の間をマーシャリングする
+- `alloc` / `init` は `@objc("alloc") static alloc(): Name` / `@objc("init") init(): Name` の形で宣言するのが定石。これでランタイムのアロケート / 初期化経路に到達できる
+- クラスは (直接または別の `@objc class` を介して) `NSObject` を継承していること。ランタイム側への登録は `Name.register()` を最初に呼んだ時に行われ、二度目以降は no-op
+
+#### `@objc interface I { ... }` — Objective-C プロトコル
+
+ObjC の **protocol** は ilang の `@objc interface` に対応する。宣言形式は通常の `interface I { ... }` と同じ (シグネチャのみ、本体不可)。`@objc` が加える違いは:
+
+- 各メソッドに `@objc("selector:")` を付けて、既定以外のセレクタ名を指定できる。属性が無ければセレクタ名はメソッド名 + パラメータごとの末尾 `:` (Cocoa 流儀) に決まる
+- `@optional` 付きメソッドは ObjC `@optional` プロトコルメソッドに対応する。実装は必須ではなく、ランタイムでは `respondsToSelector:` で振り分けられる
+- `@objc interface` 型はパラメータ / プロパティ位置でそのまま使える。`pub setDelegate(d: NSMenuDelegate)` のような形が型チェックされ、ブリッジ側の ARC retain / release も自動で配線される
+
+#### `@objc` プロトコルを通常の `class` で実装する
+
+ObjC プロトコルを ilang から実装したいだけなら、`@extern(ObjC) { ... }` ブロックも `@objc class` 属性も**自分で書く必要はない**。トップレベルクラスの base list に `@objc interface` を並べるだけでよい:
+
+```rust
+use cocoa { NSApplicationDelegate, NSNotification,
+            sharedApplication, ActivationPolicy }
+
+class AppDelegate : NSApplicationDelegate {
+    pub applicationDidFinishLaunching(notification: NSNotification) {
+        console.log("launched")
+    }
+}
+
+let app = sharedApplication()
+app.setActivationPolicy(ActivationPolicy.regular)
+AppDelegate.register()
+app.setDelegate(AppDelegate.alloc().init())
+app.run()
+```
+
+ロード時の auto-lift パスが「base list に `@objc interface` がある」ことを検出し、宣言を `@extern(ObjC) { @objc class AppDelegate : NSObject { ... } }` 相当に書き換える。セレクタ配線 (`applicationDidFinishLaunching:` 等)、`NSObject` 親、`alloc` / `init` は自動挿入されるので、書くのは実装したいメソッドだけでよい。
+
+- 実装しないメソッドは ObjC 側で `@optional` 扱いの no-op として残り、ランタイムは `respondsToSelector: NO` を返すだけ
+- このクラスは ilang の通常クラスとして `new` で生成するものでは**ない** — lifted された `alloc().init()` ペア (`AppDelegate.alloc().init()`) 経由でインスタンス化する
+- base list に複数の `@objc interface` を並べてもよい (`class X : NSWindowDelegate, NSMenuDelegate { ... }`)
+
+### SIMD ベクタ型 (`simd.fNxM` / `simd.iNxM`)
+
+ハードウェアレジスタ1本に収まる固定幅 SIMD ベクタ。主な用途は Apple の `vector_floatN` / `vector_intN` 型を取る ObjC バインディングを通すこと。
+
+```rust
+let v: simd.f32x4 = [1.0, 2.0, 3.0, 4.0]   // 配列リテラルから構築
+let p: simd.f32x2 = [0.5, 0.5]
+let row: simd.f32x2[] = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
+```
+
+#### 利用できる要素型 / レーン数の組み合わせ
+
+| 型 | 要素 | レーン数 | 備考 |
+| --- | --- | --- | --- |
+| `simd.f32x2` | f32 | 2 | Apple `vector_float2` |
+| `simd.f32x4` | f32 | 4 | Apple `vector_float4` |
+| `simd.f64x2` | f64 | 2 | Apple `vector_double2` |
+| `simd.i8x16` | i8  | 16 | Apple `vector_char16` |
+| `simd.i16x8` | i16 | 8  | |
+| `simd.i32x4` | i32 | 4  | Apple `vector_int4` |
+| `simd.i64x2` | i64 | 2  | |
+
+#### 構築方法
+
+現状で SIMD 値を作る唯一の方法は、**型注釈付きスロットに対する配列リテラルの coerce** (`let v: simd.f32x4 = [...]`、関数の引数 / 戻り値、struct フィールドなど)。リテラル長はレーン数とちょうど一致する必要があり、各要素はレーンのスカラー型に収まること (整数リテラルは narrow、float リテラルは f64→f32 にスカラー代入と同じ規則で coerce される)。
+
+```rust
+fn make(): simd.f32x4 {
+    [0.0, 0.0, 1.0, 1.0]                    // 戻り型に対して coerce
+}
+```
+
+#### 対応している操作 / していない操作
+
+- **first-class な演算はまだ公開していない** — 要素ごとの加算 / 乗算、レーンの extract / insert、shuffle はいずれも書けない。値を保持して引き渡すことはできるが、ilang 側で計算はできない
+- **`simd.fNxM[]` 配列**は利用可能で、レーン幅に応じて連続レイアウト (16バイト / 8バイト アライン) される。`simd.f32x2[]` を `const vector_float2 *` を取る ObjC メソッドに渡すと、生成されたブリッジ内で暗黙の `arr as *const simd.f32x2` キャストが入る
+- **`.x` / `.y` / `[i]` といったレーンアクセスは無い** — ObjC API を経由するか、計算が必要なら通常のスカラー配列で行い、境界部分でのみ SIMD に coerce する
+
 ### 組み込み `math` モジュール
 
 ```rust
