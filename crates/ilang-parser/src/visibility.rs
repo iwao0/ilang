@@ -39,7 +39,17 @@ type PubCatalog = HashMap<String, HashSet<Symbol>>;
 fn module_name_of(path: &Path) -> Option<String> {
     let s = path.to_str()?;
     let stripped = s.strip_prefix("<builtin>/").unwrap_or(s);
-    let stem = Path::new(stripped).file_stem()?.to_str()?;
+    let p = Path::new(stripped);
+    let stem = p.file_stem()?.to_str()?;
+    // `<dir>/foo/mod.il` — Rust-style subfolder umbrella, the
+    // module name is the parent directory's name (`foo`) not the
+    // literal file stem (`mod`). Otherwise visibility-catalog
+    // lookups for `use foo { … }` would miss the module entirely.
+    if stem == "mod" {
+        if let Some(parent_name) = p.parent().and_then(Path::file_name).and_then(|n| n.to_str()) {
+            return Some(parent_name.to_string());
+        }
+    }
     Some(stem.to_string())
 }
 

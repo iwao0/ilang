@@ -284,18 +284,32 @@ fn resolve_module(
     if builtin_module_source(module).is_some() {
         return Ok(builtin_path(module));
     }
-    // Build the `module.il` filename exactly once and reuse it for
-    // every candidate directory; the old version re-formatted it for
-    // each `extra_paths` entry.
+    // Build the `module.il` filename / `module/mod.il` subpath
+    // exactly once and reuse them for every candidate directory;
+    // the old version re-formatted them for each `extra_paths`
+    // entry.
     let filename = format!("{module}.il");
+    // `<dir>/<module>.il` — sibling file. Highest priority.
     let primary = dir.join(&filename);
     if primary.exists() {
         return canonicalize(&primary);
+    }
+    // `<dir>/<module>/mod.il` — Rust-style subfolder umbrella. Lets
+    // a binding grow into a `<module>/` folder of category files
+    // (`<module>/mod.il` re-exporting the siblings) without breaking
+    // existing `use <module>` callers.
+    let mod_il = dir.join(module).join("mod.il");
+    if mod_il.exists() {
+        return canonicalize(&mod_il);
     }
     for extra in extra_paths {
         let candidate = extra.join(&filename);
         if candidate.exists() {
             return canonicalize(&candidate);
+        }
+        let candidate_mod = extra.join(module).join("mod.il");
+        if candidate_mod.exists() {
+            return canonicalize(&candidate_mod);
         }
     }
     // Fall back to the primary path so the resulting "not found"
