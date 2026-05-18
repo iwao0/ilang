@@ -208,10 +208,8 @@ pub enum EventModifierFlags: u64 {
         pub terminate(sender: NSObject)
         // NSApplicationDelegate is the protocol an implementing
         // class should declare via `class MyApp : NSApplicationDelegate {…}`.
-        // The setDelegate slot itself is typed as the most permissive
-        // form (NSObject) so a one-off `setDelegate(nil)` to clear
-        // it, or framework-provided delegate objects bound elsewhere
-        // as bare NSObject, still go through.
+        // setDelegate takes NSObject for permissiveness — the
+        // type-safety affordance is on the implementer side.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
         @objc("setMainMenu:")

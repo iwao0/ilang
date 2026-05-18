@@ -109,6 +109,23 @@ impl TypeChecker {
             }
         }
         let class_name = expect_object(&ot, span)?;
+        // @objc-interface-typed receivers don't carry their own
+        // field list (the interface is just a method contract),
+        // but every Cocoa-protocol value is backed by an NSObject
+        // and exposes the standard `handle: i64`. Recognise that
+        // one field so the @objc dispatch wrappers can extract
+        // `arg.handle` from an interface-typed param without
+        // hitting an "undefined class" error.
+        if self.interfaces.contains_key(&class_name) {
+            if name.as_str() == "handle" {
+                return Ok(Type::I64);
+            }
+            return Err(TypeError::UnknownField {
+                class: class_name.into(),
+                field: name.clone(),
+                span,
+            });
+        }
         let cls = self.classes.get(&class_name).ok_or_else(|| {
             TypeError::UndefinedClass {
                 name: class_name.into(),

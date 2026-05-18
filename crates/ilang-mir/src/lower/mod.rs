@@ -218,9 +218,17 @@ pub fn lower_program_with_slots(
     }
 
     // Resolve interface method signatures now that class / enum
-    // types they reference are registered.
+    // types they reference are registered. Walk both top-level
+    // `Item::Interface` and `@objc interface` declarations nested
+    // inside `@extern(ObjC)` blocks — the registration pass above
+    // covers both, so the signature recording must too.
     for item in &prog.items {
-        if let Item::Interface(i) = item {
+        let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
+            Item::Interface(i) => vec![i],
+            Item::ExternC(b) => b.interfaces.iter().collect(),
+            _ => continue,
+        };
+        for i in iface_list {
             for m in i.methods.iter() {
                 let mut params: Vec<MirTy> = Vec::with_capacity(m.params.len());
                 for p in m.params.iter() {
