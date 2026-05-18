@@ -37,13 +37,9 @@ impl<'a> Parser<'a> {
     ) -> Result<ilang_ast::ExternCBlock, ParseError> {
         let block_span = self.peek().span;
         self.expect(&TokenKind::LBrace, "'{'")?;
-        let tag = format!("__objc_b{}c{}", block_span.line, block_span.col);
-        let sel_struct_name: Symbol = format!("{tag}_sel_t").into();
-        let sel_register_name: Symbol = format!("{tag}_sel_register").into();
-        let class_struct_name: Symbol = format!("{tag}_class_t").into();
-        let get_class_name: Symbol = format!("{tag}_get_class").into();
-        let object_struct_name: Symbol = format!("{tag}_object_t").into();
-
+        // The libobjc helper-name setup that the desugar phase needs
+        // has moved into `finalize_objc_block` so the auto-lift pass
+        // can call it with synthesized inputs.
         let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
         let mut objc_fns: Vec<ObjcMethod> = Vec::new();
         let mut objc_classes: Vec<ObjcClass> = Vec::new();
@@ -167,424 +163,15 @@ impl<'a> Parser<'a> {
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
 
-        let any_objc = !objc_fns.is_empty() || !objc_classes.is_empty();
-        let any_static = objc_classes
-            .iter()
-            .any(|c| c.methods.iter().any(|m| m.is_static));
-        let any_class = !objc_classes.is_empty();
-        // ilang-defined subclasses (parent set) need the ObjC
-        // class-registration helpers — objc_allocateClassPair /
-        // objc_registerClassPair — plus objc_getClass for the
-        // idempotency check inside `register()`.
-        // "Real" subclass = has a parent AND adds at least one
-        // method with a body. Plain `: Parent` inheritance with
-        // no bodies is just an ilang type-system relationship
-        // (no ObjC-runtime registration / IMPs needed); skip the
-        // libobjc class-helper extern decls and the per-class
-        // `register()` static for those.
-        let any_subclass = objc_classes
-            .iter()
-            .any(|c| c.parent.is_some() && c.methods.iter().any(|m| m.body.is_some()));
-        let allocate_pair_name: Symbol = format!("{tag}_allocate_class_pair").into();
-        let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
-        let class_add_method_name: Symbol = format!("{tag}_class_add_method").into();
-        let dlsym_name: Symbol = format!("{tag}_dlsym").into();
-        let retain_name: Symbol = format!("{tag}_objc_retain").into();
-        let release_name: Symbol = format!("{tag}_objc_release").into();
-
-        if any_objc {
-            // Selector type + sel_registerName alias.
-            items.insert(
-                0,
-                ilang_ast::ExternCItem::Struct {
-                    is_pub: false,
-                    name: sel_struct_name,
-                    fields: Box::new([]),
-                    is_packed: false,
-                    restrict_c_types: false,
-                    span: block_span,
-                },
-            );
-            items.insert(
-                1,
-                ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: sel_register_name,
-                    params: Box::new([Param {
-                        name: Symbol::intern("name"),
-                        ty: Type::RawPtr {
-                            is_const: true,
-                            inner: Box::new(Type::CChar),
-                        },
-                        span: block_span,
-                        default: None,
-                    }]),
-                    ret: Some(Type::RawPtr {
-                        is_const: false,
-                        inner: Box::new(Type::Object(sel_struct_name)),
-                    }),
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("sel_registerName")),
-                    variadic: false,
-                    span: block_span,
-                },
-            );
-            // Opaque ObjC `id` placeholder — used as the receiver
-            // type on instance-method aliases and as the value of
-            // `arg.handle as *...` casts. Only injected when the
-            // block actually declares an @objc class (top-level
-            // @objc fns already use the user-named opaque types
-            // in their declared signatures).
-            if any_class {
-                items.insert(
-                    2,
-                    ilang_ast::ExternCItem::Struct {
-                        is_pub: false,
-                        name: object_struct_name,
-                        fields: Box::new([]),
-                        is_packed: false,
-                        restrict_c_types: false,
-                        span: block_span,
-                    },
-                );
-            }
-            // Retain / release helpers — used by the auto-generated
-            // deinit on root @objc classes and by the dispatch
-            // wrappers' retain-on-autoreleased-return rule.
-            if any_class {
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: retain_name,
-                    params: Box::new([Param {
-                        name: Symbol::intern("obj"),
-                        ty: Type::RawPtr {
-                            is_const: false,
-                            inner: Box::new(Type::Object(object_struct_name)),
-                        },
-                        span: block_span,
-                        default: None,
-                    }]),
-                    ret: Some(Type::RawPtr {
-                        is_const: false,
-                        inner: Box::new(Type::Object(object_struct_name)),
-                    }),
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("objc_retain")),
-                    variadic: false,
-                    span: block_span,
-                });
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: release_name,
-                    params: Box::new([Param {
-                        name: Symbol::intern("obj"),
-                        ty: Type::RawPtr {
-                            is_const: false,
-                            inner: Box::new(Type::Object(object_struct_name)),
-                        },
-                        span: block_span,
-                        default: None,
-                    }]),
-                    ret: None,
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("objc_release")),
-                    variadic: false,
-                    span: block_span,
-                });
-            }
-            // Class lookup helpers are only injected when at least
-            // one class uses a static method (only static dispatch
-            // needs `objc_getClass`). Subclass registration also
-            // requires objc_getClass for the idempotency check
-            // (avoid re-registering on second call).
-            if any_static || any_subclass {
-                items.insert(
-                    2,
-                    ilang_ast::ExternCItem::Struct {
-                        is_pub: false,
-                        name: class_struct_name,
-                        fields: Box::new([]),
-                        is_packed: false,
-                        restrict_c_types: false,
-                        span: block_span,
-                    },
-                );
-                items.insert(
-                    3,
-                    ilang_ast::ExternCItem::FnDecl {
-                        is_pub: false,
-                        name: get_class_name,
-                        params: Box::new([Param {
-                            name: Symbol::intern("name"),
-                            ty: Type::RawPtr {
-                                is_const: true,
-                                inner: Box::new(Type::CChar),
-                            },
-                            span: block_span,
-                            default: None,
-                        }]),
-                        ret: Some(Type::RawPtr {
-                            is_const: false,
-                            inner: Box::new(Type::Object(class_struct_name)),
-                        }),
-                        libs: Box::new([Symbol::intern("objc")]),
-                        optional: false,
-                        c_symbol: Some(Symbol::intern("objc_getClass")),
-                        variadic: false,
-                        span: block_span,
-                    },
-                );
-            }
-            // libobjc class-registration helpers — only needed
-            // when at least one declared @objc class is an
-            // ilang-defined subclass (has a parent set).
-            if any_subclass {
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: allocate_pair_name,
-                    params: Box::new([
-                        Param {
-                            name: Symbol::intern("parent"),
-                            ty: Type::RawPtr {
-                                is_const: false,
-                                inner: Box::new(Type::Object(class_struct_name)),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("name"),
-                            ty: Type::RawPtr {
-                                is_const: true,
-                                inner: Box::new(Type::CChar),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("extra_bytes"),
-                            ty: Type::Size,
-                            span: block_span,
-                            default: None,
-                        },
-                    ]),
-                    ret: Some(Type::RawPtr {
-                        is_const: false,
-                        inner: Box::new(Type::Object(class_struct_name)),
-                    }),
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("objc_allocateClassPair")),
-                    variadic: false,
-                    span: block_span,
-                });
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: register_pair_name,
-                    params: Box::new([Param {
-                        name: Symbol::intern("cls"),
-                        ty: Type::RawPtr {
-                            is_const: false,
-                            inner: Box::new(Type::Object(class_struct_name)),
-                        },
-                        span: block_span,
-                        default: None,
-                    }]),
-                    ret: None,
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("objc_registerClassPair")),
-                    variadic: false,
-                    span: block_span,
-                });
-                // `class_addMethod(cls, sel, imp, type_encoding)`.
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: class_add_method_name,
-                    params: Box::new([
-                        Param {
-                            name: Symbol::intern("cls"),
-                            ty: Type::RawPtr {
-                                is_const: false,
-                                inner: Box::new(Type::Object(class_struct_name)),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("sel"),
-                            ty: Type::RawPtr {
-                                is_const: false,
-                                inner: Box::new(Type::Object(sel_struct_name)),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("imp"),
-                            ty: Type::RawPtr {
-                                is_const: false,
-                                inner: Box::new(Type::CVoid),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("types"),
-                            ty: Type::RawPtr {
-                                is_const: true,
-                                inner: Box::new(Type::CChar),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                    ]),
-                    ret: Some(Type::I8),
-                    libs: Box::new([Symbol::intern("objc")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("class_addMethod")),
-                    variadic: false,
-                    span: block_span,
-                });
-                // IMP address lookup. AOT links our subclass IMPs
-                // with `Linkage::Export` so `dlsym(RTLD_DEFAULT)`
-                // would find them; the JIT can't be reached the
-                // same way, so we go through an ilang-runtime
-                // helper (`__ilang_objc_imp_lookup`) that checks a
-                // JIT-populated table first and falls back to
-                // dlsym for the AOT path. The first `handle`
-                // argument is kept to preserve the dlsym call
-                // shape but is ignored by the helper.
-                items.push(ilang_ast::ExternCItem::FnDecl {
-                    is_pub: false,
-                    name: dlsym_name,
-                    params: Box::new([
-                        Param {
-                            name: Symbol::intern("handle"),
-                            ty: Type::RawPtr {
-                                is_const: false,
-                                inner: Box::new(Type::CVoid),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                        Param {
-                            name: Symbol::intern("name"),
-                            ty: Type::RawPtr {
-                                is_const: true,
-                                inner: Box::new(Type::CChar),
-                            },
-                            span: block_span,
-                            default: None,
-                        },
-                    ]),
-                    ret: Some(Type::RawPtr {
-                        is_const: false,
-                        inner: Box::new(Type::CVoid),
-                    }),
-                    libs: Box::new([Symbol::intern("c")]),
-                    optional: false,
-                    c_symbol: Some(Symbol::intern("__ilang_objc_imp_lookup")),
-                    variadic: false,
-                    span: block_span,
-                });
-            }
-        }
-
-        // Per-block selector cache. Each unique selector encountered
-        // by the wrapper builders gets a `pub static __sel_<n>: i64`
-        // slot on the synthesised `<tag>_sel_cache` class; the cache
-        // class itself is emitted at the end of the block once
-        // every selector has been registered.
-        let sel_cache = SelectorCache::new(&tag);
-
-        // Top-level @objc fns — same expansion as before.
-        for m in objc_fns {
-            let (alias, wrapper) =
-                build_freefn_dispatch(&m, &tag, sel_struct_name, sel_register_name, &sel_cache);
-            items.push(alias);
-            items.push(wrapper);
-        }
-
-        // Names of @objc classes the method-body desugar should
-        // treat as "wrapped" — those whose arg/return slots need
-        // `.handle` extraction and result re-wrapping. Includes:
-        //   1. Classes declared in this block.
-        //   2. `@objc class` names imported from already-loaded
-        //      dependency modules (populated by the loader). This is
-        //      what lets `NSWindow.setTitle(t: NSString)` in
-        //      `appkit.il` correctly unwrap a `foundation.NSString`
-        //      argument — without (2), the desugar would pass the
-        //      ilang wrapper pointer to `objc_msgSend` and crash.
-        let class_names: HashSet<Symbol> = objc_classes
-            .iter()
-            .map(|c| c.name)
-            .chain(self.external_objc_classes.iter().copied())
-            .collect();
-
-        for c in objc_classes {
-            let ctx = ObjcCtx {
-                tag: &tag,
-                sel_struct: sel_struct_name,
-                sel_register: sel_register_name,
-                sel_cache: &sel_cache,
-                class_struct: class_struct_name,
-                get_class: get_class_name,
-                object_struct: object_struct_name,
-                allocate_pair: allocate_pair_name,
-                register_pair: register_pair_name,
-                class_add_method: class_add_method_name,
-                dlsym: dlsym_name,
-                retain: retain_name,
-                release: release_name,
-                class_names: &class_names,
-            };
-            let (class_item, aliases) = build_objc_class(c, &ctx);
-            items.push(class_item);
-            items.extend(aliases);
-        }
-
-        // Block-level `@extern(ObjC, "path", ...)` library handling.
-        // The paths trigger an eager `dlopen` at JIT init so the
-        // @objc classes inside resolve via libobjc's class
-        // registry. A plain `pub fn` declared in the block must
-        // mark itself with bare `@lib` (no args) to opt into
-        // dlsym-from-the-block-path; that's handled in
-        // `parse_extern_c_fn_with_default_libs` and not here. To
-        // keep the dlopen firing when the block declares zero C
-        // fns, synthesise a one-off optional loader fn whose only
-        // purpose is to carry the `libs` field through to the JIT
-        // startup walk.
-        if !block_libs.is_empty() {
-            let loader_name: Symbol = format!("{tag}_load").into();
-            items.push(ilang_ast::ExternCItem::FnDecl {
-                is_pub: false,
-                name: loader_name,
-                params: Box::new([]),
-                ret: None,
-                libs: block_libs.into_boxed_slice(),
-                optional: true,
-                c_symbol: Some(Symbol::intern("__objc_block_load_phantom")),
-                variadic: false,
-                span: block_span,
-            });
-        }
-
-        // Emit the per-block selector cache class. Skipped when no
-        // selector was registered (a block with only C decls and no
-        // @objc items).
-        if !sel_cache.entries.borrow().is_empty() {
-            items.push(build_sel_cache_class(&sel_cache, block_span));
-        }
-
-        Ok(ilang_ast::ExternCBlock {
-            items: items.into(),
-            interfaces: objc_interfaces.into(),
-            span: block_span,
-        })
+        Ok(finalize_objc_block(
+            items,
+            objc_fns,
+            objc_classes,
+            objc_interfaces,
+            block_libs,
+            block_span,
+            self.external_objc_classes,
+        ))
     }
 
     fn parse_objc_method(
@@ -2984,3 +2571,447 @@ fn build_sel_cache_class(cache: &SelectorCache, span: Span) -> ilang_ast::Extern
     })
 }
 
+
+/// Apply the @extern(ObjC) desugar phase to the parsed contents
+/// of a block (or to a synthetic block assembled post-parse).
+/// Generates libobjc helper externs, runs `build_objc_class` for
+/// each Objective-C class, builds dispatch wrappers for top-level
+/// `@objc("…") fn` aliases, attaches the per-block selector
+/// cache, and returns the finished `ExternCBlock`. Pulled out of
+/// `Parser::parse_extern_objc_block` so the auto-lift pass can
+/// reuse the same machinery for top-level classes that implement
+/// an `@objc interface`.
+fn finalize_objc_block(
+    mut items: Vec<ilang_ast::ExternCItem>,
+    objc_fns: Vec<ObjcMethod>,
+    objc_classes: Vec<ObjcClass>,
+    objc_interfaces: Vec<ilang_ast::InterfaceDecl>,
+    block_libs: Vec<Symbol>,
+    block_span: ilang_ast::Span,
+    external_objc_classes: &HashSet<Symbol>,
+) -> ilang_ast::ExternCBlock {
+    let tag = format!("__objc_b{}c{}", block_span.line, block_span.col);
+    let sel_struct_name: Symbol = format!("{tag}_sel_t").into();
+    let sel_register_name: Symbol = format!("{tag}_sel_register").into();
+    let class_struct_name: Symbol = format!("{tag}_class_t").into();
+    let get_class_name: Symbol = format!("{tag}_get_class").into();
+    let object_struct_name: Symbol = format!("{tag}_object_t").into();
+        let any_objc = !objc_fns.is_empty() || !objc_classes.is_empty();
+        let any_static = objc_classes
+            .iter()
+            .any(|c| c.methods.iter().any(|m| m.is_static));
+        let any_class = !objc_classes.is_empty();
+        // ilang-defined subclasses (parent set) need the ObjC
+        // class-registration helpers — objc_allocateClassPair /
+        // objc_registerClassPair — plus objc_getClass for the
+        // idempotency check inside `register()`.
+        // "Real" subclass = has a parent AND adds at least one
+        // method with a body. Plain `: Parent` inheritance with
+        // no bodies is just an ilang type-system relationship
+        // (no ObjC-runtime registration / IMPs needed); skip the
+        // libobjc class-helper extern decls and the per-class
+        // `register()` static for those.
+        let any_subclass = objc_classes
+            .iter()
+            .any(|c| c.parent.is_some() && c.methods.iter().any(|m| m.body.is_some()));
+        let allocate_pair_name: Symbol = format!("{tag}_allocate_class_pair").into();
+        let register_pair_name: Symbol = format!("{tag}_register_class_pair").into();
+        let class_add_method_name: Symbol = format!("{tag}_class_add_method").into();
+        let dlsym_name: Symbol = format!("{tag}_dlsym").into();
+        let retain_name: Symbol = format!("{tag}_objc_retain").into();
+        let release_name: Symbol = format!("{tag}_objc_release").into();
+
+        if any_objc {
+            // Selector type + sel_registerName alias.
+            items.insert(
+                0,
+                ilang_ast::ExternCItem::Struct {
+                    is_pub: false,
+                    name: sel_struct_name,
+                    fields: Box::new([]),
+                    is_packed: false,
+                    restrict_c_types: false,
+                    span: block_span,
+                },
+            );
+            items.insert(
+                1,
+                ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: sel_register_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("name"),
+                        ty: Type::RawPtr {
+                            is_const: true,
+                            inner: Box::new(Type::CChar),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(sel_struct_name)),
+                    }),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("sel_registerName")),
+                    variadic: false,
+                    span: block_span,
+                },
+            );
+            // Opaque ObjC `id` placeholder — used as the receiver
+            // type on instance-method aliases and as the value of
+            // `arg.handle as *...` casts. Only injected when the
+            // block actually declares an @objc class (top-level
+            // @objc fns already use the user-named opaque types
+            // in their declared signatures).
+            if any_class {
+                items.insert(
+                    2,
+                    ilang_ast::ExternCItem::Struct {
+                        is_pub: false,
+                        name: object_struct_name,
+                        fields: Box::new([]),
+                        is_packed: false,
+                        restrict_c_types: false,
+                        span: block_span,
+                    },
+                );
+            }
+            // Retain / release helpers — used by the auto-generated
+            // deinit on root @objc classes and by the dispatch
+            // wrappers' retain-on-autoreleased-return rule.
+            if any_class {
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: retain_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("obj"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(object_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(object_struct_name)),
+                    }),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_retain")),
+                    variadic: false,
+                    span: block_span,
+                });
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: release_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("obj"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(object_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: None,
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_release")),
+                    variadic: false,
+                    span: block_span,
+                });
+            }
+            // Class lookup helpers are only injected when at least
+            // one class uses a static method (only static dispatch
+            // needs `objc_getClass`). Subclass registration also
+            // requires objc_getClass for the idempotency check
+            // (avoid re-registering on second call).
+            if any_static || any_subclass {
+                items.insert(
+                    2,
+                    ilang_ast::ExternCItem::Struct {
+                        is_pub: false,
+                        name: class_struct_name,
+                        fields: Box::new([]),
+                        is_packed: false,
+                        restrict_c_types: false,
+                        span: block_span,
+                    },
+                );
+                items.insert(
+                    3,
+                    ilang_ast::ExternCItem::FnDecl {
+                        is_pub: false,
+                        name: get_class_name,
+                        params: Box::new([Param {
+                            name: Symbol::intern("name"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        }]),
+                        ret: Some(Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(class_struct_name)),
+                        }),
+                        libs: Box::new([Symbol::intern("objc")]),
+                        optional: false,
+                        c_symbol: Some(Symbol::intern("objc_getClass")),
+                        variadic: false,
+                        span: block_span,
+                    },
+                );
+            }
+            // libobjc class-registration helpers — only needed
+            // when at least one declared @objc class is an
+            // ilang-defined subclass (has a parent set).
+            if any_subclass {
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: allocate_pair_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("parent"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(class_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("name"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("extra_bytes"),
+                            ty: Type::Size,
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::Object(class_struct_name)),
+                    }),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_allocateClassPair")),
+                    variadic: false,
+                    span: block_span,
+                });
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: register_pair_name,
+                    params: Box::new([Param {
+                        name: Symbol::intern("cls"),
+                        ty: Type::RawPtr {
+                            is_const: false,
+                            inner: Box::new(Type::Object(class_struct_name)),
+                        },
+                        span: block_span,
+                        default: None,
+                    }]),
+                    ret: None,
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("objc_registerClassPair")),
+                    variadic: false,
+                    span: block_span,
+                });
+                // `class_addMethod(cls, sel, imp, type_encoding)`.
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: class_add_method_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("cls"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(class_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("sel"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::Object(sel_struct_name)),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("imp"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::CVoid),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("types"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::I8),
+                    libs: Box::new([Symbol::intern("objc")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("class_addMethod")),
+                    variadic: false,
+                    span: block_span,
+                });
+                // IMP address lookup. AOT links our subclass IMPs
+                // with `Linkage::Export` so `dlsym(RTLD_DEFAULT)`
+                // would find them; the JIT can't be reached the
+                // same way, so we go through an ilang-runtime
+                // helper (`__ilang_objc_imp_lookup`) that checks a
+                // JIT-populated table first and falls back to
+                // dlsym for the AOT path. The first `handle`
+                // argument is kept to preserve the dlsym call
+                // shape but is ignored by the helper.
+                items.push(ilang_ast::ExternCItem::FnDecl {
+                    is_pub: false,
+                    name: dlsym_name,
+                    params: Box::new([
+                        Param {
+                            name: Symbol::intern("handle"),
+                            ty: Type::RawPtr {
+                                is_const: false,
+                                inner: Box::new(Type::CVoid),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                        Param {
+                            name: Symbol::intern("name"),
+                            ty: Type::RawPtr {
+                                is_const: true,
+                                inner: Box::new(Type::CChar),
+                            },
+                            span: block_span,
+                            default: None,
+                        },
+                    ]),
+                    ret: Some(Type::RawPtr {
+                        is_const: false,
+                        inner: Box::new(Type::CVoid),
+                    }),
+                    libs: Box::new([Symbol::intern("c")]),
+                    optional: false,
+                    c_symbol: Some(Symbol::intern("__ilang_objc_imp_lookup")),
+                    variadic: false,
+                    span: block_span,
+                });
+            }
+        }
+
+        // Per-block selector cache. Each unique selector encountered
+        // by the wrapper builders gets a `pub static __sel_<n>: i64`
+        // slot on the synthesised `<tag>_sel_cache` class; the cache
+        // class itself is emitted at the end of the block once
+        // every selector has been registered.
+        let sel_cache = SelectorCache::new(&tag);
+
+        // Top-level @objc fns — same expansion as before.
+        for m in objc_fns {
+            let (alias, wrapper) =
+                build_freefn_dispatch(&m, &tag, sel_struct_name, sel_register_name, &sel_cache);
+            items.push(alias);
+            items.push(wrapper);
+        }
+
+        // Names of @objc classes the method-body desugar should
+        // treat as "wrapped" — those whose arg/return slots need
+        // `.handle` extraction and result re-wrapping. Includes:
+        //   1. Classes declared in this block.
+        //   2. `@objc class` names imported from already-loaded
+        //      dependency modules (populated by the loader). This is
+        //      what lets `NSWindow.setTitle(t: NSString)` in
+        //      `appkit.il` correctly unwrap a `foundation.NSString`
+        //      argument — without (2), the desugar would pass the
+        //      ilang wrapper pointer to `objc_msgSend` and crash.
+        let class_names: HashSet<Symbol> = objc_classes
+            .iter()
+            .map(|c| c.name)
+            .chain(external_objc_classes.iter().copied())
+            .collect();
+
+        for c in objc_classes {
+            let ctx = ObjcCtx {
+                tag: &tag,
+                sel_struct: sel_struct_name,
+                sel_register: sel_register_name,
+                sel_cache: &sel_cache,
+                class_struct: class_struct_name,
+                get_class: get_class_name,
+                object_struct: object_struct_name,
+                allocate_pair: allocate_pair_name,
+                register_pair: register_pair_name,
+                class_add_method: class_add_method_name,
+                dlsym: dlsym_name,
+                retain: retain_name,
+                release: release_name,
+                class_names: &class_names,
+            };
+            let (class_item, aliases) = build_objc_class(c, &ctx);
+            items.push(class_item);
+            items.extend(aliases);
+        }
+
+        // Block-level `@extern(ObjC, "path", ...)` library handling.
+        // The paths trigger an eager `dlopen` at JIT init so the
+        // @objc classes inside resolve via libobjc's class
+        // registry. A plain `pub fn` declared in the block must
+        // mark itself with bare `@lib` (no args) to opt into
+        // dlsym-from-the-block-path; that's handled in
+        // `parse_extern_c_fn_with_default_libs` and not here. To
+        // keep the dlopen firing when the block declares zero C
+        // fns, synthesise a one-off optional loader fn whose only
+        // purpose is to carry the `libs` field through to the JIT
+        // startup walk.
+        if !block_libs.is_empty() {
+            let loader_name: Symbol = format!("{tag}_load").into();
+            items.push(ilang_ast::ExternCItem::FnDecl {
+                is_pub: false,
+                name: loader_name,
+                params: Box::new([]),
+                ret: None,
+                libs: block_libs.into_boxed_slice(),
+                optional: true,
+                c_symbol: Some(Symbol::intern("__objc_block_load_phantom")),
+                variadic: false,
+                span: block_span,
+            });
+        }
+
+        // Emit the per-block selector cache class. Skipped when no
+        // selector was registered (a block with only C decls and no
+        // @objc items).
+        if !sel_cache.entries.borrow().is_empty() {
+            items.push(build_sel_cache_class(&sel_cache, block_span));
+        }
+
+        ilang_ast::ExternCBlock {
+            items: items.into(),
+            interfaces: objc_interfaces.into(),
+            span: block_span,
+        }
+}
