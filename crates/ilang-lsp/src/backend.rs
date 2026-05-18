@@ -234,6 +234,37 @@ pub(crate) async fn refresh_impl(
             }
         }
     }
-    client.publish_diagnostics(uri, diags, None).await;
+    // Group diagnostics by their span's `source_file`. Cross-module
+    // errors (e.g. typecheck failure inside a sibling binding) get
+    // routed to the file they originated in instead of always
+    // attaching to whichever buffer the user is editing — that's
+    // what `DiagEntry.source_file` records.
+    let mut by_path: HashMap<PathBuf, Vec<Diagnostic>> = HashMap::new();
+    let self_path_buf = path.clone();
+    for entry in diags {
+        let file_str = entry.source_file.as_str();
+        let target: PathBuf = if file_str.is_empty() {
+            // No file tagged on the span — fall back to the
+            // current buffer's path. Diagnostic ends up on the
+            // editor view the user is looking at.
+            self_path_buf.clone().unwrap_or_else(|| PathBuf::from(""))
+        } else {
+            PathBuf::from(file_str)
+        };
+        by_path.entry(target).or_default().push(entry.diagnostic);
+    }
+    // Always publish to the current URI (even if empty) so its
+    // previous-run squiggles clear when the latest analysis
+    // returns clean.
+    let self_diags = self_path_buf
+        .as_deref()
+        .and_then(|p| by_path.remove(p))
+        .unwrap_or_default();
+    client.publish_diagnostics(uri.clone(), self_diags, None).await;
+    for (p, file_diags) in by_path {
+        if let Ok(target_uri) = Url::from_file_path(&p) {
+            client.publish_diagnostics(target_uri, file_diags, None).await;
+        }
+    }
 }
 

@@ -204,7 +204,7 @@ pub(crate) fn analyse(
     path: Option<&Path>,
     merged: &Option<Program>,
     is_submodule: bool,
-) -> Vec<Diagnostic> {
+) -> Vec<crate::diag::DiagEntry> {
     let mut out = Vec::new();
     // Always run the lex + parse pass on the in-memory buffer first so
     // unsaved edits surface syntax errors immediately.

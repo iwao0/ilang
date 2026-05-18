@@ -7,7 +7,7 @@
 // `u8[]` (write side, copies the bytes in) or
 // `bytesFromBuffer` round-trips (read side).
 
-use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSError }
+use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSMutableData, NSError }
 use network { NSURL }
 
 // NSStreamStatus — current state of an NSInputStream /

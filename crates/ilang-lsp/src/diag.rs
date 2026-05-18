@@ -13,20 +13,34 @@ use tower_lsp::{Client, LanguageServer};
 
 use ilang_ast::{
     Block, ClassDecl, EnumDecl, Expr, ExprKind, FnDecl, Item, Param, Pattern, PatternBindings,
-    PatternKind, Program, Span, Stmt, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
+    PatternKind, Program, Span, Stmt, StmtKind, Symbol, Symbol as AstSymbol, Type, VariantPayload,
 };
 use ilang_parser::parse as parse_program;
 use ilang_types::{check, TypeError};
 
 use crate::*;
 
-pub(crate) fn diag(span: Span, msg: String) -> Diagnostic {
-    Diagnostic {
-        range: span_full_to_range(span),
-        severity: Some(DiagnosticSeverity::ERROR),
-        source: Some("ilang".into()),
-        message: msg,
-        ..Diagnostic::default()
+/// Diagnostic + the source file the span originated in. Carrying
+/// the source separately lets the backend route each entry to
+/// the right document URI: a cross-module error reported by the
+/// type checker against `foundation/io.il` should appear there,
+/// not on whichever buffer the user happens to be editing.
+#[derive(Debug, Clone)]
+pub(crate) struct DiagEntry {
+    pub(crate) source_file: Symbol,
+    pub(crate) diagnostic: Diagnostic,
+}
+
+pub(crate) fn diag(span: Span, msg: String) -> DiagEntry {
+    DiagEntry {
+        source_file: span.source_file,
+        diagnostic: Diagnostic {
+            range: span_full_to_range(span),
+            severity: Some(DiagnosticSeverity::ERROR),
+            source: Some("ilang".into()),
+            message: msg,
+            ..Diagnostic::default()
+        },
     }
 }
 
@@ -34,14 +48,17 @@ pub(crate) fn diag(span: Span, msg: String) -> Diagnostic {
 /// it in the non-fatal style (yellow squiggle by default in
 /// VS Code). Used for `@deprecated` call-site notices and any
 /// other non-fatal type-checker outputs.
-pub(crate) fn warn_diag(span: Span, msg: String) -> Diagnostic {
-    Diagnostic {
-        range: span_full_to_range(span),
-        severity: Some(DiagnosticSeverity::WARNING),
-        source: Some("ilang".into()),
-        message: msg,
-        tags: Some(vec![DiagnosticTag::DEPRECATED]),
-        ..Diagnostic::default()
+pub(crate) fn warn_diag(span: Span, msg: String) -> DiagEntry {
+    DiagEntry {
+        source_file: span.source_file,
+        diagnostic: Diagnostic {
+            range: span_full_to_range(span),
+            severity: Some(DiagnosticSeverity::WARNING),
+            source: Some("ilang".into()),
+            message: msg,
+            tags: Some(vec![DiagnosticTag::DEPRECATED]),
+            ..Diagnostic::default()
+        },
     }
 }
 
