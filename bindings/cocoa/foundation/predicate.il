@@ -164,6 +164,35 @@ pub enum LinguisticTaggerOptions: u64 {
         ): NSObject
     }
 
+    /// `NSOrthography` — describes which scripts / languages a
+    /// stretch of text is written in. Hand one to NSLinguisticTagger
+    /// (via `setOrthography:range:`) when the text mixes
+    /// languages or uses a script the auto-detection can't
+    /// resolve correctly.
+    @objc pub class NSOrthography : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSOrthography
+        @objc("initWithDominantScript:languageMap:")
+        pub initWithDominantScript(
+            script: NSString, languageMap: NSDictionary
+        ): NSOrthography
+
+        @objc("dominantScript")
+        pub get dominantScript(): NSString
+        @objc("dominantLanguage")
+        pub get dominantLanguage(): NSString
+        @objc("languageMap")
+        pub get languageMap(): NSDictionary
+        @objc("allScripts")
+        pub get allScripts(): NSArray
+        @objc("allLanguages")
+        pub get allLanguages(): NSArray
+        @objc("languagesForScript:")
+        pub languagesForScript(script: NSString): NSArray
+        @objc("dominantLanguageForScript:")
+        pub dominantLanguageForScript(script: NSString): NSString
+    }
+
     /// `NSLinguisticTagger` — pre-Natural-Language-framework
     /// linguistic analysis: tokenisation, language ID, POS /
     /// lemma tagging. Construct with the schemes you care about

@@ -58,6 +58,51 @@ pub enum CalendarUnit: u64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSTimeZone` — IANA time-zone instance. The static
+    /// accessors (`systemTimeZone`, `defaultTimeZone`,
+    /// `localTimeZone`) return the running process / system /
+    /// user-default zone respectively. For an explicit zone use
+    /// `timeZoneWithName:` ("Asia/Tokyo", "UTC", …) or
+    /// `timeZoneWithAbbreviation:` ("JST", "PST", …, fuzzier).
+    @objc pub class NSTimeZone : NSObject {
+        @objc("systemTimeZone")
+        pub static system(): NSTimeZone
+        @objc("defaultTimeZone")
+        pub static defaultTimeZone(): NSTimeZone
+        @objc("setDefaultTimeZone:")
+        pub static setDefaultTimeZone(tz: NSTimeZone)
+        @objc("localTimeZone")
+        pub static local(): NSTimeZone
+        @objc("timeZoneWithName:")
+        pub static withName(name: NSString): NSTimeZone
+        @objc("timeZoneWithAbbreviation:")
+        pub static withAbbreviation(abbr: NSString): NSTimeZone
+        @objc("timeZoneForSecondsFromGMT:")
+        pub static forSecondsFromGMT(secs: i64): NSTimeZone
+        @objc("knownTimeZoneNames")
+        pub static knownTimeZoneNames(): NSObject
+
+        @objc("name")
+        pub get name(): NSString
+        @objc("abbreviation")
+        pub get abbreviation(): NSString
+        @objc("secondsFromGMT")
+        pub get secondsFromGMT(): i64
+        @objc("isDaylightSavingTime")
+        pub get isDaylightSavingTime(): bool
+        @objc("daylightSavingTimeOffset")
+        pub get daylightSavingTimeOffset(): f64
+        @objc("nextDaylightSavingTimeTransition")
+        pub get nextDaylightSavingTimeTransition(): NSDate
+
+        @objc("secondsFromGMTForDate:")
+        pub secondsFromGMTForDate(d: NSDate): i64
+        @objc("abbreviationForDate:")
+        pub abbreviationForDate(d: NSDate): NSString
+        @objc("isDaylightSavingTimeForDate:")
+        pub isDaylightSavingTimeForDate(d: NSDate): bool
+    }
+
     /// `NSDate` — a moment in time. `date` is "now"; the interval
     /// methods give you the offset in seconds.
     @objc pub class NSDate : NSObject {
@@ -120,9 +165,9 @@ pub enum CalendarUnit: u64 {
         @objc("setLocale:")
         pub set locale(l: NSObject)
         @objc("timeZone")
-        pub get timeZone(): NSObject
+        pub get timeZone(): NSTimeZone
         @objc("setTimeZone:")
-        pub set timeZone(tz: NSObject)
+        pub set timeZone(tz: NSTimeZone)
 
         @objc("stringFromDate:")
         pub stringFromDate(d: NSDate): NSString

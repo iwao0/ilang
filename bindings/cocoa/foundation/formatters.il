@@ -9,7 +9,7 @@
 // pre-built components value.
 
 use core { NSObject, NSString }
-use datetime { NSDate, NSDateComponents }
+use datetime { NSDate, NSDateComponents, NSTimeZone }
 use measurement { NSMeasurement, NSUnit }
 
 // NSDateComponentsFormatterUnitsStyle — text style for the
@@ -138,9 +138,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         @objc("setLocale:")
         pub set locale(l: NSObject)
         @objc("timeZone")
-        pub get timeZone(): NSObject
+        pub get timeZone(): NSTimeZone
         @objc("setTimeZone:")
-        pub set timeZone(tz: NSObject)
+        pub set timeZone(tz: NSTimeZone)
 
         @objc("stringFromDate:toDate:")
         pub stringFromDateToDate(from: NSDate, to: NSDate): NSString

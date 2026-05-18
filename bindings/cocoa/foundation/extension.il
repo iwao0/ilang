@@ -47,6 +47,33 @@ use network { NSURL }
         )
     }
 
+    /// `NSItemProviderReading` — protocol any class that wants
+    /// to be reconstructed from an NSItemProvider's raw bytes
+    /// conforms to. The class methods declare the UTIs it
+    /// accepts; the factory walks one of them back into a
+    /// concrete instance.
+    @objc pub interface NSItemProviderReading {
+        @objc("readableTypeIdentifiersForItemProvider")
+        readableTypeIdentifiersForItemProvider(): NSArray
+        @objc("objectWithItemProviderData:typeIdentifier:error:")
+        objectWithItemProviderData(
+            data: NSData, typeIdentifier: NSString, error: i64
+        ): NSObject
+    }
+
+    /// `NSItemProviderWriting` — symmetric write protocol. The
+    /// class declares its writable UTIs; the instance method
+    /// serialises into the matching bytes for each.
+    @objc pub interface NSItemProviderWriting {
+        @objc("writableTypeIdentifiersForItemProvider")
+        writableTypeIdentifiersForItemProvider(): NSArray
+        @objc("loadDataWithTypeIdentifier:forItemProviderCompletionHandler:")
+        loadDataWithTypeIdentifier(
+            typeIdentifier: NSString,
+            forItemProviderCompletionHandler: i64
+        ): NSObject
+    }
+
     /// `NSExtensionContext` — the runtime handed to an app
     /// extension when it loads. Read incoming items off
     /// `inputItems`; once you're done call either
