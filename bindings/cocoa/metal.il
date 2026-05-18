@@ -75,7 +75,7 @@
 //   * Tessellation / mesh-shading pipeline knobs
 //   * Acceleration structures / ray tracing
 
-use foundation { NSObject, NSString, NSError, NSRange, withObjcError, makeObjectBlock, objcRetain }
+use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 
 // ─── Enums ────────────────────────────────────────────────────────
 
@@ -630,12 +630,13 @@ pub struct MTLScissorRect {
         @objc("error")
         pub commandBufferError(): NSError
 
-        // Completion / schedule callbacks. The raw `@objc` forms
-        // take a heap-allocated ObjC block pointer (a plain `i64`)
-        // built via `foundation.makeObjectBlock(...)`. Prefer the
+        // Completion / schedule callbacks. The raw `@objc` slots
+        // take an `ObjCBlock<fn(i64)>` (built via
+        // `new ObjCBlock(fn(raw: i64) { ... })`); the typed
+        // `addCompletedHandler(fn(i64))` / `addScheduledHandler(fn(i64))`
+        // wrappers above box the closure for you. Prefer the
         // `onCompleted(...)` / `onScheduled(...)` top-level helpers
-        // below — they hide the block-creation boilerplate and
-        // wrap the incoming raw `id` back into an
+        // below — they wrap the incoming raw `id` back into an
         // `MTLCommandBuffer` for the user-supplied closure.
         //
         // Apple documents these handlers as "may be called on
@@ -1893,12 +1894,12 @@ pub fn newComputePipelineStateOrError(
 //
 // Ergonomic wrappers around `addCompletedHandler:` /
 // `addScheduledHandler:`. Each takes an ilang closure of type
-// `fn(MTLCommandBuffer)`, packs it into a `void(^)(id)` ObjC
-// block via `foundation.makeObjectBlock`, and feeds the block to
-// the underlying Metal selector. The runtime invokes the block
-// once the command buffer reaches the matching status; the raw
-// `id` it hands us is wrapped back into an `MTLCommandBuffer`
-// for the user-supplied closure.
+// `fn(MTLCommandBuffer)` and routes through the typed
+// `addCompletedHandler(fn(i64))` / `addScheduledHandler(fn(i64))`
+// methods (which box the closure as `ObjCBlock<fn(i64)>`). The
+// runtime invokes the block once the command buffer reaches the
+// matching status; the raw `id` it hands us is wrapped back
+// into an `MTLCommandBuffer` for the user-supplied closure.
 //
 // The blocks are autoreleased — let them die with the surrounding
 // autorelease pool (or hold them in `@autoreleasepool { ... }`

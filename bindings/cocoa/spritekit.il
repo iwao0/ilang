@@ -508,10 +508,10 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     /// updated post-creation. Useful for procedurally-generated
     /// textures or per-frame readback. Pixel mutation goes
     /// through `modifyPixelDataWithBlock:` — pass a block built
-    /// with `cocoa.makeBytesBlock(fn(ptr, len) { … })` and write
-    /// into the buffer via the `writeU8` / `writeU32` runtime
-    /// helpers. The buffer is the texture's backing store, so
-    /// mutations are persisted into the texture.
+    /// with `new ObjCBlock(fn(ptr: i64, len: i64) { ... })` and
+    /// write into the buffer via the `writeU8` / `writeU32`
+    /// runtime helpers. The buffer is the texture's backing
+    /// store, so mutations are persisted into the texture.
     @objc pub class SKMutableTexture : SKTexture {
         @objc("mutableTextureWithSize:")
         pub static mutableTextureWithSize(s: NSSize): SKMutableTexture
