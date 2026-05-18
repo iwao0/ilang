@@ -396,7 +396,16 @@ fn download(url: string, path: string) { ... }
 
 `@name(args)` 形式 (TS / Java / Python のデコレータ風)。複数並べる場合はそれぞれ `@` から始める。引数リストは省略不可 (`@x` 単独はパースエラー)。属性はメソッドにも付けられるが、クラス自体への付与は未対応。
 
-実際に意味を持つ属性は `@override` (継承メソッド)、`@extern(C) { ... }` ブロック、ブロック内 fn / struct の `@lib` / `@optional` / `@symbol` / `@packed` / `@bits(N)` のみ — それ以外はパースされても無視される。
+現状で意味を持つ属性は以下:
+
+- `@override` (継承メソッド — Classes 節を参照)
+- `@extern(C) { ... }` / `@extern(ObjC) { ... }` のブロックマーカー
+- `@extern(C)` 内の FFI 系: `@lib` / `@optional` / `@symbol` / `@packed` / `@bits(N)`
+- `@extern(ObjC)` 内の ObjC ブリッジ系: `@objc` / `@objc("selector:")` / `@optional` (interface メソッド用)
+- `enum` 宣言に付ける `@flags` (ビットセット意味付け)
+- `const` 宣言に付ける `@embed("path/to/file")` (コンパイル時ファイル取り込み)
+
+それ以外はパースは通るが黙って捨てられる。
 
 ---
 
@@ -439,6 +448,32 @@ c.count                                 // フィールド読み取り
 | `T.weak` | dead weak |
 
 それ以外のヒープ型 (`Object` 参照、`Map<K, V>`、関数値、タプル) は安全なデフォルトを持たないため、**すべての `init` オーバーロードで代入する必要があります**。漏れていると型チェック時に明確なエラーが出ます。代入できない場合は `T?` でラップして `none` をデフォルトにできます。
+
+#### struct リテラルによる構築 (`Name { field: value, ... }`)
+
+`new Name(...)` の代替記法。クラス / struct 名の直後に `{ ... }` を付けると、列挙したフィールドにそれぞれの値が代入されたインスタンスになる:
+
+```rust
+class Counter {
+    count: i64
+    label: string
+}
+
+let c = Counter { count: 10, label: "primary" }
+c.count                                  // 10
+
+struct Point {
+    x: i32
+    y: i32
+}
+let p = Point { x: 3, y: 4 }             // 値型 struct もリテラルで構築できる
+```
+
+- **通常の ARC クラス**: 任意の部分集合のフィールドを指定可能。省略したフィールドは自動デフォルト (上の表) もしくは `init` の代入で埋まる。代入必須なのにデフォルトを持たないフィールドを省略した場合は型エラー
+- **トップレベル / `@extern(C)` の `struct`**: **全フィールド**を初期化する必要がある — `init` で補える仕組みが無いため、省略すると黙って zero-init されてしまうのを防ぐ
+- **トップレベル / `@extern(C)` の `union`**: **ちょうど 1 つ**のフィールドだけ初期化 (variants が同じストレージスロットを共有するため)
+- 同じリテラル内でフィールド名が重複した場合はエラー
+- 内部的には `new Name() + 各フィールドへの代入チェーン` に展開されるため、リテラル中のフィールド順序は自由で、クラスの `init` は呼ばれない (コンストラクタではなく field-by-field の構築)
 
 ### ジェネリッククラス
 

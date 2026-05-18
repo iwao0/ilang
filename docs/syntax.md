@@ -499,10 +499,16 @@ attributes each start with their own `@`. The argument list is not
 optional (`@x` without parens is a parse error). Attributes attach
 to methods too, but not to the class itself.
 
-The attributes that actually carry meaning today are `@override`
-(inheritance) and the FFI ones inside `@extern(C) { ... }`:
-`@lib`, `@optional`, `@symbol`, `@packed`, `@bits(N)`. Everything
-else is parsed and ignored.
+The attributes that actually carry meaning today are:
+
+- `@override` (inheritance — see the Classes section)
+- `@extern(C) { ... }` / `@extern(ObjC) { ... }` block markers
+- FFI items inside `@extern(C)`: `@lib`, `@optional`, `@symbol`, `@packed`, `@bits(N)`
+- ObjC bridging inside `@extern(ObjC)`: `@objc`, `@objc("selector:")`, `@optional` (on interface methods)
+- `@flags` on `enum` declarations (bitset semantics)
+- `@embed("path/to/file")` on `const` declarations (compile-time file inclusion)
+
+Everything else parses successfully but is silently dropped.
 
 ---
 
@@ -558,6 +564,42 @@ values, tuples) have no safe blank — every `init` overload **must
 assign** them, otherwise the class declaration fails to type-check
 with a clear error. Wrapping such a field in `T?` opts in to a
 `none` default.
+
+#### Struct-literal construction (`Name { field: value, ... }`)
+
+Alternative to `new Name(...)`. Postfix `{ ... }` on a bare class /
+struct name evaluates to an instance whose listed fields are
+assigned to the given values:
+
+```rust
+class Counter {
+    count: i64
+    label: string
+}
+
+let c = Counter { count: 10, label: "primary" }
+c.count                                  // 10
+
+struct Point {
+    x: i32
+    y: i32
+}
+let p = Point { x: 3, y: 4 }             // value-type struct via literal
+```
+
+- **Regular ARC class**: any subset of fields is accepted. Omitted
+  fields fall back to their auto-default (above) or to whatever an
+  `init` overload would have set; combining a struct literal with a
+  required-assignment field that has no default is a type error.
+- **Top-level / `@extern(C)` `struct`**: **every** field must be
+  initialized — there's no `init` to fill the gaps and a missing
+  field would silently zero-initialize.
+- **Top-level / `@extern(C)` `union`**: exactly **one** field must
+  be initialized (variants share a single storage slot).
+- Duplicate field names in the same literal are rejected.
+- Lowered to `new Name() + a chain of field assignments`, so the
+  field order in the literal doesn't matter and class `init`s are
+  not invoked (you're constructing by-field, not by-constructor).
 
 ### Generic classes
 
