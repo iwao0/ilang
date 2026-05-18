@@ -390,8 +390,10 @@ fn f() {}
     pub(crate) fn run_iface(src: &str, cursor: Position) -> Option<String> {
         let toks = ilang_lexer::tokenize(src).ok()?;
         let prog = ilang_parser::parse(&toks).ok()?;
+        let empty: std::collections::HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+            std::collections::HashMap::new();
         let (insert, new_text, _) =
-            implement_interface_methods_at(src, &prog, cursor)?;
+            implement_interface_methods_at(src, &prog, &empty, cursor)?;
         let mut out = src.to_string();
         out.insert_str(insert, &new_text);
         Some(out)
@@ -480,6 +482,51 @@ fn outside() {}
         // `(a, ` — bare tuple, NOT a type position.
         let src = "let t = (a, ";
         assert!(!at_type_position(src, src.len()));
+    }
+
+    #[test]
+    pub(crate) fn implement_uses_external_interfaces_for_cross_module() {
+        // Simulate `use cocoa { MyDel }` where MyDel lives in
+        // another file: the local buffer has no `interface MyDel`
+        // visible, but `external_interfaces` carries the decl
+        // populated by the loader. The code action should fall
+        // back to that map.
+        let local_src = "\
+class MyApp : MyDel {
+}
+";
+        let toks = ilang_lexer::tokenize(local_src).unwrap();
+        let local_prog = ilang_parser::parse(&toks).unwrap();
+
+        // Build a stand-in InterfaceDecl by parsing a separate
+        // snippet that DOES declare it.
+        let ext_src = "\
+interface MyDel {
+    notifyMe(name: i64)
+    @optional cleanup()
+}
+";
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut ext_ifaces: std::collections::HashMap<
+            AstSymbol,
+            ilang_ast::InterfaceDecl,
+        > = std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::Interface(i) = it {
+                ext_ifaces.insert(i.name, i.clone());
+            }
+        }
+
+        let (insert, new_text, count) =
+            implement_interface_methods_at(local_src, &local_prog, &ext_ifaces, pos(0, 22))
+                .expect("should fire for cross-module interface");
+        assert!(count >= 2, "missing count = {count}");
+        let mut out = local_src.to_string();
+        out.insert_str(insert, &new_text);
+        assert!(out.contains("pub notifyMe(name: i64) {"), "out:\n{out}");
+        assert!(out.contains("pub cleanup() {"), "out:\n{out}");
+        assert!(out.contains("@optional"), "out:\n{out}");
     }
 
     #[test]

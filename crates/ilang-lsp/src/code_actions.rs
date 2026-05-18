@@ -467,6 +467,7 @@ fn scrutinee_enum_name(
 pub(crate) fn implement_interface_methods_at(
     text: &str,
     prog: &Program,
+    external_interfaces: &HashMap<AstSymbol, InterfaceDecl>,
     cursor: Position,
 ) -> Option<(usize, String, usize)> {
     let cursor_byte =
@@ -507,6 +508,9 @@ pub(crate) fn implement_interface_methods_at(
         .collect();
     for b in bases {
         if let Some(decl) = find_interface_decl(prog, b) {
+            iface_decls.push(decl);
+        } else if let Some(decl) = external_interfaces.get(&b) {
+            // Cross-module reference (e.g. `use cocoa { NSApplicationDelegate }`).
             iface_decls.push(decl);
         }
     }

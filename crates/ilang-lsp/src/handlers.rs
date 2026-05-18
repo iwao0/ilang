@@ -1051,6 +1051,7 @@ impl LanguageServer for Backend {
         };
         let text = doc.text.clone();
         let var_types = doc.var_types.clone();
+        let doc_external_interfaces = doc.external_interfaces.clone();
         drop(docs);
         let Ok(tokens) = tokenize(&text) else {
             return Ok(None);
@@ -1142,7 +1143,12 @@ impl LanguageServer for Backend {
                 }));
             }
             if let Some((insert_byte, new_text, missing_count)) =
-                implement_interface_methods_at(&text, &prog, p.range.start)
+                implement_interface_methods_at(
+                    &text,
+                    &prog,
+                    &doc_external_interfaces,
+                    p.range.start,
+                )
             {
                 let pos = byte_to_position(&text, insert_byte);
                 let range = Range { start: pos, end: pos };

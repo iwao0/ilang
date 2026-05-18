@@ -53,6 +53,7 @@ pub(crate) fn build_doc(
     external_classes: &HashMap<AstSymbol, ClassInfo>,
     external_sources: &ExternalSources,
     external_docs: &HashMap<AstSymbol, String>,
+    external_interfaces: &HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
 ) -> Doc {
     let symbols = collect_symbols(prog, &text);
     let mut classes = collect_classes(prog, &text);
@@ -336,5 +337,6 @@ pub(crate) fn build_doc(
         external_docs: external_docs.clone(),
         external_returns: external_returns.clone(),
         external_sources: external_sources.clone(),
+        external_interfaces: external_interfaces.clone(),
     }
 }

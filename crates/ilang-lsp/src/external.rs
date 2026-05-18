@@ -1387,3 +1387,42 @@ pub(crate) fn collect_external_signatures(
     (out, rets)
 }
 
+
+/// Collect every `interface` / `@objc interface` declaration in
+/// the loaded program, keyed both by the bare name and by the
+/// module-prefixed name (when the loader has already applied a
+/// prefix). Drives the "implement missing interface methods"
+/// code action: a class body that names
+/// `NSApplicationDelegate` (bare, via `use cocoa { … }`) or
+/// `cocoa.NSApplicationDelegate` (whole-module reference) finds
+/// the same `InterfaceDecl` through this map.
+pub(crate) fn collect_external_interfaces(
+    prog: &Program,
+) -> HashMap<AstSymbol, ilang_ast::InterfaceDecl> {
+    let mut out: HashMap<AstSymbol, ilang_ast::InterfaceDecl> = HashMap::new();
+    for it in &prog.items {
+        match it {
+            Item::Interface(i) => {
+                out.insert(i.name, i.clone());
+                if let Some(bare) = i.name.as_str().rsplit_once('.').map(|(_, t)| t) {
+                    out.insert(AstSymbol::intern(bare), i.clone());
+                }
+            }
+            Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    out.insert(iface.name, iface.clone());
+                    if let Some(bare) = iface
+                        .name
+                        .as_str()
+                        .rsplit_once('.')
+                        .map(|(_, t)| t)
+                    {
+                        out.insert(AstSymbol::intern(bare), iface.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}

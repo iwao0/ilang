@@ -146,5 +146,14 @@ pub(crate) struct Doc {
     /// `let x = math.sqrt(...)` infers as f64.
     #[allow(dead_code)]
     pub(crate) external_returns: HashMap<AstSymbol, Type>,
+    /// Interface declarations from imported modules, keyed both by
+    /// the bare name (`NSApplicationDelegate`) for selective
+    /// imports and the prefixed form (`cocoa.NSApplicationDelegate`)
+    /// for whole-module references. Drives the "implement missing
+    /// interface methods" code action when a class names a
+    /// cross-module interface in its base list.
+    #[allow(dead_code)]
+    pub(crate) external_interfaces:
+        HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
 }
 

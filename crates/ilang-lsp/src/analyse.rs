@@ -78,6 +78,10 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         .as_ref()
         .map(|p| collect_external_classes(p, &external_sources))
         .unwrap_or_default();
+    let external_interfaces = merged
+        .as_ref()
+        .map(collect_external_interfaces)
+        .unwrap_or_default();
     let mut doc = build_doc(
         text,
         &parsed_buffer,
@@ -86,6 +90,7 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         &external_classes,
         &external_sources,
         &external_docs,
+        &external_interfaces,
     );
     doc.external_docs = external_docs;
     Some(doc)
