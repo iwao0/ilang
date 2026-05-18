@@ -1,10 +1,11 @@
-// SpriteKit input + scene-subclass demo — clicks spawn small
-// dots at the cursor; arrow keys move a player sprite. Exercises:
+// 🖱️⌨️ ilang × SpriteKit — input + scene subclass. Clicks spawn
+// small dots at the cursor; arrow keys move a player sprite.
+// Exercises:
 //
 //   * `@objc class MyScene : SKScene` with overridden
-//     `mouseDown:` / `keyDown:` / `update:` selectors. The
-//     parser desugar registers the IMPs with libobjc so
-//     SpriteKit's responder chain dispatches into ilang code.
+//     `mouseDown:` / `keyDown:` / `update:` selectors. The parser
+//     desugar registers the IMPs with libobjc so SpriteKit's
+//     responder chain dispatches into ilang code.
 //   * NSEvent unpacking: `locationInWindow()` (window coords) →
 //     `view.convertPointFromView` (view coords, passing
 //     `cocoa.nil` to mean "from window") → `scene.convertPointFromView`
@@ -12,8 +13,9 @@
 //   * Module-level `let` bindings (the player sprite + velocity)
 //     captured by the overridden methods.
 //
-// Run with:
-//   cargo run --release -p ilang -- run bindings/cocoa/example_spritekit_input.il
+// Run (the cocoa bindings dep is wired through this directory's
+// `ilang.toml`):
+//   ilang run examples/macos/spritekit_input/main.il
 
 use cocoa
 use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode }

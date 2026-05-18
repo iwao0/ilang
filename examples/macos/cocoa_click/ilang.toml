@@ -1,0 +1,5 @@
+[package]
+name = "cocoa_click_demo"
+
+[deps]
+cocoa = "../../../bindings/cocoa"

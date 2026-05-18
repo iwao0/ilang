@@ -1,10 +1,11 @@
-// SpriteKit demo — opens a window hosting an `SKView`, drops a
-// red square at the centre, and animates it back and forth with
-// a `sequence` of `moveByX:y:` actions wrapped in
-// `repeatActionForever:`.
+// 🎬 ilang × SpriteKit — minimum viable scene. Opens a window
+// hosting an `SKView`, drops a red square at the centre, and
+// animates it back and forth with a `sequence` of `moveByX:y:`
+// actions wrapped in `repeatActionForever:`.
 //
-// Run with:
-//   cargo run --release -p ilang -- run bindings/cocoa/example_spritekit.il
+// Run (the cocoa bindings dep is wired through this directory's
+// `ilang.toml`):
+//   ilang run examples/macos/spritekit_basic/main.il
 
 use cocoa
 use spritekit { SKView, SKScene, SKSpriteNode, SKLabelNode, SKAction }

@@ -1,10 +1,11 @@
-// Minimal Cocoa demo — opens a 480×320 window with a "Hello,
-// ilang" button. Quit with ⌘Q. No click handler yet (delegate
-// support exists via `@objc class MyDelegate : NSObject` but
-// isn't exercised here).
+// 👋 ilang × Cocoa — minimal hello window. Opens a 480×320
+// window with a "Hello, ilang" button (no click handler — see
+// `examples/macos/cocoa_click` for the handler version). Quit
+// with ⌘Q.
 //
-// Run with:
-//   cargo run -p ilang -- run bindings/cocoa/example.il
+// Run (the cocoa bindings dep is wired through this directory's
+// `ilang.toml`):
+//   ilang run examples/macos/cocoa_hello/main.il
 
 use cocoa
 

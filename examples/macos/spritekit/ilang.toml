@@ -1,0 +1,5 @@
+[package]
+name = "spritekit_physics_demo"
+
+[deps]
+cocoa = "../../../bindings/cocoa"

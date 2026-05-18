@@ -1,13 +1,14 @@
-// SpriteKit physics demo — three circles drop under gravity and
-// bounce inside an edge-loop box. Shows:
+// 🎱 ilang × SpriteKit — physics demo. Three circles drop under
+// gravity and bounce inside an edge-loop box. Shows:
 //   * `SKPhysicsBody.bodyWithEdgeLoopFromRect` for static walls
 //     attached to the scene itself (no SKNode needed).
-//   * `bodyWithCircleOfRadius` for dynamic balls; setRestitution
+//   * `bodyWithCircleOfRadius` for dynamic balls; `setRestitution`
 //     keeps them bouncy.
 //   * `SKPhysicsWorld.setGravity` set on the scene's world.
 //
-// Run with:
-//   cargo run --release -p ilang -- run bindings/cocoa/example_spritekit_physics.il
+// Run (the cocoa bindings dep is wired through this directory's
+// `ilang.toml`):
+//   ilang run examples/macos/spritekit/main.il
 
 use cocoa
 use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode, SKPhysicsBody }

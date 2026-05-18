@@ -1,0 +1,5 @@
+[package]
+name = "spritekit_input_demo"
+
+[deps]
+cocoa = "../../../bindings/cocoa"

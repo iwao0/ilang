@@ -1,17 +1,16 @@
-// Cocoa demo with a working click handler.
+// 🖱️ ilang × Cocoa — minimal click handler.
 //
-// Defines `ClickHandler : NSObject` in ilang, registers it
-// with the ObjC runtime via `ClickHandler.register()`, and
-// wires the button's target/action to `[handler clicked:]`.
-// When the button is clicked, AppKit dispatches via
-// objc_msgSend → our IMP → the ilang `clicked` body.
+// Defines `ClickHandler : NSObject` in ilang, registers it with
+// the ObjC runtime via `ClickHandler.register()`, and wires the
+// button's target/action to `[handler clicked:]`. When the button
+// is clicked, AppKit dispatches via objc_msgSend → our IMP → the
+// ilang `clicked` body.
 //
-// Run with:
-//   cargo run --release -p ilang -- build bindings/cocoa/example_click.il -o /tmp/cocoa_click
-//   /tmp/cocoa_click
+// Run (the cocoa bindings dep is wired through this directory's
+// `ilang.toml`):
+//   ilang run examples/macos/cocoa_click/main.il
 //
-// Click the button to see `clicked!` print to stdout. ⌘Q to
-// quit.
+// Click the button to see `clicked!` print to stdout. ⌘Q to quit.
 
 use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
             StyleMask, ActivationPolicy, nil,
