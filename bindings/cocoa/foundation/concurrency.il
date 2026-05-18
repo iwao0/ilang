@@ -3,12 +3,13 @@
 // NSConditionLock), and the NSOperation tree.
 //
 // Most of these classes accept a `void(^)(void)` callback (thread
-// body, completion block, block-operation body), which routes
-// through the runtime's existing `makeBlock` helper. NSThread
-// also has a `+detachNewThreadSelector:toTarget:withObject:` form
-// for selector-driven dispatch.
+// body, completion block, block-operation body) — the @objc slot
+// is typed `ObjCBlock<fn()>` so the public wrappers build it via
+// `new ObjCBlock(body)`. NSThread also has a
+// `+detachNewThreadSelector:toTarget:withObject:` form for
+// selector-driven dispatch.
 
-use core { NSObject, NSString, NSArray, makeBlock }
+use core { NSObject, NSString, NSArray }
 use datetime { NSDate }
 
 // NSQualityOfService — scheduler hint for both NSThread and
@@ -71,9 +72,9 @@ pub enum OperationQueuePriority: i64 {
         )
 
         @objc("detachNewThreadWithBlock:")
-        static _detachNewThreadWithBlock(block: i64)
+        static _detachNewThreadWithBlock(block: ObjCBlock<fn()>)
         @objc("initWithBlock:")
-        _initWithBlock(block: i64): NSThread
+        _initWithBlock(block: ObjCBlock<fn()>): NSThread
         @objc("alloc")
         pub static alloc(): NSThread
 
@@ -105,7 +106,7 @@ pub enum OperationQueuePriority: i64 {
         /// and exits. The thread is auto-released by the system
         /// after the body returns.
         pub static detachNewThread(body: fn()) {
-            NSThread._detachNewThreadWithBlock(makeBlock(body))
+            NSThread._detachNewThreadWithBlock(new ObjCBlock(body))
         }
 
         /// Construct a `start`-able thread carrying `body`. The
@@ -113,7 +114,7 @@ pub enum OperationQueuePriority: i64 {
         /// call `.start()` when you're ready, or set `name` /
         /// `stackSize` / `qualityOfService` first.
         pub static threadWithBody(body: fn()): NSThread {
-            NSThread.alloc()._initWithBlock(makeBlock(body))
+            NSThread.alloc()._initWithBlock(new ObjCBlock(body))
         }
     }
 
@@ -283,14 +284,14 @@ pub enum OperationQueuePriority: i64 {
         pub set name(s: NSString)
 
         @objc("setCompletionBlock:")
-        _setCompletionBlock(block: i64)
+        _setCompletionBlock(block: ObjCBlock<fn()>)
 
         /// Install a completion handler that fires once the
         /// operation finishes (whether cancelled or completed).
         /// Pass `body` once; reassigning replaces the previous
         /// handler.
         pub setCompletion(body: fn()) {
-            this._setCompletionBlock(makeBlock(body))
+            this._setCompletionBlock(new ObjCBlock(body))
         }
     }
 
@@ -305,19 +306,19 @@ pub enum OperationQueuePriority: i64 {
         pub init(): NSBlockOperation
 
         @objc("blockOperationWithBlock:")
-        static _blockOperationWithBlock(block: i64): NSBlockOperation
+        static _blockOperationWithBlock(block: ObjCBlock<fn()>): NSBlockOperation
         @objc("addExecutionBlock:")
-        _addExecutionBlock(block: i64)
+        _addExecutionBlock(block: ObjCBlock<fn()>)
 
         /// Construct a one-shot block operation. Hand it to an
         /// NSOperationQueue (or call `.start()` directly for an
         /// inline run on the current thread).
         pub static withBlock(body: fn()): NSBlockOperation {
-            NSBlockOperation._blockOperationWithBlock(makeBlock(body))
+            NSBlockOperation._blockOperationWithBlock(new ObjCBlock(body))
         }
 
         pub addExecutionBlock(body: fn()) {
-            this._addExecutionBlock(makeBlock(body))
+            this._addExecutionBlock(new ObjCBlock(body))
         }
     }
 
@@ -364,7 +365,7 @@ pub enum OperationQueuePriority: i64 {
         @objc("addOperations:waitUntilFinished:")
         pub addOperations(ops: NSArray, waitUntilFinished: bool)
         @objc("addOperationWithBlock:")
-        _addOperationWithBlock(block: i64)
+        _addOperationWithBlock(block: ObjCBlock<fn()>)
         @objc("cancelAllOperations")
         pub cancelAllOperations()
         @objc("waitUntilAllOperationsAreFinished")
@@ -374,7 +375,7 @@ pub enum OperationQueuePriority: i64 {
         /// `addOperation(NSBlockOperation.withBlock(body))` but
         /// skips the wrapper allocation.
         pub addBlock(body: fn()) {
-            this._addOperationWithBlock(makeBlock(body))
+            this._addOperationWithBlock(new ObjCBlock(body))
         }
     }
 

@@ -4,7 +4,7 @@
 // etc.) lean on the block helpers and pull in NSDate / NSString
 // from siblings.
 
-use core { NSObject, NSString, makeObjectBlock }
+use core { NSObject, NSString }
 use datetime { NSDate }
 use concurrency { QualityOfService }
 
@@ -20,12 +20,12 @@ use concurrency { QualityOfService }
     @objc pub class NSTimer : NSObject {
         @objc("scheduledTimerWithTimeInterval:repeats:block:")
         static _scheduledWithBlock(
-            interval: f64, repeats: bool, block: i64
+            interval: f64, repeats: bool, block: ObjCBlock<fn(i64)>
         ): NSTimer
 
         @objc("timerWithTimeInterval:repeats:block:")
         static _timerWithBlock(
-            interval: f64, repeats: bool, block: i64
+            interval: f64, repeats: bool, block: ObjCBlock<fn(i64)>
         ): NSTimer
 
         @objc("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:")
@@ -65,7 +65,7 @@ use concurrency { QualityOfService }
             interval: f64, repeats: bool, body: fn(i64)
         ): NSTimer {
             NSTimer._scheduledWithBlock(
-                interval, repeats, makeObjectBlock(body)
+                interval, repeats, new ObjCBlock(body)
             )
         }
 
@@ -75,7 +75,7 @@ use concurrency { QualityOfService }
             interval: f64, repeats: bool, body: fn(i64)
         ): NSTimer {
             NSTimer._timerWithBlock(
-                interval, repeats, makeObjectBlock(body)
+                interval, repeats, new ObjCBlock(body)
             )
         }
     }
