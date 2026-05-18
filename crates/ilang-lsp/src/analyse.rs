@@ -47,6 +47,60 @@ pub(crate) fn lookup_ref(doc: &Doc, pos: Position) -> Option<&RefEntry> {
 /// rename can pull `RefEntry` lists out of closed files. Returns
 /// `None` for unreadable / unparsable files (silently skipped at
 /// the call site).
+/// Apply the loader's `@objc` auto-lift to a single-file parse,
+/// seeded with the `@objc class` and `@objc interface` names from
+/// the merged program. Without this, a top-level
+/// `class C : NSObject { ... }` would never expose the synthesized
+/// `alloc` / `init` / `register` methods through the buffer-local
+/// `collect_classes` (auto-lift runs inside the loader, not on
+/// raw parses), so hover on `let x = C.alloc().init()` would
+/// report no type. Bare suffix is registered alongside the dotted
+/// name so the buffer's bare-name parent (`NSObject`) resolves
+/// before dealiasing has had a chance to map it to `cocoa.NSObject`.
+pub(crate) fn lift_local_parse_objc(
+    prog: ilang_ast::Program,
+    merged: Option<&ilang_ast::Program>,
+) -> ilang_ast::Program {
+    use ilang_ast::ExternCItem;
+    let mut objc_class_names: std::collections::HashSet<AstSymbol> =
+        std::collections::HashSet::new();
+    let mut objc_ifaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+        HashMap::new();
+    if let Some(m) = merged {
+        for item in &m.items {
+            if let ilang_ast::Item::ExternC(blk) = item {
+                for iface in blk.interfaces.iter() {
+                    if iface.is_objc {
+                        objc_ifaces.insert(iface.name, iface.clone());
+                        if let Some(bare) =
+                            iface.name.as_str().rsplit_once('.').map(|(_, t)| t)
+                        {
+                            objc_ifaces.insert(AstSymbol::intern(bare), iface.clone());
+                        }
+                    }
+                }
+                for inner in blk.items.iter() {
+                    if let ExternCItem::Class(cd) = inner {
+                        if cd.attrs.iter().any(|a| a.name.as_str() == "objc") {
+                            objc_class_names.insert(cd.name);
+                            if let Some(bare) =
+                                cd.name.as_str().rsplit_once('.').map(|(_, t)| t)
+                            {
+                                objc_class_names.insert(AstSymbol::intern(bare));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ilang_parser::loader::auto_lift_objc_subclasses_with(
+        prog,
+        &objc_ifaces,
+        &objc_class_names,
+    )
+}
+
 pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
     let text = std::fs::read_to_string(path).ok()?;
     let parsed_buffer = parse_ok(&text).ok()?;
@@ -82,6 +136,11 @@ pub(crate) fn analyse_path_to_doc(path: &Path) -> Option<Doc> {
         .as_ref()
         .map(collect_external_interfaces)
         .unwrap_or_default();
+    // Mirror backend's auto-lift on the local parse so a
+    // `class C : NSObject { ... }` exposes its synthesized
+    // `alloc` / `init` / `register` methods through
+    // `collect_classes(parsed_buffer)`.
+    let parsed_buffer = lift_local_parse_objc(parsed_buffer, merged.as_ref());
     let mut doc = build_doc(
         text,
         &parsed_buffer,

@@ -2070,11 +2070,26 @@ fn is_builtin_type(name: &str) -> bool {
 /// Detection runs against the post-merge Items, so cross-module
 /// references to an `@objc interface` declared in a dependency
 /// module are found correctly.
-fn auto_lift_objc_subclasses(mut prog: Program) -> Program {
+fn auto_lift_objc_subclasses(prog: Program) -> Program {
+    auto_lift_objc_subclasses_with(prog, &HashMap::new(), &HashSet::new())
+}
+
+/// Like `auto_lift_objc_subclasses` but accepts extra `@objc
+/// interface` and `@objc class` names harvested from somewhere
+/// else (e.g. the LSP wants to lift its single-file parse using
+/// names from the post-merge program — without those, references
+/// like `class AppDelegate : NSApplicationDelegate` look like
+/// they inherit from an unknown name and the lift bails).
+pub fn auto_lift_objc_subclasses_with(
+    mut prog: Program,
+    extra_ifaces: &HashMap<Symbol, InterfaceDecl>,
+    extra_class_names: &HashSet<Symbol>,
+) -> Program {
     // 1. Collect every `@objc interface` declaration and every
-    //    `@objc class` name across the merged program.
-    let mut objc_ifaces: HashMap<Symbol, InterfaceDecl> = HashMap::new();
-    let mut objc_class_names: HashSet<Symbol> = HashSet::new();
+    //    `@objc class` name across the merged program, seeded
+    //    with whatever the caller already knows about.
+    let mut objc_ifaces: HashMap<Symbol, InterfaceDecl> = extra_ifaces.clone();
+    let mut objc_class_names: HashSet<Symbol> = extra_class_names.clone();
     for item in &prog.items {
         if let Item::ExternC(blk) = item {
             for iface in blk.interfaces.iter() {
@@ -2091,7 +2106,7 @@ fn auto_lift_objc_subclasses(mut prog: Program) -> Program {
             }
         }
     }
-    if objc_ifaces.is_empty() {
+    if objc_ifaces.is_empty() && objc_class_names.is_empty() {
         return prog;
     }
 

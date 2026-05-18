@@ -175,6 +175,15 @@ pub(crate) async fn refresh_impl(
     // error (which is most of the time during typing).
     match parsed_buffer {
         Ok(prog) => {
+            // Auto-lift the buffer-local parse the same way the
+            // loader does for `merged`: a top-level `class X :
+            // NSObject { ... }` gets rewritten as an `@extern(ObjC)
+            // { @objc class X { ... } }` block with synthesized
+            // `alloc` / `init` / `register`. Without this step, the
+            // local `collect_classes(prog)` would miss those
+            // synthesized methods and hovering on
+            // `let x = X.alloc().init()` would report no type.
+            let prog = lift_local_parse_objc(prog, merged.as_ref());
             let mut d = build_doc(
                 text,
                 &prog,

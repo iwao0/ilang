@@ -687,6 +687,58 @@ interface MyDel {
     }
 
     #[test]
+    pub(crate) fn local_class_inheriting_nsobject_has_synth_alloc_init_types() {
+        // `examples/macos/cocoa/main.il` declares
+        //   class AppDelegate : NSApplicationDelegate { ... }
+        //   class FormHandler : NSObject { ... }
+        // The loader's auto-lift gives both classes synthesized
+        // `alloc` / `init` / `register` methods. Confirm the LSP's
+        // local parse (post-lift) sees them — without the lift on
+        // the buffer-local path, `let appDel = AppDelegate.alloc().init()`
+        // would infer no type and hover would come up blank.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("examples/macos/cocoa/main.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("examples/macos/cocoa/main.il must load");
+
+        let app_del_key = AstSymbol::intern("AppDelegate");
+        let info = doc
+            .classes
+            .get(&app_del_key)
+            .expect("AppDelegate must be in doc.classes");
+        assert!(
+            info.methods.contains_key(&AstSymbol::intern("init")),
+            "AppDelegate is missing the synth `init` method"
+        );
+        // `alloc` is a static method on @objc classes.
+        let alloc_present = info
+            .methods
+            .get(&AstSymbol::intern("alloc"))
+            .map(|m| m.is_static)
+            .unwrap_or(false);
+        assert!(
+            alloc_present,
+            "AppDelegate is missing the synth static `alloc` method"
+        );
+
+        // Likewise, AppDelegate.alloc().init() should be inferrable
+        // as Object("AppDelegate"). The buffer binds the result to
+        // `appDel`; var_types stores the walker-inferred type.
+        let app_del_ty = doc.var_types.get(&AstSymbol::intern("appDel"));
+        assert!(
+            matches!(
+                app_del_ty,
+                Some(ilang_ast::Type::Object(n)) if n.as_str() == "AppDelegate"
+            ),
+            "expected appDel: AppDelegate, got {:?}",
+            app_del_ty
+        );
+    }
+
+    #[test]
     pub(crate) fn type_completion_surfaces_cocoa_interface_for_example_click() {
         // Load examples/macos/cocoa_click/main.il through the same
         // path the LSP uses and inspect `type_completions(doc)`.
