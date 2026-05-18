@@ -493,13 +493,14 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub textureByGeneratingNormalMapWithParams(smoothness: f64, contrast: f64): SKTexture
 
         // Async preload — the block is invoked on the main
-        // queue once the texture's pixels are uploaded.
-        // Build the block via `cocoa.makeBlock(fn)`.
+        // queue once the texture's pixels are uploaded. Wrap an
+        // ilang `fn()` with `new ObjCBlock(...)` at the call
+        // site; the type checker requires the matching signature.
         @objc("preloadWithCompletionHandler:")
-        pub preloadWithCompletionHandler(block: i64)
+        pub preloadWithCompletionHandler(block: ObjCBlock<fn()>)
         @objc("preloadTextures:withCompletionHandler:")
         pub static preloadTexturesWithCompletionHandler(
-            textures: NSArray, withCompletionHandler: i64
+            textures: NSArray, withCompletionHandler: ObjCBlock<fn()>
         )
     }
 
@@ -518,7 +519,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub static mutableTextureWithSizeAndPixelFormat(s: NSSize, pixelFormat: i32): SKMutableTexture
 
         @objc("modifyPixelDataWithBlock:")
-        pub modifyPixelDataWithBlock(block: i64)
+        pub modifyPixelDataWithBlock(block: ObjCBlock<fn(i64, i64)>)
     }
 
     /// `SKTextureAtlas` — collection of textures loaded as one
@@ -619,10 +620,10 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
 
         // Block — fires once. ObjC signature is
         // `+ (SKAction *)runBlock:(dispatch_block_t)block` which
-        // is a `void(^)(void)`; we wire it through
-        // `cocoa.makeBlock`.
+        // is a `void(^)(void)`; build the argument with
+        // `new ObjCBlock(fn() { ... })`.
         @objc("runBlock:")
-        pub static runBlock(block: i64): SKAction
+        pub static runBlock(block: ObjCBlock<fn()>): SKAction
 
         // Instance — reverse / timing
         @objc("reversedAction")

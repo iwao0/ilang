@@ -643,9 +643,23 @@ pub struct MTLScissorRect {
         // state, hop back to the main queue (e.g. via
         // `NSOperationQueue.mainQueue().addOperationWithBlock`).
         @objc("addCompletedHandler:")
-        pub addCompletedHandler(block: i64)
+        _addCompletedHandler(block: ObjCBlock<fn(i64)>)
         @objc("addScheduledHandler:")
-        pub addScheduledHandler(block: i64)
+        _addScheduledHandler(block: ObjCBlock<fn(i64)>)
+        /// `addCompletedHandler:` — called after the GPU finishes
+        /// executing this command buffer. `body` receives the
+        /// command buffer itself as a raw `id` handle (wrap with
+        /// `MTLCommandBuffer.__wrap_handle_unowned` inside if you
+        /// want a typed view).
+        pub addCompletedHandler(body: fn(i64)) {
+            this._addCompletedHandler(new ObjCBlock(body))
+        }
+        /// `addScheduledHandler:` — called when the command buffer
+        /// has been scheduled on the GPU (not yet executed). Same
+        /// argument shape as `addCompletedHandler`.
+        pub addScheduledHandler(body: fn(i64)) {
+            this._addScheduledHandler(new ObjCBlock(body))
+        }
 
         // GPU-side event signalling / waiting. Both selectors are
         // queued into the command buffer; the GPU executes them
@@ -1897,10 +1911,9 @@ pub fn newComputePipelineStateOrError(
 /// `buf.commandBufferError()` inside the closure to distinguish
 /// the two.
 pub fn onCompleted(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
-    let block = makeObjectBlock(fn(raw: i64) {
+    buf.addCompletedHandler(fn(raw: i64) {
         handler(MTLCommandBuffer.__wrap_handle(raw))
     })
-    buf.addCompletedHandler(block)
 }
 
 /// Register a `fn(MTLCommandBuffer)` to fire once `buf` reaches
@@ -1908,10 +1921,9 @@ pub fn onCompleted(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
 /// hasn't necessarily finished). Useful for triple-buffered
 /// frame pacing.
 pub fn onScheduled(buf: MTLCommandBuffer, handler: fn(MTLCommandBuffer)) {
-    let block = makeObjectBlock(fn(raw: i64) {
+    buf.addScheduledHandler(fn(raw: i64) {
         handler(MTLCommandBuffer.__wrap_handle(raw))
     })
-    buf.addScheduledHandler(block)
 }
 
 // ─── Viewport / scissor convenience constructors ─────────────────
