@@ -93,6 +93,12 @@ static OBJ_TO_OBJ_SIGNATURE: &[u8] = b"@16@?0@8\0";
 // (8B) = 24B total. `^v` is `void *`; `Q` is `unsigned long long`
 // (size_t on 64-bit).
 static VOID_BYTES_SIGNATURE: &[u8] = b"v24@?0^v8Q16\0";
+// `void(^)(id, id, id)` — block + three `id` arguments. Total arg
+// frame: block@0 (8B), a@8 (8B), b@16 (8B), c@24 (8B) = 32B. Used
+// by `NSURLSession`'s `dataTaskWithRequest:completionHandler:`
+// family where the callback receives (NSData *, NSURLResponse *,
+// NSError *).
+static VOID_THREE_OBJ_SIGNATURE: &[u8] = b"v32@?0@8@16@24\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -176,6 +182,29 @@ extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
     }
 }
 
+/// `void(^)(id, id, id)` trampoline. ilang closure signature is
+/// `fn(a: i64, b: i64, c: i64): unit`. The three `id`s come
+/// straight off the wire as raw handles; the closure body wraps
+/// each in `NSObject.wrap` (or a subclass equivalent) if it wants
+/// a typed view. Used by every Foundation completion handler that
+/// hands back `(NSData *, NSURLResponse *, NSError *)`.
+extern "C" fn invoke_void_three_obj_block(
+    b: *mut BlockLayout, a: i64, c: i64, d: i64,
+) {
+    if b.is_null() {
+        return;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        let f: extern "C" fn(i64, i64, i64, i64) = std::mem::transmute(fn_ptr);
+        f(a, c, d, closure_ptr);
+    }
+}
+
 extern "C" fn copy_helper(dst: *mut c_void, src: *const c_void) {
     let src_b = src as *const BlockLayout;
     let dst_b = dst as *mut BlockLayout;
@@ -250,6 +279,14 @@ static VOID_BYTES_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     copy_helper,
     dispose_helper,
     signature: VOID_BYTES_SIGNATURE.as_ptr(),
+});
+
+static VOID_THREE_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: VOID_THREE_OBJ_SIGNATURE.as_ptr(),
 });
 
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
@@ -431,6 +468,31 @@ pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
             closure_ptr,
             invoke_void_bytes_block as *const c_void,
             &VOID_BYTES_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
+/// Build a heap ObjC `void(^)(id, id, id)` block. The ilang
+/// closure is `fn(a: i64, b: i64, c: i64): unit` — receives three
+/// raw `id` handles. Used by `NSURLSession`'s
+/// `dataTaskWithRequest:completionHandler:` family, where the
+/// trio is `(NSData *, NSURLResponse *, NSError *)`.
+#[unsafe(export_name = "__ilang_make_void_three_obj_block")]
+pub extern "C" fn make_void_three_obj_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_void_three_obj_block as *const c_void,
+            &VOID_THREE_OBJ_DESCRIPTOR.0,
         );
     }
     #[cfg(not(target_os = "macos"))]

@@ -267,6 +267,10 @@ pub fn compile_with_builtins(
         ilang_runtime::make_void_bytes_block as *const u8,
     );
     jit_builder.symbol(
+        "__ilang_make_void_three_obj_block",
+        ilang_runtime::make_void_three_obj_block as *const u8,
+    );
+    jit_builder.symbol(
         "__ilang_objc_err_slot_ptr",
         ilang_runtime::objc_err_slot_ptr as *const u8,
     );

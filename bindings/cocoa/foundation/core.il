@@ -828,6 +828,8 @@ pub enum PropertyListFormat: u64 {
         fn _make_obj_to_obj_block(closure: fn(i64): i64): i64
     @lib("c") @symbol("__ilang_make_void_bytes_block")
         fn _make_void_bytes_block(closure: fn(i64, i64)): i64
+    @lib("c") @symbol("__ilang_make_void_three_obj_block")
+        fn _make_void_three_obj_block(closure: fn(i64, i64, i64)): i64
 
     // Per-thread `NSError *` slot used by the public
     // `withObjcError` wrapper at module scope. The runtime hosts
@@ -968,6 +970,18 @@ pub enum PropertyListFormat: u64 {
     /// keep the pointer past the block invocation.
     pub fn makeBytesBlock(body: fn(i64, i64)): i64 {
         _make_void_bytes_block(body)
+    }
+
+    /// Build an ObjC `void(^)(id, id, id)` block — the callback
+    /// shape every `NSURLSession.dataTaskWithRequest:completionHandler:`
+    /// (and its download/upload siblings) wants, where the three
+    /// arguments arrive as raw `id` handles for
+    /// `(NSData *, NSURLResponse *, NSError *)`. Wrap each handle
+    /// inside the body with `NSObject.__wrap_handle_unowned` —
+    /// these come pre-autoreleased so we MUST NOT take a `+1` to
+    /// avoid an over-release at scope exit.
+    pub fn makeThreeObjectBlock(body: fn(i64, i64, i64)): i64 {
+        _make_void_three_obj_block(body)
     }
 
     // Raw-pointer helpers — call from inside a `makeBytesBlock`
