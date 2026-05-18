@@ -13,8 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use ilang_ast::{
-    Block, ClassDecl, Expr, ExprKind, InterfaceDecl, InterfaceMethod, Item, PatternKind, Program,
-    Span, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
+    Block, ClassDecl, Expr, ExprKind, ExternCItem, InterfaceDecl, InterfaceMethod, Item,
+    PatternKind, Program, Span, StmtKind, Symbol as AstSymbol, Type, VariantPayload,
 };
 use tower_lsp::lsp_types::Position;
 
@@ -474,16 +474,23 @@ pub(crate) fn implement_interface_methods_at(
         text::line_col_to_offset(text, cursor.line + 1, cursor.character + 1)?;
 
     // Find the innermost `class … { … }` containing the cursor.
+    // Walks top-level classes AND `@objc class` declarations
+    // wrapped in an `@extern(ObjC) { … }` block. The cursor counts
+    // as "inside" the class anywhere from the `class` keyword
+    // through the closing `}` — so VSCode's lightbulb, which often
+    // anchors on the header line rather than the body, still
+    // surfaces this action.
     let mut chosen: Option<(&ClassDecl, usize, usize)> = None;
-    for it in &prog.items {
-        let Item::Class(c) = it else { continue };
+    for c in all_classes(prog) {
         let Some((open, close)) = match_brace_range(text, c.span) else {
             continue;
         };
-        if cursor_byte < open || cursor_byte > close {
+        let start = text::line_col_to_offset(text, c.span.line, c.span.col)
+            .unwrap_or(open);
+        if cursor_byte < start || cursor_byte > close {
             continue;
         }
-        let extent = close.saturating_sub(open);
+        let extent = close.saturating_sub(start);
         match chosen {
             None => chosen = Some((c, open, close)),
             Some((_, o, cl)) => {
@@ -601,6 +608,23 @@ pub(crate) fn implement_interface_methods_at(
     }
     let count = missing.len();
     Some((close_line_start, out, count))
+}
+
+/// Yield every `ClassDecl` reachable from a `Program` — both
+/// top-level `Item::Class` and `@objc class` declarations wrapped
+/// in an `@extern(ObjC) { … }` block (parsed as `Item::ExternC`
+/// with `ExternCItem::Class` inside). Cursor-locating code action
+/// passes need both, otherwise `@objc class` bodies look invisible.
+fn all_classes(prog: &Program) -> impl Iterator<Item = &ClassDecl> {
+    prog.items.iter().flat_map(|it| -> Box<dyn Iterator<Item = &ClassDecl>> {
+        match it {
+            Item::Class(c) => Box::new(std::iter::once(c)),
+            Item::ExternC(b) => Box::new(b.items.iter().filter_map(|i| {
+                if let ExternCItem::Class(c) = i { Some(c) } else { None }
+            })),
+            _ => Box::new(std::iter::empty()),
+        }
+    })
 }
 
 /// Find an `Item::Interface` or `block.interfaces[name]` with the
@@ -958,10 +982,15 @@ fn enclosing_class_header(
 
     let header_text = std::str::from_utf8(&bytes[header_start..header_end]).ok()?;
     // Header looks like `class NAME : A, B, C` (or
-    // `class NAME` with no base list).
+    // `class NAME` with no base list). Walk past the name
+    // character-by-character so we don't lose the `:` to a
+    // separator-consuming split — `class AA:` (no space) must
+    // parse the same as `class AA :`.
     let after_class = header_text.strip_prefix("class")?.trim_start();
-    let (_, after_name) = after_class.split_once(|c: char| !c.is_alphanumeric() && c != '_')
-        .unwrap_or((after_class, ""));
+    let name_len = after_class
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(after_class.len());
+    let after_name = &after_class[name_len..];
     let after_colon = after_name.trim_start().strip_prefix(':').unwrap_or("");
     let bases: Vec<String> = after_colon
         .split(',')

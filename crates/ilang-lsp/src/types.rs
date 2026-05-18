@@ -164,5 +164,11 @@ pub(crate) struct Doc {
     #[allow(dead_code)]
     pub(crate) local_interfaces:
         HashMap<AstSymbol, ilang_ast::InterfaceDecl>,
+    /// Bare names brought into the buffer's namespace by a
+    /// selective use (`use M { X, Y }`). Type completion checks
+    /// this set to decide whether `cocoa.NSApplicationDelegate`
+    /// should be inserted as the dotted form (not in the set) or
+    /// the bare form (already imported, dotted would just clutter).
+    pub(crate) selective_use_names: HashSet<AstSymbol>,
 }
 

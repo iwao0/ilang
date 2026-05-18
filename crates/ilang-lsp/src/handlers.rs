@@ -36,6 +36,51 @@ use crate::*;
 /// Each subsequent segment looks up a field / getter / method on
 /// the current class and continues with the declared return type's
 /// class.
+/// Walk `text` back from byte offset `off` over alphanumeric +
+/// underscore characters and return the resulting identifier prefix
+/// (empty when `off` is not preceded by an ident char). Used by the
+/// completion handler to know what the user has typed so far so it
+/// can hand VSCode a `filter_text` that's guaranteed to match.
+fn typed_prefix_at(text: &str, off: usize) -> String {
+    let bytes = text.as_bytes();
+    let end = off.min(bytes.len());
+    let mut i = end;
+    while i > 0 {
+        let b = bytes[i - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            i -= 1;
+        } else {
+            break;
+        }
+    }
+    std::str::from_utf8(&bytes[i..end]).unwrap_or("").to_string()
+}
+
+/// `true` when every character of `needle` (already lowercased)
+/// appears in `haystack` in order, case-insensitively. Cheap
+/// subsequence check the LSP uses to decide whether a label is a
+/// plausible match for the typed prefix before handing it to the
+/// client.
+fn subsequence_ci(haystack: &str, needle_lower: &str) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    let mut needle = needle_lower.chars();
+    let mut want = match needle.next() {
+        Some(c) => c,
+        None => return true,
+    };
+    for h in haystack.chars().flat_map(|c| c.to_lowercase()) {
+        if h == want {
+            match needle.next() {
+                Some(c) => want = c,
+                None => return true,
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn resolve_receiver_class(
     doc: &Doc,
     receiver: &str,
@@ -316,7 +361,28 @@ impl LanguageServer for Backend {
             }
             // After `:` we're in a type position — only suggest types.
             if at_type_position(&doc.text, off) {
-                return Ok(Some(CompletionResponse::Array(type_completions(doc))));
+                let mut items = type_completions(doc);
+                // Server-side fuzzy filter against the typed prefix.
+                // VSCode's client filter scores `app` against
+                // `NSApplicationDelegate` below its visibility
+                // threshold and silently drops it; bypass that by
+                // filtering here and stamping `filter_text` with the
+                // typed prefix verbatim so the client always passes
+                // every item we approve. `isIncomplete: true` makes
+                // VSCode re-ask on each keystroke instead of running
+                // its own filter over a cached list.
+                let prefix = typed_prefix_at(&doc.text, off);
+                if !prefix.is_empty() {
+                    let lowered_prefix = prefix.to_lowercase();
+                    items.retain(|it| subsequence_ci(&it.label, &lowered_prefix));
+                    for it in items.iter_mut() {
+                        it.filter_text = Some(prefix.clone());
+                    }
+                }
+                return Ok(Some(CompletionResponse::List(CompletionList {
+                    is_incomplete: true,
+                    items,
+                })));
             }
             // Inside `use M { ... }` — list `M`'s exports.
             if let Some(module) = enclosing_use_module(&doc.text, off) {

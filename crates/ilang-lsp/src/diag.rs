@@ -332,6 +332,8 @@ pub(crate) fn build_doc(
     // reference like `class C : MyDel { … }` without re-parsing.
     let mut local_interfaces: HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
         HashMap::new();
+    let mut selective_use_names: std::collections::HashSet<AstSymbol> =
+        std::collections::HashSet::new();
     for item in &prog.items {
         match item {
             ilang_ast::Item::Interface(i) => {
@@ -340,6 +342,13 @@ pub(crate) fn build_doc(
             ilang_ast::Item::ExternC(b) => {
                 for iface in b.interfaces.iter() {
                     local_interfaces.insert(iface.name, iface.clone());
+                }
+            }
+            ilang_ast::Item::Use(u) => {
+                if let Some(names) = u.selective.as_ref() {
+                    for n in names.iter() {
+                        selective_use_names.insert(*n);
+                    }
                 }
             }
             _ => {}
@@ -358,5 +367,6 @@ pub(crate) fn build_doc(
         external_sources: external_sources.clone(),
         external_interfaces: external_interfaces.clone(),
         local_interfaces,
+        selective_use_names,
     }
 }

@@ -641,10 +641,10 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         if !is_type_sig(&sym.signature) {
             continue;
         }
-        // Synthesised @objc desugar helpers (`__objc_b*_sel_cache`
-        // etc.) accidentally satisfy the class-prefix check; hide
-        // them.
-        if crate::symbols::is_synthesized_objc_helper(name.as_str()) {
+        // Hide every `__`-prefixed type — synthesised @objc desugar
+        // helpers (`__objc_b*_sel_cache` etc.) plus any other
+        // internal-by-convention name.
+        if name.as_str().starts_with("__") {
             continue;
         }
         let kind = if is_interface_sig(&sym.signature) {
@@ -665,14 +665,15 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         if !is_type_sig(sig) {
             continue;
         }
-        // Strip the module prefix before testing — the synthesised-
-        // helper check looks at the bare name suffix.
+        // Strip the module prefix before testing — `__`-prefixed
+        // suffixes are internal regardless of which module they're
+        // re-exported from.
         let bare = name
             .as_str()
             .rsplit_once('.')
             .map(|(_, t)| t)
             .unwrap_or(name.as_str());
-        if crate::symbols::is_synthesized_objc_helper(bare) {
+        if bare.starts_with("__") {
             continue;
         }
         let kind = if is_interface_sig(sig) {
@@ -680,14 +681,36 @@ pub(crate) fn type_completions(doc: &Doc) -> Vec<CompletionItem> {
         } else {
             CompletionItemKind::CLASS
         };
+        // Label depends on whether the bare name is already imported
+        // (`use cocoa { NSApplicationDelegate }`): if yes, show bare
+        // (matches how the user will reference it); if no, show the
+        // module-qualified form so it's obvious the `cocoa.` prefix
+        // is part of the inserted text. The completion handler stamps
+        // a synthetic `filter_text` based on the typed prefix, so the
+        // dotted label still surfaces under `app`-style queries.
+        let full = name.as_str().to_string();
+        let already_imported = doc
+            .selective_use_names
+            .contains(&crate::AstSymbol::intern(bare));
+        let label = if already_imported || full == bare {
+            bare.to_string()
+        } else {
+            full.clone()
+        };
         out.push(CompletionItem {
-            label: name.as_str().to_string(),
+            label,
             kind: Some(kind),
             detail: Some(sig.clone()),
             ..CompletionItem::default()
         });
     }
     out.sort_by(|a, b| a.label.cmp(&b.label));
+    // Dedupe by (label, kind): when an external type is re-exported
+    // through multiple modules (`appkit.NSApplication` +
+    // `cocoa.NSApplication`) the bare-label rewrite collapses both
+    // entries to the same display name. Some clients hide / drop
+    // the whole list when they see duplicates.
+    out.dedup_by(|a, b| a.label == b.label && a.kind == b.kind);
     out
 }
 
@@ -821,6 +844,13 @@ fn keyword_completions(at_top_level: bool, out: &mut Vec<CompletionItem>) {
 pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<CompletionItem> {
     let mut out: Vec<CompletionItem> = Vec::new();
     for (name, sym) in doc.symbols.iter() {
+        // Hide every `__`-prefixed name. Covers synthesized @objc
+        // desugar helpers (`__objc_*`, `__super_*`) plus C-ABI
+        // doubles like `__memcpy` that VSCode would otherwise
+        // surface for harmless prefixes like `me`.
+        if name.as_str().starts_with("__") {
+            continue;
+        }
         let kind = if sym.signature.starts_with("class ")
             || sym.signature.starts_with("struct ")
             || sym.signature.starts_with("union ")
@@ -858,6 +888,9 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if doc.symbols.contains_key(name) {
             continue;
         }
+        if name.as_str().starts_with("__") {
+            continue;
+        }
         out.push(CompletionItem {
             label: name.as_str().to_string(),
             kind: Some(CompletionItemKind::VARIABLE),
@@ -879,10 +912,10 @@ pub(crate) fn global_completions(doc: &Doc, at_top_level: bool) -> Vec<Completio
         if doc.symbols.contains_key(name) || doc.var_types.contains_key(name) {
             continue;
         }
-        // Hide @objc desugar internals that the wildcard / selective
-        // harvest may have re-keyed as bare entries — they live in
-        // the module's namespace but aren't user-callable surface.
-        if crate::symbols::is_synthesized_objc_helper(s) {
+        // Hide every `__`-prefixed bare import — @objc desugar
+        // internals plus C-ABI doubles that VSCode would otherwise
+        // surface for short prefixes.
+        if s.starts_with("__") {
             continue;
         }
         let kind = if sig.starts_with("class ")

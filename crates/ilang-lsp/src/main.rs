@@ -687,6 +687,168 @@ interface MyDel {
     }
 
     #[test]
+    pub(crate) fn type_completion_surfaces_cocoa_interface_for_example_click() {
+        // Load example_click.il through the same path the LSP uses
+        // and inspect `type_completions(doc)`. The buffer's `use cocoa
+        // { … }` does NOT list `NSApplicationDelegate`, so the
+        // completion should label it module-qualified
+        // (`cocoa.NSApplicationDelegate`). `NSApplication` IS in the
+        // use list, so it should appear bare.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("bindings/cocoa/example_click.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("example_click.il must load");
+        let items = type_completions(&doc);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.iter().any(|l| *l == "cocoa.NSApplicationDelegate"),
+            "expected dotted `cocoa.NSApplicationDelegate` (not in use list). \
+             First 40 labels: {:?}",
+            labels.iter().take(40).collect::<Vec<_>>()
+        );
+        assert!(
+            labels.iter().any(|l| *l == "NSApplication"),
+            "expected bare `NSApplication` (in use list). \
+             First 40 labels: {:?}",
+            labels.iter().take(40).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    pub(crate) fn textual_completion_resolves_dotted_external_iface() {
+        // User wrote `class AA: cocoa.NSMenuDelegate {}` at top
+        // level and put the cursor inside the body. The textual
+        // completion should surface every unimplemented method of
+        // the cocoa.NSMenuDelegate interface.
+        let local_src = "class AA: cocoa.NSMenuDelegate {\n    \n}\n";
+
+        // Build external_interfaces the way `collect_external_interfaces`
+        // would: dotted key + bare key both pointing at the decl.
+        let ext_src = "\
+@extern(ObjC) {
+    @objc pub interface NSMenuDelegate {
+        @optional menuWillOpen(menu: i64)
+    }
+}
+";
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut ext_ifaces: std::collections::HashMap<
+            AstSymbol,
+            ilang_ast::InterfaceDecl,
+        > = std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                    ext_ifaces
+                        .insert(AstSymbol::intern("cocoa.NSMenuDelegate"), i.clone());
+                }
+            }
+        }
+        let empty: std::collections::HashMap<AstSymbol, ilang_ast::InterfaceDecl> =
+            std::collections::HashMap::new();
+        let off = crate::text::line_col_to_offset(local_src, 2, 5).expect("offset");
+        let stubs = interface_method_stub_completions_textual(
+            local_src, off, &empty, &ext_ifaces,
+        );
+        let labels: Vec<&str> = stubs.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(
+            labels.contains(&"menuWillOpen"),
+            "labels did not include menuWillOpen: {labels:?}"
+        );
+    }
+
+    #[test]
+    pub(crate) fn implement_fires_when_cursor_on_class_header_line() {
+        // VSCode's lightbulb often anchors on the class header
+        // line, not the body. The action must still fire when the
+        // cursor sits on `class NAME : Base` rather than between
+        // the braces.
+        let local_src = "class AA : MyDel {\n}\n";
+        let toks = ilang_lexer::tokenize(local_src).unwrap();
+        let local_prog = ilang_parser::parse(&toks).unwrap();
+
+        let ext_src = "\
+interface MyDel {
+    notifyMe(name: i64)
+}
+";
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut ext_ifaces: std::collections::HashMap<
+            AstSymbol,
+            ilang_ast::InterfaceDecl,
+        > = std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::Interface(i) = it {
+                ext_ifaces.insert(i.name, i.clone());
+            }
+        }
+        // Cursor on the `class` keyword (line 0, col 0).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(0, 0),
+        );
+        assert!(res.is_some(), "should fire with cursor on header");
+    }
+
+    #[test]
+    pub(crate) fn implement_fires_for_objc_class_inside_extern_block() {
+        // The `@objc class` is wrapped in an `@extern(ObjC) { … }`
+        // block, parsed as `Item::ExternC` with the class buried
+        // inside `ExternCItem::Class`. The code action must still
+        // locate the enclosing class.
+        let local_src = "\
+@extern(ObjC) {
+    @objc class MyApp : MyDel {
+    }
+}
+";
+        let toks = ilang_lexer::tokenize(local_src).unwrap();
+        let local_prog = ilang_parser::parse(&toks).unwrap();
+
+        let ext_src = "\
+@extern(ObjC) {
+    @objc interface MyDel {
+        notifyMe(name: i64)
+    }
+}
+";
+        let ext_toks = ilang_lexer::tokenize(ext_src).unwrap();
+        let ext_prog = ilang_parser::parse(&ext_toks).unwrap();
+        let mut ext_ifaces: std::collections::HashMap<
+            AstSymbol,
+            ilang_ast::InterfaceDecl,
+        > = std::collections::HashMap::new();
+        for it in &ext_prog.items {
+            if let ilang_ast::Item::ExternC(b) = it {
+                for i in b.interfaces.iter() {
+                    ext_ifaces.insert(i.name, i.clone());
+                }
+            }
+        }
+
+        // Cursor inside the @objc class body (line 2, between the
+        // `{` and `}`).
+        let res = implement_interface_methods_at(
+            local_src,
+            &local_prog,
+            &ext_ifaces,
+            pos(2, 4),
+        );
+        let (_, new_text, count) =
+            res.expect("should fire for @objc class inside @extern(ObjC)");
+        assert_eq!(count, 1, "missing count = {count}");
+        assert!(new_text.contains("pub notifyMe(name: i64) {"), "new_text:\n{new_text}");
+    }
+
+    #[test]
     pub(crate) fn collect_symbols_picks_up_objc_interface() {
         // @objc interface declared inside @extern(ObjC) should
         // surface in `doc.symbols` so hover over the name works.
