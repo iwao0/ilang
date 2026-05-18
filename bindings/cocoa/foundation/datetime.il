@@ -141,6 +141,39 @@ pub enum CalendarUnit: u64 {
         pub isDateInTomorrow(d: NSDate): bool
     }
 
+    /// `NSDateInterval` — half-open date range `[startDate, endDate)`.
+    /// Comparison / intersection / containment all use the
+    /// half-open convention. Pair with NSDateIntervalFormatter to
+    /// render it as a locale-aware string.
+    @objc pub class NSDateInterval : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSDateInterval
+        @objc("init")
+        pub init(): NSDateInterval
+        @objc("initWithStartDate:duration:")
+        pub initWithStartDateAndDuration(start: NSDate, duration: f64): NSDateInterval
+        @objc("initWithStartDate:endDate:")
+        pub initWithStartDateAndEndDate(start: NSDate, end: NSDate): NSDateInterval
+
+        @objc("startDate")
+        pub get startDate(): NSDate
+        @objc("endDate")
+        pub get endDate(): NSDate
+        @objc("duration")
+        pub get duration(): f64
+
+        @objc("compare:")
+        pub compare(other: NSDateInterval): i64
+        @objc("isEqualToDateInterval:")
+        pub isEqualToDateInterval(other: NSDateInterval): bool
+        @objc("intersectsDateInterval:")
+        pub intersectsDateInterval(other: NSDateInterval): bool
+        @objc("intersectionWithDateInterval:")
+        pub intersectionWithDateInterval(other: NSDateInterval): NSDateInterval
+        @objc("containsDate:")
+        pub containsDate(d: NSDate): bool
+    }
+
     /// `NSDateComponents` — bag of optional calendar fields. Set
     /// the ones you care about; the rest are sentinel values
     /// (`NSDateComponentUndefined`, which surfaces as the

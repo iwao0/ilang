@@ -47,6 +47,37 @@ pub enum DecimalNumberRoundingMode: u64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSFormatter` — abstract base for every Foundation
+    /// formatter (NSNumberFormatter, NSDateFormatter,
+    /// NSByteCountFormatter, …). Useful to refer to when a method
+    /// takes "any formatter" — most of the time you'll work with
+    /// the concrete subclass directly.
+    @objc pub class NSFormatter : NSObject {
+        @objc("stringForObjectValue:")
+        pub stringForObjectValue(v: NSObject): NSString
+        @objc("editingStringForObjectValue:")
+        pub editingStringForObjectValue(v: NSObject): NSString
+    }
+
+    /// `NSDecimalNumberHandler` — rounding-behaviour policy for
+    /// NSDecimalNumber arithmetic. The default-instance form
+    /// (`defaultDecimalNumberHandler`) rounds plain to 0 decimals
+    /// raising-on-divide-by-zero; for custom currency rounding
+    /// (e.g. 2 decimals, half-up) build one with
+    /// `decimalNumberHandlerWithRoundingMode:scale:raiseOnExactness:
+    ///  raiseOnOverflow:raiseOnUnderflow:raiseOnDivideByZero:`.
+    @objc pub class NSDecimalNumberHandler : NSObject {
+        @objc("defaultDecimalNumberHandler")
+        pub static defaultHandler(): NSDecimalNumberHandler
+
+        @objc("decimalNumberHandlerWithRoundingMode:scale:raiseOnExactness:raiseOnOverflow:raiseOnUnderflow:raiseOnDivideByZero:")
+        pub static decimalNumberHandler(
+            roundingMode: DecimalNumberRoundingMode, scale: i16,
+            raiseOnExactness: bool, raiseOnOverflow: bool,
+            raiseOnUnderflow: bool, raiseOnDivideByZero: bool
+        ): NSDecimalNumberHandler
+    }
+
     /// `NSNumber` — boxed numeric value. Read back as `i64Value`,
     /// `f64Value`, or `boolValue` depending on what's inside.
     @objc pub class NSNumber : NSObject {

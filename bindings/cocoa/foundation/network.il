@@ -740,6 +740,202 @@ pub enum URLCredentialPersistence: u64 {
         pub stop()
     }
 
+    /// `NSURLSessionTaskMetrics` — timing / counter aggregation
+    /// for a finished task. Carries the per-redirect transaction
+    /// list in `transactionMetrics`. Pulled off through the
+    /// `URLSession:task:didFinishCollectingMetrics:` delegate
+    /// callback.
+    @objc pub class NSURLSessionTaskMetrics : NSObject {
+        @objc("transactionMetrics")
+        pub get transactionMetrics(): NSArray
+        @objc("taskInterval")
+        pub get taskInterval(): NSObject
+        @objc("redirectCount")
+        pub get redirectCount(): u64
+    }
+
+    /// `NSURLSessionTaskTransactionMetrics` — single-attempt
+    /// timing data: DNS resolve, TCP / TLS handshake, request
+    /// start / end, response start / end, etc. One per redirect
+    /// hop inside `NSURLSessionTaskMetrics.transactionMetrics`.
+    @objc pub class NSURLSessionTaskTransactionMetrics : NSObject {
+        @objc("request")
+        pub get request(): NSURLRequest
+        @objc("response")
+        pub get response(): NSURLResponse
+        @objc("fetchStartDate")
+        pub get fetchStartDate(): NSObject
+        @objc("domainLookupStartDate")
+        pub get domainLookupStartDate(): NSObject
+        @objc("domainLookupEndDate")
+        pub get domainLookupEndDate(): NSObject
+        @objc("connectStartDate")
+        pub get connectStartDate(): NSObject
+        @objc("connectEndDate")
+        pub get connectEndDate(): NSObject
+        @objc("secureConnectionStartDate")
+        pub get secureConnectionStartDate(): NSObject
+        @objc("secureConnectionEndDate")
+        pub get secureConnectionEndDate(): NSObject
+        @objc("requestStartDate")
+        pub get requestStartDate(): NSObject
+        @objc("requestEndDate")
+        pub get requestEndDate(): NSObject
+        @objc("responseStartDate")
+        pub get responseStartDate(): NSObject
+        @objc("responseEndDate")
+        pub get responseEndDate(): NSObject
+        @objc("networkProtocolName")
+        pub get networkProtocolName(): NSString
+        @objc("isProxyConnection")
+        pub get isProxyConnection(): bool
+        @objc("isReusedConnection")
+        pub get isReusedConnection(): bool
+    }
+
+    /// `NSURLSessionDelegate` — base session-level callbacks. Implement
+    /// it (plus one of the task-shape refinements below) and pass
+    /// to `+sessionWithConfiguration:delegate:delegateQueue:`.
+    @objc pub interface NSURLSessionDelegate {
+        @optional URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession)
+        @optional @objc("URLSession:didBecomeInvalidWithError:")
+        URLSessionDidBecomeInvalid(session: NSURLSession, didBecomeInvalidWithError: NSError)
+        @optional @objc("URLSession:didReceiveChallenge:completionHandler:")
+        URLSessionDidReceiveChallenge(
+            session: NSURLSession,
+            didReceiveChallenge: NSURLAuthenticationChallenge,
+            completionHandler: i64
+        )
+    }
+
+    /// `NSURLSessionTaskDelegate` — task-level lifecycle callbacks
+    /// shared by every task variant.
+    @objc pub interface NSURLSessionTaskDelegate {
+        @optional @objc("URLSession:task:didCompleteWithError:")
+        URLSessionTaskDidComplete(
+            session: NSURLSession, task: NSURLSessionTask,
+            didCompleteWithError: NSError
+        )
+        @optional @objc("URLSession:task:didReceiveChallenge:completionHandler:")
+        URLSessionTaskDidReceiveChallenge(
+            session: NSURLSession, task: NSURLSessionTask,
+            didReceiveChallenge: NSURLAuthenticationChallenge,
+            completionHandler: i64
+        )
+        @optional @objc("URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:")
+        URLSessionTaskDidSendBodyData(
+            session: NSURLSession, task: NSURLSessionTask,
+            didSendBodyData: i64, totalBytesSent: i64,
+            totalBytesExpectedToSend: i64
+        )
+        @optional @objc("URLSession:task:didFinishCollectingMetrics:")
+        URLSessionTaskDidFinishCollectingMetrics(
+            session: NSURLSession, task: NSURLSessionTask,
+            didFinishCollectingMetrics: NSURLSessionTaskMetrics
+        )
+    }
+
+    /// `NSURLSessionDataDelegate` — refines NSURLSessionTaskDelegate
+    /// with data-task hooks. The `didReceiveData:` callback fires
+    /// once per arriving chunk; the response is announced through
+    /// `didReceiveResponse:completionHandler:` (call the handler
+    /// with `NSURLSessionResponseAllow` to proceed).
+    @objc pub interface NSURLSessionDataDelegate {
+        @optional @objc("URLSession:dataTask:didReceiveResponse:completionHandler:")
+        URLSessionDataTaskDidReceiveResponse(
+            session: NSURLSession, dataTask: NSURLSessionDataTask,
+            didReceiveResponse: NSURLResponse, completionHandler: i64
+        )
+        @optional @objc("URLSession:dataTask:didReceiveData:")
+        URLSessionDataTaskDidReceiveData(
+            session: NSURLSession, dataTask: NSURLSessionDataTask,
+            didReceiveData: NSData
+        )
+        @optional @objc("URLSession:dataTask:didBecomeDownloadTask:")
+        URLSessionDataTaskDidBecomeDownloadTask(
+            session: NSURLSession, dataTask: NSURLSessionDataTask,
+            didBecomeDownloadTask: NSURLSessionDownloadTask
+        )
+    }
+
+    /// `NSURLSessionDownloadDelegate` — refines NSURLSessionTaskDelegate
+    /// for download tasks. The required `didFinishDownloadingToURL:`
+    /// callback hands you a temporary file URL — move / copy
+    /// before returning, because the system deletes the temp
+    /// after the call returns.
+    @objc pub interface NSURLSessionDownloadDelegate {
+        @objc("URLSession:downloadTask:didFinishDownloadingToURL:")
+        URLSessionDownloadTaskDidFinishDownloadingToURL(
+            session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
+            didFinishDownloadingToURL: NSURL
+        )
+        @optional @objc("URLSession:downloadTask:didWriteData:totalBytesWritten:totalBytesExpectedToWrite:")
+        URLSessionDownloadTaskDidWriteData(
+            session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
+            didWriteData: i64, totalBytesWritten: i64,
+            totalBytesExpectedToWrite: i64
+        )
+        @optional @objc("URLSession:downloadTask:didResumeAtOffset:expectedTotalBytes:")
+        URLSessionDownloadTaskDidResumeAtOffset(
+            session: NSURLSession, downloadTask: NSURLSessionDownloadTask,
+            didResumeAtOffset: i64, expectedTotalBytes: i64
+        )
+    }
+
+    /// `NSURLSessionWebSocketDelegate` — open / close callbacks
+    /// for WebSocket tasks.
+    @objc pub interface NSURLSessionWebSocketDelegate {
+        @optional @objc("URLSession:webSocketTask:didOpenWithProtocol:")
+        URLSessionWebSocketTaskDidOpen(
+            session: NSURLSession, webSocketTask: NSURLSessionWebSocketTask,
+            didOpenWithProtocol: NSString
+        )
+        @optional @objc("URLSession:webSocketTask:didCloseWithCode:reason:")
+        URLSessionWebSocketTaskDidClose(
+            session: NSURLSession, webSocketTask: NSURLSessionWebSocketTask,
+            didCloseWithCode: i64, reason: NSData
+        )
+    }
+
+    /// `NSNetServiceDelegate` — Bonjour publish / resolve
+    /// callbacks. `netServiceDidPublish` fires once the service
+    /// is up; `netService:didNotPublish:` carries the dictionary
+    /// of error info on failure.
+    @objc pub interface NSNetServiceDelegate {
+        @optional netServiceWillPublish(sender: NSNetService)
+        @optional netServiceDidPublish(sender: NSNetService)
+        @optional @objc("netService:didNotPublish:")
+        netServiceDidNotPublish(sender: NSNetService, errorDict: NSDictionary)
+        @optional netServiceWillResolve(sender: NSNetService)
+        @optional netServiceDidResolveAddress(sender: NSNetService)
+        @optional @objc("netService:didNotResolve:")
+        netServiceDidNotResolve(sender: NSNetService, errorDict: NSDictionary)
+        @optional netServiceDidStop(sender: NSNetService)
+        @optional @objc("netService:didUpdateTXTRecordData:")
+        netServiceDidUpdateTXTRecordData(sender: NSNetService, data: NSData)
+    }
+
+    /// `NSNetServiceBrowserDelegate` — Bonjour discovery
+    /// callbacks. Implement `didFindService:moreComing:` to react
+    /// to discovered services; resolve them by setting their
+    /// delegate and calling `resolveWithTimeout:`.
+    @objc pub interface NSNetServiceBrowserDelegate {
+        @optional netServiceBrowserWillSearch(browser: NSNetServiceBrowser)
+        @optional netServiceBrowserDidStopSearch(browser: NSNetServiceBrowser)
+        @optional @objc("netServiceBrowser:didNotSearch:")
+        netServiceBrowserDidNotSearch(
+            browser: NSNetServiceBrowser, errorDict: NSDictionary
+        )
+        @optional @objc("netServiceBrowser:didFindService:moreComing:")
+        netServiceBrowserDidFindService(
+            browser: NSNetServiceBrowser, service: NSNetService, moreComing: bool
+        )
+        @optional @objc("netServiceBrowser:didRemoveService:moreComing:")
+        netServiceBrowserDidRemoveService(
+            browser: NSNetServiceBrowser, service: NSNetService, moreComing: bool
+        )
+    }
+
     /// `NSURLProtocol` — abstract base for custom URL-scheme
     /// handlers. Subclass it (override `+canInitWithRequest:`,
     /// `+canonicalRequestForRequest:`, `-startLoading`,

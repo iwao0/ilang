@@ -269,6 +269,14 @@ pub enum DataBase64DecodingOptions: u64 {
         @objc("boolValue")
         pub get boolValue(): bool
 
+        // ─── URL percent-encoding ──────────────────────────────
+        @objc("stringByAddingPercentEncodingWithAllowedCharacters:")
+        pub stringByAddingPercentEncoding(
+            allowedCharacters: NSCharacterSet
+        ): NSString
+        @objc("stringByRemovingPercentEncoding")
+        pub get stringByRemovingPercentEncoding(): NSString
+
         // ─── Encoding round-trip with NSData ───────────────────
         @objc("dataUsingEncoding:")
         pub dataUsingEncoding(encoding: StringEncoding): NSData

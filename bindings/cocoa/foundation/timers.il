@@ -6,6 +6,7 @@
 
 use core { NSObject, NSString, makeObjectBlock }
 use datetime { NSDate }
+use concurrency { QualityOfService }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// `NSTimer` — fires a callback after a fixed delay (one-shot)
@@ -177,5 +178,44 @@ use datetime { NSDate }
         pub resignCurrent()
         @objc("addChild:withPendingUnitCount:")
         pub addChild(child: NSProgress, withPendingUnitCount: i64)
+    }
+
+    /// `NSBackgroundActivityScheduler` (macOS) — energy-aware
+    /// scheduler for periodic background work (deep crawls,
+    /// maintenance jobs). The system fires `scheduleWithBlock:`
+    /// when the user is idle / on AC / not running on battery,
+    /// instead of strictly on a timer. Identifier should be a
+    /// reverse-DNS string unique to this scheduler.
+    @objc pub class NSBackgroundActivityScheduler : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSBackgroundActivityScheduler
+        @objc("initWithIdentifier:")
+        pub initWithIdentifier(id: NSString): NSBackgroundActivityScheduler
+
+        @objc("identifier")
+        pub get identifier(): NSString
+        @objc("qualityOfService")
+        pub get qualityOfService(): QualityOfService
+        @objc("setQualityOfService:")
+        pub set qualityOfService(q: QualityOfService)
+        @objc("repeats")
+        pub get repeats(): bool
+        @objc("setRepeats:")
+        pub set repeats(v: bool)
+        @objc("interval")
+        pub get interval(): f64
+        @objc("setInterval:")
+        pub set interval(t: f64)
+        @objc("tolerance")
+        pub get tolerance(): f64
+        @objc("setTolerance:")
+        pub set tolerance(t: f64)
+        @objc("shouldDefer")
+        pub get shouldDefer(): bool
+
+        @objc("scheduleWithBlock:")
+        pub scheduleWithBlock(block: i64)
+        @objc("invalidate")
+        pub invalidate()
     }
 }

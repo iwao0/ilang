@@ -299,6 +299,49 @@ pub enum StreamStatus: u64 {
         pub pathForResource(name: NSString, ofType: NSString): NSString
     }
 
+    /// `NSStreamDelegate` — hooks for `stream:handleEvent:`
+    /// dispatching on an NSInputStream / NSOutputStream attached
+    /// to a run loop. The `eventCode` argument encodes which of
+    /// open / has-bytes / has-space / errored / ended happened
+    /// (it's a bitmask but typical handlers branch on a single
+    /// bit at a time).
+    @objc pub interface NSStreamDelegate {
+        @optional @objc("stream:handleEvent:")
+        streamHandleEvent(stream: NSStream, eventCode: u64)
+    }
+
+    /// `NSCacheDelegate` — fires before NSCache evicts an entry,
+    /// giving you one last chance to peek at the value (e.g. to
+    /// flush dirty state to disk).
+    @objc pub interface NSCacheDelegate {
+        @optional @objc("cache:willEvictObject:")
+        cacheWillEvictObject(cache: NSCache, object: NSObject)
+    }
+
+    /// `NSFileManagerDelegate` — per-operation override hooks.
+    /// Each `should…` callback returns a `bool` deciding whether
+    /// the corresponding copy / move / remove / link goes
+    /// through; the `proceedAfterError:` variants run after a
+    /// failure and let you continue past errors.
+    @objc pub interface NSFileManagerDelegate {
+        @optional @objc("fileManager:shouldCopyItemAtPath:toPath:")
+        fileManagerShouldCopyItemAtPath(
+            fileManager: NSFileManager, srcPath: NSString, toPath: NSString
+        ): bool
+        @optional @objc("fileManager:shouldMoveItemAtPath:toPath:")
+        fileManagerShouldMoveItemAtPath(
+            fileManager: NSFileManager, srcPath: NSString, toPath: NSString
+        ): bool
+        @optional @objc("fileManager:shouldRemoveItemAtPath:")
+        fileManagerShouldRemoveItemAtPath(
+            fileManager: NSFileManager, path: NSString
+        ): bool
+        @optional @objc("fileManager:shouldLinkItemAtPath:toPath:")
+        fileManagerShouldLinkItemAtPath(
+            fileManager: NSFileManager, srcPath: NSString, toPath: NSString
+        ): bool
+    }
+
     /// `NSPurgeableData` — NSMutableData variant whose bytes the
     /// system can discard under memory pressure. Wrap accesses in
     /// `beginContentAccess` / `endContentAccess` so the discard

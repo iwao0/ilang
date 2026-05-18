@@ -82,4 +82,20 @@ use network { NSURL }
         @objc("resultAtIndex:")
         pub resultAtIndex(i: u64): NSObject
     }
+
+    /// `NSMetadataQueryDelegate` — overrides result construction
+    /// (`replacementObjectForResultObject:` lets you swap each
+    /// raw NSMetadataItem for a richer wrapper) and value access
+    /// (`replacementValueForAttribute:value:` rewrites the
+    /// per-attribute values in flight).
+    @objc pub interface NSMetadataQueryDelegate {
+        @optional @objc("metadataQuery:replacementObjectForResultObject:")
+        metadataQueryReplacementObjectForResultObject(
+            query: NSMetadataQuery, result: NSMetadataItem
+        ): NSObject
+        @optional @objc("metadataQuery:replacementValueForAttribute:value:")
+        metadataQueryReplacementValueForAttribute(
+            query: NSMetadataQuery, attribute: NSString, value: NSObject
+        ): NSObject
+    }
 }

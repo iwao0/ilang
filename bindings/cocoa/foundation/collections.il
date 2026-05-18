@@ -308,6 +308,18 @@ use core { NSObject, NSString, NSArray, NSRange }
         pub get allObjects(): NSArray
     }
 
+    /// `NSEnumerator` — abstract iterator handed out by Foundation
+    /// collections (`-[NSArray objectEnumerator]`, etc.). Walk it
+    /// by calling `nextObject` in a loop until it returns a
+    /// `nil`-handle (`NSObject.wrap(0)`). For the array path the
+    /// `NSEnumerator.allObjects` snapshot is also available.
+    @objc pub class NSEnumerator : NSObject {
+        @objc("nextObject")
+        pub nextObject(): NSObject
+        @objc("allObjects")
+        pub get allObjects(): NSArray
+    }
+
     /// `NSSortDescriptor` — single sort key + direction (and
     /// optionally a comparison selector). Hand an array of
     /// descriptors to `[NSArray sortedArrayUsingDescriptors:]`
