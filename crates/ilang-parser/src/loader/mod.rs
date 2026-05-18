@@ -2071,7 +2071,7 @@ fn is_builtin_callee(name: &str) -> bool {
 fn is_builtin_type(name: &str) -> bool {
     // Built-in classes/enums that should never get prefixed even
     // when referenced inside a module body.
-    matches!(name, "Console" | "Map" | "Promise" | "Result")
+    matches!(name, "Console" | "Map" | "Promise" | "Result" | "ObjCBlock")
 }
 
 /// Walk the merged program and lift any top-level `Item::Class`

@@ -365,19 +365,20 @@ pub enum URLCredentialPersistence: u64 {
 
         @objc("dataTaskWithRequest:completionHandler:")
         _dataTaskWithRequestAndHandler(
-            req: NSURLRequest, handler: i64
+            req: NSURLRequest, handler: ObjCBlock<fn(i64, i64, i64)>
         ): NSURLSessionDataTask
         @objc("dataTaskWithURL:completionHandler:")
         _dataTaskWithURLAndHandler(
-            url: NSURL, handler: i64
+            url: NSURL, handler: ObjCBlock<fn(i64, i64, i64)>
         ): NSURLSessionDataTask
         @objc("downloadTaskWithRequest:completionHandler:")
         _downloadTaskWithRequestAndHandler(
-            req: NSURLRequest, handler: i64
+            req: NSURLRequest, handler: ObjCBlock<fn(i64, i64, i64)>
         ): NSURLSessionDownloadTask
         @objc("uploadTaskWithRequest:fromData:completionHandler:")
         _uploadTaskWithRequestFromDataAndHandler(
-            req: NSURLRequest, fromData: NSData, handler: i64
+            req: NSURLRequest, fromData: NSData,
+            handler: ObjCBlock<fn(i64, i64, i64)>
         ): NSURLSessionUploadTask
 
         /// `dataTaskWithRequest:completionHandler:` block variant.
@@ -391,12 +392,12 @@ pub enum URLCredentialPersistence: u64 {
         pub dataTaskWithRequestAndHandler(
             req: NSURLRequest, body: fn(i64, i64, i64)
         ): NSURLSessionDataTask {
-            this._dataTaskWithRequestAndHandler(req, makeThreeObjectBlock(body))
+            this._dataTaskWithRequestAndHandler(req, new ObjCBlock(body))
         }
         pub dataTaskWithURLAndHandler(
             url: NSURL, body: fn(i64, i64, i64)
         ): NSURLSessionDataTask {
-            this._dataTaskWithURLAndHandler(url, makeThreeObjectBlock(body))
+            this._dataTaskWithURLAndHandler(url, new ObjCBlock(body))
         }
         /// `downloadTaskWithRequest:completionHandler:`. The block
         /// receives `(NSURL *destination, NSURLResponse *, NSError *)`
@@ -406,7 +407,7 @@ pub enum URLCredentialPersistence: u64 {
         pub downloadTaskWithRequestAndHandler(
             req: NSURLRequest, body: fn(i64, i64, i64)
         ): NSURLSessionDownloadTask {
-            this._downloadTaskWithRequestAndHandler(req, makeThreeObjectBlock(body))
+            this._downloadTaskWithRequestAndHandler(req, new ObjCBlock(body))
         }
         /// `uploadTaskWithRequest:fromData:completionHandler:`.
         /// Same `(NSData *, NSURLResponse *, NSError *)` body
@@ -415,7 +416,7 @@ pub enum URLCredentialPersistence: u64 {
             req: NSURLRequest, fromData: NSData, body: fn(i64, i64, i64)
         ): NSURLSessionUploadTask {
             this._uploadTaskWithRequestFromDataAndHandler(
-                req, fromData, makeThreeObjectBlock(body)
+                req, fromData, new ObjCBlock(body)
             )
         }
 
