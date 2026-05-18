@@ -462,6 +462,27 @@ fn outside() {}
     }
 
     #[test]
+    pub(crate) fn at_type_position_recognises_class_base_list() {
+        // `class C : ` — cursor right after the `:` (with trailing
+        // space) should be a type position.
+        let src = "class C : ";
+        assert!(at_type_position(src, src.len()));
+
+        // `class C : A, ` — cursor right after the comma + space
+        // should also be a type position (additional interfaces).
+        let src = "class C : A, ";
+        assert!(at_type_position(src, src.len()));
+
+        // `foo(a, ` — regular call argument list, NOT a type position.
+        let src = "foo(a, ";
+        assert!(!at_type_position(src, src.len()));
+
+        // `(a, ` — bare tuple, NOT a type position.
+        let src = "let t = (a, ";
+        assert!(!at_type_position(src, src.len()));
+    }
+
+    #[test]
     pub(crate) fn collect_symbols_picks_up_objc_interface() {
         // @objc interface declared inside @extern(ObjC) should
         // surface in `doc.symbols` so hover over the name works.

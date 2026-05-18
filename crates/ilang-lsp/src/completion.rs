@@ -516,7 +516,69 @@ pub(crate) fn at_type_position(text: &str, offset: usize) -> bool {
     while i > 0 && matches!(bytes[i - 1], b' ' | b'\t') {
         i -= 1;
     }
-    i > 0 && bytes[i - 1] == b':'
+    if i == 0 {
+        return false;
+    }
+    match bytes[i - 1] {
+        b':' => true,
+        // `class C : A, ` — the comma extends the base list; scan
+        // further back through one prior ident + optional `:` to
+        // confirm we're inside a class-base list rather than an
+        // arbitrary tuple / argument list.
+        b',' => is_in_class_base_list(bytes, i - 1),
+        _ => false,
+    }
+}
+
+/// Heuristic: walk backwards from a `,` to decide whether the
+/// surrounding context is a `class Name : A, B, …` base list (so
+/// completion suggests types) versus a regular call / tuple / arg
+/// list (where suggesting types would be misleading). The check
+/// is intentionally simple — find the nearest `:` or `(` / `{` /
+/// `<` on the same line; only `:` (with a `class` token before
+/// the identifier) qualifies.
+fn is_in_class_base_list(bytes: &[u8], from: usize) -> bool {
+    // Scan backwards on the current line for a `:` not preceded
+    // by a `<` / `(` / `{` opener. If we hit one of those
+    // openers, this isn't a base list.
+    let mut j = from;
+    while j > 0 {
+        let b = bytes[j - 1];
+        if b == b'\n' {
+            return false;
+        }
+        if b == b'(' || b == b'{' || b == b'<' {
+            return false;
+        }
+        if b == b':' {
+            // Confirm the `:` is the base-list colon: walk back
+            // through whitespace + an identifier; expect a `class`
+            // keyword before it.
+            let mut k = j - 1;
+            while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+                k -= 1;
+            }
+            while k > 0 {
+                let c = bytes[k - 1];
+                if c.is_ascii_alphanumeric() || c == b'_' {
+                    k -= 1;
+                } else {
+                    break;
+                }
+            }
+            while k > 0 && matches!(bytes[k - 1], b' ' | b'\t') {
+                k -= 1;
+            }
+            // Expect `class ` keyword immediately before the name.
+            const CLASS_KW: &[u8] = b"class";
+            if k >= CLASS_KW.len() && &bytes[k - CLASS_KW.len()..k] == CLASS_KW {
+                return true;
+            }
+            return false;
+        }
+        j -= 1;
+    }
+    false
 }
 
 const PRIMITIVE_TYPES: &[&str] = &[

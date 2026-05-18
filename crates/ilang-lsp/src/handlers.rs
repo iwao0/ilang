@@ -92,7 +92,17 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![".".to_string(), "@".to_string()]),
+                    // `:` triggers type-position completion
+                    // (`let x: …`, `fn f(p: …)`, `class C : …`).
+                    // `,` continues a comma-separated type list
+                    // such as `class C : A, …` (additional
+                    // interfaces) and `Map<K, …>` generic args.
+                    trigger_characters: Some(vec![
+                        ".".to_string(),
+                        "@".to_string(),
+                        ":".to_string(),
+                        ",".to_string(),
+                    ]),
                     ..CompletionOptions::default()
                 }),
                 signature_help_provider: Some(SignatureHelpOptions {
