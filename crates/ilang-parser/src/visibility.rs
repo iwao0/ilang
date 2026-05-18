@@ -62,6 +62,11 @@ fn direct_pubs(prog: &Program) -> HashSet<Symbol> {
                 out.insert(c.name.clone());
             }
             Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    if iface.is_pub {
+                        out.insert(iface.name);
+                    }
+                }
                 for inner in b.items.iter() {
                     match inner {
                         ExternCItem::FnDecl { is_pub: true, name, .. }

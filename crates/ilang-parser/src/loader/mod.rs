@@ -757,6 +757,9 @@ fn apply_use(
                 // able to pull `S` or `f` out of `a.il`'s extern
                 // block.
                 if let Item::ExternC(b) = item {
+                    for iface in b.interfaces.iter() {
+                        local_names.insert(iface.name.as_str());
+                    }
                     for inner in b.items.iter() {
                         match inner {
                             ilang_ast::ExternCItem::Struct { name, .. }
@@ -1207,6 +1210,11 @@ fn find_in_export_chain(
             }
         }
         if let Item::ExternC(b) = item {
+            for iface in b.interfaces.iter() {
+                if iface.name.as_str() == name {
+                    return Ok(true);
+                }
+            }
             for inner in &b.items {
                 let n = match inner {
                     ilang_ast::ExternCItem::Struct { name, .. }
@@ -1692,9 +1700,32 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                     }
                 }
             }
+            // Prefix @objc interface declarations carried in the
+            // sibling `interfaces` list so the post-merge type
+            // checker / auto-lift can look them up by their
+            // module-qualified name (the same form users get
+            // after a `use M { … }` rewrite).
+            for iface in b.interfaces.iter_mut() {
+                iface.name = format!("{prefix}.{}", iface.name).into();
+                for m in iface.methods.iter_mut() {
+                    for p in m.params.iter_mut() {
+                        p.ty = prefix_type(&p.ty, prefix);
+                    }
+                    m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
+                }
+            }
             Item::ExternC(b)
         }
-        Item::Interface(i) => Item::Interface(i),
+        Item::Interface(mut i) => {
+            i.name = format!("{prefix}.{}", i.name).into();
+            for m in i.methods.iter_mut() {
+                for p in m.params.iter_mut() {
+                    p.ty = prefix_type(&p.ty, prefix);
+                }
+                m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
+            }
+            Item::Interface(i)
+        }
     }
 }
 

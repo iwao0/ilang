@@ -245,6 +245,20 @@ pub enum MatchOptions: u64 {
         pub get path(): NSString
     }
 
+    /// `NSNotification` — the value Cocoa hands delegate callbacks
+    /// (`applicationDidFinishLaunching:`, `windowDidResize:`, etc.).
+    /// `name` identifies what happened, `object` is whatever
+    /// posted it (the NSApplication, NSWindow, etc.), `userInfo`
+    /// is an optional payload dictionary.
+    @objc pub class NSNotification : NSObject {
+        @objc("name")
+        pub get name(): NSString
+        @objc("object")
+        pub get notificationObject(): NSObject
+        @objc("userInfo")
+        pub get userInfo(): NSDictionary
+    }
+
     /// `NSError` — error value passed through Cocoa APIs that fail
     /// in non-fatal ways. Most factories that produce one take an
     /// `NSError **` out-parameter; the ilang side exposes it as a

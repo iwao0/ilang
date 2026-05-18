@@ -4,7 +4,7 @@
 // with them. Depends on `foundation` for NSObject / NSString /
 // geometry types.
 
-use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect }
+use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSNotification, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect }
 
 // ─── NSWindow.StyleMask ──────────────────────────────────────────
 // Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
@@ -956,6 +956,144 @@ pub enum EventModifierFlags: u64 {
         pub get frame(): NSRect
         @objc("visibleFrame")
         pub get visibleFrame(): NSRect
+    }
+
+    // ─── Delegate / data-source protocols ─────────────────────────
+    //
+    // `@objc interface` declarations modelled after the Cocoa
+    // protocols of the same name. Every method that Apple marks
+    // `@optional` is also `@optional` here — the ilang conformance
+    // check skips them, and the ObjC runtime decides at dispatch
+    // time via `respondsToSelector:`. Argument types follow the
+    // Cocoa shape: callbacks named `…DidFoo:` / `…WillFoo:` take
+    // a single `NSNotification` whose `object` property is the
+    // posting NSApplication / NSWindow / etc.
+    //
+    // Implementing class side: write a plain top-level `class
+    // MyDelegate : NSApplicationDelegate { … }`; the loader's
+    // auto-lift converts it into a real Objective-C subclass of
+    // NSObject so `app.setDelegate(new MyDelegate())` reaches the
+    // method bodies via objc_msgSend.
+
+    /// `NSApplicationDelegate` — callbacks that fire over the
+    /// lifecycle of the shared NSApplication. Set as the app's
+    /// delegate via `app.setDelegate(myDelegate)` once after
+    /// `sharedApplication()`.
+    @objc pub interface NSApplicationDelegate {
+        @optional applicationWillFinishLaunching(notification: NSNotification)
+        @optional applicationDidFinishLaunching(notification: NSNotification)
+        @optional applicationWillBecomeActive(notification: NSNotification)
+        @optional applicationDidBecomeActive(notification: NSNotification)
+        @optional applicationWillResignActive(notification: NSNotification)
+        @optional applicationDidResignActive(notification: NSNotification)
+        @optional applicationDidHide(notification: NSNotification)
+        @optional applicationDidUnhide(notification: NSNotification)
+        @optional applicationDidChangeScreenParameters(notification: NSNotification)
+        @optional applicationWillTerminate(notification: NSNotification)
+
+        // Decision callbacks. Return-typed selectors that AppKit
+        // consults before performing the corresponding action.
+        @optional applicationShouldTerminate(app: NSApplication): u64
+        @optional applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): bool
+        @optional applicationShouldHandleReopen(app: NSApplication, hasVisibleWindows: bool): bool
+
+        // File / URL opens — single-file form is `application:openFile:`,
+        // multi-file is `application:openFiles:` (the array variant
+        // is the modern preferred one on macOS 10.13+).
+        @optional @objc("application:openFile:")
+        applicationOpenFile(app: NSApplication, filename: NSString): bool
+        @optional @objc("application:openFiles:")
+        applicationOpenFiles(app: NSApplication, filenames: NSArray)
+        @optional @objc("application:openURLs:")
+        applicationOpenURLs(app: NSApplication, urls: NSArray)
+    }
+
+    /// `NSWindowDelegate` — per-window lifecycle and geometry
+    /// callbacks. Attach with `win.setDelegate(d)`; the same
+    /// object can be both the window delegate and the app
+    /// delegate by implementing both protocols.
+    @objc pub interface NSWindowDelegate {
+        @optional windowDidBecomeKey(notification: NSNotification)
+        @optional windowDidResignKey(notification: NSNotification)
+        @optional windowDidBecomeMain(notification: NSNotification)
+        @optional windowDidResignMain(notification: NSNotification)
+        @optional windowDidMove(notification: NSNotification)
+        @optional windowDidResize(notification: NSNotification)
+        @optional windowWillMiniaturize(notification: NSNotification)
+        @optional windowDidMiniaturize(notification: NSNotification)
+        @optional windowDidDeminiaturize(notification: NSNotification)
+        @optional windowDidExpose(notification: NSNotification)
+        @optional windowWillClose(notification: NSNotification)
+        @optional windowDidChangeScreen(notification: NSNotification)
+        @optional windowDidChangeScreenProfile(notification: NSNotification)
+        @optional windowDidChangeBackingProperties(notification: NSNotification)
+
+        // Full-screen transition callbacks (NSWindowDelegate's
+        // `windowWillEnterFullScreen:` etc.).
+        @optional windowWillEnterFullScreen(notification: NSNotification)
+        @optional windowDidEnterFullScreen(notification: NSNotification)
+        @optional windowWillExitFullScreen(notification: NSNotification)
+        @optional windowDidExitFullScreen(notification: NSNotification)
+
+        // Decision callbacks.
+        @optional windowShouldClose(sender: NSObject): bool
+
+        // Geometry hooks. `windowWillResize:toSize:` lets the
+        // delegate adjust the requested size; the returned size
+        // is what the window actually uses.
+        @optional @objc("windowWillResize:toSize:")
+        windowWillResize(sender: NSWindow, toSize: NSSize): NSSize
+        @optional @objc("windowWillUseStandardFrame:defaultFrame:")
+        windowWillUseStandardFrame(sender: NSWindow, defaultFrame: NSRect): NSRect
+    }
+
+    /// `NSTextFieldDelegate` — text-field-specific edit callbacks.
+    /// Inherits the more general
+    /// `NSControlTextEditingDelegate` (declared below); use
+    /// either protocol depending on whether the methods you care
+    /// about are NSTextField-specific or shared with other
+    /// NSControl subclasses.
+    @objc pub interface NSTextFieldDelegate {
+        @optional controlTextDidBeginEditing(notification: NSNotification)
+        @optional controlTextDidChange(notification: NSNotification)
+        @optional controlTextDidEndEditing(notification: NSNotification)
+    }
+
+    /// `NSControlTextEditingDelegate` — generic text-editing
+    /// callbacks for any NSControl that wraps a field editor
+    /// (NSTextField, NSSearchField, NSComboBox, …).
+    /// `control:textShouldBeginEditing:` and friends let the
+    /// delegate veto edits, intercept commands, etc.
+    @objc pub interface NSControlTextEditingDelegate {
+        @optional @objc("control:textShouldBeginEditing:")
+        controlTextShouldBeginEditing(control: NSObject, fieldEditor: NSTextView): bool
+        @optional @objc("control:textShouldEndEditing:")
+        controlTextShouldEndEditing(control: NSObject, fieldEditor: NSTextView): bool
+        @optional @objc("control:isValidObject:")
+        controlIsValidObject(control: NSObject, obj: NSObject): bool
+        @optional @objc("control:didFailToFormatString:errorDescription:")
+        controlDidFailToFormatString(
+            control: NSObject, string: NSString, errorDescription: NSString
+        ): bool
+        @optional @objc("control:didFailToValidatePartialString:errorDescription:")
+        controlDidFailToValidatePartialString(
+            control: NSObject, string: NSString, errorDescription: NSString
+        )
+    }
+
+    /// `NSMenuDelegate` — menu open / close / item validation
+    /// callbacks. Attach via `menu.setDelegate(d)`; commonly used
+    /// to populate menus lazily right before they're shown.
+    @objc pub interface NSMenuDelegate {
+        @optional menuWillOpen(menu: NSMenu)
+        @optional menuDidClose(menu: NSMenu)
+        @optional menuNeedsUpdate(menu: NSMenu)
+        @optional @objc("numberOfItemsInMenu:")
+        numberOfItemsInMenu(menu: NSMenu): i64
+        @optional @objc("menu:updateItem:atIndex:shouldCancel:")
+        updateMenuItem(menu: NSMenu, updateItem: NSMenuItem, atIndex: i64, shouldCancel: bool): bool
+        @optional @objc("menu:willHighlightItem:")
+        menuWillHighlightItem(menu: NSMenu, willHighlightItem: NSMenuItem)
     }
 
     // ─── Convenience helpers ─────────────────────────────────────
