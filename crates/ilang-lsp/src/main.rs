@@ -687,6 +687,36 @@ interface MyDel {
     }
 
     #[test]
+    pub(crate) fn external_sources_track_subfolder_mod_il_definitions() {
+        // After the `bindings/cocoa/foundation/` split, `NSString` /
+        // `NSObject` live in `foundation/core.il`, re-exported by
+        // `foundation/mod.il`. F12 from a sibling binding
+        // (`bindings/cocoa/spritekit.il` does `use foundation
+        // { NSString }`) must still land on the real declaration —
+        // the harvest used to give up when `<dir>/foundation.il`
+        // didn't exist and miss the `<dir>/foundation/mod.il`
+        // fallback the loader now accepts.
+        use std::path::PathBuf;
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.pop();
+        path.pop();
+        path.push("bindings/cocoa/spritekit.il");
+        let doc = analyse::analyse_path_to_doc(&path)
+            .expect("bindings/cocoa/spritekit.il must load");
+        let ns_string_loc = doc
+            .external_sources
+            .get(&AstSymbol::intern("NSString"))
+            .expect("F12 should resolve `NSString` through foundation/mod.il");
+        // The target file must be the actual declaration site, not
+        // the umbrella stub.
+        let path_str = ns_string_loc.path.to_string_lossy();
+        assert!(
+            path_str.ends_with("foundation/core.il"),
+            "expected F12 target inside foundation/core.il, got {path_str}"
+        );
+    }
+
+    #[test]
     pub(crate) fn local_class_inheriting_nsobject_has_synth_alloc_init_types() {
         // `examples/macos/cocoa/main.il` declares
         //   class AppDelegate : NSApplicationDelegate { ... }

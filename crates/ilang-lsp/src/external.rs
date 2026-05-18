@@ -303,11 +303,21 @@ pub(crate) fn walk_module(
                 s.to_string(),
             )
         } else {
+            // Mirror `loader::resolve_module`: try `<dir>/M.il` first,
+            // then fall back to `<dir>/M/mod.il` (Rust-style subfolder
+            // umbrella). Without the second arm F12 / hover go blank
+            // on every name that lives behind a `pub use mod.*`
+            // umbrella, because the harvest never finds the parsed
+            // declarations.
             let mut candidates = vec![entry_dir.to_path_buf()];
             candidates.extend(extra.iter().cloned());
             let Some((p, s)) = candidates.into_iter().find_map(|d| {
-                let p = d.join(format!("{prefix}.il"));
-                std::fs::read_to_string(&p).ok().map(|s| (p, s))
+                let direct = d.join(format!("{prefix}.il"));
+                if let Ok(src) = std::fs::read_to_string(&direct) {
+                    return Some((direct, src));
+                }
+                let nested = d.join(prefix).join("mod.il");
+                std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
             }) else {
                 return;
             };
@@ -584,11 +594,19 @@ pub(crate) fn walk_module_aliased(
                 s.to_string(),
             )
         } else {
+            // Same `<dir>/M.il` → `<dir>/M/mod.il` fallback as
+            // `walk_module` — alias chasing must follow the loader's
+            // subfolder resolution rule, otherwise F12 on a name
+            // re-exported through `pub use core.*` lands nowhere.
             let mut candidates = vec![entry_dir.to_path_buf()];
             candidates.extend(extra.iter().cloned());
             let Some((p, s)) = candidates.into_iter().find_map(|d| {
-                let p = d.join(format!("{actual}.il"));
-                std::fs::read_to_string(&p).ok().map(|s| (p, s))
+                let direct = d.join(format!("{actual}.il"));
+                if let Ok(src) = std::fs::read_to_string(&direct) {
+                    return Some((direct, src));
+                }
+                let nested = d.join(actual).join("mod.il");
+                std::fs::read_to_string(&nested).ok().map(|src| (nested, src))
             }) else {
                 return;
             };
