@@ -5,6 +5,7 @@
 // geometry types.
 
 use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSNotification, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect }
+use keycodes { KeyCode }
 
 // ─── NSWindow.StyleMask ──────────────────────────────────────────
 // Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
@@ -956,7 +957,7 @@ pub enum EventModifierFlags: u64 {
 
         // Keyboard
         @objc("keyCode")
-        pub get keyCode(): u16
+        pub get keyCode(): KeyCode
         @objc("characters")
         pub get characters(): NSString
         @objc("charactersIgnoringModifiers")

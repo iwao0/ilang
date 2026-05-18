@@ -30,6 +30,7 @@ use cocoa
 use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode }
 use appkit { NSEvent }
 use foundation { NSSize }
+use keycodes { KeyCode }
 
 // Module-level state the overrides mutate / read.
 let player = SKShapeNode.shapeNodeWithCircleOfRadius(14.0)
@@ -60,14 +61,13 @@ let _v = cocoa.NSMutableArray.array()   // [vx, vy] as NSNumber
 
         @objc("keyDown:")
         keyDown(event: NSEvent) {
-            // Arrow keys: 123=left 124=right 125=down 126=up
-            let code = event.keyCode as i64
+            let code = event.keyCode
             let dx = 0.0
             let dy = 0.0
-            if      code == 123 { dx = -20.0 }
-            elif code == 124 { dx =  20.0 }
-            elif code == 125 { dy = -20.0 }
-            elif code == 126 { dy =  20.0 }
+            if      code == KeyCode.leftArrow  { dx = -20.0 }
+            elif code == KeyCode.rightArrow { dx =  20.0 }
+            elif code == KeyCode.downArrow  { dy = -20.0 }
+            elif code == KeyCode.upArrow    { dy =  20.0 }
             if dx != 0.0 || dy != 0.0 {
                 let p = player.position
                 player.position = cocoa.makePoint(p.x + dx, p.y + dy)
