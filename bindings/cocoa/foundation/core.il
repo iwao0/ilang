@@ -406,6 +406,47 @@ pub enum BinarySearchingOptions: u64 {
         pub static alloc(): NSString
         @objc("initWithData:encoding:")
         pub initWithData(data: NSData, encoding: StringEncoding): NSString
+
+        // ─── File round-trip ──────────────────────────────────
+        @objc("stringWithContentsOfFile:encoding:error:")
+        pub static stringWithContentsOfFile(
+            path: NSString, encoding: StringEncoding, error: i64
+        ): NSString
+        @objc("writeToFile:atomically:encoding:error:")
+        pub writeToFile(
+            path: NSString, atomically: bool,
+            encoding: StringEncoding, error: i64
+        ): bool
+
+        // ─── Comparison ───────────────────────────────────────
+        @objc("compare:")
+        pub compareTo(other: NSString): ComparisonResult
+        @objc("compare:options:")
+        pub compareToWithOptions(
+            other: NSString, options: StringCompareOptions
+        ): ComparisonResult
+        @objc("compare:options:range:")
+        pub compareToWithOptionsAndRange(
+            other: NSString, options: StringCompareOptions, range: NSRange
+        ): ComparisonResult
+        @objc("caseInsensitiveCompare:")
+        pub caseInsensitiveCompare(other: NSString): ComparisonResult
+        @objc("localizedCompare:")
+        pub localizedCompare(other: NSString): ComparisonResult
+        @objc("localizedCaseInsensitiveCompare:")
+        pub localizedCaseInsensitiveCompare(other: NSString): ComparisonResult
+        @objc("localizedStandardCompare:")
+        pub localizedStandardCompare(other: NSString): ComparisonResult
+        @objc("canBeConvertedToEncoding:")
+        pub canBeConvertedToEncoding(encoding: StringEncoding): bool
+
+        // ─── Per-line / per-paragraph chunking ────────────────
+        @objc("lineRangeForRange:")
+        pub lineRangeForRange(range: NSRange): NSRange
+        @objc("paragraphRangeForRange:")
+        pub paragraphRangeForRange(range: NSRange): NSRange
+        @objc("characterAtIndex:")
+        pub characterAtIndex(i: u64): u16
     }
 
     /// `NSMutableString` — appendable / editable variant of
@@ -438,6 +479,36 @@ pub enum BinarySearchingOptions: u64 {
         pub objectAtIndex(i: i64): NSObject
         @objc("containsObject:")
         pub containsObject(o: NSObject): bool
+
+        @objc("firstObject")
+        pub get firstObject(): NSObject
+        @objc("lastObject")
+        pub get lastObject(): NSObject
+        @objc("indexOfObject:")
+        pub indexOfObject(o: NSObject): u64
+        @objc("indexOfObject:inRange:")
+        pub indexOfObjectInRange(o: NSObject, range: NSRange): u64
+        @objc("indexOfObjectIdenticalTo:")
+        pub indexOfObjectIdenticalTo(o: NSObject): u64
+        @objc("isEqualToArray:")
+        pub isEqualToArray(other: NSArray): bool
+
+        @objc("arrayByAddingObject:")
+        pub arrayByAddingObject(o: NSObject): NSArray
+        @objc("arrayByAddingObjectsFromArray:")
+        pub arrayByAddingObjectsFromArray(other: NSArray): NSArray
+        @objc("subarrayWithRange:")
+        pub subarrayWithRange(range: NSRange): NSArray
+        @objc("componentsJoinedByString:")
+        pub componentsJoinedByString(separator: NSString): NSString
+        @objc("filteredArrayUsingPredicate:")
+        pub filteredArrayUsingPredicate(predicate: NSObject): NSArray
+        @objc("sortedArrayUsingDescriptors:")
+        pub sortedArrayUsingDescriptors(descriptors: NSArray): NSArray
+        @objc("reverseObjectEnumerator")
+        pub reverseObjectEnumerator(): NSObject
+        @objc("objectEnumerator")
+        pub objectEnumerator(): NSObject
     }
 
     /// `NSMutableArray` — array that can be appended to. Initialise
@@ -458,6 +529,18 @@ pub enum BinarySearchingOptions: u64 {
         pub insertObject(o: NSObject, atIndex: i64)
         @objc("removeAllObjects")
         pub removeAllObjects()
+        @objc("removeObject:")
+        pub removeObject(o: NSObject)
+        @objc("removeLastObject")
+        pub removeLastObject()
+        @objc("replaceObjectAtIndex:withObject:")
+        pub replaceObjectAtIndex(i: i64, withObject: NSObject)
+        @objc("exchangeObjectAtIndex:withObjectAtIndex:")
+        pub exchangeObjectAtIndex(i: u64, withObjectAtIndex: u64)
+        @objc("addObjectsFromArray:")
+        pub addObjectsFromArray(other: NSArray)
+        @objc("sortUsingDescriptors:")
+        pub sortUsingDescriptors(descriptors: NSArray)
     }
 
     /// `NSDictionary` — immutable id→id map.
@@ -468,6 +551,20 @@ pub enum BinarySearchingOptions: u64 {
         pub objectForKey(k: NSObject): NSObject
         @objc("allKeys")
         pub get allKeys(): NSArray
+        @objc("allValues")
+        pub get allValues(): NSArray
+        @objc("isEqualToDictionary:")
+        pub isEqualToDictionary(other: NSDictionary): bool
+        @objc("objectsForKeys:notFoundMarker:")
+        pub objectsForKeys(keys: NSArray, notFoundMarker: NSObject): NSArray
+        @objc("keysSortedByValueUsingSelector:")
+        pub keysSortedByValueUsingSelector(sel: i64): NSArray
+        @objc("valueForKey:")
+        pub valueForKeyDict(k: NSString): NSObject
+        @objc("keyEnumerator")
+        pub keyEnumerator(): NSObject
+        @objc("objectEnumerator")
+        pub objectEnumerator(): NSObject
     }
 
     /// `NSMutableDictionary` — dictionary you can write to. Keys
@@ -486,6 +583,12 @@ pub enum BinarySearchingOptions: u64 {
         pub removeObjectForKey(k: NSObject)
         @objc("removeAllObjects")
         pub removeAllObjects()
+        @objc("addEntriesFromDictionary:")
+        pub addEntriesFromDictionary(other: NSDictionary)
+        @objc("setDictionary:")
+        pub setDictionary(other: NSDictionary)
+        @objc("removeObjectsForKeys:")
+        pub removeObjectsForKeys(keys: NSArray)
     }
 
     /// `NSData` — immutable byte buffer. The raw selectors traffic
@@ -530,6 +633,19 @@ pub enum BinarySearchingOptions: u64 {
         pub initWithBase64EncodedString(
             s: NSString, options: DataBase64DecodingOptions
         ): NSData
+
+        @objc("subdataWithRange:")
+        pub subdataWithRange(range: NSRange): NSData
+        @objc("isEqualToData:")
+        pub isEqualToData(other: NSData): bool
+        @objc("dataWithContentsOfFile:options:error:")
+        pub static dataWithContentsOfFileOptions(
+            path: NSString, options: DataReadingOptions, error: i64
+        ): NSData
+        @objc("writeToFile:options:error:")
+        pub writeToFileOptions(
+            path: NSString, options: DataWritingOptions, error: i64
+        ): bool
     }
 
     /// `NSDispatchData` — Foundation wrapper around the

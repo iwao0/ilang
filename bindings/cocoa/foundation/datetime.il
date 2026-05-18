@@ -4,7 +4,7 @@
 // / NSRelativeDateTimeFormatter trio that builds on the types
 // here.
 
-use core { NSObject, NSString }
+use core { NSObject, NSString, NSRange, ComparisonResult }
 
 // NSDateFormatterStyle — the locale-aware default presets you
 // pick by assigning to `dateStyle` / `timeStyle`. Setting
@@ -201,6 +201,43 @@ pub enum CalendarUnit: u64 {
         pub isDateInYesterday(d: NSDate): bool
         @objc("isDateInTomorrow:")
         pub isDateInTomorrow(d: NSDate): bool
+
+        // ─── Component-aware arithmetic / queries ─────────────
+        @objc("dateBySettingHour:minute:second:ofDate:options:")
+        pub dateBySettingHour(
+            hour: i64, minute: i64, second: i64, ofDate: NSDate,
+            options: CalendarOptions
+        ): NSDate
+        @objc("dateBySettingUnit:value:ofDate:options:")
+        pub dateBySettingUnit(
+            unit: CalendarUnit, value: i64, ofDate: NSDate,
+            options: CalendarOptions
+        ): NSDate
+        @objc("nextDateAfterDate:matchingComponents:options:")
+        pub nextDateAfterDate(
+            date: NSDate, matchingComponents: NSDateComponents,
+            options: CalendarOptions
+        ): NSDate
+        @objc("startOfDayForDate:")
+        pub startOfDayForDate(date: NSDate): NSDate
+        @objc("rangeOfUnit:inUnit:forDate:")
+        pub rangeOfUnit(
+            unit: CalendarUnit, inUnit: CalendarUnit, forDate: NSDate
+        ): NSRange
+        @objc("ordinalityOfUnit:inUnit:forDate:")
+        pub ordinalityOfUnit(
+            unit: CalendarUnit, inUnit: CalendarUnit, forDate: NSDate
+        ): u64
+        @objc("isDate:equalToDate:toUnitGranularity:")
+        pub isDate(
+            date1: NSDate, equalToDate: NSDate, toUnitGranularity: CalendarUnit
+        ): bool
+        @objc("compareDate:toDate:toUnitGranularity:")
+        pub compareDate(
+            date1: NSDate, toDate: NSDate, toUnitGranularity: CalendarUnit
+        ): ComparisonResult
+        @objc("isDateInWeekend:")
+        pub isDateInWeekend(date: NSDate): bool
     }
 
     /// `NSDateInterval` — half-open date range `[startDate, endDate)`.

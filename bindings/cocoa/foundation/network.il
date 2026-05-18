@@ -118,6 +118,84 @@ pub enum URLCredentialPersistence: u64 {
         pub startAccessingSecurityScopedResource(): bool
         @objc("stopAccessingSecurityScopedResource")
         pub stopAccessingSecurityScopedResource()
+
+        // ─── Path-component manipulation ──────────────────────
+        @objc("URLByAppendingPathComponent:")
+        pub byAppendingPathComponent(component: NSString): NSURL
+        @objc("URLByAppendingPathComponent:isDirectory:")
+        pub byAppendingPathComponentDir(
+            component: NSString, isDirectory: bool
+        ): NSURL
+        @objc("URLByDeletingLastPathComponent")
+        pub get byDeletingLastPathComponent(): NSURL
+        @objc("URLByAppendingPathExtension:")
+        pub byAppendingPathExtension(ext: NSString): NSURL
+        @objc("URLByDeletingPathExtension")
+        pub get byDeletingPathExtension(): NSURL
+        @objc("URLByStandardizingPath")
+        pub get byStandardizingPath(): NSURL
+        @objc("URLByResolvingSymlinksInPath")
+        pub get byResolvingSymlinksInPath(): NSURL
+
+        @objc("lastPathComponent")
+        pub get lastPathComponent(): NSString
+        @objc("pathExtension")
+        pub get pathExtension(): NSString
+        @objc("pathComponents")
+        pub get pathComponents(): NSArray
+
+        @objc("isFileURL")
+        pub get isFileURL(): bool
+        @objc("hasDirectoryPath")
+        pub get hasDirectoryPath(): bool
+        @objc("filePathURL")
+        pub get filePathURL(): NSURL
+        @objc("baseURL")
+        pub get baseURL(): NSURL
+        @objc("relativePath")
+        pub get relativePath(): NSString
+        @objc("relativeString")
+        pub get relativeString(): NSString
+        @objc("standardizedURL")
+        pub get standardizedURL(): NSURL
+        @objc("absoluteURL")
+        pub get absoluteURL(): NSURL
+
+        // ─── URL pieces (kept aligned with NSURLComponents) ──
+        @objc("host")
+        pub get host(): NSString
+        @objc("port")
+        pub get port(): NSObject
+        @objc("scheme")
+        pub get scheme(): NSString
+        @objc("user")
+        pub get user(): NSString
+        @objc("password")
+        pub get password(): NSString
+        @objc("fragment")
+        pub get fragment(): NSString
+        @objc("query")
+        pub get query(): NSString
+
+        // ─── Resource values ─────────────────────────────────
+        // The macOS / iOS resource-value API stamps and reads
+        // back filesystem metadata (size, modification date,
+        // type-identifier, security scope flags, …) without
+        // going through NSFileManager.
+        @objc("resourceValuesForKeys:error:")
+        pub resourceValuesForKeys(keys: NSArray, error: i64): NSDictionary
+        @objc("setResourceValue:forKey:error:")
+        pub setResourceValue(
+            value: NSObject, forKey: NSString, error: i64
+        ): bool
+        @objc("setResourceValues:error:")
+        pub setResourceValues(keyedValues: NSDictionary, error: i64): bool
+        @objc("removeAllCachedResourceValues")
+        pub removeAllCachedResourceValues()
+        @objc("removeCachedResourceValueForKey:")
+        pub removeCachedResourceValueForKey(key: NSString)
+        @objc("checkResourceIsReachableAndReturnError:")
+        pub checkResourceIsReachableAndReturnError(error: i64): bool
     }
 
     /// `NSURLRequest` — immutable URL request. Build one with

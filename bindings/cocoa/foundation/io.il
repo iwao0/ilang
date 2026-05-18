@@ -279,6 +279,86 @@ pub enum StreamStatus: u64 {
         pub attributesOfItemAtPath(path: NSString, error: i64): NSDictionary
         @objc("currentDirectoryPath")
         pub get currentDirectoryPath(): NSString
+        @objc("changeCurrentDirectoryPath:")
+        pub changeCurrentDirectoryPath(path: NSString): bool
+
+        // ─── URL-based variants ───────────────────────────────
+        // Prefer these over the path-based ones for new code:
+        // NSURL flows through the system's security-scoped /
+        // iCloud-aware code path without extra work.
+        @objc("contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:")
+        pub contentsOfDirectoryAtURL(
+            url: NSURL, includingPropertiesForKeys: NSArray,
+            options: u64, error: i64
+        ): NSArray
+        @objc("createDirectoryAtURL:withIntermediateDirectories:attributes:error:")
+        pub createDirectoryAtURL(
+            url: NSURL, withIntermediateDirectories: bool,
+            attributes: NSDictionary, error: i64
+        ): bool
+        @objc("copyItemAtURL:toURL:error:")
+        pub copyItemAtURL(srcURL: NSURL, toURL: NSURL, error: i64): bool
+        @objc("moveItemAtURL:toURL:error:")
+        pub moveItemAtURL(srcURL: NSURL, toURL: NSURL, error: i64): bool
+        @objc("removeItemAtURL:error:")
+        pub removeItemAtURL(url: NSURL, error: i64): bool
+        @objc("trashItemAtURL:resultingItemURL:error:")
+        pub trashItemAtURL(
+            url: NSURL, resultingItemURL: NSURL, error: i64
+        ): bool
+        @objc("enumeratorAtURL:includingPropertiesForKeys:options:errorHandler:")
+        pub enumeratorAtURL(
+            url: NSURL, includingPropertiesForKeys: NSArray,
+            options: u64, errorHandler: i64
+        ): NSDirectoryEnumerator
+        @objc("URLsForDirectory:inDomains:")
+        pub urlsForDirectory(directory: u64, inDomains: u64): NSArray
+        @objc("mountedVolumeURLsIncludingResourceValuesForKeys:options:")
+        pub mountedVolumeURLs(
+            includingResourceValuesForKeys: NSArray, options: u64
+        ): NSArray
+
+        // ─── Symbolic-link / hardlink primitives ──────────────
+        @objc("createSymbolicLinkAtPath:withDestinationPath:error:")
+        pub createSymbolicLinkAtPath(
+            path: NSString, withDestinationPath: NSString, error: i64
+        ): bool
+        @objc("destinationOfSymbolicLinkAtPath:error:")
+        pub destinationOfSymbolicLinkAtPath(
+            path: NSString, error: i64
+        ): NSString
+        @objc("linkItemAtPath:toPath:error:")
+        pub linkItemAtPath(path: NSString, toPath: NSString, error: i64): bool
+
+        // ─── Path inspection / per-file predicates ────────────
+        @objc("isExecutableFileAtPath:")
+        pub isExecutableFileAtPath(path: NSString): bool
+        @objc("isReadableFileAtPath:")
+        pub isReadableFileAtPath(path: NSString): bool
+        @objc("isWritableFileAtPath:")
+        pub isWritableFileAtPath(path: NSString): bool
+        @objc("isDeletableFileAtPath:")
+        pub isDeletableFileAtPath(path: NSString): bool
+        @objc("displayNameAtPath:")
+        pub displayNameAtPath(path: NSString): NSString
+        @objc("subpathsAtPath:")
+        pub subpathsAtPath(path: NSString): NSArray
+        @objc("subpathsOfDirectoryAtPath:error:")
+        pub subpathsOfDirectoryAtPath(path: NSString, error: i64): NSArray
+        @objc("createFileAtPath:contents:attributes:")
+        pub createFileAtPath(
+            path: NSString, contents: NSData, attributes: NSDictionary
+        ): bool
+        @objc("contentsAtPath:")
+        pub contentsAtPath(path: NSString): NSData
+        @objc("setAttributes:ofItemAtPath:error:")
+        pub setAttributes(
+            attributes: NSDictionary, ofItemAtPath: NSString, error: i64
+        ): bool
+        @objc("attributesOfFileSystemForPath:error:")
+        pub attributesOfFileSystemForPath(
+            path: NSString, error: i64
+        ): NSDictionary
     }
 
     /// `NSBundle` — read-only access to a code+resources bundle.
