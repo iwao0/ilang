@@ -684,15 +684,26 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Class, "'class'")?;
         let name = self.expect_ident("class name")?;
-        // Optional `: Parent` — when present, this becomes an
-        // ilang-defined ObjC subclass. The desugar registers the
-        // class with libobjc at startup and exposes each ilang
-        // method as a C-ABI IMP that `class_addMethod` can install.
-        let parent = if matches!(self.peek().kind, TokenKind::Colon) {
+        // Optional `: Parent[, Interface, …]` — parses an
+        // Objective-C-style base list. The first entry (if any)
+        // is the parent class for the subclass desugar; the rest
+        // are interfaces the class is expected to implement (the
+        // standard ilang interface-conformance check applies). For
+        // the casual delegate case
+        //   @objc class MyApp : NSObject, NSApplicationDelegate { … }
+        // the parent class object is `NSObject` and `NSApplicationDelegate`
+        // is just a contract.
+        let (parent, interfaces) = if matches!(self.peek().kind, TokenKind::Colon) {
             self.bump();
-            Some(self.expect_ident("parent class name")?)
+            let first = self.expect_ident("parent class name")?;
+            let mut ifaces: Vec<Symbol> = Vec::new();
+            while matches!(self.peek().kind, TokenKind::Comma) {
+                self.bump();
+                ifaces.push(self.expect_ident("interface name")?);
+            }
+            (Some(first), ifaces)
         } else {
-            None
+            (None, Vec::new())
         };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut methods: Vec<ObjcMethod> = Vec::new();
@@ -828,6 +839,7 @@ impl<'a> Parser<'a> {
             name,
             is_pub,
             parent,
+            interfaces,
             methods,
             span,
         })
@@ -929,6 +941,11 @@ struct ObjcClass {
     /// `Some(parent)` for ilang-defined subclasses (`@objc class Foo : NSObject`).
     /// `None` for plain bindings to existing ObjC classes.
     parent: Option<Symbol>,
+    /// Additional interface bases listed after the parent
+    /// (`@objc class MyApp : NSObject, NSAppDel, NSWinDel { … }`).
+    /// Propagated onto the desugared `ClassDecl`'s `interfaces`
+    /// field so the type checker's conformance pass kicks in.
+    interfaces: Vec<Symbol>,
     methods: Vec<ObjcMethod>,
     span: Span,
 }
@@ -1587,7 +1604,7 @@ fn build_objc_class(
         // normal ilang method calls through the desugared parent
         // class (which itself does objc_msgSend).
         parent: c.parent,
-        interfaces: Box::new([]),
+        interfaces: c.interfaces.clone().into_boxed_slice(),
         type_params: Box::new([]),
         fields: fields.into_boxed_slice(),
         methods: methods.into(),
