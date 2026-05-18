@@ -10,6 +10,7 @@
 
 use core { NSObject, NSString }
 use datetime { NSDate, NSDateComponents }
+use measurement { NSMeasurement, NSUnit }
 
 // NSDateComponentsFormatterUnitsStyle — text style for the
 // emitted duration (e.g. `"1h 23m"` vs `"1 hour, 23 minutes"`).
@@ -310,5 +311,41 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub personNameComponentsFromString(
             s: NSString
         ): NSPersonNameComponents
+    }
+
+    /// `NSMeasurementFormatter` — render an NSMeasurement
+    /// (value + unit) as a locale-aware string. `unitStyle`
+    /// controls short / medium / long unit rendering;
+    /// `unitOptions` flips between "provided unit" and
+    /// "natural scale" (which auto-converts e.g. 1500 m → 1.5 km).
+    /// The `numberFormatter` lets you tune the value side via
+    /// any NSNumberFormatter instance.
+    @objc pub class NSMeasurementFormatter : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSMeasurementFormatter
+        @objc("init")
+        pub init(): NSMeasurementFormatter
+
+        @objc("unitStyle")
+        pub get unitStyle(): FormattingUnitStyle
+        @objc("setUnitStyle:")
+        pub set unitStyle(v: FormattingUnitStyle)
+        @objc("unitOptions")
+        pub get unitOptions(): u64
+        @objc("setUnitOptions:")
+        pub set unitOptions(v: u64)
+        @objc("locale")
+        pub get locale(): NSObject
+        @objc("setLocale:")
+        pub set locale(l: NSObject)
+        @objc("numberFormatter")
+        pub get numberFormatter(): NSObject
+        @objc("setNumberFormatter:")
+        pub set numberFormatter(f: NSObject)
+
+        @objc("stringFromMeasurement:")
+        pub stringFromMeasurement(m: NSMeasurement): NSString
+        @objc("stringFromUnit:")
+        pub stringFromUnit(u: NSUnit): NSString
     }
 }

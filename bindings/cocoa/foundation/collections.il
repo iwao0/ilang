@@ -308,6 +308,35 @@ use core { NSObject, NSString, NSArray, NSRange }
         pub get allObjects(): NSArray
     }
 
+    /// `NSIndexPath` — sequence of integer indices identifying a
+    /// position inside a nested structure (NSTableView row +
+    /// section, NSOutlineView path from root, etc.). Build with
+    /// `indexPathWithIndex:` for a single-element path or
+    /// `indexPathWithIndexes:length:` for a multi-element one;
+    /// extend / contract via the `indexPathByAddingIndex:` /
+    /// `indexPathByRemovingLastIndex` returns-new-instance API.
+    @objc pub class NSIndexPath : NSObject {
+        @objc("indexPathWithIndex:")
+        pub static indexPathWithIndex(i: u64): NSIndexPath
+        @objc("indexPathWithIndexes:length:")
+        pub static indexPathWithIndexes(indexes: *const u64, length: u64): NSIndexPath
+        @objc("alloc")
+        pub static alloc(): NSIndexPath
+        @objc("initWithIndex:")
+        pub initWithIndex(i: u64): NSIndexPath
+
+        @objc("length")
+        pub get length(): u64
+        @objc("indexAtPosition:")
+        pub indexAtPosition(i: u64): u64
+        @objc("indexPathByAddingIndex:")
+        pub indexPathByAddingIndex(i: u64): NSIndexPath
+        @objc("indexPathByRemovingLastIndex")
+        pub get indexPathByRemovingLastIndex(): NSIndexPath
+        @objc("compare:")
+        pub compare(other: NSIndexPath): i64
+    }
+
     /// `NSEnumerator` — abstract iterator handed out by Foundation
     /// collections (`-[NSArray objectEnumerator]`, etc.). Walk it
     /// by calling `nextObject` in a loop until it returns a

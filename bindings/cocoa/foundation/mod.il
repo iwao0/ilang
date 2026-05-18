@@ -22,3 +22,4 @@ pub use measurement.*
 pub use metadata.*
 pub use activity.*
 pub use extension.*
+pub use xpc.*

@@ -91,6 +91,36 @@ pub enum ProcessInfoThermalState: i64 {
         )
     }
 
+    /// `NSNotificationQueue` — coalescing / postponed notification
+    /// posting. `enqueueNotification:postingStyle:` schedules a
+    /// notification to fire after the current run-loop iteration
+    /// (`postWhenIdle`) or at the next opportunity (`postASAP`),
+    /// and optionally coalesces duplicates by name / sender /
+    /// both. Useful for "fire one notification after a batch of
+    /// state changes" patterns.
+    @objc pub class NSNotificationQueue : NSObject {
+        @objc("defaultQueue")
+        pub static defaultQueue(): NSNotificationQueue
+        @objc("alloc")
+        pub static alloc(): NSNotificationQueue
+        @objc("initWithNotificationCenter:")
+        pub initWithNotificationCenter(
+            center: NSNotificationCenter
+        ): NSNotificationQueue
+
+        @objc("enqueueNotification:postingStyle:")
+        pub enqueueNotification(n: NSNotification, postingStyle: u64)
+        @objc("enqueueNotification:postingStyle:coalesceMask:forModes:")
+        pub enqueueNotificationFull(
+            n: NSNotification, postingStyle: u64,
+            coalesceMask: u64, forModes: NSArray
+        )
+        @objc("dequeueNotificationsMatching:coalesceMask:")
+        pub dequeueNotificationsMatching(
+            n: NSNotification, coalesceMask: u64
+        )
+    }
+
     /// `NSDistributedNotificationCenter` — cross-process variant.
     /// Same API surface as NSNotificationCenter but posts through
     /// `distnoted` so subscribers in other processes can react

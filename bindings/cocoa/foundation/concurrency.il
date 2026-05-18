@@ -35,6 +35,14 @@ pub enum OperationQueuePriority: i64 {
 }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSLocking` — the protocol every Foundation lock conforms
+    /// to. `with-lock` style helpers can take any `NSLocking`
+    /// instance and acquire / release uniformly.
+    @objc pub interface NSLocking {
+        lock()
+        unlock()
+    }
+
     /// `NSThread` — wraps a kernel thread. The block-based
     /// `detachNewThread(body)` is the easiest entry point; for
     /// thread-aware code that needs `cancel` / `isFinished`
@@ -368,5 +376,22 @@ pub enum OperationQueuePriority: i64 {
         pub addBlock(body: fn()) {
             this._addOperationWithBlock(makeBlock(body))
         }
+    }
+
+    /// `NSInvocationOperation` — wraps an NSInvocation (or a
+    /// `target / selector / object` triple) as an NSOperation.
+    /// Niche compared to NSBlockOperation, but the only way to
+    /// schedule an arbitrary `performSelector:`-style dispatch
+    /// through an operation queue without writing a closure.
+    @objc pub class NSInvocationOperation : NSOperation {
+        @objc("alloc")
+        pub static alloc(): NSInvocationOperation
+        @objc("initWithTarget:selector:object:")
+        pub initWithTarget(
+            target: NSObject, selector: i64, object: NSObject
+        ): NSInvocationOperation
+
+        @objc("result")
+        pub get result(): NSObject
     }
 }

@@ -468,6 +468,13 @@ pub enum StreamStatus: u64 {
         relinquishPresentedItemToWriter(writer: i64)
     }
 
+    /// `NSFileSecurity` — opaque value carrying a file's owner /
+    /// group / permission ACL. Pulled off an NSURL via the
+    /// `NSURLFileSecurityKey` resource value; mutate (typically
+    /// by going through CoreFoundation's `CFFileSecurity` API)
+    /// and write back to set permissions.
+    @objc pub class NSFileSecurity : NSObject {}
+
     /// `NSFileVersion` — a single saved revision of a document.
     /// The system retains them automatically when the user enables
     /// "auto-save" (the macOS document model); apps reach them via

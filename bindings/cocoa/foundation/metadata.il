@@ -83,6 +83,39 @@ use network { NSURL }
         pub resultAtIndex(i: u64): NSObject
     }
 
+    /// `NSMetadataQueryAttributeValueTuple` — one (attribute,
+    /// value) hit inside a result group. Surfaced by
+    /// NSMetadataQuery when `groupingAttributes` is set; the
+    /// query reports value-distinct subgroups instead of one
+    /// flat result list.
+    @objc pub class NSMetadataQueryAttributeValueTuple : NSObject {
+        @objc("attribute")
+        pub get attribute(): NSString
+        @objc("value")
+        pub get value(): NSObject
+        @objc("count")
+        pub get count(): u64
+    }
+
+    /// `NSMetadataQueryResultGroup` — a subgroup of query
+    /// results sharing a common attribute value. `subgroups` is
+    /// the recursive partition when multiple grouping attributes
+    /// stack; the leaf groups carry the actual `results`.
+    @objc pub class NSMetadataQueryResultGroup : NSObject {
+        @objc("attribute")
+        pub get attribute(): NSString
+        @objc("value")
+        pub get value(): NSObject
+        @objc("subgroups")
+        pub get subgroups(): NSArray
+        @objc("resultCount")
+        pub get resultCount(): u64
+        @objc("resultAtIndex:")
+        pub resultAtIndex(i: u64): NSObject
+        @objc("results")
+        pub get results(): NSArray
+    }
+
     /// `NSMetadataQueryDelegate` — overrides result construction
     /// (`replacementObjectForResultObject:` lets you swap each
     /// raw NSMetadataItem for a richer wrapper) and value access
