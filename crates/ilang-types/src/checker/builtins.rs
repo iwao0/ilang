@@ -345,6 +345,55 @@ impl TypeChecker {
             },
         );
 
+        // Built-in `ObjCBlock<F>` — typed handle to an Objective-C
+        // block whose `invoke` trampoline calls an ilang closure of
+        // shape `F`. `new ObjCBlock(closure)` constructs one (lower
+        // pass routes it to the matching `__ilang_make_*_block`
+        // runtime helper); the user-visible class has a single
+        // `init(body: F)` so the type checker accepts the standard
+        // `new`-with-args form. `F` is intentionally an unconstrained
+        // type variable here — the lower pass enforces "must be a
+        // fn type" because that error reads better with the actual
+        // ObjC ABI mismatch in hand.
+        let f = || Type::TypeVar("F".into());
+        let mut objc_block_methods = HashMap::new();
+        objc_block_methods.insert(
+            "init".into(),
+            vec![Signature {
+                params: vec![f()],
+                ret: Type::Unit,
+                variadic: false,
+                decl_span: Span::dummy(),
+                type_params: Vec::new(),
+                defaults: Vec::new(),
+                is_pub: true,
+                deprecated: None,
+            }],
+        );
+        self.classes.insert(
+            "ObjCBlock".into(),
+            ClassSig {
+                type_params: vec!["F".into()],
+                fields: HashMap::new(),
+                methods: objc_block_methods,
+                properties: HashMap::new(),
+                static_methods: HashMap::new(),
+                static_fields: HashMap::new(),
+                static_const_fields: HashSet::new(),
+                parent: None,
+                implements: Vec::new(),
+                method_slots: HashMap::new(),
+                vtable_len: 0,
+                extern_lib: None,
+                is_repr_c: false,
+                is_union: false,
+                has_fam: false,
+                field_pub: HashMap::new(),
+                static_field_pub: HashMap::new(),
+                module: String::new(),
+            },
+        );
+
         // Built-in helpers callable inside `@extern(C) { ... }` blocks
         // for converting between raw C ABI values and ilang values.
         // Registered as top-level fns; their signatures use raw

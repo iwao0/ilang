@@ -666,6 +666,33 @@ impl TypeChecker {
         loop_depth: u32,
         span: Span,
     ) -> Result<Type, TypeError> {
+        // `new ObjCBlock(closure)` — infer F from the closure's
+        // fn type so the user doesn't have to write
+        // `new ObjCBlock<fn(i64, i64, i64): ()>(closure)` every time.
+        // Require exactly one arg that type-checks as a fn type; the
+        // lower pass will further validate that the shape matches one
+        // of the runtime's pre-baked invoke trampolines.
+        if class.as_str() == "ObjCBlock" && type_args.is_empty() {
+            if args.len() != 1 {
+                return Err(TypeError::ArityMismatch {
+                    name: Symbol::intern("ObjCBlock::init"),
+                    expected: 1,
+                    got: args.len(),
+                    span,
+                });
+            }
+            let arg_ty = self.check_expr(
+                &args[0], env, ret_ty, in_class, loop_depth,
+            )?;
+            if !matches!(arg_ty, Type::Fn(_)) {
+                return Err(TypeError::Mismatch {
+                    expected: Type::func(vec![], Type::Unit),
+                    got: arg_ty,
+                    span: args[0].span,
+                });
+            }
+            return Ok(Type::generic("ObjCBlock", vec![arg_ty]));
+        }
         let cls = self.classes.get(&class).ok_or_else(|| TypeError::UndefinedClass {
             name: class.clone(),
             span,
