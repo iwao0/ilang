@@ -265,6 +265,7 @@ pub(crate) fn attribute_completions() -> Vec<CompletionItem> {
         ("override", None, "@override"),
         ("requires", Some("requires($1)"), "@requires(cap)"),
         ("deprecated", Some("deprecated($1)"), "@deprecated(reason)"),
+        ("since", Some("since(\"$1\")"), "@since(\"version\")"),
     ];
     entries
         .iter()

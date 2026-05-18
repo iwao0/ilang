@@ -345,6 +345,9 @@ impl<'a> Parser<'a> {
             // synthesised FnDecl. Currently:
             //   * `@deprecated("reason")` — type-checker warning at
             //     call site.
+            //   * `@since("version")` — documentation-only marker
+            //     for the minimum OS version. Carried through so
+            //     future hover / completion surfaces can show it.
             // Anything else is rejected to keep typos / unsupported
             // attributes from silently disappearing.
             let split_extra = |attrs: Vec<Attribute>,
@@ -357,12 +360,12 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     match a.name.as_str() {
-                        "deprecated" => extra.push(a),
+                        "deprecated" | "since" => extra.push(a),
                         other => {
                             return Err(ParseError::Unexpected {
                                 found: TokenKind::At,
                                 expected: format!(
-                                    "unsupported attribute `@{other}` on @objc class method (allowed: @objc, @deprecated)"
+                                    "unsupported attribute `@{other}` on @objc class method (allowed: @objc, @deprecated, @since)"
                                 ),
                                 span: err_span,
                             });

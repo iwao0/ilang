@@ -327,6 +327,7 @@ pub enum URLCredentialPersistence: u64 {
     /// `.resume()` to actually fire the request off the wire.
     @objc pub class NSURLSession : NSObject {
         @objc("sharedSession")
+        @since("10.9")
         pub static shared(): NSURLSession
         @objc("sessionWithConfiguration:")
         pub static sessionWithConfiguration(
