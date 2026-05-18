@@ -13,6 +13,46 @@
 use core { NSObject, NSString, NSData, NSError }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
+    /// `NSCoding` — protocol every class that wants to survive
+    /// `NSKeyedArchiver` participates in. Implement
+    /// `encodeWithCoder:` (write your state) and `initWithCoder:`
+    /// (read it back) — the archiver / unarchiver invoke them on
+    /// each object it walks past.
+    @objc pub interface NSCoding {
+        @objc("encodeWithCoder:")
+        encodeWithCoder(coder: NSCoder)
+        @objc("initWithCoder:")
+        initWithCoder(coder: NSCoder): NSObject
+    }
+
+    /// `NSSecureCoding` — refinement of `NSCoding` that asserts
+    /// the class validates the encoded type before instantiating
+    /// it. Required for any class that wants to round-trip
+    /// through `NSKeyedUnarchiver.unarchivedObjectOfClass:fromData:`.
+    /// `supportsSecureCoding` must return `true` on the class
+    /// itself; the implementation typically just hard-codes it.
+    @objc pub interface NSSecureCoding {
+        @objc("supportsSecureCoding")
+        supportsSecureCoding(): bool
+    }
+
+    /// `NSCopying` — `copyWithZone:` lets `[obj copy]` produce an
+    /// independent value-copy of the receiver. The `zone:`
+    /// parameter is a historical NSZone pointer that the modern
+    /// runtime ignores; pass `cocoa.nil`.
+    @objc pub interface NSCopying {
+        @objc("copyWithZone:")
+        copyWithZone(zone: NSObject): NSObject
+    }
+
+    /// `NSMutableCopying` — `mutableCopyWithZone:` for the
+    /// "give me a mutable copy" pattern. Pair with `NSCopying` on
+    /// the same class to support both `copy` and `mutableCopy`.
+    @objc pub interface NSMutableCopying {
+        @objc("mutableCopyWithZone:")
+        mutableCopyWithZone(zone: NSObject): NSObject
+    }
+
     /// `NSCoder` — abstract encode / decode interface. Both the
     /// archiver and unarchiver inherit from it; user code that
     /// implements `+(BOOL)supportsSecureCoding` /

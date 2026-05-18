@@ -68,6 +68,30 @@ pub enum URLCredentialPersistence: u64 {
         pub get absoluteString(): NSString
         @objc("path")
         pub get path(): NSString
+
+        // ─── Bookmarks — persist a URL across launches / sandboxing ──
+        //
+        // The bookmark blob captures the file's identity (inode +
+        // generation count) rather than its current path, so it
+        // survives a move-or-rename between save and restore. The
+        // `options` / `relativeToURL` arguments to `bookmarkDataWith…`
+        // accept `0` / `cocoa.nil` for the simplest case.
+        @objc("bookmarkDataWithOptions:includingResourceValuesForKeys:relativeToURL:error:")
+        pub bookmarkDataWithOptions(
+            options: u64, includingResourceValuesForKeys: NSArray,
+            relativeToURL: NSURL, error: i64
+        ): NSData
+
+        @objc("URLByResolvingBookmarkData:options:relativeToURL:bookmarkDataIsStale:error:")
+        pub static urlByResolvingBookmarkData(
+            data: NSData, options: u64, relativeToURL: NSURL,
+            bookmarkDataIsStale: *u8, error: i64
+        ): NSURL
+
+        @objc("startAccessingSecurityScopedResource")
+        pub startAccessingSecurityScopedResource(): bool
+        @objc("stopAccessingSecurityScopedResource")
+        pub stopAccessingSecurityScopedResource()
     }
 
     /// `NSURLRequest` — immutable URL request. Build one with

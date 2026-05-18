@@ -383,9 +383,5 @@ pub enum ProcessInfoThermalState: i64 {
 
         @objc("UUIDString")
         pub get UUIDString(): NSString
-        @objc("isEqual:")
-        pub isEqual(other: NSObject): bool
-        @objc("hash")
-        pub get hash(): i64
     }
 }

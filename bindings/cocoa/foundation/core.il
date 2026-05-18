@@ -23,6 +23,56 @@ pub struct NSVector { dx: f64; dy: f64 }
 // integer-register ABI. Build with `makeRange(loc, len)`.
 pub struct NSRange { location: u64; length: u64 }
 
+// NSStringEncoding — the integer codes Foundation uses for the
+// `dataUsingEncoding:` / `initWithData:encoding:` round-trip
+// (also accepted by NSData's `base64EncodedString:options:`-
+// adjacent APIs that take an encoding argument). UTF-8 is the
+// safe default; the JIS / ShiftJIS / EUC-JP entries cover legacy
+// Japanese text files.
+pub enum StringEncoding: u64 {
+    ascii            = 1
+    nextstep         = 2
+    japaneseEUC      = 3
+    utf8             = 4
+    isoLatin1        = 5
+    nonLossyASCII    = 7
+    shiftJIS         = 8
+    isoLatin2        = 9
+    unicode          = 10
+    windowsCP1251    = 11
+    windowsCP1252    = 12
+    windowsCP1253    = 13
+    windowsCP1254    = 14
+    windowsCP1250    = 15
+    iso2022JP        = 21
+    macOSRoman       = 30
+    utf16BigEndian   = 0x90000100
+    utf16LittleEndian = 0x94000100
+    utf32            = 0x8c000100
+    utf32BigEndian   = 0x98000100
+    utf32LittleEndian = 0x9c000100
+}
+
+// NSDataBase64EncodingOptions — bit flags for
+// `NSData.base64EncodedString(options:)`. The line-wrap variants
+// match standard email / PEM conventions (64 char lines).
+@flags
+pub enum DataBase64EncodingOptions: u64 {
+    none                              = 0x00
+    lineLength64Characters            = 0x01
+    lineLength76Characters            = 0x02
+    endLineWithCarriageReturn         = 0x10
+    endLineWithLineFeed               = 0x20
+}
+
+// NSDataBase64DecodingOptions — controls
+// `NSData.initWithBase64EncodedString:options:`.
+@flags
+pub enum DataBase64DecodingOptions: u64 {
+    none                                  = 0x00
+    ignoreUnknownCharacters               = 0x01
+}
+
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
@@ -34,6 +84,36 @@ pub struct NSRange { location: u64; length: u64 }
         pub retain(): NSObject
         @objc("hash")
         pub get hash(): i64
+
+        // ─── Standard NSObject surface ─────────────────────────
+        @objc("isKindOfClass:")
+        pub isKindOfClass(cls: NSObject): bool
+        @objc("isMemberOfClass:")
+        pub isMemberOfClass(cls: NSObject): bool
+        @objc("conformsToProtocol:")
+        pub conformsToProtocol(proto: NSObject): bool
+        @objc("respondsToSelector:")
+        pub respondsToSelector(sel: i64): bool
+        @objc("performSelector:")
+        pub performSelector(sel: i64): NSObject
+        @objc("performSelector:withObject:")
+        pub performSelectorWithObject(sel: i64, withObject: NSObject): NSObject
+        @objc("performSelector:withObject:withObject:")
+        pub performSelectorWithObjects(
+            sel: i64, withObject: NSObject, withObject2: NSObject
+        ): NSObject
+        @objc("description")
+        pub get description(): NSString
+        @objc("debugDescription")
+        pub get debugDescription(): NSString
+        @objc("copy")
+        pub copy(): NSObject
+        @objc("mutableCopy")
+        pub mutableCopy(): NSObject
+        @objc("isEqual:")
+        pub isEqual(other: NSObject): bool
+        @objc("class")
+        pub get classObject(): NSObject
 
         // ─── Key-Value Coding (NSKeyValueCoding) ──────────────
         @objc("valueForKey:")
@@ -188,6 +268,18 @@ pub struct NSRange { location: u64; length: u64 }
         pub get floatValue(): f32
         @objc("boolValue")
         pub get boolValue(): bool
+
+        // ─── Encoding round-trip with NSData ───────────────────
+        @objc("dataUsingEncoding:")
+        pub dataUsingEncoding(encoding: StringEncoding): NSData
+        @objc("dataUsingEncoding:allowLossyConversion:")
+        pub dataUsingEncodingLossy(
+            encoding: StringEncoding, allowLossyConversion: bool
+        ): NSData
+        @objc("alloc")
+        pub static alloc(): NSString
+        @objc("initWithData:encoding:")
+        pub initWithData(data: NSData, encoding: StringEncoding): NSString
     }
 
     /// `NSMutableString` — appendable / editable variant of
@@ -302,6 +394,16 @@ pub struct NSRange { location: u64; length: u64 }
         pub static dataWithContentsOfFile(path: NSString): NSData
         @objc("writeToFile:atomically:")
         pub writeToFile(path: NSString, atomically: bool): bool
+
+        // ─── Base64 round-trip ─────────────────────────────────
+        @objc("base64EncodedStringWithOptions:")
+        pub base64EncodedString(options: DataBase64EncodingOptions): NSString
+        @objc("alloc")
+        pub static alloc(): NSData
+        @objc("initWithBase64EncodedString:options:")
+        pub initWithBase64EncodedString(
+            s: NSString, options: DataBase64DecodingOptions
+        ): NSData
     }
 
     /// `NSMutableData` — appendable variant of NSData. Useful for
@@ -336,12 +438,27 @@ pub struct NSRange { location: u64; length: u64 }
     /// to receive it. The accessors below read from a wrapper you
     /// already have in hand.
     @objc pub class NSError : NSObject {
+        @objc("errorWithDomain:code:userInfo:")
+        pub static errorWithDomain(
+            domain: NSString, code: i64, userInfo: NSDictionary
+        ): NSError
+        @objc("alloc")
+        pub static alloc(): NSError
+        @objc("initWithDomain:code:userInfo:")
+        pub initWithDomain(
+            domain: NSString, code: i64, userInfo: NSDictionary
+        ): NSError
+
         @objc("code")
         pub get code(): i64
         @objc("domain")
         pub get domain(): NSString
         @objc("localizedDescription")
         pub get localizedDescription(): NSString
+        @objc("localizedFailureReason")
+        pub get localizedFailureReason(): NSString
+        @objc("localizedRecoverySuggestion")
+        pub get localizedRecoverySuggestion(): NSString
         @objc("userInfo")
         pub get userInfo(): NSDictionary
     }
@@ -436,6 +553,41 @@ pub struct NSRange { location: u64; length: u64 }
         pub static alphanumeric(): NSCharacterSet
         @objc("punctuationCharacterSet")
         pub static punctuation(): NSCharacterSet
+
+        @objc("characterSetWithCharactersInString:")
+        pub static characterSetWithCharactersInString(s: NSString): NSCharacterSet
+        @objc("invertedSet")
+        pub get invertedSet(): NSCharacterSet
+        @objc("hasMemberInPlane:")
+        pub hasMemberInPlane(plane: u8): bool
+    }
+
+    /// `NSMutableCharacterSet` — writable variant. Mint with
+    /// `characterSet()` (empty), then layer characters / ranges
+    /// on with the add / remove methods or `formUnionWithCharacterSet:`
+    /// / `formIntersectionWithCharacterSet:` for set algebra.
+    @objc pub class NSMutableCharacterSet : NSCharacterSet {
+        @objc("alloc")
+        pub static alloc(): NSMutableCharacterSet
+        @objc("init")
+        pub init(): NSMutableCharacterSet
+        @objc("characterSet")
+        pub static characterSet(): NSMutableCharacterSet
+
+        @objc("addCharactersInRange:")
+        pub addCharactersInRange(range: NSRange)
+        @objc("removeCharactersInRange:")
+        pub removeCharactersInRange(range: NSRange)
+        @objc("addCharactersInString:")
+        pub addCharactersInString(s: NSString)
+        @objc("removeCharactersInString:")
+        pub removeCharactersInString(s: NSString)
+        @objc("formUnionWithCharacterSet:")
+        pub formUnionWithCharacterSet(other: NSCharacterSet)
+        @objc("formIntersectionWithCharacterSet:")
+        pub formIntersectionWithCharacterSet(other: NSCharacterSet)
+        @objc("invert")
+        pub invert()
     }
 
     // ─── Convenience helpers ─────────────────────────────────────
