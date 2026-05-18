@@ -222,10 +222,26 @@ pub enum URLCredentialPersistence: u64 {
         pub valueForHTTPHeaderField(field: NSString): NSString
         @objc("HTTPBody")
         pub get httpBody(): NSData
+        @objc("HTTPBodyStream")
+        pub get httpBodyStream(): NSObject
         @objc("cachePolicy")
         pub get cachePolicy(): URLRequestCachePolicy
         @objc("timeoutInterval")
         pub get timeoutInterval(): f64
+        @objc("HTTPShouldHandleCookies")
+        pub get httpShouldHandleCookies(): bool
+        @objc("HTTPShouldUsePipelining")
+        pub get httpShouldUsePipelining(): bool
+        @objc("allowsCellularAccess")
+        pub get allowsCellularAccess(): bool
+        @objc("allowsExpensiveNetworkAccess")
+        pub get allowsExpensiveNetworkAccess(): bool
+        @objc("allowsConstrainedNetworkAccess")
+        pub get allowsConstrainedNetworkAccess(): bool
+        @objc("mainDocumentURL")
+        pub get mainDocumentURL(): NSURL
+        @objc("networkServiceType")
+        pub get networkServiceType(): u64
     }
 
     /// `NSMutableURLRequest` — writable variant. Set the method,
@@ -250,10 +266,26 @@ pub enum URLCredentialPersistence: u64 {
         pub setAllHTTPHeaderFields(headers: NSDictionary)
         @objc("setHTTPBody:")
         pub setHTTPBody(body: NSData)
+        @objc("setHTTPBodyStream:")
+        pub setHTTPBodyStream(stream: NSObject)
         @objc("setCachePolicy:")
         pub setCachePolicy(p: URLRequestCachePolicy)
         @objc("setTimeoutInterval:")
         pub setTimeoutInterval(t: f64)
+        @objc("setHTTPShouldHandleCookies:")
+        pub setHTTPShouldHandleCookies(v: bool)
+        @objc("setHTTPShouldUsePipelining:")
+        pub setHTTPShouldUsePipelining(v: bool)
+        @objc("setAllowsCellularAccess:")
+        pub setAllowsCellularAccess(v: bool)
+        @objc("setAllowsExpensiveNetworkAccess:")
+        pub setAllowsExpensiveNetworkAccess(v: bool)
+        @objc("setAllowsConstrainedNetworkAccess:")
+        pub setAllowsConstrainedNetworkAccess(v: bool)
+        @objc("setMainDocumentURL:")
+        pub setMainDocumentURL(url: NSURL)
+        @objc("setNetworkServiceType:")
+        pub setNetworkServiceType(v: u64)
     }
 
     /// `NSURLResponse` — base response wrapper. For HTTP traffic
@@ -553,6 +585,39 @@ pub enum URLCredentialPersistence: u64 {
         pub get queryItems(): NSArray
         @objc("setQueryItems:")
         pub set queryItems(items: NSArray)
+
+        // ─── Percent-encoded raw accessors ───────────────────
+        // The plain `host` / `path` / `query` getters above
+        // return decoded values. These percent-encoded ones
+        // return / accept the on-wire form.
+        @objc("percentEncodedHost")
+        pub get percentEncodedHost(): NSString
+        @objc("setPercentEncodedHost:")
+        pub set percentEncodedHost(s: NSString)
+        @objc("percentEncodedPath")
+        pub get percentEncodedPath(): NSString
+        @objc("setPercentEncodedPath:")
+        pub set percentEncodedPath(s: NSString)
+        @objc("percentEncodedQuery")
+        pub get percentEncodedQuery(): NSString
+        @objc("setPercentEncodedQuery:")
+        pub set percentEncodedQuery(s: NSString)
+        @objc("percentEncodedFragment")
+        pub get percentEncodedFragment(): NSString
+        @objc("setPercentEncodedFragment:")
+        pub set percentEncodedFragment(s: NSString)
+        @objc("percentEncodedUser")
+        pub get percentEncodedUser(): NSString
+        @objc("setPercentEncodedUser:")
+        pub set percentEncodedUser(s: NSString)
+        @objc("percentEncodedPassword")
+        pub get percentEncodedPassword(): NSString
+        @objc("setPercentEncodedPassword:")
+        pub set percentEncodedPassword(s: NSString)
+        @objc("percentEncodedQueryItems")
+        pub get percentEncodedQueryItems(): NSArray
+        @objc("setPercentEncodedQueryItems:")
+        pub set percentEncodedQueryItems(items: NSArray)
     }
 
     /// `NSURLQueryItem` — name / value pair carried inside

@@ -447,6 +447,43 @@ pub enum BinarySearchingOptions: u64 {
         pub paragraphRangeForRange(range: NSRange): NSRange
         @objc("characterAtIndex:")
         pub characterAtIndex(i: u64): u16
+
+        // ─── NSString path methods (pre-NSURL helpers, but
+        //     still useful for raw POSIX-path manipulation) ────
+        @objc("stringByAppendingPathComponent:")
+        pub stringByAppendingPathComponent(component: NSString): NSString
+        @objc("stringByAppendingPathExtension:")
+        pub stringByAppendingPathExtension(ext: NSString): NSString
+        @objc("stringByDeletingLastPathComponent")
+        pub get stringByDeletingLastPathComponent(): NSString
+        @objc("stringByDeletingPathExtension")
+        pub get stringByDeletingPathExtension(): NSString
+        @objc("stringByExpandingTildeInPath")
+        pub get stringByExpandingTildeInPath(): NSString
+        @objc("stringByAbbreviatingWithTildeInPath")
+        pub get stringByAbbreviatingWithTildeInPath(): NSString
+        @objc("stringByResolvingSymlinksInPath")
+        pub get stringByResolvingSymlinksInPath(): NSString
+        @objc("stringByStandardizingPath")
+        pub get stringByStandardizingPath(): NSString
+        @objc("lastPathComponent")
+        pub get lastPathComponent(): NSString
+        @objc("pathExtension")
+        pub get pathExtension(): NSString
+        @objc("pathComponents")
+        pub get pathComponents(): NSArray
+        @objc("isAbsolutePath")
+        pub get isAbsolutePath(): bool
+
+        // ─── Canonical Unicode normalisation forms ────────────
+        @objc("precomposedStringWithCanonicalMapping")
+        pub get precomposedStringWithCanonicalMapping(): NSString
+        @objc("decomposedStringWithCanonicalMapping")
+        pub get decomposedStringWithCanonicalMapping(): NSString
+        @objc("precomposedStringWithCompatibilityMapping")
+        pub get precomposedStringWithCompatibilityMapping(): NSString
+        @objc("decomposedStringWithCompatibilityMapping")
+        pub get decomposedStringWithCompatibilityMapping(): NSString
     }
 
     /// `NSMutableString` — appendable / editable variant of

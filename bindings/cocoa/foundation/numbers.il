@@ -6,7 +6,8 @@
 // NSMeasurementFormatter need the NSUnit class tree which we
 // haven't bound yet — deferred.
 
-use core { NSObject, NSString, NSPoint, NSSize, NSRect, NSVector, NSRange }
+use core { NSObject, NSString, NSPoint, NSSize, NSRect, NSVector, NSRange,
+           ComparisonResult }
 
 // NSNumberFormatterStyle — how `stringFromNumber:` renders its
 // input. Defaults to `none` (raw digits); change to `decimal` /
@@ -112,6 +113,18 @@ pub enum DecimalNumberRoundingMode: u64 {
         pub get f64Value(): f64
         @objc("boolValue")
         pub get boolValue(): bool
+        @objc("intValue")
+        pub get intValue(): i32
+        @objc("floatValue")
+        pub get floatValue(): f32
+        @objc("stringValue")
+        pub get stringValue(): NSString
+        @objc("compare:")
+        pub compareNumber(other: NSNumber): ComparisonResult
+        @objc("isEqualToNumber:")
+        pub isEqualToNumber(other: NSNumber): bool
+        @objc("descriptionWithLocale:")
+        pub descriptionWithLocale(locale: NSObject): NSString
     }
 
     /// `NSValue` — wraps a C struct value (geometry / range) into

@@ -367,17 +367,85 @@ pub enum StreamStatus: u64 {
     @objc pub class NSBundle : NSObject {
         @objc("mainBundle")
         pub static mainBundle(): NSBundle
+        @objc("alloc")
+        pub static alloc(): NSBundle
+        @objc("initWithPath:")
+        pub initWithPath(path: NSString): NSBundle
+        @objc("initWithURL:")
+        pub initWithURL(url: NSURL): NSBundle
+        @objc("bundleWithIdentifier:")
+        pub static bundleWithIdentifier(id: NSString): NSBundle
+        @objc("bundleForClass:")
+        pub static bundleForClass(cls: NSObject): NSBundle
+        @objc("allBundles")
+        pub static allBundles(): NSArray
+        @objc("allFrameworks")
+        pub static allFrameworks(): NSArray
 
         @objc("bundlePath")
         pub get bundlePath(): NSString
+        @objc("bundleURL")
+        pub get bundleURL(): NSURL
         @objc("resourcePath")
         pub get resourcePath(): NSString
+        @objc("resourceURL")
+        pub get resourceURL(): NSURL
+        @objc("executablePath")
+        pub get executablePath(): NSString
+        @objc("executableURL")
+        pub get executableURL(): NSURL
         @objc("bundleIdentifier")
         pub get bundleIdentifier(): NSString
         @objc("infoDictionary")
         pub get infoDictionary(): NSDictionary
+        @objc("localizedInfoDictionary")
+        pub get localizedInfoDictionary(): NSDictionary
+        @objc("objectForInfoDictionaryKey:")
+        pub objectForInfoDictionaryKey(key: NSString): NSObject
+
+        // ─── Resource lookup variants ─────────────────────────
         @objc("pathForResource:ofType:")
         pub pathForResource(name: NSString, ofType: NSString): NSString
+        @objc("pathForResource:ofType:inDirectory:")
+        pub pathForResourceInDir(
+            name: NSString, ofType: NSString, inDirectory: NSString
+        ): NSString
+        @objc("pathForResource:ofType:inDirectory:forLocalization:")
+        pub pathForResourceLocalized(
+            name: NSString, ofType: NSString,
+            inDirectory: NSString, forLocalization: NSString
+        ): NSString
+        @objc("URLForResource:withExtension:")
+        pub urlForResource(name: NSString, withExtension: NSString): NSURL
+        @objc("URLForResource:withExtension:subdirectory:")
+        pub urlForResourceSubdir(
+            name: NSString, withExtension: NSString, subdirectory: NSString
+        ): NSURL
+        @objc("URLsForResourcesWithExtension:subdirectory:")
+        pub urlsForResources(
+            withExtension: NSString, subdirectory: NSString
+        ): NSArray
+
+        // ─── Localization ────────────────────────────────────
+        @objc("localizedStringForKey:value:table:")
+        pub localizedStringForKey(
+            key: NSString, value: NSString, table: NSString
+        ): NSString
+        @objc("preferredLocalizations")
+        pub get preferredLocalizations(): NSArray
+        @objc("localizations")
+        pub get localizations(): NSArray
+        @objc("developmentLocalization")
+        pub get developmentLocalization(): NSString
+
+        @objc("load")
+        pub load(): bool
+        @objc("loadAndReturnError:")
+        pub loadAndReturnError(error: i64): bool
+        @objc("isLoaded")
+        pub get isLoaded(): bool
+        @objc("unload")
+        pub unload(): bool
     }
 
     /// `NSStreamDelegate` — hooks for `stream:handleEvent:`

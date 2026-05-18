@@ -343,6 +343,24 @@ pub enum ProcessInfoThermalState: i64 {
         /// on a Japanese locale returns `"英語 (アメリカ合衆国)"`.
         @objc("displayNameForKey:value:")
         pub displayNameForKey(key: NSString, value: NSString): NSString
+
+        // ─── Identifier canonicalisation ─────────────────────
+        @objc("canonicalLocaleIdentifierFromString:")
+        pub static canonicalLocaleIdentifierFromString(s: NSString): NSString
+        @objc("canonicalLanguageIdentifierFromString:")
+        pub static canonicalLanguageIdentifierFromString(s: NSString): NSString
+        @objc("localeIdentifierFromComponents:")
+        pub static localeIdentifierFromComponents(dict: NSDictionary): NSString
+        @objc("componentsFromLocaleIdentifier:")
+        pub static componentsFromLocaleIdentifier(s: NSString): NSDictionary
+
+        // ─── Calendar accessor ───────────────────────────────
+        @objc("calendarIdentifier")
+        pub get calendarIdentifier(): NSString
+        @objc("collationIdentifier")
+        pub get collationIdentifier(): NSString
+        @objc("calendar")
+        pub get calendar(): NSObject
     }
 
     /// `NSUndoManager` — undo / redo stack. NSDocument owns one

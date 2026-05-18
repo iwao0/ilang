@@ -132,6 +132,12 @@ pub enum CalendarUnit: u64 {
         pub earlierDate(other: NSDate): NSDate
         @objc("laterDate:")
         pub laterDate(other: NSDate): NSDate
+        @objc("compare:")
+        pub compareDate(other: NSDate): ComparisonResult
+        @objc("timeIntervalSinceReferenceDate")
+        pub get timeIntervalSinceReferenceDate(): f64
+        @objc("descriptionWithLocale:")
+        pub descriptionWithLocale(locale: NSObject): NSString
     }
 
     /// `NSDateFormatter` — string ↔ date conversion. Mutate
