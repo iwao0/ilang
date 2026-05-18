@@ -52,6 +52,77 @@ pub enum MatchOptions: u64 {
     withoutAnchoringBounds   = 0x10
 }
 
+// NSDateFormatterStyle — the locale-aware default presets you
+// pick by assigning to `dateStyle` / `timeStyle`. Setting
+// `dateFormat` directly to a Unicode TR35 pattern overrides
+// these.
+pub enum DateFormatterStyle: u64 {
+    none   = 0
+    short  = 1
+    medium = 2
+    long   = 3
+    full   = 4
+}
+
+// NSCalendarUnit — bit set used by `[NSCalendar
+// components:fromDate:]` to say which fields the returned
+// `NSDateComponents` should be populated with. Combine with `|`.
+@flags
+pub enum CalendarUnit: u64 {
+    none       = 0x00
+    era        = 0x02
+    year       = 0x04
+    month      = 0x08
+    day        = 0x10
+    hour       = 0x20
+    minute     = 0x40
+    second     = 0x80
+    weekday    = 0x200
+    quarter    = 0x800
+    weekOfYear = 0x4000
+    yearForWeekOfYear = 0x8000
+    nanosecond = 0x10000
+    calendar   = 0x100000
+    timeZone   = 0x200000
+}
+
+// NSJSONReadingOptions — bit flags controlling
+// `JSONObjectWithData:options:error:`. `mutableContainers` /
+// `mutableLeaves` ask for NSMutableArray / NSMutableString
+// instances in the parsed tree; `fragmentsAllowed` permits the
+// JSON to be a bare scalar instead of an array or object.
+@flags
+pub enum JSONReadingOptions: u64 {
+    none              = 0x00
+    mutableContainers = 0x01
+    mutableLeaves     = 0x02
+    fragmentsAllowed  = 0x04
+}
+
+// NSJSONWritingOptions — bit flags controlling
+// `dataWithJSONObject:options:error:`. `prettyPrinted` emits
+// indented output; `sortedKeys` orders dictionaries by their
+// keys (useful for reproducible builds / diffing); `withoutEscapingSlashes`
+// emits `/` as itself instead of `\/`.
+@flags
+pub enum JSONWritingOptions: u64 {
+    none                  = 0x00
+    prettyPrinted         = 0x01
+    sortedKeys            = 0x02
+    fragmentsAllowed      = 0x04
+    withoutEscapingSlashes = 0x08
+}
+
+// NSPropertyListFormat — output / input format for
+// NSPropertyListSerialization. `xml` is the human-readable form
+// macOS' `defaults` command emits; `binary` is the compact form
+// the system uses for in-memory representations.
+pub enum PropertyListFormat: u64 {
+    openStep = 1
+    xml      = 100
+    binary   = 200
+}
+
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// Root of the Cocoa class hierarchy. Bound (not subclassed)
     /// so users can call e.g. `obj.release()` on any returned
@@ -114,6 +185,73 @@ pub enum MatchOptions: u64 {
             this._getLineBounds(&s, &e, &c, range)
             (s, e, c)
         }
+
+        // ─── Predicates ─────────────────────────────────────────
+        @objc("hasPrefix:")
+        pub hasPrefix(prefix: NSString): bool
+        @objc("hasSuffix:")
+        pub hasSuffix(suffix: NSString): bool
+        @objc("containsString:")
+        pub containsString(s: NSString): bool
+
+        // ─── Case conversion ───────────────────────────────────
+        @objc("lowercaseString")
+        pub get lowercaseString(): NSString
+        @objc("uppercaseString")
+        pub get uppercaseString(): NSString
+        @objc("capitalizedString")
+        pub get capitalizedString(): NSString
+
+        // ─── Substring / append ────────────────────────────────
+        @objc("substringFromIndex:")
+        pub substringFromIndex(i: u64): NSString
+        @objc("substringToIndex:")
+        pub substringToIndex(i: u64): NSString
+        @objc("substringWithRange:")
+        pub substringWithRange(range: NSRange): NSString
+        @objc("stringByAppendingString:")
+        pub stringByAppendingString(s: NSString): NSString
+
+        // ─── Find / replace / split / trim ─────────────────────
+        @objc("stringByReplacingOccurrencesOfString:withString:")
+        pub stringByReplacing(target: NSString, replacement: NSString): NSString
+        @objc("componentsSeparatedByString:")
+        pub componentsSeparatedByString(separator: NSString): NSArray
+        @objc("componentsSeparatedByCharactersInSet:")
+        pub componentsSeparatedByCharactersInSet(set: NSCharacterSet): NSArray
+        @objc("stringByTrimmingCharactersInSet:")
+        pub stringByTrimmingCharactersInSet(set: NSCharacterSet): NSString
+
+        // ─── Parsing (best-effort, returns 0 on a non-number) ──
+        @objc("intValue")
+        pub get intValue(): i32
+        @objc("integerValue")
+        pub get integerValue(): i64
+        @objc("doubleValue")
+        pub get doubleValue(): f64
+        @objc("floatValue")
+        pub get floatValue(): f32
+        @objc("boolValue")
+        pub get boolValue(): bool
+    }
+
+    /// `NSMutableString` — appendable / editable variant of
+    /// NSString. `string()` factory mints an empty one; the
+    /// mutate-in-place methods all return `void` (no chaining).
+    @objc pub class NSMutableString : NSString {
+        @objc("string")
+        pub static string(): NSMutableString
+
+        @objc("appendString:")
+        pub appendString(s: NSString)
+        @objc("insertString:atIndex:")
+        pub insertString(s: NSString, atIndex: u64)
+        @objc("deleteCharactersInRange:")
+        pub deleteCharactersInRange(range: NSRange)
+        @objc("replaceCharactersInRange:withString:")
+        pub replaceCharactersInRange(range: NSRange, with: NSString)
+        @objc("setString:")
+        pub setString(s: NSString)
     }
 
     /// `NSNumber` — boxed numeric value. Read back as `intValue`,
@@ -219,6 +357,38 @@ pub enum MatchOptions: u64 {
         pub bytes(): u8[] {
             bytesFromBuffer(this._bytes() as *void, this.length as size_t)
         }
+
+        /// Load file contents into an NSData. The `error:` slot
+        /// is discarded — pass `0` to ignore failures (the result
+        /// has a nil-handle wrapper on error).
+        @objc("dataWithContentsOfFile:")
+        pub static dataWithContentsOfFile(path: NSString): NSData
+        @objc("writeToFile:atomically:")
+        pub writeToFile(path: NSString, atomically: bool): bool
+    }
+
+    /// `NSMutableData` — appendable variant of NSData. Useful for
+    /// building binary buffers piecewise before handing them to a
+    /// `writeToFile:` or a `dataTaskWithRequest:`-style API.
+    @objc pub class NSMutableData : NSData {
+        @objc("data")
+        pub static data(): NSMutableData
+        @objc("dataWithCapacity:")
+        pub static dataWithCapacity(capacity: u64): NSMutableData
+
+        @objc("appendBytes:length:")
+        _appendBytes(bytes: *const char, length: u64)
+
+        /// Append `buf` to the receiver (copies the bytes in).
+        pub appendBytesFromBuffer(buf: u8[]) {
+            let p: *u8 = buf
+            this._appendBytes(p as *char, buf.length as u64)
+        }
+
+        @objc("setLength:")
+        pub setLength(length: u64)
+        @objc("increaseLengthBy:")
+        pub increaseLengthBy(extra: u64)
     }
 
     /// `NSDate` — a moment in time. `date` is "now"; the interval
@@ -226,10 +396,140 @@ pub enum MatchOptions: u64 {
     @objc pub class NSDate : NSObject {
         @objc("date")
         pub static now(): NSDate
+        @objc("dateWithTimeIntervalSince1970:")
+        pub static dateWithTimeIntervalSince1970(secs: f64): NSDate
+        @objc("dateWithTimeIntervalSinceNow:")
+        pub static dateWithTimeIntervalSinceNow(secs: f64): NSDate
+        @objc("distantFuture")
+        pub static distantFuture(): NSDate
+        @objc("distantPast")
+        pub static distantPast(): NSDate
+
         @objc("timeIntervalSince1970")
         pub get timeIntervalSince1970(): f64
         @objc("timeIntervalSinceNow")
         pub get timeIntervalSinceNow(): f64
+        @objc("timeIntervalSinceDate:")
+        pub timeIntervalSinceDate(other: NSDate): f64
+
+        @objc("dateByAddingTimeInterval:")
+        pub dateByAddingTimeInterval(secs: f64): NSDate
+        @objc("isEqualToDate:")
+        pub isEqualToDate(other: NSDate): bool
+        @objc("earlierDate:")
+        pub earlierDate(other: NSDate): NSDate
+        @objc("laterDate:")
+        pub laterDate(other: NSDate): NSDate
+    }
+
+    /// `NSDateFormatter` — string ↔ date conversion. Mutate
+    /// `dateStyle` / `timeStyle` for a locale-aware default
+    /// (`short` / `medium` / `long` / `full`) or set `dateFormat`
+    /// directly for a Unicode TR35 pattern like `"yyyy-MM-dd"`.
+    /// Set `locale` to an `NSLocale` if the system locale isn't
+    /// what you want (e.g. for log files: `en_US_POSIX`).
+    @objc pub class NSDateFormatter : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSDateFormatter
+        @objc("init")
+        pub init(): NSDateFormatter
+
+        @objc("dateFormat")
+        pub get dateFormat(): NSString
+        @objc("setDateFormat:")
+        pub set dateFormat(s: NSString)
+
+        @objc("dateStyle")
+        pub get dateStyle(): DateFormatterStyle
+        @objc("setDateStyle:")
+        pub set dateStyle(v: DateFormatterStyle)
+        @objc("timeStyle")
+        pub get timeStyle(): DateFormatterStyle
+        @objc("setTimeStyle:")
+        pub set timeStyle(v: DateFormatterStyle)
+
+        @objc("locale")
+        pub get locale(): NSObject
+        @objc("setLocale:")
+        pub set locale(l: NSObject)
+        @objc("timeZone")
+        pub get timeZone(): NSObject
+        @objc("setTimeZone:")
+        pub set timeZone(tz: NSObject)
+
+        @objc("stringFromDate:")
+        pub stringFromDate(d: NSDate): NSString
+        @objc("dateFromString:")
+        pub dateFromString(s: NSString): NSDate
+    }
+
+    /// `NSCalendar` — Gregorian / Japanese / ISO8601 / etc.
+    /// calendar arithmetic and component extraction. Use
+    /// `currentCalendar()` for the user's locale or
+    /// `calendarWithIdentifier:` to pin one explicitly.
+    @objc pub class NSCalendar : NSObject {
+        @objc("currentCalendar")
+        pub static currentCalendar(): NSCalendar
+        @objc("autoupdatingCurrentCalendar")
+        pub static autoupdatingCurrentCalendar(): NSCalendar
+        @objc("calendarWithIdentifier:")
+        pub static calendarWithIdentifier(ident: NSString): NSCalendar
+
+        @objc("components:fromDate:")
+        pub componentsFromDate(units: CalendarUnit, date: NSDate): NSDateComponents
+        @objc("dateFromComponents:")
+        pub dateFromComponents(comps: NSDateComponents): NSDate
+        @objc("dateByAddingComponents:toDate:options:")
+        pub dateByAddingComponents(
+            comps: NSDateComponents, toDate: NSDate, options: u64
+        ): NSDate
+        @objc("isDateInToday:")
+        pub isDateInToday(d: NSDate): bool
+        @objc("isDateInYesterday:")
+        pub isDateInYesterday(d: NSDate): bool
+        @objc("isDateInTomorrow:")
+        pub isDateInTomorrow(d: NSDate): bool
+    }
+
+    /// `NSDateComponents` — bag of optional calendar fields. Set
+    /// the ones you care about; the rest are sentinel values
+    /// (`NSDateComponentUndefined`, which surfaces as the
+    /// platform-specific "missing" code — most Foundation APIs
+    /// just ignore unset components).
+    @objc pub class NSDateComponents : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSDateComponents
+        @objc("init")
+        pub init(): NSDateComponents
+
+        @objc("year")
+        pub get year(): i64
+        @objc("setYear:")
+        pub set year(v: i64)
+        @objc("month")
+        pub get month(): i64
+        @objc("setMonth:")
+        pub set month(v: i64)
+        @objc("day")
+        pub get day(): i64
+        @objc("setDay:")
+        pub set day(v: i64)
+        @objc("hour")
+        pub get hour(): i64
+        @objc("setHour:")
+        pub set hour(v: i64)
+        @objc("minute")
+        pub get minute(): i64
+        @objc("setMinute:")
+        pub set minute(v: i64)
+        @objc("second")
+        pub get second(): i64
+        @objc("setSecond:")
+        pub set second(v: i64)
+        @objc("weekday")
+        pub get weekday(): i64
+        @objc("setWeekday:")
+        pub set weekday(v: i64)
     }
 
     /// `NSURL` — URL value. Use `fromString` for `http://...`
@@ -323,6 +623,43 @@ pub enum MatchOptions: u64 {
         pub get infoDictionary(): NSDictionary
         @objc("pathForResource:ofType:")
         pub pathForResource(name: NSString, ofType: NSString): NSString
+    }
+
+    /// `NSJSONSerialization` — read / write JSON. The returned
+    /// object is whatever the JSON's top-level value would have
+    /// been: an `NSArray`, `NSDictionary`, `NSString`, `NSNumber`,
+    /// or NSNull (handle == NSNull's singleton). For most call
+    /// sites you'll narrow the result by inspecting the JSON
+    /// shape — the static method's return is the un-narrowed
+    /// `NSObject`, so cast or call `containsObject:` on it.
+    /// Error handling uses the `NSError **` slot; pass `0` to
+    /// ignore failure (you'll get a nil-handle wrapper back).
+    @objc pub class NSJSONSerialization : NSObject {
+        @objc("dataWithJSONObject:options:error:")
+        pub static dataWithJSONObject(
+            obj: NSObject, options: JSONWritingOptions, error: i64
+        ): NSData
+        @objc("JSONObjectWithData:options:error:")
+        pub static JSONObjectWithData(
+            data: NSData, options: JSONReadingOptions, error: i64
+        ): NSObject
+        @objc("isValidJSONObject:")
+        pub static isValidJSONObject(obj: NSObject): bool
+    }
+
+    /// `NSPropertyListSerialization` — read / write Property List
+    /// files (Apple's `.plist`, used for app preferences, the
+    /// `Info.plist` bundle metadata, and AppleScript dictionaries).
+    /// Same `NSError **` discipline as `NSJSONSerialization`.
+    @objc pub class NSPropertyListSerialization : NSObject {
+        @objc("dataWithPropertyList:format:options:error:")
+        pub static dataWithPropertyList(
+            obj: NSObject, format: PropertyListFormat, options: u64, error: i64
+        ): NSData
+        @objc("propertyListWithData:options:format:error:")
+        pub static propertyListWithData(
+            data: NSData, options: u64, format: *u64, error: i64
+        ): NSObject
     }
 
     /// `NSCharacterSet` — immutable set of Unicode characters,
