@@ -1,6 +1,6 @@
 //! `@extern(C) { ... }` block parsing: the block itself, plus the
 //! four inner-item variants (`fn` declaration / definition,
-//! `struct`, `union`, `class`). `parse_extern_c_block` dispatches on
+//! `struct`, `union`, `class`). `parse_extern_c_block_with_default_libs` dispatches on
 //! the next token after consuming attributes + `pub`; each sub-
 //! parser handles its specific shape.
 
@@ -12,12 +12,6 @@ use crate::parser::Parser;
 use crate::stmt::parse_block;
 
 impl<'a> Parser<'a> {
-    pub(super) fn parse_extern_c_block(
-        &mut self,
-    ) -> Result<ilang_ast::ExternCBlock, ParseError> {
-        self.parse_extern_c_block_with_default_libs(&[])
-    }
-
     /// `@extern(C, "libname", ...) { ... }` form. The trailing
     /// strings become the default `@lib(...)` for any plain `pub
     /// fn` inside the block — write `@lib` with no args to opt
@@ -114,21 +108,12 @@ impl<'a> Parser<'a> {
         Ok(ilang_ast::ExternCBlock { items: items.into(), interfaces: Box::new([]), span })
     }
 
-    pub(super) fn parse_extern_c_fn(
-        &mut self,
-        attrs: Vec<Attribute>,
-    ) -> Result<ilang_ast::ExternCItem, ParseError> {
-        self.parse_extern_c_fn_with_default_libs(attrs, &[])
-    }
-
-    /// Same as `parse_extern_c_fn` but lets the caller supply a
-    /// list of default library paths. Inside an
-    /// `@extern(ObjC, "path", ...)` block this is the block-level
-    /// path list, and a bare `@lib` (no args) on a fn means "use
-    /// the block's libraries", which is the explicit marker that
-    /// flags the fn as a C symbol from the framework. Top-level
-    /// `@extern(C)` callers pass an empty slice, keeping the
-    /// original "@lib requires strings" rule.
+    /// Parse a single fn declaration inside an `@extern(C)` /
+    /// `@extern(ObjC)` block. `default_libs` is the block-level
+    /// library list: a bare `@lib` (no args) on the fn picks it
+    /// up. Pass an empty slice for plain `@extern(C) { ... }`
+    /// (the legacy form) — bare `@lib` then errors with a "no
+    /// default library" message.
     pub(super) fn parse_extern_c_fn_with_default_libs(
         &mut self,
         attrs: Vec<Attribute>,
