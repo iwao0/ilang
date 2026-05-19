@@ -38,6 +38,20 @@ pub fn parse_with_objc_registry(
     tokens: &[Token],
     external_objc_classes: &HashSet<Symbol>,
 ) -> Result<Program, ParseError> {
+    parse_with_implicit_modules(tokens, external_objc_classes, &[])
+}
+
+/// Like `parse_with_objc_registry`, plus an implicit-modules list
+/// passed to normalize (treats each name as if the file had `use
+/// <name>` declared). The loader uses this for sibling category
+/// files inside a folder-binding so cross-sibling synthetic refs
+/// validate even when the source file can't `use` the sibling
+/// (circular-import-prone case).
+pub fn parse_with_implicit_modules(
+    tokens: &[Token],
+    external_objc_classes: &HashSet<Symbol>,
+    implicit_modules: &[Symbol],
+) -> Result<Program, ParseError> {
     let mut p = Parser {
         tokens,
         pos: 0,
@@ -45,7 +59,7 @@ pub fn parse_with_objc_registry(
         external_objc_classes,
     };
     let prog = parse_program(&mut p)?;
-    normalize::normalize(prog)
+    normalize::normalize_with_implicit_modules(prog, implicit_modules)
 }
 
 /// Parse a single expression — used by tests that want to inspect expression

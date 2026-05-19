@@ -163,6 +163,13 @@ pub fn load_program_with_overlay(
     let mut chain: Vec<Symbol> = Vec::new();
     let mut loaded: HashMap<PathBuf, Program> = HashMap::new();
     let mut objc_registry: HashSet<Symbol> = HashSet::new();
+    let mut objc_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
+    // Per-source-file sibling-class map. Populated during the
+    // load_recursive's prescan; consumed by `apply_use` (via the
+    // helper `qualify_sibling_class_refs_in_item`) after rename and
+    // before prefix to qualify bare @objc class refs that target a
+    // sibling category file the source didn't (and can't) `use`.
+    let mut sibling_class_maps: HashMap<PathBuf, HashMap<Symbol, Symbol>> = HashMap::new();
     let entry_dir = entry.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
     let entry_canon = canonicalize(entry)?;
     let extra_paths: Vec<PathBuf> = extra_paths.to_vec();
@@ -170,6 +177,7 @@ pub fn load_program_with_overlay(
     load_recursive(
         &entry_canon, &entry_dir, &extra_paths,
         &mut visiting, &mut chain, &mut loaded, overlay, &mut objc_registry,
+        &mut objc_class_modules, &mut sibling_class_maps,
     )?;
 
     // Cross-module visibility check before merging: every `M.X`
@@ -210,6 +218,7 @@ pub fn load_program_with_overlay(
                 &mut whole_imports,
                 &mut applied,
                 &mut rename_rules,
+                &sibling_class_maps,
             )?,
             other => merged.items.push(other),
         }
@@ -332,6 +341,8 @@ fn load_recursive(
     loaded: &mut HashMap<PathBuf, Program>,
     overlay: &HashMap<PathBuf, String>,
     objc_registry: &mut HashSet<Symbol>,
+    objc_class_modules: &mut HashMap<Symbol, Symbol>,
+    sibling_class_maps: &mut HashMap<PathBuf, HashMap<Symbol, Symbol>>,
 ) -> Result<(), LoadError> {
     if loaded.contains_key(file) {
         return Ok(());
@@ -353,10 +364,66 @@ fn load_recursive(
         let canon = resolve_module(&dep_name, &dir, extra_paths)?;
         load_recursive(
             &canon, &dir, extra_paths, visiting, chain, loaded, overlay, objc_registry,
+            objc_class_modules, sibling_class_maps,
         )?;
     }
-    let mut prog = crate::parse_with_objc_registry(&toks, objc_registry)
-        .map_err(LoadError::ParseError)?;
+    // Folder-module sibling pre-scan: when `<dir>/mod.il` exists, peek
+    // at every sibling `<dir>/*.il` (without parsing) and harvest
+    // `@objc pub class <Name>` declarations into the registry. Lets the
+    // current file's auto-lift recognise an @objc class type declared
+    // in a sibling category file even though the two don't `use` each
+    // other (which would create a circular import). Without this, e.g.
+    // `physicsWorld(): SKPhysicsWorld` in spritekit/node.il would fall
+    // through `is_objc_class_ty` and the auto-lift would skip the
+    // raw-pointer / wrap-handle dance, producing a garbage handle.
+    //
+    // Also records the sibling's basename in `objc_class_modules` so
+    // the auto-lift can emit `new <module>.<Class>(...)` when wrapping
+    // a sibling-file class — the loader's prefix pass would otherwise
+    // re-tag the bare `<Class>` with the *importer's* module name and
+    // the type checker would fail to resolve it.
+    // Per-file sibling-class map. Built fresh from the prescan so a
+    // class defined in the file currently being parsed doesn't carry
+    // over a stale `module → file's stem` mapping accumulated when
+    // earlier siblings prescanned this same file.
+    let mut file_class_modules: HashMap<Symbol, Symbol> = HashMap::new();
+    let mut implicit_modules: Vec<Symbol> = Vec::new();
+    if dir.join("mod.il").exists() {
+        prescan_sibling_objc_classes(&dir, file, objc_registry, &mut file_class_modules);
+        // Also seed the cumulative cross-file map for any downstream
+        // consumers that still consult it.
+        for (k, v) in &file_class_modules {
+            objc_class_modules.entry(*k).or_insert(*v);
+        }
+        // Every sibling stem becomes an implicit `use <stem>` for the
+        // purposes of normalize's dotted-ref validation. Lets the
+        // auto-lift's synthetic `new physics.SKPhysicsWorld(...)`
+        // (emitted from node.il when wrapping a sibling-class return)
+        // pass the "this file does not `use physics`" check without
+        // having to actually `use` the sibling — which would create a
+        // circular dependency.
+        if let Ok(rd) = std::fs::read_dir(&dir) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                if p.extension().and_then(|e| e.to_str()) != Some("il") { continue; }
+                let stem = match p.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if stem == "mod" { continue; }
+                if let (Some(a), Ok(b)) = (file.canonicalize().ok().as_ref(), p.canonicalize()) {
+                    if a == &b { continue; }
+                }
+                implicit_modules.push(Symbol::intern(stem));
+            }
+        }
+    }
+    let mut prog = crate::parse_with_implicit_modules(
+        &toks,
+        objc_registry,
+        &implicit_modules,
+    )
+    .map_err(LoadError::ParseError)?;
     expand_embeds(&mut prog, file)?;
     collect_objc_class_names(&prog, objc_registry);
     // Stamp every span in this file's Program with the canonical
@@ -366,6 +433,9 @@ fn load_recursive(
     // they always live in the same file as the trigger token.
     let file_symbol = Symbol::intern(&file.display().to_string());
     tag_program_spans(&mut prog, file_symbol);
+    if !file_class_modules.is_empty() {
+        sibling_class_maps.insert(file.to_path_buf(), file_class_modules);
+    }
     loaded.insert(file.to_path_buf(), prog);
     visiting.remove(file);
     chain.pop();
@@ -406,6 +476,87 @@ fn pre_scan_use_modules(tokens: &[ilang_lexer::Token]) -> Vec<String> {
         }
     }
     deps
+}
+
+/// Tokenize each sibling `*.il` next to `current` (skipping `current`
+/// itself and `mod.il`) and harvest `@objc pub class <Name>` /
+/// `@objc class <Name>` declarations into `registry`. Run before
+/// parsing a file that lives inside a folder-module so its auto-lift
+/// sees @objc class types declared in sibling category files —
+/// without requiring an actual `use sibling { … }`, which would create
+/// a circular import (siblings routinely reference each other through
+/// the umbrella).
+///
+/// Cheap pre-pass: just tokenize and look for the three-token sequence
+/// `@objc [pub] class <Ident>`. Avoids a full parse; missed classes
+/// (typo'd attribute, etc.) just fall through to the existing
+/// post-parse `collect_objc_class_names` pass.
+fn prescan_sibling_objc_classes(
+    dir: &Path,
+    current: &Path,
+    registry: &mut HashSet<Symbol>,
+    class_modules: &mut HashMap<Symbol, Symbol>,
+) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let current_canon = current.canonicalize().ok();
+    // Umbrella module name = containing directory's basename.
+    // Folder-bindings flatten everything through `mod.il`'s
+    // `pub use sibling.*` (wildcard re-export), which merges every
+    // sibling's items under the umbrella's prefix, NOT under each
+    // sibling's file stem. So `bindings/cocoa/spritekit/actions.il`'s
+    // `SKAction` becomes `spritekit.SKAction` after merge — the
+    // sibling-stem path (`actions.SKAction`) never exists unless
+    // someone explicitly `use`s the file directly, which the
+    // category files can't do without circular imports. Pointing
+    // the qualified ref at the umbrella gives a name the merged
+    // Program will actually carry.
+    let umbrella = match dir.file_name().and_then(|n| n.to_str()) {
+        Some(s) => Symbol::intern(s),
+        None => return,
+    };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("il") {
+            continue;
+        }
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name == "mod.il" {
+            continue;
+        }
+        if let (Some(a), Ok(b)) = (current_canon.as_ref(), p.canonicalize()) {
+            if a == &b { continue; }
+        }
+        let module_name = umbrella;
+        let Ok(src) = std::fs::read_to_string(&p) else { continue };
+        let Ok(toks) = ilang_lexer::tokenize(&src) else { continue };
+        // Scan for `@objc ... class <Ident>` patterns. The `...` is
+        // either nothing or `pub` (the only modifier the parser
+        // accepts between `@objc` and `class` in this position).
+        let mut i = 0;
+        while i + 2 < toks.len() {
+            // `@` (At) + `objc` (Ident "objc")
+            if matches!(toks[i].kind, TokenKind::At) {
+                if let TokenKind::Ident(n) = &toks[i + 1].kind {
+                    if n.as_str() == "objc" {
+                        let mut j = i + 2;
+                        if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Pub)) {
+                            j += 1;
+                        }
+                        if matches!(toks.get(j).map(|t| &t.kind), Some(TokenKind::Class)) {
+                            if let Some(TokenKind::Ident(cls)) =
+                                toks.get(j + 1).map(|t| &t.kind)
+                            {
+                                let class_sym = Symbol::intern(cls.as_str());
+                                registry.insert(class_sym);
+                                class_modules.entry(class_sym).or_insert(module_name);
+                            }
+                        }
+                    }
+                }
+            }
+            i += 1;
+        }
+    }
 }
 
 /// Collect every `@objc class` name declared in `prog` (i.e. classes
@@ -516,6 +667,14 @@ fn apply_use(
     // and prefixed views of the same enum / class / fn line up at
     // the type checker.
     rename_rules: &mut HashMap<Symbol, Symbol>,
+    // Per-source-file map of "sibling-class → its source module"
+    // built during `load_recursive`'s folder-binding prescan. Used
+    // here right before `prefix_item` to qualify bare @objc class
+    // refs the auto-lift left behind for sibling category files
+    // (e.g. `new SKPhysicsBody(...)` in spritekit/node.il → `new
+    // physics.SKPhysicsBody(...)` because node.il can't `use physics`
+    // — that would be a circular import).
+    sibling_class_maps: &HashMap<PathBuf, HashMap<Symbol, Symbol>>,
 ) -> Result<(), LoadError> {
     let importer_dir = importer_canon
         .parent()
@@ -618,6 +777,7 @@ fn apply_use(
                 _whole_imports,
                 applied,
                 &mut module_rename_rules,
+                sibling_class_maps,
             )?;
         }
         // Prefix-merge the module's own local items. Even for
@@ -690,6 +850,28 @@ fn apply_use(
         if !module_rename_rules.is_empty() {
             for item in module_prog.items.iter_mut() {
                 rename_in_item(item, &module_rename_rules);
+            }
+        }
+        // Sibling-class qualification: any bare @objc class symbol
+        // (`Class`, not `module.Class`) that survived the rename pass
+        // AND has a known sibling source module gets rewritten to
+        // `<sibling_module>.Class`. Lets the auto-lift's synthetic
+        // refs from a category file (`new SKPhysicsBody(...)` in
+        // node.il when SKPhysicsBody lives in sibling physics.il)
+        // reach the correct merged-item entry rather than being
+        // re-tagged with the local prefix at `prefix_item` time.
+        if let Some(sibling_map) = sibling_class_maps.get(&canon) {
+            let qualify_rules: HashMap<Symbol, Symbol> = sibling_map
+                .iter()
+                .map(|(cls, module)| {
+                    let qualified = Symbol::intern(&format!(
+                        "{}.{}", module.as_str(), cls.as_str()
+                    ));
+                    (*cls, qualified)
+                })
+                .collect();
+            for item in module_prog.items.iter_mut() {
+                rename_in_item(item, &qualify_rules);
             }
         }
         for item in module_prog.items {

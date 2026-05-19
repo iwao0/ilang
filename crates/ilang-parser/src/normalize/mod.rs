@@ -63,13 +63,29 @@ struct Ctx {
 /// `module.X` reference (in `new`, type position, struct literal,
 /// parent class) names a module this file actually `use`s — see
 /// `validate_program` — then runs the AST rewrites.
+#[allow(dead_code)]
 pub fn normalize(prog: Program) -> Result<Program, ParseError> {
-    let ctx = build_ctx(&prog);
-    // Reject `new module.Class()` / `let x: module.Class` whose
-    // module prefix this file didn't `use`. Without the check, a
-    // sibling module's `pub use` chain could leak every merged
-    // submodule into a file that never opted in (silent leakage
-    // through the umbrella prefix).
+    normalize_with_implicit_modules(prog, &[])
+}
+
+/// Like `normalize`, but additionally treats each name in
+/// `implicit_modules` as if the file had `use <name>` declared at the
+/// top. The loader uses this for sibling category files inside a
+/// folder-binding (e.g. `bindings/cocoa/spritekit/node.il`'s auto-lift
+/// references `physics.SKPhysicsWorld`, even though node.il can't
+/// `use physics` without creating a circular import — physics.il
+/// itself `use`s node). The implicit-module set is the list of
+/// sibling stems present in the same folder, so cross-sibling
+/// synthetic refs validate while genuine cross-folder leakage still
+/// errors.
+pub fn normalize_with_implicit_modules(
+    prog: Program,
+    implicit_modules: &[Symbol],
+) -> Result<Program, ParseError> {
+    let mut ctx = build_ctx(&prog);
+    for m in implicit_modules {
+        ctx.modules.entry(m.clone()).or_insert_with(|| m.clone());
+    }
     validate_program(&prog, &ctx.modules)?;
     Ok(rewrite_program(prog, &ctx))
 }

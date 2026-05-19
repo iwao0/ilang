@@ -700,9 +700,9 @@ interface MyDel {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.pop();
         path.pop();
-        path.push("bindings/cocoa/spritekit.il");
+        path.push("bindings/cocoa/spritekit/node.il");
         let doc = analyse::analyse_path_to_doc(&path)
-            .expect("bindings/cocoa/spritekit.il must load");
+            .expect("bindings/cocoa/spritekit/node.il must load");
         let ns_string_loc = doc
             .external_sources
             .get(&AstSymbol::intern("NSString"))
