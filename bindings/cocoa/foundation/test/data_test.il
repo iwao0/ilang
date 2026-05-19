@@ -2,7 +2,7 @@
 
 use test
 use foundation { NSData, DataBase64EncodingOptions, DataBase64DecodingOptions,
-            nsstr, ilstr }
+            makeRange, nsstr, ilstr }
 
 // Empty buffer.
 let empty: u8[] = []
@@ -29,5 +29,16 @@ test.expect(decoded.length, 3)
 let decBytes = decoded.bytes()
 test.expect(decBytes[0] as i64, 104)
 test.expect(decBytes[2] as i64, 33)
+
+// subdataWithRange + isEqualToData.
+let big = NSData.fromBytes([0 as u8, 1 as u8, 2 as u8, 3 as u8, 4 as u8])
+let mid = big.subdataWithRange(makeRange(1 as u64, 3 as u64))
+test.expect(mid.length, 3)
+test.expect(mid.bytes()[0] as i64, 1)
+test.expect(mid.bytes()[2] as i64, 3)
+
+let twin = NSData.fromBytes([1 as u8, 2 as u8, 3 as u8])
+test.expectTrue(mid.isEqualToData(twin))
+test.expectFalse(mid.isEqualToData(big))
 
 0
