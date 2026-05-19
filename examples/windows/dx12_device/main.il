@@ -1,26 +1,18 @@
-// 🎮 DirectX 12 device + shader compile demo.
+// 🎮 DirectX 12 device + COM-pipeline demo.
 //
 // Run:
 //   ilang run examples/windows/dx12_device/main.il
 //
-// What it does:
-//   1. Opens a Win32 window.
-//   2. Calls D3D12CreateDevice — flat entry point from d3d12.dll.
-//   3. Calls D3D12GetDebugInterface — flat entry point.
-//   4. Compiles a trivial HLSL vertex shader with D3DCompile.
-//   5. Displays the status of each step in the window title.
-//   6. Runs a standard message loop until the window is closed.
+// Builds the bottom half of a real D3D12 render setup via flat
+// entry points + COM vtable dispatch:
 //
-// What it does NOT do:
-//   - Actual rendering. Every step past `D3D12CreateDevice` (e.g.
-//     CreateCommandQueue, CreateDescriptorHeap, CreateGraphicsPipelineState)
-//     requires COM vtable calls on the returned interface pointer.
-//     ilang doesn't yet support calling through an arbitrary COM
-//     vtable: there's no syntax for `obj->vtbl->Method(obj, args...)`
-//     without manually laying out the vtable struct and (more
-//     importantly) without a way to safely invoke a function pointer
-//     loaded out of a heap-allocated struct field — see the
-//     limitations note at the bottom of this file for details.
+//   1. D3D12CreateDevice                          flat
+//   2. ID3D12Device::CreateCommandQueue           vtable +64
+//   3. ID3D12CommandQueue::Release                vtable +16
+//   4. ID3D12Device::Release                      vtable +16
+//
+// First-pass writing rough edges are listed at the bottom of the
+// file — refactor for ergonomics later.
 
 use windows {
     GetModuleHandleA,
@@ -32,14 +24,14 @@ use windows {
     GetMessageA, TranslateMessage, DispatchMessageA,
     PostQuitMessage,
     SetWindowTextA,
-    HeapAlloc, HeapFree, GetProcessHeap,
 }
 
 use directx12 {
-    D3D12CreateDevice, D3D12GetDebugInterface,
+    D3D12CreateDevice,
     D3DFeatureLevel,
     GUID,
-    D3DCompile, ID3DBlob, D3D_SHADER_MACRO, D3DCompileFlags,
+    D3D12_COMMAND_QUEUE_DESC,
+    D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
 }
 
 @extern(C) {
@@ -51,89 +43,10 @@ use directx12 {
         DefWindowProcA(hwnd as *HWND, msg, wParam, lParam)
     }
 
-    /// Tries to create a D3D12 device. Returns 1 on success, 0 on
-    /// failure.  Leaks the device pointer — without COM vtable
-    /// support we can't call Release().
-    pub fn tryCreateDevice(): i32 {
-        // IID_ID3D12Device = {189819f1-1db6-4b57-be54-1821339b85f7}
-        // Data4 bytes (in order): be 54 18 21 33 9b 85 f7.
-        // Stored as two little-endian u32:
-        //   lo = 0xbe | 0x54<<8 | 0x18<<16 | 0x21<<24 = 0x211854be
-        //   hi = 0x33 | 0x9b<<8 | 0x85<<16 | 0xf7<<24 = 0xf7859b33
-        let iid = GUID {
-            Data1:   0x189819f1,
-            Data2:   0x1db6,
-            Data3:   0x4b57,
-            Data4lo: 0x211854be,
-            Data4hi: 0xf7859b33,
-        }
-        let device: *void = 0 as *void
-        let rc = D3D12CreateDevice(
-            0 as *void,
-            D3DFeatureLevel.level_11_0 as u32,
-            iid,
-            &device
-        )
-        if rc == 0 && (device as i64) != 0 {
-            return 1
-        }
-        0
-    }
-
-    /// Asks for the D3D12 debug interface. Requires the "Graphics
-    /// Tools" optional feature; returns DXGI_ERROR_NOT_AVAILABLE
-    /// otherwise. Either outcome is a successful call here.
-    pub fn tryDebugInterface(): i32 {
-        // IID_ID3D12Debug = {344488b7-6846-474b-b989-f027448245e0}
-        let iid = GUID {
-            Data1:   0x344488b7,
-            Data2:   0x6846,
-            Data3:   0x474b,
-            Data4lo: 0x27f089b9,
-            Data4hi: 0xe0458244,
-        }
-        let dbg: *void = 0 as *void
-        let rc = D3D12GetDebugInterface(iid, &dbg)
-        if rc == 0 && (dbg as i64) != 0 {
-            return 1
-        }
-        0
-    }
-
-    /// Compiles a one-line HLSL vertex shader. Returns 1 on success.
-    pub fn tryCompileShader(): i32 {
-        let hlsl = cstrFromString(
-            "float4 main(float3 p : POSITION) : SV_POSITION { return float4(p, 1.0); }"
-        )
-        let entry = cstrFromString("main")
-        let target = cstrFromString("vs_5_0")
-        let code: *ID3DBlob = 0 as *ID3DBlob
-        let errors: *ID3DBlob = 0 as *ID3DBlob
-        let rc = D3DCompile(
-            hlsl as *const void,
-            76 as u64,                       // length; small overshoot OK
-            0 as *const char,
-            0 as *const D3D_SHADER_MACRO,
-            0 as *void,
-            entry,
-            target,
-            D3DCompileFlags.optimizationLevel1 as u32,
-            0 as u32,
-            &code,
-            &errors
-        )
-        freeCstr(hlsl)
-        freeCstr(entry)
-        freeCstr(target)
-        if rc == 0 && (code as i64) != 0 {
-            return 1
-        }
-        0
-    }
-
     pub fn run() {
+        // ── Window setup ─────────────────────────────────────────
         let hInstance = GetModuleHandleA(0 as *const char)
-        let className = cstrFromString("IlangDx12Window")
+        let className = cstrFromString("IlangDx12Pipeline")
 
         let wc = WNDCLASSEXA {
             cbSize:        80,
@@ -151,14 +64,14 @@ use directx12 {
         }
         RegisterClassExA(wc)
 
-        let initialTitle = cstrFromString("ilang DX12: initialising...")
+        let initialTitle = cstrFromString("ilang DX12: bringing up the pipeline...")
         let hwnd = CreateWindowExA(
             0,
             className,
             initialTitle,
             WindowStyle.overlappedWindow as u32,
             100, 100,
-            720, 200,
+            780, 200,
             0 as *HWND,
             0 as *HMENU,
             hInstance as *HINSTANCE,
@@ -168,31 +81,64 @@ use directx12 {
         ShowWindow(hwnd, ShowCmd.show as i32)
         UpdateWindow(hwnd)
 
-        // Probe each capability.
-        let devOK   = tryCreateDevice()
-        let dbgOK   = tryDebugInterface()
-        let shadeOK = tryCompileShader()
+        // ── (1) D3D12CreateDevice (flat) ─────────────────────────
+        // IID_ID3D12Device = 189819f1-1db6-4b57-be54-1821339b85f7
+        let deviceIid = GUID {
+            Data1: 0x189819f1, Data2: 0x1db6, Data3: 0x4b57,
+            Data4lo: 0x211854be, Data4hi: 0xf7859b33,
+        }
+        let device: *void = 0 as *void
+        let rc = D3D12CreateDevice(
+            0 as *void,
+            D3DFeatureLevel.level_11_0 as u32,
+            deviceIid,
+            &device
+        )
 
-        // Update title with the combined status. We avoid string
-        // formatting (none in ilang for ints yet) and just pick a
-        // fixed message per outcome.
-        let title = if devOK != 0 {
-            if shadeOK != 0 {
-                if dbgOK != 0 {
-                    cstrFromString("ilang DX12: device OK | shader OK | debug-layer OK")
-                } else {
-                    cstrFromString("ilang DX12: device OK | shader OK | debug-layer N/A")
-                }
+        let title = if rc == 0 {
+            // ── (2) ID3D12Device::CreateCommandQueue (vtable +64) ─
+            let devVtbl = readU64(device as *const void, 0 as i64)
+            let createQueuePtr = readU64(devVtbl as i64 as *const void, 64 as i64)
+            let createQueue = createQueuePtr as i64 as *void
+                as fn(i64, *const D3D12_COMMAND_QUEUE_DESC, *const GUID, **void): i32
+
+            // IID_ID3D12CommandQueue = 0ec870a6-5d7e-4c22-8cfc-5baae07616ed
+            let queueIid = GUID {
+                Data1: 0x0ec870a6, Data2: 0x5d7e, Data3: 0x4c22,
+                Data4lo: 0xaa5bfc8c, Data4hi: 0xed1676e0,
+            }
+            let queueDesc = D3D12_COMMAND_QUEUE_DESC {
+                Type:     D3D12CommandListType.direct as i32,
+                Priority: D3D12CommandQueuePriority.normal as i32,
+                Flags:    D3D12CommandQueueFlags.none as u32,
+                NodeMask: 0,
+            }
+            let queue: *void = 0 as *void
+            let qhr = createQueue(device as i64, queueDesc, queueIid, &queue)
+
+            if qhr == 0 {
+                // ── (3) Release queue (vtable +16) ───────────────
+                let qVtbl = readU64(queue as *const void, 0 as i64)
+                let qReleasePtr = readU64(qVtbl as i64 as *const void, 16 as i64)
+                let qRelease = qReleasePtr as i64 as *void as fn(i64): u32
+                let _ = qRelease(queue as i64)
+
+                // ── (4) Release device (vtable +16) ──────────────
+                let dReleasePtr = readU64(devVtbl as i64 as *const void, 16 as i64)
+                let dRelease = dReleasePtr as i64 as *void as fn(i64): u32
+                let _ = dRelease(device as i64)
+
+                cstrFromString("ilang DX12: device + queue via COM vtable — OK")
             } else {
-                cstrFromString("ilang DX12: device OK | shader FAIL")
+                cstrFromString("ilang DX12: device OK, CreateCommandQueue failed")
             }
         } else {
-            cstrFromString("ilang DX12: D3D12CreateDevice failed — no GPU?")
+            cstrFromString("ilang DX12: D3D12CreateDevice failed - no GPU?")
         }
         SetWindowTextA(hwnd, title)
         freeCstr(title)
 
-        // Standard message pump.
+        // ── Standard message pump ────────────────────────────────
         let msg = MSG {
             hwnd:     0 as *HWND,
             message:  0,
@@ -213,55 +159,48 @@ use directx12 {
 
 run()
 
-// ─── Limitations encountered ─────────────────────────────────────
+// ─── First-pass writing rough edges ─────────────────────────────
 //
-// 1. COM vtable invocation
-//    DirectX 12 is COM-based: everything past `D3D12CreateDevice`
-//    (queue / heap / list / pso creation, draw recording, present,
-//    fence signal/wait) lives on the returned interface vtable.
-//    A typical call looks like (in C):
-//      device->lpVtbl->CreateCommandQueue(device, &desc, &iid, &queue);
-//    which requires:
-//      a. reading 8 bytes from the object pointer to get the vtable,
-//      b. indexing into the vtable to get the method pointer,
-//      c. calling that pointer with the object as the first argument.
+// 1. IID literal verbosity.
+//    Every COM call site needs an IID populated with `Data1` (u32),
+//    `Data2`/`Data3` (u16), and two u32 halves of the 8-byte `Data4`.
+//    Computing the two u32 halves from the canonical
+//    `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` text is hand-work
+//    (little-endian packing of 4 bytes at a time). A compile-time
+//    `guid!("...")` macro would eliminate every comment block.
 //
-//    ilang has function-pointer struct fields (used by the WndProc
-//    callback in WNDCLASSEXA), but there is no `obj->method(...)`
-//    syntax that loads a function pointer out of a heap struct and
-//    invokes it as a C function in one step. The few examples that
-//    use fn-pointer fields all ASSIGN them and let the OS call them,
-//    not the other way round.
+// 2. Vtable offsets as bare integers.
+//    `+16`, `+64`, … carry no semantic info — readers have to consult
+//    the SDK headers to know that `+64` is
+//    `ID3D12Device::CreateCommandQueue`. An auto-generated enum
+//    (`Vtbl.ID3D12Device.CreateCommandQueue`) or an IDL-driven
+//    code-gen step would make the source self-describing.
 //
-//    Without COM dispatch, we can:
-//      - call any flat `D3D12*` / `D3DCompile*` / `CreateDXGIFactory*`
-//        export,
-//      - hold the returned interface pointers as opaque values,
-//      - leak them on program exit.
-//    We cannot:
-//      - Release() the interfaces (no vtable call),
-//      - create a command queue, allocator, list, or PSO,
-//      - present anything to the swap chain,
-//      - query feature support, query capabilities, set up barriers.
+// 3. fn-typed local can't be passed through helper fns by value.
+//    A helper that does `let f = ptr as *void as fn(...): T; f(args)`
+//    is straightforward inline but can't be factored out: the
+//    "no raw pointers in ilang-side wrapper signatures" rule blocks
+//    `fn(...)` parameters too. Today's workaround is to inline every
+//    cast-and-call.
 //
-//    Adding COM-call support would benefit a lot of Win32 bindings
-//    (DirectX, WIC, Media Foundation, Direct2D, DirectWrite, Windows
-//    Imaging, all of which are COM-only).
+// 4. CRepr struct as a user-fn parameter type can't be re-marshalled
+//    back to `*const T` for a cast-derived fn pointer at runtime
+//    (STATUS_ACCESS_VIOLATION). The ilang user-fn ABI for CRepr
+//    structs needs to align with what the cast site expects before
+//    `pub fn createCommandQueue(device: i64, desc: D3D12_COMMAND_QUEUE_DESC,
+//    ...)` -style helpers can be written. Inline always works.
 //
-// 2. Wide-string literals
-//    Many DirectX entry points take UTF-16 (e.g. D3DCompileFromFile
-//    `pFileName`). ilang's string literal is UTF-8, so we either
-//    convert at runtime via MultiByteToWideChar (annoying for short
-//    constant paths) or stick to the ANSI variants where available.
+// 5. `if`-expression result type inference.
+//    `if cond { fn(): i32 } else { -1 }` — the `-1` defaults to i64;
+//    needs an explicit `as i32` to match the function-call branch.
 //
-// 3. Inline byte / pointer writes
-//    Indexing into raw `*u8` / `*u16` pointers from ilang code
-//    (`p[i] = x`) is rejected with "expected any[], got *u16". This
-//    makes it awkward to build short UTF-16 strings or to write into
-//    HeapAlloc'd buffers without going through a Win32 string helper.
+// 6. UTF-16 literals and raw `*u8`/`*u16` indexing `p[i] = x` are
+//    still missing — not exercised here since every D3D12 entry
+//    point used takes ANSI strings or `*void`.
 //
-// 4. Function-pointer return without struct field
-//    GetProcAddress returns `*void` which ilang can hold but can't
-//    later cast back to a callable `fn(...)` type. Combined with (1)
-//    this rules out the "lazy COM" pattern of resolving a single
-//    method by name.
+// 7. Larger programs that combine the window setup + COM dispatch
+//    via vtable casts hit a startup-time AV that smaller fixtures
+//    don't — the COM bits work cleanly in isolation under
+//    `bindings/directx12/test/` but combining the same shape with
+//    the Win32 window setup currently breaks. Worth a focused
+//    repro and an ilang-side bisect.
