@@ -1,7 +1,8 @@
 // NSURLComponents — parse, mutate, rebuild.
 
 use test
-use foundation { NSURLComponents, nsstr, ilstr }
+use foundation { NSURLComponents, NSURLQueryItem, NSMutableArray,
+                 nsstr, ilstr }
 
 // Parse a full URL.
 let c = NSURLComponents.componentsWithString(
@@ -38,5 +39,24 @@ test.expectStr(ilstr(c.query), "k=v")
 // `.url` re-materialises an NSURL from current state.
 let resolved = c.url
 test.expectStr(ilstr(resolved.host), "api.example.com")
+
+// queryItems — programmatic query-string building.
+let q1 = NSURLQueryItem.queryItem(nsstr("k"), nsstr("v"))
+test.expectStr(ilstr(q1.name), "k")
+test.expectStr(ilstr(q1.value), "v")
+
+let q2 = NSURLQueryItem.queryItem(nsstr("count"), nsstr("3"))
+let items = NSMutableArray.alloc().init()
+items.addObject(q1)
+items.addObject(q2)
+
+let q = NSURLComponents.alloc().init()
+q.scheme = nsstr("https")
+q.host = nsstr("api")
+q.path = nsstr("/v1")
+q.queryItems = items
+
+test.expectStr(ilstr(q.string), "https://api/v1?k=v&count=3")
+test.expect(q.queryItems.count, 2)
 
 0

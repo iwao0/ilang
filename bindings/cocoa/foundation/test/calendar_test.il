@@ -66,4 +66,22 @@ let dEnd = sameDayDifferentSecond.date
 test.expectTrue(cal.isDate(d, dEnd, CalendarUnit.day))
 test.expectFalse(cal.isDate(d, dEnd, CalendarUnit.hour))
 
+// rangeOfUnit: number-of-days in the enclosing month.
+// March has 31 days.
+let monthRange = cal.rangeOfUnit(
+    CalendarUnit.day, CalendarUnit.month, d
+)
+test.expect(monthRange.length as i64, 31)
+
+// ordinalityOfUnit: which day-of-month? March 14 → ordinality 14.
+let ord = cal.ordinalityOfUnit(
+    CalendarUnit.day, CalendarUnit.month, d
+)
+test.expect(ord as i64, 14)
+
+// compareDate via day granularity: same day → orderedSame.
+test.expect(cal.compareDate(d, dEnd, CalendarUnit.day) as i64, 0)
+let nextDay2 = cal.dateByAddingComponents(plusDay, d, 0 as u64)
+test.expect(cal.compareDate(d, nextDay2, CalendarUnit.day) as i64, -1)
+
 0
