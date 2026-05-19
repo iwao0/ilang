@@ -82,7 +82,7 @@ use windows {
 
         let msg = MSG {
             hwnd:     0 as *HWND,
-            message:  WindowMessage.null,
+            message:  0,
             wParam:   0,
             lParam:   0,
             time:     0,
