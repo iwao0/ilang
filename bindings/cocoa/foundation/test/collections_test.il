@@ -1,7 +1,7 @@
 // NSArray / NSMutableArray / NSDictionary / NSMutableDictionary.
 
 use test
-use cocoa { NSObject, NSString, NSArray, NSMutableArray,
+use foundation { NSObject, NSString, NSArray, NSMutableArray,
             NSDictionary, NSMutableDictionary, nsstr, ilstr }
 
 // NSMutableArray basics: alloc → init → addObject → count / objectAtIndex.

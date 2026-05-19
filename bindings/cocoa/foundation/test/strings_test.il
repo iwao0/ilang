@@ -1,7 +1,7 @@
 // NSString — basic UTF-8 round-trip + length / case / search.
 
 use test
-use cocoa { NSString, nsstr, ilstr }
+use foundation { NSString, nsstr, ilstr }
 
 // Round-trip: ilang string → NSString → ilang string.
 let s = nsstr("hello")

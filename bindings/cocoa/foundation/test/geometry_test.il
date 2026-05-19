@@ -1,7 +1,7 @@
 // NSPoint / NSSize / NSRect / NSRange struct helpers + accessors.
 
 use test
-use cocoa { makePoint, makeSize, makeRect, makeRange }
+use foundation { makePoint, makeSize, makeRect, makeRange }
 
 let p = makePoint(1.5, 2.5)
 test.expectF64(p.x, 1.5)

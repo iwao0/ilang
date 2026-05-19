@@ -1,7 +1,7 @@
 // NSDate — construct from epoch, arithmetic, comparison.
 
 use test
-use cocoa { NSDate }
+use foundation { NSDate }
 
 // Build a date from a fixed Unix timestamp.
 let d1 = NSDate.dateWithTimeIntervalSince1970(1_700_000_000.0)

@@ -1,7 +1,7 @@
 // NSData — bytes round-trip + length + base64.
 
 use test
-use cocoa { NSData, DataBase64EncodingOptions, DataBase64DecodingOptions,
+use foundation { NSData, DataBase64EncodingOptions, DataBase64DecodingOptions,
             nsstr, ilstr }
 
 // Empty buffer.

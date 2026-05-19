@@ -1,7 +1,7 @@
 // NSCharacterSet — predefined sets + characterIsMember.
 
 use test
-use cocoa { NSCharacterSet, nsstr }
+use foundation { NSCharacterSet, nsstr }
 
 let digits = NSCharacterSet.decimalDigit()
 test.expectTrue(digits.characterIsMember(48 as u16))   // '0'

@@ -1,7 +1,7 @@
 // NSNumber / NSDecimalNumber / NSValue.
 
 use test
-use cocoa { NSNumber, NSDecimalNumber, NSValue, NSRange,
+use foundation { NSNumber, NSDecimalNumber, NSValue, NSRange,
             nsstr, ilstr, makeRange, makePoint, makeSize, makeRect }
 
 // NSNumber round-trip.

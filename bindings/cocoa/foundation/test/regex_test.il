@@ -1,7 +1,7 @@
 // NSRegularExpression — compile + match count + replace.
 
 use test
-use cocoa { regex, RegexOptions, MatchOptions, fullRange,
+use foundation { regex, RegexOptions, MatchOptions, fullRange,
             nsstr, ilstr }
 
 let re = regex("[0-9]+", RegexOptions.none)
