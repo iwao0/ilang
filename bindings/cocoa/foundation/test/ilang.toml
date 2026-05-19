@@ -1,0 +1,5 @@
+[package]
+name = "cocoa_foundation_test"
+
+[deps]
+cocoa = "../.."
