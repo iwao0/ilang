@@ -2,7 +2,8 @@
 
 use test
 use foundation { NSObject, NSString, NSArray, NSMutableArray,
-            NSDictionary, NSMutableDictionary, nsstr, ilstr }
+            NSDictionary, NSMutableDictionary, makeRange,
+            nsstr, ilstr }
 
 // NSMutableArray basics: alloc → init → addObject → count / objectAtIndex.
 let arr = NSMutableArray.alloc().init()
@@ -55,4 +56,55 @@ test.expectStr(ilstr(v1), "v1")
 dict.removeObjectForKey(nsstr("k1"))
 test.expect(dict.count, 1)
 
+// allKeys / allValues round-trip.
+dict.setObject(nsstr("v3"), nsstr("k3"))
+test.expect(dict.allKeys.count, 2)
+test.expect(dict.allValues.count, 2)
+
+// NSArray.indexOfObject — value lookup.
+let arr2 = NSMutableArray.alloc().init()
+arr2.addObject(nsstr("apple"))
+arr2.addObject(nsstr("banana"))
+arr2.addObject(nsstr("cherry"))
+test.expect(arr2.indexOfObject(nsstr("banana")) as i64, 1)
+
+// firstObject / lastObject.
+let first2 = NSString.__wrap_handle(arr2.firstObject.handle)
+test.expectStr(ilstr(first2), "apple")
+let last2 = NSString.__wrap_handle(arr2.lastObject.handle)
+test.expectStr(ilstr(last2), "cherry")
+
+// subarrayWithRange.
+let mid = arr2.subarrayWithRange(makeRange(1 as u64, 2 as u64))
+test.expect(mid.count, 2)
+
+// arrayByAddingObjectsFromArray.
+let combined = arr2.arrayByAddingObjectsFromArray(arr2)
+test.expect(combined.count, 6)
+
+// removeObject by value.
+arr2.removeObject(nsstr("banana"))
+test.expect(arr2.count, 2)
+test.expectFalse(arr2.containsObject(nsstr("banana")))
+
+// insertObject at index.
+arr2.insertObject(nsstr("ZZ"), 0 as i64)
+test.expect(arr2.count, 3)
+let firstAfter = NSString.__wrap_handle(arr2.objectAtIndex(0).handle)
+test.expectStr(ilstr(firstAfter), "ZZ")
+
+// removeObjectAtIndex.
+arr2.removeObjectAtIndex(0)
+test.expect(arr2.count, 2)
+
+// replaceObjectAtIndex.
+arr2.replaceObjectAtIndex(0, nsstr("X"))
+let after = NSString.__wrap_handle(arr2.objectAtIndex(0).handle)
+test.expectStr(ilstr(after), "X")
+
+// removeAllObjects.
+arr2.removeAllObjects()
+test.expect(arr2.count, 0)
+
 0
+

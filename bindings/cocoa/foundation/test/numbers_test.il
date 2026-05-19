@@ -47,4 +47,44 @@ let s2 = sv.sizeValue
 test.expectF64(s2.width, 100.0)
 test.expectF64(s2.height, 200.0)
 
+// NSValue — round-trip an NSRect.
+let rr = makeRect(1.0, 2.0, 3.0, 4.0)
+let rv = NSValue.valueWithRect(rr)
+let r2 = rv.rectValue
+test.expectF64(r2.origin.x, 1.0)
+test.expectF64(r2.size.width, 3.0)
+
+// NSValue.isEqualToValue.
+let pa = NSValue.valueWithPoint(makePoint(1.0, 2.0))
+let pb = NSValue.valueWithPoint(makePoint(1.0, 2.0))
+let pc = NSValue.valueWithPoint(makePoint(9.0, 9.0))
+test.expectTrue(pa.isEqualToValue(pb))
+test.expectFalse(pa.isEqualToValue(pc))
+
+// NSNumber.compareNumber.
+let smaller = NSNumber.fromI64(1)
+let bigger = NSNumber.fromI64(2)
+// ComparisonResult: orderedAscending = -1 here.
+test.expect(smaller.compareNumber(bigger) as i64, -1)
+test.expect(bigger.compareNumber(smaller) as i64, 1)
+test.expect(smaller.compareNumber(smaller) as i64, 0)
+
+// NSNumber.stringValue across types.
+test.expectStr(ilstr(NSNumber.fromBool(true).stringValue), "1")
+test.expectStr(ilstr(NSNumber.fromF64(2.5).stringValue), "2.5")
+
+// NSDecimalNumber.compare.
+let d1 = NSDecimalNumber.decimalNumberWithString(nsstr("1.5"))
+let d2 = NSDecimalNumber.decimalNumberWithString(nsstr("2.5"))
+test.expect(d1.compare(d2), -1)
+test.expect(d2.compare(d1), 1)
+
+// NSDecimalNumber arithmetic chain.
+let sum = d1.adding(d2)
+test.expectF64(sum.doubleValue, 4.0)
+let diff = d2.subtracting(d1)
+test.expectF64(diff.doubleValue, 1.0)
+let prod = d1.multiplyingBy(d2)
+test.expectF64(prod.doubleValue, 3.75)
+
 0

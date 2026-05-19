@@ -23,4 +23,32 @@ test.expectStr(ilstr(f.pathExtension), "txt")
 let appended = f.byDeletingLastPathComponent.byAppendingPathComponent(nsstr("bar.md"))
 test.expectStr(ilstr(appended.lastPathComponent), "bar.md")
 
+// byAppendingPathExtension and byDeletingPathExtension.
+let withExt = NSURL.fromFilePath(nsstr("/tmp/foo"))
+    .byAppendingPathExtension(nsstr("json"))
+test.expectStr(ilstr(withExt.pathExtension), "json")
+test.expectStr(
+    ilstr(withExt.byDeletingPathExtension.lastPathComponent),
+    "foo"
+)
+
+// pathComponents on a file URL.
+let pc = NSURL.fromFilePath(nsstr("/a/b/c")).pathComponents
+test.expectTrue(pc.count >= 4)  // [/, a, b, c]
+
+// hasDirectoryPath.
+test.expectFalse(NSURL.fromFilePath(nsstr("/tmp/foo.txt")).hasDirectoryPath)
+
+// standardizedURL on a URL with `..` collapses it.
+let std = NSURL.fromFilePath(nsstr("/a/b/../c")).standardizedURL
+test.expectStr(ilstr(std.path), "/a/c")
+
+// absoluteURL of an already-absolute URL is itself.
+let abs = NSURL.fromString(nsstr("https://example.com/x"))
+test.expectStr(ilstr(abs.absoluteURL.absoluteString), "https://example.com/x")
+
+// byStandardizingPath on a file URL.
+let trailing = NSURL.fromFilePath(nsstr("/tmp/."))
+test.expectStr(ilstr(trailing.byStandardizingPath.path), "/tmp")
+
 0
