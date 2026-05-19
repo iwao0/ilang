@@ -14,13 +14,13 @@ use directx12 {
 @extern(C) {
     pub fn run() {
         // IID_ID3D12Device = {189819f1-1db6-4b57-be54-1821339b85f7}
+        // Data4[0..4] = be 54 18 21 → little-endian u32 = 0x211854be
+        // Data4[4..8] = 33 9b 85 f7 → little-endian u32 = 0xf7859b33
         let iid = GUID {
             Data1:   0x189819f1,
             Data2:   0x1db6,
             Data3:   0x4b57,
-            // Data4[0..4] = be 54 18 21 → little-endian u32 = 0x182154be
-            Data4lo: 0x182154be,
-            // Data4[4..8] = 33 9b 85 f7 → little-endian u32 = 0xf7859b33
+            Data4lo: 0x211854be,
             Data4hi: 0xf7859b33,
         }
         let device: *void = 0 as *void

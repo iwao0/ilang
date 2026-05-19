@@ -1,0 +1,6 @@
+[package]
+name = "dx12_device"
+
+[deps]
+windows = "../../../bindings/windows"
+directx12 = "../../../bindings/directx12"
