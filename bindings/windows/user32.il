@@ -575,6 +575,309 @@ pub enum SystemIcon: u32 {
     shield      = 32518
 }
 
+// ─── GetSystemMetrics indices (SM_*) ─────────────────────────────
+pub enum SystemMetric: i32 {
+    cxScreen        = 0    // primary monitor width in pixels
+    cyScreen        = 1    // primary monitor height in pixels
+    cxVScroll       = 2    // vertical scroll bar width
+    cyHScroll       = 3    // horizontal scroll bar height
+    cyCaption       = 4    // title bar height (includes border)
+    cxBorder        = 5
+    cyBorder        = 6
+    cxDlgFrame      = 7    // dialog frame width (= cxFixedFrame)
+    cyDlgFrame      = 8
+    cyCursor        = 13   // cursor height
+    cxCursor        = 14   // cursor width  (same index on most OSes)
+    cyMenu          = 15   // menu bar height
+    cxFullScreen    = 16   // full-screen client area width
+    cyFullScreen    = 17
+    cyKanjiWindow   = 18
+    mousePresent    = 19   // 0 = no mouse
+    cyVScroll       = 20   // vertical scroll bar arrow height
+    cxHScroll       = 21   // horizontal scroll bar arrow width
+    debug           = 22
+    swapButton      = 23   // left/right mouse buttons swapped?
+    cxMin           = 28   // minimum window width
+    cyMin           = 29   // minimum window height
+    cxSize          = 30   // caption-button width
+    cySize          = 31   // caption-button height
+    cxFrame         = 32   // resizable window border width (= cxSizeFrame)
+    cyFrame         = 33
+    cxMinTrack      = 34   // minimum tracking size
+    cyMinTrack      = 35
+    cxDoubleClk     = 36   // double-click region width
+    cyDoubleClk     = 37
+    cxIconSpacing   = 38
+    cyIconSpacing   = 39
+    menudropalignment = 40 // 0=left-align, 1=right-align pop-ups
+    penwindows      = 41
+    dbcsenabled     = 42
+    cmousebuttons   = 43
+    secure          = 44
+    cxEdge          = 45
+    cyEdge          = 46
+    cxMinSpacing    = 47
+    cyMinSpacing    = 48
+    cxSmIcon        = 49   // small icon width
+    cySmIcon        = 50
+    cySmCaption     = 51
+    cxSmSize        = 52
+    cySmSize        = 53
+    cxMenuSize      = 54
+    cyMenuSize      = 55
+    arrange         = 56
+    cxMinimized     = 57
+    cyMinimized     = 58
+    cxMaxTrack      = 59
+    cyMaxTrack      = 60
+    cxMaximized     = 61
+    cyMaximized     = 62
+    network         = 63
+    cleanboot       = 67
+    cxDrag          = 68
+    cyDrag          = 69
+    showsounds      = 70
+    cxMenuCheck     = 71
+    cyMenuCheck     = 72
+    slowmachine     = 73
+    mideastenabled  = 74
+    mousewheelpresent = 75
+    xVirtualScreen  = 76
+    yVirtualScreen  = 77
+    cxVirtualScreen = 78
+    cyVirtualScreen = 79
+    cMonitors       = 80
+    samedisplayformat = 81
+    immenabled      = 82
+    cxFocusBorder   = 83
+    cyFocusBorder   = 84
+    tabletpc        = 86
+    mediacenter     = 87
+    starter         = 88
+    serverr2        = 89
+    mousehorizontalwheelpresent = 91
+    cxPaddedBorder  = 92
+    digitizer       = 94
+    maximumtouches  = 95
+}
+
+// ─── GetWindowLongPtrA / SetWindowLongPtrA index values ──────────
+pub enum WindowLongIndex: i32 {
+    wndproc    = -4    // GWLP_WNDPROC — window procedure
+    hinstance  = -6    // GWLP_HINSTANCE
+    hwndparent = -8    // GWLP_HWNDPARENT
+    id         = -12   // GWLP_ID — control identifier
+    userdata   = -21   // GWLP_USERDATA
+    style      = -16   // GWL_STYLE — window style (32-bit)
+    exstyle    = -20   // GWL_EXSTYLE — extended style (32-bit)
+    dlgmsgresult = 0   // DWLP_MSGRESULT — dialog message return
+    dlgdlgproc = 8     // DWLP_DLGPROC — dialog procedure (x64 offset)
+    dlguser    = 16    // DWLP_USER — dialog user data (x64 offset)
+}
+
+// ─── GetClassLongPtrA / SetClassLongPtrA index values ────────────
+pub enum ClassLongIndex: i32 {
+    menuName      = -8    // GCLP_MENUNAME
+    hbrBackground = -10   // GCLP_HBRBACKGROUND
+    hcursor       = -12   // GCLP_HCURSOR
+    hicon         = -14   // GCLP_HICON
+    hmodule       = -16   // GCLP_HMODULE
+    cbWndExtra    = -18   // GCL_CBWNDEXTRA
+    cbClsExtra    = -20   // GCL_CBCLSEXTRA
+    wndproc       = -24   // GCLP_WNDPROC
+    style         = -26   // GCL_STYLE
+    hiconsm       = -34   // GCLP_HICONSM
+    atomName      = -32   // GCL_ATOMNAME — WCHAR class name
+}
+
+// ─── TrackMouseEvent dwFlags (TME_*) ─────────────────────────────
+@flags
+pub enum TrackMouseFlags: u32 {
+    hover    = 0x00000001   // generate WM_MOUSEHOVER
+    leave    = 0x00000002   // generate WM_MOUSELEAVE
+    nonclient = 0x00000010  // track non-client area
+    query    = 0x40000000   // query existing tracking
+    cancel   = 0x80000000   // cancel existing tracking
+}
+
+// ─── SetLayeredWindowAttributes flags (LWA_*) ────────────────────
+@flags
+pub enum LayeredWindowFlags: u32 {
+    colorKey = 0x00000001   // use crKey as transparency color
+    alpha    = 0x00000002   // use bAlpha as opacity (0=transparent)
+}
+
+// ─── AnimateWindow flags (AW_*) ──────────────────────────────────
+@flags
+pub enum AnimateWindowFlags: u32 {
+    horPositive = 0x00000001
+    horNegative = 0x00000002
+    verPositive = 0x00000004
+    verNegative = 0x00000008
+    center      = 0x00000010
+    hide        = 0x00010000
+    activate    = 0x00020000
+    slide       = 0x00040000
+    blend       = 0x00080000
+}
+
+// ─── FlashWindow / FlashWindowEx flags (FLASHW_*) ────────────────
+@flags
+pub enum FlashWindowFlags: u32 {
+    stop      = 0   // stop flashing
+    caption   = 0x00000001
+    tray      = 0x00000002
+    all       = 0x00000003   // = caption | tray
+    timer     = 0x00000004   // keep flashing until FLASHW_STOP
+    timernofg = 0x0000000C   // flash until foregrounded
+}
+
+// ─── MouseEvent flags for INPUT_MOUSE (MOUSEEVENTF_*) ────────────
+@flags
+pub enum MouseEventFlags: u32 {
+    move          = 0x0001
+    leftDown      = 0x0002
+    leftUp        = 0x0004
+    rightDown     = 0x0008
+    rightUp       = 0x0010
+    middleDown    = 0x0020
+    middleUp      = 0x0040
+    xDown         = 0x0080
+    xUp           = 0x0100
+    wheel         = 0x0800
+    hWheel        = 0x1000
+    moveNocoalesce = 0x2000
+    virtualDesk   = 0x4000
+    absolute      = 0x8000
+}
+
+// ─── KeyboardEvent flags for INPUT_KEYBOARD (KEYEVENTF_*) ────────
+@flags
+pub enum KeyEventFlags: u32 {
+    extendedKey = 0x0001
+    keyUp       = 0x0002
+    unicode     = 0x0004
+    scanCode    = 0x0008
+}
+
+// ─── SendInput type constants ─────────────────────────────────────
+pub enum InputType: u32 {
+    mouse    = 0
+    keyboard = 1
+    hardware = 2
+}
+
+// ─── AppendMenuA fFlags (MF_*) ───────────────────────────────────
+@flags
+pub enum MenuFlags: u32 {
+    insert      = 0x00000000
+    change      = 0x00000080
+    append      = 0x00000100
+    delete      = 0x00000200
+    remove      = 0x00001000
+    bycommand   = 0x00000000
+    byposition  = 0x00000400
+    separator   = 0x00000800
+    enabled     = 0x00000000
+    grayed      = 0x00000001
+    disabled    = 0x00000002
+    unchecked   = 0x00000000
+    checked     = 0x00000008
+    usecheckbitmaps = 0x00000200
+    string      = 0x00000000
+    bitmap      = 0x00000004
+    ownerdraw   = 0x00000100
+    popup       = 0x00000010
+    menubarbreak = 0x00000020
+    menubreak   = 0x00000040
+    unhilite    = 0x00000000
+    hilite      = 0x00000080
+    default_    = 0x00001000
+    sysmenu     = 0x00002000
+    help        = 0x00004000
+    rightjustify = 0x00004000
+    mouseselect = 0x00008000
+}
+
+// ─── TrackPopupMenu flags (TPM_*) ────────────────────────────────
+@flags
+pub enum TrackPopupMenuFlags: u32 {
+    leftButton     = 0x0000
+    rightButton    = 0x0002
+    leftAlign      = 0x0000
+    centerAlign    = 0x0004
+    rightAlign     = 0x0008
+    topAlign       = 0x0000
+    vcenterAlign   = 0x0010
+    bottomAlign    = 0x0020
+    horizontal     = 0x0000
+    vertical       = 0x0040
+    noNotify       = 0x0080   // don't send WM_COMMAND to owner
+    returnCmd      = 0x0100   // return selected command ID
+    recurse        = 0x0001
+    horPosAnimation = 0x0400
+    horNegAnimation = 0x0800
+    verPosAnimation = 0x1000
+    verNegAnimation = 0x2000
+    noAnimation     = 0x4000
+    layoutRtl       = 0x8000
+    workArea        = 0x10000
+}
+
+// ─── LoadImage type constants (IMAGE_*) ──────────────────────────
+pub enum ImageType: u32 {
+    bitmap  = 0
+    icon    = 1
+    cursor  = 2
+    enhMetafile = 3
+}
+
+// ─── LoadImage flags (LR_*) ──────────────────────────────────────
+@flags
+pub enum LoadImageFlags: u32 {
+    defaultColor  = 0x00000000
+    monochrome    = 0x00000001
+    color         = 0x00000002
+    copyReturnOrg = 0x00000004
+    copyDeleteOrg = 0x00000008
+    loadFromFile  = 0x00000010
+    loadTransparent = 0x00000020
+    defaultSize   = 0x00000040
+    vgaColor      = 0x00000080
+    loadMap3dColors = 0x00001000
+    createdibsection = 0x00002000
+    copyfromresource = 0x00004000
+    shared        = 0x00008000
+}
+
+// ─── SystemParametersInfoA (SPI_*) uiAction values (selection) ───
+pub enum SpiAction: u32 {
+    getBeep           = 1
+    setBeep           = 2
+    getMouseSpeed     = 112
+    setMouseSpeed     = 113
+    getWorkArea       = 48    // lpvParam: *RECT — usable desktop area
+    setWorkArea       = 47
+    getScreenSaveTimeout = 14
+    setScreenSaveTimeout = 15
+    getScreenSaveActive = 16
+    setScreenSaveActive = 17
+    getDragFullWindows = 38
+    setDragFullWindows = 37
+    getWheelScrollLines = 104
+    setWheelScrollLines = 105
+    getWheelScrollChars = 0x006C
+    setWheelScrollChars = 0x006D
+    getFontSmoothing    = 74
+    setFontSmoothing    = 75
+    getFontSmoothingType = 0x200A
+    setFontSmoothingType = 0x200B
+    getCursorShadow     = 0x101A
+    setCursorShadow     = 0x101B
+    getDropShadow       = 0x1024
+    setDropShadow       = 0x1025
+}
+
 @extern(C, "user32") {
     // ── Opaque handle types ───────────────────────────────────
 
@@ -946,5 +1249,323 @@ pub enum SystemIcon: u32 {
         lpText:    *const char,
         lpCaption: *const char,
         uType:     u32
+    ): i32
+
+    // ── Multi-monitor ─────────────────────────────────────────────
+
+    /// Opaque monitor handle. Returned by MonitorFromWindow etc.
+    pub struct HMONITOR {}
+
+    /// `MONITORINFO` — 40 bytes. Fill `cbSize` = 40 before calling
+    /// `GetMonitorInfoA`.
+    pub struct MONITORINFO {
+        cbSize:    u32
+        rcMonitor: RECT   // full monitor rect in virtual-screen coords
+        rcWork:    RECT   // work area (excludes taskbar)
+        dwFlags:   u32    // 1 = MONITORINFOF_PRIMARY
+    }
+
+    /// Returns the monitor that contains `hwnd`, or the nearest.
+    /// `dwFlags`: 0=MONITOR_DEFAULTTONULL, 1=NEAREST, 2=PRIMARY.
+    @lib pub fn MonitorFromWindow(hwnd: *HWND, dwFlags: u32): *HMONITOR
+
+    @lib pub fn MonitorFromPoint(pt: i64, dwFlags: u32): *HMONITOR   // pt is packed POINT (lo=x, hi=y)
+    @lib pub fn MonitorFromRect(lprc: *const RECT, dwFlags: u32): *HMONITOR
+
+    @lib pub fn GetMonitorInfoA(hMonitor: *HMONITOR, lpmi: *MONITORINFO): i32
+
+    /// Calls `lpfnEnum(hMonitor, hdcMonitor, lprcMonitor, dwData)`
+    /// for every monitor; stops when the callback returns FALSE.
+    @lib pub fn EnumDisplayMonitors(
+        hdc:       *void,      // HDC filter, or NULL for all
+        lprcClip:  *const RECT,
+        lpfnEnum:  fn(i64, i64, i64, i64): i32,  // MONITORENUMPROC
+        dwData:    i64
+    ): i32
+
+    // ── Window enumeration ────────────────────────────────────────
+
+    /// Calls `lpEnumFunc(hwnd, lParam)` for every top-level window.
+    @lib pub fn EnumWindows(
+        lpEnumFunc: fn(i64, i64): i32,
+        lParam:     i64
+    ): i32
+
+    @lib pub fn EnumChildWindows(
+        hwndParent: *HWND,
+        lpEnumFunc: fn(i64, i64): i32,
+        lParam:     i64
+    ): i32
+
+    // ── Window / class long ───────────────────────────────────────
+
+    /// Reads a window attribute by index (WindowLongIndex.*).
+    /// Use this for pointer-sized values; use GetWindowLongA for u32.
+    @lib pub fn GetWindowLongPtrA(hwnd: *HWND, nIndex: i32): i64
+
+    @lib pub fn SetWindowLongPtrA(hwnd: *HWND, nIndex: i32, dwNewLong: i64): i64
+
+    @lib pub fn GetWindowLongA(hwnd: *HWND, nIndex: i32): i32
+    @lib pub fn SetWindowLongA(hwnd: *HWND, nIndex: i32, dwNewLong: i32): i32
+
+    @lib pub fn GetClassLongPtrA(hwnd: *HWND, nIndex: i32): u64
+    @lib pub fn SetClassLongPtrA(hwnd: *HWND, nIndex: i32, dwNewLong: i64): u64
+
+    // ── System metrics ────────────────────────────────────────────
+
+    /// Returns a system metric. `nIndex`: SystemMetric.*.
+    @lib pub fn GetSystemMetrics(nIndex: i32): i32
+
+    // ── Mouse tracking ────────────────────────────────────────────
+
+    /// `TRACKMOUSEEVENT` — 24 bytes (with trailing padding).
+    /// Set `cbSize` = 24, `dwFlags` = TrackMouseFlags.*, `hwndTrack`,
+    /// and optionally `dwHoverTime` (HOVER_DEFAULT = 0xFFFFFFFF).
+    pub struct TRACKMOUSEEVENT {
+        cbSize:      u32
+        dwFlags:     u32
+        hwndTrack:   *HWND
+        dwHoverTime: u32
+    }
+
+    /// Requests WM_MOUSEHOVER / WM_MOUSELEAVE notifications.
+    @lib pub fn TrackMouseEvent(lpEventTrack: *TRACKMOUSEEVENT): i32
+
+    // ── Layered windows ───────────────────────────────────────────
+
+    /// Sets per-pixel or colour-key transparency for a layered window
+    /// (must have WS_EX_LAYERED set with SetWindowLongPtrA first).
+    /// `crKey`: transparent colour (COLORREF). `bAlpha`: 0=transparent.
+    /// `dwFlags`: LayeredWindowFlags.*.
+    @lib pub fn SetLayeredWindowAttributes(
+        hwnd:    *HWND,
+        crKey:   u32,
+        bAlpha:  u8,
+        dwFlags: u32
+    ): i32
+
+    @lib pub fn GetLayeredWindowAttributes(
+        hwnd:    *HWND,
+        pcrKey:  *u32,
+        pbAlpha: *u8,
+        pdwFlags: *u32
+    ): i32
+
+    // ── Window animation ──────────────────────────────────────────
+
+    @lib pub fn AnimateWindow(hwnd: *HWND, dwTime: u32, dwFlags: u32): i32
+
+    // ── Flashing ─────────────────────────────────────────────────
+
+    /// `FLASHWINFO` — 32 bytes.
+    /// Set `cbSize` = 32, `hwnd`, `dwFlags` (FlashWindowFlags.*),
+    /// `uCount` (flash count), and `dwTimeout` (ms, 0=cursor blink rate).
+    pub struct FLASHWINFO {
+        cbSize:    u32
+        // 4 bytes implicit padding before hwnd
+        hwnd:      *HWND
+        dwFlags:   u32
+        uCount:    u32
+        dwTimeout: u32
+    }
+
+    @lib pub fn FlashWindow(hwnd: *HWND, bInvert: i32): i32
+    @lib pub fn FlashWindowEx(pfwi: *const FLASHWINFO): i32
+
+    // ── Hot keys ─────────────────────────────────────────────────
+
+    /// Registers a global hot key. `id`: app-defined identifier (1–49151).
+    /// `fsModifiers`: MOD_ALT=1, MOD_CONTROL=2, MOD_SHIFT=4, MOD_WIN=8.
+    @lib pub fn RegisterHotKey(hwnd: *HWND, id: i32, fsModifiers: u32, vk: u32): i32
+    @lib pub fn UnregisterHotKey(hwnd: *HWND, id: i32): i32
+
+    // ── Virtual key mapping ───────────────────────────────────────
+
+    /// Translates a virtual key code to a scan code, or vice-versa.
+    /// `uMapType`: 0=VK→scan, 1=scan→VK, 2=VK→char, 3=VK→unshifted char.
+    @lib pub fn MapVirtualKeyA(uCode: u32, uMapType: u32): u32
+
+    // ── SendInput ─────────────────────────────────────────────────
+
+    /// `INPUT_MOUSE` — 40 bytes. Set `type_` = 0 (InputType.mouse).
+    /// `mouseFlags`: MouseEventFlags.*; `dwExtraInfo`: 0 for normal input.
+    pub struct INPUT_MOUSE {
+        type_:       u32          // = 0
+        _pad0:       u32          // alignment gap before union
+        dx:          i32
+        dy:          i32
+        mouseData:   u32          // wheel delta × WHEEL_DELTA or X-button ID
+        mouseFlags:  u32
+        time:        u32
+        _pad1:       u32          // alignment gap before extraInfo
+        dwExtraInfo: u64
+    }
+
+    /// `INPUT_KEYBOARD` — 40 bytes. Set `type_` = 1 (InputType.keyboard).
+    /// `kbdFlags`: KeyEventFlags.*; set keyUp to simulate key release.
+    pub struct INPUT_KEYBOARD {
+        type_:       u32          // = 1
+        _pad0:       u32          // alignment gap before union
+        wVk:         u16          // VirtualKey value (0 for scan-code only)
+        wScan:       u16          // hardware scan code
+        kbdFlags:    u32
+        time:        u32
+        _pad1:       u32
+        dwExtraInfo: u64
+        _tail:       u64          // padding to match MOUSEINPUT union size
+    }
+
+    /// Synthesises input events. `nInputs`: number of INPUT_* structs.
+    /// `cbSize`: sizeof the struct (40). Returns number of events inserted.
+    @lib pub fn SendInput(nInputs: u32, pInputs: *void, cbSize: i32): u32
+
+    // ── Window info ───────────────────────────────────────────────
+
+    /// `WINDOWINFO` — 60 bytes. Set `cbSize` = 60.
+    pub struct WINDOWINFO {
+        cbSize:          u32
+        rcWindow:        RECT   // window rect in screen coords
+        rcClient:        RECT   // client rect in screen coords
+        dwStyle:         u32
+        dwExStyle:       u32
+        dwWindowStatus:  u32   // WS_ACTIVECAPTION = 1 if active
+        cxWindowBorders: u32
+        cyWindowBorders: u32
+        atomWindowType:  u16
+        wCreatorVersion: u16
+    }
+
+    @lib pub fn GetWindowInfo(hwnd: *HWND, pwi: *WINDOWINFO): i32
+
+    // ── Window placement ─────────────────────────────────────────
+
+    /// `WINDOWPLACEMENT` — 44 bytes. Set `length` = 44.
+    pub struct WINDOWPLACEMENT {
+        length:           u32
+        flags:            u32
+        showCmd:          u32
+        ptMinPosition:    POINT
+        ptMaxPosition:    POINT
+        rcNormalPosition: RECT
+    }
+
+    @lib pub fn GetWindowPlacement(hwnd: *HWND, lpwndpl: *WINDOWPLACEMENT): i32
+    @lib pub fn SetWindowPlacement(hwnd: *HWND, lpwndpl: *const WINDOWPLACEMENT): i32
+
+    // ── Menu ──────────────────────────────────────────────────────
+
+    /// Returns the window's menu handle (NULL if none).
+    @lib pub fn GetMenu(hwnd: *HWND): *HMENU
+
+    /// Attaches `hMenu` to `hwnd` as the menu bar.
+    @lib pub fn SetMenu(hwnd: *HWND, hMenu: *HMENU): i32
+
+    @lib pub fn CreateMenu(): *HMENU
+    @lib pub fn CreatePopupMenu(): *HMENU
+    @lib pub fn DestroyMenu(hMenu: *HMENU): i32
+
+    /// Appends a menu item. `uFlags`: MenuFlags.*; `uIDNewItem`:
+    /// command ID (for commands) or popup HMENU (for sub-menus);
+    /// `lpNewItem`: label string (or bitmap/null per flags).
+    @lib pub fn AppendMenuA(
+        hMenu:       *HMENU,
+        uFlags:      u32,
+        uIDNewItem:  u64,    // UINT_PTR — command ID or *HMENU
+        lpNewItem:   *const char
+    ): i32
+
+    @lib pub fn InsertMenuA(
+        hMenu:       *HMENU,
+        uPosition:   u32,
+        uFlags:      u32,
+        uIDNewItem:  u64,
+        lpNewItem:   *const char
+    ): i32
+
+    @lib pub fn DeleteMenu(hMenu: *HMENU, uPosition: u32, uFlags: u32): i32
+    @lib pub fn RemoveMenu(hMenu: *HMENU, uPosition: u32, uFlags: u32): i32
+    @lib pub fn ModifyMenuA(
+        hMenu:       *HMENU,
+        uPosition:   u32,
+        uFlags:      u32,
+        uIDNewItem:  u64,
+        lpNewItem:   *const char
+    ): i32
+
+    @lib pub fn EnableMenuItem(hMenu: *HMENU, uIDEnableItem: u32, uEnable: u32): i32
+    @lib pub fn CheckMenuItem(hMenu: *HMENU, uIDCheckItem: u32, uCheck: u32): u32
+    @lib pub fn CheckMenuRadioItem(
+        hMenu:  *HMENU,
+        first:  u32,
+        last:   u32,
+        check:  u32,
+        flags:  u32
+    ): i32
+    @lib pub fn GetMenuItemCount(hMenu: *HMENU): i32
+    @lib pub fn GetMenuItemID(hMenu: *HMENU, nPos: i32): u32
+    @lib pub fn GetSubMenu(hMenu: *HMENU, nPos: i32): *HMENU
+    @lib pub fn DrawMenuBar(hwnd: *HWND): i32
+
+    /// Shows a floating popup menu. `hwnd` receives WM_COMMAND.
+    /// `uFlags`: TrackPopupMenuFlags.*. Returns selected cmd or 0.
+    @lib pub fn TrackPopupMenu(
+        hMenu:  *HMENU,
+        uFlags: u32,
+        x:      i32,
+        y:      i32,
+        nReserved: i32,
+        hwnd:   *HWND,
+        prcRect: *const RECT
+    ): i32
+
+    // ── LoadImage ─────────────────────────────────────────────────
+
+    /// Loads a bitmap, icon, or cursor from a file or resource.
+    /// `hInst`: 0 for file-based; `image`: filename or resource ID;
+    /// `type_`: ImageType.*; `cx`/`cy`: 0 = use embedded size;
+    /// `fuLoad`: LoadImageFlags.*.
+    @lib pub fn LoadImageA(
+        hInst:  *void,   // *HINSTANCE
+        image:  *const char,
+        type_:  u32,
+        cx:     i32,
+        cy:     i32,
+        fuLoad: u32
+    ): *void
+
+    // ── Registered window messages ────────────────────────────────
+
+    /// Registers a unique message for inter-application communication.
+    /// Returns a value in 0xC000–0xFFFF, unique to the string.
+    @lib pub fn RegisterWindowMessageA(lpString: *const char): u32
+
+    // ── Character conversion ──────────────────────────────────────
+
+    @lib pub fn CharToOemA(pSrc: *const char, pDst: *char): i32
+    @lib pub fn OemToCharA(pSrc: *const char, pDst: *char): i32
+    @lib pub fn CharUpperA(lpsz: *char): *char
+    @lib pub fn CharLowerA(lpsz: *char): *char
+
+    // ── Window procedure calling ──────────────────────────────────
+
+    /// Passes a message to the window procedure at `lpPrevWndFunc`
+    /// (typically the original procedure saved before subclassing).
+    @lib pub fn CallWindowProcA(
+        lpPrevWndFunc: fn(i64, u32, u64, i64): i64,
+        hwnd:          *HWND,
+        msg:           u32,
+        wParam:        u64,
+        lParam:        i64
+    ): i64
+
+    // ── System parameters ─────────────────────────────────────────
+
+    /// Gets or sets a system-wide parameter. `uiAction`: SpiAction.*.
+    /// `lpvParam`: action-specific pointer; `fWinIni`: 0 = no broadcast.
+    @lib pub fn SystemParametersInfoA(
+        uiAction:  u32,
+        uiParam:   u32,
+        pvParam:   *void,
+        fWinIni:   u32
     ): i32
 }

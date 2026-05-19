@@ -581,4 +581,334 @@ pub enum StdHandle: u32 {
         hConsoleOutput:       *HANDLE,
         lpConsoleScreenBufferInfo: *void
     ): i32
+
+    // ── File enumeration ──────────────────────────────────────────
+
+    /// `WIN32_FIND_DATAA` — 320 bytes.
+    /// `cFileName` and `cAlternateFileName` are char arrays stored
+    /// as u32 blocks for alignment; cast to `*char` when reading.
+    pub struct WIN32_FIND_DATAA {
+        dwFileAttributes:   u32
+        ftCreationTime_lo:  u32   // FILETIME lo-dword
+        ftCreationTime_hi:  u32   // FILETIME hi-dword
+        ftLastAccessTime_lo: u32
+        ftLastAccessTime_hi: u32
+        ftLastWriteTime_lo: u32
+        ftLastWriteTime_hi: u32
+        nFileSizeHigh:      u32
+        nFileSizeLow:       u32
+        dwReserved0:        u32
+        dwReserved1:        u32
+        // cFileName[MAX_PATH=260] as 65 × u32 = 260 bytes
+        _fn00: u32
+        _fn01: u32
+        _fn02: u32
+        _fn03: u32
+        _fn04: u32
+        _fn05: u32
+        _fn06: u32
+        _fn07: u32
+        _fn08: u32
+        _fn09: u32
+        _fn10: u32
+        _fn11: u32
+        _fn12: u32
+        _fn13: u32
+        _fn14: u32
+        _fn15: u32
+        _fn16: u32
+        _fn17: u32
+        _fn18: u32
+        _fn19: u32
+        _fn20: u32
+        _fn21: u32
+        _fn22: u32
+        _fn23: u32
+        _fn24: u32
+        _fn25: u32
+        _fn26: u32
+        _fn27: u32
+        _fn28: u32
+        _fn29: u32
+        _fn30: u32
+        _fn31: u32
+        _fn32: u32
+        _fn33: u32
+        _fn34: u32
+        _fn35: u32
+        _fn36: u32
+        _fn37: u32
+        _fn38: u32
+        _fn39: u32
+        _fn40: u32
+        _fn41: u32
+        _fn42: u32
+        _fn43: u32
+        _fn44: u32
+        _fn45: u32
+        _fn46: u32
+        _fn47: u32
+        _fn48: u32
+        _fn49: u32
+        _fn50: u32
+        _fn51: u32
+        _fn52: u32
+        _fn53: u32
+        _fn54: u32
+        _fn55: u32
+        _fn56: u32
+        _fn57: u32
+        _fn58: u32
+        _fn59: u32
+        _fn60: u32
+        _fn61: u32
+        _fn62: u32
+        _fn63: u32
+        _fn64: u32
+        // cAlternateFileName[14] as 4 × u32 = 16 bytes (padded from 14)
+        _af0: u32
+        _af1: u32
+        _af2: u32
+        _af3: u32
+    }
+
+    /// Begins a directory enumeration. Returns INVALID_HANDLE_VALUE
+    /// on failure. Iterate with `FindNextFileA`; close with `FindClose`.
+    /// `lpFileName` may include wildcards, e.g. "C:\\*" or "*.txt".
+    @lib pub fn FindFirstFileA(
+        lpFileName:  *const char,
+        lpFindFileData: *WIN32_FIND_DATAA
+    ): *HANDLE
+
+    /// Advances to the next matching entry. Returns 0 when no more.
+    @lib pub fn FindNextFileA(
+        hFindFile:   *HANDLE,
+        lpFindFileData: *WIN32_FIND_DATAA
+    ): i32
+
+    @lib pub fn FindClose(hFindFile: *HANDLE): i32
+
+    // ── Date / time ───────────────────────────────────────────────
+
+    /// `SYSTEMTIME` — 16 bytes. All fields are u16.
+    pub struct SYSTEMTIME {
+        wYear:         u16
+        wMonth:        u16   // 1–12
+        wDayOfWeek:    u16   // 0=Sunday … 6=Saturday
+        wDay:          u16   // 1–31
+        wHour:         u16   // 0–23
+        wMinute:       u16   // 0–59
+        wSecond:       u16   // 0–59
+        wMilliseconds: u16   // 0–999
+    }
+
+    /// `FILETIME` — 8 bytes. 100-nanosecond intervals since
+    /// 1601-01-01 00:00:00 UTC. Use FileTimeToSystemTime /
+    /// SystemTimeToFileTime for conversion.
+    pub struct FILETIME {
+        dwLowDateTime:  u32
+        dwHighDateTime: u32
+    }
+
+    @lib pub fn GetLocalTime(lpSystemTime: *SYSTEMTIME)
+    @lib pub fn GetSystemTime(lpSystemTime: *SYSTEMTIME)
+    @lib pub fn SetLocalTime(lpSystemTime: *const SYSTEMTIME): i32
+    @lib pub fn SetSystemTime(lpSystemTime: *const SYSTEMTIME): i32
+
+    @lib pub fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *FILETIME)
+
+    @lib pub fn SystemTimeToFileTime(
+        lpSystemTime: *const SYSTEMTIME,
+        lpFileTime:   *FILETIME
+    ): i32
+
+    @lib pub fn FileTimeToSystemTime(
+        lpFileTime:   *const FILETIME,
+        lpSystemTime: *SYSTEMTIME
+    ): i32
+
+    /// Converts a UTC FILETIME to a local FILETIME.
+    @lib pub fn FileTimeToLocalFileTime(
+        lpFileTime:      *const FILETIME,
+        lpLocalFileTime: *FILETIME
+    ): i32
+
+    @lib pub fn LocalFileTimeToFileTime(
+        lpLocalFileTime: *const FILETIME,
+        lpFileTime:      *FILETIME
+    ): i32
+
+    /// Compares two FILETIMEs. Returns -1, 0, or 1.
+    @lib pub fn CompareFileTime(
+        lpFileTime1: *const FILETIME,
+        lpFileTime2: *const FILETIME
+    ): i32
+
+    @lib pub fn GetFileTime(
+        hFile:             *HANDLE,
+        lpCreationTime:    *FILETIME,
+        lpLastAccessTime:  *FILETIME,
+        lpLastWriteTime:   *FILETIME
+    ): i32
+
+    @lib pub fn SetFileTime(
+        hFile:            *HANDLE,
+        lpCreationTime:   *const FILETIME,
+        lpLastAccessTime: *const FILETIME,
+        lpLastWriteTime:  *const FILETIME
+    ): i32
+
+    // ── File mapping / shared memory ──────────────────────────────
+
+    /// Creates or opens a named or anonymous file-backed mapping.
+    /// `hFile`: use `0xFFFFFFFFFFFFFFFF as *HANDLE` for a pagefile-
+    /// backed mapping. `dwMaximumSize*`: combined 64-bit size.
+    @lib pub fn CreateFileMappingA(
+        hFile:                *HANDLE,
+        lpFileMappingAttributes: *void,
+        flProtect:            u32,
+        dwMaximumSizeHigh:    u32,
+        dwMaximumSizeLow:     u32,
+        lpName:               *const char
+    ): *HANDLE
+
+    @lib pub fn OpenFileMappingA(
+        dwDesiredAccess: u32,
+        bInheritHandle:  i32,
+        lpName:          *const char
+    ): *HANDLE
+
+    /// Maps the file/pagefile into the address space.
+    /// `dwFileOffsetHigh/Low`: start offset (usually 0).
+    /// `dwNumberOfBytesToMap`: 0 = map the whole thing.
+    @lib pub fn MapViewOfFile(
+        hFileMappingObject:  *HANDLE,
+        dwDesiredAccess:     u32,
+        dwFileOffsetHigh:    u32,
+        dwFileOffsetLow:     u32,
+        dwNumberOfBytesToMap: u64
+    ): *void
+
+    @lib pub fn UnmapViewOfFile(lpBaseAddress: *const void): i32
+    @lib pub fn FlushViewOfFile(lpBaseAddress: *const void, dwNumberOfBytesToFlush: u64): i32
+
+    // ── Semaphore ─────────────────────────────────────────────────
+
+    @lib pub fn CreateSemaphoreA(
+        lpSemaphoreAttributes: *void,
+        lInitialCount:         i32,
+        lMaximumCount:         i32,
+        lpName:                *const char
+    ): *HANDLE
+
+    @lib pub fn OpenSemaphoreA(
+        dwDesiredAccess: u32,
+        bInheritHandle:  i32,
+        lpName:          *const char
+    ): *HANDLE
+
+    @lib pub fn ReleaseSemaphore(
+        hSemaphore:      *HANDLE,
+        lReleaseCount:   i32,
+        lpPreviousCount: *i32
+    ): i32
+
+    // ── WaitForMultipleObjects ────────────────────────────────────
+
+    /// Waits for one or all of `nCount` handles.
+    /// `bWaitAll`: 1 = wait for all, 0 = wait for any.
+    /// Returns index of signalled handle (WAIT_OBJECT_0 + i),
+    /// or 0x80..0x9F for abandoned mutexes, 0x102 for timeout.
+    @lib pub fn WaitForMultipleObjects(
+        nCount:         u32,
+        lpHandles:      **HANDLE,
+        bWaitAll:       i32,
+        dwMilliseconds: u32
+    ): u32
+
+    // ── Drive info ────────────────────────────────────────────────
+
+    /// Returns a bitmask of available drives (bit 0 = A:, bit 2 = C:).
+    @lib pub fn GetLogicalDrives(): u32
+
+    /// Returns the drive type. Result codes:
+    ///   0=unknown, 1=no root, 2=removable, 3=fixed, 4=network,
+    ///   5=CD-ROM, 6=RAM disk.
+    @lib pub fn GetDriveTypeA(lpRootPathName: *const char): u32
+
+    /// Fills `lpFreeBytesAvailableToCaller`, `lpTotalNumberOfBytes`,
+    /// and `lpTotalNumberOfFreeBytes` (each *i64) with disk space info.
+    @lib pub fn GetDiskFreeSpaceExA(
+        lpDirectoryName:             *const char,
+        lpFreeBytesAvailableToCaller: *i64,
+        lpTotalNumberOfBytes:         *i64,
+        lpTotalNumberOfFreeBytes:     *i64
+    ): i32
+
+    // ── System directory paths ────────────────────────────────────
+
+    @lib pub fn GetWindowsDirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetSystemDirectoryA(lpBuffer: *char, uSize: u32): u32
+    @lib pub fn GetSystemWindowsDirectoryA(lpBuffer: *char, uSize: u32): u32
+
+    // ── C-string helpers ─────────────────────────────────────────
+    // Note: prefer using these only at OS API boundaries. These
+    // functions live in kernel32 on Windows (not the C runtime).
+
+    /// Copies `lpString2` into `lpString1` (must have room).
+    @lib pub fn lstrcpyA(lpString1: *char, lpString2: *const char): *char
+
+    /// Appends `lpString2` to `lpString1`.
+    @lib pub fn lstrcatA(lpString1: *char, lpString2: *const char): *char
+
+    /// Returns the length of `lpString` in characters (excluding NUL).
+    @lib pub fn lstrlenA(lpString: *const char): i32
+
+    /// Case-sensitive comparison. Returns 0 if equal.
+    @lib pub fn lstrcmpA(lpString1: *const char, lpString2: *const char): i32
+
+    /// Case-insensitive comparison.
+    @lib pub fn lstrcmpiA(lpString1: *const char, lpString2: *const char): i32
+
+    // ── INI file I/O ─────────────────────────────────────────────
+
+    /// Reads a string value from a private .ini file.
+    @lib pub fn GetPrivateProfileStringA(
+        lpAppName:     *const char,
+        lpKeyName:     *const char,
+        lpDefault:     *const char,
+        lpReturnedString: *char,
+        nSize:         u32,
+        lpFileName:    *const char
+    ): u32
+
+    @lib pub fn WritePrivateProfileStringA(
+        lpAppName:  *const char,
+        lpKeyName:  *const char,
+        lpString:   *const char,
+        lpFileName: *const char
+    ): i32
+
+    @lib pub fn GetPrivateProfileIntA(
+        lpAppName:  *const char,
+        lpKeyName:  *const char,
+        nDefault:   i32,
+        lpFileName: *const char
+    ): u32
+
+    // ── Debugging ────────────────────────────────────────────────
+
+    /// Returns TRUE if a user-mode debugger is attached.
+    @lib pub fn IsDebuggerPresent(): i32
+
+    /// Triggers a breakpoint (raises a debug exception).
+    @lib pub fn DebugBreak()
+
+    /// Causes a fatal error (access violation) for crash-dump capture.
+    @lib pub fn RaiseException(
+        dwExceptionCode:    u32,
+        dwExceptionFlags:   u32,
+        nNumberOfArguments: u32,
+        lpArguments:        *const u64
+    )
 }

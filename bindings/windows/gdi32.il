@@ -636,4 +636,178 @@ pub enum FontPitchFamily: u32 {
     ///   HORZRES=8, VERTRES=10, BITSPIXEL=12, PLANES=14,
     ///   LOGPIXELSX=88, LOGPIXELSY=90, SIZEPALETTE=104.
     @lib pub fn GetDeviceCaps(hdc: *void, nIndex: i32): i32
+
+    // ── Pattern blit ──────────────────────────────────────────────
+
+    /// Fills a rectangle using the current brush and a raster op.
+    /// Useful for fast solid fills without creating a RECT.
+    @lib pub fn PatBlt(
+        hdc:   *void,
+        nXLeft: i32,
+        nYLeft: i32,
+        nWidth: i32,
+        nHeight: i32,
+        dwRop: u32     // RasterOp.patCopy for solid fill
+    ): i32
+
+    // ── Flood fill ────────────────────────────────────────────────
+
+    /// Flood-fills starting at `(nXStart, nYStart)`.
+    /// `fuFillType`: 0=FLOODFILLBORDER (stop at `crColor` boundary),
+    ///               1=FLOODFILLSURFACE (fill while pixel == crColor).
+    @lib pub fn ExtFloodFill(
+        hdc:      *void,
+        nXStart:  i32,
+        nYStart:  i32,
+        crColor:  u32,
+        fuFillType: u32
+    ): i32
+
+    // ── Advanced curves ───────────────────────────────────────────
+
+    /// Draws a series of cubic Bézier curves.
+    /// `lpPoints`: array of POINT structs; count must be 3n+1.
+    @lib pub fn PolyBezier(hdc: *void, lpPoints: *void, cPoints: u32): i32
+
+    /// Draws Bézier segments from current position; count must be 3n.
+    @lib pub fn PolyBezierTo(hdc: *void, lpPoints: *void, cCount: u32): i32
+
+    /// Draws connected line segments updating current position.
+    @lib pub fn PolylineTo(hdc: *void, lpPoints: *void, cCount: u32): i32
+
+    /// Draws a pie wedge (filled arc + two radii).
+    @lib pub fn Pie(
+        hdc: *void,
+        left: i32, top: i32, right: i32, bottom: i32,
+        xStartArc: i32, yStartArc: i32,
+        xEndArc:   i32, yEndArc:   i32
+    ): i32
+
+    /// Draws a chord (filled arc + chord line).
+    @lib pub fn Chord(
+        hdc: *void,
+        left: i32, top: i32, right: i32, bottom: i32,
+        xStartArc: i32, yStartArc: i32,
+        xEndArc:   i32, yEndArc:   i32
+    ): i32
+
+    /// Sets the arc direction: 1=AD_COUNTERCLOCKWISE, 2=AD_CLOCKWISE.
+    @lib pub fn SetArcDirection(hdc: *void, ArcDirection: i32): i32
+
+    // ── Current position ──────────────────────────────────────────
+
+    /// Fills `lpPoint` with the current pen position in logical coords.
+    @lib pub fn GetCurrentPositionEx(hdc: *void, lpPoint: *void): i32
+
+    // ── Clip rect helpers ─────────────────────────────────────────
+
+    /// Returns the bounding rect of the current clip region.
+    /// Return value: 0=null region, 1=simple, 2=complex.
+    @lib pub fn GetClipBox(hdc: *void, lpRect: *void): i32
+
+    /// Subtracts a rect from the current clip region.
+    @lib pub fn ExcludeClipRect(
+        hdc: *void, left: i32, top: i32, right: i32, bottom: i32
+    ): i32
+
+    /// Intersects the current clip region with a rect.
+    @lib pub fn IntersectClipRect(
+        hdc: *void, left: i32, top: i32, right: i32, bottom: i32
+    ): i32
+
+    // ── DIB sections ──────────────────────────────────────────────
+
+    /// Creates a DIB that can be drawn into directly via `ppvBits`.
+    /// `hSection`/`dwOffset`: 0 for a pagefile-backed section.
+    /// `ppvBits` receives a pointer to the raw pixel data.
+    @lib pub fn CreateDIBSection(
+        hdc:        *void,
+        pbmi:       *const void,   // *BITMAPINFO
+        iUsage:     u32,           // DIBColorMode.*
+        ppvBits:    **void,        // receives pointer to pixel data
+        hSection:   *void,         // file-mapping object, or NULL
+        dwOffset:   u32
+    ): *HBITMAP
+
+    /// Draws `cScanLines` scan lines of DIB data.
+    @lib pub fn SetDIBitsToDevice(
+        hdc:           *void,
+        XDest:         i32,
+        YDest:         i32,
+        dwWidth:       u32,
+        dwHeight:      u32,
+        XSrc:          i32,
+        YSrc:          i32,
+        uStartScan:    u32,
+        cScanLines:    u32,
+        lpvBits:       *const void,
+        lpbmi:         *const void,  // *BITMAPINFO
+        fuColorUse:    u32           // DIBColorMode.*
+    ): i32
+
+    /// Copies and stretches DIB bits. Negative `nSrcHeight` flips vertically.
+    @lib pub fn StretchDIBits(
+        hdc:       *void,
+        XDest:     i32, YDest:   i32, nDestWidth: i32, nDestHeight: i32,
+        XSrc:      i32, YSrc:    i32, nSrcWidth:  i32, nSrcHeight:  i32,
+        lpBits:    *const void,
+        lpBitsInfo: *const void,  // *BITMAPINFO
+        iUsage:    u32,
+        dwRop:     u32
+    ): i32
+
+    // ── Standard UI drawing ───────────────────────────────────────
+
+    /// Draws a 3-D border around `lprc`. `edge`: BDR_* flags (0x0..0x9),
+    /// `grfFlags`: BF_* flags (BF_RECT=0x0F for all sides).
+    @lib pub fn DrawEdge(hdc: *void, qrc: *void, edge: u32, grfFlags: u32): i32
+
+    /// Draws a standard button, caption, or scroll-bar control.
+    /// `uType`: DFC_* (1=CAPTION, 2=MENU, 3=SCROLL, 4=BUTTON),
+    /// `uState`: DFCS_* state flags.
+    @lib pub fn DrawFrameControl(hdc: *void, lprc: *void, uType: u32, uState: u32): i32
+
+    /// Draws a focus rect (XOR'd dotted rectangle).
+    @lib pub fn DrawFocusRect(hdc: *void, lprc: *const void): i32
+
+    // ── DC creation for device names ─────────────────────────────
+
+    /// Creates a DC for a named device (e.g. a printer).
+    /// `lpszDriver`: "DISPLAY" for screen. Pass NULL for auto-selection.
+    @lib pub fn CreateDCA(
+        lpszDriver:  *const char,
+        lpszDevice:  *const char,
+        lpszOutput:  *const char,
+        lpInitData:  *const void
+    ): *void
+
+    // ── Color ─────────────────────────────────────────────────────
+
+    /// Returns the nearest solid colour supported by the device.
+    @lib pub fn GetNearestColor(hdc: *void, crColor: u32): u32
+
+    /// Returns the DIB colour table entries.
+    @lib pub fn GetDIBColorTable(
+        hdc:        *void,
+        uStartIndex: u32,
+        cEntries:   u32,
+        prgbq:      *RGBQUAD
+    ): u32
+
+    @lib pub fn SetDIBColorTable(
+        hdc:        *void,
+        uStartIndex: u32,
+        cEntries:   u32,
+        prgbq:      *const RGBQUAD
+    ): u32
+
+    // ── Clipping figure ───────────────────────────────────────────
+
+    /// Closes the open figure in a path (connects last point to first).
+    @lib pub fn CloseFigure(hdc: *void): i32
+
+    // ── Misc ──────────────────────────────────────────────────────
+
+    @lib pub fn FrameRect(hDC: *void, lprc: *const void, hbr: *HBRUSHGDI): i32
+    @lib pub fn InvertRect(hDC: *void, lprc: *const void): i32
 }
