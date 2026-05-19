@@ -31,7 +31,7 @@ use metal { MTLCommandBuffer, MTLRenderPassDescriptor }
 // SKBlendMode — composition mode for SKSpriteNode / SKShapeNode
 // / SKEmitterNode / SKEffectNode. `alpha` is the default
 // (standard "over" blending); `replace` skips blending entirely.
-pub enum BlendMode: i64 {
+pub enum SKBlendMode: i64 {
     alpha      = 0
     add        = 1
     subtract   = 2
@@ -43,14 +43,14 @@ pub enum BlendMode: i64 {
 
 // SKTextureFilteringMode — sampling mode when a texture is
 // drawn at a non-1:1 scale. `nearest` for pixel-art look.
-pub enum TextureFilteringMode: i64 {
+pub enum SKTextureFilteringMode: i64 {
     nearest = 0
     linear  = 1
 }
 
 // SKActionTimingMode — easing curve applied to an SKAction's
 // progress. `linear` is the default.
-pub enum ActionTimingMode: i64 {
+pub enum SKActionTimingMode: i64 {
     linear        = 0
     easeIn        = 1
     easeOut       = 2
@@ -59,14 +59,14 @@ pub enum ActionTimingMode: i64 {
 
 // SKLabelHorizontalAlignmentMode — where the label's anchor
 // sits horizontally relative to the rendered glyphs.
-pub enum LabelHorizontalAlignmentMode: i64 {
+pub enum SKLabelHorizontalAlignmentMode: i64 {
     center = 0
     left   = 1
     right  = 2
 }
 
 // SKLabelVerticalAlignmentMode — vertical anchor mode.
-pub enum LabelVerticalAlignmentMode: i64 {
+pub enum SKLabelVerticalAlignmentMode: i64 {
     baseline = 0
     center   = 1
     top      = 2
@@ -74,7 +74,7 @@ pub enum LabelVerticalAlignmentMode: i64 {
 }
 
 // SKSceneScaleMode — how the scene's size is mapped to the view's bounds.
-pub enum SceneScaleMode: i64 {
+pub enum SKSceneScaleMode: i64 {
     fill        = 0
     aspectFill  = 1
     aspectFit   = 2
@@ -83,7 +83,7 @@ pub enum SceneScaleMode: i64 {
 
 // SKTransitionDirection — direction for `SKTransition.push…` /
 // `reveal…` / `moveIn…` factories.
-pub enum TransitionDirection: i64 {
+pub enum SKTransitionDirection: i64 {
     up    = 0
     down  = 1
     right = 2
@@ -92,7 +92,7 @@ pub enum TransitionDirection: i64 {
 
 // SKAttributeType — value type for a custom `SKAttribute` slot
 // exposed to a fragment shader.
-pub enum AttributeType: i64 {
+pub enum SKAttributeType: i64 {
     none             = 0
     float            = 1
     vectorFloat2     = 2
@@ -106,14 +106,14 @@ pub enum AttributeType: i64 {
 
 // SKInterpolationMode — how an `SKKeyframeSequence` blends
 // between successive keyframes.
-pub enum InterpolationMode: i64 {
+pub enum SKInterpolationMode: i64 {
     linear = 1
     spline = 2
     step   = 3
 }
 
 // SKRepeatMode — what happens past the last keyframe.
-pub enum RepeatMode: i64 {
+pub enum SKRepeatMode: i64 {
     clamp = 1
     loop  = 2
 }
@@ -298,7 +298,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setAnchorPoint:")
         pub setAnchorPoint(p: NSPoint)
         @objc("setScaleMode:")
-        pub setScaleMode(m: SceneScaleMode)
+        pub setScaleMode(m: SKSceneScaleMode)
 
         @objc("setCamera:")
         pub setCamera(c: SKCameraNode)
@@ -362,7 +362,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setColorBlendFactor:")
         pub setColorBlendFactor(f: f64)
         @objc("setBlendMode:")
-        pub setBlendMode(m: BlendMode)
+        pub setBlendMode(m: SKBlendMode)
         @objc("setShader:")
         pub setShader(s: SKShader)
         @objc("shader")
@@ -405,7 +405,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setAntialiased:")
         pub setAntialiased(flag: bool)
         @objc("setBlendMode:")
-        pub setBlendMode(m: BlendMode)
+        pub setBlendMode(m: SKBlendMode)
     }
 
     /// Text node — single-line label rendered with the named
@@ -428,9 +428,9 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setFontColor:")
         pub setFontColor(c: NSColor)
         @objc("setHorizontalAlignmentMode:")
-        pub setHorizontalAlignmentMode(m: LabelHorizontalAlignmentMode)
+        pub setHorizontalAlignmentMode(m: SKLabelHorizontalAlignmentMode)
         @objc("setVerticalAlignmentMode:")
-        pub setVerticalAlignmentMode(m: LabelVerticalAlignmentMode)
+        pub setVerticalAlignmentMode(m: SKLabelVerticalAlignmentMode)
         @objc("setNumberOfLines:")
         pub setNumberOfLines(n: i64)
     }
@@ -480,9 +480,9 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("size")
         pub size(): NSSize
         @objc("setFilteringMode:")
-        pub setFilteringMode(m: TextureFilteringMode)
+        pub setFilteringMode(m: SKTextureFilteringMode)
         @objc("filteringMode")
-        pub filteringMode(): TextureFilteringMode
+        pub filteringMode(): SKTextureFilteringMode
 
         // Normal-map generation. The first form computes a
         // default-tuned normal map; the second lets you dial
@@ -629,7 +629,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("reversedAction")
         pub reversedAction(): SKAction
         @objc("setTimingMode:")
-        pub setTimingMode(m: ActionTimingMode)
+        pub setTimingMode(m: SKActionTimingMode)
         @objc("setSpeed:")
         pub setActionSpeed(s: f64)
         @objc("setDuration:")
@@ -831,7 +831,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setShouldEnableEffects:")
         pub setShouldEnableEffects(flag: bool)
         @objc("setBlendMode:")
-        pub setBlendMode(m: BlendMode)
+        pub setBlendMode(m: SKBlendMode)
         @objc("setShader:")
         pub setShader(s: SKShader)
         @objc("shader")
@@ -887,7 +887,7 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("setParticleScaleRange:")
         pub setParticleScaleRange(s: f64)
         @objc("setParticleBlendMode:")
-        pub setParticleBlendMode(m: BlendMode)
+        pub setParticleBlendMode(m: SKBlendMode)
         @objc("resetSimulation")
         pub resetSimulation()
 
@@ -996,9 +996,9 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         pub count(): i64
 
         @objc("setInterpolationMode:")
-        pub setInterpolationMode(m: InterpolationMode)
+        pub setInterpolationMode(m: SKInterpolationMode)
         @objc("setRepeatMode:")
-        pub setRepeatMode(m: RepeatMode)
+        pub setRepeatMode(m: SKRepeatMode)
         @objc("sampleAtTime:")
         pub sampleAtTime(t: f64): NSObject
     }
@@ -1337,12 +1337,12 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
     /// supplied per-node via `SKNode.setValueForAttributeNamed(...)`.
     @objc pub class SKAttribute : NSObject {
         @objc("attributeWithName:type:")
-        pub static attributeWithName(name: NSString, type: AttributeType): SKAttribute
+        pub static attributeWithName(name: NSString, type: SKAttributeType): SKAttribute
 
         @objc("name")
         pub name(): NSString
         @objc("type")
-        pub attrType(): AttributeType
+        pub attrType(): SKAttributeType
     }
 
     /// `SKShader` — custom fragment shader (GLSL ES). Attach via
@@ -1384,11 +1384,11 @@ pub const TileAdjacencyUpperLeft: u32 = 0x80
         @objc("fadeWithColor:duration:")
         pub static fadeWithColor(c: NSColor, duration: f64): SKTransition
         @objc("revealWithDirection:duration:")
-        pub static reveal(dir: TransitionDirection, duration: f64): SKTransition
+        pub static reveal(dir: SKTransitionDirection, duration: f64): SKTransition
         @objc("pushWithDirection:duration:")
-        pub static push(dir: TransitionDirection, duration: f64): SKTransition
+        pub static push(dir: SKTransitionDirection, duration: f64): SKTransition
         @objc("moveInWithDirection:duration:")
-        pub static moveIn(dir: TransitionDirection, duration: f64): SKTransition
+        pub static moveIn(dir: SKTransitionDirection, duration: f64): SKTransition
         @objc("doorsOpenHorizontalWithDuration:")
         pub static doorsOpenHorizontal(d: f64): SKTransition
         @objc("doorsOpenVerticalWithDuration:")

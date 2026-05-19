@@ -11,7 +11,7 @@ use core { NSObject, NSData }
 // instances in the parsed tree; `fragmentsAllowed` permits the
 // JSON to be a bare scalar instead of an array or object.
 @flags
-pub enum JSONReadingOptions: u64 {
+pub enum NSJSONReadingOptions: u64 {
     none              = 0x00
     mutableContainers = 0x01
     mutableLeaves     = 0x02
@@ -24,7 +24,7 @@ pub enum JSONReadingOptions: u64 {
 // keys (useful for reproducible builds / diffing);
 // `withoutEscapingSlashes` emits `/` as itself instead of `\/`.
 @flags
-pub enum JSONWritingOptions: u64 {
+pub enum NSJSONWritingOptions: u64 {
     none                  = 0x00
     prettyPrinted         = 0x01
     sortedKeys            = 0x02
@@ -36,7 +36,7 @@ pub enum JSONWritingOptions: u64 {
 // NSPropertyListSerialization. `xml` is the human-readable form
 // macOS' `defaults` command emits; `binary` is the compact form
 // the system uses for in-memory representations.
-pub enum PropertyListFormat: u64 {
+pub enum NSPropertyListFormat: u64 {
     openStep = 1
     xml      = 100
     binary   = 200
@@ -55,11 +55,11 @@ pub enum PropertyListFormat: u64 {
     @objc pub class NSJSONSerialization : NSObject {
         @objc("dataWithJSONObject:options:error:")
         pub static dataWithJSONObject(
-            obj: NSObject, options: JSONWritingOptions, error: i64
+            obj: NSObject, options: NSJSONWritingOptions, error: i64
         ): NSData
         @objc("JSONObjectWithData:options:error:")
         pub static JSONObjectWithData(
-            data: NSData, options: JSONReadingOptions, error: i64
+            data: NSData, options: NSJSONReadingOptions, error: i64
         ): NSObject
         @objc("isValidJSONObject:")
         pub static isValidJSONObject(obj: NSObject): bool
@@ -72,7 +72,7 @@ pub enum PropertyListFormat: u64 {
     @objc pub class NSPropertyListSerialization : NSObject {
         @objc("dataWithPropertyList:format:options:error:")
         pub static dataWithPropertyList(
-            obj: NSObject, format: PropertyListFormat, options: u64, error: i64
+            obj: NSObject, format: NSPropertyListFormat, options: u64, error: i64
         ): NSData
         @objc("propertyListWithData:options:format:error:")
         pub static propertyListWithData(

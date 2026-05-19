@@ -14,7 +14,7 @@ use measurement { NSMeasurement, NSUnit }
 
 // NSDateComponentsFormatterUnitsStyle — text style for the
 // emitted duration (e.g. `"1h 23m"` vs `"1 hour, 23 minutes"`).
-pub enum DateComponentsFormatterUnitsStyle: i64 {
+pub enum NSDateComponentsFormatterUnitsStyle: i64 {
     positional   = 0
     abbreviated  = 1
     short        = 2
@@ -24,9 +24,9 @@ pub enum DateComponentsFormatterUnitsStyle: i64 {
 }
 
 // NSDateIntervalFormatterStyle — full / long / medium / short /
-// none. Same conventions as the DateFormatterStyle in
+// none. Same conventions as the NSDateFormatterStyle in
 // `numbers.il`'s NSDateFormatter sibling.
-pub enum DateIntervalFormatterStyle: u64 {
+pub enum NSDateIntervalFormatterStyle: u64 {
     none    = 0
     short   = 1
     medium  = 2
@@ -36,7 +36,7 @@ pub enum DateIntervalFormatterStyle: u64 {
 
 // NSRelativeDateTimeFormatterUnitsStyle — natural-language unit
 // style for the "N units ago" / "in N units" relative phrasing.
-pub enum RelativeDateTimeFormatterUnitsStyle: i64 {
+pub enum NSRelativeDateTimeFormatterUnitsStyle: i64 {
     full              = 0
     spellOut          = 1
     short             = 2
@@ -46,7 +46,7 @@ pub enum RelativeDateTimeFormatterUnitsStyle: i64 {
 
 // NSRelativeDateTimeFormatterStyle — whether the output is
 // numeric (`"1 day ago"`) or named (`"yesterday"`).
-pub enum RelativeDateTimeFormatterStyle: i64 {
+pub enum NSRelativeDateTimeFormatterStyle: i64 {
     numeric = 0
     named   = 1
 }
@@ -54,7 +54,7 @@ pub enum RelativeDateTimeFormatterStyle: i64 {
 // NSFormattingUnitStyle — generic short / medium / long unit
 // style shared by NSEnergyFormatter / NSMassFormatter /
 // NSLengthFormatter.
-pub enum FormattingUnitStyle: i64 {
+pub enum NSFormattingUnitStyle: i64 {
     short  = 1
     medium = 2
     long   = 3
@@ -62,7 +62,7 @@ pub enum FormattingUnitStyle: i64 {
 
 // NSPersonNameComponentsFormatterStyle — full / abbreviated /
 // short / medium / long display for a name.
-pub enum PersonNameComponentsFormatterStyle: u64 {
+pub enum NSPersonNameComponentsFormatterStyle: u64 {
     default     = 0
     short       = 1
     medium      = 2
@@ -83,9 +83,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSDateComponentsFormatter
 
         @objc("unitsStyle")
-        pub get unitsStyle(): DateComponentsFormatterUnitsStyle
+        pub get unitsStyle(): NSDateComponentsFormatterUnitsStyle
         @objc("setUnitsStyle:")
-        pub set unitsStyle(v: DateComponentsFormatterUnitsStyle)
+        pub set unitsStyle(v: NSDateComponentsFormatterUnitsStyle)
         @objc("allowedUnits")
         pub get allowedUnits(): u64
         @objc("setAllowedUnits:")
@@ -122,13 +122,13 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSDateIntervalFormatter
 
         @objc("dateStyle")
-        pub get dateStyle(): DateIntervalFormatterStyle
+        pub get dateStyle(): NSDateIntervalFormatterStyle
         @objc("setDateStyle:")
-        pub set dateStyle(v: DateIntervalFormatterStyle)
+        pub set dateStyle(v: NSDateIntervalFormatterStyle)
         @objc("timeStyle")
-        pub get timeStyle(): DateIntervalFormatterStyle
+        pub get timeStyle(): NSDateIntervalFormatterStyle
         @objc("setTimeStyle:")
-        pub set timeStyle(v: DateIntervalFormatterStyle)
+        pub set timeStyle(v: NSDateIntervalFormatterStyle)
         @objc("dateTemplate")
         pub get dateTemplate(): NSString
         @objc("setDateTemplate:")
@@ -157,13 +157,13 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSRelativeDateTimeFormatter
 
         @objc("unitsStyle")
-        pub get unitsStyle(): RelativeDateTimeFormatterUnitsStyle
+        pub get unitsStyle(): NSRelativeDateTimeFormatterUnitsStyle
         @objc("setUnitsStyle:")
-        pub set unitsStyle(v: RelativeDateTimeFormatterUnitsStyle)
+        pub set unitsStyle(v: NSRelativeDateTimeFormatterUnitsStyle)
         @objc("dateTimeStyle")
-        pub get dateTimeStyle(): RelativeDateTimeFormatterStyle
+        pub get dateTimeStyle(): NSRelativeDateTimeFormatterStyle
         @objc("setDateTimeStyle:")
-        pub set dateTimeStyle(v: RelativeDateTimeFormatterStyle)
+        pub set dateTimeStyle(v: NSRelativeDateTimeFormatterStyle)
         @objc("locale")
         pub get locale(): NSObject
         @objc("setLocale:")
@@ -186,9 +186,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSEnergyFormatter
 
         @objc("unitStyle")
-        pub get unitStyle(): FormattingUnitStyle
+        pub get unitStyle(): NSFormattingUnitStyle
         @objc("setUnitStyle:")
-        pub set unitStyle(v: FormattingUnitStyle)
+        pub set unitStyle(v: NSFormattingUnitStyle)
         @objc("isForFoodEnergyUse")
         pub get isForFoodEnergyUse(): bool
         @objc("setForFoodEnergyUse:")
@@ -209,9 +209,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSMassFormatter
 
         @objc("unitStyle")
-        pub get unitStyle(): FormattingUnitStyle
+        pub get unitStyle(): NSFormattingUnitStyle
         @objc("setUnitStyle:")
-        pub set unitStyle(v: FormattingUnitStyle)
+        pub set unitStyle(v: NSFormattingUnitStyle)
         @objc("isForPersonMassUse")
         pub get isForPersonMassUse(): bool
         @objc("setForPersonMassUse:")
@@ -231,9 +231,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSLengthFormatter
 
         @objc("unitStyle")
-        pub get unitStyle(): FormattingUnitStyle
+        pub get unitStyle(): NSFormattingUnitStyle
         @objc("setUnitStyle:")
-        pub set unitStyle(v: FormattingUnitStyle)
+        pub set unitStyle(v: NSFormattingUnitStyle)
         @objc("isForPersonHeightUse")
         pub get isForPersonHeightUse(): bool
         @objc("setForPersonHeightUse:")
@@ -291,9 +291,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSPersonNameComponentsFormatter
 
         @objc("style")
-        pub get style(): PersonNameComponentsFormatterStyle
+        pub get style(): NSPersonNameComponentsFormatterStyle
         @objc("setStyle:")
-        pub set style(v: PersonNameComponentsFormatterStyle)
+        pub set style(v: NSPersonNameComponentsFormatterStyle)
         @objc("isPhonetic")
         pub get isPhonetic(): bool
         @objc("setPhonetic:")
@@ -327,9 +327,9 @@ pub enum PersonNameComponentsFormatterStyle: u64 {
         pub init(): NSMeasurementFormatter
 
         @objc("unitStyle")
-        pub get unitStyle(): FormattingUnitStyle
+        pub get unitStyle(): NSFormattingUnitStyle
         @objc("setUnitStyle:")
-        pub set unitStyle(v: FormattingUnitStyle)
+        pub set unitStyle(v: NSFormattingUnitStyle)
         @objc("unitOptions")
         pub get unitOptions(): u64
         @objc("setUnitOptions:")

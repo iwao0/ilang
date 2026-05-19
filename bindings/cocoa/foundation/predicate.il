@@ -13,7 +13,7 @@ use core { NSObject, NSString, NSArray, NSDictionary }
 // NSCompoundPredicateType — AND / OR / NOT combinator for
 // NSCompoundPredicate. The numeric values come straight from
 // `<Foundation/NSCompoundPredicate.h>`.
-pub enum CompoundPredicateType: u64 {
+pub enum NSCompoundPredicateType: u64 {
     not = 0
     and = 1
     or  = 2
@@ -22,7 +22,7 @@ pub enum CompoundPredicateType: u64 {
 // NSExpressionType — what kind of expression an NSExpression
 // holds. Common ones are `constantValue` (literal) and `keyPath`
 // (KVC traversal).
-pub enum ExpressionType: u64 {
+pub enum NSExpressionType: u64 {
     constantValue   = 0
     evaluatedObject = 1
     variable        = 2
@@ -41,7 +41,7 @@ pub enum ExpressionType: u64 {
 // NSLinguisticTaggerOptions — bit flags for an NSLinguisticTagger
 // run controlling which tokens it emits.
 @flags
-pub enum LinguisticTaggerOptions: u64 {
+pub enum NSLinguisticTaggerOptions: u64 {
     none                 = 0x00
     omitWords            = 0x01
     omitPunctuation      = 0x02
@@ -92,7 +92,7 @@ pub enum LinguisticTaggerOptions: u64 {
         pub static notPredicate(sub: NSPredicate): NSCompoundPredicate
 
         @objc("compoundPredicateType")
-        pub get compoundPredicateType(): CompoundPredicateType
+        pub get compoundPredicateType(): NSCompoundPredicateType
         @objc("subpredicates")
         pub get subpredicates(): NSArray
     }
@@ -146,7 +146,7 @@ pub enum LinguisticTaggerOptions: u64 {
         ): NSExpression
 
         @objc("expressionType")
-        pub get expressionType(): ExpressionType
+        pub get expressionType(): NSExpressionType
         @objc("constantValue")
         pub get constantValue(): NSObject
         @objc("keyPath")
@@ -208,7 +208,7 @@ pub enum LinguisticTaggerOptions: u64 {
         pub static alloc(): NSLinguisticTagger
         @objc("initWithTagSchemes:options:")
         pub initWithTagSchemes(
-            schemes: NSArray, options: LinguisticTaggerOptions
+            schemes: NSArray, options: NSLinguisticTaggerOptions
         ): NSLinguisticTagger
 
         @objc("string")

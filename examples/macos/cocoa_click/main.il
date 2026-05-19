@@ -15,7 +15,7 @@
 // Click the button to see `clicked!` print to stdout. ⌘Q to quit.
 
 use cocoa { NSObject, NSString, NSApplication, NSView, NSWindow, NSButton,
-            StyleMask, ActivationPolicy, nil,
+            NSWindowStyleMask, NSApplicationActivationPolicy, nil,
             sharedApplication, makeWindow, makeButton, selectorPtr }
 
 class ClickHandler : NSObject {
@@ -44,12 +44,12 @@ class ClickHandler : NSObject {
 //   }
 
 let app = sharedApplication()
-app.setActivationPolicy(ActivationPolicy.regular)
+app.setActivationPolicy(NSApplicationActivationPolicy.regular)
 
-let mask = StyleMask.titled
-    | StyleMask.closable
-    | StyleMask.miniaturizable
-    | StyleMask.resizable
+let mask = NSWindowStyleMask.titled
+    | NSWindowStyleMask.closable
+    | NSWindowStyleMask.miniaturizable
+    | NSWindowStyleMask.resizable
 let win = makeWindow("Cocoa click", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 

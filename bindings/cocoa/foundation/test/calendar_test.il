@@ -2,7 +2,7 @@
 
 use test
 use foundation { NSCalendar, NSDateComponents, NSTimeZone, NSDate,
-                 CalendarUnit, CalendarOptions, nsstr }
+                 NSCalendarUnit, NSCalendarOptions, nsstr }
 
 let cal = NSCalendar.calendarWithIdentifier(nsstr("gregorian"))
 let utc = NSTimeZone.withName(nsstr("UTC"))
@@ -24,8 +24,8 @@ let d = comps.date
 test.expectF64(d.timeIntervalSince1970, 1_710_408_413.0)
 
 // Round-trip: extract year/month/day/hour/minute/second.
-let units = CalendarUnit.year | CalendarUnit.month | CalendarUnit.day
-    | CalendarUnit.hour | CalendarUnit.minute | CalendarUnit.second
+let units = NSCalendarUnit.year | NSCalendarUnit.month | NSCalendarUnit.day
+    | NSCalendarUnit.hour | NSCalendarUnit.minute | NSCalendarUnit.second
 let back = cal.componentsFromDate(units, d)
 test.expect(back.year, 2024)
 test.expect(back.month, 3)
@@ -41,7 +41,7 @@ test.expectF64(sod.timeIntervalSince1970, 1_710_374_400.0)
 
 // dateBySettingHour: replace just the hour, keep rest.
 let setHour = cal.dateBySettingHour(
-    12, 0, 0, d, CalendarOptions.none
+    12, 0, 0, d, NSCalendarOptions.none
 )
 test.expectF64(setHour.timeIntervalSince1970, 1_710_417_600.0)
 // 2024-03-14 12:00:00 UTC = 1710417600.
@@ -63,25 +63,25 @@ sameDayDifferentSecond.second = 59
 sameDayDifferentSecond.timeZone = utc
 sameDayDifferentSecond.calendar = cal
 let dEnd = sameDayDifferentSecond.date
-test.expectTrue(cal.isDate(d, dEnd, CalendarUnit.day))
-test.expectFalse(cal.isDate(d, dEnd, CalendarUnit.hour))
+test.expectTrue(cal.isDate(d, dEnd, NSCalendarUnit.day))
+test.expectFalse(cal.isDate(d, dEnd, NSCalendarUnit.hour))
 
 // rangeOfUnit: number-of-days in the enclosing month.
 // March has 31 days.
 let monthRange = cal.rangeOfUnit(
-    CalendarUnit.day, CalendarUnit.month, d
+    NSCalendarUnit.day, NSCalendarUnit.month, d
 )
 test.expect(monthRange.length as i64, 31)
 
 // ordinalityOfUnit: which day-of-month? March 14 → ordinality 14.
 let ord = cal.ordinalityOfUnit(
-    CalendarUnit.day, CalendarUnit.month, d
+    NSCalendarUnit.day, NSCalendarUnit.month, d
 )
 test.expect(ord as i64, 14)
 
 // compareDate via day granularity: same day → orderedSame.
-test.expect(cal.compareDate(d, dEnd, CalendarUnit.day) as i64, 0)
+test.expect(cal.compareDate(d, dEnd, NSCalendarUnit.day) as i64, 0)
 let nextDay2 = cal.dateByAddingComponents(plusDay, d, 0 as u64)
-test.expect(cal.compareDate(d, nextDay2, CalendarUnit.day) as i64, -1)
+test.expect(cal.compareDate(d, nextDay2, NSCalendarUnit.day) as i64, -1)
 
 0

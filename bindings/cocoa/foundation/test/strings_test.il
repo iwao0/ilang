@@ -1,7 +1,7 @@
 // NSString — broad surface coverage.
 
 use test
-use foundation { NSString, NSCharacterSet, ComparisonResult, StringEncoding,
+use foundation { NSString, NSCharacterSet, NSComparisonResult, NSStringEncoding,
                  nsstr, ilstr, makeRange }
 
 // Round-trip: ilang string → NSString → ilang string.
@@ -94,9 +94,9 @@ test.expectFalse(nsstr("x").isAbsolutePath)
 
 // Case-insensitive compare.
 test.expect(nsstr("ABC").caseInsensitiveCompare(nsstr("abc")) as i64,
-    ComparisonResult.orderedSame as i64)
+    NSComparisonResult.orderedSame as i64)
 test.expect(nsstr("abc").compareTo(nsstr("abd")) as i64,
-    ComparisonResult.orderedAscending as i64)
+    NSComparisonResult.orderedAscending as i64)
 
 // characterAtIndex.
 test.expect(nsstr("ABC").characterAtIndex(1 as u64) as i64, 66)  // 'B'

@@ -1,12 +1,12 @@
 // NSNumberFormatter — style + locale-pinned format / parse.
 
 use test
-use foundation { NSNumber, NSNumberFormatter, NumberFormatterStyle,
+use foundation { NSNumber, NSNumberFormatter, NSNumberFormatterStyle,
                  NSLocale, nsstr, ilstr }
 
 let nf = NSNumberFormatter.alloc().init()
 nf.locale = NSLocale.localeWithIdentifier(nsstr("en_US"))
-nf.numberStyle = NumberFormatterStyle.decimal
+nf.numberStyle = NSNumberFormatterStyle.decimal
 
 let n = NSNumber.fromI64(1234567)
 let s = nf.stringFromNumber(n)

@@ -4,7 +4,7 @@
 
 use test
 use foundation { NSHTTPCookieStorage, NSURLCredential,
-                 NSURLProtectionSpace, URLCredentialPersistence,
+                 NSURLProtectionSpace, NSURLCredentialPersistence,
                  nsstr, ilstr }
 
 // Shared cookie jar is always non-nil; cookies array is at
@@ -16,13 +16,13 @@ let _ = jar.cookies  // ensure the property fires without crash
 // NSURLCredential — construct + read back fields.
 let cred = NSURLCredential.credentialWithUserAndPassword(
     nsstr("alice"), nsstr("s3cret"),
-    URLCredentialPersistence.forSession
+    NSURLCredentialPersistence.forSession
 )
 test.expectStr(ilstr(cred.user), "alice")
 test.expectStr(ilstr(cred.password), "s3cret")
 test.expectTrue(cred.hasPassword)
 test.expect(cred.persistence as i64,
-    URLCredentialPersistence.forSession as i64)
+    NSURLCredentialPersistence.forSession as i64)
 
 // NSURLProtectionSpace — host / port / realm / scheme.
 let space = NSURLProtectionSpace.alloc().initWithHost(

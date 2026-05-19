@@ -16,7 +16,7 @@ use datetime { NSDate }
 // NSOperation / NSOperationQueue. Higher numbers ask the system
 // to prioritise the work (`userInteractive` > `userInitiated` >
 // `utility` > `background`); `default` lets the system pick.
-pub enum QualityOfService: i64 {
+pub enum NSQualityOfService: i64 {
     userInteractive = 0x21
     userInitiated   = 0x19
     utility         = 0x11
@@ -27,7 +27,7 @@ pub enum QualityOfService: i64 {
 // NSOperationQueuePriority — within a single operation queue,
 // ready operations execute in priority order. `normal` is the
 // default; lower / higher are best-effort hints.
-pub enum OperationQueuePriority: i64 {
+pub enum NSOperationQueuePriority: i64 {
     veryLow  = -8
     low      = -4
     normal   = 0
@@ -94,9 +94,9 @@ pub enum OperationQueuePriority: i64 {
         @objc("setName:")
         pub set name(s: NSString)
         @objc("qualityOfService")
-        pub get qualityOfService(): QualityOfService
+        pub get qualityOfService(): NSQualityOfService
         @objc("setQualityOfService:")
-        pub set qualityOfService(q: QualityOfService)
+        pub set qualityOfService(q: NSQualityOfService)
         @objc("stackSize")
         pub get stackSize(): u64
         @objc("setStackSize:")
@@ -271,13 +271,13 @@ pub enum OperationQueuePriority: i64 {
         pub get dependencies(): NSArray
 
         @objc("queuePriority")
-        pub get queuePriority(): OperationQueuePriority
+        pub get queuePriority(): NSOperationQueuePriority
         @objc("setQueuePriority:")
-        pub set queuePriority(p: OperationQueuePriority)
+        pub set queuePriority(p: NSOperationQueuePriority)
         @objc("qualityOfService")
-        pub get qualityOfService(): QualityOfService
+        pub get qualityOfService(): NSQualityOfService
         @objc("setQualityOfService:")
-        pub set qualityOfService(q: QualityOfService)
+        pub set qualityOfService(q: NSQualityOfService)
         @objc("name")
         pub get name(): NSString
         @objc("setName:")
@@ -347,9 +347,9 @@ pub enum OperationQueuePriority: i64 {
         @objc("setMaxConcurrentOperationCount:")
         pub set maxConcurrentOperationCount(n: i64)
         @objc("qualityOfService")
-        pub get qualityOfService(): QualityOfService
+        pub get qualityOfService(): NSQualityOfService
         @objc("setQualityOfService:")
-        pub set qualityOfService(q: QualityOfService)
+        pub set qualityOfService(q: NSQualityOfService)
 
         @objc("isSuspended")
         pub get isSuspended(): bool

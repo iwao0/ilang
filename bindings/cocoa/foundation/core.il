@@ -29,7 +29,7 @@ pub struct NSRange { location: u64; length: u64 }
 // adjacent APIs that take an encoding argument). UTF-8 is the
 // safe default; the JIS / ShiftJIS / EUC-JP entries cover legacy
 // Japanese text files.
-pub enum StringEncoding: u64 {
+pub enum NSStringEncoding: u64 {
     ascii            = 1
     nextstep         = 2
     japaneseEUC      = 3
@@ -57,7 +57,7 @@ pub enum StringEncoding: u64 {
 // `NSData.base64EncodedString(options:)`. The line-wrap variants
 // match standard email / PEM conventions (64 char lines).
 @flags
-pub enum DataBase64EncodingOptions: u64 {
+pub enum NSDataBase64EncodingOptions: u64 {
     none                              = 0x00
     lineLength64Characters            = 0x01
     lineLength76Characters            = 0x02
@@ -68,7 +68,7 @@ pub enum DataBase64EncodingOptions: u64 {
 // NSDataBase64DecodingOptions — controls
 // `NSData.initWithBase64EncodedString:options:`.
 @flags
-pub enum DataBase64DecodingOptions: u64 {
+pub enum NSDataBase64DecodingOptions: u64 {
     none                                  = 0x00
     ignoreUnknownCharacters               = 0x01
 }
@@ -79,7 +79,7 @@ pub enum DataBase64DecodingOptions: u64 {
 // mmap when the underlying device supports it; `uncached`
 // bypasses the disk cache for one-shot bulk reads.
 @flags
-pub enum DataReadingOptions: u64 {
+pub enum NSDataReadingOptions: u64 {
     none                  = 0x00
     mappedIfSafe          = 0x01
     uncached              = 0x02
@@ -91,7 +91,7 @@ pub enum DataReadingOptions: u64 {
 // temp file and renames into place; `withoutOverwriting` fails
 // when the destination already exists.
 @flags
-pub enum DataWritingOptions: u64 {
+pub enum NSDataWritingOptions: u64 {
     none                                  = 0x00
     atomic                                = 0x01
     withoutOverwriting                    = 0x02
@@ -106,7 +106,7 @@ pub enum DataWritingOptions: u64 {
 // from the end; `anchored` requires the match at the range
 // start.
 @flags
-pub enum DataSearchOptions: u64 {
+pub enum NSDataSearchOptions: u64 {
     none      = 0x00
     backwards = 0x01
     anchored  = 0x02
@@ -119,7 +119,7 @@ pub enum DataSearchOptions: u64 {
 // returns NSMutableArray / NSMutableDictionary instead;
 // `mutableContainersAndLeaves` also returns NSMutableString for
 // scalar values.
-pub enum PropertyListMutabilityOptions: u64 {
+pub enum NSPropertyListMutabilityOptions: u64 {
     immutable                  = 0
     mutableContainers          = 1
     mutableContainersAndLeaves = 2
@@ -128,7 +128,7 @@ pub enum PropertyListMutabilityOptions: u64 {
 // NSFileVersionAddingOptions — flags for
 // `[NSFileVersion addVersionOfItemAtURL:withContentsOfURL:options:error:]`.
 @flags
-pub enum FileVersionAddingOptions: u64 {
+pub enum NSFileVersionAddingOptions: u64 {
     none                      = 0x00
     byMoving                  = 0x01
 }
@@ -137,7 +137,7 @@ pub enum FileVersionAddingOptions: u64 {
 // `[NSFileVersion replaceItemAtURL:options:error:]`. `byMoving`
 // renames into place instead of copy + delete.
 @flags
-pub enum FileVersionReplacingOptions: u64 {
+pub enum NSFileVersionReplacingOptions: u64 {
     none                      = 0x00
     byMoving                  = 0x01
 }
@@ -146,7 +146,7 @@ pub enum FileVersionReplacingOptions: u64 {
 // Foundation `compare:` method. Mirrors C's strcmp / qsort
 // convention: negative = ascending, zero = same, positive =
 // descending.
-pub enum ComparisonResult: i64 {
+pub enum NSComparisonResult: i64 {
     orderedAscending  = -1
     orderedSame       = 0
     orderedDescending = 1
@@ -155,7 +155,7 @@ pub enum ComparisonResult: i64 {
 // NSStringCompareOptions — bit flags for the locale / case /
 // numeric variants of NSString comparison. Combine with `|`.
 @flags
-pub enum StringCompareOptions: u64 {
+pub enum NSStringCompareOptions: u64 {
     none              = 0x00
     caseInsensitive   = 0x01
     literal           = 0x02
@@ -173,7 +173,7 @@ pub enum StringCompareOptions: u64 {
 // system dispatch the body across threads; `reverse` iterates
 // back to front.
 @flags
-pub enum EnumerationOptions: u64 {
+pub enum NSEnumerationOptions: u64 {
     none       = 0x00
     concurrent = 0x01
     reverse    = 0x02
@@ -184,7 +184,7 @@ pub enum EnumerationOptions: u64 {
 // Pick `insertionIndex` to learn where a fresh value should slot
 // in instead of "first matching index" / "last matching index".
 @flags
-pub enum BinarySearchingOptions: u64 {
+pub enum NSBinarySearchingOptions: u64 {
     none           = 0x00
     firstEqual     = 0x100
     lastEqual      = 0x200
@@ -397,48 +397,48 @@ pub enum BinarySearchingOptions: u64 {
 
         // ─── Encoding round-trip with NSData ───────────────────
         @objc("dataUsingEncoding:")
-        pub dataUsingEncoding(encoding: StringEncoding): NSData
+        pub dataUsingEncoding(encoding: NSStringEncoding): NSData
         @objc("dataUsingEncoding:allowLossyConversion:")
         pub dataUsingEncodingLossy(
-            encoding: StringEncoding, allowLossyConversion: bool
+            encoding: NSStringEncoding, allowLossyConversion: bool
         ): NSData
         @objc("alloc")
         pub static alloc(): NSString
         @objc("initWithData:encoding:")
-        pub initWithData(data: NSData, encoding: StringEncoding): NSString
+        pub initWithData(data: NSData, encoding: NSStringEncoding): NSString
 
         // ─── File round-trip ──────────────────────────────────
         @objc("stringWithContentsOfFile:encoding:error:")
         pub static stringWithContentsOfFile(
-            path: NSString, encoding: StringEncoding, error: i64
+            path: NSString, encoding: NSStringEncoding, error: i64
         ): NSString
         @objc("writeToFile:atomically:encoding:error:")
         pub writeToFile(
             path: NSString, atomically: bool,
-            encoding: StringEncoding, error: i64
+            encoding: NSStringEncoding, error: i64
         ): bool
 
         // ─── Comparison ───────────────────────────────────────
         @objc("compare:")
-        pub compareTo(other: NSString): ComparisonResult
+        pub compareTo(other: NSString): NSComparisonResult
         @objc("compare:options:")
         pub compareToWithOptions(
-            other: NSString, options: StringCompareOptions
-        ): ComparisonResult
+            other: NSString, options: NSStringCompareOptions
+        ): NSComparisonResult
         @objc("compare:options:range:")
         pub compareToWithOptionsAndRange(
-            other: NSString, options: StringCompareOptions, range: NSRange
-        ): ComparisonResult
+            other: NSString, options: NSStringCompareOptions, range: NSRange
+        ): NSComparisonResult
         @objc("caseInsensitiveCompare:")
-        pub caseInsensitiveCompare(other: NSString): ComparisonResult
+        pub caseInsensitiveCompare(other: NSString): NSComparisonResult
         @objc("localizedCompare:")
-        pub localizedCompare(other: NSString): ComparisonResult
+        pub localizedCompare(other: NSString): NSComparisonResult
         @objc("localizedCaseInsensitiveCompare:")
-        pub localizedCaseInsensitiveCompare(other: NSString): ComparisonResult
+        pub localizedCaseInsensitiveCompare(other: NSString): NSComparisonResult
         @objc("localizedStandardCompare:")
-        pub localizedStandardCompare(other: NSString): ComparisonResult
+        pub localizedStandardCompare(other: NSString): NSComparisonResult
         @objc("canBeConvertedToEncoding:")
-        pub canBeConvertedToEncoding(encoding: StringEncoding): bool
+        pub canBeConvertedToEncoding(encoding: NSStringEncoding): bool
 
         // ─── Per-line / per-paragraph chunking ────────────────
         @objc("lineRangeForRange:")
@@ -663,12 +663,12 @@ pub enum BinarySearchingOptions: u64 {
 
         // ─── Base64 round-trip ─────────────────────────────────
         @objc("base64EncodedStringWithOptions:")
-        pub base64EncodedString(options: DataBase64EncodingOptions): NSString
+        pub base64EncodedString(options: NSDataBase64EncodingOptions): NSString
         @objc("alloc")
         pub static alloc(): NSData
         @objc("initWithBase64EncodedString:options:")
         pub initWithBase64EncodedString(
-            s: NSString, options: DataBase64DecodingOptions
+            s: NSString, options: NSDataBase64DecodingOptions
         ): NSData
 
         @objc("subdataWithRange:")
@@ -677,11 +677,11 @@ pub enum BinarySearchingOptions: u64 {
         pub isEqualToData(other: NSData): bool
         @objc("dataWithContentsOfFile:options:error:")
         pub static dataWithContentsOfFileOptions(
-            path: NSString, options: DataReadingOptions, error: i64
+            path: NSString, options: NSDataReadingOptions, error: i64
         ): NSData
         @objc("writeToFile:options:error:")
         pub writeToFileOptions(
-            path: NSString, options: DataWritingOptions, error: i64
+            path: NSString, options: NSDataWritingOptions, error: i64
         ): bool
     }
 

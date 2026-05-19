@@ -6,7 +6,7 @@
 
 use core { NSObject, NSString }
 use datetime { NSDate }
-use concurrency { QualityOfService }
+use concurrency { NSQualityOfService }
 
 @extern(ObjC, "/System/Library/Frameworks/Foundation.framework/Foundation") {
     /// `NSTimer` — fires a callback after a fixed delay (one-shot)
@@ -195,9 +195,9 @@ use concurrency { QualityOfService }
         @objc("identifier")
         pub get identifier(): NSString
         @objc("qualityOfService")
-        pub get qualityOfService(): QualityOfService
+        pub get qualityOfService(): NSQualityOfService
         @objc("setQualityOfService:")
-        pub set qualityOfService(q: QualityOfService)
+        pub set qualityOfService(q: NSQualityOfService)
         @objc("repeats")
         pub get repeats(): bool
         @objc("setRepeats:")

@@ -1,7 +1,7 @@
 // NSData — bytes round-trip + length + base64.
 
 use test
-use foundation { NSData, DataBase64EncodingOptions, DataBase64DecodingOptions,
+use foundation { NSData, NSDataBase64EncodingOptions, NSDataBase64DecodingOptions,
             makeRange, nsstr, ilstr }
 
 // Empty buffer.
@@ -20,10 +20,10 @@ test.expect(back[1] as i64, 105)
 test.expect(back[2] as i64, 33)
 
 // Base64 round-trip.
-let b64 = nd.base64EncodedString(DataBase64EncodingOptions.none)
+let b64 = nd.base64EncodedString(NSDataBase64EncodingOptions.none)
 test.expectStr(ilstr(b64), "aGkh")
 let decoded = NSData.alloc().initWithBase64EncodedString(
-    b64, DataBase64DecodingOptions.none
+    b64, NSDataBase64DecodingOptions.none
 )
 test.expect(decoded.length, 3)
 let decBytes = decoded.bytes()

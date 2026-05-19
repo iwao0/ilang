@@ -7,13 +7,13 @@
 // haven't bound yet — deferred.
 
 use core { NSObject, NSString, NSPoint, NSSize, NSRect, NSVector, NSRange,
-           ComparisonResult }
+           NSComparisonResult }
 
 // NSNumberFormatterStyle — how `stringFromNumber:` renders its
 // input. Defaults to `none` (raw digits); change to `decimal` /
 // `currency` / `percent` / `scientific` / `spellOut` to opt into
 // locale-aware formatting.
-pub enum NumberFormatterStyle: u64 {
+pub enum NSNumberFormatterStyle: u64 {
     none       = 0
     decimal    = 1
     currency   = 2
@@ -30,7 +30,7 @@ pub enum NumberFormatterStyle: u64 {
 // picks from. `file` is binary (KB = 1024 bytes); `memory` is
 // the same; `decimal` is SI (KB = 1000 bytes); `binary` is
 // explicit kibibyte / mebibyte.
-pub enum ByteCountFormatterCountStyle: i64 {
+pub enum NSByteCountFormatterCountStyle: i64 {
     file    = 0
     memory  = 1
     decimal = 2
@@ -40,7 +40,7 @@ pub enum ByteCountFormatterCountStyle: i64 {
 // NSDecimalNumberRoundingMode — rounding rule applied by
 // `decimalNumberByRoundingAccordingToBehavior:`. Mirrors
 // `<Foundation/NSDecimalNumber.h>`.
-pub enum DecimalNumberRoundingMode: u64 {
+pub enum NSRoundingMode: u64 {
     plain    = 0
     down     = 1
     up       = 2
@@ -69,7 +69,7 @@ pub enum DecimalNumberRoundingMode: u64 {
     /// conformer; user types adopt this protocol for custom
     /// per-operation policies (e.g. a currency-specific scale).
     @objc pub interface NSDecimalNumberBehaviors {
-        roundingMode(): DecimalNumberRoundingMode
+        roundingMode(): NSRoundingMode
         scale(): i16
         @objc("exceptionDuringOperation:error:leftOperand:rightOperand:")
         exceptionDuringOperation(
@@ -91,7 +91,7 @@ pub enum DecimalNumberRoundingMode: u64 {
 
         @objc("decimalNumberHandlerWithRoundingMode:scale:raiseOnExactness:raiseOnOverflow:raiseOnUnderflow:raiseOnDivideByZero:")
         pub static decimalNumberHandler(
-            roundingMode: DecimalNumberRoundingMode, scale: i16,
+            roundingMode: NSRoundingMode, scale: i16,
             raiseOnExactness: bool, raiseOnOverflow: bool,
             raiseOnUnderflow: bool, raiseOnDivideByZero: bool
         ): NSDecimalNumberHandler
@@ -120,7 +120,7 @@ pub enum DecimalNumberRoundingMode: u64 {
         @objc("stringValue")
         pub get stringValue(): NSString
         @objc("compare:")
-        pub compareNumber(other: NSNumber): ComparisonResult
+        pub compareNumber(other: NSNumber): NSComparisonResult
         @objc("isEqualToNumber:")
         pub isEqualToNumber(other: NSNumber): bool
         @objc("descriptionWithLocale:")
@@ -221,9 +221,9 @@ pub enum DecimalNumberRoundingMode: u64 {
         pub init(): NSNumberFormatter
 
         @objc("numberStyle")
-        pub get numberStyle(): NumberFormatterStyle
+        pub get numberStyle(): NSNumberFormatterStyle
         @objc("setNumberStyle:")
-        pub set numberStyle(v: NumberFormatterStyle)
+        pub set numberStyle(v: NSNumberFormatterStyle)
 
         @objc("locale")
         pub get locale(): NSObject
@@ -287,13 +287,13 @@ pub enum DecimalNumberRoundingMode: u64 {
 
         @objc("stringFromByteCount:countStyle:")
         pub static stringFromByteCountWithStyle(
-            bytes: i64, countStyle: ByteCountFormatterCountStyle
+            bytes: i64, countStyle: NSByteCountFormatterCountStyle
         ): NSString
 
         @objc("countStyle")
-        pub get countStyle(): ByteCountFormatterCountStyle
+        pub get countStyle(): NSByteCountFormatterCountStyle
         @objc("setCountStyle:")
-        pub set countStyle(v: ByteCountFormatterCountStyle)
+        pub set countStyle(v: NSByteCountFormatterCountStyle)
         @objc("allowedUnits")
         pub get allowedUnits(): u64
         @objc("setAllowedUnits:")

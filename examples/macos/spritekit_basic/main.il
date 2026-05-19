@@ -11,12 +11,12 @@ use cocoa
 use spritekit { SKView, SKScene, SKSpriteNode, SKLabelNode, SKAction }
 
 let app = cocoa.sharedApplication()
-app.setActivationPolicy(cocoa.ActivationPolicy.regular)
+app.setActivationPolicy(cocoa.NSApplicationActivationPolicy.regular)
 
-let mask = cocoa.StyleMask.titled
-    | cocoa.StyleMask.closable
-    | cocoa.StyleMask.miniaturizable
-    | cocoa.StyleMask.resizable
+let mask = cocoa.NSWindowStyleMask.titled
+    | cocoa.NSWindowStyleMask.closable
+    | cocoa.NSWindowStyleMask.miniaturizable
+    | cocoa.NSWindowStyleMask.resizable
 let win = cocoa.makeWindow("ilang × SpriteKit", 0.0, 0.0, 480.0, 320.0, mask)
 win.center()
 

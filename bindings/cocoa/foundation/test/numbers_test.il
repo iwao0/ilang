@@ -64,7 +64,7 @@ test.expectFalse(pa.isEqualToValue(pc))
 // NSNumber.compareNumber.
 let smaller = NSNumber.fromI64(1)
 let bigger = NSNumber.fromI64(2)
-// ComparisonResult: orderedAscending = -1 here.
+// NSComparisonResult: orderedAscending = -1 here.
 test.expect(smaller.compareNumber(bigger) as i64, -1)
 test.expect(bigger.compareNumber(smaller) as i64, 1)
 test.expect(smaller.compareNumber(smaller) as i64, 0)

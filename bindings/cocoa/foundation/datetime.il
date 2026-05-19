@@ -4,13 +4,13 @@
 // / NSRelativeDateTimeFormatter trio that builds on the types
 // here.
 
-use core { NSObject, NSString, NSArray, NSRange, ComparisonResult }
+use core { NSObject, NSString, NSArray, NSRange, NSComparisonResult }
 
 // NSDateFormatterStyle — the locale-aware default presets you
 // pick by assigning to `dateStyle` / `timeStyle`. Setting
 // `dateFormat` directly to a Unicode TR35 pattern overrides
 // these.
-pub enum DateFormatterStyle: u64 {
+pub enum NSDateFormatterStyle: u64 {
     none   = 0
     short  = 1
     medium = 2
@@ -23,7 +23,7 @@ pub enum DateFormatterStyle: u64 {
 // `nextDateAfterDate:matchingComponents:options:` family
 // resolve missing / ambiguous time-zone transitions.
 @flags
-pub enum CalendarOptions: u64 {
+pub enum NSCalendarOptions: u64 {
     none                              = 0x00
     wrapCalendarComponents            = 1
     matchStrictly                     = 2
@@ -39,7 +39,7 @@ pub enum CalendarOptions: u64 {
 // components:fromDate:]` to say which fields the returned
 // `NSDateComponents` should be populated with. Combine with `|`.
 @flags
-pub enum CalendarUnit: u64 {
+pub enum NSCalendarUnit: u64 {
     none       = 0x00
     era        = 0x02
     year       = 0x04
@@ -133,7 +133,7 @@ pub enum CalendarUnit: u64 {
         @objc("laterDate:")
         pub laterDate(other: NSDate): NSDate
         @objc("compare:")
-        pub compareDate(other: NSDate): ComparisonResult
+        pub compareDate(other: NSDate): NSComparisonResult
         @objc("timeIntervalSinceReferenceDate")
         pub get timeIntervalSinceReferenceDate(): f64
         @objc("descriptionWithLocale:")
@@ -158,13 +158,13 @@ pub enum CalendarUnit: u64 {
         pub set dateFormat(s: NSString)
 
         @objc("dateStyle")
-        pub get dateStyle(): DateFormatterStyle
+        pub get dateStyle(): NSDateFormatterStyle
         @objc("setDateStyle:")
-        pub set dateStyle(v: DateFormatterStyle)
+        pub set dateStyle(v: NSDateFormatterStyle)
         @objc("timeStyle")
-        pub get timeStyle(): DateFormatterStyle
+        pub get timeStyle(): NSDateFormatterStyle
         @objc("setTimeStyle:")
-        pub set timeStyle(v: DateFormatterStyle)
+        pub set timeStyle(v: NSDateFormatterStyle)
 
         @objc("locale")
         pub get locale(): NSObject
@@ -194,7 +194,7 @@ pub enum CalendarUnit: u64 {
         pub static calendarWithIdentifier(ident: NSString): NSCalendar
 
         @objc("components:fromDate:")
-        pub componentsFromDate(units: CalendarUnit, date: NSDate): NSDateComponents
+        pub componentsFromDate(units: NSCalendarUnit, date: NSDate): NSDateComponents
         @objc("dateFromComponents:")
         pub dateFromComponents(comps: NSDateComponents): NSDate
         @objc("dateByAddingComponents:toDate:options:")
@@ -212,36 +212,36 @@ pub enum CalendarUnit: u64 {
         @objc("dateBySettingHour:minute:second:ofDate:options:")
         pub dateBySettingHour(
             hour: i64, minute: i64, second: i64, ofDate: NSDate,
-            options: CalendarOptions
+            options: NSCalendarOptions
         ): NSDate
         @objc("dateBySettingUnit:value:ofDate:options:")
         pub dateBySettingUnit(
-            unit: CalendarUnit, value: i64, ofDate: NSDate,
-            options: CalendarOptions
+            unit: NSCalendarUnit, value: i64, ofDate: NSDate,
+            options: NSCalendarOptions
         ): NSDate
         @objc("nextDateAfterDate:matchingComponents:options:")
         pub nextDateAfterDate(
             date: NSDate, matchingComponents: NSDateComponents,
-            options: CalendarOptions
+            options: NSCalendarOptions
         ): NSDate
         @objc("startOfDayForDate:")
         pub startOfDayForDate(date: NSDate): NSDate
         @objc("rangeOfUnit:inUnit:forDate:")
         pub rangeOfUnit(
-            unit: CalendarUnit, inUnit: CalendarUnit, forDate: NSDate
+            unit: NSCalendarUnit, inUnit: NSCalendarUnit, forDate: NSDate
         ): NSRange
         @objc("ordinalityOfUnit:inUnit:forDate:")
         pub ordinalityOfUnit(
-            unit: CalendarUnit, inUnit: CalendarUnit, forDate: NSDate
+            unit: NSCalendarUnit, inUnit: NSCalendarUnit, forDate: NSDate
         ): u64
         @objc("isDate:equalToDate:toUnitGranularity:")
         pub isDate(
-            date1: NSDate, equalToDate: NSDate, toUnitGranularity: CalendarUnit
+            date1: NSDate, equalToDate: NSDate, toUnitGranularity: NSCalendarUnit
         ): bool
         @objc("compareDate:toDate:toUnitGranularity:")
         pub compareDate(
-            date1: NSDate, toDate: NSDate, toUnitGranularity: CalendarUnit
-        ): ComparisonResult
+            date1: NSDate, toDate: NSDate, toUnitGranularity: NSCalendarUnit
+        ): NSComparisonResult
         @objc("isDateInWeekend:")
         pub isDateInWeekend(date: NSDate): bool
 

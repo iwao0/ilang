@@ -21,7 +21,7 @@
 
 use cocoa { NSObject, NSTextField, NSSlider, NSApplicationDelegate,
             NSApplication, NSNotification,
-            StyleMask, ActivationPolicy, LayoutOrientation, nil,
+            NSWindowStyleMask, NSApplicationActivationPolicy, NSUserInterfaceLayoutOrientation, nil,
             sharedApplication, makeWindow, makeButton, makeLabel,
             makeTextField, makeSlider, makeStackView, makeRect,
             ilstr, selectorPtr }
@@ -78,7 +78,7 @@ class FormHandler : NSObject {
 //   }
 
 let app = sharedApplication()
-app.setActivationPolicy(ActivationPolicy.regular)
+app.setActivationPolicy(NSApplicationActivationPolicy.regular)
 
 AppDelegate.register()
 let appDel = AppDelegate.alloc().init()
@@ -87,16 +87,16 @@ app.setDelegate(appDel)
 FormHandler.register()
 let handler = FormHandler.alloc().init()
 
-let mask = StyleMask.titled
-    | StyleMask.closable
-    | StyleMask.miniaturizable
-    | StyleMask.resizable
+let mask = NSWindowStyleMask.titled
+    | NSWindowStyleMask.closable
+    | NSWindowStyleMask.miniaturizable
+    | NSWindowStyleMask.resizable
 let win = makeWindow("Cocoa form + delegate", 0.0, 0.0, 360.0, 240.0, mask)
 win.center()
 
 // Vertical stack: name label + text field, volume label + slider,
 // then the submit button at the bottom.
-let stack = makeStackView(LayoutOrientation.vertical, 8.0)
+let stack = makeStackView(NSUserInterfaceLayoutOrientation.vertical, 8.0)
 stack.setFrame(makeRect(20.0, 20.0, 320.0, 200.0))
 
 stack.addArrangedSubview(makeLabel("Name:", 0.0, 0.0, 0.0, 20.0))

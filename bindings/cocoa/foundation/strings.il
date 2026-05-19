@@ -13,7 +13,7 @@ use core { NSObject, NSString, NSArray, NSDictionary, NSCharacterSet, NSRange,
 // regex pattern is compiled. Mirrors the
 // `NSRegularExpressionOptions` enum from `<Foundation/NSRegularExpression.h>`.
 @flags
-pub enum RegexOptions: u64 {
+pub enum NSRegularExpressionOptions: u64 {
     none                       = 0x00
     caseInsensitive            = 0x01
     allowCommentsAndWhitespace = 0x02
@@ -29,7 +29,7 @@ pub enum RegexOptions: u64 {
 // progress / completion bits are only meaningful for the
 // block-taking enumerator API, which we don't bind here.
 @flags
-pub enum MatchOptions: u64 {
+pub enum NSMatchingOptions: u64 {
     none                     = 0x00
     reportProgress           = 0x01
     reportCompletion         = 0x02
@@ -54,21 +54,21 @@ pub enum MatchOptions: u64 {
     @objc pub class NSRegularExpression : NSObject {
         @objc("regularExpressionWithPattern:options:error:")
         pub static regularExpressionWithPattern(
-            pattern: NSString, options: RegexOptions, error: i64
+            pattern: NSString, options: NSRegularExpressionOptions, error: i64
         ): NSRegularExpression
 
         @objc("pattern")
         pub get pattern(): NSString
         @objc("options")
-        pub get options(): RegexOptions
+        pub get options(): NSRegularExpressionOptions
 
         @objc("numberOfMatchesInString:options:range:")
         pub numberOfMatchesInString(
-            s: NSString, options: MatchOptions, range: NSRange
+            s: NSString, options: NSMatchingOptions, range: NSRange
         ): i64
         @objc("stringByReplacingMatchesInString:options:range:withTemplate:")
         pub stringByReplacingMatchesInString(
-            s: NSString, options: MatchOptions, range: NSRange, template: NSString
+            s: NSString, options: NSMatchingOptions, range: NSRange, template: NSString
         ): NSString
     }
 
@@ -292,7 +292,7 @@ pub enum MatchOptions: u64 {
     /// pattern. Cheap form of
     /// `NSRegularExpression.regularExpressionWithPattern(pattern,
     /// options, 0)`.
-    pub fn regex(pattern: string, options: RegexOptions): NSRegularExpression {
+    pub fn regex(pattern: string, options: NSRegularExpressionOptions): NSRegularExpression {
         NSRegularExpression.regularExpressionWithPattern(
             nsstr(pattern), options, 0
         )

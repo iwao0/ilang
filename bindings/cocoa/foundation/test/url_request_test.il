@@ -3,7 +3,7 @@
 
 use test
 use foundation { NSURL, NSURLRequest, NSMutableURLRequest, NSData,
-                 URLRequestCachePolicy, nsstr, ilstr }
+                 NSURLRequestCachePolicy, nsstr, ilstr }
 
 let url = NSURL.fromString(nsstr("https://example.com/api"))
 
@@ -11,14 +11,14 @@ let url = NSURL.fromString(nsstr("https://example.com/api"))
 let r = NSURLRequest.requestWithURL(url)
 test.expectStr(ilstr(r.url.absoluteString), "https://example.com/api")
 // Default cache policy is useProtocolCachePolicy = 0.
-test.expect(r.cachePolicy as i64, URLRequestCachePolicy.useProtocolCachePolicy as i64)
+test.expect(r.cachePolicy as i64, NSURLRequestCachePolicy.useProtocolCachePolicy as i64)
 
 // Long-form factory with explicit cache + timeout.
 let r2 = NSURLRequest.requestWithURLAndPolicy(
-    url, URLRequestCachePolicy.reloadIgnoringLocalCacheData, 7.5
+    url, NSURLRequestCachePolicy.reloadIgnoringLocalCacheData, 7.5
 )
 test.expect(r2.cachePolicy as i64,
-    URLRequestCachePolicy.reloadIgnoringLocalCacheData as i64)
+    NSURLRequestCachePolicy.reloadIgnoringLocalCacheData as i64)
 test.expectF64(r2.timeoutInterval, 7.5)
 
 // Mutable: set method, header, body.

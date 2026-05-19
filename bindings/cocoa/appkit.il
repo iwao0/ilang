@@ -6,17 +6,17 @@
 
 use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSNotification, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect, KeyCode }
 
-// ─── NSWindow.StyleMask ──────────────────────────────────────────
-// Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
+// ─── NSWindow.NSWindowStyleMask ──────────────────────────────────────────
+// Mirrors Swift's `NSWindow.NSWindowStyleMask` (raw bit values from
 // `<AppKit/NSWindow.h>` `NSWindowStyleMask*`). `borderless` is
 // the empty mask; combine the rest with `|`:
 //
-//     let mask = cocoa.StyleMask.titled
-//         | cocoa.StyleMask.closable
-//         | cocoa.StyleMask.miniaturizable
-//         | cocoa.StyleMask.resizable
+//     let mask = cocoa.NSWindowStyleMask.titled
+//         | cocoa.NSWindowStyleMask.closable
+//         | cocoa.NSWindowStyleMask.miniaturizable
+//         | cocoa.NSWindowStyleMask.resizable
 @flags
-pub enum StyleMask: u64 {
+pub enum NSWindowStyleMask: u64 {
     borderless             = 0x0000
     titled                 = 0x0001
     closable               = 0x0002
@@ -35,7 +35,7 @@ pub enum StyleMask: u64 {
 // NSBackingStoreType — `buffered` is the only non-deprecated
 // member today; AppKit still accepts the legacy values for
 // source-compat.
-pub enum BackingStore: u64 {
+pub enum NSBackingStoreType: u64 {
     retained    = 0
     nonretained = 1
     buffered    = 2
@@ -43,16 +43,16 @@ pub enum BackingStore: u64 {
 
 // NSApplicationActivationPolicy — controls the app's Dock /
 // activation behaviour.
-pub enum ActivationPolicy: i64 {
+pub enum NSApplicationActivationPolicy: i64 {
     regular    = 0
     accessory  = 1
     prohibited = 2
 }
 
-// NSButton.BezelStyle — visual style of an NSButton. `push` is
+// NSButton.NSBezelStyle — visual style of an NSButton. `push` is
 // the standard rounded Mac push button (was named `rounded` in
 // older AppKit headers).
-pub enum BezelStyle: u64 {
+pub enum NSBezelStyle: u64 {
     automatic          = 0
     push               = 1
     flexiblePush       = 2
@@ -69,14 +69,14 @@ pub enum BezelStyle: u64 {
 
 // NSUserInterfaceLayoutOrientation — `NSStackView.setOrientation`
 // switches its arranged children between row and column layouts.
-pub enum LayoutOrientation: i64 {
+pub enum NSUserInterfaceLayoutOrientation: i64 {
     horizontal = 0
     vertical   = 1
 }
 
 // NSAlertStyle — visual severity of an `NSAlert`. Affects the
 // icon and accent the system draws.
-pub enum AlertStyle: i64 {
+pub enum NSAlertStyle: i64 {
     warning       = 0
     informational = 1
     critical      = 2
@@ -93,7 +93,7 @@ pub const AlertSecondButtonReturn: i64 = 1001
 pub const AlertThirdButtonReturn: i64 = 1002
 
 // NSBorderType — frame style for `NSScrollView` / `NSBox`.
-pub enum BorderType: u64 {
+pub enum NSBorderType: u64 {
     noBorder     = 0
     lineBorder   = 1
     bezelBorder  = 2
@@ -103,7 +103,7 @@ pub enum BorderType: u64 {
 // NSBoxType — visual role of an `NSBox`. `primary` is the
 // titled-frame default; `separator` draws as a horizontal /
 // vertical rule.
-pub enum BoxType: u64 {
+pub enum NSBoxType: u64 {
     primary   = 0
     secondary = 1
     separator = 2
@@ -113,7 +113,7 @@ pub enum BoxType: u64 {
 
 // NSProgressIndicatorStyle — bar (determinate / linear) vs.
 // spinning (indeterminate circular).
-pub enum ProgressIndicatorStyle: u64 {
+pub enum NSProgressIndicatorStyle: u64 {
     bar      = 0
     spinning = 1
 }
@@ -121,14 +121,14 @@ pub enum ProgressIndicatorStyle: u64 {
 // NSSegmentSwitchTracking — how an `NSSegmentedControl` reacts
 // to clicks: single-select, multi-select, or momentary
 // highlight (no persistent selection).
-pub enum SegmentSwitchTracking: u64 {
+pub enum NSSegmentSwitchTracking: u64 {
     selectOne = 0
     selectAny = 1
     momentary = 2
 }
 
 // NSDatePickerStyle — visual form of an `NSDatePicker`.
-pub enum DatePickerStyle: u64 {
+pub enum NSDatePickerStyle: u64 {
     textFieldAndStepper = 0
     clockAndCalendar    = 1
     textField           = 2
@@ -140,7 +140,7 @@ pub const PasteboardTypeString: string = "public.utf8-plain-text"
 // NSEventType — the discriminator for `NSEvent.eventType()`.
 // Only the values you'll see in a typical app are listed; full
 // set is in `<AppKit/NSEvent.h>`.
-pub enum EventType: u64 {
+pub enum NSEventType: u64 {
     leftMouseDown      = 1
     leftMouseUp        = 2
     rightMouseDown     = 3
@@ -162,7 +162,7 @@ pub enum EventType: u64 {
 // NSEventModifierFlags — bitmask read off `event.modifierFlags()`.
 // Bitwise-OR the relevant flags to test composite modifiers.
 @flags
-pub enum EventModifierFlags: u64 {
+pub enum NSEventModifierFlags: u64 {
     none      = 0
     capsLock  = 0x10000
     shift     = 0x20000
@@ -196,7 +196,7 @@ pub enum EventModifierFlags: u64 {
         @objc("sharedApplication")
         pub static sharedApplication(): NSApplication
         @objc("setActivationPolicy:")
-        pub setActivationPolicy(policy: ActivationPolicy): bool
+        pub setActivationPolicy(policy: NSApplicationActivationPolicy): bool
         @objc("activateIgnoringOtherApps:")
         @deprecated("deprecated in macOS 14.0 — call `activate()` instead.")
         pub activateIgnoringOtherApps(flag: bool)
@@ -252,7 +252,7 @@ pub enum EventModifierFlags: u64 {
         // C ABI sees the raw NSUInteger that AppKit expects.
         @objc("initWithContentRect:styleMask:backing:defer:")
         pub init(
-            rect: NSRect, mask: StyleMask, backing: BackingStore, defer: bool
+            rect: NSRect, mask: NSWindowStyleMask, backing: NSBackingStoreType, defer: bool
         ): NSWindow
 
         @objc("setTitle:")
@@ -286,7 +286,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setTitle:")
         pub setTitle(title: NSString)
         @objc("setBezelStyle:")
-        pub setBezelStyle(style: BezelStyle)
+        pub setBezelStyle(style: NSBezelStyle)
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)
@@ -361,8 +361,8 @@ pub enum EventModifierFlags: u64 {
     }
 
     /// NSStackView — stacks its arranged subviews along
-    /// `orientation` (use `cocoa.LayoutOrientation.horizontal` /
-    /// `cocoa.LayoutOrientation.vertical`).
+    /// `orientation` (use `cocoa.NSUserInterfaceLayoutOrientation.horizontal` /
+    /// `cocoa.NSUserInterfaceLayoutOrientation.vertical`).
     /// `addArrangedSubview:` appends a view; the stack handles
     /// sizing and positioning.
     @objc pub class NSStackView : NSView {
@@ -372,7 +372,7 @@ pub enum EventModifierFlags: u64 {
         pub init(): NSStackView
 
         @objc("setOrientation:")
-        pub setOrientation(o: LayoutOrientation)
+        pub setOrientation(o: NSUserInterfaceLayoutOrientation)
         @objc("setSpacing:")
         pub setSpacing(s: f64)
         @objc("addArrangedSubview:")
@@ -534,7 +534,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setInformativeText:")
         pub setInformativeText(s: NSString)
         @objc("setAlertStyle:")
-        pub setAlertStyle(style: AlertStyle)
+        pub setAlertStyle(style: NSAlertStyle)
         @objc("addButtonWithTitle:")
         pub addButtonWithTitle(title: NSString): NSButton
         @objc("runModal")
@@ -621,7 +621,7 @@ pub enum EventModifierFlags: u64 {
         @objc("setAutohidesScrollers:")
         pub setAutohidesScrollers(flag: bool)
         @objc("setBorderType:")
-        pub setBorderType(b: BorderType)
+        pub setBorderType(b: NSBorderType)
         @objc("contentSize")
         pub get contentSize(): NSSize
     }
@@ -711,7 +711,7 @@ pub enum EventModifierFlags: u64 {
         pub init(rect: NSRect): NSProgressIndicator
 
         @objc("setStyle:")
-        pub setStyle(s: ProgressIndicatorStyle)
+        pub setStyle(s: NSProgressIndicatorStyle)
         @objc("setMinValue:")
         pub setMinValue(v: f64)
         @objc("setMaxValue:")
@@ -753,7 +753,7 @@ pub enum EventModifierFlags: u64 {
         @objc("selectedSegment")
         pub selectedSegment(): i64
         @objc("setSegmentedTrackingMode:")
-        pub setTrackingMode(m: SegmentSwitchTracking)
+        pub setTrackingMode(m: NSSegmentSwitchTracking)
     }
 
     /// `NSStepper` — pair of up / down arrows over a value with
@@ -781,7 +781,7 @@ pub enum EventModifierFlags: u64 {
     }
 
     /// `NSDatePicker` — graphical or text-field date editor.
-    /// Defaults to `cocoa.DatePickerStyle.textFieldAndStepper`;
+    /// Defaults to `cocoa.NSDatePickerStyle.textFieldAndStepper`;
     /// switch to `.clockAndCalendar` for the round-clock /
     /// month-calendar combo.
     @objc pub class NSDatePicker : NSView {
@@ -791,7 +791,7 @@ pub enum EventModifierFlags: u64 {
         pub init(rect: NSRect): NSDatePicker
 
         @objc("setDatePickerStyle:")
-        pub setDatePickerStyle(s: DatePickerStyle)
+        pub setDatePickerStyle(s: NSDatePickerStyle)
         @objc("dateValue")
         pub get dateValue(): NSDate
         @objc("setDateValue:")
@@ -814,9 +814,9 @@ pub enum EventModifierFlags: u64 {
         @objc("setTitle:")
         pub setTitle(s: NSString)
         @objc("setBorderType:")
-        pub setBorderType(b: BorderType)
+        pub setBorderType(b: NSBorderType)
         @objc("setBoxType:")
-        pub setBoxType(t: BoxType)
+        pub setBoxType(t: NSBoxType)
         @objc("contentView")
         pub get contentView(): NSView
         @objc("setContentView:")
@@ -936,11 +936,11 @@ pub enum EventModifierFlags: u64 {
     /// `clickCount`).
     @objc pub class NSEvent : NSObject {
         @objc("type")
-        pub get eventType(): EventType
+        pub get eventType(): NSEventType
         @objc("locationInWindow")
         pub get locationInWindow(): NSPoint
         @objc("modifierFlags")
-        pub get modifierFlags(): EventModifierFlags
+        pub get modifierFlags(): NSEventModifierFlags
         @objc("timestamp")
         pub get timestamp(): f64
         @objc("clickCount")
@@ -1137,10 +1137,10 @@ pub enum EventModifierFlags: u64 {
     pub fn makeWindow(
         title: string,
         x: f64, y: f64, w: f64, h: f64,
-        mask: StyleMask
+        mask: NSWindowStyleMask
     ): NSWindow {
         let win = NSWindow.alloc()
-            .init(makeRect(x, y, w, h), mask, BackingStore.buffered, false)
+            .init(makeRect(x, y, w, h), mask, NSBackingStoreType.buffered, false)
         win.setTitle(nsstr(title))
         win
     }
@@ -1153,7 +1153,7 @@ pub enum EventModifierFlags: u64 {
     ): NSButton {
         let btn = NSButton.alloc().init(makeRect(x, y, w, h))
         btn.setTitle(nsstr(title))
-        btn.setBezelStyle(BezelStyle.push)
+        btn.setBezelStyle(NSBezelStyle.push)
         btn
     }
 
@@ -1202,7 +1202,7 @@ pub enum EventModifierFlags: u64 {
     /// spacing. Position it with `setFrame` and append children
     /// via `addArrangedSubview`.
     pub fn makeStackView(
-        orientation: LayoutOrientation,
+        orientation: NSUserInterfaceLayoutOrientation,
         spacing: f64
     ): NSStackView {
         let s = NSStackView.alloc().init()
@@ -1230,7 +1230,7 @@ pub enum EventModifierFlags: u64 {
     pub fn runAlert(
         message: string,
         informative: string,
-        style: AlertStyle
+        style: NSAlertStyle
     ): i64 {
         let a = NSAlert.alloc().init()
         a.setMessageText(nsstr(message))
@@ -1266,7 +1266,7 @@ pub enum EventModifierFlags: u64 {
     pub fn makeScrollView(doc: NSView, x: f64, y: f64, w: f64, h: f64): NSScrollView {
         let s = NSScrollView.alloc().init(makeRect(x, y, w, h))
         s.setHasVerticalScroller(true)
-        s.setBorderType(BorderType.bezelBorder)
+        s.setBorderType(NSBorderType.bezelBorder)
         s.setDocumentView(doc)
         s
     }
@@ -1294,7 +1294,7 @@ pub enum EventModifierFlags: u64 {
         x: f64, y: f64, w: f64, h: f64
     ): NSProgressIndicator {
         let p = NSProgressIndicator.alloc().init(makeRect(x, y, w, h))
-        p.setStyle(ProgressIndicatorStyle.bar)
+        p.setStyle(NSProgressIndicatorStyle.bar)
         p.setIndeterminate(false)
         p.setMinValue(min)
         p.setMaxValue(max)

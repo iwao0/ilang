@@ -13,7 +13,7 @@ use datetime { NSDate }
 // `running` / `suspended` are the two states a task spends most
 // of its life in; `completed` is terminal. `canceling` means a
 // cancel was issued and is still propagating.
-pub enum URLSessionTaskState: i64 {
+pub enum NSURLSessionTaskState: i64 {
     running    = 0
     suspended  = 1
     canceling  = 2
@@ -24,7 +24,7 @@ pub enum URLSessionTaskState: i64 {
 // reserves the right to override `allowed` (downgrading it to
 // `notAllowed` for HTTPS responses missing cache-control
 // headers, for instance).
-pub enum URLCacheStoragePolicy: u64 {
+pub enum NSURLCacheStoragePolicy: u64 {
     allowed         = 0
     allowedInMemoryOnly = 1
     notAllowed      = 2
@@ -32,7 +32,7 @@ pub enum URLCacheStoragePolicy: u64 {
 
 // NSURLRequestCachePolicy — controls how a request consults
 // the local cache and whether it revalidates upstream.
-pub enum URLRequestCachePolicy: u64 {
+pub enum NSURLRequestCachePolicy: u64 {
     useProtocolCachePolicy            = 0
     reloadIgnoringLocalCacheData      = 1
     reloadIgnoringLocalAndRemoteCacheData = 4
@@ -46,7 +46,7 @@ pub enum URLRequestCachePolicy: u64 {
 // the App-Sandbox-friendly variant that survives a relaunch and
 // reopens via `startAccessingSecurityScopedResource`.
 @flags
-pub enum URLBookmarkCreationOptions: u64 {
+pub enum NSURLBookmarkCreationOptions: u64 {
     none                              = 0x00
     preferFileIDResolution            = 0x100
     minimalBookmark                   = 0x200
@@ -60,7 +60,7 @@ pub enum URLBookmarkCreationOptions: u64 {
 // disables the prompt when the bookmark needs user interaction
 // to authorise.
 @flags
-pub enum URLBookmarkResolutionOptions: u64 {
+pub enum NSURLBookmarkResolutionOptions: u64 {
     none                  = 0x00
     withoutUI             = 0x100
     withoutMounting       = 0x200
@@ -71,7 +71,7 @@ pub enum URLBookmarkResolutionOptions: u64 {
 // `none` is per-request; `forSession` covers the process
 // lifetime; `permanent` writes into the keychain; `synchronizable`
 // also syncs through iCloud Keychain.
-pub enum URLCredentialPersistence: u64 {
+pub enum NSURLCredentialPersistence: u64 {
     none           = 0
     forSession     = 1
     permanent      = 2
@@ -208,7 +208,7 @@ pub enum URLCredentialPersistence: u64 {
         pub static requestWithURL(url: NSURL): NSURLRequest
         @objc("requestWithURL:cachePolicy:timeoutInterval:")
         pub static requestWithURLAndPolicy(
-            url: NSURL, cachePolicy: URLRequestCachePolicy, timeoutInterval: f64
+            url: NSURL, cachePolicy: NSURLRequestCachePolicy, timeoutInterval: f64
         ): NSURLRequest
 
         @objc("URL")
@@ -224,7 +224,7 @@ pub enum URLCredentialPersistence: u64 {
         @objc("HTTPBodyStream")
         pub get httpBodyStream(): NSObject
         @objc("cachePolicy")
-        pub get cachePolicy(): URLRequestCachePolicy
+        pub get cachePolicy(): NSURLRequestCachePolicy
         @objc("timeoutInterval")
         pub get timeoutInterval(): f64
         @objc("HTTPShouldHandleCookies")
@@ -268,7 +268,7 @@ pub enum URLCredentialPersistence: u64 {
         @objc("setHTTPBodyStream:")
         pub setHTTPBodyStream(stream: NSObject)
         @objc("setCachePolicy:")
-        pub setCachePolicy(p: URLRequestCachePolicy)
+        pub setCachePolicy(p: NSURLRequestCachePolicy)
         @objc("setTimeoutInterval:")
         pub setTimeoutInterval(t: f64)
         @objc("setHTTPShouldHandleCookies:")
@@ -524,7 +524,7 @@ pub enum URLCredentialPersistence: u64 {
         pub cancel()
 
         @objc("state")
-        pub get state(): URLSessionTaskState
+        pub get state(): NSURLSessionTaskState
         @objc("error")
         pub get error(): NSError
 
@@ -750,7 +750,7 @@ pub enum URLCredentialPersistence: u64 {
         @objc("credentialWithUser:password:persistence:")
         pub static credentialWithUserAndPassword(
             user: NSString, password: NSString,
-            persistence: URLCredentialPersistence
+            persistence: NSURLCredentialPersistence
         ): NSURLCredential
 
         @objc("user")
@@ -760,7 +760,7 @@ pub enum URLCredentialPersistence: u64 {
         @objc("hasPassword")
         pub get hasPassword(): bool
         @objc("persistence")
-        pub get persistence(): URLCredentialPersistence
+        pub get persistence(): NSURLCredentialPersistence
     }
 
     /// `NSURLProtectionSpace` — host / port / realm tuple

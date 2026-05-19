@@ -14,7 +14,7 @@ use network { NSURL }
 // NSStreamStatus — current state of an NSInputStream /
 // NSOutputStream. `notOpen` → `opening` → `open` → `reading` /
 // `writing` → `atEnd` / `error` / `closed`.
-pub enum StreamStatus: u64 {
+pub enum NSStreamStatus: u64 {
     notOpen = 0
     opening = 1
     open    = 2
@@ -154,7 +154,7 @@ pub enum StreamStatus: u64 {
         pub close()
 
         @objc("streamStatus")
-        pub get streamStatus(): StreamStatus
+        pub get streamStatus(): NSStreamStatus
         @objc("streamError")
         pub get streamError(): NSError
 
