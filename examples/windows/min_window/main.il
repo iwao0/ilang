@@ -20,7 +20,8 @@
 
 use windows {
     GetModuleHandleA,
-    HWND, WNDCLASSEXA, MSG, POINT,
+    HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
+    WNDCLASSEXA, MSG, POINT,
     ClassStyle, WindowStyle, ShowCmd, WindowMessage,
     RegisterClassExA, CreateWindowExA, DefWindowProcA,
     ShowWindow, UpdateWindow,
@@ -54,13 +55,13 @@ use windows {
             lpfnWndProc:   wndProc,
             cbClsExtra:    0,
             cbWndExtra:    0,
-            hInstance:     hInstance,
-            hIcon:         0 as *void,
-            hCursor:       0 as *void,
-            hbrBackground: 6 as *void,          // COLOR_WINDOW (5) + 1
+            hInstance:     hInstance as *HINSTANCE,
+            hIcon:         0 as *HICON,
+            hCursor:       0 as *HCURSOR,
+            hbrBackground: 6 as *HBRUSH,        // COLOR_WINDOW (5) + 1
             lpszMenuName:  0 as *const char,
             lpszClassName: className,
-            hIconSm:       0 as *void,
+            hIconSm:       0 as *HICON,
         }
         RegisterClassExA(wc)
 
@@ -72,8 +73,8 @@ use windows {
             100, 100,                           // X, Y
             640, 480,                           // W, H
             0 as *HWND,                         // hWndParent
-            0 as *void,                         // hMenu
-            hInstance,
+            0 as *HMENU,
+            hInstance as *HINSTANCE,
             0 as *void                          // lpParam
         )
         ShowWindow(hwnd, ShowCmd.show as i32)
@@ -81,7 +82,7 @@ use windows {
 
         let msg = MSG {
             hwnd:     0 as *HWND,
-            message:  0,
+            message:  WindowMessage.null,
             wParam:   0,
             lParam:   0,
             time:     0,

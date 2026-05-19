@@ -116,7 +116,7 @@ pub enum WindowMessage: u32 {
     /// 48 bytes on x64 with the post-Vista `lPrivate` field.
     pub struct MSG {
         hwnd:     *HWND
-        message:  u32
+        message:  WindowMessage
         // 4 bytes of padding here so wParam aligns to 8.
         wParam:   u64
         lParam:   i64
