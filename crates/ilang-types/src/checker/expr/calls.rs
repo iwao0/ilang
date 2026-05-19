@@ -40,10 +40,20 @@ impl TypeChecker {
         if let ExprKind::Var(name) = &obj.kind {
             let is_local_shadow = env.contains_key(name) || self.vars.contains_key(name);
             if !is_local_shadow {
-                if let Some(cls) = self.classes.get(&name) {
+                // Walk the parent chain so an inherited static
+                // (`SKScene.alloc()`, where `alloc` lives on
+                // SKNode → NSObject) resolves through the
+                // subclass's name. Without the climb, the
+                // statics-on-this-class lookup misses inherited
+                // factories and the receiver falls through to
+                // `check_expr`, which errors as
+                // "undefined variable" on the class-name `Var`.
+                let mut cur = Some(*name);
+                while let Some(cur_name) = cur {
+                    let Some(cls) = self.classes.get(&cur_name) else { break };
                     if let Some(sigs) = cls.static_methods.get(method).cloned() {
                         let cmod = cls.module.clone();
-                        let cn = name.as_str().to_string();
+                        let cn = cur_name.as_str().to_string();
                         // Visibility: if *any* overload is pub the
                         // name is reachable cross-module; the
                         // overload resolver then picks the one
@@ -58,6 +68,7 @@ impl TypeChecker {
                         )?;
                         return Ok(chosen.ret);
                     }
+                    cur = cls.parent;
                 }
             }
         }

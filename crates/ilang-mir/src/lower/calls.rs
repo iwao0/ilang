@@ -382,7 +382,23 @@ impl<'a> BodyCx<'a> {
                             None
                         }
                     });
-                if let Some(cid) = class_id {
+                // Walk the parent chain so an inherited static
+                // (`SKScene.alloc()` where `alloc` lives on
+                // SKNode → NSObject) resolves through the
+                // subclass's name.
+                let mut owning_cid: Option<crate::types::ClassId> = None;
+                let mut cur = class_id;
+                while let Some(c) = cur {
+                    if self.class_meta.get(&c)
+                        .and_then(|m| m.static_method_ids.get(&method))
+                        .is_some()
+                    {
+                        owning_cid = Some(c);
+                        break;
+                    }
+                    cur = self.classes[c.0 as usize].parent;
+                }
+                if let Some(cid) = owning_cid {
                     let meta = self.class_meta.get(&cid).unwrap();
                     if let Some(&fid) = meta.static_method_ids.get(&method) {
                         let sig = meta.static_method_sigs.get(&method).cloned().unwrap();
