@@ -5,8 +5,8 @@
 // a minimal "show a window" demo. Switch to `*W` once a UTF-16
 // path lands.
 //
-// Handle types (HWND / HINSTANCE / HICON / HCURSOR / HBRUSH /
-// HMENU) are all `*void` — opaque pointer-sized values on x64.
+// Handle types are opaque empty structs so the type system catches
+// accidental mix-ups between e.g. HWND and HBRUSH.
 // WPARAM = `u64` (UINT_PTR), LPARAM = `i64` (LONG_PTR),
 // LRESULT = `i64` (LONG_PTR), ATOM = `u16`.
 
@@ -82,6 +82,30 @@ pub enum WindowMessage: u32 {
     /// at the boundary covers it).
     pub struct HWND {}
 
+    /// Executable / DLL image handle. Identical to `HMODULE` at
+    /// runtime; defined here so user32 function signatures can be
+    /// fully typed. Obtain one via
+    /// `GetModuleHandleA(0 as *const char) as *HINSTANCE`.
+    pub struct HINSTANCE {}
+
+    /// Icon handle returned by `LoadIconA` / `LoadImageA`.
+    pub struct HICON {}
+
+    /// Cursor handle returned by `LoadCursorA` / `LoadImageA`.
+    pub struct HCURSOR {}
+
+    /// GDI brush handle. Pass a stock brush via
+    /// `(COLOR_WINDOW + 1) as *HBRUSH` or obtain one with
+    /// `CreateSolidBrush`.
+    pub struct HBRUSH {}
+
+    /// Menu handle returned by `CreateMenu` / `LoadMenuA`.
+    pub struct HMENU {}
+
+    /// Device-context handle used for all GDI drawing operations.
+    /// Obtained from `GetDC`, `BeginPaint`, etc.
+    pub struct HDC {}
+
     /// `POINT { LONG x; LONG y; }` — 8 bytes.
     pub struct POINT {
         x: i32
@@ -114,13 +138,13 @@ pub enum WindowMessage: u32 {
         cbClsExtra:    i32
         cbWndExtra:    i32
         // 4 bytes pad → hInstance aligns to 8.
-        hInstance:     *void
-        hIcon:         *void
-        hCursor:       *void
-        hbrBackground: *void
+        hInstance:     *HINSTANCE
+        hIcon:         *HICON
+        hCursor:       *HCURSOR
+        hbrBackground: *HBRUSH
         lpszMenuName:  *const char
         lpszClassName: *const char
-        hIconSm:       *void
+        hIconSm:       *HICON
     }
 
     /// `ATOM RegisterClassExA(const WNDCLASSEXA *lpwcx)`.
@@ -140,8 +164,8 @@ pub enum WindowMessage: u32 {
         nWidth:       i32,
         nHeight:      i32,
         hWndParent:   *HWND,
-        hMenu:        *void,
-        hInstance:    *void,
+        hMenu:        *HMENU,
+        hInstance:    *HINSTANCE,
         lpParam:      *void
     ): *HWND
 
