@@ -547,6 +547,82 @@ impl<'a> BodyCx<'a> {
                 cid.0
             )));
         }
+        // `*T.field` on a raw pointer to an `@extern(C)` struct — COM
+        // vtable dispatch. Read directly from `ptr + offset` using the
+        // existing __read_u64 builtin; fn-typed fields surface as
+        // `MirTy::RawFn(_)` so the call site picks up
+        // `CallRawIndirect` for free.
+        if let MirTy::RawPtr { inner, .. } = &oty {
+            if let MirTy::Object(cid) = &**inner {
+                let cls = &self.classes[cid.0 as usize];
+                use crate::program::ClassRepr;
+                let is_c_struct = matches!(cls.repr, ClassRepr::CRepr | ClassRepr::CPacked | ClassRepr::CUnion);
+                if is_c_struct {
+                    let meta = self.class_meta.get(cid).expect("class meta");
+                    if let Some(&fid) = meta.field_ix.get(&name) {
+                        let off = self.classes[cid.0 as usize]
+                            .c_field_offsets
+                            .get(fid.0 as usize)
+                            .copied()
+                            .ok_or_else(|| {
+                                LowerError::Other(format!(
+                                    "missing c_field_offset for `{name}`"
+                                ))
+                            })?;
+                        let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                        // Coerce the raw ptr value to i64, then call
+                        // __read_u64(addr, offset) to load the 8-byte
+                        // slot. The reinterpret happens via the result
+                        // value's type tag — no MIR cast needed for the
+                        // bit pattern itself.
+                        let addr = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Cast {
+                            dst: addr,
+                            kind: crate::inst::CastKind::PtrIntCast,
+                            src: ov,
+                        });
+                        let off_v = self.const_int(MirTy::I64, off);
+                        let raw_u64 = self.fb.new_value(MirTy::U64);
+                        self.fb.push_inst(Inst::Call {
+                            dst: Some(raw_u64),
+                            callee: FuncRef::Builtin(Symbol::intern("__read_u64")),
+                            args: Box::new([addr, off_v]),
+                        });
+                        // Re-tag the loaded u64 as the declared field
+                        // type. For fn-typed fields we use RawFn so the
+                        // call_fn lowering picks up CallRawIndirect; for
+                        // any other supported field type we issue a
+                        // PtrIntCast to widen/narrow into the target
+                        // ABI shape (pointer or integer).
+                        match fty {
+                            MirTy::Fn(ft) => {
+                                let out_ty = MirTy::RawFn(ft);
+                                let out = self.fb.new_value(out_ty.clone());
+                                self.fb.push_inst(Inst::Cast {
+                                    dst: out,
+                                    kind: crate::inst::CastKind::PtrIntCast,
+                                    src: raw_u64,
+                                });
+                                return Ok((out, out_ty));
+                            }
+                            other => {
+                                let out = self.fb.new_value(other.clone());
+                                self.fb.push_inst(Inst::Cast {
+                                    dst: out,
+                                    kind: crate::inst::CastKind::PtrIntCast,
+                                    src: raw_u64,
+                                });
+                                return Ok((out, other));
+                            }
+                        }
+                    }
+                    return Err(LowerError::Other(format!(
+                        "no field `{name}` on c-struct class id #{}",
+                        cid.0
+                    )));
+                }
+            }
+        }
         Err(LowerError::Other(format!(
             "field `{name}` on unsupported type {oty}"
         )))

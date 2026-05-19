@@ -480,6 +480,53 @@ impl TypeChecker {
                 }
             }
         }
+        // `*T.Method(args)` where T is a CRepr struct and Method
+        // is a fn-typed field — COM vtable dispatch. The field
+        // holds a raw fn pointer; the call shape is determined by
+        // the fn type written in the struct declaration.
+        if let Type::RawPtr { inner, .. } = &ot {
+            if let Type::Object(struct_name) = &**inner {
+                if let Some(cls) = self.classes.get(struct_name) {
+                    if cls.is_repr_c {
+                        if let Some(field_ty) = cls.fields.get(method).cloned() {
+                            if let Type::Fn(ft) = field_ty {
+                                if args.len() != ft.params.len() {
+                                    return Err(TypeError::ArityMismatch {
+                                        name: method.clone(),
+                                        expected: ft.params.len(),
+                                        got: args.len(),
+                                        span,
+                                    });
+                                }
+                                for (i, expected) in ft.params.iter().enumerate() {
+                                    let got = self.check_expr(
+                                        &args[i], env, ret_ty, in_class, loop_depth,
+                                    )?;
+                                    if !self.value_assignable(&args[i], &got, expected) {
+                                        return Err(TypeError::Mismatch {
+                                            expected: expected.clone(),
+                                            got,
+                                            span: args[i].span,
+                                        });
+                                    }
+                                }
+                                return Ok(ft.ret.clone());
+                            }
+                            return Err(TypeError::UnknownMethod {
+                                class: (*struct_name).into(),
+                                method: method.clone(),
+                                span,
+                            });
+                        }
+                        return Err(TypeError::UnknownMethod {
+                            class: (*struct_name).into(),
+                            method: method.clone(),
+                            span,
+                        });
+                    }
+                }
+            }
+        }
         let class_name = expect_object(&ot, span)?;
         // Receiver typed as an interface: look the method up
         // on the interface itself; runtime resolves the

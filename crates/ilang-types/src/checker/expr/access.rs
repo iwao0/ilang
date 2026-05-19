@@ -108,6 +108,29 @@ impl TypeChecker {
                 });
             }
         }
+        // `*T` field read on a CRepr struct pointer: surface the
+        // field's declared type directly. COM vtable access goes
+        // through this path — `let vtbl: *ID3D12DeviceVtbl = ...;
+        // vtbl.CreateCommandQueue` returns a `fn(...): T` value
+        // that the call site invokes via CallRawIndirect. No ARC
+        // bookkeeping because the receiver is a raw C pointer
+        // (no header, no retained reference).
+        if let Type::RawPtr { inner, .. } = &ot {
+            if let Type::Object(struct_name) = &**inner {
+                if let Some(cls) = self.classes.get(struct_name) {
+                    if cls.is_repr_c {
+                        if let Some(raw) = cls.fields.get(name).cloned() {
+                            return Ok(raw);
+                        }
+                        return Err(TypeError::UnknownField {
+                            class: (*struct_name).into(),
+                            field: name.clone(),
+                            span,
+                        });
+                    }
+                }
+            }
+        }
         let class_name = expect_object(&ot, span)?;
         // @objc-interface-typed receivers don't carry their own
         // field list (the interface is just a method contract),

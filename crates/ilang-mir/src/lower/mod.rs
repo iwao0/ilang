@@ -1251,6 +1251,16 @@ impl<'a> BodyCx<'a> {
                 }
                 Err(LowerError::Other(format!("unknown type: {name}")))
             }
+            // `*T` / `*const T`. Recurse so user-defined `@extern(C)`
+            // structs survive in the pointer's inner type. The
+            // `ty_to_mir` fallback would silently degrade
+            // `*ID3D12DeviceVtbl` to `*void` because that helper
+            // doesn't know about the class registry, which broke
+            // field-access on COM vtable pointers.
+            Type::RawPtr { is_const, inner } => Ok(MirTy::RawPtr {
+                is_const: *is_const,
+                inner: Box::new(self.resolve_ty(inner)?),
+            }),
             Type::Enum(name) => self.enum_ids.get(name).copied().map(MirTy::Enum).ok_or_else(
                 || LowerError::Other(format!("unknown enum {name}")),
             ),
