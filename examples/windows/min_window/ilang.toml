@@ -1,0 +1,5 @@
+[package]
+name = "win32_min_window"
+
+[deps]
+windows = "../../../bindings/windows"
