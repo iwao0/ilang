@@ -87,4 +87,21 @@ test.expectF64(diff.doubleValue, 1.0)
 let prod = d1.multiplyingBy(d2)
 test.expectF64(prod.doubleValue, 3.75)
 
+// NSDecimalNumber.dividingBy.
+let half = d1.dividingBy(NSDecimalNumber.decimalNumberWithString(nsstr("3")))
+test.expectF64(half.doubleValue, 0.5)
+
+// raisingToPower.
+let two = NSDecimalNumber.decimalNumberWithString(nsstr("2"))
+test.expectF64(two.raisingToPower(10 as u64).doubleValue, 1024.0)
+
+// multiplyingByPowerOf10.
+let pi = NSDecimalNumber.decimalNumberWithString(nsstr("3.14"))
+test.expectF64(pi.multiplyingByPowerOf10(2 as i16).doubleValue, 314.0)
+test.expectF64(pi.multiplyingByPowerOf10(-2 as i16).doubleValue, 0.0314)
+
+// Singletons.
+test.expectF64(NSDecimalNumber.one().doubleValue, 1.0)
+test.expectF64(NSDecimalNumber.zero().doubleValue, 0.0)
+
 0

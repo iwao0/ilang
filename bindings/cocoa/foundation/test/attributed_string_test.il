@@ -42,4 +42,26 @@ test.expectTrue(a.isEqualToAttributedString(b))
 let c = NSAttributedString.alloc().initWithString(nsstr("y"))
 test.expectFalse(a.isEqualToAttributedString(c))
 
+// initWithString:attributes: + initWithAttributedString.
+let attrs = NSMutableDictionary.alloc().init()
+attrs.setObject(nsstr("Helvetica"), nsstr("NSFontName"))
+let styled = NSAttributedString.alloc().initWithStringAndAttributes(
+    nsstr("hi"), attrs
+)
+test.expect(styled.length, 2)
+
+let copy = NSAttributedString.alloc().initWithAttributedString(styled)
+test.expectTrue(styled.isEqualToAttributedString(copy))
+
+// beginEditing / endEditing — bracketed mutation batch.
+m.beginEditing()
+m.appendAttributedString(
+    NSAttributedString.alloc().initWithString(nsstr("!"))
+)
+m.endEditing()
+test.expectStr(ilstr(m.string), "hello__world!")
+
+// mutableString accessor returns a string that reflects mutations.
+test.expect(m.mutableString.length as i64, m.length as i64)
+
 0

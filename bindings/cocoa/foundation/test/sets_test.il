@@ -58,4 +58,34 @@ test.expect(ix.count, 10)
 let single = NSIndexSet.indexSetWithIndex(42 as u64)
 test.expect(single.count, 1)
 
+// NSMutableSet.removeAllObjects.
+let bigSet = NSMutableSet.set()
+bigSet.addObject(nsstr("p"))
+bigSet.addObject(nsstr("q"))
+bigSet.addObject(nsstr("r"))
+test.expect(bigSet.count, 3)
+bigSet.removeAllObjects()
+test.expect(bigSet.count, 0)
+
+// minusSet.
+let ma = NSMutableSet.set()
+ma.addObject(nsstr("1"))
+ma.addObject(nsstr("2"))
+ma.addObject(nsstr("3"))
+let mb = NSMutableSet.set()
+mb.addObject(nsstr("2"))
+ma.minusSet(mb)
+test.expect(ma.count, 2)
+test.expectFalse(ma.containsObject(nsstr("2")))
+
+// isSubsetOfSet / intersectsSet.
+let sub = NSMutableSet.set()
+sub.addObject(nsstr("1"))
+sub.addObject(nsstr("3"))
+test.expectTrue(sub.isSubsetOfSet(ma))
+let disjoint = NSMutableSet.set()
+disjoint.addObject(nsstr("z"))
+test.expectFalse(disjoint.intersectsSet(ma))
+test.expectTrue(sub.intersectsSet(ma))
+
 0
