@@ -4,8 +4,7 @@
 // with them. Depends on `foundation` for NSObject / NSString /
 // geometry types.
 
-use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSNotification, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect }
-use keycodes { KeyCode }
+use foundation { NSObject, NSString, NSArray, NSDate, NSURL, NSNotification, NSPoint, NSSize, NSRect, nsstr, ilstr, makeRect, KeyCode }
 
 // ─── NSWindow.StyleMask ──────────────────────────────────────────
 // Mirrors Swift's `NSWindow.StyleMask` (raw bit values from

@@ -29,8 +29,7 @@
 use cocoa
 use spritekit { SKView, SKScene, SKShapeNode, SKLabelNode }
 use appkit { NSEvent }
-use foundation { NSSize }
-use keycodes { KeyCode }
+use foundation { NSSize, KeyCode }
 
 // Module-level state the overrides mutate / read.
 let player = SKShapeNode.shapeNodeWithCircleOfRadius(14.0)
