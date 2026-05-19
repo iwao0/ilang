@@ -523,15 +523,14 @@ impl Lower {
                 _ => {}
             }
         }
-        // Declare class methods up-front so any FnDef bodies in the
-        // same block can resolve calls to them (e.g. an `@objc class`
-        // emits an IMP wrapper as a top-level `@extern(C)` FnDef
-        // whose body invokes a method declared on the same class).
-        for item in blk.items.iter() {
-            if let ast::ExternCItem::Class(cd) = item {
-                self.declare_class_methods(cd)?;
-            }
-        }
+        // Note: `declare_class_methods` for these `@objc class`es is
+        // already hoisted to step 3a in `lower_program` so a top-level
+        // `pub fn` body that calls a class method declared in a
+        // sibling block sees the populated `method_ids`. Calling it
+        // again here would re-register the methods under the same
+        // mangled names and conflict with Cranelift's
+        // declare-then-define contract (different signature on the
+        // second declare).
         // Declare + lower @extern(C) ilang-side fn definitions.
         for item in blk.items.iter() {
             if let ast::ExternCItem::FnDef(fd) = item {

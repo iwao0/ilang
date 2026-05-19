@@ -292,6 +292,22 @@ pub fn lower_program_with_slots(
             lower.declare_class_methods(cd)?;
         }
     }
+    // 3a. Same for `@objc class`es nested inside ExternC blocks. The
+    //     per-block `lower_extern_c` also calls `declare_class_methods`,
+    //     but that runs later in step 4 — interleaved with body
+    //     lowering for sibling items. A top-level `pub fn` that
+    //     references a sibling-block class would otherwise hit an
+    //     empty `method_ids` at lower time, because the class's
+    //     block hasn't reached its method-population step yet.
+    for item in &prog.items {
+        if let Item::ExternC(blk) = item {
+            for inner in blk.items.iter() {
+                if let ilang_ast::ExternCItem::Class(cd) = inner {
+                    lower.declare_class_methods(cd)?;
+                }
+            }
+        }
+    }
 
     // 3b. REPL slot-type resolution. The class / enum tables are now
     //     populated, so any pending `repl_slot_ast` entry (deferred by
