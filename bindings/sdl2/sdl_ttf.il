@@ -43,52 +43,52 @@ pub class GlyphMetrics {
     pub advance: i32
 }
 
-@extern(C) {
+@extern(C, "SDL2_ttf") {
     /// Opaque `TTF_Font *`. Callers see `Font.handle` cast to i64.
     pub struct TTF_Font {}
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_Init(): i32
-    @lib("SDL2_ttf") pub fn TTF_Quit()
-    @lib("SDL2_ttf") pub fn TTF_WasInit(): i32
-    @lib("SDL2_ttf") pub fn TTF_GetError(): *const char
+    @lib pub fn TTF_Init(): i32
+    @lib pub fn TTF_Quit()
+    @lib pub fn TTF_WasInit(): i32
+    @lib pub fn TTF_GetError(): *const char
 
     // ─── font open / close ───────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_OpenFont(file: *const char, ptsize: i32): *TTF_Font
-    @lib("SDL2_ttf") pub fn TTF_OpenFontIndex(
+    @lib pub fn TTF_OpenFont(file: *const char, ptsize: i32): *TTF_Font
+    @lib pub fn TTF_OpenFontIndex(
         file: *const char, ptsize: i32, index: i64
     ): *TTF_Font
-    @lib("SDL2_ttf") pub fn TTF_CloseFont(font: *TTF_Font)
+    @lib pub fn TTF_CloseFont(font: *TTF_Font)
 
     // ─── font metrics ────────────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_FontHeight(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_FontAscent(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_FontDescent(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_FontLineSkip(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_FontFaces(font: *TTF_Font): i64
-    @lib("SDL2_ttf") pub fn TTF_FontFaceIsFixedWidth(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_FontFaceFamilyName(font: *TTF_Font): *const char
-    @lib("SDL2_ttf") pub fn TTF_FontFaceStyleName(font: *TTF_Font): *const char
+    @lib pub fn TTF_FontHeight(font: *TTF_Font): i32
+    @lib pub fn TTF_FontAscent(font: *TTF_Font): i32
+    @lib pub fn TTF_FontDescent(font: *TTF_Font): i32
+    @lib pub fn TTF_FontLineSkip(font: *TTF_Font): i32
+    @lib pub fn TTF_FontFaces(font: *TTF_Font): i64
+    @lib pub fn TTF_FontFaceIsFixedWidth(font: *TTF_Font): i32
+    @lib pub fn TTF_FontFaceFamilyName(font: *TTF_Font): *const char
+    @lib pub fn TTF_FontFaceStyleName(font: *TTF_Font): *const char
 
     // ─── font configuration ──────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_GetFontStyle(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_SetFontStyle(font: *TTF_Font, style: i32)
-    @lib("SDL2_ttf") pub fn TTF_GetFontOutline(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_SetFontOutline(font: *TTF_Font, outline: i32)
-    @lib("SDL2_ttf") pub fn TTF_GetFontHinting(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_SetFontHinting(font: *TTF_Font, hinting: i32)
-    @lib("SDL2_ttf") pub fn TTF_GetFontKerning(font: *TTF_Font): i32
-    @lib("SDL2_ttf") pub fn TTF_SetFontKerning(font: *TTF_Font, allowed: i32)
+    @lib pub fn TTF_GetFontStyle(font: *TTF_Font): i32
+    @lib pub fn TTF_SetFontStyle(font: *TTF_Font, style: i32)
+    @lib pub fn TTF_GetFontOutline(font: *TTF_Font): i32
+    @lib pub fn TTF_SetFontOutline(font: *TTF_Font, outline: i32)
+    @lib pub fn TTF_GetFontHinting(font: *TTF_Font): i32
+    @lib pub fn TTF_SetFontHinting(font: *TTF_Font, hinting: i32)
+    @lib pub fn TTF_GetFontKerning(font: *TTF_Font): i32
+    @lib pub fn TTF_SetFontKerning(font: *TTF_Font, allowed: i32)
 
     // ─── glyph queries ───────────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_GlyphIsProvided(font: *TTF_Font, ch: u16): i32
-    @lib("SDL2_ttf") pub fn TTF_GlyphMetrics(
+    @lib pub fn TTF_GlyphIsProvided(font: *TTF_Font, ch: u16): i32
+    @lib pub fn TTF_GlyphMetrics(
         font: *TTF_Font, ch: u16,
         minx: *i32, maxx: *i32, miny: *i32, maxy: *i32, advance: *i32
     ): i32
 
     // ─── text size ───────────────────────────────────────────────
-    @lib("SDL2_ttf") pub fn TTF_SizeUTF8(
+    @lib pub fn TTF_SizeUTF8(
         font: *TTF_Font, text: *const char, w: *i32, h: *i32
     ): i32
 
@@ -98,16 +98,16 @@ pub class GlyphMetrics {
     // either pass the i64 straight to `Texture.fromSurface(...)`
     // or wrap with `sdl_surface.Surface.fromHandle(...)` for ARC
     // lifetime management.
-    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Solid(
+    @lib pub fn TTF_RenderUTF8_Solid(
         font: *TTF_Font, text: *const char, fg: Color
     ): i64
-    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Shaded(
+    @lib pub fn TTF_RenderUTF8_Shaded(
         font: *TTF_Font, text: *const char, fg: Color, bg: Color
     ): i64
-    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Blended(
+    @lib pub fn TTF_RenderUTF8_Blended(
         font: *TTF_Font, text: *const char, fg: Color
     ): i64
-    @lib("SDL2_ttf") pub fn TTF_RenderUTF8_Blended_Wrapped(
+    @lib pub fn TTF_RenderUTF8_Blended_Wrapped(
         font: *TTF_Font, text: *const char, fg: Color, wrapLength: u32
     ): i64
 

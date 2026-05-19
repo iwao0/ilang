@@ -63,7 +63,7 @@ pub enum BlendMode: i32 {
     invalid = 0x7FFFFFFF   // sentinel returned by SDL on error
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL_PixelFormat — pointer-typed in C. We never need
     /// to peek inside, so an empty struct suffices.
     pub struct SDL_PixelFormat {}
@@ -87,96 +87,96 @@ pub enum BlendMode: i32 {
     }
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_CreateRGBSurface(
+    @lib pub fn SDL_CreateRGBSurface(
         flags: u32, w: i32, h: i32, depth: i32,
         rmask: u32, gmask: u32, bmask: u32, amask: u32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_CreateRGBSurfaceWithFormat(
+    @lib pub fn SDL_CreateRGBSurfaceWithFormat(
         flags: u32, w: i32, h: i32, depth: i32, format: u32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_CreateRGBSurfaceFrom(
+    @lib pub fn SDL_CreateRGBSurfaceFrom(
         pixels: *const void, w: i32, h: i32, depth: i32, pitch: i32,
         rmask: u32, gmask: u32, bmask: u32, amask: u32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_CreateRGBSurfaceWithFormatFrom(
+    @lib pub fn SDL_CreateRGBSurfaceWithFormatFrom(
         pixels: *const void, w: i32, h: i32, depth: i32, pitch: i32,
         format: u32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_FreeSurface(surface: *SDL_Surface)
+    @lib pub fn SDL_FreeSurface(surface: *SDL_Surface)
 
     // ─── BMP I/O ─────────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_LoadBMP_RW(
+    @lib pub fn SDL_LoadBMP_RW(
         src: *const void, freesrc: i32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_SaveBMP_RW(
+    @lib pub fn SDL_SaveBMP_RW(
         surface: *SDL_Surface, dst: *const void, freedst: i32
     ): i32
 
     // ─── locking (for direct pixel access) ───────────────────────
-    @lib("SDL2") pub fn SDL_LockSurface(surface: *SDL_Surface): i32
-    @lib("SDL2") pub fn SDL_UnlockSurface(surface: *SDL_Surface)
+    @lib pub fn SDL_LockSurface(surface: *SDL_Surface): i32
+    @lib pub fn SDL_UnlockSurface(surface: *SDL_Surface)
     // SDL_MUSTLOCK is a C macro, not a real symbol —
     // implemented as the ilang `mustLock` helper below.
 
     // ─── blits + fills ───────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_UpperBlit(
+    @lib pub fn SDL_UpperBlit(
         src: *SDL_Surface, srcrect: *const Rect,
         dst: *SDL_Surface, dstrect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_UpperBlitScaled(
+    @lib pub fn SDL_UpperBlitScaled(
         src: *SDL_Surface, srcrect: *const Rect,
         dst: *SDL_Surface, dstrect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_FillRect(
+    @lib pub fn SDL_FillRect(
         dst: *SDL_Surface, rect: *const Rect, color: u32
     ): i32
-    @lib("SDL2") pub fn SDL_FillRects(
+    @lib pub fn SDL_FillRects(
         dst: *SDL_Surface, rects: *const Rect, count: i32, color: u32
     ): i32
 
     // ─── modulation / blending ───────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetSurfaceBlendMode(
+    @lib pub fn SDL_SetSurfaceBlendMode(
         surface: *SDL_Surface, blend_mode: i32
     ): i32
-    @lib("SDL2") pub fn SDL_GetSurfaceBlendMode(
+    @lib pub fn SDL_GetSurfaceBlendMode(
         surface: *SDL_Surface, blend_mode: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_SetSurfaceColorMod(
+    @lib pub fn SDL_SetSurfaceColorMod(
         surface: *SDL_Surface, r: u8, g: u8, b: u8
     ): i32
-    @lib("SDL2") pub fn SDL_SetSurfaceAlphaMod(
+    @lib pub fn SDL_SetSurfaceAlphaMod(
         surface: *SDL_Surface, alpha: u8
     ): i32
-    @lib("SDL2") pub fn SDL_SetColorKey(
+    @lib pub fn SDL_SetColorKey(
         surface: *SDL_Surface, flag: i32, key: u32
     ): i32
-    @lib("SDL2") pub fn SDL_GetColorKey(
+    @lib pub fn SDL_GetColorKey(
         surface: *SDL_Surface, key: *u32
     ): i32
 
     // ─── clipping ────────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetClipRect(
+    @lib pub fn SDL_SetClipRect(
         surface: *SDL_Surface, rect: *const Rect
     ): i32
-    @lib("SDL2") pub fn SDL_GetClipRect(
+    @lib pub fn SDL_GetClipRect(
         surface: *SDL_Surface, rect: *Rect
     )
 
     // ─── pixel-format helpers ────────────────────────────────────
-    @lib("SDL2") pub fn SDL_AllocFormat(pixel_format: u32): *SDL_PixelFormat
-    @lib("SDL2") pub fn SDL_FreeFormat(format: *SDL_PixelFormat)
-    @lib("SDL2") pub fn SDL_GetPixelFormatName(format: u32): *const char
-    @lib("SDL2") pub fn SDL_MapRGB(
+    @lib pub fn SDL_AllocFormat(pixel_format: u32): *SDL_PixelFormat
+    @lib pub fn SDL_FreeFormat(format: *SDL_PixelFormat)
+    @lib pub fn SDL_GetPixelFormatName(format: u32): *const char
+    @lib pub fn SDL_MapRGB(
         format: *SDL_PixelFormat, r: u8, g: u8, b: u8
     ): u32
-    @lib("SDL2") pub fn SDL_MapRGBA(
+    @lib pub fn SDL_MapRGBA(
         format: *SDL_PixelFormat, r: u8, g: u8, b: u8, a: u8
     ): u32
-    @lib("SDL2") pub fn SDL_GetRGB(
+    @lib pub fn SDL_GetRGB(
         pixel: u32, format: *SDL_PixelFormat,
         r: *u8, g: *u8, b: *u8
     )
-    @lib("SDL2") pub fn SDL_GetRGBA(
+    @lib pub fn SDL_GetRGBA(
         pixel: u32, format: *SDL_PixelFormat,
         r: *u8, g: *u8, b: *u8, a: *u8
     )
@@ -186,24 +186,24 @@ pub enum BlendMode: i32 {
     /// release with `freePalette`.
     pub struct SDL_Palette {}
 
-    @lib("SDL2") pub fn SDL_AllocPalette(ncolors: i32): *SDL_Palette
-    @lib("SDL2") pub fn SDL_FreePalette(palette: *SDL_Palette)
-    @lib("SDL2") pub fn SDL_SetPaletteColors(
+    @lib pub fn SDL_AllocPalette(ncolors: i32): *SDL_Palette
+    @lib pub fn SDL_FreePalette(palette: *SDL_Palette)
+    @lib pub fn SDL_SetPaletteColors(
         palette: *SDL_Palette, colors: *const Color,
         firstcolor: i32, ncolors: i32
     ): i32
-    @lib("SDL2") pub fn SDL_SetSurfacePalette(
+    @lib pub fn SDL_SetSurfacePalette(
         surface: *SDL_Surface, palette: *SDL_Palette
     ): i32
-    @lib("SDL2") pub fn SDL_SetPixelFormatPalette(
+    @lib pub fn SDL_SetPixelFormatPalette(
         format: *SDL_PixelFormat, palette: *SDL_Palette
     ): i32
 
     // ─── format conversion ───────────────────────────────────────
-    @lib("SDL2") pub fn SDL_ConvertSurface(
+    @lib pub fn SDL_ConvertSurface(
         src: *SDL_Surface, fmt: *SDL_PixelFormat, flags: u32
     ): *SDL_Surface
-    @lib("SDL2") pub fn SDL_ConvertSurfaceFormat(
+    @lib pub fn SDL_ConvertSurfaceFormat(
         src: *SDL_Surface, pixel_format: u32, flags: u32
     ): *SDL_Surface
 
@@ -492,7 +492,7 @@ pub enum BlendMode: i32 {
     // `SDL_LoadBMP_RW` / `SDL_SaveBMP_RW`, which need an RWops to
     // wire the path through. Re-declared here under a unique name
     // so this module stays usable without `use sdl_rwops`.
-    @lib("SDL2") @symbol("SDL_RWFromFile") pub fn SDL_RWFromFileLocal(
+    @lib @symbol("SDL_RWFromFile") pub fn SDL_RWFromFileLocal(
         file: *const char, mode: *const char
     ): i64
 }

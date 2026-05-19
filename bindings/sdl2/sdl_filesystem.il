@@ -5,9 +5,9 @@
 
 use sdl_core { SDL_free }
 
-@extern(C) {
-    @lib("SDL2") pub fn SDL_GetBasePath(): *const char
-    @lib("SDL2") pub fn SDL_GetPrefPath(org: *const char, app: *const char): *const char
+@extern(C, "SDL2") {
+    @lib pub fn SDL_GetBasePath(): *const char
+    @lib pub fn SDL_GetPrefPath(org: *const char, app: *const char): *const char
 
     /// Read-only directory the program was launched from. Trails a
     /// platform-specific separator (`"/"` on Unix, `"\\"` on

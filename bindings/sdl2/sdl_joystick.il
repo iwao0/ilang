@@ -32,7 +32,7 @@ pub enum EventState: i32 {
     enabled  = 1
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL_Joystick — created by `Joystick.open(index)`,
     /// destroyed by `deinit`.
     pub struct SDL_Joystick {}
@@ -47,46 +47,46 @@ pub enum EventState: i32 {
         b: u8[16]
     }
 
-    @lib("SDL2") pub fn SDL_NumJoysticks(): i32
-    @lib("SDL2") pub fn SDL_JoystickOpen(device_index: i32): *SDL_Joystick
-    @lib("SDL2") pub fn SDL_JoystickClose(joystick: *SDL_Joystick)
-    @lib("SDL2") pub fn SDL_JoystickGetAttached(joystick: *SDL_Joystick): u8
+    @lib pub fn SDL_NumJoysticks(): i32
+    @lib pub fn SDL_JoystickOpen(device_index: i32): *SDL_Joystick
+    @lib pub fn SDL_JoystickClose(joystick: *SDL_Joystick)
+    @lib pub fn SDL_JoystickGetAttached(joystick: *SDL_Joystick): u8
 
-    @lib("SDL2") pub fn SDL_JoystickName(joystick: *SDL_Joystick): *const char
-    @lib("SDL2") pub fn SDL_JoystickNameForIndex(device_index: i32): *const char
+    @lib pub fn SDL_JoystickName(joystick: *SDL_Joystick): *const char
+    @lib pub fn SDL_JoystickNameForIndex(device_index: i32): *const char
 
-    @lib("SDL2") pub fn SDL_JoystickNumAxes(joystick: *SDL_Joystick): i32
-    @lib("SDL2") pub fn SDL_JoystickNumButtons(joystick: *SDL_Joystick): i32
-    @lib("SDL2") pub fn SDL_JoystickNumHats(joystick: *SDL_Joystick): i32
-    @lib("SDL2") pub fn SDL_JoystickNumBalls(joystick: *SDL_Joystick): i32
+    @lib pub fn SDL_JoystickNumAxes(joystick: *SDL_Joystick): i32
+    @lib pub fn SDL_JoystickNumButtons(joystick: *SDL_Joystick): i32
+    @lib pub fn SDL_JoystickNumHats(joystick: *SDL_Joystick): i32
+    @lib pub fn SDL_JoystickNumBalls(joystick: *SDL_Joystick): i32
 
-    @lib("SDL2") pub fn SDL_JoystickGetAxis(joystick: *SDL_Joystick, axis: i32): i16
-    @lib("SDL2") pub fn SDL_JoystickGetButton(joystick: *SDL_Joystick, button: i32): u8
-    @lib("SDL2") pub fn SDL_JoystickGetHat(joystick: *SDL_Joystick, hat: i32): u8
-    @lib("SDL2") pub fn SDL_JoystickGetBall(
+    @lib pub fn SDL_JoystickGetAxis(joystick: *SDL_Joystick, axis: i32): i16
+    @lib pub fn SDL_JoystickGetButton(joystick: *SDL_Joystick, button: i32): u8
+    @lib pub fn SDL_JoystickGetHat(joystick: *SDL_Joystick, hat: i32): u8
+    @lib pub fn SDL_JoystickGetBall(
         joystick: *SDL_Joystick, ball: i32, dx: *i32, dy: *i32
     ): i32
 
-    @lib("SDL2") pub fn SDL_JoystickEventState(state: i32): i32
-    @lib("SDL2") pub fn SDL_JoystickUpdate()
+    @lib pub fn SDL_JoystickEventState(state: i32): i32
+    @lib pub fn SDL_JoystickUpdate()
 
-    @lib("SDL2") pub fn SDL_JoystickRumble(
+    @lib pub fn SDL_JoystickRumble(
         joystick: *SDL_Joystick,
         low_frequency_rumble: u16, high_frequency_rumble: u16,
         duration_ms: u32
     ): i32
 
     // ─── GUID helpers ────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_JoystickGetGUID(
+    @lib pub fn SDL_JoystickGetGUID(
         joystick: *SDL_Joystick
     ): JoystickGUID
-    @lib("SDL2") pub fn SDL_JoystickGetDeviceGUID(
+    @lib pub fn SDL_JoystickGetDeviceGUID(
         device_index: i32
     ): JoystickGUID
-    @lib("SDL2") pub fn SDL_JoystickGetGUIDString(
+    @lib pub fn SDL_JoystickGetGUIDString(
         guid: JoystickGUID, pszGUID: *char, cbGUID: i32
     )
-    @lib("SDL2") pub fn SDL_JoystickGetGUIDFromString(
+    @lib pub fn SDL_JoystickGetGUIDFromString(
         pchGUID: *const char
     ): JoystickGUID
 

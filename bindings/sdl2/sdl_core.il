@@ -161,7 +161,7 @@ pub enum Hint: string {
     bmpSaveLegacyFormat               = "SDL_BMP_SAVE_LEGACY_FORMAT"
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// SDL library version triple. Mirrors C `SDL_version` (3 u8
     /// bytes, 1 byte tail padding). Filled in by `getVersion()`.
     pub struct Version {
@@ -220,89 +220,89 @@ pub enum Hint: string {
     }
 
     // ─── SDL_init.h ──────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_Init(flags: u32): i32
-    @lib("SDL2") pub fn SDL_InitSubSystem(flags: u32): i32
-    @lib("SDL2") pub fn SDL_QuitSubSystem(flags: u32)
-    @lib("SDL2") pub fn SDL_WasInit(flags: u32): u32
-    @lib("SDL2") pub fn SDL_Quit()
+    @lib pub fn SDL_Init(flags: u32): i32
+    @lib pub fn SDL_InitSubSystem(flags: u32): i32
+    @lib pub fn SDL_QuitSubSystem(flags: u32)
+    @lib pub fn SDL_WasInit(flags: u32): u32
+    @lib pub fn SDL_Quit()
 
     // ─── SDL_error.h ─────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetError(): *const char
-    @lib("SDL2") pub fn SDL_ClearError()
+    @lib pub fn SDL_GetError(): *const char
+    @lib pub fn SDL_ClearError()
     // SDL_SetError is C-variadic; accepting a single pre-formatted
     // string covers the common case (no format specifiers in the
     // payload).
-    @lib("SDL2") pub fn SDL_SetError(fmt: *const char): i32
+    @lib pub fn SDL_SetError(fmt: *const char): i32
 
     // ─── SDL_hints.h ─────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetHint(name: *const char, value: *const char): i32
-    @lib("SDL2") pub fn SDL_SetHintWithPriority(
+    @lib pub fn SDL_SetHint(name: *const char, value: *const char): i32
+    @lib pub fn SDL_SetHintWithPriority(
         name: *const char, value: *const char, priority: i32
     ): i32
-    @lib("SDL2") pub fn SDL_GetHint(name: *const char): *const char
-    @lib("SDL2") pub fn SDL_GetHintBoolean(
+    @lib pub fn SDL_GetHint(name: *const char): *const char
+    @lib pub fn SDL_GetHintBoolean(
         name: *const char, default_value: i32
     ): i32
-    @lib("SDL2") pub fn SDL_ResetHint(name: *const char): i32
-    @lib("SDL2") pub fn SDL_ResetHints()
-    @lib("SDL2") pub fn SDL_ClearHints()
+    @lib pub fn SDL_ResetHint(name: *const char): i32
+    @lib pub fn SDL_ResetHints()
+    @lib pub fn SDL_ClearHints()
 
     // ─── SDL_log.h (non-variadic subset) ─────────────────────────
-    @lib("SDL2") pub fn SDL_LogSetAllPriority(priority: i32)
-    @lib("SDL2") pub fn SDL_LogSetPriority(category: i32, priority: i32)
-    @lib("SDL2") pub fn SDL_LogGetPriority(category: i32): i32
-    @lib("SDL2") pub fn SDL_LogResetPriorities()
-    @lib("SDL2") pub fn SDL_LogMessage(
+    @lib pub fn SDL_LogSetAllPriority(priority: i32)
+    @lib pub fn SDL_LogSetPriority(category: i32, priority: i32)
+    @lib pub fn SDL_LogGetPriority(category: i32): i32
+    @lib pub fn SDL_LogResetPriorities()
+    @lib pub fn SDL_LogMessage(
         category: i32, priority: i32, fmt: *const char
     )
 
     // ─── SDL_version.h ───────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetVersion(ver: *Version)
-    @lib("SDL2") pub fn SDL_GetRevision(): *const char
+    @lib pub fn SDL_GetVersion(ver: *Version)
+    @lib pub fn SDL_GetRevision(): *const char
 
     // ─── SDL_platform.h ──────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetPlatform(): *const char
+    @lib pub fn SDL_GetPlatform(): *const char
 
     // ─── SDL_stdinc.h (allocator the C side hands ownership of) ─
     /// Some SDL APIs return a `char *` / `void *` SDL malloc'd and
     /// expects the caller to free. We mostly hide this in wrappers
     /// (copy via `stringFromCstr`, then `SDL_free`), but expose the
     /// raw fn for callers that need it directly.
-    @lib("SDL2") pub fn SDL_free(mem: *const void)
+    @lib pub fn SDL_free(mem: *const void)
 
     // ─── SDL_clipboard.h ─────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_HasClipboardText(): u8
-    @lib("SDL2") pub fn SDL_GetClipboardText(): *const char
-    @lib("SDL2") pub fn SDL_SetClipboardText(text: *const char): i32
+    @lib pub fn SDL_HasClipboardText(): u8
+    @lib pub fn SDL_GetClipboardText(): *const char
+    @lib pub fn SDL_SetClipboardText(text: *const char): i32
 
     // ─── SDL_cpuinfo.h (subset) ──────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetCPUCount(): i32
-    @lib("SDL2") pub fn SDL_GetSystemRAM(): i32
-    @lib("SDL2") pub fn SDL_GetCPUCacheLineSize(): i32
+    @lib pub fn SDL_GetCPUCount(): i32
+    @lib pub fn SDL_GetSystemRAM(): i32
+    @lib pub fn SDL_GetCPUCacheLineSize(): i32
 
     // ─── SDL_rect.h utilities ────────────────────────────────────
-    @lib("SDL2") pub fn SDL_HasIntersection(
+    @lib pub fn SDL_HasIntersection(
         a: *const Rect, b: *const Rect
     ): i32
-    @lib("SDL2") pub fn SDL_IntersectRect(
+    @lib pub fn SDL_IntersectRect(
         a: *const Rect, b: *const Rect, result: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_UnionRect(
+    @lib pub fn SDL_UnionRect(
         a: *const Rect, b: *const Rect, result: *Rect
     )
     // SDL_RectEquals and SDL_PointInRect are `static SDL_FORCE_INLINE`
     // in SDL_rect.h with no real exported symbol — we reimplement
     // them in ilang below as `rectsEqual` / `pointInRect`.
-    @lib("SDL2") pub fn SDL_EnclosePoints(
+    @lib pub fn SDL_EnclosePoints(
         points: *const Point, count: i32,
         clip: *const Rect, result: *Rect
     ): i32
 
     // ─── SDL_power.h ─────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetPowerInfo(secs: *i32, pct: *i32): i32
+    @lib pub fn SDL_GetPowerInfo(secs: *i32, pct: *i32): i32
 
     // ─── SDL_misc.h ──────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_OpenURL(url: *const char): i32
+    @lib pub fn SDL_OpenURL(url: *const char): i32
 
     // ─── SDL_locale.h ────────────────────────────────────────────
     /// SDL_Locale entry. SDL hands back a malloc'd null-terminated
@@ -312,7 +312,7 @@ pub enum Hint: string {
         language: i64   // *const char
         country:  i64   // *const char (may be 0)
     }
-    @lib("SDL2") pub fn SDL_GetPreferredLocales(): *SDL_Locale
+    @lib pub fn SDL_GetPreferredLocales(): *SDL_Locale
 
     // ─── friendlier ilang wrappers ───────────────────────────────
 

@@ -30,68 +30,68 @@ pub enum MixInitFlag: i32 {
     wavpack = 0x80
 }
 
-@extern(C) {
+@extern(C, "SDL2_mixer") {
     /// Opaque `Mix_Chunk *` — short PCM buffer (sound effects).
     pub struct Mix_Chunk {}
     /// Opaque `Mix_Music *` — streaming track (BGM).
     pub struct Mix_Music {}
 
     // ─── lifecycle ───────────────────────────────────────────────
-    @lib("SDL2_mixer") pub fn Mix_Init(flags: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_Quit()
-    @lib("SDL2_mixer") pub fn Mix_OpenAudio(
+    @lib pub fn Mix_Init(flags: i32): i32
+    @lib pub fn Mix_Quit()
+    @lib pub fn Mix_OpenAudio(
         frequency: i32, format: u16, channels: i32, chunksize: i32
     ): i32
-    @lib("SDL2_mixer") pub fn Mix_CloseAudio()
-    @lib("SDL2_mixer") pub fn Mix_AllocateChannels(numchans: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_QuerySpec(
+    @lib pub fn Mix_CloseAudio()
+    @lib pub fn Mix_AllocateChannels(numchans: i32): i32
+    @lib pub fn Mix_QuerySpec(
         frequency: *i32, format: *u16, channels: *i32
     ): i32
 
     // ─── chunk (sound-effect) lifecycle + playback ───────────────
-    @lib("SDL2_mixer") pub fn Mix_LoadWAV(file: *const char): *Mix_Chunk
-    @lib("SDL2_mixer") pub fn Mix_FreeChunk(chunk: *Mix_Chunk)
-    @lib("SDL2_mixer") pub fn Mix_PlayChannelTimed(
+    @lib pub fn Mix_LoadWAV(file: *const char): *Mix_Chunk
+    @lib pub fn Mix_FreeChunk(chunk: *Mix_Chunk)
+    @lib pub fn Mix_PlayChannelTimed(
         channel: i32, chunk: *Mix_Chunk, loops: i32, ticks: i32
     ): i32
-    @lib("SDL2_mixer") pub fn Mix_FadeInChannelTimed(
+    @lib pub fn Mix_FadeInChannelTimed(
         channel: i32, chunk: *Mix_Chunk, loops: i32,
         ms: i32, ticks: i32
     ): i32
-    @lib("SDL2_mixer") pub fn Mix_VolumeChunk(
+    @lib pub fn Mix_VolumeChunk(
         chunk: *Mix_Chunk, volume: i32
     ): i32
 
     // ─── per-channel control ─────────────────────────────────────
-    @lib("SDL2_mixer") pub fn Mix_Volume(channel: i32, volume: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_Pause(channel: i32)
-    @lib("SDL2_mixer") pub fn Mix_Resume(channel: i32)
-    @lib("SDL2_mixer") pub fn Mix_HaltChannel(channel: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_FadeOutChannel(channel: i32, ms: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_Playing(channel: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_Paused(channel: i32): i32
+    @lib pub fn Mix_Volume(channel: i32, volume: i32): i32
+    @lib pub fn Mix_Pause(channel: i32)
+    @lib pub fn Mix_Resume(channel: i32)
+    @lib pub fn Mix_HaltChannel(channel: i32): i32
+    @lib pub fn Mix_FadeOutChannel(channel: i32, ms: i32): i32
+    @lib pub fn Mix_Playing(channel: i32): i32
+    @lib pub fn Mix_Paused(channel: i32): i32
 
     // ─── music (streaming) lifecycle + playback ──────────────────
-    @lib("SDL2_mixer") pub fn Mix_LoadMUS(file: *const char): *Mix_Music
-    @lib("SDL2_mixer") pub fn Mix_FreeMusic(music: *Mix_Music)
-    @lib("SDL2_mixer") pub fn Mix_PlayMusic(music: *Mix_Music, loops: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_FadeInMusic(
+    @lib pub fn Mix_LoadMUS(file: *const char): *Mix_Music
+    @lib pub fn Mix_FreeMusic(music: *Mix_Music)
+    @lib pub fn Mix_PlayMusic(music: *Mix_Music, loops: i32): i32
+    @lib pub fn Mix_FadeInMusic(
         music: *Mix_Music, loops: i32, ms: i32
     ): i32
-    @lib("SDL2_mixer") pub fn Mix_FadeOutMusic(ms: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_VolumeMusic(volume: i32): i32
-    @lib("SDL2_mixer") pub fn Mix_PauseMusic()
-    @lib("SDL2_mixer") pub fn Mix_ResumeMusic()
-    @lib("SDL2_mixer") pub fn Mix_RewindMusic()
-    @lib("SDL2_mixer") pub fn Mix_HaltMusic(): i32
-    @lib("SDL2_mixer") pub fn Mix_PlayingMusic(): i32
-    @lib("SDL2_mixer") pub fn Mix_PausedMusic(): i32
+    @lib pub fn Mix_FadeOutMusic(ms: i32): i32
+    @lib pub fn Mix_VolumeMusic(volume: i32): i32
+    @lib pub fn Mix_PauseMusic()
+    @lib pub fn Mix_ResumeMusic()
+    @lib pub fn Mix_RewindMusic()
+    @lib pub fn Mix_HaltMusic(): i32
+    @lib pub fn Mix_PlayingMusic(): i32
+    @lib pub fn Mix_PausedMusic(): i32
 
     // ─── error reporting ─────────────────────────────────────────
     // SDL2_mixer's Mix_GetError macro calls SDL_GetError; declare
     // our own thin wrapper so the namespaced form stays available
     // alongside the existing `sdl.getError()`.
-    @lib("SDL2_mixer") @symbol("SDL_GetError") pub fn Mix_GetError(): *const char
+    @lib @symbol("SDL_GetError") pub fn Mix_GetError(): *const char
 
     /// Snapshot of the negotiated audio device parameters as
     /// returned by `Mixer.querySpec()`. Mirrors the three out-

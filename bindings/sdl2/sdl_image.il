@@ -22,34 +22,34 @@ pub enum ImgInitFlag: i32 {
     avif = 0x20
 }
 
-@extern(C) {
-    @lib("SDL2_image") pub fn IMG_Init(flags: i32): i32
-    @lib("SDL2_image") pub fn IMG_Quit()
-    @lib("SDL2_image") pub fn IMG_GetError(): *const char
+@extern(C, "SDL2_image") {
+    @lib pub fn IMG_Init(flags: i32): i32
+    @lib pub fn IMG_Quit()
+    @lib pub fn IMG_GetError(): *const char
 
     /// Load any supported image format into a fresh `SDL_Surface`.
     /// SDL2_image picks the decoder by sniffing magic bytes, then
     /// falls back to extension. Returns `*SDL_Surface` (cast to
     /// `i64`); pass through to `Texture.fromSurface` or wrap with
     /// `sdl_surface.Surface.fromHandle(...)` for ARC management.
-    @lib("SDL2_image") pub fn IMG_Load(file: *const char): i64
+    @lib pub fn IMG_Load(file: *const char): i64
 
     /// One-step "load image → upload to GPU texture". Returns
     /// `*SDL_Texture` (cast to `i64`). `renderer` is the GPU
     /// renderer the texture binds to. Caller frees with
     /// `Texture.deinit` (or by destroying the wrapping class).
-    @lib("SDL2_image") pub fn IMG_LoadTexture(
+    @lib pub fn IMG_LoadTexture(
         renderer: *SDL_Renderer, file: *const char
     ): *SDL_Texture
 
     /// Encode `surface` as a PNG.
-    @lib("SDL2_image") pub fn IMG_SavePNG(
+    @lib pub fn IMG_SavePNG(
         surface: *const void, file: *const char
     ): i32
 
     /// Encode `surface` as a JPEG. `quality` is 0..100 (libjpeg
     /// scale; `90` is a good default for general use).
-    @lib("SDL2_image") pub fn IMG_SaveJPG(
+    @lib pub fn IMG_SaveJPG(
         surface: *const void, file: *const char, quality: i32
     ): i32
 

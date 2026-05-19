@@ -33,34 +33,34 @@ pub enum SystemCursor: i32 {
     hand       = 11
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL_Cursor — created by one of the `createCursor*`
     /// fns, freed by `freeCursor`.
     pub struct SDL_Cursor {}
 
-    @lib("SDL2") pub fn SDL_GetMouseState(x: *i32, y: *i32): u32
-    @lib("SDL2") pub fn SDL_GetGlobalMouseState(x: *i32, y: *i32): u32
-    @lib("SDL2") pub fn SDL_GetRelativeMouseState(x: *i32, y: *i32): u32
-    @lib("SDL2") pub fn SDL_WarpMouseInWindow(window: *SDL_Window, x: i32, y: i32)
-    @lib("SDL2") pub fn SDL_WarpMouseGlobal(x: i32, y: i32): i32
-    @lib("SDL2") pub fn SDL_SetRelativeMouseMode(enabled: i32): i32
-    @lib("SDL2") pub fn SDL_GetRelativeMouseMode(): i32
-    @lib("SDL2") pub fn SDL_ShowCursor(toggle: i32): i32
-    @lib("SDL2") pub fn SDL_GetMouseFocus(): *void
+    @lib pub fn SDL_GetMouseState(x: *i32, y: *i32): u32
+    @lib pub fn SDL_GetGlobalMouseState(x: *i32, y: *i32): u32
+    @lib pub fn SDL_GetRelativeMouseState(x: *i32, y: *i32): u32
+    @lib pub fn SDL_WarpMouseInWindow(window: *SDL_Window, x: i32, y: i32)
+    @lib pub fn SDL_WarpMouseGlobal(x: i32, y: i32): i32
+    @lib pub fn SDL_SetRelativeMouseMode(enabled: i32): i32
+    @lib pub fn SDL_GetRelativeMouseMode(): i32
+    @lib pub fn SDL_ShowCursor(toggle: i32): i32
+    @lib pub fn SDL_GetMouseFocus(): *void
 
     // ─── cursor lifecycle ────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_CreateSystemCursor(id: i32): *SDL_Cursor
-    @lib("SDL2") pub fn SDL_CreateCursor(
+    @lib pub fn SDL_CreateSystemCursor(id: i32): *SDL_Cursor
+    @lib pub fn SDL_CreateCursor(
         data: *const u8, mask: *const u8,
         w: i32, h: i32, hot_x: i32, hot_y: i32
     ): *SDL_Cursor
-    @lib("SDL2") pub fn SDL_CreateColorCursor(
+    @lib pub fn SDL_CreateColorCursor(
         surface: *void, hot_x: i32, hot_y: i32
     ): *SDL_Cursor
-    @lib("SDL2") pub fn SDL_SetCursor(cursor: *SDL_Cursor)
-    @lib("SDL2") pub fn SDL_GetCursor(): *SDL_Cursor
-    @lib("SDL2") pub fn SDL_GetDefaultCursor(): *SDL_Cursor
-    @lib("SDL2") pub fn SDL_FreeCursor(cursor: *SDL_Cursor)
+    @lib pub fn SDL_SetCursor(cursor: *SDL_Cursor)
+    @lib pub fn SDL_GetCursor(): *SDL_Cursor
+    @lib pub fn SDL_GetDefaultCursor(): *SDL_Cursor
+    @lib pub fn SDL_FreeCursor(cursor: *SDL_Cursor)
 
     /// Namespace class for the global mouse state. All methods are
     /// `static` — there's no per-instance mouse to construct, just

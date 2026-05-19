@@ -175,7 +175,7 @@ pub enum SubSystem: u32 {
     riscos    = 14
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL handle.
     pub struct SDL_Window {}
     /// Opaque OpenGL context handle.
@@ -197,138 +197,138 @@ pub enum SubSystem: u32 {
     }
 
     // ─── window CRUD ─────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_CreateWindow(
+    @lib pub fn SDL_CreateWindow(
         title: *const char,
         x: i32, y: i32, w: i32, h: i32,
         flags: u32
     ): *SDL_Window
-    @lib("SDL2") pub fn SDL_CreateWindowFrom(data: *const void): *SDL_Window
-    @lib("SDL2") pub fn SDL_DestroyWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_GetWindowID(window: *SDL_Window): u32
-    @lib("SDL2") pub fn SDL_GetWindowFromID(id: u32): *SDL_Window
-    @lib("SDL2") pub fn SDL_GetWindowFlags(window: *SDL_Window): u32
-    @lib("SDL2") pub fn SDL_GetWindowPixelFormat(window: *SDL_Window): u32
+    @lib pub fn SDL_CreateWindowFrom(data: *const void): *SDL_Window
+    @lib pub fn SDL_DestroyWindow(window: *SDL_Window)
+    @lib pub fn SDL_GetWindowID(window: *SDL_Window): u32
+    @lib pub fn SDL_GetWindowFromID(id: u32): *SDL_Window
+    @lib pub fn SDL_GetWindowFlags(window: *SDL_Window): u32
+    @lib pub fn SDL_GetWindowPixelFormat(window: *SDL_Window): u32
 
     // ─── window title / icon ────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetWindowTitle(window: *SDL_Window, title: *const char)
-    @lib("SDL2") pub fn SDL_GetWindowTitle(window: *SDL_Window): *const char
-    @lib("SDL2") pub fn SDL_SetWindowIcon(window: *SDL_Window, icon: *SDL_Surface)
+    @lib pub fn SDL_SetWindowTitle(window: *SDL_Window, title: *const char)
+    @lib pub fn SDL_GetWindowTitle(window: *SDL_Window): *const char
+    @lib pub fn SDL_SetWindowIcon(window: *SDL_Window, icon: *SDL_Surface)
 
     // ─── geometry ────────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetWindowPosition(window: *SDL_Window, x: i32, y: i32)
-    @lib("SDL2") pub fn SDL_GetWindowPosition(window: *SDL_Window, x: *i32, y: *i32)
-    @lib("SDL2") pub fn SDL_SetWindowSize(window: *SDL_Window, w: i32, h: i32)
-    @lib("SDL2") pub fn SDL_GetWindowSize(window: *SDL_Window, w: *i32, h: *i32)
-    @lib("SDL2") pub fn SDL_GetWindowSizeInPixels(window: *SDL_Window, w: *i32, h: *i32)
-    @lib("SDL2") pub fn SDL_SetWindowMinimumSize(window: *SDL_Window, min_w: i32, min_h: i32)
-    @lib("SDL2") pub fn SDL_GetWindowMinimumSize(window: *SDL_Window, w: *i32, h: *i32)
-    @lib("SDL2") pub fn SDL_SetWindowMaximumSize(window: *SDL_Window, max_w: i32, max_h: i32)
-    @lib("SDL2") pub fn SDL_GetWindowMaximumSize(window: *SDL_Window, w: *i32, h: *i32)
-    @lib("SDL2") pub fn SDL_GetWindowBordersSize(
+    @lib pub fn SDL_SetWindowPosition(window: *SDL_Window, x: i32, y: i32)
+    @lib pub fn SDL_GetWindowPosition(window: *SDL_Window, x: *i32, y: *i32)
+    @lib pub fn SDL_SetWindowSize(window: *SDL_Window, w: i32, h: i32)
+    @lib pub fn SDL_GetWindowSize(window: *SDL_Window, w: *i32, h: *i32)
+    @lib pub fn SDL_GetWindowSizeInPixels(window: *SDL_Window, w: *i32, h: *i32)
+    @lib pub fn SDL_SetWindowMinimumSize(window: *SDL_Window, min_w: i32, min_h: i32)
+    @lib pub fn SDL_GetWindowMinimumSize(window: *SDL_Window, w: *i32, h: *i32)
+    @lib pub fn SDL_SetWindowMaximumSize(window: *SDL_Window, max_w: i32, max_h: i32)
+    @lib pub fn SDL_GetWindowMaximumSize(window: *SDL_Window, w: *i32, h: *i32)
+    @lib pub fn SDL_GetWindowBordersSize(
         window: *SDL_Window, top: *i32, left: *i32, bottom: *i32, right: *i32
     ): i32
 
     // ─── decorations / state flags ───────────────────────────────
-    @lib("SDL2") pub fn SDL_SetWindowBordered(window: *SDL_Window, bordered: i32)
-    @lib("SDL2") pub fn SDL_SetWindowResizable(window: *SDL_Window, resizable: i32)
-    @lib("SDL2") pub fn SDL_SetWindowAlwaysOnTop(window: *SDL_Window, on_top: i32)
-    @lib("SDL2") pub fn SDL_SetWindowFullscreen(window: *SDL_Window, flags: u32): i32
-    @lib("SDL2") pub fn SDL_SetWindowOpacity(window: *SDL_Window, opacity: f32): i32
-    @lib("SDL2") pub fn SDL_GetWindowOpacity(window: *SDL_Window, out: *f32): i32
+    @lib pub fn SDL_SetWindowBordered(window: *SDL_Window, bordered: i32)
+    @lib pub fn SDL_SetWindowResizable(window: *SDL_Window, resizable: i32)
+    @lib pub fn SDL_SetWindowAlwaysOnTop(window: *SDL_Window, on_top: i32)
+    @lib pub fn SDL_SetWindowFullscreen(window: *SDL_Window, flags: u32): i32
+    @lib pub fn SDL_SetWindowOpacity(window: *SDL_Window, opacity: f32): i32
+    @lib pub fn SDL_GetWindowOpacity(window: *SDL_Window, out: *f32): i32
 
     // ─── show / hide / focus / minimise / maximise ───────────────
-    @lib("SDL2") pub fn SDL_ShowWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_HideWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_RaiseWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_MaximizeWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_MinimizeWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_RestoreWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_SetWindowInputFocus(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_FlashWindow(window: *SDL_Window, operation: i32): i32
+    @lib pub fn SDL_ShowWindow(window: *SDL_Window)
+    @lib pub fn SDL_HideWindow(window: *SDL_Window)
+    @lib pub fn SDL_RaiseWindow(window: *SDL_Window)
+    @lib pub fn SDL_MaximizeWindow(window: *SDL_Window)
+    @lib pub fn SDL_MinimizeWindow(window: *SDL_Window)
+    @lib pub fn SDL_RestoreWindow(window: *SDL_Window)
+    @lib pub fn SDL_SetWindowInputFocus(window: *SDL_Window): i32
+    @lib pub fn SDL_FlashWindow(window: *SDL_Window, operation: i32): i32
     // Re-declared here so the Window class can expose a getter
     // without a cross-module @lib call. dlsym resolves both
     // declarations to the same C function.
-    @lib("SDL2") pub fn SDL_IsScreenKeyboardShown(window: *SDL_Window): i32
+    @lib pub fn SDL_IsScreenKeyboardShown(window: *SDL_Window): i32
 
     // ─── grab / capture ──────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetWindowGrab(window: *SDL_Window, grabbed: i32)
-    @lib("SDL2") pub fn SDL_GetWindowGrab(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_SetWindowKeyboardGrab(window: *SDL_Window, grabbed: i32)
-    @lib("SDL2") pub fn SDL_GetWindowKeyboardGrab(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_SetWindowMouseGrab(window: *SDL_Window, grabbed: i32)
-    @lib("SDL2") pub fn SDL_GetWindowMouseGrab(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_GetGrabbedWindow(): *SDL_Window
-    @lib("SDL2") pub fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *Rect): i32
-    @lib("SDL2") pub fn SDL_GetWindowMouseRect(window: *SDL_Window): *Rect
-    @lib("SDL2") pub fn SDL_CaptureMouse(enabled: i32): i32
+    @lib pub fn SDL_SetWindowGrab(window: *SDL_Window, grabbed: i32)
+    @lib pub fn SDL_GetWindowGrab(window: *SDL_Window): i32
+    @lib pub fn SDL_SetWindowKeyboardGrab(window: *SDL_Window, grabbed: i32)
+    @lib pub fn SDL_GetWindowKeyboardGrab(window: *SDL_Window): i32
+    @lib pub fn SDL_SetWindowMouseGrab(window: *SDL_Window, grabbed: i32)
+    @lib pub fn SDL_GetWindowMouseGrab(window: *SDL_Window): i32
+    @lib pub fn SDL_GetGrabbedWindow(): *SDL_Window
+    @lib pub fn SDL_SetWindowMouseRect(window: *SDL_Window, rect: *Rect): i32
+    @lib pub fn SDL_GetWindowMouseRect(window: *SDL_Window): *Rect
+    @lib pub fn SDL_CaptureMouse(enabled: i32): i32
 
     // ─── modal / parent ──────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetWindowModalFor(modal: *SDL_Window, parent: *SDL_Window): i32
+    @lib pub fn SDL_SetWindowModalFor(modal: *SDL_Window, parent: *SDL_Window): i32
 
     // ─── display info ────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GetWindowDisplayIndex(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_SetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
-    @lib("SDL2") pub fn SDL_GetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
-    @lib("SDL2") pub fn SDL_GetNumVideoDisplays(): i32
-    @lib("SDL2") pub fn SDL_GetDisplayName(displayIndex: i32): *const char
-    @lib("SDL2") pub fn SDL_GetDisplayBounds(displayIndex: i32, rect: *Rect): i32
-    @lib("SDL2") pub fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *Rect): i32
-    @lib("SDL2") pub fn SDL_GetDisplayDPI(
+    @lib pub fn SDL_GetWindowDisplayIndex(window: *SDL_Window): i32
+    @lib pub fn SDL_SetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
+    @lib pub fn SDL_GetWindowDisplayMode(window: *SDL_Window, mode: *SDL_DisplayMode): i32
+    @lib pub fn SDL_GetNumVideoDisplays(): i32
+    @lib pub fn SDL_GetDisplayName(displayIndex: i32): *const char
+    @lib pub fn SDL_GetDisplayBounds(displayIndex: i32, rect: *Rect): i32
+    @lib pub fn SDL_GetDisplayUsableBounds(displayIndex: i32, rect: *Rect): i32
+    @lib pub fn SDL_GetDisplayDPI(
         displayIndex: i32, ddpi: *f32, hdpi: *f32, vdpi: *f32
     ): i32
-    @lib("SDL2") pub fn SDL_GetDisplayOrientation(displayIndex: i32): i32
-    @lib("SDL2") pub fn SDL_GetNumDisplayModes(displayIndex: i32): i32
-    @lib("SDL2") pub fn SDL_GetDisplayMode(
+    @lib pub fn SDL_GetDisplayOrientation(displayIndex: i32): i32
+    @lib pub fn SDL_GetNumDisplayModes(displayIndex: i32): i32
+    @lib pub fn SDL_GetDisplayMode(
         displayIndex: i32, modeIndex: i32, mode: *SDL_DisplayMode
     ): i32
-    @lib("SDL2") pub fn SDL_GetDesktopDisplayMode(
+    @lib pub fn SDL_GetDesktopDisplayMode(
         displayIndex: i32, mode: *SDL_DisplayMode
     ): i32
-    @lib("SDL2") pub fn SDL_GetCurrentDisplayMode(
+    @lib pub fn SDL_GetCurrentDisplayMode(
         displayIndex: i32, mode: *SDL_DisplayMode
     ): i32
-    @lib("SDL2") pub fn SDL_GetClosestDisplayMode(
+    @lib pub fn SDL_GetClosestDisplayMode(
         displayIndex: i32, mode: *SDL_DisplayMode, closest: *SDL_DisplayMode
     ): *SDL_DisplayMode
 
     // ─── video subsystem ─────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_VideoInit(driver_name: *const char): i32
-    @lib("SDL2") pub fn SDL_VideoQuit()
-    @lib("SDL2") pub fn SDL_GetCurrentVideoDriver(): *const char
-    @lib("SDL2") pub fn SDL_GetVideoDriver(index: i32): *const char
-    @lib("SDL2") pub fn SDL_GetNumVideoDrivers(): i32
+    @lib pub fn SDL_VideoInit(driver_name: *const char): i32
+    @lib pub fn SDL_VideoQuit()
+    @lib pub fn SDL_GetCurrentVideoDriver(): *const char
+    @lib pub fn SDL_GetVideoDriver(index: i32): *const char
+    @lib pub fn SDL_GetNumVideoDrivers(): i32
 
     // ─── screen saver ────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_EnableScreenSaver()
-    @lib("SDL2") pub fn SDL_DisableScreenSaver()
-    @lib("SDL2") pub fn SDL_IsScreenSaverEnabled(): i32
+    @lib pub fn SDL_EnableScreenSaver()
+    @lib pub fn SDL_DisableScreenSaver()
+    @lib pub fn SDL_IsScreenSaverEnabled(): i32
 
     // ─── window surface (software path) ──────────────────────────
-    @lib("SDL2") pub fn SDL_GetWindowSurface(window: *SDL_Window): *SDL_Surface
-    @lib("SDL2") pub fn SDL_HasWindowSurface(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_DestroyWindowSurface(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_UpdateWindowSurface(window: *SDL_Window): i32
-    @lib("SDL2") pub fn SDL_UpdateWindowSurfaceRects(
+    @lib pub fn SDL_GetWindowSurface(window: *SDL_Window): *SDL_Surface
+    @lib pub fn SDL_HasWindowSurface(window: *SDL_Window): i32
+    @lib pub fn SDL_DestroyWindowSurface(window: *SDL_Window): i32
+    @lib pub fn SDL_UpdateWindowSurface(window: *SDL_Window): i32
+    @lib pub fn SDL_UpdateWindowSurfaceRects(
         window: *SDL_Window, rects: *Rect, numrects: i32
     ): i32
 
     // ─── OpenGL ──────────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GL_LoadLibrary(path: *const char): i32
-    @lib("SDL2") pub fn SDL_GL_UnloadLibrary()
-    @lib("SDL2") pub fn SDL_GL_GetProcAddress(proc: *const char): *void
-    @lib("SDL2") pub fn SDL_GL_ExtensionSupported(extension: *const char): i32
-    @lib("SDL2") pub fn SDL_GL_ResetAttributes()
-    @lib("SDL2") pub fn SDL_GL_SetAttribute(attr: i32, value: i32): i32
-    @lib("SDL2") pub fn SDL_GL_GetAttribute(attr: i32, value: *i32): i32
-    @lib("SDL2") pub fn SDL_GL_CreateContext(window: *SDL_Window): *SDL_GLContext
-    @lib("SDL2") pub fn SDL_GL_MakeCurrent(window: *SDL_Window, context: *SDL_GLContext): i32
-    @lib("SDL2") pub fn SDL_GL_GetCurrentWindow(): *SDL_Window
-    @lib("SDL2") pub fn SDL_GL_GetCurrentContext(): *SDL_GLContext
-    @lib("SDL2") pub fn SDL_GL_GetDrawableSize(window: *SDL_Window, w: *i32, h: *i32)
-    @lib("SDL2") pub fn SDL_GL_SetSwapInterval(interval: i32): i32
-    @lib("SDL2") pub fn SDL_GL_GetSwapInterval(): i32
-    @lib("SDL2") pub fn SDL_GL_SwapWindow(window: *SDL_Window)
-    @lib("SDL2") pub fn SDL_GL_DeleteContext(context: *SDL_GLContext)
+    @lib pub fn SDL_GL_LoadLibrary(path: *const char): i32
+    @lib pub fn SDL_GL_UnloadLibrary()
+    @lib pub fn SDL_GL_GetProcAddress(proc: *const char): *void
+    @lib pub fn SDL_GL_ExtensionSupported(extension: *const char): i32
+    @lib pub fn SDL_GL_ResetAttributes()
+    @lib pub fn SDL_GL_SetAttribute(attr: i32, value: i32): i32
+    @lib pub fn SDL_GL_GetAttribute(attr: i32, value: *i32): i32
+    @lib pub fn SDL_GL_CreateContext(window: *SDL_Window): *SDL_GLContext
+    @lib pub fn SDL_GL_MakeCurrent(window: *SDL_Window, context: *SDL_GLContext): i32
+    @lib pub fn SDL_GL_GetCurrentWindow(): *SDL_Window
+    @lib pub fn SDL_GL_GetCurrentContext(): *SDL_GLContext
+    @lib pub fn SDL_GL_GetDrawableSize(window: *SDL_Window, w: *i32, h: *i32)
+    @lib pub fn SDL_GL_SetSwapInterval(interval: i32): i32
+    @lib pub fn SDL_GL_GetSwapInterval(): i32
+    @lib pub fn SDL_GL_SwapWindow(window: *SDL_Window)
+    @lib pub fn SDL_GL_DeleteContext(context: *SDL_GLContext)
 
     // ─── shaped windows (SDL_shape.h) ────────────────────────────
     //
@@ -390,17 +390,17 @@ pub enum SubSystem: u32 {
         }
     }
 
-    @lib("SDL2") pub fn SDL_CreateShapedWindow(
+    @lib pub fn SDL_CreateShapedWindow(
         title: *const char,
         x: u32, y: u32, w: u32, h: u32,
         flags: u32
     ): *SDL_Window
-    @lib("SDL2") pub fn SDL_IsShapedWindow(window: *SDL_Window): u8
-    @lib("SDL2") pub fn SDL_SetWindowShape(
+    @lib pub fn SDL_IsShapedWindow(window: *SDL_Window): u8
+    @lib pub fn SDL_SetWindowShape(
         window: *SDL_Window, shape: *SDL_Surface,
         shape_mode: *WindowShapeMode
     ): i32
-    @lib("SDL2") pub fn SDL_GetShapedWindowMode(
+    @lib pub fn SDL_GetShapedWindowMode(
         window: *SDL_Window, shape_mode: *WindowShapeMode
     ): i32
 
@@ -443,7 +443,7 @@ pub enum SubSystem: u32 {
         _padTail: u8[216]
     }
 
-    @lib("SDL2") pub fn SDL_GetWindowWMInfo(
+    @lib pub fn SDL_GetWindowWMInfo(
         window: *SDL_Window, info: *SysWMinfo
     ): u8
 

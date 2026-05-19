@@ -300,26 +300,26 @@ pub enum KeyMod: u16 {
     gui     = 0x0C00  // LGUI | RGUI
 }
 
-@extern(C) {
-    @lib("SDL2") pub fn SDL_GetKeyboardState(numkeys: *i32): *const u8
-    @lib("SDL2") pub fn SDL_GetModState(): u16
-    @lib("SDL2") pub fn SDL_SetModState(modstate: u16)
-    @lib("SDL2") pub fn SDL_GetKeyFromScancode(scancode: i32): i32
-    @lib("SDL2") pub fn SDL_GetScancodeFromKey(key: i32): i32
-    @lib("SDL2") pub fn SDL_GetScancodeName(scancode: i32): *const char
-    @lib("SDL2") pub fn SDL_GetScancodeFromName(name: *const char): i32
-    @lib("SDL2") pub fn SDL_GetKeyName(key: i32): *const char
-    @lib("SDL2") pub fn SDL_GetKeyFromName(name: *const char): i32
-    @lib("SDL2") pub fn SDL_StartTextInput()
-    @lib("SDL2") pub fn SDL_IsTextInputActive(): i32
-    @lib("SDL2") pub fn SDL_StopTextInput()
-    @lib("SDL2") pub fn SDL_ClearComposition()
-    @lib("SDL2") pub fn SDL_IsTextInputShown(): i32
-    @lib("SDL2") pub fn SDL_HasScreenKeyboardSupport(): i32
-    @lib("SDL2") pub fn SDL_ResetKeyboard()
-    @lib("SDL2") pub fn SDL_SetTextInputRect(rect: *Rect)
-    @lib("SDL2") pub fn SDL_IsScreenKeyboardShown(window: *void): i32
-    @lib("SDL2") pub fn SDL_GetKeyboardFocus(): *void
+@extern(C, "SDL2") {
+    @lib pub fn SDL_GetKeyboardState(numkeys: *i32): *const u8
+    @lib pub fn SDL_GetModState(): u16
+    @lib pub fn SDL_SetModState(modstate: u16)
+    @lib pub fn SDL_GetKeyFromScancode(scancode: i32): i32
+    @lib pub fn SDL_GetScancodeFromKey(key: i32): i32
+    @lib pub fn SDL_GetScancodeName(scancode: i32): *const char
+    @lib pub fn SDL_GetScancodeFromName(name: *const char): i32
+    @lib pub fn SDL_GetKeyName(key: i32): *const char
+    @lib pub fn SDL_GetKeyFromName(name: *const char): i32
+    @lib pub fn SDL_StartTextInput()
+    @lib pub fn SDL_IsTextInputActive(): i32
+    @lib pub fn SDL_StopTextInput()
+    @lib pub fn SDL_ClearComposition()
+    @lib pub fn SDL_IsTextInputShown(): i32
+    @lib pub fn SDL_HasScreenKeyboardSupport(): i32
+    @lib pub fn SDL_ResetKeyboard()
+    @lib pub fn SDL_SetTextInputRect(rect: *Rect)
+    @lib pub fn SDL_IsScreenKeyboardShown(window: *void): i32
+    @lib pub fn SDL_GetKeyboardFocus(): *void
 
     /// Polled keyboard state with rising / falling edge detection.
     ///

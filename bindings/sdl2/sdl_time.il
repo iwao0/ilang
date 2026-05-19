@@ -81,17 +81,17 @@ pub enum PeepAction: i32 {
     get  = 2   // copy and remove
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     // ─── timer ───────────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_Delay(ms: u32)
-    @lib("SDL2") pub fn SDL_GetTicks(): u32
-    @lib("SDL2") pub fn SDL_GetTicks64(): u64
-    @lib("SDL2") pub fn SDL_GetPerformanceCounter(): u64
-    @lib("SDL2") pub fn SDL_GetPerformanceFrequency(): u64
-    @lib("SDL2") pub fn SDL_AddTimer(
+    @lib pub fn SDL_Delay(ms: u32)
+    @lib pub fn SDL_GetTicks(): u32
+    @lib pub fn SDL_GetTicks64(): u64
+    @lib pub fn SDL_GetPerformanceCounter(): u64
+    @lib pub fn SDL_GetPerformanceFrequency(): u64
+    @lib pub fn SDL_AddTimer(
         interval: u32, callback: *const void, param: *const void
     ): i32
-    @lib("SDL2") pub fn SDL_RemoveTimer(id: i32): i32
+    @lib pub fn SDL_RemoveTimer(id: i32): i32
 
     // ─── event queue ─────────────────────────────────────────────
     /// `Event` is a union spanning every event type. The actual
@@ -105,21 +105,21 @@ pub enum PeepAction: i32 {
         _pad: u8[84]
     }
 
-    @lib("SDL2") pub fn SDL_PumpEvents()
-    @lib("SDL2") pub fn SDL_PollEvent(event: *Event): i32
-    @lib("SDL2") pub fn SDL_WaitEvent(event: *Event): i32
-    @lib("SDL2") pub fn SDL_WaitEventTimeout(event: *Event, timeout: i32): i32
-    @lib("SDL2") pub fn SDL_PeepEvents(
+    @lib pub fn SDL_PumpEvents()
+    @lib pub fn SDL_PollEvent(event: *Event): i32
+    @lib pub fn SDL_WaitEvent(event: *Event): i32
+    @lib pub fn SDL_WaitEventTimeout(event: *Event, timeout: i32): i32
+    @lib pub fn SDL_PeepEvents(
         events: *Event, numevents: i32, action: i32,
         minType: u32, maxType: u32
     ): i32
-    @lib("SDL2") pub fn SDL_RegisterEvents(numevents: i32): u32
-    @lib("SDL2") pub fn SDL_PushEvent(event: *Event): i32
-    @lib("SDL2") pub fn SDL_HasEvent(eventType: u32): i32
-    @lib("SDL2") pub fn SDL_HasEvents(min_type: u32, max_type: u32): i32
-    @lib("SDL2") pub fn SDL_FlushEvent(eventType: u32)
-    @lib("SDL2") pub fn SDL_FlushEvents(min_type: u32, max_type: u32)
-    @lib("SDL2") pub fn SDL_EventState(eventType: u32, state: i32): u8
+    @lib pub fn SDL_RegisterEvents(numevents: i32): u32
+    @lib pub fn SDL_PushEvent(event: *Event): i32
+    @lib pub fn SDL_HasEvent(eventType: u32): i32
+    @lib pub fn SDL_HasEvents(min_type: u32, max_type: u32): i32
+    @lib pub fn SDL_FlushEvent(eventType: u32)
+    @lib pub fn SDL_FlushEvents(min_type: u32, max_type: u32)
+    @lib pub fn SDL_EventState(eventType: u32, state: i32): u8
     // SDL_GetEventState is a macro in SDL_events.h
     // (`#define SDL_GetEventState(t) SDL_EventState(t, SDL_QUERY)`),
     // not a real symbol — wrap via SDL_EventState below.

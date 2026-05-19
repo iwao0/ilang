@@ -19,12 +19,12 @@ pub enum MessageBoxFlag: u32 {
     buttonsRightToLeft = 0x00000100
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Raw SDL2 binding. Most callers want
     /// `showSimpleMessageBox(...)` (Window-typed) instead — this
     /// stays public so power users can pass a raw window pointer
     /// (`0` for "system-modal, no parent").
-    @lib("SDL2") pub fn SDL_ShowSimpleMessageBox(
+    @lib pub fn SDL_ShowSimpleMessageBox(
         flags: u32, title: *const char, message: *const char,
         window: *void
     ): i32

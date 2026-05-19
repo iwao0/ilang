@@ -1619,6 +1619,26 @@ Top-level only. The only attribute the block accepts is
 @lib functions inside the block (host-form bare functions are an
 exception).
 
+##### `@extern(C, "libname", ...)` — block-level default library
+
+When every `fn` inside the block resolves through the same
+library, opt into the block-level default form so individual
+`@lib("name")` annotations collapse to bare `@lib`:
+
+```rust
+@extern(C, "SDL2") {
+    @lib pub fn SDL_Init(flags: u32): i32     // → "SDL2"
+    @lib pub fn SDL_Quit()                    // → "SDL2"
+    @lib("c") pub fn time(t: i64): i64        // per-fn override
+}
+```
+
+Trailing string args after `C` become the default library list;
+a bare `@lib` (no args) on a fn picks them up. A `@lib("other")`
+attribute still wins per-fn. This is the same shape that
+`@extern(ObjC, "path", ...)` already accepts for framework
+paths.
+
 #### Items allowed inside the block
 
 - **`fn declaration`** — external function call via dlsym /
@@ -1655,9 +1675,9 @@ exception).
   `os` / `test` modules are wired and isn't a path user code
   needs.
 
-  > A `@extern(C, "libname")` shorthand was once on the table but
-  > was withdrawn — `@lib(...)` stays as the single way to bind
-  > a native function.
+  > The `@extern(C, "libname", ...)` block-level default
+  > documented above lets you collapse the repeated `@lib("name")`
+  > down to bare `@lib`. Per-fn `@lib("other")` still wins.
 - **`@optional`** — a missing library or symbol no longer fails
   JIT build; the function instead binds to a stub that aborts on
   call. Programs guard with `os.libLoaded(name): bool` before

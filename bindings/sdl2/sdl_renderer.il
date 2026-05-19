@@ -82,7 +82,7 @@ pub enum RendererFlip: i32 {
     vertical   = 0x00000002
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque renderer handle.
     pub struct SDL_Renderer {}
     /// Opaque texture handle.
@@ -115,160 +115,160 @@ pub enum RendererFlip: i32 {
     }
 
     // ─── driver / renderer lifecycle ──────────────────────────────
-    @lib("SDL2") pub fn SDL_GetNumRenderDrivers(): i32
-    @lib("SDL2") pub fn SDL_GetRenderDriverInfo(
+    @lib pub fn SDL_GetNumRenderDrivers(): i32
+    @lib pub fn SDL_GetRenderDriverInfo(
         index: i32, info: *SDL_RendererInfo
     ): i32
-    @lib("SDL2") pub fn SDL_CreateWindowAndRenderer(
+    @lib pub fn SDL_CreateWindowAndRenderer(
         width: i32, height: i32, window_flags: u32,
         window: **void, renderer: **SDL_Renderer
     ): i32
-    @lib("SDL2") pub fn SDL_CreateRenderer(
+    @lib pub fn SDL_CreateRenderer(
         window: *void, index: i32, flags: u32
     ): *SDL_Renderer
-    @lib("SDL2") pub fn SDL_CreateSoftwareRenderer(surface: *void): *SDL_Renderer
-    @lib("SDL2") pub fn SDL_GetRenderer(window: *void): *SDL_Renderer
-    @lib("SDL2") pub fn SDL_RenderGetWindow(renderer: *SDL_Renderer): *void
-    @lib("SDL2") pub fn SDL_GetRendererInfo(
+    @lib pub fn SDL_CreateSoftwareRenderer(surface: *void): *SDL_Renderer
+    @lib pub fn SDL_GetRenderer(window: *void): *SDL_Renderer
+    @lib pub fn SDL_RenderGetWindow(renderer: *SDL_Renderer): *void
+    @lib pub fn SDL_GetRendererInfo(
         renderer: *SDL_Renderer, info: *SDL_RendererInfo
     ): i32
-    @lib("SDL2") pub fn SDL_GetRendererOutputSize(
+    @lib pub fn SDL_GetRendererOutputSize(
         renderer: *SDL_Renderer, w: *i32, h: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_DestroyRenderer(renderer: *SDL_Renderer)
-    @lib("SDL2") pub fn SDL_RenderFlush(renderer: *SDL_Renderer): i32
+    @lib pub fn SDL_DestroyRenderer(renderer: *SDL_Renderer)
+    @lib pub fn SDL_RenderFlush(renderer: *SDL_Renderer): i32
 
     // ─── texture lifecycle / metadata ─────────────────────────────
-    @lib("SDL2") pub fn SDL_CreateTexture(
+    @lib pub fn SDL_CreateTexture(
         renderer: *SDL_Renderer,
         format: u32, access: i32,
         w: i32, h: i32
     ): *SDL_Texture
-    @lib("SDL2") pub fn SDL_CreateTextureFromSurface(
+    @lib pub fn SDL_CreateTextureFromSurface(
         renderer: *SDL_Renderer, surface: *void
     ): *SDL_Texture
-    @lib("SDL2") pub fn SDL_QueryTexture(
+    @lib pub fn SDL_QueryTexture(
         tex: *SDL_Texture,
         format: *u32, access: *i32, w: *i32, h: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_DestroyTexture(tex: *SDL_Texture)
+    @lib pub fn SDL_DestroyTexture(tex: *SDL_Texture)
 
-    @lib("SDL2") pub fn SDL_SetTextureColorMod(
+    @lib pub fn SDL_SetTextureColorMod(
         tex: *SDL_Texture, r: u8, g: u8, b: u8
     ): i32
-    @lib("SDL2") pub fn SDL_GetTextureColorMod(
+    @lib pub fn SDL_GetTextureColorMod(
         tex: *SDL_Texture, r: *u8, g: *u8, b: *u8
     ): i32
-    @lib("SDL2") pub fn SDL_SetTextureAlphaMod(
+    @lib pub fn SDL_SetTextureAlphaMod(
         tex: *SDL_Texture, alpha: u8
     ): i32
-    @lib("SDL2") pub fn SDL_GetTextureAlphaMod(
+    @lib pub fn SDL_GetTextureAlphaMod(
         tex: *SDL_Texture, alpha: *u8
     ): i32
-    @lib("SDL2") pub fn SDL_SetTextureBlendMode(
+    @lib pub fn SDL_SetTextureBlendMode(
         tex: *SDL_Texture, blendMode: i32
     ): i32
-    @lib("SDL2") pub fn SDL_GetTextureBlendMode(
+    @lib pub fn SDL_GetTextureBlendMode(
         tex: *SDL_Texture, blendMode: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_SetTextureScaleMode(
+    @lib pub fn SDL_SetTextureScaleMode(
         tex: *SDL_Texture, scaleMode: i32
     ): i32
-    @lib("SDL2") pub fn SDL_GetTextureScaleMode(
+    @lib pub fn SDL_GetTextureScaleMode(
         tex: *SDL_Texture, scaleMode: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_SetTextureUserData(
+    @lib pub fn SDL_SetTextureUserData(
         tex: *SDL_Texture, userdata: *void
     ): i32
-    @lib("SDL2") pub fn SDL_GetTextureUserData(tex: *SDL_Texture): *void
+    @lib pub fn SDL_GetTextureUserData(tex: *SDL_Texture): *void
 
-    @lib("SDL2") pub fn SDL_UpdateTexture(
+    @lib pub fn SDL_UpdateTexture(
         tex: *SDL_Texture, rect: *Rect,
         pixels: *const void, pitch: i32
     ): i32
-    @lib("SDL2") pub fn SDL_UpdateYUVTexture(
+    @lib pub fn SDL_UpdateYUVTexture(
         tex: *SDL_Texture, rect: *Rect,
         Yplane: *const u8, Ypitch: i32,
         Uplane: *const u8, Upitch: i32,
         Vplane: *const u8, Vpitch: i32
     ): i32
-    @lib("SDL2") pub fn SDL_UpdateNVTexture(
+    @lib pub fn SDL_UpdateNVTexture(
         tex: *SDL_Texture, rect: *Rect,
         Yplane: *const u8, Ypitch: i32,
         UVplane: *const u8, UVpitch: i32
     ): i32
-    @lib("SDL2") pub fn SDL_LockTexture(
+    @lib pub fn SDL_LockTexture(
         tex: *SDL_Texture, rect: *Rect,
         pixels: **void, pitch: *i32
     ): i32
-    @lib("SDL2") pub fn SDL_LockTextureToSurface(
+    @lib pub fn SDL_LockTextureToSurface(
         tex: *SDL_Texture, rect: *Rect, surface: **void
     ): i32
-    @lib("SDL2") pub fn SDL_UnlockTexture(tex: *SDL_Texture)
+    @lib pub fn SDL_UnlockTexture(tex: *SDL_Texture)
 
     // ─── render target / logical size / viewport / clip / scale ──
-    @lib("SDL2") pub fn SDL_RenderTargetSupported(
+    @lib pub fn SDL_RenderTargetSupported(
         renderer: *SDL_Renderer
     ): i32
-    @lib("SDL2") pub fn SDL_SetRenderTarget(
+    @lib pub fn SDL_SetRenderTarget(
         renderer: *SDL_Renderer, tex: *SDL_Texture
     ): i32
-    @lib("SDL2") pub fn SDL_GetRenderTarget(
+    @lib pub fn SDL_GetRenderTarget(
         renderer: *SDL_Renderer
     ): *SDL_Texture
 
-    @lib("SDL2") pub fn SDL_RenderSetLogicalSize(
+    @lib pub fn SDL_RenderSetLogicalSize(
         renderer: *SDL_Renderer, w: i32, h: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGetLogicalSize(
+    @lib pub fn SDL_RenderGetLogicalSize(
         renderer: *SDL_Renderer, w: *i32, h: *i32
     )
-    @lib("SDL2") pub fn SDL_RenderSetIntegerScale(
+    @lib pub fn SDL_RenderSetIntegerScale(
         renderer: *SDL_Renderer, enable: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGetIntegerScale(
+    @lib pub fn SDL_RenderGetIntegerScale(
         renderer: *SDL_Renderer
     ): i32
-    @lib("SDL2") pub fn SDL_RenderSetViewport(
+    @lib pub fn SDL_RenderSetViewport(
         renderer: *SDL_Renderer, rect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGetViewport(
+    @lib pub fn SDL_RenderGetViewport(
         renderer: *SDL_Renderer, rect: *Rect
     )
-    @lib("SDL2") pub fn SDL_RenderSetClipRect(
+    @lib pub fn SDL_RenderSetClipRect(
         renderer: *SDL_Renderer, rect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGetClipRect(
+    @lib pub fn SDL_RenderGetClipRect(
         renderer: *SDL_Renderer, rect: *Rect
     )
-    @lib("SDL2") pub fn SDL_RenderIsClipEnabled(
+    @lib pub fn SDL_RenderIsClipEnabled(
         renderer: *SDL_Renderer
     ): i32
-    @lib("SDL2") pub fn SDL_RenderSetScale(
+    @lib pub fn SDL_RenderSetScale(
         renderer: *SDL_Renderer, scaleX: f32, scaleY: f32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGetScale(
+    @lib pub fn SDL_RenderGetScale(
         renderer: *SDL_Renderer, scaleX: *f32, scaleY: *f32
     )
-    @lib("SDL2") pub fn SDL_RenderWindowToLogical(
+    @lib pub fn SDL_RenderWindowToLogical(
         renderer: *SDL_Renderer,
         windowX: i32, windowY: i32,
         logicalX: *f32, logicalY: *f32
     )
-    @lib("SDL2") pub fn SDL_RenderLogicalToWindow(
+    @lib pub fn SDL_RenderLogicalToWindow(
         renderer: *SDL_Renderer,
         logicalX: f32, logicalY: f32,
         windowX: *i32, windowY: *i32
     )
 
     // ─── draw colour / blend mode ─────────────────────────────────
-    @lib("SDL2") pub fn SDL_SetRenderDrawColor(
+    @lib pub fn SDL_SetRenderDrawColor(
         renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8
     ): i32
-    @lib("SDL2") pub fn SDL_GetRenderDrawColor(
+    @lib pub fn SDL_GetRenderDrawColor(
         renderer: *SDL_Renderer, r: *u8, g: *u8, b: *u8, a: *u8
     ): i32
-    @lib("SDL2") pub fn SDL_SetRenderDrawBlendMode(
+    @lib pub fn SDL_SetRenderDrawBlendMode(
         renderer: *SDL_Renderer, blendMode: i32
     ): i32
     /// `SDL_ComposeCustomBlendMode` — assemble a custom blend mode
@@ -276,93 +276,93 @@ pub enum RendererFlip: i32 {
     /// the same `SDL_BlendMode` slot used by `setBlendMode` /
     /// `setSurfaceBlendMode`. Use this when the four canned modes
     /// (none / blend / add / mod / mul) don't match what you want.
-    @lib("SDL2") pub fn SDL_ComposeCustomBlendMode(
+    @lib pub fn SDL_ComposeCustomBlendMode(
         srcColorFactor: i32, dstColorFactor: i32, colorOperation: i32,
         srcAlphaFactor: i32, dstAlphaFactor: i32, alphaOperation: i32
     ): i32
 
-    @lib("SDL2") pub fn SDL_GetRenderDrawBlendMode(
+    @lib pub fn SDL_GetRenderDrawBlendMode(
         renderer: *SDL_Renderer, blendMode: *i32
     ): i32
 
     // ─── primitive draw / fill (integer coords) ───────────────────
-    @lib("SDL2") pub fn SDL_RenderClear(renderer: *SDL_Renderer): i32
-    @lib("SDL2") pub fn SDL_RenderDrawPoint(
+    @lib pub fn SDL_RenderClear(renderer: *SDL_Renderer): i32
+    @lib pub fn SDL_RenderDrawPoint(
         renderer: *SDL_Renderer, x: i32, y: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawPoints(
+    @lib pub fn SDL_RenderDrawPoints(
         renderer: *SDL_Renderer, points: *const Point, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawLine(
+    @lib pub fn SDL_RenderDrawLine(
         renderer: *SDL_Renderer, x1: i32, y1: i32, x2: i32, y2: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawLines(
+    @lib pub fn SDL_RenderDrawLines(
         renderer: *SDL_Renderer, points: *const Point, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawRect(
+    @lib pub fn SDL_RenderDrawRect(
         renderer: *SDL_Renderer, rect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawRects(
+    @lib pub fn SDL_RenderDrawRects(
         renderer: *SDL_Renderer, rects: *const Rect, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderFillRect(
+    @lib pub fn SDL_RenderFillRect(
         renderer: *SDL_Renderer, rect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderFillRects(
+    @lib pub fn SDL_RenderFillRects(
         renderer: *SDL_Renderer, rects: *const Rect, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderCopy(
+    @lib pub fn SDL_RenderCopy(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         srcrect: *Rect, dstrect: *Rect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderCopyEx(
+    @lib pub fn SDL_RenderCopyEx(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         srcrect: *Rect, dstrect: *Rect,
         angle: f64, center: *const Point, flip: i32
     ): i32
 
     // ─── primitive draw / fill (float coords) ─────────────────────
-    @lib("SDL2") pub fn SDL_RenderDrawPointF(
+    @lib pub fn SDL_RenderDrawPointF(
         renderer: *SDL_Renderer, x: f32, y: f32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawPointsF(
+    @lib pub fn SDL_RenderDrawPointsF(
         renderer: *SDL_Renderer, points: *const FPoint, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawLineF(
+    @lib pub fn SDL_RenderDrawLineF(
         renderer: *SDL_Renderer, x1: f32, y1: f32, x2: f32, y2: f32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawLinesF(
+    @lib pub fn SDL_RenderDrawLinesF(
         renderer: *SDL_Renderer, points: *const FPoint, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawRectF(
+    @lib pub fn SDL_RenderDrawRectF(
         renderer: *SDL_Renderer, rect: *const FRect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderDrawRectsF(
+    @lib pub fn SDL_RenderDrawRectsF(
         renderer: *SDL_Renderer, rects: *const FRect, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderFillRectF(
+    @lib pub fn SDL_RenderFillRectF(
         renderer: *SDL_Renderer, rect: *const FRect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderFillRectsF(
+    @lib pub fn SDL_RenderFillRectsF(
         renderer: *SDL_Renderer, rects: *const FRect, count: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderCopyF(
+    @lib pub fn SDL_RenderCopyF(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         srcrect: *Rect, dstrect: *const FRect
     ): i32
-    @lib("SDL2") pub fn SDL_RenderCopyExF(
+    @lib pub fn SDL_RenderCopyExF(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         srcrect: *Rect, dstrect: *const FRect,
         angle: f64, center: *const FPoint, flip: i32
     ): i32
 
     // ─── geometry / read-back / present ───────────────────────────
-    @lib("SDL2") pub fn SDL_RenderGeometry(
+    @lib pub fn SDL_RenderGeometry(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         vertices: *const Vertex, num_vertices: i32,
         indices: *const i32, num_indices: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderGeometryRaw(
+    @lib pub fn SDL_RenderGeometryRaw(
         renderer: *SDL_Renderer, tex: *SDL_Texture,
         xy: *const f32, xy_stride: i32,
         color: *const Color, color_stride: i32,
@@ -370,24 +370,24 @@ pub enum RendererFlip: i32 {
         num_vertices: i32,
         indices: *const void, num_indices: i32, size_indices: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderReadPixels(
+    @lib pub fn SDL_RenderReadPixels(
         renderer: *SDL_Renderer, rect: *Rect,
         format: u32, pixels: *void, pitch: i32
     ): i32
-    @lib("SDL2") pub fn SDL_RenderPresent(renderer: *SDL_Renderer)
+    @lib pub fn SDL_RenderPresent(renderer: *SDL_Renderer)
 
     // ─── platform / GL / Metal / VSync ───────────────────────────
-    @lib("SDL2") pub fn SDL_GL_BindTexture(
+    @lib pub fn SDL_GL_BindTexture(
         tex: *SDL_Texture, texw: *f32, texh: *f32
     ): i32
-    @lib("SDL2") pub fn SDL_GL_UnbindTexture(tex: *SDL_Texture): i32
-    @lib("SDL2") pub fn SDL_RenderGetMetalLayer(
+    @lib pub fn SDL_GL_UnbindTexture(tex: *SDL_Texture): i32
+    @lib pub fn SDL_RenderGetMetalLayer(
         renderer: *SDL_Renderer
     ): *void
-    @lib("SDL2") pub fn SDL_RenderGetMetalCommandEncoder(
+    @lib pub fn SDL_RenderGetMetalCommandEncoder(
         renderer: *SDL_Renderer
     ): *void
-    @lib("SDL2") pub fn SDL_RenderSetVSync(
+    @lib pub fn SDL_RenderSetVSync(
         renderer: *SDL_Renderer, vsync: i32
     ): i32
 

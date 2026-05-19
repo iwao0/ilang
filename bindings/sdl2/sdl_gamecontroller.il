@@ -56,39 +56,39 @@ pub enum ControllerType: i32 {
     nintendoSwitchJoyConPair  = 13
 }
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL handle.
     pub struct SDL_GameController {}
 
-    @lib("SDL2") pub fn SDL_IsGameController(joystick_index: i32): i32
-    @lib("SDL2") pub fn SDL_GameControllerOpen(joystick_index: i32): *SDL_GameController
-    @lib("SDL2") pub fn SDL_GameControllerClose(controller: *SDL_GameController)
-    @lib("SDL2") pub fn SDL_GameControllerGetAxis(
+    @lib pub fn SDL_IsGameController(joystick_index: i32): i32
+    @lib pub fn SDL_GameControllerOpen(joystick_index: i32): *SDL_GameController
+    @lib pub fn SDL_GameControllerClose(controller: *SDL_GameController)
+    @lib pub fn SDL_GameControllerGetAxis(
         controller: *SDL_GameController, axis: i32
     ): i16
-    @lib("SDL2") pub fn SDL_GameControllerGetButton(
+    @lib pub fn SDL_GameControllerGetButton(
         controller: *SDL_GameController, button: i32
     ): u8
     // ─── identification ──────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GameControllerName(
+    @lib pub fn SDL_GameControllerName(
         controller: *SDL_GameController
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerNameForIndex(
+    @lib pub fn SDL_GameControllerNameForIndex(
         joystick_index: i32
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerGetAttached(
+    @lib pub fn SDL_GameControllerGetAttached(
         controller: *SDL_GameController
     ): u8
     /// Returns the underlying `SDL_Joystick *` as an opaque
     /// pointer — callers that need the raw joystick API cast it to
     /// `*sdl_joystick.SDL_Joystick`.
-    @lib("SDL2") pub fn SDL_GameControllerGetJoystick(
+    @lib pub fn SDL_GameControllerGetJoystick(
         controller: *SDL_GameController
     ): *void
-    @lib("SDL2") pub fn SDL_GameControllerGetType(
+    @lib pub fn SDL_GameControllerGetType(
         controller: *SDL_GameController
     ): i32
-    @lib("SDL2") pub fn SDL_GameControllerGetSerial(
+    @lib pub fn SDL_GameControllerGetSerial(
         controller: *SDL_GameController
     ): *const char
 
@@ -96,56 +96,56 @@ pub enum ControllerType: i32 {
     // The two `Mapping*` getters return malloc'd strings the caller
     // must `SDL_free` — wrappers below copy through `stringFromCstr`
     // and free the source so callers see plain ilang strings.
-    @lib("SDL2") pub fn SDL_GameControllerMapping(
+    @lib pub fn SDL_GameControllerMapping(
         controller: *SDL_GameController
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerMappingForIndex(
+    @lib pub fn SDL_GameControllerMappingForIndex(
         joystick_index: i32
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerAddMapping(mapping: *const char): i32
-    @lib("SDL2") pub fn SDL_GameControllerNumMappings(): i32
+    @lib pub fn SDL_GameControllerAddMapping(mapping: *const char): i32
+    @lib pub fn SDL_GameControllerNumMappings(): i32
 
     // ─── capability probes ───────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GameControllerHasButton(
+    @lib pub fn SDL_GameControllerHasButton(
         controller: *SDL_GameController, button: i32
     ): u8
-    @lib("SDL2") pub fn SDL_GameControllerHasAxis(
+    @lib pub fn SDL_GameControllerHasAxis(
         controller: *SDL_GameController, axis: i32
     ): u8
-    @lib("SDL2") pub fn SDL_GameControllerHasRumble(
+    @lib pub fn SDL_GameControllerHasRumble(
         controller: *SDL_GameController
     ): u8
 
     // ─── event delivery + manual update ──────────────────────────
-    @lib("SDL2") pub fn SDL_GameControllerEventState(state: i32): i32
-    @lib("SDL2") pub fn SDL_GameControllerUpdate()
+    @lib pub fn SDL_GameControllerEventState(state: i32): i32
+    @lib pub fn SDL_GameControllerUpdate()
 
     // ─── rumble / LED ────────────────────────────────────────────
-    @lib("SDL2") pub fn SDL_GameControllerRumble(
+    @lib pub fn SDL_GameControllerRumble(
         controller: *SDL_GameController,
         low_frequency_rumble: u16, high_frequency_rumble: u16,
         duration_ms: u32
     ): i32
-    @lib("SDL2") pub fn SDL_GameControllerRumbleTriggers(
+    @lib pub fn SDL_GameControllerRumbleTriggers(
         controller: *SDL_GameController,
         left_rumble: u16, right_rumble: u16,
         duration_ms: u32
     ): i32
-    @lib("SDL2") pub fn SDL_GameControllerSetLED(
+    @lib pub fn SDL_GameControllerSetLED(
         controller: *SDL_GameController, red: u8, green: u8, blue: u8
     ): i32
 
     // ─── enum ↔ string helpers ───────────────────────────────────
-    @lib("SDL2") pub fn SDL_GameControllerGetStringForAxis(
+    @lib pub fn SDL_GameControllerGetStringForAxis(
         axis: i32
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerGetStringForButton(
+    @lib pub fn SDL_GameControllerGetStringForButton(
         button: i32
     ): *const char
-    @lib("SDL2") pub fn SDL_GameControllerGetAxisFromString(
+    @lib pub fn SDL_GameControllerGetAxisFromString(
         s: *const char
     ): i32
-    @lib("SDL2") pub fn SDL_GameControllerGetButtonFromString(
+    @lib pub fn SDL_GameControllerGetButtonFromString(
         s: *const char
     ): i32
 

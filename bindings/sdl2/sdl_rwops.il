@@ -5,22 +5,22 @@
 // because real users of this binding always go through one of
 // the loader fns that consume the RWops in one shot.
 
-@extern(C) {
+@extern(C, "SDL2") {
     /// Opaque SDL_RWops. Created via `RWops.fromFile(...)` /
     /// `RWops.fromMem(...)` and freed by the class's `deinit`
     /// (or by a loader that took ownership — see `release()`).
     pub struct SDL_RWops {}
 
-    @lib("SDL2") pub fn SDL_RWFromFile(
+    @lib pub fn SDL_RWFromFile(
         file: *const char, mode: *const char
     ): *SDL_RWops
-    @lib("SDL2") pub fn SDL_RWFromConstMem(
+    @lib pub fn SDL_RWFromConstMem(
         mem: *const void, size: i32
     ): *SDL_RWops
-    @lib("SDL2") pub fn SDL_RWFromMem(
+    @lib pub fn SDL_RWFromMem(
         mem: *const void, size: i32
     ): *SDL_RWops
-    @lib("SDL2") pub fn SDL_RWclose(context: *SDL_RWops): i32
+    @lib pub fn SDL_RWclose(context: *SDL_RWops): i32
 
     /// ARC-managed `SDL_RWops`. Construct via the static factories
     /// (`RWops.fromFile` / `RWops.fromConstMem` / `RWops.fromMem`);
