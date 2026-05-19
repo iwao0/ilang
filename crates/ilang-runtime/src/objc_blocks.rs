@@ -29,10 +29,13 @@
 //! refcount so the closure outlives the block when ObjC's
 //! `Block_copy` snapshots us for later invocation.
 
+#[cfg(target_os = "macos")]
 use std::ffi::c_void;
 
+#[cfg(target_os = "macos")]
 use crate::alloc::{__mir_alloc, __mir_free};
 
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct BlockLayout {
     isa: *mut c_void,
@@ -44,6 +47,7 @@ struct BlockLayout {
     closure: i64,
 }
 
+#[cfg(target_os = "macos")]
 #[repr(C)]
 struct BlockDescriptor {
     reserved: usize,
@@ -71,46 +75,58 @@ unsafe extern "C" {
     fn objc_autorelease(obj: *mut c_void) -> *mut c_void;
 }
 
+#[cfg(target_os = "macos")]
 const BLOCK_NEEDS_FREE: i32 = 1 << 24;
+#[cfg(target_os = "macos")]
 const BLOCK_HAS_COPY_DISPOSE: i32 = 1 << 25;
+#[cfg(target_os = "macos")]
 const BLOCK_HAS_SIGNATURE: i32 = 1 << 30;
 // `rc = 1` lives in bits 1..16 (bit 0 is the deallocating flag).
+#[cfg(target_os = "macos")]
 const BLOCK_RC_ONE: i32 = 1 << 1;
 
 // `void(^)(void)` — encoding: "v8@?0" → return void, total args 8 bytes,
 // arg 0 is the block itself (type `@?` for "block id"). Apple's
 // runtime checks the size prefix loosely; the encoding matters for
 // NSMethodSignature-based introspection.
+#[cfg(target_os = "macos")]
 static VOID_VOID_SIGNATURE: &[u8] = b"v8@?0\0";
 // `void(^)(id)` — block + one id arg = 16 bytes total. `@8` says
 // the second arg is an id starting at offset 8 in the arg frame.
+#[cfg(target_os = "macos")]
 static VOID_OBJ_SIGNATURE: &[u8] = b"v16@?0@8\0";
 // `id(^)(id)` — return id, block + id args.
+#[cfg(target_os = "macos")]
 static OBJ_TO_OBJ_SIGNATURE: &[u8] = b"@16@?0@8\0";
 // `void(^)(void *, size_t)` — block + raw bytes pointer + length.
 // Used by `SKMutableTexture.modifyPixelDataWithBlock:` and the
 // like. Arg-frame layout: block@0 (8B), pointer@8 (8B), length@16
 // (8B) = 24B total. `^v` is `void *`; `Q` is `unsigned long long`
 // (size_t on 64-bit).
+#[cfg(target_os = "macos")]
 static VOID_BYTES_SIGNATURE: &[u8] = b"v24@?0^v8Q16\0";
 // `void(^)(id, id, id)` — block + three `id` arguments. Total arg
 // frame: block@0 (8B), a@8 (8B), b@16 (8B), c@24 (8B) = 32B. Used
 // by `NSURLSession`'s `dataTaskWithRequest:completionHandler:`
 // family where the callback receives (NSData *, NSURLResponse *,
 // NSError *).
+#[cfg(target_os = "macos")]
 static VOID_THREE_OBJ_SIGNATURE: &[u8] = b"v32@?0@8@16@24\0";
 // `void(^)(BOOL)` — `c` is `signed char` (Objective-C's BOOL is a
 // signed char on macOS x86_64 and a `_Bool` (i8) on arm64; the
 // encoding is `c` either way for the size 1, signed slot). Block
 // + BOOL = 9 bytes nominally, padded to 16 in the arg frame.
+#[cfg(target_os = "macos")]
 static VOID_BOOL_SIGNATURE: &[u8] = b"v16@?0c8\0";
 // `void(^)(id, id)` — block + two id args = 24 bytes total.
 // Identical calling convention to `void(^)(void *, size_t)` but
 // the NSMethodSignature encoding correctly says "id, id" so any
 // receiver that introspects (NSInvocation etc.) sees the right
 // argument kinds.
+#[cfg(target_os = "macos")]
 static VOID_TWO_OBJ_SIGNATURE: &[u8] = b"v24@?0@8@16\0";
 
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
         return;
@@ -133,6 +149,7 @@ extern "C" fn invoke_void_block(b: *mut BlockLayout) {
 /// `fn(arg: i64): i64` — receives a raw `id` and returns a raw
 /// `id` (or 0 for nil). Same env-is-last calling convention as
 /// `invoke_obj_block`.
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_obj_to_obj_block(b: *mut BlockLayout, arg: i64) -> i64 {
     if b.is_null() {
         return 0;
@@ -155,6 +172,7 @@ extern "C" fn invoke_obj_to_obj_block(b: *mut BlockLayout, arg: i64) -> i64 {
 /// Note the calling convention: ilang's lifted closure fn takes
 /// `(user_args..., env)` — env is the *last* clif param, not the
 /// first (see ilang-mir-codegen's lower_function `env_value`).
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_obj_block(b: *mut BlockLayout, arg: i64) {
     if b.is_null() {
         return;
@@ -177,6 +195,7 @@ extern "C" fn invoke_obj_block(b: *mut BlockLayout, arg: i64) {
 /// callback writes pixel data into the texture's backing store
 /// in-place; the user reaches for `readU8` / `writeU8` etc. to
 /// poke individual bytes.
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
     if b.is_null() {
         return;
@@ -203,6 +222,7 @@ extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
 /// of `invoke_void_bytes_block` but is paired with the
 /// `(id, id)` ObjC signature so introspection sees the right
 /// arg kinds.
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_void_two_obj_block(b: *mut BlockLayout, a: i64, c: i64) {
     if b.is_null() {
         return;
@@ -222,6 +242,7 @@ extern "C" fn invoke_void_two_obj_block(b: *mut BlockLayout, a: i64, c: i64) {
 /// `fn(b: bool): unit`. ObjC's BOOL is a signed char on
 /// macOS, which Rust models as `bool` (1-byte i8). The lifted
 /// closure trailing-env signature is `(bool, i64)`.
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_void_bool_block(b: *mut BlockLayout, val: bool) {
     if b.is_null() {
         return;
@@ -237,6 +258,7 @@ extern "C" fn invoke_void_bool_block(b: *mut BlockLayout, val: bool) {
     }
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn invoke_void_three_obj_block(
     b: *mut BlockLayout, a: i64, c: i64, d: i64,
 ) {
@@ -254,6 +276,7 @@ extern "C" fn invoke_void_three_obj_block(
     }
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn copy_helper(dst: *mut c_void, src: *const c_void) {
     let src_b = src as *const BlockLayout;
     let dst_b = dst as *mut BlockLayout;
@@ -269,6 +292,7 @@ extern "C" fn copy_helper(dst: *mut c_void, src: *const c_void) {
     }
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn dispose_helper(src: *const c_void) {
     let src_b = src as *const BlockLayout;
     let closure_ptr = unsafe { (*src_b).closure };
@@ -295,9 +319,12 @@ extern "C" fn dispose_helper(src: *const c_void) {
 // Static descriptors — `BlockDescriptor`'s raw signature pointer
 // doesn't implement `Sync`, so wrap them. The pointers are
 // read-only across threads, so the wrapper is safe in practice.
+#[cfg(target_os = "macos")]
 struct DescriptorBox(BlockDescriptor);
+#[cfg(target_os = "macos")]
 unsafe impl Sync for DescriptorBox {}
 
+#[cfg(target_os = "macos")]
 static VOID_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -306,6 +333,7 @@ static VOID_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: VOID_VOID_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -314,6 +342,7 @@ static OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: VOID_OBJ_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static OBJ_TO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -322,6 +351,7 @@ static OBJ_TO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: OBJ_TO_OBJ_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static VOID_BYTES_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -330,6 +360,7 @@ static VOID_BYTES_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: VOID_BYTES_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static VOID_THREE_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -338,6 +369,7 @@ static VOID_THREE_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor 
     signature: VOID_THREE_OBJ_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static VOID_BOOL_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
@@ -346,6 +378,7 @@ static VOID_BOOL_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     signature: VOID_BOOL_SIGNATURE.as_ptr(),
 });
 
+#[cfg(target_os = "macos")]
 static VOID_TWO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     reserved: 0,
     size: std::mem::size_of::<BlockLayout>(),
