@@ -17,7 +17,7 @@ use crate::inst::{FuncId, FuncRef, Inst, ValueId};
 use crate::types::MirTy;
 
 use super::utils::retain_if_heap;
-use super::{BodyCx, LowerError};
+use super::{BodyCx, FnSig, LowerError};
 
 /// Cascade `KIND_*` tag for a MirTy. Mirrors the codegen-side
 /// `print_kind::kind_tag_of`. Used by Promise codegen to tell
@@ -113,15 +113,32 @@ impl<'a> BodyCx<'a> {
                 }
             })
             .ok_or_else(|| LowerError::Other(format!("unknown class {class}")))?;
-        let meta = self.class_meta.get(&class_id).expect("class meta");
 
         // The mangle pass writes the chosen init's mangled name into
         // `init_method` when init is overloaded. Otherwise look up
         // `init` (which exists for non-overloaded inits, and also for
         // the no-init "synthetic" case below).
         let init_lookup = init_method.unwrap_or_else(|| Symbol::intern("init"));
-        let init_id = meta.method_ids.get(&init_lookup).copied();
-        let init_sig = meta.method_sigs.get(&init_lookup).cloned();
+        // Walk the parent chain so an inherited `__bind_handle` (or
+        // any inherited init helper) resolves even when this class's
+        // own `declare_class_methods` hasn't run yet — declaration
+        // order between siblings inside a folder-binding can put a
+        // `new <sibling>(...) with __bind_handle` body lowering ahead
+        // of the sibling's method-inheritance pass.
+        let (init_id, init_sig) = {
+            let mut cur = Some(class_id);
+            let mut found: (Option<FuncId>, Option<FnSig>) = (None, None);
+            while let Some(c) = cur {
+                let m = self.class_meta.get(&c).expect("class meta");
+                if let Some(&fid) = m.method_ids.get(&init_lookup) {
+                    let sig = m.method_sigs.get(&init_lookup).cloned();
+                    found = (Some(fid), sig);
+                    break;
+                }
+                cur = self.classes[c.0 as usize].parent;
+            }
+            found
+        };
 
         // Lower constructor args.
         let mut arg_vals = Vec::with_capacity(args.len());
