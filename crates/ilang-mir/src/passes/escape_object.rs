@@ -21,7 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::inst::{FuncId, Inst, LocalId, ValueId};
+use crate::inst::{FuncId, FuncRef, Inst, LocalId, ValueId};
 use crate::program::{FunctionKind, Program};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -322,6 +322,22 @@ fn check_inst_escape(
         // function call (the whole point of the by-value ABI).
         // Reference-typed args (ArcObject, Array, Map, etc.) still
         // leak as before.
+        //
+        // EXCEPTION: a small set of host builtins stash the raw
+        // pointer of their arg in a persistent slot keyed by index
+        // (e.g. `__repl_store_slot(idx, value)` writes `value` into
+        // a global Vec for later loads in another fn / chunk). A
+        // stack-promoted CRepr struct passed there would survive
+        // until __main exits, but ANY later load would dereference
+        // a dangling stack address. Treat those builtins specially
+        // and leak every arg unconditionally.
+        Call { callee: FuncRef::Builtin(sym), args, .. }
+            if matches!(sym.as_str(), "__repl_store_slot")
+        => {
+            for a in args.iter() {
+                leak(a);
+            }
+        }
         Call { args, .. } => {
             for a in args.iter() {
                 if arg_passed_by_value(func.ty_of(*a), prog) {

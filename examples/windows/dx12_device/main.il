@@ -11,8 +11,9 @@
 //   3. ID3D12CommandQueue::Release                vtable +16
 //   4. ID3D12Device::Release                      vtable +16
 //
-// IIDs come from `bindings/directx12/d3d12.il` as fns (`IID_ID3D12Device()`,
-// `IID_ID3D12CommandQueue()`) so the user code never has to retype
+// IIDs come from `bindings/directx12/d3d12_iids.il` as `pub const`
+// values (`IID_ID3D12Device`, `IID_ID3D12CommandQueue`) so user code
+// never has to retype
 // {189819f1-…} octets.  Same shape as the Windows SDK convention of
 // shipping pre-defined `IID_*` symbols in `dxguid.lib`.
 
@@ -89,7 +90,7 @@ use directx12 {
         let rc = D3D12CreateDevice(
             0 as *void,
             D3DFeatureLevel.level_11_0 as u32,
-            IID_ID3D12Device(),
+            IID_ID3D12Device,
             &device
         )
 
@@ -107,7 +108,7 @@ use directx12 {
                 NodeMask: 0,
             }
             let queue: *void = 0 as *void
-            let qhr = createQueue(device as i64, queueDesc, IID_ID3D12CommandQueue(), &queue)
+            let qhr = createQueue(device as i64, queueDesc, IID_ID3D12CommandQueue, &queue)
 
             if qhr == 0 {
                 // ── (3) Release queue (vtable +16) ───────────────
@@ -154,17 +155,11 @@ run()
 
 // ─── First-pass writing rough edges (revisited) ─────────────────
 //
-// 1. ✓ IID literal verbosity — SOLVED by `IID_ID3D12Device()` etc.
-//    in the bindings. User code calls the function; the GUID octets
-//    live exactly once in `bindings/directx12/d3d12.il`, mirroring
-//    the C SDK convention (`#include <d3d12.h>` + `dxguid.lib`).
-//
-//    The natural form would be a top-level `pub const`:
-//        pub const IID_ID3D12Device: GUID = GUID { ... }
-//    but ilang's MIR codegen for top-level CRepr-struct consts
-//    currently miscounts call arguments ("got 3, expected 2"). The
-//    fn-returning-GUID workaround compiles cleanly and produces the
-//    same value at every call site.
+// 1. ✓ IID literal verbosity — SOLVED by `pub const IID_ID3D12Device:
+//    GUID = …` constants in `bindings/directx12/d3d12_iids.il`.
+//    User code references the constant by name; the GUID octets live
+//    exactly once in the bindings, mirroring the C SDK convention
+//    (`#include <d3d12.h>` + `dxguid.lib`).
 //
 // 2. Vtable offsets as bare integers.
 //    `+16`, `+64`, … still carry no semantic info. An auto-generated

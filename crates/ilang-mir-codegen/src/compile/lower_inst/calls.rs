@@ -110,7 +110,12 @@ pub(super) fn lower_call<M: Module>(
         }
         // Builtins don't take CRepr struct args by the chunk path —
         // any threshold works, pick the C one defensively.
-        _ => (None, false, false, super::super::abi::C_BYVAL_CHUNK_MAX),
+        FuncRef::Builtin(_) => {
+            (None, false, true, super::super::abi::C_BYVAL_CHUNK_MAX)
+        }
+        FuncRef::Extern { .. } => {
+            (None, false, false, super::super::abi::C_BYVAL_CHUNK_MAX)
+        }
     };
     // sret: pre-alloc the destination struct and pass its pointer
     // as the hidden first arg. Triggered when the callee returns a
