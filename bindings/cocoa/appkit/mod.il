@@ -13,3 +13,7 @@ pub use menu.*
 pub use panels.*
 pub use workspace.*
 pub use event.*
+pub use table.*
+pub use toolbar.*
+pub use drawing.*
+pub use gestures.*
