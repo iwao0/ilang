@@ -1,0 +1,6 @@
+[package]
+name = "directx12_test"
+
+[deps]
+directx12 = ".."
+windows = "../../windows"
