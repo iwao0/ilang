@@ -146,24 +146,6 @@ impl TypeChecker {
             if g.base.as_str() == "ObjCBlock" && g.args.len() == 1 {
                 if let Type::Fn(ft) = &g.args[0] {
                     if method.as_str() == "invoke" {
-                        // For now only void-returning blocks are
-                        // callable via `.invoke(...)` — the i64-
-                        // returning variant needs a way for MIR
-                        // to distinguish the obj / obj-to-obj
-                        // kinds without re-running the type
-                        // checker, which isn't wired yet.
-                        if ft.ret != Type::Unit {
-                            return Err(TypeError::Unsupported {
-                                what: format!(
-                                    "calling an ObjCBlock<fn(...): {}> with .invoke(...) \
-                                     is not yet supported (only void-returning blocks); \
-                                     use the raw __ilang_invoke_obj_to_obj_block runtime \
-                                     helper",
-                                    ft.ret
-                                ),
-                                span,
-                            });
-                        }
                         if args.len() != ft.params.len() {
                             return Err(TypeError::ArityMismatch {
                                 name: method.clone(),
@@ -183,6 +165,21 @@ impl TypeChecker {
                                     span: args[i].span,
                                 });
                             }
+                        }
+                        // i64-returning blocks need to dispatch to
+                        // the obj-to-obj runtime invoker; mark the
+                        // span so the mangler can rewrite the
+                        // method name (MIR doesn't see the
+                        // ObjCBlock<fn(...): R> type since the
+                        // receiver lowers to plain MirTy::I64).
+                        // Only the `(i64) -> i64` shape is
+                        // currently bound in the runtime; other
+                        // i64-returning shapes still error out at
+                        // MIR.
+                        if ft.ret != Type::Unit {
+                            self.objc_invoke_obj_to_obj_spans
+                                .borrow_mut()
+                                .insert(span);
                         }
                         return Ok(ft.ret.clone());
                     }

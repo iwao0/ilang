@@ -43,6 +43,7 @@ pub fn mangle_overloads(
     picks: &HashMap<Span, (Symbol, usize)>,
     method_picks: &HashMap<Span, (Symbol, Symbol, usize)>,
     default_fills: &HashMap<Span, Vec<Expr>>,
+    objc_invoke_obj_to_obj_spans: &HashSet<Span>,
 ) -> Program {
     // 1. Group Item::Fn entries by source name to see which ones are
     //    actually overloaded.
@@ -90,7 +91,11 @@ pub fn mangle_overloads(
         .map(|(k, _)| k.clone())
         .collect();
 
-    if overloaded.is_empty() && overloaded_methods.is_empty() && default_fills.is_empty() {
+    if overloaded.is_empty()
+        && overloaded_methods.is_empty()
+        && default_fills.is_empty()
+        && objc_invoke_obj_to_obj_spans.is_empty()
+    {
         return prog;
     }
 
@@ -161,6 +166,7 @@ pub fn mangle_overloads(
         picks,
         method_picks,
         default_fills,
+        objc_invoke_obj_to_obj_spans,
     };
 
     // 3. Rewrite Items: rename matching FnDecls + class methods;
@@ -194,6 +200,12 @@ struct Ctx<'a> {
     /// default expressions appended to the call's args during this
     /// rewrite. Empty for calls without missing trailing args.
     default_fills: &'a HashMap<Span, Vec<Expr>>,
+    /// `block.invoke(...)` spans where the receiver is
+    /// `ObjCBlock<fn(...): id>`. Rewriting the method symbol to
+    /// `__invokeIdToId` lets MIR's `lower_method_call` route to
+    /// the obj-to-obj runtime invoker without seeing the
+    /// receiver's full Type.
+    objc_invoke_obj_to_obj_spans: &'a HashSet<Span>,
 }
 
 fn param_types(f: &FnDecl) -> Vec<Type> {
@@ -442,6 +454,17 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                 }
             } else {
                 method
+            };
+            // ObjCBlock<fn(...): id>.invoke(...) — rename so MIR
+            // routes to the obj-to-obj runtime invoker. The
+            // typechecker recorded only the i64-returning sites,
+            // so void-returning `.invoke` keeps its name.
+            let new_method = if new_method.as_str() == "invoke"
+                && ctx.objc_invoke_obj_to_obj_spans.contains(&span)
+            {
+                Symbol::intern("__invokeIdToId")
+            } else {
+                new_method
             };
             let mut new_args: Vec<Expr> =
                 Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();

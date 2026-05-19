@@ -370,6 +370,7 @@ pub(super) fn lower_call<M: Module>(
                 "make_objc_block" => Some(panic_aux.make_objc_block),
                 "invoke_void_block" => Some(panic_aux.invoke_void_block),
                 "invoke_obj_block" => Some(panic_aux.invoke_obj_block),
+                "invoke_obj_to_obj_block" => Some(panic_aux.invoke_obj_to_obj_block),
                 "invoke_void_bytes_block" => Some(panic_aux.invoke_void_bytes_block),
                 "invoke_void_three_obj_block" => {
                     Some(panic_aux.invoke_void_three_obj_block)

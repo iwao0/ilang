@@ -192,6 +192,8 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
         sig.params.push(AbiParam::new(types::I64));
         module.declare_function("__ilang_invoke_obj_block", Linkage::Import, &sig)?
     };
+    let invoke_obj_to_obj_block_id =
+        declare_binary_i64(module, "__ilang_invoke_obj_to_obj_block")?;
     let invoke_void_bytes_block_id = {
         let mut sig = module.make_signature();
         sig.params.push(AbiParam::new(types::I64));
@@ -740,6 +742,7 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 make_objc_block: make_objc_block_id,
                 invoke_void_block: invoke_void_block_id,
                 invoke_obj_block: invoke_obj_block_id,
+                invoke_obj_to_obj_block: invoke_obj_to_obj_block_id,
                 invoke_void_bytes_block: invoke_void_bytes_block_id,
                 invoke_void_three_obj_block: invoke_void_three_obj_block_id,
                 invoke_void_bool_block: invoke_void_bool_block_id,

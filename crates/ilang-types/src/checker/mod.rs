@@ -415,6 +415,14 @@ pub struct TypeChecker {
     /// `(class_name, method_name, sig_idx)`. Includes both regular
     /// MethodCall sites and the `init` resolved at `new C(args)`.
     pub(super) method_overload_pick: std::cell::RefCell<HashMap<Span, (Symbol, Symbol, usize)>>,
+    /// Per-MethodCall-span set marking `block.invoke(...)` calls
+    /// whose receiver is `ObjCBlock<fn(...): id>` (i.e. returns
+    /// an i64). The mangler rewrites the method symbol on these
+    /// spans to a distinct internal name so MIR can dispatch to
+    /// the obj-to-obj runtime invoker without re-running the
+    /// type checker. Inserted by check_method_call's ObjCBlock
+    /// branch when R is an i64-ish type.
+    pub(super) objc_invoke_obj_to_obj_spans: std::cell::RefCell<HashSet<Span>>,
     /// Stack of currently-open loops, with the kind that controls
     /// whether `break v` is allowed and the accumulated break-value
     /// type so a `loop { ... break v }` expression can take the type of
@@ -598,6 +606,16 @@ impl TypeChecker {
     /// rewrite `MethodCall.method` and `New.init_method`.
     pub fn method_overload_picks(&self) -> HashMap<Span, (Symbol, Symbol, usize)> {
         self.method_overload_pick.borrow().clone()
+    }
+
+    /// Set of `block.invoke(...)` call-site spans whose receiver is
+    /// `ObjCBlock<fn(...): id>`. The mangler reads this to rewrite
+    /// `.invoke` → `.__invokeIdToId` so MIR can dispatch to the
+    /// obj-to-obj invoker; for void-returning blocks the method
+    /// name is left as `invoke` and the obj / void_bytes / etc.
+    /// invokers handle them.
+    pub fn objc_invoke_obj_to_obj_spans(&self) -> HashSet<Span> {
+        self.objc_invoke_obj_to_obj_spans.borrow().clone()
     }
 
     /// Map of `loop` expression span → the loop's result type (the

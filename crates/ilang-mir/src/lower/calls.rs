@@ -426,7 +426,9 @@ impl<'a> BodyCx<'a> {
         // signatures so the dispatch is purely a function of the
         // lowered arg shapes. New shapes append, matching the
         // `BlockKind` table in `ilang_runtime::objc_blocks`.
-        if method.as_str() == "invoke" && matches!(oty, MirTy::I64) {
+        if (method.as_str() == "invoke" || method.as_str() == "__invokeIdToId")
+            && matches!(oty, MirTy::I64)
+        {
             // Suppress this fast-path for non-ObjCBlock i64 obj —
             // the type checker only routes ObjCBlock.invoke here
             // (other i64 receivers don't expose `invoke` as a
@@ -438,29 +440,53 @@ impl<'a> BodyCx<'a> {
                 arg_vs.push(v);
                 arg_tys.push(t);
             }
-            let builtin = match arg_tys.as_slice() {
-                [] => Some("invoke_void_block"),
-                [MirTy::I64] => Some("invoke_obj_block"),
-                [MirTy::I64, MirTy::I64] => Some("invoke_void_bytes_block"),
-                [MirTy::I64, MirTy::I64, MirTy::I64] => Some("invoke_void_three_obj_block"),
-                [MirTy::Bool] => Some("invoke_void_bool_block"),
-                _ => None,
+            // The mangler tagged i64-returning invokes with a
+            // distinct method name so MIR can pick the obj-to-obj
+            // runtime invoker (`__ilang_invoke_obj_to_obj_block`,
+            // returns i64). The void-returning fast-paths keep the
+            // original `invoke` name.
+            let returns_id = method.as_str() == "__invokeIdToId";
+            let builtin = if returns_id {
+                match arg_tys.as_slice() {
+                    [MirTy::I64] => Some("invoke_obj_to_obj_block"),
+                    _ => None,
+                }
+            } else {
+                match arg_tys.as_slice() {
+                    [] => Some("invoke_void_block"),
+                    [MirTy::I64] => Some("invoke_obj_block"),
+                    [MirTy::I64, MirTy::I64] => Some("invoke_void_bytes_block"),
+                    [MirTy::I64, MirTy::I64, MirTy::I64] => {
+                        Some("invoke_void_three_obj_block")
+                    }
+                    [MirTy::Bool] => Some("invoke_void_bool_block"),
+                    _ => None,
+                }
             };
             if let Some(name) = builtin {
                 let mut call_args: Vec<ValueId> = Vec::with_capacity(arg_vs.len() + 1);
                 call_args.push(ov);
                 call_args.extend(arg_vs);
-                self.fb.push_inst(Inst::Call {
-                    dst: None,
-                    callee: FuncRef::Builtin(Symbol::intern(name)),
-                    args: call_args.into_boxed_slice(),
-                });
-                return Ok((self.const_unit(), MirTy::Unit));
+                if returns_id {
+                    let dst = self.fb.new_value(MirTy::I64);
+                    self.fb.push_inst(Inst::Call {
+                        dst: Some(dst),
+                        callee: FuncRef::Builtin(Symbol::intern(name)),
+                        args: call_args.into_boxed_slice(),
+                    });
+                    return Ok((dst, MirTy::I64));
+                } else {
+                    self.fb.push_inst(Inst::Call {
+                        dst: None,
+                        callee: FuncRef::Builtin(Symbol::intern(name)),
+                        args: call_args.into_boxed_slice(),
+                    });
+                    return Ok((self.const_unit(), MirTy::Unit));
+                }
             }
             return Err(LowerError::Other(format!(
                 "ObjCBlock.invoke(...) signature not yet supported: \
-                 expected one of (), (i64), (i64, i64), (i64, i64, i64), \
-                 (bool); got {:?}",
+                 returns_id={returns_id}, args={:?}",
                 arg_tys
             )));
         }

@@ -208,6 +208,17 @@ impl<'a> BodyCx<'a> {
                                 .into(),
                         ));
                     };
+                    // True when a MirTy is an `id`-shaped slot
+                    // (NSObject subclass instance or its Optional
+                    // wrapper). Both lower to a single i64 handle
+                    // at the C ABI level but the ObjC encoding
+                    // string differs — `@` for id vs `^v` for
+                    // void*.
+                    fn is_id_shaped(t: &MirTy) -> bool {
+                        matches!(t, MirTy::Object(_))
+                            || matches!(t, MirTy::Optional(inner)
+                                if matches!(inner.as_ref(), MirTy::Object(_)))
+                    }
                     let kind: i64 = match (ft.params.as_ref(), &ft.ret) {
                         ([], MirTy::Unit) => 0,
                         ([MirTy::I64], MirTy::Unit) => 1,
@@ -215,12 +226,14 @@ impl<'a> BodyCx<'a> {
                         ([MirTy::I64, MirTy::I64], MirTy::Unit) => 3,
                         ([MirTy::I64, MirTy::I64, MirTy::I64], MirTy::Unit) => 4,
                         ([MirTy::Bool], MirTy::Unit) => 5,
+                        ([a, b], MirTy::Unit)
+                            if is_id_shaped(a) && is_id_shaped(b) => 6,
                         _ => {
                             return Err(LowerError::Other(format!(
                                 "new ObjCBlock(...) signature not yet supported: \
                                  expected one of fn(), fn(i64), fn(i64): i64, \
-                                 fn(i64, i64), fn(i64, i64, i64), fn(bool); \
-                                 got {:?} -> {:?}",
+                                 fn(i64, i64), fn(i64, i64, i64), fn(bool), \
+                                 fn(id-shaped, id-shaped); got {:?} -> {:?}",
                                 ft.params, ft.ret
                             )));
                         }

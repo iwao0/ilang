@@ -37,22 +37,20 @@ use network { NSURL }
         @objc("setSuggestedName:")
         pub set suggestedName(s: NSString)
 
-        // `loadItemForTypeIdentifier:options:completionHandler:` and
-        // `loadDataRepresentationForTypeIdentifier:completionHandler:`
-        // take a `void(^)(id, NSError *)` block — i.e. two `id`
-        // arguments. The runtime's currently bound 2-arg block
-        // trampoline targets `void(^)(void *, size_t)` instead, so
-        // a typed `ObjCBlock<fn(i64, i64)>` here would carry the
-        // wrong NSMethodSignature when ObjC introspects the block.
-        // Leave the raw `handler: i64` shape until a `(id, id)`
-        // trampoline is added to `ilang_runtime::objc_blocks`.
+        // Both completion handlers receive `(id, NSError *)`. The
+        // ObjCBlock typed slot uses `(NSObject?, NSError?)` so MIR
+        // picks the `(id, id)`-encoded trampoline; pass a closure
+        // whose params are NSObject-typed (raw `fn(i64, i64)` would
+        // dispatch to the `(void *, size_t)` shape instead — wrong
+        // NSMethodSignature).
         @objc("loadItemForTypeIdentifier:options:completionHandler:")
         pub loadItemForTypeIdentifier(
-            uti: NSString, options: NSDictionary, completionHandler: i64
+            uti: NSString, options: NSDictionary,
+            completionHandler: ObjCBlock<fn(NSObject?, NSError?)>
         )
         @objc("loadDataRepresentationForTypeIdentifier:completionHandler:")
         pub loadDataRepresentationForTypeIdentifier(
-            uti: NSString, completionHandler: i64
+            uti: NSString, completionHandler: ObjCBlock<fn(NSData?, NSError?)>
         )
     }
 
@@ -79,7 +77,7 @@ use network { NSURL }
         @objc("loadDataWithTypeIdentifier:forItemProviderCompletionHandler:")
         loadDataWithTypeIdentifier(
             typeIdentifier: NSString,
-            forItemProviderCompletionHandler: i64
+            forItemProviderCompletionHandler: ObjCBlock<fn(NSData?, NSError?)>
         ): NSObject
     }
 

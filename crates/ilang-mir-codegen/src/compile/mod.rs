@@ -211,6 +211,7 @@ pub(super) struct PanicAux {
     /// offset 16 and calls it with `(blockSelf, args...)`.
     pub(super) invoke_void_block: cranelift_module::FuncId,
     pub(super) invoke_obj_block: cranelift_module::FuncId,
+    pub(super) invoke_obj_to_obj_block: cranelift_module::FuncId,
     pub(super) invoke_void_bytes_block: cranelift_module::FuncId,
     pub(super) invoke_void_three_obj_block: cranelift_module::FuncId,
     pub(super) invoke_void_bool_block: cranelift_module::FuncId,

@@ -104,6 +104,12 @@ static VOID_THREE_OBJ_SIGNATURE: &[u8] = b"v32@?0@8@16@24\0";
 // encoding is `c` either way for the size 1, signed slot). Block
 // + BOOL = 9 bytes nominally, padded to 16 in the arg frame.
 static VOID_BOOL_SIGNATURE: &[u8] = b"v16@?0c8\0";
+// `void(^)(id, id)` — block + two id args = 24 bytes total.
+// Identical calling convention to `void(^)(void *, size_t)` but
+// the NSMethodSignature encoding correctly says "id, id" so any
+// receiver that introspects (NSInvocation etc.) sees the right
+// argument kinds.
+static VOID_TWO_OBJ_SIGNATURE: &[u8] = b"v24@?0@8@16\0";
 
 extern "C" fn invoke_void_block(b: *mut BlockLayout) {
     if b.is_null() {
@@ -193,6 +199,25 @@ extern "C" fn invoke_void_bytes_block(b: *mut BlockLayout, ptr: i64, len: i64) {
 /// each in `NSObject.wrap` (or a subclass equivalent) if it wants
 /// a typed view. Used by every Foundation completion handler that
 /// hands back `(NSData *, NSURLResponse *, NSError *)`.
+/// `void(^)(id, id)` trampoline. Shares the calling convention
+/// of `invoke_void_bytes_block` but is paired with the
+/// `(id, id)` ObjC signature so introspection sees the right
+/// arg kinds.
+extern "C" fn invoke_void_two_obj_block(b: *mut BlockLayout, a: i64, c: i64) {
+    if b.is_null() {
+        return;
+    }
+    let closure_ptr = unsafe { (*b).closure };
+    if closure_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let fn_ptr = *(closure_ptr as *const usize);
+        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(fn_ptr);
+        f(a, c, closure_ptr);
+    }
+}
+
 /// `void(^)(BOOL)` trampoline. ilang closure shape is
 /// `fn(b: bool): unit`. ObjC's BOOL is a signed char on
 /// macOS, which Rust models as `bool` (1-byte i8). The lifted
@@ -319,6 +344,14 @@ static VOID_BOOL_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
     copy_helper,
     dispose_helper,
     signature: VOID_BOOL_SIGNATURE.as_ptr(),
+});
+
+static VOID_TWO_OBJ_DESCRIPTOR: DescriptorBox = DescriptorBox(BlockDescriptor {
+    reserved: 0,
+    size: std::mem::size_of::<BlockLayout>(),
+    copy_helper,
+    dispose_helper,
+    signature: VOID_TWO_OBJ_SIGNATURE.as_ptr(),
 });
 
 /// Read the block's `invoke` slot (offset 16 in Block_layout) and
@@ -570,6 +603,31 @@ pub extern "C" fn make_void_bytes_block(closure_ptr: i64) -> i64 {
     }
 }
 
+/// Build a heap ObjC `void(^)(id, id)` block. The ilang closure
+/// is `fn(a: i64, b: i64): unit` (or with NSObject-shaped
+/// params) — the two args land in the closure verbatim as raw
+/// `id` handles. Differs from `make_void_bytes_block` only in
+/// the NSMethodSignature encoding string.
+#[unsafe(export_name = "__ilang_make_void_two_obj_block")]
+pub extern "C" fn make_void_two_obj_block(closure_ptr: i64) -> i64 {
+    if closure_ptr == 0 {
+        return 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return make_block(
+            closure_ptr,
+            invoke_void_two_obj_block as *const c_void,
+            &VOID_TWO_OBJ_DESCRIPTOR.0,
+        );
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = closure_ptr;
+        0
+    }
+}
+
 /// Build a heap ObjC `void(^)(BOOL)` block. The ilang closure is
 /// `fn(b: bool): unit`. Used by completion handlers that report
 /// a single success / failure flag (e.g.
@@ -656,6 +714,11 @@ pub enum BlockKind {
     /// handlers that report success / failure (e.g.
     /// `NSExtensionContext.openURL:completionHandler:`).
     VoidBool = 5,
+    /// `fn(i64, i64): ()` with NSObject-typed params — two id
+    /// arguments. Shares ABI with VoidBytes but pairs with the
+    /// proper `(id, id)` ObjC signature for receivers that
+    /// introspect the block.
+    VoidTwoObj = 6,
 }
 
 #[unsafe(export_name = "__ilang_make_objc_block")]
@@ -667,6 +730,7 @@ pub extern "C" fn make_objc_block(closure_ptr: i64, kind: i64) -> i64 {
         3 => make_void_bytes_block(closure_ptr),
         4 => make_void_three_obj_block(closure_ptr),
         5 => make_void_bool_block(closure_ptr),
+        6 => make_void_two_obj_block(closure_ptr),
         _ => 0,
     }
 }

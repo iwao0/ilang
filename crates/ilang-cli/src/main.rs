@@ -158,6 +158,7 @@ fn build_file(path: &PathBuf, output: &PathBuf) -> ExitCode {
         &tc.fn_overload_picks(),
         &tc.method_overload_picks(),
         &tc.call_default_fills(),
+        &tc.objc_invoke_obj_to_obj_spans(),
     );
     // Mirror run_file's top-level-let-to-slot promotion: any module-
     // level mutable `let` referenced from a free fn / method body
@@ -600,6 +601,7 @@ impl ReplSession {
             &self.tc.fn_overload_picks(),
             &self.tc.method_overload_picks(),
             &self.tc.call_default_fills(),
+            &self.tc.objc_invoke_obj_to_obj_spans(),
         );
         let prog = ilang_mir::monomorphize::monomorphize(&prog);
         let prog = ilang_mir::monomorphize::monomorphize_enums(
@@ -726,6 +728,7 @@ fn run_file(path: &PathBuf, mir_jit: bool) -> ExitCode {
             &tc.fn_overload_picks(),
             &tc.method_overload_picks(),
             &tc.call_default_fills(),
+            &tc.objc_invoke_obj_to_obj_spans(),
         );
         // Monomorphize generics (classes / enums / fns) before
         // AST→MIR lowering. We deliberately skip `hoist_anon_fns`
