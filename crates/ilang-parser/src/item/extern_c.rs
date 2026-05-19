@@ -15,6 +15,21 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_extern_c_block(
         &mut self,
     ) -> Result<ilang_ast::ExternCBlock, ParseError> {
+        self.parse_extern_c_block_with_default_libs(&[])
+    }
+
+    /// `@extern(C, "libname", ...) { ... }` form. The trailing
+    /// strings become the default `@lib(...)` for any plain `pub
+    /// fn` inside the block — write `@lib` with no args to opt
+    /// into them, or `@lib("other")` to override per-fn. Without
+    /// a `@lib` attribute the fn still errors (a function with
+    /// no library resolution can't be dlsym'd); the bare-`@lib`
+    /// marker stays explicit so a fn that wanted the default
+    /// reads obvious.
+    pub(super) fn parse_extern_c_block_with_default_libs(
+        &mut self,
+        default_libs: &[ilang_ast::Symbol],
+    ) -> Result<ilang_ast::ExternCBlock, ParseError> {
         let span = self.peek().span;
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
@@ -33,7 +48,9 @@ impl<'a> Parser<'a> {
             };
             let item = match &self.peek().kind {
                 TokenKind::Fn => {
-                    let mut it = self.parse_extern_c_fn(inner_attrs)?;
+                    let mut it = self.parse_extern_c_fn_with_default_libs(
+                        inner_attrs, default_libs,
+                    )?;
                     match &mut it {
                         ilang_ast::ExternCItem::FnDecl { is_pub, .. } => *is_pub = item_is_pub,
                         ilang_ast::ExternCItem::FnDef(f) => f.is_pub = item_is_pub,
@@ -131,7 +148,7 @@ impl<'a> Parser<'a> {
                             let t = self.peek();
                             return Err(ParseError::Unexpected {
                                 found: t.kind.clone(),
-                                expected: "bare `@lib` (no args) is only valid inside `@extern(ObjC, \"path\", ...)`; top-level @extern(C) fns need `@lib(\"libname\", ...)`".into(),
+                                expected: "bare `@lib` (no args) is only valid inside `@extern(C, \"name\", ...)` or `@extern(ObjC, \"path\", ...)`; an @extern(C) block with no default library name needs `@lib(\"libname\", ...)` per fn".into(),
                                 span: t.span,
                             });
                         }

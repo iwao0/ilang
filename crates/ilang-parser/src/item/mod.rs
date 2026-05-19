@@ -237,16 +237,23 @@ impl<'a> Parser<'a> {
             TokenKind::LBrace
                 if attrs.iter().any(|a| {
                     a.name == "extern"
-                        && a.args.len() == 1
+                        && !a.args.is_empty()
                         && matches!(
                             &a.args[0],
                             ilang_ast::AttrArg::Path(p) if p.iter().map(|s| s.as_str()).collect::<Vec<_>>() == ["C"]
                         )
                 }) =>
             {
-                // `@extern(C) { ... }` — C ABI block. Validate that
-                // no other attributes were stacked, then parse the
-                // block body.
+                // `@extern(C) { ... }` — C ABI block. Optional
+                // trailing string args after `C` are default
+                // library names that any inner `pub fn` can opt
+                // into by writing a bare `@lib` (no args) instead
+                // of repeating `@lib("name")` on every decl. Same
+                // treatment as `@extern(ObjC, "path", ...)`.
+                //
+                //   @extern(C, "SDL2") {
+                //       @lib pub fn SDL_Init(flags: u32): i32
+                //   }
                 if is_pub {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
@@ -265,7 +272,24 @@ impl<'a> Parser<'a> {
                         span: t.span,
                     });
                 }
-                let block = self.parse_extern_c_block()?;
+                let mut block_libs: Vec<ilang_ast::Symbol> = Vec::new();
+                let attr = &attrs[0];
+                for arg in attr.args.iter().skip(1) {
+                    match arg {
+                        ilang_ast::AttrArg::Str(s) => {
+                            block_libs.push(ilang_ast::Symbol::intern(s));
+                        }
+                        _ => {
+                            let t = self.peek();
+                            return Err(ParseError::Unexpected {
+                                found: t.kind.clone(),
+                                expected: "string library names after `C` in @extern(C, \"name\", ...)".into(),
+                                span: t.span,
+                            });
+                        }
+                    }
+                }
+                let block = self.parse_extern_c_block_with_default_libs(&block_libs)?;
                 Ok(Item::ExternC(block))
             }
             TokenKind::LBrace
