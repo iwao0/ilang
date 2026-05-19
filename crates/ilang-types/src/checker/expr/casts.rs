@@ -117,6 +117,27 @@ impl TypeChecker {
         if is_raw_ptr(&from) && is_raw_ptr(ty) && *self.in_extern_c.borrow() {
             return Ok(ty.clone());
         }
+        // Raw pointer ↔ fn(...) — reinterprets a 64-bit address as
+        // a C function pointer. Used to consume `GetProcAddress` /
+        // `dlsym` / `GetProcAddress`-style results and call them
+        // through their declared signature.
+        //
+        // The reverse direction (`fn(...)` → `*void`) lets a typed
+        // fn handle be passed back to a C-style void-pointer slot
+        // (e.g. an `LPVOID lpUserData` callback context).
+        //
+        // Both directions are inside @extern(C) only — raw fn ptrs
+        // are not first-class outside FFI scope.  Calling a value
+        // obtained this way goes through `Inst::CallRawIndirect`
+        // (no closure env / no fn_ptr-from-offset-0 dereference);
+        // see the MIR lowering for `Call(Cast(...), args)`.
+        let is_fn = |t: &Type| matches!(t, Type::Fn(_));
+        if *self.in_extern_c.borrow()
+            && ((is_raw_ptr(&from) && is_fn(ty))
+                || (is_fn(&from) && is_raw_ptr(ty)))
+        {
+            return Ok(ty.clone());
+        }
         // Array → raw pointer — hands the array's data buffer
         // address to the C-ABI side. Element types must match
         // (or be `void` on the target). Used by the @objc

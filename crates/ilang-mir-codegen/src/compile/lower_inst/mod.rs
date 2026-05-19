@@ -370,6 +370,31 @@ pub(super) fn lower_inst<M: Module>(
                 }
             }
         }
+        Inst::CallRawIndirect { dst, callee, sig, args } => {
+            // Raw C function pointer: the value itself IS the fn pointer.
+            // No fn_ptr load, no trailing env arg.
+            let fn_ptr = vmap[callee];
+            let mut clif_sig = module.make_signature();
+            for p in sig.params.iter() {
+                if let Some(ct) = mir_to_clif(p) {
+                    clif_sig.params.push(AbiParam::new(ct));
+                }
+            }
+            if !matches!(sig.ret, MirTy::Unit) {
+                if let Some(ct) = mir_to_clif(&sig.ret) {
+                    clif_sig.returns.push(AbiParam::new(ct));
+                }
+            }
+            let sig_ref = fb.import_signature(clif_sig);
+            let arg_vs: Vec<Value> = args.iter().map(|a| vmap[a]).collect();
+            let inst_ref = fb.ins().call_indirect(sig_ref, fn_ptr, &arg_vs);
+            if let Some(d) = dst {
+                let results = fb.inst_results(inst_ref);
+                if let Some(&v) = results.first() {
+                    vmap.insert(*d, v);
+                }
+            }
+        }
         Inst::MakeClosure { dst, func: fid, captures } => {
             let cid = *fn_ids.get(fid).ok_or_else(|| {
                 CompileError::Other(format!("missing fn id #{}", fid.0))

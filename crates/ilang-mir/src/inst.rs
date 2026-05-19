@@ -172,6 +172,12 @@ pub enum Inst {
     Call { dst: Option<ValueId>, callee: FuncRef, args: Box<[ValueId]> },
     /// Indirect call via closure value.
     CallIndirect { dst: Option<ValueId>, callee: ValueId, sig: FnSig, args: Box<[ValueId]> },
+    /// Raw indirect call — calls `callee` as a bare C function pointer
+    /// with no closure dispatch. Used for the result of
+    /// `*void as fn(...)` casts (typically `GetProcAddress` / `dlsym`
+    /// return values). No fn_ptr load from offset 0, no trailing env
+    /// arg; the value flows straight into Cranelift's `call_indirect`.
+    CallRawIndirect { dst: Option<ValueId>, callee: ValueId, sig: FnSig, args: Box<[ValueId]> },
     /// Virtual dispatch — looks up the slot in the receiver's vtable.
     VirtCall { dst: Option<ValueId>, recv: ValueId, slot: VTableSlot, args: Box<[ValueId]> },
 

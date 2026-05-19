@@ -162,6 +162,14 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
                 fmt_args(args)
             )
         }
+        Inst::CallRawIndirect { dst, callee, args, .. } => {
+            format!(
+                "{}call_raw_indirect {} ({})",
+                opt_dst_pre(*dst),
+                fmt_value(*callee),
+                fmt_args(args)
+            )
+        }
         Inst::VirtCall { dst, recv, slot, args } => {
             format!(
                 "{}virt_call {}.{} ({})",

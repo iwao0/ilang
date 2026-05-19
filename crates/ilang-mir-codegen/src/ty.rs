@@ -33,6 +33,8 @@ pub fn mir_to_clif(t: &MirTy) -> Option<ClifType> {
         | MirTy::Map { .. }
         | MirTy::Promise(_)
         | MirTy::Fn(_) => ct::I64,
+        // Raw fn ptr is a bare 8-byte code address.
+        MirTy::RawFn(_) => ct::I64,
         MirTy::RawPtr { .. } => ct::I64,
         MirTy::CChar => ct::I8,
         MirTy::CVoid => return None,

@@ -147,7 +147,10 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         | Inst::UseLocal { dst, .. }
         | Inst::AddrOfLocal { dst, .. }
         | Inst::AddrOfField { dst, .. } => vec![*dst],
-        Inst::Call { dst, .. } | Inst::CallIndirect { dst, .. } | Inst::VirtCall { dst, .. } => {
+        Inst::Call { dst, .. }
+        | Inst::CallIndirect { dst, .. }
+        | Inst::CallRawIndirect { dst, .. }
+        | Inst::VirtCall { dst, .. } => {
             dst.iter().copied().collect()
         }
         Inst::StoreField { .. }

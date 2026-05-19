@@ -339,6 +339,18 @@ fn check_inst_escape(
                 leak(a);
             }
         }
+        CallRawIndirect { callee, args, .. } => {
+            // The callee is a raw fn ptr (i64), no object reference, so
+            // it doesn't need leaking. Treat args identically to
+            // CallIndirect — they may escape into the called fn.
+            let _ = callee;
+            for a in args.iter() {
+                if arg_passed_by_value(func.ty_of(*a), prog) {
+                    continue;
+                }
+                leak(a);
+            }
+        }
         VirtCall { recv, args, .. } => {
             leak(recv);
             for a in args.iter() {

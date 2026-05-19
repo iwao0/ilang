@@ -41,6 +41,16 @@ pub enum MirTy {
     /// at runtime; the env may be null for trampoline-wrapped top-level
     /// functions.
     Fn(Box<MirFnTy>),
+    /// Raw C function pointer — bare 8-byte code address, no closure box.
+    /// Produced by `*void as fn(...)` casts inside @extern(C) blocks
+    /// (typical use: typing the result of `GetProcAddress` / `dlsym`).
+    /// At call time uses `Inst::CallRawIndirect`: no fn_ptr-from-offset-0
+    /// load, no trailing env arg.
+    ///
+    /// At ABI level RawFn is a plain pointer-sized value (8 bytes on x64),
+    /// so most match arms can treat it identically to `RawPtr` /
+    /// `CVoid` / `I64`.
+    RawFn(Box<MirFnTy>),
     /// Raw C pointer — only present inside @extern(C) function bodies.
     RawPtr { is_const: bool, inner: Box<MirTy> },
     /// `void` (return only) and `*void`.
@@ -207,6 +217,20 @@ impl std::fmt::Display for MirTy {
             MirTy::Promise(inner) => write!(f, "Promise<{inner}>"),
             MirTy::Fn(ft) => {
                 write!(f, "fn(")?;
+                for (i, p) in ft.params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{p}")?;
+                }
+                if matches!(ft.ret, MirTy::Unit) {
+                    write!(f, ")")
+                } else {
+                    write!(f, "): {}", ft.ret)
+                }
+            }
+            MirTy::RawFn(ft) => {
+                write!(f, "rawfn(")?;
                 for (i, p) in ft.params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;

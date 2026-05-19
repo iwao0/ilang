@@ -129,6 +129,7 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         // Side-effecting / control-altering instructions stay.
         Call { .. }
         | CallIndirect { .. }
+        | CallRawIndirect { .. }
         | VirtCall { .. }
         | StoreField { .. }
         | ArrayStore { .. }
@@ -174,6 +175,12 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
             }
         }
         CallIndirect { callee, args, .. } => {
+            set.insert(*callee);
+            for a in args.iter() {
+                set.insert(*a);
+            }
+        }
+        CallRawIndirect { callee, args, .. } => {
             set.insert(*callee);
             for a in args.iter() {
                 set.insert(*a);

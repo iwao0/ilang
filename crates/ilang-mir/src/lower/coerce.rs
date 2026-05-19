@@ -255,6 +255,29 @@ impl<'a> BodyCx<'a> {
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
             return Ok(dst);
         }
+        // Raw pointer → fn(...). The destination type at the AST level
+        // is `Type::Fn(...)` (a closure type) but the value is a bare
+        // 8-byte fn pointer from `GetProcAddress` / `dlsym`. We tag the
+        // MIR-side type as `MirTy::RawFn` so the call lowering knows to
+        // skip closure dispatch (no fn_ptr load from offset 0, no
+        // trailing env arg).
+        if matches!(from, MirTy::RawPtr { .. }) {
+            if let MirTy::Fn(ft) = to {
+                let raw_ty = MirTy::RawFn(ft.clone());
+                let dst = self.fb.new_value(raw_ty);
+                self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+                return Ok(dst);
+            }
+        }
+        // fn(...) → raw pointer — extract the underlying fn pointer.
+        // Valid for `MirTy::RawFn` (the value already IS an 8-byte
+        // address). For a true `MirTy::Fn` closure box this would lose
+        // the env, which is intentionally not supported.
+        if matches!(from, MirTy::RawFn(_)) && matches!(to, MirTy::RawPtr { .. }) {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrCast, src: v });
+            return Ok(dst);
+        }
         // Strong → weak (same class).
         if let (MirTy::Object(c1), MirTy::Weak(c2)) = (from, to) {
             if c1 == c2 {

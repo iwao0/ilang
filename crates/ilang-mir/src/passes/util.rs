@@ -48,6 +48,15 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
                 remap(a);
             }
         }
+        CallRawIndirect { dst, callee, args, .. } => {
+            if let Some(d) = dst {
+                remap(d);
+            }
+            remap(callee);
+            for a in args.iter_mut() {
+                remap(a);
+            }
+        }
         VirtCall { dst, recv, args, .. } => {
             if let Some(d) = dst {
                 remap(d);

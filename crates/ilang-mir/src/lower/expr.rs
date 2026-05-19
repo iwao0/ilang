@@ -645,7 +645,13 @@ impl<'a> BodyCx<'a> {
                 let (v, src_ty) = self.lower_expr(inner)?;
                 let dst_ty = self.resolve_ty(ty)?;
                 let out = self.coerce(v, &src_ty, &dst_ty, expr.span)?;
-                Ok((out, dst_ty))
+                // Use the actual MIR type the coerce produced — for
+                // `RawPtr → Type::Fn` we tagged the value as RawFn
+                // (8-byte raw fn ptr) instead of the AST-derived Fn
+                // (16-byte closure box). Returning `dst_ty` would lose
+                // that tag and break the next call-site dispatch.
+                let actual_ty = self.fb.ty_of(out).clone();
+                Ok((out, actual_ty))
             }
             ExprKind::TypeTest { expr: inner, ty } => {
                 let (v, _) = self.lower_expr(inner)?;

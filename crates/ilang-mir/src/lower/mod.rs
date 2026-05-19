@@ -725,6 +725,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
+            | MirTy::RawFn(_)
             | MirTy::Str
             | MirTy::Enum(_)
             | MirTy::Weak(_)
@@ -777,6 +778,7 @@ impl<'a> BodyCx<'a> {
             | MirTy::Promise(_)
             | MirTy::Optional(_)
             | MirTy::Fn(_)
+            | MirTy::RawFn(_)
             | MirTy::Str
             | MirTy::Enum(_)
             | MirTy::Weak(_)

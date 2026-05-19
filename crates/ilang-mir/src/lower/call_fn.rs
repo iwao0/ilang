@@ -202,7 +202,17 @@ impl<'a> BodyCx<'a> {
             })
         });
         if let Some((closure_v, closure_ty)) = local_or_capture {
-            if let MirTy::Fn(ft) = &closure_ty {
+            // Match either a normal closure (`Fn`) or a raw C fn ptr
+            // (`RawFn`). The two share the same call-site shape but use
+            // different MIR instructions: closures go through
+            // `CallIndirect` (env appended), raw fn ptrs go through
+            // `CallRawIndirect` (no env, the value is the fn ptr itself).
+            let raw = matches!(&closure_ty, MirTy::RawFn(_));
+            let ft_opt = match &closure_ty {
+                MirTy::Fn(ft) | MirTy::RawFn(ft) => Some(ft.clone()),
+                _ => None,
+            };
+            if let Some(ft) = ft_opt {
                 let sig_params = ft.params.clone();
                 let sig_ret = ft.ret.clone();
                 let mut arg_vals = Vec::with_capacity(args.len());
@@ -219,16 +229,26 @@ impl<'a> BodyCx<'a> {
                 } else {
                     Some(self.fb.new_value(sig_ret.clone()))
                 };
-                self.fb.push_inst(Inst::CallIndirect {
-                    dst,
-                    callee: closure_v,
-                    sig: crate::inst::FnSig {
-                        params: sig_params,
-                        ret: sig_ret.clone(),
-                        variadic: false,
-                    },
-                    args: arg_vals.into_boxed_slice(),
-                });
+                let sig = crate::inst::FnSig {
+                    params: sig_params,
+                    ret: sig_ret.clone(),
+                    variadic: false,
+                };
+                if raw {
+                    self.fb.push_inst(Inst::CallRawIndirect {
+                        dst,
+                        callee: closure_v,
+                        sig,
+                        args: arg_vals.into_boxed_slice(),
+                    });
+                } else {
+                    self.fb.push_inst(Inst::CallIndirect {
+                        dst,
+                        callee: closure_v,
+                        sig,
+                        args: arg_vals.into_boxed_slice(),
+                    });
+                }
                 return Ok((dst.unwrap_or_else(|| self.const_unit()), sig_ret));
             }
         }
