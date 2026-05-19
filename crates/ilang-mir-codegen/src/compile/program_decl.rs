@@ -181,6 +181,40 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
     // out) and the program fails at call time.
     let make_objc_block_id =
         declare_binary_i64(module, "__ilang_make_objc_block")?;
+    // ObjCBlock.invoke(args) per-shape entry points. Each declares
+    // the matching C-ABI signature; calls flow through the
+    // `invoke_*_block` builtin names in `lower_inst::calls`.
+    let invoke_void_block_id =
+        declare_unit_i64(module, "__ilang_invoke_void_block")?;
+    let invoke_obj_block_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__ilang_invoke_obj_block", Linkage::Import, &sig)?
+    };
+    let invoke_void_bytes_block_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function("__ilang_invoke_void_bytes_block", Linkage::Import, &sig)?
+    };
+    let invoke_void_three_obj_block_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I64));
+        module.declare_function(
+            "__ilang_invoke_void_three_obj_block", Linkage::Import, &sig,
+        )?
+    };
+    let invoke_void_bool_block_id = {
+        let mut sig = module.make_signature();
+        sig.params.push(AbiParam::new(types::I64));
+        sig.params.push(AbiParam::new(types::I8));
+        module.declare_function("__ilang_invoke_void_bool_block", Linkage::Import, &sig)?
+    };
     // FFI marshalling helpers as imports.
     {
         let mut decl_unary = |name: &str, ret_unit: bool| -> Result<(), CompileError> {
@@ -704,6 +738,11 @@ pub(crate) fn lower_program_into_with_missing<M: Module>(
                 release_promise: release_promise_id,
                 retain_promise: retain_promise_id,
                 make_objc_block: make_objc_block_id,
+                invoke_void_block: invoke_void_block_id,
+                invoke_obj_block: invoke_obj_block_id,
+                invoke_void_bytes_block: invoke_void_bytes_block_id,
+                invoke_void_three_obj_block: invoke_void_three_obj_block_id,
+                invoke_void_bool_block: invoke_void_bool_block_id,
                 msg_div: panic_msg_div,
                 msg_mod: panic_msg_mod,
                 msg_oob: panic_msg_oob,

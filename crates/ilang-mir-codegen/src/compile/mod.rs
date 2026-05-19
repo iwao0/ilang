@@ -206,6 +206,14 @@ pub(super) struct PanicAux {
     /// invoke trampolines living in `ilang_runtime::objc_blocks`.
     /// Called from `new ObjCBlock(closure)` lowering.
     pub(super) make_objc_block: cranelift_module::FuncId,
+    /// Per-shape invokers called from `block.invoke(args)`
+    /// lowering. Each reads the block's invoke fn pointer at
+    /// offset 16 and calls it with `(blockSelf, args...)`.
+    pub(super) invoke_void_block: cranelift_module::FuncId,
+    pub(super) invoke_obj_block: cranelift_module::FuncId,
+    pub(super) invoke_void_bytes_block: cranelift_module::FuncId,
+    pub(super) invoke_void_three_obj_block: cranelift_module::FuncId,
+    pub(super) invoke_void_bool_block: cranelift_module::FuncId,
     pub(super) msg_div: DataId,
     pub(super) msg_mod: DataId,
     pub(super) msg_oob: DataId,

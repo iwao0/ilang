@@ -126,6 +126,28 @@ pub fn compile_with_builtins(
         "__ilang_make_objc_block",
         ilang_runtime::make_objc_block as *const u8,
     );
+    // ObjCBlock.invoke(args) per-shape entry points — dispatch by
+    // arg shape in MIR's `lower_method_call`.
+    jit_builder.symbol(
+        "__ilang_invoke_void_block",
+        ilang_runtime::invoke_void_block_via_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__ilang_invoke_obj_block",
+        ilang_runtime::invoke_obj_block_via_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__ilang_invoke_void_bytes_block",
+        ilang_runtime::invoke_void_bytes_block_via_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__ilang_invoke_void_three_obj_block",
+        ilang_runtime::invoke_void_three_obj_block_via_runtime as *const u8,
+    );
+    jit_builder.symbol(
+        "__ilang_invoke_void_bool_block",
+        ilang_runtime::invoke_void_bool_block_via_runtime as *const u8,
+    );
     // Default string builtins. Returns are NUL-terminated `*const u8`
     // pointers to leaked Rust-side allocations. Acceptable until the
     // ARC-backed StringRc runtime arrives.

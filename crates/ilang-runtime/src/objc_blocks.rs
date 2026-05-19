@@ -378,6 +378,67 @@ pub extern "C" fn invoke_obj_to_obj_block_via_runtime(block_ptr: i64, arg: i64) 
     }
 }
 
+/// `void(^)(void *, size_t)` invoker. Both extra args are passed
+/// straight through as i64 — the block's invoke trampoline reads
+/// them with the C ABI's natural register layout.
+#[unsafe(export_name = "__ilang_invoke_void_bytes_block")]
+pub extern "C" fn invoke_void_bytes_block_via_runtime(
+    block_ptr: i64, ptr: i64, len: i64,
+) {
+    if block_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let invoke_slot = (block_ptr + 16) as *const usize;
+        let invoke_addr = *invoke_slot;
+        if invoke_addr == 0 {
+            return;
+        }
+        let f: extern "C" fn(i64, i64, i64) = std::mem::transmute(invoke_addr);
+        f(block_ptr, ptr, len);
+    }
+}
+
+/// `void(^)(id, id, id)` invoker — three raw handles forwarded
+/// to the block's trampoline. Used by callers that want to
+/// trigger an incoming completion handler delivered through a
+/// delegate slot.
+#[unsafe(export_name = "__ilang_invoke_void_three_obj_block")]
+pub extern "C" fn invoke_void_three_obj_block_via_runtime(
+    block_ptr: i64, a: i64, b: i64, c: i64,
+) {
+    if block_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let invoke_slot = (block_ptr + 16) as *const usize;
+        let invoke_addr = *invoke_slot;
+        if invoke_addr == 0 {
+            return;
+        }
+        let f: extern "C" fn(i64, i64, i64, i64) = std::mem::transmute(invoke_addr);
+        f(block_ptr, a, b, c);
+    }
+}
+
+/// `void(^)(BOOL)` invoker. The single `val` is a Rust `bool`
+/// (1-byte) to match the block ABI on macOS.
+#[unsafe(export_name = "__ilang_invoke_void_bool_block")]
+pub extern "C" fn invoke_void_bool_block_via_runtime(block_ptr: i64, val: bool) {
+    if block_ptr == 0 {
+        return;
+    }
+    unsafe {
+        let invoke_slot = (block_ptr + 16) as *const usize;
+        let invoke_addr = *invoke_slot;
+        if invoke_addr == 0 {
+            return;
+        }
+        let f: extern "C" fn(i64, bool) = std::mem::transmute(invoke_addr);
+        f(block_ptr, val);
+    }
+}
+
 /// Shared allocation path for every `make_*_block` flavour. Builds
 /// a heap block with the given `invoke` trampoline + descriptor,
 /// returns it autoreleased.

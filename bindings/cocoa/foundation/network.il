@@ -1035,7 +1035,7 @@ pub enum URLCredentialPersistence: u64 {
         URLSessionDidReceiveChallenge(
             session: NSURLSession,
             didReceiveChallenge: NSURLAuthenticationChallenge,
-            completionHandler: i64
+            completionHandler: ObjCBlock<fn(i64, i64)>
         )
     }
 
@@ -1051,7 +1051,7 @@ pub enum URLCredentialPersistence: u64 {
         URLSessionTaskDidReceiveChallenge(
             session: NSURLSession, task: NSURLSessionTask,
             didReceiveChallenge: NSURLAuthenticationChallenge,
-            completionHandler: i64
+            completionHandler: ObjCBlock<fn(i64, i64)>
         )
         @optional @objc("URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:")
         URLSessionTaskDidSendBodyData(
@@ -1075,7 +1075,7 @@ pub enum URLCredentialPersistence: u64 {
         @optional @objc("URLSession:dataTask:didReceiveResponse:completionHandler:")
         URLSessionDataTaskDidReceiveResponse(
             session: NSURLSession, dataTask: NSURLSessionDataTask,
-            didReceiveResponse: NSURLResponse, completionHandler: i64
+            didReceiveResponse: NSURLResponse, completionHandler: ObjCBlock<fn(i64)>
         )
         @optional @objc("URLSession:dataTask:didReceiveData:")
         URLSessionDataTaskDidReceiveData(

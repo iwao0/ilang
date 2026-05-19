@@ -419,6 +419,51 @@ impl<'a> BodyCx<'a> {
             }
         }
         let (ov, oty) = self.lower_expr(obj)?;
+        // `ObjCBlock<fn(...)>.invoke(args)` — call the block.
+        // Receiver lowers to MirTy::I64 (the block pointer), so we
+        // can't disambiguate on receiver type alone; the type
+        // checker already restricted us to void-returning
+        // signatures so the dispatch is purely a function of the
+        // lowered arg shapes. New shapes append, matching the
+        // `BlockKind` table in `ilang_runtime::objc_blocks`.
+        if method.as_str() == "invoke" && matches!(oty, MirTy::I64) {
+            // Suppress this fast-path for non-ObjCBlock i64 obj —
+            // the type checker only routes ObjCBlock.invoke here
+            // (other i64 receivers don't expose `invoke` as a
+            // method), so this match is safe in practice.
+            let mut arg_vs: Vec<ValueId> = Vec::with_capacity(args.len());
+            let mut arg_tys: Vec<MirTy> = Vec::with_capacity(args.len());
+            for a in args {
+                let (v, t) = self.lower_expr(a)?;
+                arg_vs.push(v);
+                arg_tys.push(t);
+            }
+            let builtin = match arg_tys.as_slice() {
+                [] => Some("invoke_void_block"),
+                [MirTy::I64] => Some("invoke_obj_block"),
+                [MirTy::I64, MirTy::I64] => Some("invoke_void_bytes_block"),
+                [MirTy::I64, MirTy::I64, MirTy::I64] => Some("invoke_void_three_obj_block"),
+                [MirTy::Bool] => Some("invoke_void_bool_block"),
+                _ => None,
+            };
+            if let Some(name) = builtin {
+                let mut call_args: Vec<ValueId> = Vec::with_capacity(arg_vs.len() + 1);
+                call_args.push(ov);
+                call_args.extend(arg_vs);
+                self.fb.push_inst(Inst::Call {
+                    dst: None,
+                    callee: FuncRef::Builtin(Symbol::intern(name)),
+                    args: call_args.into_boxed_slice(),
+                });
+                return Ok((self.const_unit(), MirTy::Unit));
+            }
+            return Err(LowerError::Other(format!(
+                "ObjCBlock.invoke(...) signature not yet supported: \
+                 expected one of (), (i64), (i64, i64), (i64, i64, i64), \
+                 (bool); got {:?}",
+                arg_tys
+            )));
+        }
         // `.toString()` is available on every numeric / bool / string.
         if method.as_str() == "toString" && args.is_empty() {
             if oty.is_int() || oty.is_float() || matches!(oty, MirTy::Bool | MirTy::Str) {

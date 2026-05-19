@@ -137,6 +137,63 @@ impl TypeChecker {
                 }
             }
         }
+        // Built-in `ObjCBlock<fn(...)>.invoke(args)` — call the
+        // ObjC block represented by `ot`. The block's underlying
+        // fn type lives in `args[0]` of the Generic, so the
+        // method's argument list / return type are derived from
+        // it rather than from a static signature table.
+        if let Type::Generic(g) = &ot {
+            if g.base.as_str() == "ObjCBlock" && g.args.len() == 1 {
+                if let Type::Fn(ft) = &g.args[0] {
+                    if method.as_str() == "invoke" {
+                        // For now only void-returning blocks are
+                        // callable via `.invoke(...)` — the i64-
+                        // returning variant needs a way for MIR
+                        // to distinguish the obj / obj-to-obj
+                        // kinds without re-running the type
+                        // checker, which isn't wired yet.
+                        if ft.ret != Type::Unit {
+                            return Err(TypeError::Unsupported {
+                                what: format!(
+                                    "calling an ObjCBlock<fn(...): {}> with .invoke(...) \
+                                     is not yet supported (only void-returning blocks); \
+                                     use the raw __ilang_invoke_obj_to_obj_block runtime \
+                                     helper",
+                                    ft.ret
+                                ),
+                                span,
+                            });
+                        }
+                        if args.len() != ft.params.len() {
+                            return Err(TypeError::ArityMismatch {
+                                name: method.clone(),
+                                expected: ft.params.len(),
+                                got: args.len(),
+                                span,
+                            });
+                        }
+                        for (i, expected) in ft.params.iter().enumerate() {
+                            let got = self.check_expr(
+                                &args[i], env, ret_ty, in_class, loop_depth,
+                            )?;
+                            if &got != expected {
+                                return Err(TypeError::Mismatch {
+                                    expected: expected.clone(),
+                                    got,
+                                    span: args[i].span,
+                                });
+                            }
+                        }
+                        return Ok(ft.ret.clone());
+                    }
+                    return Err(TypeError::UnknownMethod {
+                        class: Symbol::intern(&format!("{ot}")),
+                        method: method.clone(),
+                        span,
+                    });
+                }
+            }
+        }
         // Built-in `.toString()` for numeric primitives and
         // `bool`. Decimal for ints, JS-style for floats
         // (matching `console.log`'s formatting), `"true"` /
