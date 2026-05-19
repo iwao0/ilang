@@ -1117,6 +1117,10 @@ pub enum SpiAction: u32 {
         lpWindowName: *const char
     ): *HWND
 
+    /// Returns the thread that owns `hwnd` and writes its process ID
+    /// to `lpdwProcessId` (pass `0 as *u32` to skip).
+    @lib pub fn GetWindowThreadProcessId(hwnd: *HWND, lpdwProcessId: *u32): u32
+
     // ── Message loop ─────────────────────────────────────────
 
     /// Blocking message fetch. Returns >0 (message), 0 (WM_QUIT),

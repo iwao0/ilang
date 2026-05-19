@@ -38,3 +38,8 @@ pub use userenv.*
 pub use dxgi.*
 pub use dinput8.*
 pub use setupapi.*
+pub use rpcrt4.*
+pub use wtsapi32.*
+pub use pdh.*
+pub use avrt.*
+pub use mpr.*
