@@ -7,9 +7,9 @@
 // entry points + COM vtable dispatch:
 //
 //   1. D3D12CreateDevice                          flat
-//   2. ID3D12Device::CreateCommandQueue           vtable +64
-//   3. ID3D12CommandQueue::Release                vtable +16
-//   4. ID3D12Device::Release                      vtable +16
+//   2. ID3D12Device::CreateCommandQueue           vtable
+//   3. ID3D12CommandQueue::Release                vtable
+//   4. ID3D12Device::Release                      vtable
 //
 // IIDs come from `bindings/directx12/d3d12_iids.il` as `pub const`
 // values (`IID_ID3D12Device`, `IID_ID3D12CommandQueue`) so user code
@@ -36,6 +36,7 @@ use directx12 {
     D3D12_COMMAND_QUEUE_DESC,
     D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
     IID_ID3D12Device, IID_ID3D12CommandQueue,
+    IUnknownVtbl, ID3D12DeviceVtbl,
 }
 
 @extern(C) {
@@ -95,9 +96,12 @@ use directx12 {
         )
 
         let title = if rc == 0 {
-            // ── (2) ID3D12Device::CreateCommandQueue (vtable +64) ─
+            // ── (2) ID3D12Device::CreateCommandQueue ─────────────
             let devVtbl = readU64(device as *const void, 0 as i64)
-            let createQueuePtr = readU64(devVtbl as i64 as *const void, 64 as i64)
+            let createQueuePtr = readU64(
+                devVtbl as i64 as *const void,
+                ID3D12DeviceVtbl.CreateCommandQueue as i64
+            )
             let createQueue = createQueuePtr as i64 as *void
                 as fn(i64, *const D3D12_COMMAND_QUEUE_DESC, *const GUID, **void): i32
 
@@ -111,14 +115,20 @@ use directx12 {
             let qhr = createQueue(device as i64, queueDesc, IID_ID3D12CommandQueue, &queue)
 
             if qhr == 0 {
-                // ── (3) Release queue (vtable +16) ───────────────
+                // ── (3) Release queue (IUnknown::Release) ────────
                 let qVtbl = readU64(queue as *const void, 0 as i64)
-                let qReleasePtr = readU64(qVtbl as i64 as *const void, 16 as i64)
+                let qReleasePtr = readU64(
+                    qVtbl as i64 as *const void,
+                    IUnknownVtbl.Release as i64
+                )
                 let qRelease = qReleasePtr as i64 as *void as fn(i64): u32
                 let _ = qRelease(queue as i64)
 
-                // ── (4) Release device (vtable +16) ──────────────
-                let dReleasePtr = readU64(devVtbl as i64 as *const void, 16 as i64)
+                // ── (4) Release device (IUnknown::Release) ───────
+                let dReleasePtr = readU64(
+                    devVtbl as i64 as *const void,
+                    IUnknownVtbl.Release as i64
+                )
                 let dRelease = dReleasePtr as i64 as *void as fn(i64): u32
                 let _ = dRelease(device as i64)
 
@@ -161,10 +171,10 @@ run()
 //    exactly once in the bindings, mirroring the C SDK convention
 //    (`#include <d3d12.h>` + `dxguid.lib`).
 //
-// 2. Vtable offsets as bare integers.
-//    `+16`, `+64`, … still carry no semantic info. An auto-generated
-//    enum (`Vtbl.ID3D12Device.CreateCommandQueue`) or IDL-driven
-//    code-gen step would make the source self-describing.
+// 2. ✓ Vtable offsets — SOLVED by `pub enum *Vtbl: u32 { ... }` in
+//    `bindings/directx12/d3d12_vtables.il`. Use sites now look like
+//    `IUnknownVtbl.Release as i64` / `ID3D12DeviceVtbl.CreateCommandQueue
+//    as i64` instead of bare `+16`, `+64`.
 //
 // 3. fn-typed local can't be passed through helper fns by value.
 //    "no raw pointers in ilang-side wrapper signatures" rule blocks

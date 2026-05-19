@@ -14,4 +14,5 @@
 
 pub use d3d12.*
 pub use d3d12_iids.*
+pub use d3d12_vtables.*
 pub use d3dcompiler.*
