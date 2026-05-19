@@ -20,11 +20,11 @@
 //   ilang run examples/macos/cocoa/main.il
 
 use cocoa { NSObject, NSTextField, NSSlider, NSApplicationDelegate,
-            NSApplication, NSNotification,
+            NSApplication, NSNotification, NSMenu, NSMenuItem,
             NSWindowStyleMask, NSApplicationActivationPolicy, NSUserInterfaceLayoutOrientation, nil,
             sharedApplication, makeWindow, makeButton, makeLabel,
             makeTextField, makeSlider, makeStackView, makeRect,
-            ilstr, selectorPtr }
+            ilstr, nsstr, selectorPtr }
 
 // Module-level state. `textField` / `slider` are captured by the
 // FormHandler's `submit:` method; keeping them here lets the
@@ -110,6 +110,18 @@ submit.setAction(selectorPtr("submit:"))
 stack.addArrangedSubview(submit)
 
 win.contentView.addSubview(stack)
+
+// Main menu bar with a File menu that contains a Quit item.
+// `terminate:` is NSApplication's standard quit action — leaving
+// the target as nil lets the responder chain deliver it to the app.
+let mainMenu = NSMenu.alloc().init()
+let fileItem = NSMenuItem.alloc().init(nsstr("File"), 0, nsstr(""))
+mainMenu.addItem(fileItem)
+app.setMainMenu(mainMenu)
+
+let fileMenu = NSMenu.alloc().initWithTitle(nsstr("File"))
+fileMenu.addItemWithTitle(nsstr("Quit"), selectorPtr("terminate:"), nsstr("q"))
+fileItem.setSubmenu(fileMenu)
 
 win.makeKeyAndOrderFront(nil)
 app.activate()
