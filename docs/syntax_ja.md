@@ -602,6 +602,31 @@ Counter.max                // 1000
 - ジェネリッククラスでの静的フィールドは未対応 (静的メソッドと同じ理由)
 - 内部実装: JIT は `Box<[i64]>` を確保してスロット割り当て、アクセスは絶対アドレスの load/store で f64/bool は bitcast / truncate
 
+#### `static get` / `static set` プロパティ
+
+`static get name(): T { ... }` / `static set name(v: T) { ... }` でクラスレベルの計算プロパティを宣言できます。読み出しは `ClassName.name`、書き込みは `ClassName.name = v` と、`static` フィールドと同じ構文。本体内で `this` は使えません。
+
+```rust
+class Palette {
+    static raw: i64 = 0xFF8800
+
+    static get accent(): i64 { Palette.raw }
+    static set accent(v: i64) { Palette.raw = v }
+
+    static get label(): string { "palette" }   // read-only
+}
+
+Palette.accent              // 0xFF8800        (static getter 呼び出し)
+Palette.accent = 0x00FFAA   // static setter 呼び出し
+Palette.label               // "palette"
+```
+
+- インスタンス用 `get` / `set` と同じ形状制約: getter は引数なし・戻り値型必須、setter は引数 1 個・戻り値なし。getter の戻り値型と setter の引数型は一致が必要
+- getter のみ (read-only) / setter のみ (write-only) も可。逆操作は利用側で「getter なし」「setter なし」の型エラー
+- 同名のフィールド・メソッド・プロパティ・他の静的メンバとは衝突不可
+- 他の静的メンバと同じくジェネリッククラスでは未対応
+- Cocoa バインディングで多用されており、たとえば `NSColor.black` は `@objc("blackColor") pub static get black(): NSColor` として宣言され、読み出し時に ObjC クラスメソッドへディスパッチされる
+
 ### 継承 (`: Parent`)
 
 `class Child: Parent { ... }` で単一継承できます (Phase B: 仮想ディスパッチ + override + super)。interpreter / JIT とも対応。

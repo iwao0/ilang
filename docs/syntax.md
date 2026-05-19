@@ -763,6 +763,42 @@ Counter.max                // 1000
   slots; access is a load/store at an absolute address with
   bitcast/truncate for f64/bool.
 
+#### `static get` / `static set` properties
+
+`static get name(): T { ... }` / `static set name(v: T) { ... }`
+declare class-level computed properties. Callers read with
+`ClassName.name` and write with `ClassName.name = v`, the same
+syntax used for `static` fields. No `this` is bound in the body.
+
+```rust
+class Palette {
+    static raw: i64 = 0xFF8800
+
+    static get accent(): i64 { Palette.raw }
+    static set accent(v: i64) { Palette.raw = v }
+
+    static get label(): string { "palette" }   // read-only
+}
+
+Palette.accent              // 0xFF8800        (calls the static getter)
+Palette.accent = 0x00FFAA   // calls the static setter
+Palette.label               // "palette"
+```
+
+- Same shape rules as instance `get` / `set`: the getter takes
+  zero args + a return type; the setter takes one arg + no
+  return; getter return type and setter param type must match.
+- Read-only (getter alone) and write-only (setter alone) are
+  both fine; the missing direction errors at the use site.
+- Names must not collide with fields, methods, properties, or
+  other static members.
+- Same restrictions as other static members: unsupported on
+  generic classes.
+- Used heavily by the Cocoa bindings — e.g. `NSColor.black`
+  is declared as `@objc("blackColor") pub static get black():
+  NSColor` so the reading site dispatches to the ObjC class
+  method.
+
 ### Inheritance (`: Parent`)
 
 `class Child: Parent { ... }` for single inheritance with virtual
