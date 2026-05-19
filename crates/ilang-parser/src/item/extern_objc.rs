@@ -1376,9 +1376,27 @@ fn build_class_method(
     call_args.push(Expr::new(ExprKind::Var(sel_name), m.span));
     for p in m.params.iter() {
         let arg_expr = if is_objc_class_ty(&p.ty, ctx.class_names) {
+            // Alias the param into a synthetic `__obj_<i>` local
+            // before doing `Field(Var, "handle")` so the per-file
+            // normalize pass can't mistake `Field(Var(name), "handle")`
+            // for a `module.handle` reference when the user happens
+            // to name a param the same as an imported module (e.g.
+            // `pub static animateWithTextures(textures: NSArray, …)`
+            // colliding with `use textures { … }`).
+            let alias_name: Symbol = format!("__obj_{}", p.name.as_str()).into();
+            stmts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name: alias_name,
+                    ty: None,
+                    value: Expr::new(ExprKind::Var(p.name), p.span),
+                },
+                p.span,
+            ));
             let field = Expr::new(
                 ExprKind::Field {
-                    obj: Box::new(Expr::new(ExprKind::Var(p.name), p.span)),
+                    obj: Box::new(Expr::new(ExprKind::Var(alias_name), p.span)),
                     name: Symbol::intern("handle"),
                 },
                 p.span,
@@ -1712,9 +1730,24 @@ fn build_super_helper(
     call_args.push(sel_call);
     for p in m.params.iter() {
         if is_objc_class_ty(&p.ty, ctx.class_names) {
+            // Same shadowing dodge as `build_dispatch_body` — alias
+            // the param into `__obj_<name>` so the normalize pass
+            // can't collapse `Field(Var(name), "handle")` into a
+            // `module.handle` ref when `name` shadows a `use`d module.
+            let alias_name: Symbol = format!("__obj_{}", p.name.as_str()).into();
+            stmts.push(Stmt::new(
+                StmtKind::Let {
+                    is_pub: false,
+                    is_const: false,
+                    name: alias_name,
+                    ty: None,
+                    value: Expr::new(ExprKind::Var(p.name), p.span),
+                },
+                p.span,
+            ));
             let handle = Expr::new(
                 ExprKind::Field {
-                    obj: Box::new(Expr::new(ExprKind::Var(p.name), p.span)),
+                    obj: Box::new(Expr::new(ExprKind::Var(alias_name), p.span)),
                     name: Symbol::intern("handle"),
                 },
                 p.span,
