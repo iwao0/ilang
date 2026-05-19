@@ -110,17 +110,29 @@ fn direct_pubs(prog: &Program) -> HashSet<Symbol> {
 /// Recurses with memoization; the import graph is a DAG (cycle
 /// detection runs at load time), so this terminates.
 fn build_catalog(loaded: &HashMap<PathBuf, Program>) -> PubCatalog {
-    let mut name_to_path: HashMap<String, PathBuf> = HashMap::new();
+    // Two files in different folders can share a module name
+    // (e.g. `foundation/core.il` and `appkit/core.il`, both seen
+    // as `core` by `use core { … }`). Earlier this used
+    // `direct.insert(...)` which silently dropped one side; now
+    // we collect every contributor so the catalog union covers
+    // all pub names from every module that resolves under that
+    // bare name. `paths_per_name` keeps both contributing paths
+    // so `expand` can walk each module's `pub use` chain.
+    let mut paths_per_name: HashMap<String, Vec<PathBuf>> = HashMap::new();
     let mut direct: HashMap<String, HashSet<Symbol>> = HashMap::new();
     for (path, prog) in loaded {
         if let Some(name) = module_name_of(path) {
-            direct.insert(name.clone(), direct_pubs(prog));
-            name_to_path.insert(name, path.clone());
+            let pubs = direct_pubs(prog);
+            direct
+                .entry(name.clone())
+                .or_default()
+                .extend(pubs.into_iter());
+            paths_per_name.entry(name).or_default().push(path.clone());
         }
     }
     let mut catalog: PubCatalog = HashMap::new();
     for module in direct.keys() {
-        expand(module, loaded, &name_to_path, &direct, &mut catalog, &mut HashSet::new());
+        expand(module, loaded, &paths_per_name, &direct, &mut catalog, &mut HashSet::new());
     }
     catalog
 }
@@ -128,7 +140,7 @@ fn build_catalog(loaded: &HashMap<PathBuf, Program>) -> PubCatalog {
 fn expand(
     module: &str,
     loaded: &HashMap<PathBuf, Program>,
-    name_to_path: &HashMap<String, PathBuf>,
+    paths_per_name: &HashMap<String, Vec<PathBuf>>,
     direct: &HashMap<String, HashSet<Symbol>>,
     out: &mut PubCatalog,
     visiting: &mut HashSet<String>,
@@ -140,13 +152,18 @@ fn expand(
         return;
     }
     let mut acc = direct.get(module).cloned().unwrap_or_default();
-    if let Some(path) = name_to_path.get(module) {
-        if let Some(prog) = loaded.get(path) {
+    // Walk every contributing path's `pub use` chain — same-name
+    // sibling modules might each `pub use` different submodules,
+    // and we want the catalog to surface both sets so a
+    // selective import resolves through either path.
+    if let Some(paths) = paths_per_name.get(module) {
+        for path in paths {
+            let Some(prog) = loaded.get(path) else { continue };
             for item in &prog.items {
                 if let Item::Use(u) = item {
                     if u.re_export {
                         let nested = u.module.as_str().to_string();
-                        expand(&nested, loaded, name_to_path, direct, out, visiting);
+                        expand(&nested, loaded, paths_per_name, direct, out, visiting);
                         if let Some(set) = out.get(&nested) {
                             for n in set {
                                 if u.wildcard {

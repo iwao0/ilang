@@ -4,7 +4,7 @@
 // NSTextFieldDelegate / NSControlTextEditingDelegate.
 
 use foundation { NSObject, NSString, NSArray, NSDate, NSRect, nsstr, makeRect }
-use app { NSView }
+use core { NSView }
 
 // NSBezelStyle — visual style of a push button. `push` is the
 // standard Mac-style rounded blue button; the rest are

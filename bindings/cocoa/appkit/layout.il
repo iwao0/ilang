@@ -4,7 +4,7 @@
 // import the layout module.
 
 use foundation { NSObject, NSArray, NSSize, NSRect, makeRect }
-use app { NSView }
+use core { NSView }
 
 // NSUserInterfaceLayoutOrientation — direction NSStackView
 // stacks its arranged subviews. Top-down (`vertical`) is the

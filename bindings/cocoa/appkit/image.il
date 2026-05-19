@@ -1,7 +1,7 @@
 // Images + cursors — NSImage / NSImageView / NSCursor.
 
 use foundation { NSObject, NSString, NSURL, NSSize, NSRect, nsstr, makeRect }
-use app { NSView }
+use core { NSView }
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSImage` — bitmap / vector image. Construct from a

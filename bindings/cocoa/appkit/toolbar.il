@@ -2,7 +2,7 @@
 // NSStatusBar / NSStatusItem — UI chrome around the main content.
 
 use foundation { NSObject, NSString, NSArray, NSNotification, NSRect }
-use app { NSView }
+use core { NSView }
 use image { NSImage }
 
 // NSToolbarDisplayMode — what each toolbar slot shows.

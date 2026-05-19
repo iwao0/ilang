@@ -2,8 +2,8 @@
 // configuration — view-level mouse / trackpad input.
 
 use foundation { NSObject, NSString, NSPoint, NSRect }
-use app { NSView }
-use event { NSEvent }
+use core { NSView }
+use events { NSEvent }
 
 // NSGestureRecognizerState — discriminant on a recognizer's
 // `state` property. The runtime drives it through the

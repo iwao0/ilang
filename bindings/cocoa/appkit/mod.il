@@ -4,7 +4,7 @@
 // the umbrella `cocoa.X`) without remembering which file each
 // type lives in.
 
-pub use app.*
+pub use core.*
 pub use controls.*
 pub use layout.*
 pub use text.*
@@ -12,7 +12,7 @@ pub use image.*
 pub use menu.*
 pub use panels.*
 pub use workspace.*
-pub use event.*
+pub use events.*
 pub use table.*
 pub use toolbar.*
 pub use drawing.*

@@ -281,13 +281,13 @@ fn resolve_module(
     dir: &Path,
     extra_paths: &[PathBuf],
 ) -> Result<PathBuf, LoadError> {
-    if builtin_module_source(module).is_some() {
-        return Ok(builtin_path(module));
-    }
-    // Build the `module.il` filename / `module/mod.il` subpath
-    // exactly once and reuse them for every candidate directory;
-    // the old version re-formatted them for each `extra_paths`
-    // entry.
+    // Resolution order: sibling file → sibling subfolder → each
+    // explicit dep dir → stdlib builtin. Stdlib comes LAST so a
+    // sibling file with the same name (e.g. `appkit/events.il`
+    // next to `stdlib/events.il`) wins — otherwise the loader
+    // would dlopen the stdlib file under that bare module name
+    // and the visibility catalog would only see the stdlib's
+    // pubs.
     let filename = format!("{module}.il");
     // `<dir>/<module>.il` — sibling file. Highest priority.
     let primary = dir.join(&filename);
@@ -311,6 +311,12 @@ fn resolve_module(
         if candidate_mod.exists() {
             return canonicalize(&candidate_mod);
         }
+    }
+    // Stdlib builtins (`math` / `os` / `events` / `regex` / …).
+    // A sibling or dep with the same name shadows these — but
+    // that's the user's intent (they wrote a file by that name).
+    if builtin_module_source(module).is_some() {
+        return Ok(builtin_path(module));
     }
     // Fall back to the primary path so the resulting "not found"
     // error mentions the importer-local location (most actionable).

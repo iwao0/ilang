@@ -4,7 +4,7 @@
 
 use foundation { NSObject, NSString, NSArray, NSIndexSet, NSRect,
                  NSSize, NSNotification }
-use app { NSView }
+use core { NSView }
 
 // NSTableViewSelectionHighlightStyle — visual treatment of the
 // selected row.

@@ -1,7 +1,7 @@
 // Text + typography — NSTextView / NSFont / NSColor.
 
 use foundation { NSObject, NSString, NSRect, nsstr, makeRect }
-use app { NSView }
+use core { NSView }
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
     /// `NSColor` — a colour value. Use the named system-colour
