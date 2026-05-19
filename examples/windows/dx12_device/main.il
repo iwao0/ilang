@@ -8,8 +8,9 @@
 //
 //   1. D3D12CreateDevice                          flat
 //   2. ID3D12Device::CreateCommandQueue           @com interface
-//   3. ID3D12CommandQueue::Release                @com interface
-//   4. ID3D12Device::Release                      @com interface
+//   3. message pump (window stays open until the user closes it)
+//   4. ID3D12CommandQueue::Release / Device::Release
+//   5. free the class-name C string
 //
 // IIDs come from `bindings/directx12/d3d12_iids.il` as `pub const`
 // values, so user code never has to retype the {189819f1-…} octets.
@@ -96,8 +97,12 @@ use directx12 {
             &rawDevice
         )
 
+        // ── (2) ID3D12Device::CreateCommandQueue ─────────────────
+        // Build the command queue up front so the window title can
+        // report a single end-to-end status; Release runs in the
+        // cleanup block below, after the user closes the window.
+        let rawQueue: *void = NULL
         let title = if rc == 0 {
-            // ── (2) ID3D12Device::CreateCommandQueue ─────────────
             let device = rawDevice as ID3D12Device
             let queueDesc = D3D12_COMMAND_QUEUE_DESC {
                 Type:     D3D12CommandListType.direct,
@@ -105,18 +110,9 @@ use directx12 {
                 Flags:    D3D12CommandQueueFlags.none,
                 NodeMask: 0,
             }
-            let rawQueue: *void = NULL
             let qhr = device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &rawQueue)
-
             if qhr == 0 {
-                // ── (3) Release queue (IUnknown::Release) ────────
-                let queue = rawQueue as IUnknown
-                let _ = queue.Release()
-
-                // ── (4) Release device (IUnknown::Release) ───────
-                let _ = device.Release()
-
-                cstrFromString("ilang DX12: device + queue via @com interface - OK")
+                cstrFromString("ilang DX12: device + queue ready - close window to release")
             } else {
                 cstrFromString("ilang DX12: device OK, CreateCommandQueue failed")
             }
@@ -142,6 +138,23 @@ use directx12 {
             TranslateMessage(msg)
             let _ = DispatchMessageA(msg)
         }
+
+        // ── (3/4) Post-shutdown cleanup ──────────────────────────
+        // The user has dismissed the window (WM_DESTROY →
+        // PostQuitMessage breaks the pump). Release every COM
+        // handle we acquired, then free the registered class name.
+        // Each `Release` is null-guarded so a partial-init run (no
+        // GPU, CreateCommandQueue failed) still cleans up what it
+        // did create.
+        if (rawQueue as i64) != 0 {
+            let queue = rawQueue as IUnknown
+            let _ = queue.Release()
+        }
+        if (rawDevice as i64) != 0 {
+            let device = rawDevice as IUnknown
+            let _ = device.Release()
+        }
+        freeCstr(className)
     }
 }
 
