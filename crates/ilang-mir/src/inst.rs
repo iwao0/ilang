@@ -180,6 +180,19 @@ pub enum Inst {
     CallRawIndirect { dst: Option<ValueId>, callee: ValueId, sig: FnSig, args: Box<[ValueId]> },
     /// Virtual dispatch — looks up the slot in the receiver's vtable.
     VirtCall { dst: Option<ValueId>, recv: ValueId, slot: VTableSlot, args: Box<[ValueId]> },
+    /// COM vtable dispatch — the receiver is a raw `*void` whose
+    /// first 8 bytes point to a fn-pointer vtable. Lowering emits
+    /// `vt = load[recv]; fp = load[vt + slot * 8]; call fp(recv, args)`
+    /// with the C ABI signature. No ARC bookkeeping (the value
+    /// owns no ilang-side reference); lifetime is managed by
+    /// IUnknown::Release at the user level.
+    ComCall {
+        dst: Option<ValueId>,
+        recv: ValueId,
+        slot: u32,
+        sig: FnSig,
+        args: Box<[ValueId]>,
+    },
 
     NewObject { dst: ValueId, class: ClassId, init_args: Box<[ValueId]>, init: FuncId },
     LoadField { dst: ValueId, obj: ValueId, field: FieldId },

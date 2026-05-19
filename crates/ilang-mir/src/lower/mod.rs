@@ -200,6 +200,67 @@ pub fn lower_program_with_slots(
                 names.push(m.name);
             }
             lower.iface_methods_by_name.insert(i.name, names);
+            if i.is_com {
+                lower.com_interfaces.insert(i.name);
+            }
+        }
+    }
+    // 1a''. Once every `@com interface` is registered, walk each one
+    //       to build its per-interface vtable-slot table. Slots are
+    //       0-based; an `extends`-parent's slots come first, matching
+    //       the C++ COM ABI (`IUnknown::QueryInterface` at slot 0 of
+    //       every derived interface). Done in a separate pass so the
+    //       parent name resolves regardless of declaration order.
+    for item in &prog.items {
+        let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
+            Item::Interface(i) => vec![i],
+            Item::ExternC(b) => b.interfaces.iter().collect(),
+            _ => continue,
+        };
+        for i in iface_list {
+            if !i.is_com {
+                continue;
+            }
+            // Inheritance chain — collect own + ancestors in order
+            // from root to leaf. The leaf's own methods are
+            // appended last so its slot range is `[parent_total ..
+            // parent_total + own.len())`.
+            let mut chain: Vec<Symbol> = Vec::new();
+            let mut cur: Option<Symbol> = Some(i.name);
+            while let Some(name) = cur {
+                chain.push(name);
+                cur = prog.items.iter().find_map(|it| {
+                    let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
+                        Item::Interface(ii) => vec![ii],
+                        Item::ExternC(b) => b.interfaces.iter().collect(),
+                        _ => return None,
+                    };
+                    candidates
+                        .into_iter()
+                        .find(|ii| ii.name == name)
+                        .and_then(|ii| ii.parent)
+                });
+            }
+            chain.reverse();
+            let mut slot: u32 = 0;
+            for ancestor in chain {
+                let ancestor_decl = prog.items.iter().find_map(|it| {
+                    let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
+                        Item::Interface(ii) => vec![ii],
+                        Item::ExternC(b) => b.interfaces.iter().collect(),
+                        _ => return None,
+                    };
+                    candidates.into_iter().find(|ii| ii.name == ancestor)
+                });
+                if let Some(ad) = ancestor_decl {
+                    for m in ad.methods.iter() {
+                        lower
+                            .com_iface_slots
+                            .insert((i.name, m.name), slot);
+                        slot += 1;
+                    }
+                }
+            }
         }
     }
 
@@ -247,6 +308,22 @@ pub fn lower_program_with_slots(
     // `Item::Interface` and `@objc interface` declarations nested
     // inside `@extern(ObjC)` blocks — the registration pass above
     // covers both, so the signature recording must too.
+    //
+    // `@com interface` additionally records every inherited
+    // method against the child name so `device.Release()` (whose
+    // `Release` lives on the IUnknown parent) finds its signature
+    // and slot through the same `iface_method_sigs` /
+    // `com_iface_slots` lookup as own methods.
+    let find_iface_decl = |name: Symbol| -> Option<&ilang_ast::InterfaceDecl> {
+        prog.items.iter().find_map(|it| {
+            let candidates: Vec<&ilang_ast::InterfaceDecl> = match it {
+                Item::Interface(ii) => vec![ii],
+                Item::ExternC(b) => b.interfaces.iter().collect(),
+                _ => return None,
+            };
+            candidates.into_iter().find(|ii| ii.name == name)
+        })
+    };
     for item in &prog.items {
         let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
             Item::Interface(i) => vec![i],
@@ -254,18 +331,35 @@ pub fn lower_program_with_slots(
             _ => continue,
         };
         for i in iface_list {
-            for m in i.methods.iter() {
-                let mut params: Vec<MirTy> = Vec::with_capacity(m.params.len());
-                for p in m.params.iter() {
-                    params.push(lower.resolve_ty(&p.ty)?);
+            // Walk the parent chain (root → leaf) so inherited
+            // signatures land under this interface's name first.
+            let mut chain: Vec<Symbol> = Vec::new();
+            if i.is_com {
+                let mut cur: Option<Symbol> = i.parent;
+                while let Some(name) = cur {
+                    chain.push(name);
+                    cur = find_iface_decl(name).and_then(|d| d.parent);
                 }
-                let ret = match &m.ret {
-                    Some(t) => lower.resolve_ty(t)?,
-                    None => MirTy::Unit,
+                chain.reverse();
+            }
+            chain.push(i.name);
+            for ancestor in chain {
+                let Some(decl) = find_iface_decl(ancestor) else {
+                    continue;
                 };
-                lower
-                    .iface_method_sigs
-                    .insert((i.name, m.name), FnSig { params, ret });
+                for m in decl.methods.iter() {
+                    let mut params: Vec<MirTy> = Vec::with_capacity(m.params.len());
+                    for p in m.params.iter() {
+                        params.push(lower.resolve_ty(&p.ty)?);
+                    }
+                    let ret = match &m.ret {
+                        Some(t) => lower.resolve_ty(t)?,
+                        None => MirTy::Unit,
+                    };
+                    lower
+                        .iface_method_sigs
+                        .insert((i.name, m.name), FnSig { params, ret });
+                }
             }
         }
     }
@@ -386,6 +480,16 @@ struct Lower {
     /// Method signature per (interface, method) — call sites need
     /// `params` for arg coercion and `ret` for the dst value type.
     iface_method_sigs: HashMap<(Symbol, Symbol), FnSig>,
+    /// Set of interfaces declared with `@com`. Method dispatch on a
+    /// receiver typed as one of these uses raw COM vtable
+    /// indirection (`(*recv)[slot](recv, args...)`) instead of the
+    /// class-registry-backed `__virt_dispatch`.
+    com_interfaces: std::collections::HashSet<Symbol>,
+    /// Per-(@com interface, method) slot — 0-based and concatenated
+    /// across the parent chain so the C++ COM ABI's
+    /// "parent vtable first, child appends" layout drops out
+    /// naturally.
+    com_iface_slots: HashMap<(Symbol, Symbol), u32>,
     /// Per-class metadata used during lowering: field name → FieldId,
     /// method name → FuncId for the (mangle-resolved) implementation.
     class_meta: HashMap<crate::types::ClassId, ClassMeta>,
@@ -513,6 +617,8 @@ impl Lower {
             iface_method_slots: HashMap::new(),
             iface_methods_by_name: HashMap::new(),
             iface_method_sigs: HashMap::new(),
+            com_interfaces: std::collections::HashSet::new(),
+            com_iface_slots: HashMap::new(),
             class_meta: HashMap::new(),
             enums: Vec::new(),
             enum_ids: HashMap::new(),
@@ -651,6 +757,8 @@ struct BodyCx<'a> {
     interface_ids: &'a HashMap<Symbol, crate::types::ClassId>,
     iface_method_slots: &'a HashMap<(Symbol, Symbol), u32>,
     iface_method_sigs: &'a HashMap<(Symbol, Symbol), FnSig>,
+    com_interfaces: &'a std::collections::HashSet<Symbol>,
+    com_iface_slots: &'a HashMap<(Symbol, Symbol), u32>,
     enum_ids: &'a HashMap<Symbol, crate::types::EnumId>,
     enum_meta: &'a HashMap<crate::types::EnumId, EnumMeta>,
     enums: &'a [crate::program::EnumLayout],
@@ -808,6 +916,25 @@ impl<'a> BodyCx<'a> {
 
     /// Resolve a name to its current value, emitting `UseLocal` for
     /// mutable bindings. Returns `None` if the name is unbound.
+    /// `true` when a value of `ty` participates in ilang's ARC.
+    /// Almost the same as `MirTy::is_heap`, except that
+    /// `MirTy::Object(@com_iface)` is treated as a non-ARC handle
+    /// (a bare COM pointer with no ARC header — lifetime is
+    /// managed by IUnknown::Release at the user level, not by
+    /// retain/release at scope boundaries).
+    pub(super) fn is_arc_heap(&self, ty: &MirTy) -> bool {
+        if !ty.is_heap() {
+            return false;
+        }
+        if let MirTy::Object(cid) = ty {
+            let name = self.classes[cid.0 as usize].name;
+            if self.com_interfaces.contains(&name) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn lookup_var(&mut self, name: Symbol) -> Option<(ValueId, MirTy)> {
         match self.env.lookup_binding(name)? {
             Binding::Ssa(v, t) => Some((v, t)),
@@ -1212,12 +1339,26 @@ impl<'a> BodyCx<'a> {
                         if is_crepr && !self.crepr_owned_locals.contains(&lid) {
                             continue;
                         }
+                        // `@com interface` values are bare COM
+                        // handles with no ARC header — Release
+                        // here would scribble random memory at
+                        // `addr - 32`. Lifetime is managed by
+                        // IUnknown::Release at the user level.
+                        if self.com_interfaces.contains(&layout.name) {
+                            continue;
+                        }
                     }
                     let v = self.fb.new_value(ty.clone());
                     self.fb.push_inst(Inst::UseLocal { dst: v, local: lid });
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::Ssa(v, ty) if needs_release(&ty) => {
+                    if let MirTy::Object(cid) = &ty {
+                        let layout = &self.classes[cid.0 as usize];
+                        if self.com_interfaces.contains(&layout.name) {
+                            continue;
+                        }
+                    }
                     self.fb.push_inst(Inst::Release { value: v });
                 }
                 Binding::Cell(cell_v, ty) if needs_release(&ty) => {
@@ -1253,10 +1394,10 @@ impl<'a> BodyCx<'a> {
             }
             // `*T` / `*const T`. Recurse so user-defined `@extern(C)`
             // structs survive in the pointer's inner type. The
-            // `ty_to_mir` fallback would silently degrade
-            // `*ID3D12DeviceVtbl` to `*void` because that helper
-            // doesn't know about the class registry, which broke
-            // field-access on COM vtable pointers.
+            // `ty_to_mir` fallback would silently degrade `*FooStruct`
+            // to `*void` because that helper doesn't know about the
+            // class registry, which breaks field access on raw
+            // pointers to CRepr structs.
             Type::RawPtr { is_const, inner } => Ok(MirTy::RawPtr {
                 is_const: *is_const,
                 inner: Box::new(self.resolve_ty(inner)?),

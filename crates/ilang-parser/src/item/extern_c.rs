@@ -27,6 +27,7 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
+        let mut extern_c_interfaces: Vec<ilang_ast::InterfaceDecl> = Vec::new();
         loop {
             // Skip leading newlines / blank lines inside the block.
             if matches!(self.peek().kind, TokenKind::RBrace) {
@@ -91,12 +92,41 @@ impl<'a> Parser<'a> {
                     c.is_pub = item_is_pub;
                     ilang_ast::ExternCItem::Class(c)
                 }
+                TokenKind::Interface => {
+                    // `@com interface I { ... }` — COM vtable
+                    // contract. Lives inside @extern(C) so its
+                    // signatures can reference raw pointers /
+                    // C-only types just like fn / struct decls.
+                    let mut is_com = false;
+                    for a in &inner_attrs {
+                        match a.name.as_str() {
+                            "com" if a.args.is_empty() => {
+                                is_com = true;
+                            }
+                            _ => {
+                                let t = self.peek();
+                                return Err(ParseError::Unexpected {
+                                    found: t.kind.clone(),
+                                    expected:
+                                        "only `@com` is supported on interface declarations inside @extern(C)"
+                                            .into(),
+                                    span: t.span,
+                                });
+                            }
+                        }
+                    }
+                    let mut iface = self.parse_interface_decl()?;
+                    iface.is_pub = item_is_pub;
+                    iface.is_com = is_com;
+                    extern_c_interfaces.push(iface);
+                    continue;
+                }
                 _ => {
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
                         expected:
-                            "fn / struct / union / class declaration inside @extern(C) block"
+                            "fn / struct / union / class / interface declaration inside @extern(C) block"
                                 .into(),
                         span: t.span,
                     });
@@ -105,7 +135,11 @@ impl<'a> Parser<'a> {
             items.push(item);
         }
         self.expect(&TokenKind::RBrace, "'}'")?;
-        Ok(ilang_ast::ExternCBlock { items: items.into(), interfaces: Box::new([]), span })
+        Ok(ilang_ast::ExternCBlock {
+            items: items.into(),
+            interfaces: extern_c_interfaces.into(),
+            span,
+        })
     }
 
     /// Parse a single fn declaration inside an `@extern(C)` /

@@ -307,7 +307,7 @@ impl<'a> BodyCx<'a> {
                 }
                 let v_is_fresh = self.is_fresh_object_expr(&args[1]);
                 let (vv, vty) = self.lower_expr(&args[1])?;
-                if !v_is_fresh && vty.is_heap() {
+                if !v_is_fresh && self.is_arc_heap(&vty) {
                     self.fb.push_inst(Inst::Retain { value: vv });
                 }
                 let kind = kind_tag_of_mir(&vty);
@@ -381,7 +381,7 @@ impl<'a> BodyCx<'a> {
                 // moves into the promise's Resolved state). For a
                 // borrowed scrutinee we retain so the caller's +1
                 // stays intact.
-                if !arg_is_fresh && vty.is_heap() {
+                if !arg_is_fresh && self.is_arc_heap(&vty) {
                     self.fb.push_inst(Inst::Retain { value: vv });
                 }
                 let kind = kind_tag_of_mir(&vty);
@@ -865,7 +865,7 @@ impl<'a> BodyCx<'a> {
                 // here so the only remaining share is the map's.
                 if m == "set" {
                     if let Some((is_fresh, vv, vty)) = arg_meta.get(1) {
-                        if *is_fresh && vty.is_heap() {
+                        if *is_fresh && self.is_arc_heap(vty) {
                             self.fb.push_inst(Inst::Release { value: *vv });
                         }
                     }
@@ -900,6 +900,75 @@ impl<'a> BodyCx<'a> {
                     .iter()
                     .find_map(|(n, cid)| if cid == class_id { Some(*n) } else { None });
                 if let Some(ifn) = iface_name {
+                    // @com interface — receiver is a `*void` whose
+                    // first 8 bytes point to a fn-pointer vtable.
+                    // Dispatch goes through `ComCall` (raw vtable
+                    // indirection); slot is per-interface and
+                    // 0-based, concatenated from any parent chain.
+                    if self.com_interfaces.contains(&ifn) {
+                        let slot = self
+                            .com_iface_slots
+                            .get(&(ifn, method))
+                            .copied()
+                            .ok_or_else(|| {
+                                LowerError::Other(format!(
+                                    "@com interface `{ifn}` has no method `{method}`"
+                                ))
+                            })?;
+                        let sig = self
+                            .iface_method_sigs
+                            .get(&(ifn, method))
+                            .cloned()
+                            .ok_or_else(|| {
+                                LowerError::Other(format!(
+                                    "@com interface `{ifn}` method `{method}` has no recorded signature"
+                                ))
+                            })?;
+                        // Receiver becomes the first C ABI param
+                        // (the COM `this` pointer). The codegen
+                        // prepends `recv` itself, so the call's
+                        // signature here lists `this` as the first
+                        // param. Force the recv MIR type onto i64
+                        // so the call_indirect sees a plain pointer.
+                        let recv_i64 = self.fb.new_value(MirTy::I64);
+                        self.fb.push_inst(Inst::Cast {
+                            dst: recv_i64,
+                            kind: crate::inst::CastKind::PtrIntCast,
+                            src: ov,
+                        });
+                        let mut com_sig_params: Vec<MirTy> =
+                            Vec::with_capacity(sig.params.len() + 1);
+                        com_sig_params.push(MirTy::I64);
+                        com_sig_params.extend(sig.params.iter().cloned());
+                        let mut user_args: Vec<ValueId> = Vec::with_capacity(args.len());
+                        for (i, a) in args.iter().enumerate() {
+                            let (v, vty) = self.lower_expr(a)?;
+                            let target = sig.params.get(i);
+                            let coerced = match target {
+                                Some(t) if t != &vty => self.coerce(v, &vty, t, a.span)?,
+                                _ => v,
+                            };
+                            user_args.push(coerced);
+                        }
+                        let dst = if matches!(sig.ret, MirTy::Unit) {
+                            None
+                        } else {
+                            Some(self.fb.new_value(sig.ret.clone()))
+                        };
+                        let com_sig = crate::inst::FnSig {
+                            params: com_sig_params.into_boxed_slice(),
+                            ret: sig.ret.clone(),
+                            variadic: false,
+                        };
+                        self.fb.push_inst(Inst::ComCall {
+                            dst,
+                            recv: recv_i64,
+                            slot,
+                            sig: com_sig,
+                            args: user_args.into_boxed_slice(),
+                        });
+                        return Ok((dst.unwrap_or_else(|| self.const_unit()), sig.ret));
+                    }
                     let slot = self
                         .iface_method_slots
                         .get(&(ifn, method))

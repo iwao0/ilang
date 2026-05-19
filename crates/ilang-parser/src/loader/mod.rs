@@ -1909,6 +1909,9 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
             // after a `use M { … }` rewrite).
             for iface in b.interfaces.iter_mut() {
                 iface.name = format!("{prefix}.{}", iface.name).into();
+                if let Some(parent) = iface.parent.as_mut() {
+                    *parent = format!("{prefix}.{}", parent).into();
+                }
                 for m in iface.methods.iter_mut() {
                     for p in m.params.iter_mut() {
                         p.ty = prefix_type(&p.ty, prefix);
@@ -1920,6 +1923,13 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
         }
         Item::Interface(mut i) => {
             i.name = format!("{prefix}.{}", i.name).into();
+            // `@com interface X : IUnknown { … }` carries a parent
+            // name that has to live in the same module-prefixed form
+            // as the class-side `extends`, so vtable-slot inheritance
+            // resolves after the loader merge.
+            if let Some(parent) = i.parent.as_mut() {
+                *parent = format!("{prefix}.{}", parent).into();
+            }
             for m in i.methods.iter_mut() {
                 for p in m.params.iter_mut() {
                     p.ty = prefix_type(&p.ty, prefix);

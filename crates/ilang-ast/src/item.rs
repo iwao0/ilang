@@ -268,6 +268,21 @@ pub struct InterfaceDecl {
     /// interface as an Objective-C subclass and emit the
     /// `objc_msgSend` / class-registration plumbing automatically.
     pub is_objc: bool,
+    /// `@com` attribute. Marks the interface as a COM (Component
+    /// Object Model) vtable contract: the receiver is a raw
+    /// `*void` whose first 8 bytes point to a vtable of fn
+    /// pointers, indexed in this interface's declaration order
+    /// (concatenated after any `parent`'s slots, matching the
+    /// C++ COM ABI). Method calls dispatch through
+    /// `*(*recv)[slot]` rather than ilang's class vtable. Cannot
+    /// be combined with `@objc`.
+    pub is_com: bool,
+    /// `interface X : Parent { ... }` — single-interface parent.
+    /// The parent's methods occupy the leading vtable slots; this
+    /// interface's own methods follow. Currently only meaningful
+    /// for `@com` interfaces (matches the COM ABI's single-
+    /// inheritance vtable layout).
+    pub parent: Option<Symbol>,
     pub span: Span,
 }
 

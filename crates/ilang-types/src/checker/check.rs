@@ -73,7 +73,13 @@ impl TypeChecker {
                 let module = module_of_name(i.name.as_str()).to_string();
                 self.interfaces.insert(
                     i.name.clone(),
-                    InterfaceSig { methods, is_pub: i.is_pub, module },
+                    InterfaceSig {
+                        methods,
+                        is_pub: i.is_pub,
+                        module,
+                        is_com: i.is_com,
+                        parent: i.parent.clone(),
+                    },
                 );
             }
         }
@@ -211,7 +217,13 @@ impl TypeChecker {
                     let module = module_of_name(i.name.as_str()).to_string();
                     self.interfaces.insert(
                         i.name.clone(),
-                        InterfaceSig { methods, is_pub: i.is_pub, module },
+                        InterfaceSig {
+                        methods,
+                        is_pub: i.is_pub,
+                        module,
+                        is_com: i.is_com,
+                        parent: i.parent.clone(),
+                    },
                     );
                 }
             }

@@ -135,10 +135,18 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Interface => {
                 if !attrs.is_empty() {
+                    // `@com interface` must live inside `@extern(C) { ... }`
+                    // so its method signatures can reference raw pointers
+                    // / C-only types under the same scope rule as fn /
+                    // struct decls. Other attributes aren't recognised
+                    // on top-level interfaces.
                     let t = self.peek();
                     return Err(ParseError::Unexpected {
                         found: t.kind.clone(),
-                        expected: "no attributes are supported on interfaces".into(),
+                        expected:
+                            "no attributes are supported on top-level interfaces — \
+                             wrap `@com interface` inside an `@extern(C) { ... }` block"
+                                .into(),
                         span: t.span,
                     });
                 }
@@ -852,6 +860,18 @@ impl<'a> Parser<'a> {
         let span = self.peek().span;
         self.expect(&TokenKind::Interface, "'interface'")?;
         let name = self.expect_ident("interface name")?;
+        // Optional `: Parent` — single-interface inheritance.
+        // Used by `@com interface ID3D12Device : IUnknown { ... }` to
+        // chain vtable slots so the parent's methods occupy the
+        // leading slots (matching the COM ABI). Plain (non-@com)
+        // interfaces accept the parse for forward-compat but the
+        // checker / MIR ignore it for now.
+        let parent = if matches!(self.peek().kind, TokenKind::Colon) {
+            self.bump();
+            Some(self.expect_ident("parent interface name")?)
+        } else {
+            None
+        };
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut methods: Vec<ilang_ast::InterfaceMethod> = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace) {
@@ -943,6 +963,8 @@ impl<'a> Parser<'a> {
             name,
             methods: methods.into(),
             is_objc: false,
+            is_com: false,
+            parent,
             span,
         })
     }

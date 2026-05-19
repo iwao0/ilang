@@ -97,6 +97,32 @@ impl TypeChecker {
         {
             return Ok(ty.clone());
         }
+        // `@com interface` is a raw COM-vtable handle at the ABI
+        // level — an 8-byte pointer with no ARC header. Allow
+        // bidirectional casts to/from `i64` and `*void` so callers
+        // can lift the out-param value handed back by
+        // `D3D12CreateDevice` (and friends) into the typed
+        // interface, and lower it back when it has to flow through
+        // a void-pointer FFI slot.
+        let is_com_iface = |t: &Type| match t {
+            Type::Object(name) => self
+                .interfaces
+                .get(name)
+                .map(|sig| sig.is_com)
+                .unwrap_or(false),
+            _ => false,
+        };
+        let is_void_ptr = |t: &Type| matches!(
+            t,
+            Type::RawPtr { inner, .. } if matches!(**inner, Type::CVoid)
+        );
+        if (from == Type::I64 && is_com_iface(ty))
+            || (is_com_iface(&from) && *ty == Type::I64)
+            || (is_void_ptr(&from) && is_com_iface(ty))
+            || (is_com_iface(&from) && is_void_ptr(ty))
+        {
+            return Ok(ty.clone());
+        }
         // Raw C pointer ↔ i64 escape hatch — pointers are
         // bit-equivalent to a 64-bit address. Lets out-pointer
         // patterns work (read an opaque address from i64[],

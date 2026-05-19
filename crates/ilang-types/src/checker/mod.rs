@@ -326,6 +326,14 @@ pub(super) struct InterfaceSig {
     pub(super) methods: Vec<InterfaceMethodSig>,
     pub(super) is_pub: bool,
     pub(super) module: String,
+    /// `@com` interfaces use raw COM-vtable dispatch instead of
+    /// the class registry. Methods occupy slots in declaration
+    /// order, prefixed by the parent's slot list.
+    pub(super) is_com: bool,
+    /// `interface X : Parent` parent. Slot inheritance for the
+    /// @com path is built by concatenating the parent's `methods`
+    /// before this one's.
+    pub(super) parent: Option<Symbol>,
 }
 
 #[derive(Debug, Clone)]

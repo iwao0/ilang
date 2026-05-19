@@ -24,7 +24,7 @@ impl<'a> BodyCx<'a> {
                 if name.as_str() == "_" {
                     let value_is_fresh = self.is_fresh_object_expr(value);
                     let (v, vty) = self.lower_expr(value)?;
-                    if value_is_fresh && vty.is_heap() {
+                    if value_is_fresh && self.is_arc_heap(&vty) {
                         self.fb.push_inst(Inst::Release { value: v });
                     }
                     return Ok(());
@@ -124,7 +124,7 @@ impl<'a> BodyCx<'a> {
                 // element on overwrite (e.g. host_map_set's
                 // release_by_kind) would free the buffer the slot
                 // still points at.
-                if bind_ty.is_heap() && !value_is_fresh_object {
+                if self.is_arc_heap(&bind_ty) && !value_is_fresh_object {
                     self.fb.push_inst(Inst::Retain { value: bound });
                 }
                 // Slot-backed top-level binding: skip the local

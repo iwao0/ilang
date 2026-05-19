@@ -274,7 +274,7 @@ impl<'a> BodyCx<'a> {
         // is a heap array allocated for the FnExpr) and are
         // refcounted at the cell layer separately.
         for (cv, c) in capture_vals.iter().zip(captures.iter()) {
-            if c.ty.is_heap() && !c.is_cell {
+            if self.is_arc_heap(&c.ty) && !c.is_cell {
                 self.fb.push_inst(Inst::Retain { value: *cv });
             }
         }

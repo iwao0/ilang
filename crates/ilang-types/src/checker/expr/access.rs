@@ -109,12 +109,13 @@ impl TypeChecker {
             }
         }
         // `*T` field read on a CRepr struct pointer: surface the
-        // field's declared type directly. COM vtable access goes
-        // through this path — `let vtbl: *ID3D12DeviceVtbl = ...;
-        // vtbl.CreateCommandQueue` returns a `fn(...): T` value
-        // that the call site invokes via CallRawIndirect. No ARC
-        // bookkeeping because the receiver is a raw C pointer
-        // (no header, no retained reference).
+        // field's declared type directly. fn-typed fields then
+        // dispatch via `CallRawIndirect` at the call site. No ARC
+        // bookkeeping because the receiver is a raw C pointer (no
+        // header, no retained reference). `@com interface` is the
+        // preferred surface for COM vtables; this raw-pointer path
+        // remains for hand-rolled vtable layouts that don't fit
+        // the interface model.
         if let Type::RawPtr { inner, .. } = &ot {
             if let Type::Object(struct_name) = &**inner {
                 if let Some(cls) = self.classes.get(struct_name) {

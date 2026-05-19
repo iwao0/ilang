@@ -376,6 +376,19 @@ fn check_inst_escape(
                 leak(a);
             }
         }
+        ComCall { recv, args, .. } => {
+            // The recv is a `*void` raw pointer (no ilang object
+            // identity), so escape analysis on ilang heap candidates
+            // doesn't apply to it. Args follow the CallIndirect /
+            // VirtCall rule.
+            let _ = recv;
+            for a in args.iter() {
+                if arg_passed_by_value(func.ty_of(*a), prog) {
+                    continue;
+                }
+                leak(a);
+            }
+        }
         StoreStatic { value, .. } => {
             leak(value);
         }

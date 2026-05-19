@@ -179,6 +179,15 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
                 fmt_args(args)
             )
         }
+        Inst::ComCall { dst, recv, slot, args, .. } => {
+            format!(
+                "{}com_call {}.[{}] ({})",
+                opt_dst_pre(*dst),
+                fmt_value(*recv),
+                slot,
+                fmt_args(args)
+            )
+        }
         Inst::NewObject { dst, class, init_args, init } => {
             format!(
                 "{}new_object class#{} init=func#{} ({})",

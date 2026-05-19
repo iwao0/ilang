@@ -150,7 +150,8 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         Inst::Call { dst, .. }
         | Inst::CallIndirect { dst, .. }
         | Inst::CallRawIndirect { dst, .. }
-        | Inst::VirtCall { dst, .. } => {
+        | Inst::VirtCall { dst, .. }
+        | Inst::ComCall { dst, .. } => {
             dst.iter().copied().collect()
         }
         Inst::StoreField { .. }

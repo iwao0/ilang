@@ -783,7 +783,7 @@ impl<'a> BodyCx<'a> {
                         // remaining share is the map's. Borrowed values
                         // (use_local etc.) leave their slot's share to
                         // be dropped by scope-exit release as usual.
-                        if value_is_fresh && vty.is_heap() {
+                        if value_is_fresh && self.is_arc_heap(&vty) {
                             self.fb.push_inst(Inst::Release { value: vv });
                         }
                     }

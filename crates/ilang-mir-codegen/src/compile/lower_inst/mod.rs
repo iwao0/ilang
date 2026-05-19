@@ -395,6 +395,45 @@ pub(super) fn lower_inst<M: Module>(
                 }
             }
         }
+        Inst::ComCall { dst, recv, slot, sig, args } => {
+            // COM vtable dispatch:
+            //   vt = *(i64*)recv
+            //   fp = *(i64*)(vt + slot * 8)
+            //   fp(recv, args...)
+            //
+            // `recv` is passed as the first argument (the C `this`
+            // pointer). The MIR-side `args` list does NOT include
+            // it — the lowering site supplies just the post-this
+            // arguments; we prepend here.
+            let recv_v = vmap[recv];
+            let vt = fb.ins().load(types::I64, MemFlags::trusted(), recv_v, 0);
+            let slot_off = (*slot as i32) * 8;
+            let fp = fb.ins().load(types::I64, MemFlags::trusted(), vt, slot_off);
+            let mut clif_sig = module.make_signature();
+            for p in sig.params.iter() {
+                if let Some(ct) = mir_to_clif(p) {
+                    clif_sig.params.push(AbiParam::new(ct));
+                }
+            }
+            if !matches!(sig.ret, MirTy::Unit) {
+                if let Some(ct) = mir_to_clif(&sig.ret) {
+                    clif_sig.returns.push(AbiParam::new(ct));
+                }
+            }
+            let sig_ref = fb.import_signature(clif_sig);
+            let mut arg_vs: Vec<Value> = Vec::with_capacity(args.len() + 1);
+            arg_vs.push(recv_v);
+            for a in args.iter() {
+                arg_vs.push(vmap[a]);
+            }
+            let inst_ref = fb.ins().call_indirect(sig_ref, fp, &arg_vs);
+            if let Some(d) = dst {
+                let results = fb.inst_results(inst_ref);
+                if let Some(&v) = results.first() {
+                    vmap.insert(*d, v);
+                }
+            }
+        }
         Inst::MakeClosure { dst, func: fid, captures } => {
             let cid = *fn_ids.get(fid).ok_or_else(|| {
                 CompileError::Other(format!("missing fn id #{}", fid.0))

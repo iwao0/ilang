@@ -66,6 +66,15 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
                 remap(a);
             }
         }
+        ComCall { dst, recv, args, .. } => {
+            if let Some(d) = dst {
+                remap(d);
+            }
+            remap(recv);
+            for a in args.iter_mut() {
+                remap(a);
+            }
+        }
         NewObject { dst, init_args, .. } => {
             remap(dst);
             for a in init_args.iter_mut() {

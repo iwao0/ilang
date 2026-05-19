@@ -131,6 +131,7 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | CallIndirect { .. }
         | CallRawIndirect { .. }
         | VirtCall { .. }
+        | ComCall { .. }
         | StoreField { .. }
         | ArrayStore { .. }
         | MapSet { .. }
@@ -187,6 +188,12 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
             }
         }
         VirtCall { recv, args, .. } => {
+            set.insert(*recv);
+            for a in args.iter() {
+                set.insert(*a);
+            }
+        }
+        ComCall { recv, args, .. } => {
             set.insert(*recv);
             for a in args.iter() {
                 set.insert(*a);

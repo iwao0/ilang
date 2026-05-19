@@ -532,7 +532,20 @@ impl TypeChecker {
         // on the interface itself; runtime resolves the
         // implementing fn from the receiver's actual class.
         if let Some(isig) = self.interfaces.get(&class_name).cloned() {
-            if let Some(im) = isig.methods.iter().find(|m| m.name == *method) {
+            // `@com interface` parents chain through `: Parent` so a
+            // method declared on the IUnknown root resolves via the
+            // leaf interface name. Plain interfaces have no parent
+            // today and exit the loop on the first miss.
+            let mut found: Option<InterfaceMethodSig> = None;
+            let mut cur = Some(isig.clone());
+            while let Some(s) = cur {
+                if let Some(im) = s.methods.iter().find(|m| m.name == *method).cloned() {
+                    found = Some(im);
+                    break;
+                }
+                cur = s.parent.as_ref().and_then(|p| self.interfaces.get(p).cloned());
+            }
+            if let Some(im) = found {
                 let sig = Signature {
                     params: im.params.clone(),
                     ret: im.ret.clone(),

@@ -293,6 +293,30 @@ impl<'a> BodyCx<'a> {
             // i64 pointer with a header).
             return Ok(v);
         }
+        // `@com interface` ↔ `i64` / `*void` — the interface value is
+        // a bare 8-byte COM handle (no ARC header). Treat the cast
+        // as identity at the ABI level; PtrIntCast handles the
+        // bit-pattern reinterpret on the codegen side.
+        let is_com = |t: &MirTy| match t {
+            MirTy::Object(cid) => self
+                .com_interfaces
+                .iter()
+                .any(|n| self.classes[cid.0 as usize].name == *n),
+            _ => false,
+        };
+        let is_void_ptr = |t: &MirTy| matches!(
+            t,
+            MirTy::RawPtr { inner, .. } if matches!(**inner, MirTy::CVoid)
+        );
+        if (matches!(from, MirTy::I64 | MirTy::U64) && is_com(to))
+            || (is_com(from) && matches!(to, MirTy::I64 | MirTy::U64))
+            || (is_void_ptr(from) && is_com(to))
+            || (is_com(from) && is_void_ptr(to))
+        {
+            let dst = self.fb.new_value(to.clone());
+            self.fb.push_inst(Inst::Cast { dst, kind: CastKind::PtrIntCast, src: v });
+            return Ok(dst);
+        }
         if from.is_int() && to.is_float() {
             let dst = self.fb.new_value(to.clone());
             self.fb.push_inst(Inst::Cast { dst, kind: CastKind::IntToFloat, src: v });
