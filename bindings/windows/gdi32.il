@@ -810,4 +810,93 @@ pub enum FontPitchFamily: u32 {
 
     @lib pub fn FrameRect(hDC: *void, lprc: *const void, hbr: *HBRUSHGDI): i32
     @lib pub fn InvertRect(hDC: *void, lprc: *const void): i32
+
+    // ── Font enumeration ─────────────────────────────────────────
+
+    /// Enumerates installed fonts matching `lpLogfont`.
+    /// Pass NULL for `lpLogfont` to list one font per family.
+    /// Set `lpLogfont->lfCharSet` = 1 (DEFAULT_CHARSET) to enumerate all charsets,
+    /// or a specific FontCharset.* value to filter.
+    ///
+    /// The callback receives:
+    ///   *ENUMLOGFONTEXA (logical font),
+    ///   *NEWTEXTMETRICEXA (metrics),
+    ///   DWORD font type (1=raster, 2=device, 4=truetype),
+    ///   LPARAM lParam (user-supplied).
+    /// Returning 0 stops enumeration; non-zero continues.
+    @lib pub fn EnumFontFamiliesExA(
+        hdc:        *void,
+        lpLogfont:  *const LOGFONTA,
+        lpProc:     fn(i64, i64, u32, i64): i32,
+        lParam:     i64,
+        dwFlags:    u32       // must be 0
+    ): i32
+
+    /// Older variant — `lpszFamily` is the family-name filter (NULL = all).
+    @lib pub fn EnumFontsA(
+        hdc:        *void,
+        lpFaceName: *const char,
+        lpFontFunc: fn(i64, i64, u32, i64): i32,
+        lParam:     i64
+    ): i32
+
+    /// Returns the per-character widths of the characters in
+    /// [iFirstChar, iLastChar] for the currently selected font.
+    @lib pub fn GetCharWidth32A(
+        hdc:        *void,
+        iFirstChar: u32,
+        iLastChar:  u32,
+        lpBuffer:   *i32
+    ): i32
+
+    /// Returns ABC width metrics (a,b,c) for a range of characters.
+    /// `lpabc`: array of `iLastChar-iFirstChar+1` ABC structs (12 bytes each).
+    @lib pub fn GetCharABCWidthsA(
+        hdc:        *void,
+        wFirst:     u32,
+        wLast:      u32,
+        lpabc:      *void
+    ): i32
+
+    /// Translates `c` characters to glyph indices for the current font.
+    /// `lpgi`: output array of u16 glyph indices.
+    /// `fl`: 0 (default) or 1 (GGI_MARK_NONEXISTING_GLYPHS).
+    @lib pub fn GetGlyphIndicesA(
+        hdc:    *void,
+        lpstr:  *const char,
+        c:      i32,
+        pgi:    *u16,
+        fl:     u32
+    ): u32
+
+    // ── Object enumeration ────────────────────────────────────────
+
+    /// Enumerates the pens or brushes available in `hdc`.
+    /// `nObjectType`: 1=OBJ_PEN, 2=OBJ_BRUSH.
+    @lib pub fn EnumObjects(
+        hdc:         *void,
+        nObjectType: i32,
+        lpFunc:      fn(i64, i64): i32,
+        lParam:      i64
+    ): i32
+
+    // ── Path abort ────────────────────────────────────────────────
+
+    @lib pub fn AbortPath(hdc: *void): i32
+    @lib pub fn WidenPath(hdc: *void): i32
+    @lib pub fn FlattenPath(hdc: *void): i32
+
+    // ── DC metadata ───────────────────────────────────────────────
+
+    /// Cancels an outstanding drawing or printing operation.
+    @lib pub fn CancelDC(hdc: *void): i32
+
+    /// Returns the type of `hdc` (0=OBJ_DC, …); see GetObjectType.
+    @lib pub fn GetObjectType(h: *void): u32
+
+    /// Snaps `hdc` to the current display device's identification.
+    @lib pub fn GetDCBrushColor(hdc: *void): u32
+    @lib pub fn SetDCBrushColor(hdc: *void, crColor: u32): u32
+    @lib pub fn GetDCPenColor(hdc: *void): u32
+    @lib pub fn SetDCPenColor(hdc: *void, crColor: u32): u32
 }

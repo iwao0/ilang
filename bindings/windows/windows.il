@@ -16,3 +16,15 @@ pub use ws2_32.*
 pub use shlwapi.*
 pub use ole32.*
 pub use msimg32.*
+pub use oleaut32.*
+pub use wininet.*
+pub use psapi.*
+pub use version.*
+// xinput is not auto-re-exported: linking against `xinput.lib` requires
+// the Windows 10 SDK component, which is not present on every machine.
+// Import it explicitly with `use xinput1_4 { ... }` if needed.
+pub use iphlpapi.*
+pub use crypt32.*
+pub use dbghelp.*
+pub use winhttp.*
+pub use imm32.*

@@ -911,4 +911,159 @@ pub enum StdHandle: u32 {
         nNumberOfArguments: u32,
         lpArguments:        *const u64
     )
+
+    // ── Critical section ─────────────────────────────────────────
+
+    /// `CRITICAL_SECTION` — 40 bytes on x64.
+    /// Allocate, Initialize once, then Enter/Leave around critical regions.
+    /// Cheaper than a mutex; not shareable across processes.
+    pub struct CRITICAL_SECTION {
+        DebugInfo:      *void
+        LockCount:      i32
+        RecursionCount: i32
+        OwningThread:   *void
+        LockSemaphore:  *void
+        SpinCount:      u64
+    }
+
+    @lib pub fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION)
+
+    /// Like InitializeCriticalSection but spins `dwSpinCount` times
+    /// before falling back to a wait — best for high-contention locks.
+    @lib pub fn InitializeCriticalSectionAndSpinCount(
+        lpCriticalSection: *CRITICAL_SECTION,
+        dwSpinCount:       u32
+    ): i32
+
+    @lib pub fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION)
+    @lib pub fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION)
+
+    /// Returns non-zero if the section was acquired without waiting.
+    @lib pub fn TryEnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION): i32
+
+    @lib pub fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION)
+
+    // ── Slim Reader/Writer lock (SRWLOCK) ────────────────────────
+
+    /// `SRWLOCK` — 8 bytes. Initialise with `InitializeSRWLock`
+    /// or with the constant 0 (SRWLOCK_INIT).
+    pub struct SRWLOCK {
+        Ptr: *void
+    }
+
+    @lib pub fn InitializeSRWLock(SRWLock: *SRWLOCK)
+    @lib pub fn AcquireSRWLockExclusive(SRWLock: *SRWLOCK)
+    @lib pub fn ReleaseSRWLockExclusive(SRWLock: *SRWLOCK)
+    @lib pub fn AcquireSRWLockShared(SRWLock: *SRWLOCK)
+    @lib pub fn ReleaseSRWLockShared(SRWLock: *SRWLOCK)
+    @lib pub fn TryAcquireSRWLockExclusive(SRWLock: *SRWLOCK): u8
+    @lib pub fn TryAcquireSRWLockShared(SRWLock: *SRWLOCK): u8
+
+    // ── Condition variable ───────────────────────────────────────
+
+    /// `CONDITION_VARIABLE` — 8 bytes. Use with a CRITICAL_SECTION
+    /// or SRWLOCK; the matching SleepCondition* variant releases the
+    /// lock, waits, and re-acquires it atomically.
+    pub struct CONDITION_VARIABLE {
+        Ptr: *void
+    }
+
+    @lib pub fn InitializeConditionVariable(ConditionVariable: *CONDITION_VARIABLE)
+
+    @lib pub fn SleepConditionVariableCS(
+        ConditionVariable: *CONDITION_VARIABLE,
+        CriticalSection:   *CRITICAL_SECTION,
+        dwMilliseconds:    u32
+    ): i32
+
+    @lib pub fn SleepConditionVariableSRW(
+        ConditionVariable: *CONDITION_VARIABLE,
+        SRWLock:           *SRWLOCK,
+        dwMilliseconds:    u32,
+        Flags:             u32     // 0 = exclusive, 1 (CONDITION_VARIABLE_LOCKMODE_SHARED)
+    ): i32
+
+    @lib pub fn WakeConditionVariable(ConditionVariable: *CONDITION_VARIABLE)
+    @lib pub fn WakeAllConditionVariable(ConditionVariable: *CONDITION_VARIABLE)
+
+    // ── One-time initialization ──────────────────────────────────
+
+    /// `INIT_ONCE` — 8 bytes. Initialise to 0 (INIT_ONCE_STATIC_INIT).
+    pub struct INIT_ONCE {
+        Ptr: *void
+    }
+
+    @lib pub fn InitOnceInitialize(InitOnce: *INIT_ONCE)
+
+    /// Runs `InitFn(InitOnce, Parameter, Context)` exactly once, even
+    /// across threads. `InitFn` should return non-zero on success.
+    @lib pub fn InitOnceExecuteOnce(
+        InitOnce:  *INIT_ONCE,
+        InitFn:    fn(*INIT_ONCE, *void, **void): i32,
+        Parameter: *void,
+        Context:   **void
+    ): i32
+
+    // ── Thread tuning ────────────────────────────────────────────
+
+    /// Sets the priority class of a process (e.g. 0x20 = NORMAL,
+    /// 0x40 = IDLE, 0x80 = HIGH, 0x100 = REALTIME).
+    @lib pub fn SetPriorityClass(hProcess: *HANDLE, dwPriorityClass: u32): i32
+    @lib pub fn GetPriorityClass(hProcess: *HANDLE): u32
+
+    /// Per-thread priority (-15..+15 typical; THREAD_PRIORITY_*).
+    @lib pub fn SetThreadPriority(hThread: *HANDLE, nPriority: i32): i32
+    @lib pub fn GetThreadPriority(hThread: *HANDLE): i32
+
+    /// Restricts a thread to the CPUs in `dwThreadAffinityMask`.
+    @lib pub fn SetThreadAffinityMask(hThread: *HANDLE, dwThreadAffinityMask: u64): u64
+
+    @lib pub fn SuspendThread(hThread: *HANDLE): u32
+    @lib pub fn ResumeThread(hThread: *HANDLE): u32
+
+    @lib pub fn GetCurrentProcess(): *HANDLE
+    @lib pub fn GetCurrentThread(): *HANDLE
+
+    // ── Library loading (extended) ───────────────────────────────
+
+    /// `LoadLibraryA` with flags.  Common `dwFlags`:
+    ///   0                              = same as LoadLibraryA
+    ///   0x00000002 (LOAD_LIBRARY_AS_DATAFILE)
+    ///   0x00000008 (DONT_RESOLVE_DLL_REFERENCES)
+    ///   0x00000020 (LOAD_LIBRARY_AS_IMAGE_RESOURCE)
+    ///   0x00000100 (LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) — secure
+    @lib pub fn LoadLibraryExA(
+        lpLibFileName: *const char,
+        hFile:         *HANDLE,
+        dwFlags:       u32
+    ): *HMODULE
+
+    // ── Precise time ─────────────────────────────────────────────
+
+    /// 100-ns resolution UTC time (Windows 8+).  Same units as
+    /// `GetSystemTimeAsFileTime` but with full timer resolution.
+    @lib pub fn GetSystemTimePreciseAsFileTime(lpSystemTimeAsFileTime: *FILETIME)
+
+    // ── Timer queue (light-weight kernel timers) ─────────────────
+
+    /// Creates a timer queue.  Free with `DeleteTimerQueueEx`.
+    @lib pub fn CreateTimerQueue(): *HANDLE
+
+    /// Adds a timer to the queue.  `Period`: 0 = one-shot timer,
+    /// otherwise the period in ms after the first fire.
+    @lib pub fn CreateTimerQueueTimer(
+        phNewTimer:   **HANDLE,
+        TimerQueue:   *HANDLE,
+        Callback:     fn(*void, i32),
+        Parameter:    *void,
+        DueTime:      u32,
+        Period:       u32,
+        Flags:        u32
+    ): i32
+
+    @lib pub fn DeleteTimerQueueTimer(
+        TimerQueue:        *HANDLE,
+        Timer:             *HANDLE,
+        CompletionEvent:   *HANDLE
+    ): i32
 }

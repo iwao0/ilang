@@ -1568,4 +1568,278 @@ pub enum SpiAction: u32 {
         pvParam:   *void,
         fWinIni:   u32
     ): i32
+
+    // ── Cursor confinement ────────────────────────────────────────
+
+    /// Confines the cursor to `lpRect` (screen coords).
+    /// Pass `0 as *const RECT` to release confinement.
+    @lib pub fn ClipCursor(lpRect: *const RECT): i32
+
+    /// Retrieves the current cursor clip rect (full screen if unclipped).
+    @lib pub fn GetClipCursor(lpRect: *RECT): i32
+
+    // ── Clipboard ─────────────────────────────────────────────────
+
+    /// Opens the clipboard for exclusive access by the caller.
+    /// `hWndNewOwner`: 0 to associate with the calling task only.
+    /// Pair with `CloseClipboard`.
+    @lib pub fn OpenClipboard(hWndNewOwner: *HWND): i32
+    @lib pub fn CloseClipboard(): i32
+    @lib pub fn EmptyClipboard(): i32
+
+    /// Retrieves clipboard data of the given format (CF_TEXT=1,
+    /// CF_BITMAP=2, CF_OEMTEXT=7, CF_DIB=8, CF_UNICODETEXT=13,
+    /// CF_HDROP=15). Returns a GMEM handle — call `GlobalLock`
+    /// (kernel32) to access the bytes.
+    @lib pub fn GetClipboardData(uFormat: u32): *void
+
+    /// Places data on the clipboard. `hMem` must be a GMEM_MOVEABLE
+    /// allocation (from `GlobalAlloc` with flags 0x42). After this
+    /// call, the system owns the handle.
+    @lib pub fn SetClipboardData(uFormat: u32, hMem: *void): *void
+
+    @lib pub fn IsClipboardFormatAvailable(format: u32): i32
+
+    /// Enumerates registered clipboard formats. Pass 0 to start;
+    /// each subsequent call returns the next format, 0 at end.
+    @lib pub fn EnumClipboardFormats(format: u32): u32
+
+    /// Registers a private clipboard format and returns a unique
+    /// id in range 0xC000..0xFFFF.
+    @lib pub fn RegisterClipboardFormatA(lpszFormat: *const char): u32
+
+    /// Returns the registered name of a private clipboard format.
+    @lib pub fn GetClipboardFormatNameA(
+        format:      u32,
+        lpszFormatName: *char,
+        cchMaxCount: i32
+    ): i32
+
+    @lib pub fn CountClipboardFormats(): i32
+    @lib pub fn GetClipboardOwner(): *HWND
+    @lib pub fn GetOpenClipboardWindow(): *HWND
+
+    // ── Dialog API ────────────────────────────────────────────────
+
+    /// Creates and shows a modal dialog from a resource template.
+    /// `lpTemplateName`: MAKEINTRESOURCE(id) cast to `*const char`.
+    /// `lpDialogFunc`: dialog procedure (returns INT_PTR / i64).
+    /// `dwInitParam`: passed to the dialog as the lParam of WM_INITDIALOG.
+    /// Returns the nResult passed to `EndDialog`.
+    @lib pub fn DialogBoxParamA(
+        hInstance:      *HINSTANCE,
+        lpTemplateName: *const char,
+        hWndParent:     *HWND,
+        lpDialogFunc:   fn(i64, u32, u64, i64): i64,
+        dwInitParam:    i64
+    ): i64
+
+    /// Creates a modeless dialog.  Free with `DestroyWindow`.
+    @lib pub fn CreateDialogParamA(
+        hInstance:      *HINSTANCE,
+        lpTemplateName: *const char,
+        hWndParent:     *HWND,
+        lpDialogFunc:   fn(i64, u32, u64, i64): i64,
+        dwInitParam:    i64
+    ): *HWND
+
+    /// Closes a modal dialog. The value is returned from `DialogBoxParamA`.
+    @lib pub fn EndDialog(hDlg: *HWND, nResult: i64): i32
+
+    /// Returns the HWND of a control by ID. Returns NULL if not found.
+    @lib pub fn GetDlgItem(hDlg: *HWND, nIDDlgItem: i32): *HWND
+
+    @lib pub fn GetDlgCtrlID(hwndCtl: *HWND): i32
+
+    /// Sends a message to the named control.
+    @lib pub fn SendDlgItemMessageA(
+        hDlg:       *HWND,
+        nIDDlgItem: i32,
+        Msg:        u32,
+        wParam:     u64,
+        lParam:     i64
+    ): i64
+
+    @lib pub fn SetDlgItemTextA(hDlg: *HWND, nIDDlgItem: i32, lpString: *const char): i32
+    @lib pub fn GetDlgItemTextA(
+        hDlg:       *HWND,
+        nIDDlgItem: i32,
+        lpString:   *char,
+        nMaxCount:  i32
+    ): u32
+
+    @lib pub fn SetDlgItemInt(
+        hDlg:       *HWND,
+        nIDDlgItem: i32,
+        uValue:     u32,
+        bSigned:    i32
+    ): i32
+
+    @lib pub fn GetDlgItemInt(
+        hDlg:        *HWND,
+        nIDDlgItem:  i32,
+        lpTranslated: *i32,
+        bSigned:     i32
+    ): u32
+
+    @lib pub fn CheckDlgButton(hDlg: *HWND, nIDButton: i32, uCheck: u32): i32
+    @lib pub fn IsDlgButtonChecked(hDlg: *HWND, nIDButton: i32): u32
+
+    @lib pub fn CheckRadioButton(
+        hDlg:           *HWND,
+        nIDFirstButton: i32,
+        nIDLastButton:  i32,
+        nIDCheckButton: i32
+    ): i32
+
+    /// Returns the next/previous tab-stop control in a dialog.
+    @lib pub fn GetNextDlgTabItem(
+        hDlg:        *HWND,
+        hCtl:        *HWND,
+        bPrevious:   i32
+    ): *HWND
+
+    @lib pub fn IsDialogMessageA(hDlg: *HWND, lpMsg: *MSG): i32
+
+    // ── Hooks ─────────────────────────────────────────────────────
+
+    /// Opaque hook handle.
+    pub struct HHOOK {}
+
+    /// Installs a hook procedure that monitors system events.
+    /// `idHook`: WH_KEYBOARD_LL=13, WH_MOUSE_LL=14, WH_CALLWNDPROC=4,
+    /// WH_GETMESSAGE=3, WH_CBT=5, etc.
+    /// `lpfn`: callback (nCode, wParam, lParam) → i64.
+    /// `hMod`: module containing the procedure (NULL for current).
+    /// `dwThreadId`: 0 = global hook (low-level only); else thread id.
+    @lib pub fn SetWindowsHookExA(
+        idHook:     i32,
+        lpfn:       fn(i32, u64, i64): i64,
+        hMod:       *HINSTANCE,
+        dwThreadId: u32
+    ): *HHOOK
+
+    /// Removes a previously installed hook.
+    @lib pub fn UnhookWindowsHookEx(hhk: *HHOOK): i32
+
+    /// Passes a hook event to the next hook in the chain.
+    /// Every hook procedure should call this for unhandled events.
+    @lib pub fn CallNextHookEx(
+        hhk:    *HHOOK,
+        nCode:  i32,
+        wParam: u64,
+        lParam: i64
+    ): i64
+
+    // ── Raw input ─────────────────────────────────────────────────
+
+    /// `RAWINPUTDEVICE` — 16 bytes on x64.
+    /// `usUsagePage` / `usUsage`: HID usage page + usage to register
+    /// (e.g. 0x01/0x06 = generic keyboard, 0x01/0x02 = generic mouse,
+    ///       0x01/0x04 = joystick, 0x01/0x05 = gamepad).
+    /// `dwFlags`: RIDEV_REMOVE=0x1, RIDEV_NOLEGACY=0x30, RIDEV_INPUTSINK=0x100.
+    /// `hwndTarget`: window receiving WM_INPUT (0 for the focused window).
+    pub struct RAWINPUTDEVICE {
+        usUsagePage: u16
+        usUsage:     u16
+        dwFlags:     u32
+        hwndTarget:  *HWND
+    }
+
+    /// `RAWINPUTHEADER` — 24 bytes. Common header at the start of
+    /// each RAWINPUT structure.
+    pub struct RAWINPUTHEADER {
+        dwType:    u32      // 0=mouse, 1=keyboard, 2=HID
+        dwSize:    u32
+        hDevice:   *void    // *HANDLE
+        wParam:    u64
+    }
+
+    /// Registers raw-input devices to deliver WM_INPUT to `hwndTarget`.
+    /// `cbSize`: must be sizeof(RAWINPUTDEVICE) = 16.
+    @lib pub fn RegisterRawInputDevices(
+        pRawInputDevices: *const RAWINPUTDEVICE,
+        uiNumDevices:     u32,
+        cbSize:           u32
+    ): i32
+
+    /// Reads the RAWINPUT for a WM_INPUT message.
+    /// `hRawInput`: the lParam of WM_INPUT cast to *void.
+    /// `uiCommand`: 0x10000003 (RID_INPUT) for data, 0x10000005 (RID_HEADER) for header only.
+    /// Pass `0 as *void` for `pData` to query the size.
+    @lib pub fn GetRawInputData(
+        hRawInput: *void,
+        uiCommand: u32,
+        pData:     *void,
+        pcbSize:   *u32,
+        cbSizeHeader: u32
+    ): u32
+
+    @lib pub fn GetRawInputDeviceList(
+        pRawInputDeviceList: *void,
+        puiNumDevices:       *u32,
+        cbSize:              u32
+    ): u32
+
+    @lib pub fn GetRawInputDeviceInfoA(
+        hDevice: *void,
+        uiCommand: u32,
+        pData:   *void,
+        pcbSize: *u32
+    ): u32
+
+    // ── Scroll bar ────────────────────────────────────────────────
+
+    /// `SCROLLINFO` — 28 bytes.  Set `cbSize` = 28 and `fMask` to
+    /// indicate which fields are valid (SIF_RANGE=1, SIF_PAGE=2,
+    /// SIF_POS=4, SIF_DISABLENOSCROLL=8, SIF_TRACKPOS=0x10,
+    /// SIF_ALL=0x17).
+    pub struct SCROLLINFO {
+        cbSize:    u32
+        fMask:     u32
+        nMin:      i32
+        nMax:      i32
+        nPage:     u32
+        nPos:      i32
+        nTrackPos: i32
+    }
+
+    /// `fnBar`: 0=SB_HORZ, 1=SB_VERT, 2=SB_CTL, 3=SB_BOTH.
+    @lib pub fn GetScrollInfo(hwnd: *HWND, nBar: i32, lpsi: *SCROLLINFO): i32
+    @lib pub fn SetScrollInfo(hwnd: *HWND, nBar: i32, lpsi: *const SCROLLINFO, redraw: i32): i32
+
+    @lib pub fn ScrollWindow(
+        hwnd:     *HWND,
+        xAmount:  i32,
+        yAmount:  i32,
+        prcScroll: *const RECT,
+        prcClip:   *const RECT
+    ): i32
+
+    @lib pub fn ScrollWindowEx(
+        hwnd:     *HWND,
+        dx:       i32,
+        dy:       i32,
+        prcScroll: *const RECT,
+        prcClip:   *const RECT,
+        hrgnUpdate: *void,
+        prcUpdate: *RECT,
+        flags:    u32
+    ): i32
+
+    @lib pub fn ShowScrollBar(hwnd: *HWND, wBar: i32, bShow: i32): i32
+
+    // ── Misc utility ──────────────────────────────────────────────
+
+    /// Plays a system sound. `uType`: 0=default beep, 0x10=hand,
+    /// 0x20=question, 0x30=exclamation, 0x40=asterisk, 0xFFFFFFFF=simple beep.
+    @lib pub fn MessageBeep(uType: u32): i32
+
+    /// Returns the current cursor info: state and screen position.
+    @lib pub fn GetCursor(): *HCURSOR
+
+    @lib pub fn SetCursor(hCursor: *HCURSOR): *HCURSOR
+
+    /// Returns 1 if the user is currently active (typing/moving mouse).
+    @lib pub fn GetLastInputInfo(plii: *void): i32
 }
