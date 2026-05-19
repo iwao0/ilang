@@ -103,7 +103,8 @@ fn is_dead_pure(inst: &Inst, used: &HashSet<ValueId>) -> bool {
         | LoadCapture { dst, .. }
         | TypeOf { dst, .. }
         | IsInstance { dst, .. }
-        | LoadStatic { dst, .. } => !used.contains(dst),
+        | LoadStatic { dst, .. }
+        | FuncAddr { dst, .. } => !used.contains(dst),
         // Loads from heap structures could in theory crash on a
         // null pointer at runtime, so they aren't strictly pure.
         // Leave them to a future bounds-aware DCE.
@@ -159,7 +160,7 @@ fn collect_uses(inst: &Inst, set: &mut HashSet<ValueId>) {
     use Inst::*;
     match inst {
         Const { .. } | NewArrayEmpty { .. } | LoadCapture { .. }
-        | LoadStatic { .. } | Panic { .. } => {}
+        | LoadStatic { .. } | Panic { .. } | FuncAddr { .. } => {}
         BinOp { lhs, rhs, .. } => {
             set.insert(*lhs);
             set.insert(*rhs);

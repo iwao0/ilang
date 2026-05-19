@@ -137,6 +137,7 @@ fn inst_defs(inst: &Inst) -> Vec<ValueId> {
         | Inst::EnumDiscStr { dst, .. }
         | Inst::EnumPayload { dst, .. }
         | Inst::MakeClosure { dst, .. }
+        | Inst::FuncAddr { dst, .. }
         | Inst::LoadCapture { dst, .. }
         | Inst::WeakUpgrade { dst, .. }
         | Inst::TypeOf { dst, .. }

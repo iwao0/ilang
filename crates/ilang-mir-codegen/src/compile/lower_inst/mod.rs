@@ -396,6 +396,17 @@ pub(super) fn lower_inst<M: Module>(
             }
             vmap.insert(*dst, ptr);
         }
+        Inst::FuncAddr { dst, func: fid } => {
+            // Bare 8-byte function code address — no closure box.
+            // Stored as-is in `@extern(C)` struct fields of `fn(...)`
+            // type so C code sees a real `T (*)(...)`.
+            let cid = *fn_ids.get(fid).ok_or_else(|| {
+                CompileError::Other(format!("missing fn id #{}", fid.0))
+            })?;
+            let local_ref = module.declare_func_in_func(cid, fb.func);
+            let addr = fb.ins().func_addr(types::I64, local_ref);
+            vmap.insert(*dst, addr);
+        }
         Inst::LoadCapture { dst, idx } => {
             // Captures live at `env + 16 + idx*8`; env is the closure
             // block pointer (the trailing hidden param).

@@ -294,6 +294,11 @@ fn fmt_inst(f: &Function, inst: &Inst) -> String {
             func.0,
             fmt_args(captures)
         ),
+        Inst::FuncAddr { dst, func } => format!(
+            "{}func_addr func#{}",
+            dst_pre(*dst),
+            func.0
+        ),
         Inst::LoadCapture { dst, idx } => {
             format!("{}load_capture {}", dst_pre(*dst), idx)
         }

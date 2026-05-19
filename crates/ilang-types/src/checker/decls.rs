@@ -295,6 +295,16 @@ impl TypeChecker {
                     // Owned C-string slot (`char *`) — class manages
                     // the malloc'd buffer on assign / drop.
                     Type::Str => true,
+                    // Raw C pointer — `*T` / `*const T`. 8 bytes on
+                    // 64-bit targets. Used for handle / opaque-struct
+                    // / byte-buffer fields that mirror C structs.
+                    Type::RawPtr { .. } => true,
+                    // Bare C function pointer — `fn(T1, ...): R`.
+                    // Stored as the raw 8-byte code address (no
+                    // closure box / ARC). The StructLit lowering
+                    // emits `func_addr` instead of `MakeClosure`
+                    // when the destination field has this shape.
+                    Type::Fn(_) => true,
                     _ => false,
                 };
                 if let Some(bits) = f.bits {

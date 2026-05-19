@@ -215,6 +215,12 @@ pub enum Inst {
     /// Build a closure with the given function pointer + captures.
     /// Captures' MirTy comes from the function's `closure_env` layout.
     MakeClosure { dst: ValueId, func: FuncId, captures: Box<[ValueId]> },
+    /// Bare C function pointer — the 8-byte code address of `func`,
+    /// no closure box. Used when assigning a top-level fn to an
+    /// `@extern(C)` struct field of `fn(...)` type so that C code
+    /// can dereference the slot as a real function pointer.
+    /// `dst` has MirTy::I64.
+    FuncAddr { dst: ValueId, func: FuncId },
     /// Read capture #idx from the closure currently being executed.
     /// (env pointer is implicit — the function has a hidden env param)
     LoadCapture { dst: ValueId, idx: u32 },

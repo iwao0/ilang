@@ -218,7 +218,7 @@ fn check_inst_escape(
         // EnumDiscStr, DowncastOrNone, WeakUpgrade) consume their
         // operands but don't escape them — leaving them alone.
         Const { .. } | NewArrayEmpty { .. } | LoadCapture { .. } | LoadStatic { .. }
-        | Panic { .. } | UseLocal { .. } => {}
+        | Panic { .. } | UseLocal { .. } | FuncAddr { .. } => {}
         BinOp { .. } | UnOp { .. } | ArrayLen { .. }
         | ArrayLoad { .. } | MapGet { .. } | TupleExtract { .. }
         | OptionalIsSome { .. } | OptionalUnwrap { .. } | EnumTag { .. }

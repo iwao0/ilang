@@ -162,6 +162,7 @@ pub fn remap_inst(inst: &mut Inst, mut remap: impl FnMut(&mut ValueId)) {
             }
         }
         LoadCapture { dst, .. } => remap(dst),
+        FuncAddr { dst, .. } => remap(dst),
         Retain { value } => remap(value),
         Release { value } => remap(value),
         WeakRetain { value } => remap(value),

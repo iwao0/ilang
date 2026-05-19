@@ -837,12 +837,42 @@ impl<'a> BodyCx<'a> {
                     init_args: Box::new([]),
                     init: FuncId(u32::MAX),
                 });
+                let class_is_crepr = matches!(
+                    self.classes[class_id.0 as usize].repr,
+                    crate::program::ClassRepr::CRepr
+                        | crate::program::ClassRepr::CPacked
+                        | crate::program::ClassRepr::CUnion
+                );
                 for (fname, fval) in fields.iter() {
                     let meta = self.class_meta.get(&class_id).unwrap();
                     let fid = *meta.field_ix.get(fname).ok_or_else(|| {
                         LowerError::Other(format!("no field {fname} on {class}"))
                     })?;
                     let fty = meta.field_ty.get(&fid).cloned().unwrap();
+                    // Fast path: a bare top-level fn name assigned to a
+                    // `fn(...)` field of an `@extern(C)` struct must
+                    // produce the raw 8-byte code address, not a
+                    // closure box. C code dereferences the slot as a
+                    // function pointer; a closure header would crash.
+                    if class_is_crepr {
+                        if let MirTy::Fn(_) = &fty {
+                            if let ExprKind::Var(name) = &fval.kind {
+                                if let Some(&top_fid) = self.fn_ids.get(name) {
+                                    let dst_v = self.fb.new_value(fty.clone());
+                                    self.fb.push_inst(Inst::FuncAddr {
+                                        dst: dst_v,
+                                        func: top_fid,
+                                    });
+                                    self.fb.push_inst(Inst::StoreField {
+                                        obj: dst,
+                                        field: fid,
+                                        value: dst_v,
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     let value_is_fresh = self.is_fresh_object_expr(fval);
                     let (vv, vty) = self.lower_expr(fval)?;
                     let coerced = if vty == fty {
