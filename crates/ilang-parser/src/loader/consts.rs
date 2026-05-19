@@ -42,71 +42,80 @@ pub(super) fn inline_constants(prog: Program) -> Result<Program, LoadError> {
     // `prog.stmts` at the end so initialisation runs before any
     // user code that references the name.
     let mut runtime_consts: Vec<ilang_ast::Stmt> = Vec::new();
-    for item in prog.items {
-        match item {
-            Item::Const(c) => {
-                let fold_result = fold_const_expr(&c.value, &consts);
-                let folded = match fold_result {
-                    Ok(f) => f,
-                    Err(_reason) => {
-                        // Non-foldable expression — keep as a runtime
-                        // one-shot init. References to the name elsewhere
-                        // resolve to this top-level binding the normal
-                        // way (no inline substitution).
-                        let span = c.value.span;
-                        // Top-level `const NAME = …` in a sub-
-                        // module gets prefixed by the loader, so
-                        // the source module shows up in the name.
-                        let const_mod = c
-                            .name
-                            .as_str()
-                            .rfind('.')
-                            .map(|i| Symbol::intern(&c.name.as_str()[..i]));
-                        runtime_consts.push(ilang_ast::Stmt {
-                            kind: ilang_ast::StmtKind::Let {
-                                is_pub: c.is_pub,
-                                is_const: true,
-                                name: c.name.clone(),
-                                ty: c.ty.clone(),
-                                value: c.value,
-                            },
-                            span,
-                            source_module: const_mod,
+    // Helper: fold + register a single ConstDecl. The body of the
+    // original `Item::Const` arm was duplicated here so the same
+    // logic runs for both top-level consts and consts hoisted out
+    // of `@extern(C) { ... }` blocks.
+    fn process_const(
+        c: ilang_ast::ConstDecl,
+        consts: &mut HashMap<Symbol, Expr>,
+        const_types: &mut HashMap<Symbol, ilang_ast::Type>,
+        runtime_consts: &mut Vec<ilang_ast::Stmt>,
+    ) -> Result<(), LoadError> {
+        let fold_result = fold_const_expr(&c.value, consts);
+        let folded = match fold_result {
+            Ok(f) => f,
+            Err(_reason) => {
+                let span = c.value.span;
+                let const_mod = c
+                    .name
+                    .as_str()
+                    .rfind('.')
+                    .map(|i| Symbol::intern(&c.name.as_str()[..i]));
+                runtime_consts.push(ilang_ast::Stmt {
+                    kind: ilang_ast::StmtKind::Let {
+                        is_pub: c.is_pub,
+                        is_const: true,
+                        name: c.name.clone(),
+                        ty: c.ty.clone(),
+                        value: c.value,
+                    },
+                    span,
+                    source_module: const_mod,
+                });
+                return Ok(());
+            }
+        };
+        if let Some(ty) = &c.ty {
+            let wrappable = matches!(
+                &folded.kind,
+                ExprKind::Int(_) | ExprKind::Float(_)
+            );
+            if wrappable {
+                if let ExprKind::Int(n) = &folded.kind {
+                    if !int_literal_fits(*n, ty) {
+                        return Err(LoadError::BadConst {
+                            name: c.name.clone(),
+                            reason: format!(
+                                "literal value {n} doesn't fit declared type {ty}"
+                            ),
+                            span: c.value.span,
                         });
-                        continue;
-                    }
-                };
-                if let Some(ty) = &c.ty {
-                    // Don't wrap string / bool literals — those have
-                    // a single natural type and casting them would
-                    // be invalid. For numeric types, the wrap kicks
-                    // in at substitution time so call sites get
-                    // `<value> as <ty>` automatically.
-                    let wrappable = matches!(
-                        &folded.kind,
-                        ExprKind::Int(_) | ExprKind::Float(_)
-                    );
-                    if wrappable {
-                        // Reject literal int annotations whose value
-                        // overflows the declared width — same rule
-                        // as `let x: i8 = 200`. Without this the
-                        // const substitutes to `200 as i8` and
-                        // silently wraps to -56 at runtime.
-                        if let ExprKind::Int(n) = &folded.kind {
-                            if !int_literal_fits(*n, ty) {
-                                return Err(LoadError::BadConst {
-                                    name: c.name.clone(),
-                                    reason: format!(
-                                        "literal value {n} doesn't fit declared type {ty}"
-                                    ),
-                                    span: c.value.span,
-                                });
-                            }
-                        }
-                        const_types.insert(c.name.clone(), ty.clone());
                     }
                 }
-                consts.insert(c.name, folded);
+                const_types.insert(c.name.clone(), ty.clone());
+            }
+        }
+        consts.insert(c.name, folded);
+        Ok(())
+    }
+
+    for item in prog.items {
+        match item {
+            Item::ExternC(mut b) => {
+                // Pull consts out of the block and fold them as if
+                // they were top-level — they were declared inside
+                // `@extern(C) { ... }` to make raw-pointer / C-only
+                // types legal in the annotation / RHS, not to
+                // bundle them with the rest of the FFI items.
+                let extern_consts = std::mem::take(&mut b.consts);
+                for c in extern_consts.into_vec() {
+                    process_const(c, &mut consts, &mut const_types, &mut runtime_consts)?;
+                }
+                items_no_const.push(Item::ExternC(b));
+            }
+            Item::Const(c) => {
+                process_const(c, &mut consts, &mut const_types, &mut runtime_consts)?;
             }
             other => items_no_const.push(other),
         }
@@ -408,6 +417,13 @@ fn cast_const(v: &Expr, ty: &Type, span: Span) -> Result<Expr, String> {
             | Type::U8 | Type::U16 | Type::U32 | Type::U64) => {
             Ok(lit(Int(if *b { 1 } else { 0 })))
         }
+        // Integer literal → raw C pointer (`0 as *void`, `0 as
+        // *const GUID`). Keep the value as `Int(n)` — the
+        // surrounding const declaration's type annotation lets
+        // the inline-substitution step re-wrap each reference as
+        // `n as <ty>`, which the type checker validates under
+        // the @extern(C) scope where the use site sits.
+        (Int(n), Type::RawPtr { .. }) => Ok(lit(Int(*n))),
         _ => Err(format!("cast to {ty} not supported in const expression")),
     }
 }

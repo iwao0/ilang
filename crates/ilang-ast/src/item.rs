@@ -347,6 +347,13 @@ pub struct ExternCBlock {
     /// loader / type checker walk this list alongside top-level
     /// `Item::Interface` to register them globally.
     pub interfaces: Box<[InterfaceDecl]>,
+    /// `pub const NAME: T = expr` declarations carried inside the
+    /// block. The loader hoists each to a top-level
+    /// `Item::Const` with `in_extern_c = true` so downstream
+    /// passes (fold / type-check / inline) see them like ordinary
+    /// consts but allow raw-pointer / C-only types in the
+    /// annotation and `as`-cast RHS.
+    pub consts: Box<[ConstDecl]>,
     pub span: Span,
 }
 
@@ -428,6 +435,14 @@ pub struct ConstDecl {
     /// `value` with the synthesised literal. The path is stored
     /// verbatim — slashes / dots are kept as-is.
     pub embed_path: Option<Symbol>,
+    /// `true` when the const was declared inside an
+    /// `@extern(C) { ... }` block. The loader hoists the decl back
+    /// out to a top-level `Item::Const`, but the type-checker and
+    /// the fold pass still need to know the surrounding scope was
+    /// FFI so raw-pointer / C-only types in the annotation and
+    /// the RHS `as` cast stay legal (`pub const NULL: *void =
+    /// 0 as *void` etc.).
+    pub in_extern_c: bool,
     pub span: Span,
 }
 

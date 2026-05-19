@@ -100,6 +100,7 @@ impl<'a> Parser<'a> {
                 return Ok(Item::ExternC(ilang_ast::ExternCBlock {
                     items: Box::new([item]),
                     interfaces: Box::new([]),
+                    consts: Box::new([]),
                     span,
                 }));
             }
@@ -389,7 +390,7 @@ impl<'a> Parser<'a> {
     /// `u8[]` from the file alone). A placeholder `value` is stored
     /// so downstream passes have a well-typed `ConstDecl`; the
     /// loader replaces it once the file is read.
-    fn parse_const_decl(
+    pub(super) fn parse_const_decl(
         &mut self,
         embed_path: Option<ilang_ast::Symbol>,
     ) -> Result<ilang_ast::ConstDecl, ParseError> {
@@ -439,6 +440,7 @@ impl<'a> Parser<'a> {
                 ty,
                 value,
                 embed_path,
+                in_extern_c: false,
                 span,
             });
         }
@@ -460,6 +462,7 @@ impl<'a> Parser<'a> {
             ty,
             value,
             embed_path: None,
+            in_extern_c: false,
             span,
         })
     }

@@ -28,6 +28,7 @@ impl<'a> Parser<'a> {
         self.expect(&TokenKind::LBrace, "'{'")?;
         let mut items: Vec<ilang_ast::ExternCItem> = Vec::new();
         let mut extern_c_interfaces: Vec<ilang_ast::InterfaceDecl> = Vec::new();
+        let mut extern_c_consts: Vec<ilang_ast::ConstDecl> = Vec::new();
         loop {
             // Skip leading newlines / blank lines inside the block.
             if matches!(self.peek().kind, TokenKind::RBrace) {
@@ -92,6 +93,33 @@ impl<'a> Parser<'a> {
                     c.is_pub = item_is_pub;
                     ilang_ast::ExternCItem::Class(c)
                 }
+                TokenKind::Const => {
+                    // `pub const NAME: T = expr` — folded just like
+                    // a top-level const, but the surrounding
+                    // `@extern(C)` scope lets the annotation and
+                    // any cast on the RHS reference raw pointers /
+                    // C-only types. Hoisted to a top-level
+                    // `Item::Const` with `in_extern_c = true` so
+                    // the type checker honours that scope. Pub on
+                    // the const is required to surface from a
+                    // binding module — same as the rule outside
+                    // the block.
+                    if !inner_attrs.is_empty() {
+                        let t = self.peek();
+                        return Err(ParseError::Unexpected {
+                            found: t.kind.clone(),
+                            expected:
+                                "no attributes are supported on `const` inside @extern(C)"
+                                    .into(),
+                            span: t.span,
+                        });
+                    }
+                    let mut c = self.parse_const_decl(None)?;
+                    c.is_pub = item_is_pub;
+                    c.in_extern_c = true;
+                    extern_c_consts.push(c);
+                    continue;
+                }
                 TokenKind::Interface => {
                     // `@com interface I { ... }` — COM vtable
                     // contract. Lives inside @extern(C) so its
@@ -138,6 +166,7 @@ impl<'a> Parser<'a> {
         Ok(ilang_ast::ExternCBlock {
             items: items.into(),
             interfaces: extern_c_interfaces.into(),
+            consts: extern_c_consts.into(),
             span,
         })
     }

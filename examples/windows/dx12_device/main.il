@@ -19,6 +19,7 @@
 // calls compile to `(*recv)[slot](recv, args...)`.
 
 use windows {
+    NULL,
     GetModuleHandleA,
     HWND, HINSTANCE, HICON, HCURSOR, HBRUSH, HMENU,
     WNDCLASSEXA, MSG, POINT,
@@ -50,7 +51,7 @@ use directx12 {
 
     pub fn run() {
         // ── Window setup ─────────────────────────────────────────
-        let hInstance = GetModuleHandleA(0 as *const char)
+        let hInstance = GetModuleHandleA(NULL as *const char)
         let className = cstrFromString("IlangDx12Pipeline")
 
         let wc = WNDCLASSEXA {
@@ -60,12 +61,12 @@ use directx12 {
             cbClsExtra:    0,
             cbWndExtra:    0,
             hInstance:     hInstance as *HINSTANCE,
-            hIcon:         0 as *HICON,
-            hCursor:       0 as *HCURSOR,
+            hIcon:         NULL as *HICON,
+            hCursor:       NULL as *HCURSOR,
             hbrBackground: 6 as *HBRUSH,
-            lpszMenuName:  0 as *const char,
+            lpszMenuName:  NULL as *const char,
             lpszClassName: className,
-            hIconSm:       0 as *HICON,
+            hIconSm:       NULL as *HICON,
         }
         RegisterClassExA(wc)
 
@@ -77,19 +78,19 @@ use directx12 {
             WindowStyle.overlappedWindow as u32,
             100, 100,
             780, 200,
-            0 as *HWND,
-            0 as *HMENU,
+            NULL as *HWND,
+            NULL as *HMENU,
             hInstance as *HINSTANCE,
-            0 as *void
+            NULL
         )
         freeCstr(initialTitle)
         ShowWindow(hwnd, ShowCmd.show as i32)
         UpdateWindow(hwnd)
 
         // ── (1) D3D12CreateDevice (flat) ─────────────────────────
-        let rawDevice: *void = 0 as *void
+        let rawDevice: *void = NULL
         let rc = D3D12CreateDevice(
-            0 as *void,
+            NULL,
             D3DFeatureLevel.level_11_0 as u32,
             IID_ID3D12Device,
             &rawDevice
@@ -104,7 +105,7 @@ use directx12 {
                 Flags:    D3D12CommandQueueFlags.none as u32,
                 NodeMask: 0,
             }
-            let rawQueue: *void = 0 as *void
+            let rawQueue: *void = NULL
             let qhr = device.CreateCommandQueue(queueDesc, IID_ID3D12CommandQueue, &rawQueue)
 
             if qhr == 0 {
@@ -127,7 +128,7 @@ use directx12 {
 
         // ── Standard message pump ────────────────────────────────
         let msg = MSG {
-            hwnd:     0 as *HWND,
+            hwnd:     NULL as *HWND,
             message:  0,
             wParam:   0,
             lParam:   0,
@@ -136,7 +137,7 @@ use directx12 {
             lPrivate: 0,
         }
         loop {
-            let r = GetMessageA(msg, 0 as *HWND, 0, 0)
+            let r = GetMessageA(msg, NULL as *HWND, 0, 0)
             if r <= 0 { break }
             TranslateMessage(msg)
             let _ = DispatchMessageA(msg)

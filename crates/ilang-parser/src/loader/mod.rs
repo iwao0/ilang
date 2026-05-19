@@ -962,6 +962,9 @@ fn apply_use(
                     for iface in b.interfaces.iter() {
                         local_names.insert(iface.name.as_str());
                     }
+                    for c in b.consts.iter() {
+                        local_names.insert(c.name.as_str());
+                    }
                     for inner in b.items.iter() {
                         match inner {
                             ilang_ast::ExternCItem::Struct { name, .. }
@@ -1340,6 +1343,11 @@ fn collect_export_names(
                         out.insert(iface.name);
                     }
                 }
+                for c in b.consts.iter() {
+                    if c.is_pub {
+                        out.insert(c.name.clone());
+                    }
+                }
                 for inner in &b.items {
                     match inner {
                         ilang_ast::ExternCItem::Struct { is_pub: true, name, .. }
@@ -1414,6 +1422,11 @@ fn find_in_export_chain(
         if let Item::ExternC(b) = item {
             for iface in b.interfaces.iter() {
                 if iface.name.as_str() == name {
+                    return Ok(true);
+                }
+            }
+            for c in b.consts.iter() {
+                if c.name.as_str() == name {
                     return Ok(true);
                 }
             }
@@ -1917,6 +1930,17 @@ fn prefix_item(item: Item, prefix: &str) -> Item {
                         p.ty = prefix_type(&p.ty, prefix);
                     }
                     m.ret = m.ret.as_ref().map(|t| prefix_type(t, prefix));
+                }
+            }
+            // `pub const NULL: *void = …` inside the @extern(C)
+            // block needs the same module-prefix treatment as
+            // ordinary top-level `pub const`, so cross-module
+            // selective imports (`use windows { NULL }`) resolve
+            // through the loader's qualified name.
+            for c in b.consts.iter_mut() {
+                c.name = format!("{prefix}.{}", c.name).into();
+                if let Some(t) = c.ty.as_mut() {
+                    *t = prefix_type(t, prefix);
                 }
             }
             Item::ExternC(b)

@@ -726,6 +726,7 @@ pub(super) fn rewrite_enum_refs_in_item(
             Item::ExternC(ilang_ast::ExternCBlock {
                 items: items.into_boxed_slice(),
                 interfaces: b.interfaces.clone(),
+                consts: b.consts.clone(),
                 span: b.span,
             })
         }

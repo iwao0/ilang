@@ -3063,6 +3063,7 @@ fn finalize_objc_block(
         ilang_ast::ExternCBlock {
             items: items.into(),
             interfaces: objc_interfaces.into(),
+            consts: Box::new([]),
             span: block_span,
         }
 }
