@@ -1,8 +1,8 @@
 // NSRegularExpression — compile + match count + replace.
 
 use test
-use foundation { regex, RegexOptions, MatchOptions, fullRange,
-            nsstr, ilstr }
+use foundation { NSDataDetector, regex, RegexOptions, MatchOptions,
+                 fullRange, nsstr, ilstr }
 
 let re = regex("[0-9]+", RegexOptions.none)
 let s = nsstr("a12 b3 cc 4")
@@ -21,5 +21,23 @@ test.expectStr(ilstr(replaced), "a# b# cc #")
 let reci = regex("[A-Z]", RegexOptions.caseInsensitive)
 test.expect(reci.numberOfMatchesInString(nsstr("abc"),
     MatchOptions.none, fullRange(nsstr("abc"))), 3)
+
+// regex properties (pattern, options).
+let re2 = regex("\\d+", RegexOptions.none)
+test.expectStr(ilstr(re2.pattern), "\\d+")
+test.expect(re2.options as i64, RegexOptions.none as i64)
+
+// NSDataDetector — pre-loaded detector for URLs / phone numbers
+// etc. We only need to confirm construction + the inherited
+// numberOfMatchesInString fires.
+let dd = NSDataDetector.dataDetectorWithTypes(
+    32 as u64,  // NSTextCheckingTypeLink
+    0
+)
+test.expectFalse(dd.handle == 0)
+let s2 = nsstr("see https://example.com and http://foo.test/")
+let hits = dd.numberOfMatchesInString(s2, MatchOptions.none, fullRange(s2))
+test.expect(hits, 2)
+test.expect(dd.checkingTypes as i64, 32)
 
 0

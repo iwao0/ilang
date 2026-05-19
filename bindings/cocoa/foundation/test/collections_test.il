@@ -2,8 +2,8 @@
 
 use test
 use foundation { NSObject, NSString, NSArray, NSMutableArray,
-            NSDictionary, NSMutableDictionary, makeRange,
-            nsstr, ilstr }
+            NSDictionary, NSMutableDictionary, NSEnumerator,
+            makeRange, nsstr, ilstr }
 
 // NSMutableArray basics: alloc → init → addObject → count / objectAtIndex.
 let arr = NSMutableArray.alloc().init()
@@ -105,6 +105,27 @@ test.expectStr(ilstr(after), "X")
 // removeAllObjects.
 arr2.removeAllObjects()
 test.expect(arr2.count, 0)
+
+// NSEnumerator: walk an array with nextObject.
+let walk = NSMutableArray.alloc().init()
+walk.addObject(nsstr("a"))
+walk.addObject(nsstr("b"))
+walk.addObject(nsstr("c"))
+let it = NSEnumerator.__wrap_handle(walk.objectEnumerator().handle)
+let all = it.allObjects
+test.expect(all.count, 3)
+
+// nextObject increments on a fresh enumerator.
+let it2 = NSEnumerator.__wrap_handle(walk.objectEnumerator().handle)
+let n1 = NSString.__wrap_handle(it2.nextObject().handle)
+test.expectStr(ilstr(n1), "a")
+let n2 = NSString.__wrap_handle(it2.nextObject().handle)
+test.expectStr(ilstr(n2), "b")
+
+// reverseObjectEnumerator yields back-to-front.
+let rit = NSEnumerator.__wrap_handle(walk.reverseObjectEnumerator().handle)
+let r1 = NSString.__wrap_handle(rit.nextObject().handle)
+test.expectStr(ilstr(r1), "c")
 
 0
 
