@@ -138,12 +138,13 @@ pub enum ListModulesFilter: u32 {
 
     // ── Memory info ───────────────────────────────────────────────
 
-    /// Fills `ppsmemCounters` (use either PROCESS_MEMORY_COUNTERS or
-    /// PROCESS_MEMORY_COUNTERS_EX). `cb` = sizeof the chosen struct.
+    /// Fills `ppsmemCounters`. `cb` = sizeof the chosen struct.
+    /// For PROCESS_MEMORY_COUNTERS_EX, cast the pointer:
+    /// `GetProcessMemoryInfo(hp, &pmcEx as *PROCESS_MEMORY_COUNTERS, 80)`.
     @lib pub fn GetProcessMemoryInfo(
-        Process:    *void,
-        ppsmemCounters: *void,
-        cb:         u32
+        Process:        *void,
+        ppsmemCounters: *PROCESS_MEMORY_COUNTERS,
+        cb:             u32
     ): i32
 
     /// Fills `pPerformanceInformation` with system-wide stats.
