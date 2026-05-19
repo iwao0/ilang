@@ -11,8 +11,10 @@
 //   3. ID3D12CommandQueue::Release                vtable +16
 //   4. ID3D12Device::Release                      vtable +16
 //
-// First-pass writing rough edges are listed at the bottom of the
-// file — refactor for ergonomics later.
+// IIDs come from `bindings/directx12/d3d12.il` as fns (`IID_ID3D12Device()`,
+// `IID_ID3D12CommandQueue()`) so the user code never has to retype
+// {189819f1-…} octets.  Same shape as the Windows SDK convention of
+// shipping pre-defined `IID_*` symbols in `dxguid.lib`.
 
 use windows {
     GetModuleHandleA,
@@ -32,6 +34,7 @@ use directx12 {
     GUID,
     D3D12_COMMAND_QUEUE_DESC,
     D3D12CommandListType, D3D12CommandQueueFlags, D3D12CommandQueuePriority,
+    IID_ID3D12Device, IID_ID3D12CommandQueue,
 }
 
 @extern(C) {
@@ -82,16 +85,11 @@ use directx12 {
         UpdateWindow(hwnd)
 
         // ── (1) D3D12CreateDevice (flat) ─────────────────────────
-        // IID_ID3D12Device = 189819f1-1db6-4b57-be54-1821339b85f7
-        let deviceIid = GUID {
-            Data1: 0x189819f1, Data2: 0x1db6, Data3: 0x4b57,
-            Data4lo: 0x211854be, Data4hi: 0xf7859b33,
-        }
         let device: *void = 0 as *void
         let rc = D3D12CreateDevice(
             0 as *void,
             D3DFeatureLevel.level_11_0 as u32,
-            deviceIid,
+            IID_ID3D12Device(),
             &device
         )
 
@@ -102,11 +100,6 @@ use directx12 {
             let createQueue = createQueuePtr as i64 as *void
                 as fn(i64, *const D3D12_COMMAND_QUEUE_DESC, *const GUID, **void): i32
 
-            // IID_ID3D12CommandQueue = 0ec870a6-5d7e-4c22-8cfc-5baae07616ed
-            let queueIid = GUID {
-                Data1: 0x0ec870a6, Data2: 0x5d7e, Data3: 0x4c22,
-                Data4lo: 0xaa5bfc8c, Data4hi: 0xed1676e0,
-            }
             let queueDesc = D3D12_COMMAND_QUEUE_DESC {
                 Type:     D3D12CommandListType.direct as i32,
                 Priority: D3D12CommandQueuePriority.normal as i32,
@@ -114,7 +107,7 @@ use directx12 {
                 NodeMask: 0,
             }
             let queue: *void = 0 as *void
-            let qhr = createQueue(device as i64, queueDesc, queueIid, &queue)
+            let qhr = createQueue(device as i64, queueDesc, IID_ID3D12CommandQueue(), &queue)
 
             if qhr == 0 {
                 // ── (3) Release queue (vtable +16) ───────────────
@@ -128,7 +121,7 @@ use directx12 {
                 let dRelease = dReleasePtr as i64 as *void as fn(i64): u32
                 let _ = dRelease(device as i64)
 
-                cstrFromString("ilang DX12: device + queue via COM vtable — OK")
+                cstrFromString("ilang DX12: device + queue via COM vtable - OK")
             } else {
                 cstrFromString("ilang DX12: device OK, CreateCommandQueue failed")
             }
@@ -159,48 +152,45 @@ use directx12 {
 
 run()
 
-// ─── First-pass writing rough edges ─────────────────────────────
+// ─── First-pass writing rough edges (revisited) ─────────────────
 //
-// 1. IID literal verbosity.
-//    Every COM call site needs an IID populated with `Data1` (u32),
-//    `Data2`/`Data3` (u16), and two u32 halves of the 8-byte `Data4`.
-//    Computing the two u32 halves from the canonical
-//    `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` text is hand-work
-//    (little-endian packing of 4 bytes at a time). A compile-time
-//    `guid!("...")` macro would eliminate every comment block.
+// 1. ✓ IID literal verbosity — SOLVED by `IID_ID3D12Device()` etc.
+//    in the bindings. User code calls the function; the GUID octets
+//    live exactly once in `bindings/directx12/d3d12.il`, mirroring
+//    the C SDK convention (`#include <d3d12.h>` + `dxguid.lib`).
+//
+//    The natural form would be a top-level `pub const`:
+//        pub const IID_ID3D12Device: GUID = GUID { ... }
+//    but ilang's MIR codegen for top-level CRepr-struct consts
+//    currently miscounts call arguments ("got 3, expected 2"). The
+//    fn-returning-GUID workaround compiles cleanly and produces the
+//    same value at every call site.
 //
 // 2. Vtable offsets as bare integers.
-//    `+16`, `+64`, … carry no semantic info — readers have to consult
-//    the SDK headers to know that `+64` is
-//    `ID3D12Device::CreateCommandQueue`. An auto-generated enum
-//    (`Vtbl.ID3D12Device.CreateCommandQueue`) or an IDL-driven
+//    `+16`, `+64`, … still carry no semantic info. An auto-generated
+//    enum (`Vtbl.ID3D12Device.CreateCommandQueue`) or IDL-driven
 //    code-gen step would make the source self-describing.
 //
 // 3. fn-typed local can't be passed through helper fns by value.
-//    A helper that does `let f = ptr as *void as fn(...): T; f(args)`
-//    is straightforward inline but can't be factored out: the
 //    "no raw pointers in ilang-side wrapper signatures" rule blocks
-//    `fn(...)` parameters too. Today's workaround is to inline every
-//    cast-and-call.
+//    `fn(...)` parameters. Today's workaround: inline every
+//    cast-and-call. A `fn(...)` first-class param type (or a
+//    relaxation of the rule inside @extern(C)) would let common
+//    patterns like `comRelease(obj)` be a helper.
 //
 // 4. CRepr struct as a user-fn parameter type can't be re-marshalled
 //    back to `*const T` for a cast-derived fn pointer at runtime
-//    (STATUS_ACCESS_VIOLATION). The ilang user-fn ABI for CRepr
-//    structs needs to align with what the cast site expects before
-//    `pub fn createCommandQueue(device: i64, desc: D3D12_COMMAND_QUEUE_DESC,
-//    ...)` -style helpers can be written. Inline always works.
+//    (STATUS_ACCESS_VIOLATION). Inline always works; user-fn helper
+//    abstraction blocks on this.
 //
-// 5. `if`-expression result type inference.
-//    `if cond { fn(): i32 } else { -1 }` — the `-1` defaults to i64;
-//    needs an explicit `as i32` to match the function-call branch.
+// 5. `if`-expression result type inference: `else { -1 }` defaults
+//    to i64; needs an explicit `as i32` to match an i32-returning
+//    branch.
 //
-// 6. UTF-16 literals and raw `*u8`/`*u16` indexing `p[i] = x` are
-//    still missing — not exercised here since every D3D12 entry
-//    point used takes ANSI strings or `*void`.
+// 6. UTF-16 literals + raw `*u8`/`*u16` indexing `p[i] = x` are
+//    still missing — not exercised here.
 //
-// 7. Larger programs that combine the window setup + COM dispatch
-//    via vtable casts hit a startup-time AV that smaller fixtures
-//    don't — the COM bits work cleanly in isolation under
-//    `bindings/directx12/test/` but combining the same shape with
-//    the Win32 window setup currently breaks. Worth a focused
-//    repro and an ilang-side bisect.
+// 7. Larger programs combining window setup + many user-fn helpers +
+//    vtable casts hit a startup-time AV that the COM-only tests
+//    don't. The simpler version here works; helper-rich draft did
+//    not.
