@@ -538,7 +538,7 @@ pub fn region3D(x: u64, y: u64, z: u64, w: u64, h: u64, d: u64): MTLRegion {
 /// Compile MSL source into an `MTLLibrary` (default
 /// `MTLCompileOptions`).
 pub fn newLibraryWithSourceOrError(
-    dev: MTLDevice, source: NSString
+    device: MTLDevice, source: NSString
 ): (MTLLibrary, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
         // `objcRetain` adds the `+1` the outer `__wrap_handle`
@@ -547,17 +547,17 @@ pub fn newLibraryWithSourceOrError(
         // ilang-mir) keeps the underlying ObjC object alive
         // through this expression so the retain operates on a
         // live pointer, not a freed one.
-        objcRetain(dev.newLibraryWithSource(source, NSObject.wrap(0), slot).handle)
+        objcRetain(device.newLibraryWithSource(source, NSObject.wrap(0), slot).handle)
     })
     (MTLLibrary.__wrap_handle(h), err)
 }
 
 /// Compile + link an `MTLRenderPipelineState` from the descriptor.
 pub fn newRenderPipelineStateOrError(
-    dev: MTLDevice, descriptor: MTLRenderPipelineDescriptor
+    device: MTLDevice, descriptor: MTLRenderPipelineDescriptor
 ): (MTLRenderPipelineState, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
-        objcRetain(dev.newRenderPipelineStateWithDescriptor(descriptor, slot).handle)
+        objcRetain(device.newRenderPipelineStateWithDescriptor(descriptor, slot).handle)
     })
     (MTLRenderPipelineState.__wrap_handle(h), err)
 }
@@ -565,10 +565,10 @@ pub fn newRenderPipelineStateOrError(
 /// Compile + link an `MTLComputePipelineState` from a kernel
 /// function.
 pub fn newComputePipelineStateOrError(
-    dev: MTLDevice, function: MTLFunction
+    device: MTLDevice, function: MTLFunction
 ): (MTLComputePipelineState, NSError?) {
     let (h, err) = withObjcError(fn(slot: i64): i64 {
-        objcRetain(dev.newComputePipelineStateWithFunction(function, slot).handle)
+        objcRetain(device.newComputePipelineStateWithFunction(function, slot).handle)
     })
     (MTLComputePipelineState.__wrap_handle(h), err)
 }

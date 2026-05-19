@@ -57,6 +57,42 @@ struct Ctx {
     /// after `pub use inner` namespaced re-exports — the per-file
     /// pass can only collapse one level (the immediate module).
     items: HashSet<Symbol>,
+    /// Stack of in-scope local-binding names (function params + `let`
+    /// names) accumulated as the rewrite descends through blocks.
+    /// `Field` / `MethodCall` collapse paths consult this set: a
+    /// receiver `Var(M)` that shadows a `use`d module name should
+    /// dispatch as a value method on the local binding, NOT as a
+    /// cross-module reference. Wraps `RefCell` so the rewrite
+    /// functions don't have to thread `&mut` through every
+    /// arm — they're otherwise read-only against `Ctx`.
+    locals: std::cell::RefCell<HashSet<Symbol>>,
+}
+
+impl Ctx {
+    /// Returns true when `name` is currently shadowed by a local
+    /// binding (param or `let`). Field / MethodCall collapse paths
+    /// use this to suppress module-name collapse when the bare
+    /// receiver is actually a value.
+    fn is_local_shadow(&self, name: &Symbol) -> bool {
+        self.locals.borrow().contains(name)
+    }
+
+    /// Save the current `locals` snapshot, run `f`, then restore.
+    /// Block / fn-body scopes call this so a `let` declared inside
+    /// doesn't leak past the closing `}`.
+    fn with_scope<R>(&self, f: impl FnOnce() -> R) -> R {
+        let saved: HashSet<Symbol> = self.locals.borrow().clone();
+        let r = f();
+        *self.locals.borrow_mut() = saved;
+        r
+    }
+
+    /// Add `name` to the active local scope. Caller is responsible
+    /// for wrapping the surrounding scope in `with_scope` so the
+    /// addition pops at block exit.
+    fn push_local(&self, name: Symbol) {
+        self.locals.borrow_mut().insert(name);
+    }
 }
 
 /// Per-file normalize entry point. Validates that every dotted
@@ -171,7 +207,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
     match item {
         Item::Fn(mut f) => {
             rewrite_params(&mut f.params, ctx);
-            f.body = rewrite_block(f.body, ctx);
+            f.body = rewrite_body_with_params(f.body, &f.params, ctx);
             Item::Fn(f)
         }
         Item::Class(mut c) => {
@@ -184,7 +220,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                         &mut m.body,
                         Block { stmts: Vec::new(), tail: None },
                     );
-                    m.body = rewrite_block(body, ctx);
+                    m.body = rewrite_body_with_params(body, &m.params, ctx);
                     m
                 })
                 .collect();
@@ -197,7 +233,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                         &mut m.body,
                         Block { stmts: Vec::new(), tail: None },
                     );
-                    m.body = rewrite_block(body, ctx);
+                    m.body = rewrite_body_with_params(body, &m.params, ctx);
                     m
                 })
                 .collect();
@@ -218,7 +254,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                             &mut g.body,
                             Block { stmts: Vec::new(), tail: None },
                         );
-                        g.body = rewrite_block(body, ctx);
+                        g.body = rewrite_body_with_params(body, &g.params, ctx);
                     }
                     if let Some(s) = p.setter.as_mut() {
                         rewrite_params(&mut s.params, ctx);
@@ -226,7 +262,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                             &mut s.body,
                             Block { stmts: Vec::new(), tail: None },
                         );
-                        s.body = rewrite_block(body, ctx);
+                        s.body = rewrite_body_with_params(body, &s.params, ctx);
                     }
                     p
                 })
@@ -251,7 +287,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                             &mut f.body,
                             Block { stmts: Vec::new(), tail: None },
                         );
-                        f.body = rewrite_block(body, ctx);
+                        f.body = rewrite_body_with_params(body, &f.params, ctx);
                     }
                     ilang_ast::ExternCItem::Class(c) => {
                         let methods = std::mem::take(&mut c.methods);
@@ -263,7 +299,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                                     &mut m.body,
                                     Block { stmts: Vec::new(), tail: None },
                                 );
-                                m.body = rewrite_block(body, ctx);
+                                m.body = rewrite_body_with_params(body, &m.params, ctx);
                                 m
                             })
                             .collect();
@@ -276,7 +312,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                                     &mut m.body,
                                     Block { stmts: Vec::new(), tail: None },
                                 );
-                                m.body = rewrite_block(body, ctx);
+                                m.body = rewrite_body_with_params(body, &m.params, ctx);
                                 m
                             })
                             .collect();
@@ -297,7 +333,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                                         &mut g.body,
                                         Block { stmts: Vec::new(), tail: None },
                                     );
-                                    g.body = rewrite_block(body, ctx);
+                                    g.body = rewrite_body_with_params(body, &g.params, ctx);
                                 }
                                 if let Some(s) = p.setter.as_mut() {
                                     rewrite_params(&mut s.params, ctx);
@@ -305,7 +341,7 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
                                         &mut s.body,
                                         Block { stmts: Vec::new(), tail: None },
                                     );
-                                    s.body = rewrite_block(body, ctx);
+                                    s.body = rewrite_body_with_params(body, &s.params, ctx);
                                 }
                                 p
                             })
@@ -321,33 +357,57 @@ fn rewrite_item(item: Item, ctx: &Ctx) -> Item {
 }
 
 fn rewrite_block(b: Block, ctx: &Ctx) -> Block {
-    Block {
+    // Each `{ … }` opens a new lexical scope. Restore the locals
+    // snapshot on exit so `let` bindings declared inside don't leak
+    // past the closing brace and shadow module names in following
+    // sibling statements.
+    ctx.with_scope(|| Block {
         stmts: Vec::from(b.stmts).into_iter().map(|s| rewrite_stmt(s, ctx)).collect(),
         tail: b.tail.map(|e| Box::new(rewrite_expr(*e, ctx))),
-    }
+    })
 }
 
 fn rewrite_stmt(s: Stmt, ctx: &Ctx) -> Stmt {
     let kind = match s.kind {
-        StmtKind::Let { is_pub, is_const, name, ty, value } => StmtKind::Let {
-            is_pub,
-            is_const,
-            name,
-            ty,
-            value: rewrite_expr(value, ctx),
-        },
-        StmtKind::LetTuple { elems, value } => StmtKind::LetTuple {
-            elems,
-            value: rewrite_expr(value, ctx),
-        },
-        StmtKind::LetStruct { class, fields, value } => StmtKind::LetStruct {
-            class,
-            fields,
-            value: rewrite_expr(value, ctx),
-        },
+        StmtKind::Let { is_pub, is_const, name, ty, value } => {
+            // Rewrite the value FIRST — the let-name only enters
+            // scope for subsequent statements, not its own RHS.
+            // (Recursive bindings aren't a thing here.)
+            let value = rewrite_expr(value, ctx);
+            ctx.push_local(name);
+            StmtKind::Let { is_pub, is_const, name, ty, value }
+        }
+        StmtKind::LetTuple { elems, value } => {
+            let value = rewrite_expr(value, ctx);
+            for e in elems.iter() {
+                if let Some(n) = e {
+                    ctx.push_local(*n);
+                }
+            }
+            StmtKind::LetTuple { elems, value }
+        }
+        StmtKind::LetStruct { class, fields, value } => {
+            let value = rewrite_expr(value, ctx);
+            for f in fields.iter() {
+                ctx.push_local(*f);
+            }
+            StmtKind::LetStruct { class, fields, value }
+        }
         StmtKind::Expr(e) => StmtKind::Expr(rewrite_expr(e, ctx)),
     };
     Stmt { kind, span: s.span, source_module: s.source_module.clone() }
+}
+
+/// Rewrite a fn / method body with its params pushed onto the local
+/// scope. The surrounding `with_scope` pops them at exit so the params
+/// don't shadow module names in sibling items.
+fn rewrite_body_with_params(body: Block, params: &[ilang_ast::Param], ctx: &Ctx) -> Block {
+    ctx.with_scope(|| {
+        for p in params.iter() {
+            ctx.push_local(p.name);
+        }
+        rewrite_block(body, ctx)
+    })
 }
 
 fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
@@ -363,38 +423,46 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             // qualified `Var("module.X")` so the loader-merged
             // top-level item with that exact name is found.
             if let ExprKind::Var(receiver) = &obj.kind {
-                if let Some(canonical) =
-                    ctx.modules.get(&Symbol::intern(receiver.as_str()))
-                {
-                    return Expr::new(
-                        ExprKind::Var(Symbol::intern(&format!("{}.{name}", canonical.as_str()))),
-                        span,
-                    );
-                }
-                // Namespaced re-export path: `umbrella.inner.X`. The
-                // first level (`umbrella.inner`) already collapsed
-                // via the rule above; this branch only fires in
-                // `renormalize_merged` (where `ctx.items` is
-                // populated). The disambiguator between
-                // "sub-module field" and "enum-variant access" is
-                // whether the fully-qualified name appears in the
-                // merged item set.
-                let qualified = format!("{}.{name}", receiver.as_str());
-                if !ctx.items.is_empty()
-                    && ctx.items.contains(&Symbol::intern(&qualified))
-                {
-                    return Expr::new(ExprKind::Var(Symbol::intern(&qualified)), span);
-                }
-                // Existing rule: enum unit ctor.
-                if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
-                    return Expr::new(
-                        ExprKind::EnumCtor {
-                            enum_name: receiver.clone(),
-                            variant: name,
-                            args: CtorArgs::Unit,
-                        },
-                        span,
-                    );
+                // Skip module / enum-ctor collapse when the receiver
+                // name shadows a local binding (param or `let`). A
+                // value method like `device.newLibraryWithSource(...)`
+                // must dispatch on the local `device` value rather
+                // than re-resolve as `<imported-module-device>.foo`.
+                let shadowed = ctx.is_local_shadow(receiver);
+                if !shadowed {
+                    if let Some(canonical) =
+                        ctx.modules.get(&Symbol::intern(receiver.as_str()))
+                    {
+                        return Expr::new(
+                            ExprKind::Var(Symbol::intern(&format!("{}.{name}", canonical.as_str()))),
+                            span,
+                        );
+                    }
+                    // Namespaced re-export path: `umbrella.inner.X`. The
+                    // first level (`umbrella.inner`) already collapsed
+                    // via the rule above; this branch only fires in
+                    // `renormalize_merged` (where `ctx.items` is
+                    // populated). The disambiguator between
+                    // "sub-module field" and "enum-variant access" is
+                    // whether the fully-qualified name appears in the
+                    // merged item set.
+                    let qualified = format!("{}.{name}", receiver.as_str());
+                    if !ctx.items.is_empty()
+                        && ctx.items.contains(&Symbol::intern(&qualified))
+                    {
+                        return Expr::new(ExprKind::Var(Symbol::intern(&qualified)), span);
+                    }
+                    // Existing rule: enum unit ctor.
+                    if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
+                        return Expr::new(
+                            ExprKind::EnumCtor {
+                                enum_name: receiver.clone(),
+                                variant: name,
+                                args: CtorArgs::Unit,
+                            },
+                            span,
+                        );
+                    }
                 }
             }
             ExprKind::Field {
@@ -407,47 +475,54 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             let new_args: Vec<Expr> =
                 Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect();
             if let ExprKind::Var(receiver) = &obj.kind {
-                // Whole-module function call: `module.foo(args)`
-                // becomes `Call("module.foo", args)`.
-                if let Some(canonical) =
-                    ctx.modules.get(&Symbol::intern(receiver.as_str()))
-                {
-                    return Expr::new(
-                        ExprKind::Call {
-                            callee: Symbol::intern(&format!(
-                                "{}.{method}",
-                                canonical.as_str()
-                            )),
-                            args: new_args.into(),
-                        },
-                        span,
-                    );
-                }
-                // Namespaced re-export path: `umbrella.inner.fn(args)`.
-                // Only fires in `renormalize_merged` — disambiguated
-                // by checking the merged item set rather than the
-                // per-file module table.
-                let qualified = format!("{}.{method}", receiver.as_str());
-                if !ctx.items.is_empty()
-                    && ctx.items.contains(&Symbol::intern(&qualified))
-                {
-                    return Expr::new(
-                        ExprKind::Call {
-                            callee: Symbol::intern(&qualified),
-                            args: new_args.into(),
-                        },
-                        span,
-                    );
-                }
-                if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
-                    return Expr::new(
-                        ExprKind::EnumCtor {
-                            enum_name: receiver.clone(),
-                            variant: method,
-                            args: CtorArgs::Tuple(new_args.into()),
-                        },
-                        span,
-                    );
+                // Same shadowing carve-out as the `Field` arm above:
+                // a local `device.newLibraryWithSource(...)` stays a
+                // value method call instead of collapsing to a
+                // module-qualified static reference.
+                let shadowed = ctx.is_local_shadow(receiver);
+                if !shadowed {
+                    // Whole-module function call: `module.foo(args)`
+                    // becomes `Call("module.foo", args)`.
+                    if let Some(canonical) =
+                        ctx.modules.get(&Symbol::intern(receiver.as_str()))
+                    {
+                        return Expr::new(
+                            ExprKind::Call {
+                                callee: Symbol::intern(&format!(
+                                    "{}.{method}",
+                                    canonical.as_str()
+                                )),
+                                args: new_args.into(),
+                            },
+                            span,
+                        );
+                    }
+                    // Namespaced re-export path: `umbrella.inner.fn(args)`.
+                    // Only fires in `renormalize_merged` — disambiguated
+                    // by checking the merged item set rather than the
+                    // per-file module table.
+                    let qualified = format!("{}.{method}", receiver.as_str());
+                    if !ctx.items.is_empty()
+                        && ctx.items.contains(&Symbol::intern(&qualified))
+                    {
+                        return Expr::new(
+                            ExprKind::Call {
+                                callee: Symbol::intern(&qualified),
+                                args: new_args.into(),
+                            },
+                            span,
+                        );
+                    }
+                    if ctx.enums.contains(&Symbol::intern(receiver.as_str())) {
+                        return Expr::new(
+                            ExprKind::EnumCtor {
+                                enum_name: receiver.clone(),
+                                variant: method,
+                                args: CtorArgs::Tuple(new_args.into()),
+                            },
+                            span,
+                        );
+                    }
                 }
             }
             ExprKind::MethodCall {
@@ -483,11 +558,14 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             expr: Box::new(rewrite_expr(*expr, ctx)),
             ty,
         },
-        ExprKind::FnExpr { params, ret, body } => ExprKind::FnExpr {
-            params,
-            ret,
-            body: rewrite_block(body, ctx),
-        },
+        ExprKind::FnExpr { params, ret, body } => {
+            // Closures introduce their own scope. Push the params so
+            // a closure body like `fn(device: …) { device.foo() }`
+            // dispatches `device.foo` as a value method rather than
+            // a module call.
+            let body = rewrite_body_with_params(body, &params, ctx);
+            ExprKind::FnExpr { params, ret, body }
+        }
         ExprKind::Call { callee, args } => ExprKind::Call {
             callee,
             args: Vec::from(args).into_iter().map(|a| rewrite_expr(a, ctx)).collect(),
@@ -513,12 +591,16 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
             expr,
             then_branch,
             else_branch,
-        } => ExprKind::IfLet {
-            name,
-            expr: Box::new(rewrite_expr(*expr, ctx)),
-            then_branch: rewrite_block(then_branch, ctx),
-            else_branch: else_branch.map(|e| Box::new(rewrite_expr(*e, ctx))),
-        },
+        } => {
+            let expr = Box::new(rewrite_expr(*expr, ctx));
+            // `if let X = …` binds `X` for the then-branch only.
+            let then_branch = ctx.with_scope(|| {
+                ctx.push_local(name);
+                rewrite_block(then_branch, ctx)
+            });
+            let else_branch = else_branch.map(|e| Box::new(rewrite_expr(*e, ctx)));
+            ExprKind::IfLet { name, expr, then_branch, else_branch }
+        }
         ExprKind::While { cond, body } => ExprKind::While {
             cond: Box::new(rewrite_expr(*cond, ctx)),
             body: rewrite_block(body, ctx),
@@ -526,11 +608,15 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Loop { body } => ExprKind::Loop {
             body: rewrite_block(body, ctx),
         },
-        ExprKind::ForIn { var, iter, body } => ExprKind::ForIn {
-            var,
-            iter: Box::new(rewrite_expr(*iter, ctx)),
-            body: rewrite_block(body, ctx),
-        },
+        ExprKind::ForIn { var, iter, body } => {
+            let iter = Box::new(rewrite_expr(*iter, ctx));
+            // `for x in …` binds `x` for the body only.
+            let body = ctx.with_scope(|| {
+                ctx.push_local(var);
+                rewrite_block(body, ctx)
+            });
+            ExprKind::ForIn { var, iter, body }
+        }
         ExprKind::Range { start, end, inclusive } => ExprKind::Range {
             start: start.map(|s| Box::new(rewrite_expr(*s, ctx))),
             end: end.map(|e| Box::new(rewrite_expr(*e, ctx))),
