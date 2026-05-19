@@ -1,0 +1,258 @@
+// AppKit core — NSApplication / NSView / NSWindow / NSScreen plus
+// the NSWindowStyleMask / NSBackingStoreType /
+// NSApplicationActivationPolicy enums and the app + window
+// delegate protocols. Most other AppKit category files use these
+// classes as bases or arguments.
+
+use foundation { NSObject, NSString, NSArray, NSNotification, NSPoint,
+                 NSSize, NSRect, nsstr, makeRect }
+
+// ─── NSWindowStyleMask ──────────────────────────────────────────
+// Mirrors Swift's `NSWindow.StyleMask` (raw bit values from
+// `<AppKit/NSWindow.h>` `NSWindowStyleMask*`). `borderless` is
+// the empty mask; combine the rest with `|`:
+//
+//     let mask = cocoa.NSWindowStyleMask.titled
+//         | cocoa.NSWindowStyleMask.closable
+//         | cocoa.NSWindowStyleMask.miniaturizable
+//         | cocoa.NSWindowStyleMask.resizable
+@flags
+pub enum NSWindowStyleMask: u64 {
+    borderless             = 0x0000
+    titled                 = 0x0001
+    closable               = 0x0002
+    miniaturizable         = 0x0004
+    resizable              = 0x0008
+    utilityWindow          = 0x0010
+    docModalWindow         = 0x0040
+    nonactivatingPanel     = 0x0080
+    texturedBackground     = 0x0100
+    unifiedTitleAndToolbar = 0x1000
+    hudWindow              = 0x2000
+    fullScreen             = 0x4000
+    fullSizeContentView    = 0x8000
+}
+
+// NSBackingStoreType — `buffered` is the only non-deprecated
+// member today; AppKit still accepts the legacy values for
+// source-compat.
+pub enum NSBackingStoreType: u64 {
+    retained    = 0
+    nonretained = 1
+    buffered    = 2
+}
+
+// NSApplicationActivationPolicy — controls the app's Dock /
+// activation behaviour.
+pub enum NSApplicationActivationPolicy: i64 {
+    regular    = 0
+    accessory  = 1
+    prohibited = 2
+}
+
+// The `@extern(ObjC, "path")` form names the framework dylib so
+// the JIT dlopens it eagerly at startup — that's what registers
+// `NSApplication` / `NSWindow` / NSString etc. with libobjc's
+// global class registry.
+@extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {
+    @lib pub fn NSApplicationLoad(): bool
+
+    /// The shared application object — there's only ever one per
+    /// process. Use `cocoa.sharedApplication()` (defined below)
+    /// instead of calling this directly so AppKit's framework
+    /// load happens first.
+    @objc pub class NSApplication : NSObject {
+        @objc("sharedApplication")
+        pub static sharedApplication(): NSApplication
+        @objc("setActivationPolicy:")
+        pub setActivationPolicy(policy: NSApplicationActivationPolicy): bool
+        @objc("activateIgnoringOtherApps:")
+        @deprecated("deprecated in macOS 14.0 — call `activate()` instead.")
+        pub activateIgnoringOtherApps(flag: bool)
+        @objc("activate")
+        pub activate()
+        @objc("run")
+        pub run()
+        @objc("terminate:")
+        pub terminate(sender: NSObject)
+        // Two overloads of `setDelegate:` dispatch the same ObjC
+        // selector: the typed `NSApplicationDelegate` form for the
+        // casual case (compile-time conformance check), and the
+        // permissive `NSObject` form for `setDelegate(nil)` /
+        // framework-provided delegate objects already bound as
+        // bare NSObject.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSApplicationDelegate)
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
+        @objc("setMainMenu:")
+        pub setMainMenu(menu: NSObject)
+    }
+
+    /// NSView — base class for every visible AppKit object.
+    @objc pub class NSView : NSObject {
+        @objc("addSubview:")
+        pub addSubview(v: NSView)
+        // Coordinate conversion. The `fromView` / `toView` slot
+        // is typed `NSObject` so `cocoa.nil` can be passed to
+        // mean "convert from / to window coordinates" — the
+        // same coordinate space `NSEvent.locationInWindow()`
+        // returns. A real NSView wrapper is accepted too
+        // (ObjC dispatches the same way either way).
+        @objc("convertPoint:fromView:")
+        pub convertPointFromView(p: NSPoint, fromView: NSObject): NSPoint
+        @objc("convertPoint:toView:")
+        pub convertPointToView(p: NSPoint, toView: NSObject): NSPoint
+        @objc("frame")
+        pub get frame(): NSRect
+        @objc("bounds")
+        pub get bounds(): NSRect
+    }
+
+    /// NSWindow. The two-step `alloc + initWithContentRect:...`
+    /// pattern is the standard Cocoa instance-construction
+    /// idiom; the convenience constructor below combines them.
+    @objc pub class NSWindow : NSObject {
+        @objc("alloc")
+        pub static alloc(): NSWindow
+        // `NSWindowStyleMask` / `NSBackingStoreType` are typed
+        // enums on the ilang side. The MIR codegen extracts the
+        // discriminant when handing them to objc_msgSend, so the
+        // C ABI sees the raw NSUInteger that AppKit expects.
+        @objc("initWithContentRect:styleMask:backing:defer:")
+        pub init(
+            rect: NSRect, mask: NSWindowStyleMask, backing: NSBackingStoreType, defer: bool
+        ): NSWindow
+
+        @objc("setTitle:")
+        pub setTitle(title: NSString)
+        @objc("center")
+        pub center()
+        @objc("makeKeyAndOrderFront:")
+        pub makeKeyAndOrderFront(sender: NSObject)
+        @objc("contentView")
+        pub get contentView(): NSView
+        // setDelegate overloads — typed `NSWindowDelegate` for
+        // the conformance-checked casual case, NSObject for nil
+        // clearing / framework-bound objects.
+        @objc("setDelegate:")
+        pub setDelegate(d: NSWindowDelegate)
+        @objc("setDelegate:")
+        pub setDelegate(d: NSObject)
+    }
+
+    /// `NSScreen` — physical display. `mainScreen` is the one
+    /// hosting the menu bar; `screens` enumerates every
+    /// connected display. `frame` returns the screen's bounds
+    /// in global coordinates; `visibleFrame` subtracts the menu
+    /// bar and Dock.
+    @objc pub class NSScreen : NSObject {
+        @objc("mainScreen")
+        pub static mainScreen(): NSScreen
+        @objc("screens")
+        pub static screens(): NSArray
+
+        @objc("frame")
+        pub get frame(): NSRect
+        @objc("visibleFrame")
+        pub get visibleFrame(): NSRect
+    }
+
+    // ─── Delegate protocols ─────────────────────────────────────
+
+    /// `NSApplicationDelegate` — callbacks that fire over the
+    /// lifecycle of the shared NSApplication. Set as the app's
+    /// delegate via `app.setDelegate(myDelegate)` once after
+    /// `sharedApplication()`.
+    @objc pub interface NSApplicationDelegate {
+        @optional applicationWillFinishLaunching(notification: NSNotification)
+        @optional applicationDidFinishLaunching(notification: NSNotification)
+        @optional applicationWillBecomeActive(notification: NSNotification)
+        @optional applicationDidBecomeActive(notification: NSNotification)
+        @optional applicationWillResignActive(notification: NSNotification)
+        @optional applicationDidResignActive(notification: NSNotification)
+        @optional applicationDidHide(notification: NSNotification)
+        @optional applicationDidUnhide(notification: NSNotification)
+        @optional applicationDidChangeScreenParameters(notification: NSNotification)
+        @optional applicationWillTerminate(notification: NSNotification)
+
+        // Decision callbacks. Return-typed selectors that AppKit
+        // consults before performing the corresponding action.
+        @optional applicationShouldTerminate(app: NSApplication): u64
+        @optional applicationShouldTerminateAfterLastWindowClosed(app: NSApplication): bool
+        @optional applicationShouldHandleReopen(app: NSApplication, hasVisibleWindows: bool): bool
+
+        // File / URL opens — single-file form is `application:openFile:`,
+        // multi-file is `application:openFiles:` (the array variant
+        // is the modern preferred one on macOS 10.13+).
+        @optional @objc("application:openFile:")
+        applicationOpenFile(app: NSApplication, filename: NSString): bool
+        @optional @objc("application:openFiles:")
+        applicationOpenFiles(app: NSApplication, filenames: NSArray)
+        @optional @objc("application:openURLs:")
+        applicationOpenURLs(app: NSApplication, urls: NSArray)
+    }
+
+    /// `NSWindowDelegate` — per-window lifecycle and geometry
+    /// callbacks. Attach with `win.setDelegate(d)`; the same
+    /// object can be both the window delegate and the app
+    /// delegate by implementing both protocols.
+    @objc pub interface NSWindowDelegate {
+        @optional windowDidBecomeKey(notification: NSNotification)
+        @optional windowDidResignKey(notification: NSNotification)
+        @optional windowDidBecomeMain(notification: NSNotification)
+        @optional windowDidResignMain(notification: NSNotification)
+        @optional windowDidMove(notification: NSNotification)
+        @optional windowDidResize(notification: NSNotification)
+        @optional windowWillMiniaturize(notification: NSNotification)
+        @optional windowDidMiniaturize(notification: NSNotification)
+        @optional windowDidDeminiaturize(notification: NSNotification)
+        @optional windowDidExpose(notification: NSNotification)
+        @optional windowWillClose(notification: NSNotification)
+        @optional windowDidChangeScreen(notification: NSNotification)
+        @optional windowDidChangeScreenProfile(notification: NSNotification)
+        @optional windowDidChangeBackingProperties(notification: NSNotification)
+
+        // Full-screen transition callbacks.
+        @optional windowWillEnterFullScreen(notification: NSNotification)
+        @optional windowDidEnterFullScreen(notification: NSNotification)
+        @optional windowWillExitFullScreen(notification: NSNotification)
+        @optional windowDidExitFullScreen(notification: NSNotification)
+
+        // Decision callbacks.
+        @optional windowShouldClose(sender: NSObject): bool
+
+        // Geometry hooks. `windowWillResize:toSize:` lets the
+        // delegate adjust the requested size; the returned size
+        // is what the window actually uses.
+        @optional @objc("windowWillResize:toSize:")
+        windowWillResize(sender: NSWindow, toSize: NSSize): NSSize
+        @optional @objc("windowWillUseStandardFrame:defaultFrame:")
+        windowWillUseStandardFrame(sender: NSWindow, defaultFrame: NSRect): NSRect
+    }
+
+    // ─── Convenience helpers ─────────────────────────────────────
+
+    /// Fetch the singleton NSApplication, forcing AppKit to load
+    /// first. Always call this before any other NSApplication
+    /// method so the framework's classes are registered when
+    /// `objc_getClass` later runs.
+    pub fn sharedApplication(): NSApplication {
+        NSApplicationLoad()
+        NSApplication.sharedApplication()
+    }
+
+    /// Allocate, initialise, and title a window in one go. The
+    /// underlying ObjC pattern is
+    /// `[[NSWindow alloc] initWithContentRect:... ] setTitle:]`.
+    pub fn makeWindow(
+        title: string,
+        x: f64, y: f64, w: f64, h: f64,
+        mask: NSWindowStyleMask
+    ): NSWindow {
+        let win = NSWindow.alloc()
+            .init(makeRect(x, y, w, h), mask, NSBackingStoreType.buffered, false)
+        win.setTitle(nsstr(title))
+        win
+    }
+}
