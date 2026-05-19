@@ -51,7 +51,7 @@ use directx12 {
 
     pub fn run() {
         // ── Window setup ─────────────────────────────────────────
-        let hInstance = GetModuleHandleA(NULL as *const char)
+        let hInstance = GetModuleHandleA(NULL)
         let className = cstrFromString("IlangDx12Pipeline")
 
         let wc = WNDCLASSEXA {
@@ -61,12 +61,12 @@ use directx12 {
             cbClsExtra:    0,
             cbWndExtra:    0,
             hInstance:     hInstance as *HINSTANCE,
-            hIcon:         NULL as *HICON,
-            hCursor:       NULL as *HCURSOR,
+            hIcon:         NULL,
+            hCursor:       NULL,
             hbrBackground: 6 as *HBRUSH,
-            lpszMenuName:  NULL as *const char,
+            lpszMenuName:  NULL,
             lpszClassName: className,
-            hIconSm:       NULL as *HICON,
+            hIconSm:       NULL,
         }
         RegisterClassExA(wc)
 
@@ -78,8 +78,8 @@ use directx12 {
             WindowStyle.overlappedWindow as u32,
             100, 100,
             780, 200,
-            NULL as *HWND,
-            NULL as *HMENU,
+            NULL,
+            NULL,
             hInstance as *HINSTANCE,
             NULL
         )
@@ -128,7 +128,7 @@ use directx12 {
 
         // ── Standard message pump ────────────────────────────────
         let msg = MSG {
-            hwnd:     NULL as *HWND,
+            hwnd:     NULL,
             message:  0,
             wParam:   0,
             lParam:   0,
@@ -137,7 +137,7 @@ use directx12 {
             lPrivate: 0,
         }
         loop {
-            let r = GetMessageA(msg, NULL as *HWND, 0, 0)
+            let r = GetMessageA(msg, NULL, 0, 0)
             if r <= 0 { break }
             TranslateMessage(msg)
             let _ = DispatchMessageA(msg)

@@ -77,12 +77,22 @@ pub(crate) fn assignable(from: &Type, to: &Type) -> bool {
     // Raw C pointer: `*T` is assignable to `*const T` (loses write
     // capability) but not vice versa. Inner types must match
     // exactly — no covariance through pointer dereference.
+    //
+    // Exception: `*void` / `*const void` is the C-style "untyped
+    // pointer" and flows into any `*T` slot under the usual
+    // const-narrowing rule. This matches C's `void *` semantics
+    // and lets binding modules ship a single typed `NULL: *void`
+    // that callers drop into any handle parameter without an
+    // `as *T` boilerplate. Only meaningful inside @extern(C)
+    // scope — `*void` isn't nameable elsewhere.
     if let (
         Type::RawPtr { is_const: from_c, inner: from_inner },
         Type::RawPtr { is_const: to_c, inner: to_inner },
     ) = (from, to)
     {
-        if from_inner == to_inner {
+        let from_is_void = matches!(**from_inner, Type::CVoid);
+        let to_is_void = matches!(**to_inner, Type::CVoid);
+        if from_inner == to_inner || from_is_void || to_is_void {
             return *to_c || !*from_c;
         }
         return false;
