@@ -47,7 +47,16 @@ pub enum D3DCompileEffectFlags: u32 {
     allowSlowOps        = 2
 }
 
-@extern(C, "d3dcompiler_47") {
+// `@extern(C, "d3dcompiler_47", "d3dcompiler")` — multi-lib form.
+// The JIT loader walks the list from left to right and uses the
+// first DLL that opens; the AOT linker picks the first name whose
+// loader-side probe succeeded. This handles two SKU shapes:
+//   * runtime: only `d3dcompiler_47.dll` ships
+//   * SDK:     `d3dcompiler.lib` forwards to the same DLL
+// On Windows we get JIT-correct behaviour via the first name and
+// keep the fallback for environments where only the SDK alias is
+// reachable.
+@extern(C, "d3dcompiler_47", "d3dcompiler") {
     /// ID3DBlob — opaque byte buffer (used for compiled bytecode,
     /// error messages, and root-signature blobs). Owned by the
     /// caller; release with the COM Release() method on its vtable.
