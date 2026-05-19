@@ -28,3 +28,13 @@ pub use crypt32.*
 pub use dbghelp.*
 pub use winhttp.*
 pub use imm32.*
+pub use shcore.*
+pub use uxtheme.*
+pub use gdiplus.*
+pub use opengl32.*
+pub use bcrypt.*
+pub use netapi32.*
+pub use userenv.*
+pub use dxgi.*
+pub use dinput8.*
+pub use setupapi.*

@@ -1066,4 +1066,88 @@ pub enum StdHandle: u32 {
         Timer:             *HANDLE,
         CompletionEvent:   *HANDLE
     ): i32
+
+    // ── Virtual memory query ─────────────────────────────────────
+
+    /// `MEMORY_BASIC_INFORMATION` — 48 bytes on x64.
+    /// Filled by `VirtualQuery` / `VirtualQueryEx`.
+    pub struct MEMORY_BASIC_INFORMATION {
+        BaseAddress:       *void
+        AllocationBase:    *void
+        AllocationProtect: u32   // PageProtection.* at time of original alloc
+        _pad0:             u32
+        RegionSize:        u64
+        State:             u32   // 0x1000 commit, 0x2000 reserve, 0x10000 free
+        Protect:           u32   // current PageProtection.*
+        Type:              u32   // 0x20000 private, 0x40000 mapped, 0x1000000 image
+        _pad1:             u32
+    }
+
+    /// Queries the protection / state of pages at `lpAddress`.
+    /// Returns the byte count written (48), or 0 on failure.
+    @lib pub fn VirtualQuery(
+        lpAddress: *const void,
+        lpBuffer:  *MEMORY_BASIC_INFORMATION,
+        dwLength:  u64
+    ): u64
+
+    /// Same but for an arbitrary process.
+    @lib pub fn VirtualQueryEx(
+        hProcess:  *HANDLE,
+        lpAddress: *const void,
+        lpBuffer:  *MEMORY_BASIC_INFORMATION,
+        dwLength:  u64
+    ): u64
+
+    @lib pub fn VirtualProtect(
+        lpAddress:     *void,
+        dwSize:        u64,
+        flNewProtect:  u32,
+        lpflOldProtect: *u32
+    ): i32
+
+    @lib pub fn VirtualLock(lpAddress: *void, dwSize: u64): i32
+    @lib pub fn VirtualUnlock(lpAddress: *void, dwSize: u64): i32
+
+    // ── WOW64 ────────────────────────────────────────────────────
+
+    /// Returns 1 in `*Wow64Process` if `hProcess` is a 32-bit process
+    /// running on 64-bit Windows.
+    @lib pub fn IsWow64Process(hProcess: *HANDLE, Wow64Process: *i32): i32
+
+    // ── Process times ────────────────────────────────────────────
+
+    /// Returns the kernel / user CPU time consumed by `hProcess`
+    /// plus its creation and exit FILETIMEs.
+    @lib pub fn GetProcessTimes(
+        hProcess:       *HANDLE,
+        lpCreationTime: *FILETIME,
+        lpExitTime:     *FILETIME,
+        lpKernelTime:   *FILETIME,
+        lpUserTime:     *FILETIME
+    ): i32
+
+    @lib pub fn GetThreadTimes(
+        hThread:        *HANDLE,
+        lpCreationTime: *FILETIME,
+        lpExitTime:     *FILETIME,
+        lpKernelTime:   *FILETIME,
+        lpUserTime:     *FILETIME
+    ): i32
+
+    // ── Globally-unique-name allocation (legacy) ─────────────────
+
+    /// Allocates moveable global memory (GMEM_MOVEABLE = 0x42).
+    /// Used by the clipboard API — `SetClipboardData` requires
+    /// GMEM_MOVEABLE handles. Free with GlobalFree.
+    @lib pub fn GlobalAlloc(uFlags: u32, dwBytes: u64): *void
+    @lib pub fn GlobalFree(hMem: *void): *void
+
+    /// Locks a moveable HGLOBAL and returns a pointer to its bytes.
+    /// Pair with GlobalUnlock.
+    @lib pub fn GlobalLock(hMem: *void): *void
+    @lib pub fn GlobalUnlock(hMem: *void): i32
+
+    @lib pub fn GlobalSize(hMem: *void): u64
+    @lib pub fn GlobalReAlloc(hMem: *void, dwBytes: u64, uFlags: u32): *void
 }

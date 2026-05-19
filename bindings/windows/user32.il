@@ -1842,4 +1842,103 @@ pub enum SpiAction: u32 {
 
     /// Returns 1 if the user is currently active (typing/moving mouse).
     @lib pub fn GetLastInputInfo(plii: *void): i32
+
+    // ── Per-window DPI (Windows 10+) ─────────────────────────────
+
+    /// Returns the DPI of `hwnd`. 96 = 100%.
+    @lib pub fn GetDpiForWindow(hwnd: *HWND): u32
+
+    /// Returns the DPI of the system as a whole.
+    @lib pub fn GetDpiForSystem(): u32
+
+    /// Sets the DPI awareness context for the calling thread.
+    /// Returns the previous context, or NULL if `dpiContext` is invalid.
+    @lib pub fn SetThreadDpiAwarenessContext(dpiContext: *void): *void
+
+    @lib pub fn GetThreadDpiAwarenessContext(): *void
+
+    /// Scales `value` from `dpiFrom` to `dpiTo` (e.g. system → window DPI).
+    @lib pub fn AdjustWindowRectExForDpi(
+        lpRect:   *RECT,
+        dwStyle:  u32,
+        bMenu:    i32,
+        dwExStyle: u32,
+        dpi:      u32
+    ): i32
+
+    @lib pub fn GetSystemMetricsForDpi(nIndex: i32, dpi: u32): i32
+
+    // ── GUI thread info ──────────────────────────────────────────
+
+    /// `GUITHREADINFO` — 48 bytes.  Set `cbSize` = 48.
+    pub struct GUITHREADINFO {
+        cbSize:        u32
+        flags:         u32     // GUI_* state flags
+        hwndActive:    *HWND
+        hwndFocus:     *HWND
+        hwndCapture:   *HWND
+        hwndMenuOwner: *HWND
+        hwndMoveSize:  *HWND
+        hwndCaret:     *HWND
+        rcCaret:       RECT
+    }
+
+    /// `idThread`: 0 = current thread.
+    @lib pub fn GetGUIThreadInfo(idThread: u32, pgui: *GUITHREADINFO): i32
+
+    // ── Window broadcasting ───────────────────────────────────────
+
+    /// Broadcasts a message to system components.
+    /// `dwFlags`: BSF_QUERY=1, BSF_IGNORECURRENTTASK=2, BSF_FLUSHDISK=4,
+    /// BSF_NOHANG=8, BSF_POSTMESSAGE=0x10, BSF_FORCEIFHUNG=0x20,
+    /// BSF_NOTIMEOUTIFNOTHUNG=0x40, BSF_ALLOWSFW=0x80, BSF_SENDNOTIFYMESSAGE=0x100.
+    /// `lpInfo`: BSM_* recipient bitmask — pass 0 (BSM_ALLCOMPONENTS).
+    @lib pub fn BroadcastSystemMessageA(
+        dwFlags:    u32,
+        lpInfo:     *u32,
+        Msg:        u32,
+        wParam:     u64,
+        lParam:     i64
+    ): i64
+
+    // ── Device-change notifications ──────────────────────────────
+
+    /// Registers `hRecipient` to receive WM_DEVICECHANGE messages
+    /// for the device-interface class GUID in `NotificationFilter`.
+    /// `Flags`: DEVICE_NOTIFY_WINDOW_HANDLE=0, DEVICE_NOTIFY_SERVICE_HANDLE=1,
+    /// DEVICE_NOTIFY_ALL_INTERFACE_CLASSES=4.
+    @lib pub fn RegisterDeviceNotificationA(
+        hRecipient:        i64,
+        NotificationFilter: *const void,    // *DEV_BROADCAST_DEVICEINTERFACE_A
+        Flags:             u32
+    ): *void
+
+    @lib pub fn UnregisterDeviceNotification(Handle: *void): i32
+
+    // ── Idle / waits ─────────────────────────────────────────────
+
+    /// Waits until the calling thread has no input to process.
+    /// Useful at startup so dependent code waits for the main window
+    /// to finish its WM_CREATE handler.
+    @lib pub fn WaitForInputIdle(hProcess: *HANDLE, dwMilliseconds: u32): u32
+
+    /// Waits for one of `pHandles` to signal OR for input on the
+    /// calling thread's message queue.  `dwWakeMask`: QS_* flags.
+    @lib pub fn MsgWaitForMultipleObjects(
+        nCount:      u32,
+        pHandles:    *const *HANDLE,
+        fWaitAll:    i32,
+        dwMilliseconds: u32,
+        dwWakeMask:  u32
+    ): u32
+
+    // ── Foreground / lock ────────────────────────────────────────
+
+    /// Locks `lpfLockSetForegroundWindow`: 1=lock (LSFW_LOCK), 2=unlock (LSFW_UNLOCK).
+    /// Prevents background apps from stealing focus.
+    @lib pub fn LockSetForegroundWindow(uLockCode: u32): i32
+
+    /// Allows another process to call SetForegroundWindow.
+    /// `dwProcessId`: target pid, or 0xFFFFFFFF (ASFW_ANY).
+    @lib pub fn AllowSetForegroundWindow(dwProcessId: u32): i32
 }
