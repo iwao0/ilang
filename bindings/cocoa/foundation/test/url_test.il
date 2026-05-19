@@ -51,4 +51,23 @@ test.expectStr(ilstr(abs.absoluteURL.absoluteString), "https://example.com/x")
 let trailing = NSURL.fromFilePath(nsstr("/tmp/."))
 test.expectStr(ilstr(trailing.byStandardizingPath.path), "/tmp")
 
+// byAppendingPathComponentDir (with the trailing-slash hint).
+let dir = NSURL.fromFilePath(nsstr("/tmp")).byAppendingPathComponentDir(
+    nsstr("data"), true
+)
+test.expectStr(ilstr(dir.lastPathComponent), "data")
+test.expectTrue(dir.hasDirectoryPath)
+
+// pathComponents on a non-file URL.
+let urlComps = NSURL.fromString(nsstr("https://a.com/b/c/d")).pathComponents
+test.expectTrue(urlComps.count >= 3)
+
+// relativePath / relativeString on a plain URL == path / absolute.
+let plain = NSURL.fromString(nsstr("https://x.com/y"))
+test.expectStr(ilstr(plain.relativePath), "/y")
+test.expectStr(ilstr(plain.relativeString), "https://x.com/y")
+
+// baseURL on an absolute URL is the nil-handle wrapper.
+test.expectTrue(plain.baseURL.handle == 0)
+
 0

@@ -24,4 +24,19 @@ test.expectTrue(cwd.length > 0)
 let usr = fm.contentsOfDirectoryAtPath(nsstr("/usr"), 0)
 test.expectTrue(usr.count > 0)
 
+// attributesOfItemAtPath — returns a dictionary with NSFileType
+// among other keys for `/`.
+let attrs = fm.attributesOfItemAtPath(nsstr("/"), 0)
+test.expectTrue(attrs.count > 0)
+
+// changeCurrentDirectoryPath: round-trip to /tmp and back.
+let original = fm.currentDirectoryPath
+test.expectTrue(fm.changeCurrentDirectoryPath(nsstr("/tmp")))
+// macOS canonicalises /tmp → /private/tmp, so check via the
+// realpath comparison rather than exact equality.
+let nowAt = fm.currentDirectoryPath
+test.expectTrue(nowAt.containsString(nsstr("/tmp")))
+// Restore.
+test.expectTrue(fm.changeCurrentDirectoryPath(original))
+
 0
