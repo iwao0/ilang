@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn ilang_bin() -> PathBuf {
@@ -57,11 +57,24 @@ fn collect_test_fixtures() -> Vec<PathBuf> {
     out
 }
 
-/// `(class_name → set of selectors)` parsed from the binding source.
-/// A class declared in multiple files (`@objc pub class Foo` +
-/// `@objc pub class Foo` in extension form) would merge.
-fn parse_binding_selectors() -> BTreeMap<String, BTreeSet<String>> {
-    let mut classes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+/// One binding entry: a class's `@objc("selector:")` declaration
+/// paired with the user-visible wrapper name on the line beneath
+/// it (the name a test would actually type). The coverage check
+/// counts an entry as covered when EITHER the wrapper name or the
+/// selector head (the part before the first `:`) appears in any
+/// test fixture's identifier set — matches both the ergonomic
+/// `obj.wrapperName(...)` and the rare callers that reach for the
+/// raw selector head.
+#[derive(Debug, Clone)]
+struct SelEntry {
+    selector: String,
+    wrapper: String,
+}
+
+/// `class_name → entries` parsed from the binding source.
+fn parse_binding_selectors() -> BTreeMap<String, Vec<SelEntry>> {
+    let mut classes: BTreeMap<String, Vec<SelEntry>> = BTreeMap::new();
+    let mut seen: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let Ok(entries) = fs::read_dir(foundation_dir()) else {
         return classes;
     };
@@ -73,11 +86,14 @@ fn parse_binding_selectors() -> BTreeMap<String, BTreeSet<String>> {
         let Ok(src) = fs::read_to_string(&p) else { continue };
         // Track current class via brace depth so we ignore the
         // braces that close individual method / accessor bodies.
-        // Depth-1 inside the class declaration; depth-0 means
-        // we're outside any class.
         let mut current_class: Option<String> = None;
         let mut class_open_depth: i32 = 0;
         let mut depth: i32 = 0;
+        // When the previous non-blank, non-attribute line was an
+        // `@objc("…")` declaration, this carries its selector so
+        // we can grab the wrapper name from the following decl
+        // line.
+        let mut pending_selector: Option<String> = None;
         for line in src.lines() {
             let trimmed = line.trim_start();
             if let Some(rest) = trimmed
@@ -90,28 +106,33 @@ fn parse_binding_selectors() -> BTreeMap<String, BTreeSet<String>> {
                     .collect();
                 if !name.is_empty() {
                     current_class = Some(name);
-                    // The opening `{` of the class body comes on
-                    // the same line or shortly after; record the
-                    // depth right before it opens.
                     class_open_depth = depth;
                 }
-            }
-            // `@objc("selector:")` — strip the prefix, grab the
-            // string literal up to the closing `")`.
-            if let Some(rest) = trimmed.strip_prefix("@objc(\"") {
+                pending_selector = None;
+            } else if let Some(rest) = trimmed.strip_prefix("@objc(\"") {
                 if let Some(end) = rest.find("\")") {
-                    let sel = &rest[..end];
-                    if let Some(c) = &current_class {
-                        classes
-                            .entry(c.clone())
-                            .or_default()
-                            .insert(sel.to_string());
+                    pending_selector = Some(rest[..end].to_string());
+                }
+            } else if !trimmed.is_empty() && !trimmed.starts_with("//") {
+                // First non-comment, non-blank line after an
+                // `@objc("…")` carries the wrapper signature. Skip
+                // sibling attributes like `@optional`, `@since`,
+                // `@deprecated` — they don't introduce the wrapper.
+                if trimmed.starts_with('@') {
+                    // sibling attribute, keep waiting
+                } else if let Some(sel) = pending_selector.take() {
+                    let wrapper = extract_wrapper_name(trimmed);
+                    if let (Some(c), Some(w)) = (&current_class, wrapper) {
+                        let class_set = seen.entry(c.clone()).or_default();
+                        if class_set.insert(sel.clone()) {
+                            classes.entry(c.clone()).or_default().push(SelEntry {
+                                selector: sel,
+                                wrapper: w,
+                            });
+                        }
                     }
                 }
             }
-            // Update brace depth from this line's braces. Crude —
-            // string literals containing `{` / `}` would skew it,
-            // but the Foundation bindings don't have any.
             for ch in line.chars() {
                 match ch {
                     '{' => depth += 1,
@@ -119,6 +140,7 @@ fn parse_binding_selectors() -> BTreeMap<String, BTreeSet<String>> {
                         depth -= 1;
                         if current_class.is_some() && depth == class_open_depth {
                             current_class = None;
+                            pending_selector = None;
                         }
                     }
                     _ => {}
@@ -127,6 +149,69 @@ fn parse_binding_selectors() -> BTreeMap<String, BTreeSet<String>> {
         }
     }
     classes
+}
+
+/// Pull the user-visible method / property name from the line
+/// following an `@objc("…")` declaration. Handles the modifier
+/// vocabulary the bindings actually use (`pub`, `pub static`,
+/// `pub get`, `pub set`, `pub init`, and the leading-underscore
+/// non-pub `_name` form).
+fn extract_wrapper_name(line: &str) -> Option<String> {
+    let mut rest = line;
+    for prefix in [
+        "pub static ",
+        "pub get ",
+        "pub set ",
+        "pub init",
+        "pub ",
+        "static ",
+    ] {
+        if let Some(r) = rest.strip_prefix(prefix) {
+            rest = r;
+            break;
+        }
+    }
+    // `pub init` (no space) → either bare `init(...)` or
+    // `initFoo(...)`. The above strip_prefix handles both: after
+    // stripping "pub init", what's left starts with the rest of
+    // the name (e.g. "WithBytes(...)") or "(" for plain init.
+    // Take leading alphanumerics + `_` as the identifier.
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    // If the previous prefix was "pub init" and the suffix part is
+    // empty (i.e. the line was `pub init(...)`), the wrapper name
+    // IS `init`. Detect that by checking whether the original line
+    // had `pub init(`.
+    if name.is_empty() && line.contains("pub init(") {
+        return Some("init".to_string());
+    }
+    if name.is_empty() {
+        None
+    } else if line.contains("pub init") && !line.starts_with("pub initWith")
+        && !line.starts_with("pub init ")
+        && line.contains("pub init(")
+    {
+        Some("init".to_string())
+    } else if name == "static" || name == "get" || name == "set" {
+        // Defensive: shouldn't happen with the prefixes above but
+        // skip if we somehow swallowed the wrong piece.
+        None
+    } else {
+        // Re-prefix `init` if the wrapper is an init flavour like
+        // `initWithBytes` — the strip already left "WithBytes" for
+        // us; prepend `init` so the test text `initWithBytes` matches.
+        if line.starts_with("pub initWith")
+            || line.starts_with("pub init")
+                && !line.starts_with("pub init(")
+                && name.chars().next().is_some_and(|c| c.is_uppercase())
+        {
+            Some(format!("init{name}"))
+        } else {
+            Some(name)
+        }
+    }
 }
 
 /// Approximate cover-set: any identifier that appears in a method
@@ -195,15 +280,18 @@ fn coverage_report() -> String {
     for (cls, sels) in &classes {
         total_cls += 1;
         let mut class_covered = 0usize;
-        for sel in sels {
-            // Selector is "name:..." or just "name". The
-            // identifier we look for is the prefix up to the first
-            // `:`.
-            let head: String = sel
+        for entry in sels {
+            // An entry is "covered" when the user-visible wrapper
+            // name OR the selector head (pre-`:`) shows up in any
+            // test fixture's identifier set. Wrapper covers
+            // ergonomic `obj.wrapperName(...)` calls; selector
+            // head catches direct uses of the raw ObjC name.
+            let head: String = entry
+                .selector
                 .chars()
                 .take_while(|c| *c != ':')
                 .collect();
-            if used.contains(&head) {
+            if used.contains(&entry.wrapper) || used.contains(&head) {
                 class_covered += 1;
             }
         }
@@ -212,14 +300,8 @@ fn coverage_report() -> String {
         if class_covered > 0 {
             covered_cls += 1;
         }
-        // Only print classes with any selectors so empty stubs
-        // don't pollute the listing.
         if !sels.is_empty() {
-            let pct = if sels.is_empty() {
-                0
-            } else {
-                class_covered * 100 / sels.len()
-            };
+            let pct = class_covered * 100 / sels.len();
             out.push_str(&format!(
                 "  {:<32} {:>3}/{:<3} ({:>3}%)\n",
                 cls,
