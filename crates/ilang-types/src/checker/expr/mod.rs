@@ -370,6 +370,28 @@ impl TypeChecker {
                         }
                     }
                 }
+                // Enum-side promotion: `pub enum E: T { ... }`
+                // values pair freely with a `T`-typed operand
+                // (most common: `msg == WindowMessage.destroy`
+                // where `msg: u32`). Promote the enum side to its
+                // declared repr so the rest of the bin_result
+                // logic handles it as a numeric comparison.
+                let enum_repr = |t: &Type| -> Option<Type> {
+                    if let Type::Object(name) = t {
+                        if let Some(sig) = self.enums.get(name) {
+                            return sig.repr.clone();
+                        }
+                    }
+                    None
+                };
+                let l_repr = enum_repr(&l);
+                let r_repr = enum_repr(&r);
+                let (l, r) = match (l_repr, r_repr) {
+                    (Some(lr), _) if lr == r => (lr, r),
+                    (_, Some(rr)) if rr == l => (l, rr),
+                    (Some(lr), Some(rr)) if lr == rr => (lr, rr),
+                    _ => (l, r),
+                };
                 // Literal-side adoption: when one operand is a
                 // numeric literal whose value fits the other's
                 // integer type, treat the literal as that type.

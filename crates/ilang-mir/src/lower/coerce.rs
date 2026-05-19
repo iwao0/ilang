@@ -368,6 +368,23 @@ impl<'a> BodyCx<'a> {
         if matches!((&lty, &rty), (MirTy::Object(_), MirTy::Object(_))) {
             return Ok((lv, rv, MirTy::I64));
         }
+        // Enum-vs-int unification: `pub enum E: T { ... }` paired
+        // with a value of type T (e.g. `msg == WindowMessage.destroy`
+        // where `msg: u32`) reads the enum tag down to the int side
+        // so the rest of the numeric unification logic handles it.
+        // The opposite direction (`int == enum`) is symmetric.
+        if let (MirTy::Enum(_), other) = (&lty, &rty) {
+            if other.is_numeric() {
+                let lv = self.coerce(lv, &lty, &rty, Span::dummy())?;
+                return Ok((lv, rv, rty));
+            }
+        }
+        if let (other, MirTy::Enum(_)) = (&lty, &rty) {
+            if other.is_numeric() {
+                let rv = self.coerce(rv, &rty, &lty, Span::dummy())?;
+                return Ok((lv, rv, lty));
+            }
+        }
         if lty.is_numeric() && rty.is_numeric() {
             // Promote to float if either side is float.
             if lty.is_float() || rty.is_float() {

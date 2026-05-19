@@ -42,7 +42,7 @@ use directx12 {
 
 @extern(C) {
     pub fn wndProc(hwnd: i64, msg: u32, wParam: u64, lParam: i64): i64 {
-        if msg == (WindowMessage.destroy as u32) {
+        if msg == WindowMessage.destroy {
             PostQuitMessage(0)
             return 0
         }
@@ -56,7 +56,7 @@ use directx12 {
 
         let wc = WNDCLASSEXA {
             cbSize:        80,
-            style:         (ClassStyle.hredraw | ClassStyle.vredraw) as u32,
+            style:         ClassStyle.hredraw | ClassStyle.vredraw,
             lpfnWndProc:   wndProc,
             cbClsExtra:    0,
             cbWndExtra:    0,
@@ -75,7 +75,7 @@ use directx12 {
             0,
             className,
             initialTitle,
-            WindowStyle.overlappedWindow as u32,
+            WindowStyle.overlappedWindow,
             100, 100,
             780, 200,
             NULL,
@@ -84,14 +84,14 @@ use directx12 {
             NULL
         )
         freeCstr(initialTitle)
-        ShowWindow(hwnd, ShowCmd.show as i32)
+        ShowWindow(hwnd, ShowCmd.show)
         UpdateWindow(hwnd)
 
         // ── (1) D3D12CreateDevice (flat) ─────────────────────────
         let rawDevice: *void = NULL
         let rc = D3D12CreateDevice(
             NULL,
-            D3DFeatureLevel.level_11_0 as u32,
+            D3DFeatureLevel.level_11_0,
             IID_ID3D12Device,
             &rawDevice
         )
@@ -100,9 +100,9 @@ use directx12 {
             // ── (2) ID3D12Device::CreateCommandQueue ─────────────
             let device = rawDevice as ID3D12Device
             let queueDesc = D3D12_COMMAND_QUEUE_DESC {
-                Type:     D3D12CommandListType.direct as i32,
-                Priority: D3D12CommandQueuePriority.normal as i32,
-                Flags:    D3D12CommandQueueFlags.none as u32,
+                Type:     D3D12CommandListType.direct,
+                Priority: D3D12CommandQueuePriority.normal,
+                Flags:    D3D12CommandQueueFlags.none,
                 NodeMask: 0,
             }
             let rawQueue: *void = NULL
