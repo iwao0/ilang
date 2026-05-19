@@ -115,13 +115,13 @@ pub enum StreamStatus: u64 {
         // Block-based notifications fire on a background queue
         // when data / EOF / error becomes available.
         @objc("readabilityHandler")
-        pub get readabilityHandler(): i64
+        pub get readabilityHandler(): ObjCBlock<fn(i64)>
         @objc("setReadabilityHandler:")
-        pub set readabilityHandler(h: i64)
+        pub set readabilityHandler(h: ObjCBlock<fn(i64)>)
         @objc("writeabilityHandler")
-        pub get writeabilityHandler(): i64
+        pub get writeabilityHandler(): ObjCBlock<fn(i64)>
         @objc("setWriteabilityHandler:")
-        pub set writeabilityHandler(h: i64)
+        pub set writeabilityHandler(h: ObjCBlock<fn(i64)>)
     }
 
     /// `NSPipe` — anonymous pipe + a pair of NSFileHandle ends.
