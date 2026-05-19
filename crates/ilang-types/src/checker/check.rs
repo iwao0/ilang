@@ -43,8 +43,12 @@ impl TypeChecker {
         // name in the `parent` slot).
         for item in &prog.items {
             // Collect from both `Item::Interface` (top-level) and
-            // `@objc interface` declarations nested inside
-            // `@extern(ObjC)` blocks — both register identically.
+            // `@objc interface` / `@com interface` declarations
+            // nested inside `@extern(C)` / `@extern(ObjC)` blocks.
+            // Type validation runs in a later pass, after classes
+            // are registered — interface methods commonly mention
+            // sibling struct / class names that the registration
+            // order hasn't reached yet.
             let iface_list: Vec<&ilang_ast::InterfaceDecl> = match item {
                 Item::Interface(i) => vec![i],
                 Item::ExternC(b) => b.interfaces.iter().collect(),
@@ -237,6 +241,49 @@ impl TypeChecker {
         // top-level (`restrict_c_types: true`) ones — they must not
         // mention any C-only type, transitively.
         self.validate_restrict_c_structs(prog)?;
+
+        // Validate interface method signatures now that every
+        // sibling class / enum / struct name resolves. Extern-
+        // nested interfaces (`@extern(C) { @com interface … }` and
+        // `@extern(ObjC) { interface … }`) check under
+        // `in_extern_c = true` so raw pointers / C-only types are
+        // legal in their signatures; top-level interfaces use the
+        // default `false`, so a plain `pub interface Bad { foo(p:
+        // *const u8) }` is rejected at declaration time instead
+        // of leaking the C-only type through the call site.
+        for item in &prog.items {
+            let (iface_list, scope_is_extern_c): (
+                Vec<&ilang_ast::InterfaceDecl>,
+                bool,
+            ) = match item {
+                Item::Interface(i) => (vec![i], false),
+                Item::ExternC(b) => (b.interfaces.iter().collect(), true),
+                _ => continue,
+            };
+            let prev = *self.in_extern_c.borrow();
+            *self.in_extern_c.borrow_mut() = scope_is_extern_c;
+            let mut iface_err: Option<TypeError> = None;
+            'outer: for i in iface_list {
+                for m in i.methods.iter() {
+                    for p in m.params.iter() {
+                        if let Err(e) = self.validate_type(&p.ty, p.span, &[]) {
+                            iface_err = Some(e);
+                            break 'outer;
+                        }
+                    }
+                    if let Some(r) = &m.ret {
+                        if let Err(e) = self.validate_type(r, m.span, &[]) {
+                            iface_err = Some(e);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+            *self.in_extern_c.borrow_mut() = prev;
+            if let Some(e) = iface_err {
+                return Err(e);
+            }
+        }
 
         // Pre-register top-level `let X: T = expr` bindings as
         // module-level globals so fn bodies can read / write them.
