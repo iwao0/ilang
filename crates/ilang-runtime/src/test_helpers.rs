@@ -81,6 +81,64 @@ pub extern "C" fn test_live_string_count() -> i64 {
 }
 
 // --------------------------------------------------------------------
+// `test.mallocBytesInUse()` — process-wide heap bytes-in-use as
+// reported by libmalloc's default zone. Catches leaks the ilang-side
+// `liveAllocBytes` tracker misses (objc_autorelease'd ObjC blocks,
+// `[NSString stringWithUTF8String:]` autoreleased temporaries, etc.).
+//
+// Usage in a leak fixture:
+//   let body = fn() { /* workload */ }
+//   autoreleasepool(body)          // warm: lazy class init etc
+//   let base = test.mallocBytesInUse()
+//   loop N {
+//       autoreleasepool(body)
+//   }
+//   let delta = test.mallocBytesInUse() - base
+//   // delta should be bounded (small constant) for a leak-free path
+//
+// macOS only — returns 0 elsewhere.
+// --------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct MallocStatistics {
+    blocks_in_use: u32,
+    size_in_use: usize,
+    max_size_in_use: usize,
+    size_allocated: usize,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn malloc_zone_statistics(zone: *mut std::ffi::c_void, stats: *mut MallocStatistics);
+}
+
+#[unsafe(export_name = "test.mallocBytesInUse")]
+pub extern "C" fn test_malloc_bytes_in_use() -> i64 {
+    #[cfg(target_os = "macos")]
+    {
+        let mut s = MallocStatistics {
+            blocks_in_use: 0,
+            size_in_use: 0,
+            max_size_in_use: 0,
+            size_allocated: 0,
+        };
+        // Passing NULL as the zone tells libmalloc to aggregate
+        // across every registered zone — gives a process-wide
+        // bytes-in-use count, which is what we want for catching
+        // ObjC blocks / autorelease'd NSStrings / etc.
+        unsafe {
+            malloc_zone_statistics(std::ptr::null_mut(), &mut s);
+        }
+        s.size_in_use as i64
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        0
+    }
+}
+
+// --------------------------------------------------------------------
 // `test.countedFree` — libc::free wrapped with a counter so fixtures
 // can assert how many times a custom deallocator ran. Used by FFI
 // tests that ship their own `extern free_with(...)`-style helpers.

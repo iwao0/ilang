@@ -239,6 +239,10 @@ pub fn compile_with_builtins(
     jit_builder.symbol("test.liveAllocBytes", ilang_runtime::test_live_alloc_bytes as *const u8);
     jit_builder.symbol("test.liveAllocCount", ilang_runtime::test_live_alloc_count as *const u8);
     jit_builder.symbol("test.liveStringCount", ilang_runtime::test_live_string_count as *const u8);
+    jit_builder.symbol(
+        "test.mallocBytesInUse",
+        ilang_runtime::test_malloc_bytes_in_use as *const u8,
+    );
     jit_builder.symbol("__enum_alloc", ilang_runtime::__enum_alloc as *const u8);
     jit_builder.symbol("__release_enum", ilang_runtime::__release_enum as *const u8);
     jit_builder.symbol("__retain_enum", ilang_runtime::__retain_enum as *const u8);

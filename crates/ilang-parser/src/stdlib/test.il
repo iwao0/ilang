@@ -53,4 +53,11 @@
     /// (leak_cstring buffers). Used by leak-detection fixtures for
     /// string-producing operations. mir-jit only.
     pub fn liveStringCount(): i64
+    /// Process-wide heap bytes-in-use as reported by libmalloc's
+    /// default zone (`malloc_zone_statistics(NULL, …)`). Catches
+    /// leaks `liveAllocBytes` misses — most importantly the
+    /// `objc_autorelease`d Cocoa allocations that are freed
+    /// through Apple's malloc rather than ilang's `__mir_free`.
+    /// macOS only — returns 0 elsewhere.
+    pub fn mallocBytesInUse(): i64
 }
