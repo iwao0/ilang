@@ -1002,20 +1002,46 @@ pub enum SpiAction: u32 {
 
     /// `WNDCLASSEXA` — 80 bytes on x64. Set `cbSize` to 80.
     pub struct WNDCLASSEXA {
+        /// `sizeof(WNDCLASSEXA)`. Must be `80` on x64; if the value
+        /// doesn't match what user32 expects, `RegisterClassExA`
+        /// silently fails (returns 0; check `GetLastError()`).
         cbSize:        u32
+        /// Class-style bitmask. Build with `ClassStyle` flags
+        /// (`ClassStyle.hredraw | ClassStyle.vredraw | ...` then
+        /// `as u32`).
         style:         u32
         /// First param is HWND. Declared `i64` so the user-side
         /// `wndProc` can be a `pub fn` without raw pointer args.
         lpfnWndProc:   fn(i64, u32, u64, i64): i64
+        /// Extra per-class bytes the window manager allocates next
+        /// to the class. Most apps leave this `0`.
         cbClsExtra:    i32
+        /// Extra per-window bytes attached to every window of this
+        /// class (accessed via `GetWindowLongPtr` / `SetWindowLongPtr`
+        /// with positive offsets). Most apps leave this `0`.
         cbWndExtra:    i32
         // 4 bytes implicit padding before hInstance.
+        /// EXE / DLL handle this class belongs to. Typically
+        /// `GetModuleHandleA(0 as *const char)` for the main EXE.
         hInstance:     *HINSTANCE
+        /// Large window icon. `NULL` for the default app icon.
         hIcon:         *HICON
+        /// Mouse cursor used inside the client area. `NULL` leaves
+        /// it undefined (cursor flickers); usually set to
+        /// `LoadCursorA(NULL, IDC_ARROW)`.
         hCursor:       *HCURSOR
+        /// Background brush. Pass `NULL` to handle `WM_ERASEBKGND`
+        /// yourself, or `(COLOR_WINDOW + 1) as *HBRUSH` (i.e.
+        /// `6 as *HBRUSH`) to fill with the system window colour.
         hbrBackground: *HBRUSH
+        /// Default menu resource name (`MAKEINTRESOURCEA(id)`).
+        /// `NULL` when the window has no class-level menu.
         lpszMenuName:  *const char
+        /// Class name passed back to `CreateWindowExA`. Use
+        /// `cstrFromString(name)` to convert an ilang `string`.
         lpszClassName: *const char
+        /// Small (taskbar / titlebar) icon. `NULL` falls back to
+        /// `hIcon`.
         hIconSm:       *HICON
     }
 
