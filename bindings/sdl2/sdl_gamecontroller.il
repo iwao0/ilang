@@ -4,7 +4,8 @@
 // instantiating `GameController`.
 
 use sdl_core { SDL_free }
-use sdl_joystick { Joystick, EventState }
+use sdl_joystick { Joystick }
+use sdl_time { EventState }
 
 /// `SDL_GameControllerButton` — face / shoulder / d-pad / stick-press
 /// buttons that follow the standard layout.
@@ -478,7 +479,7 @@ pub enum ControllerType: i32 {
         /// controller events, or query the current state.
         ///
         /// Args:
-        ///   state — `EventState.disabled` / `.enabled` to set,
+        ///   state — `EventState.disable` / `.enable` to set,
         ///           `.query` to read the current setting without
         ///           changing it.
         ///

@@ -22,15 +22,13 @@ pub enum HatPosition: u8 {
 }
 
 /// State value for `Joystick.eventState` /
-/// `GameController.eventState` — toggle whether
-/// `SDL_PollEvent` / `WaitEvent` deliver joystick / controller
-/// events. `query` returns the current setting without changing
-/// it.
-pub enum EventState: i32 {
-    query    = -1
-    disabled = 0
-    enabled  = 1
-}
+// `EventState` is shared across the three SDL `*EventState`
+// entry points (`SDL_EventState` / `SDL_JoystickEventState` /
+// `SDL_GameControllerEventState`) — all three accept the same
+// `SDL_QUERY / SDL_DISABLE / SDL_ENABLE` constants defined in
+// `SDL_events.h`, so a single ilang enum covers them. The
+// canonical declaration lives in `sdl_time.il`; this module
+// re-uses it through the `sdl` umbrella's `pub use`.
 
 @extern(C, "SDL2") {
     /// Opaque SDL_Joystick — created by `Joystick.open(index)`,
@@ -224,7 +222,7 @@ pub enum EventState: i32 {
         /// joystick events.
         ///
         /// Args:
-        ///   state — `EventState.disabled` / `.enabled` to set,
+        ///   state — `EventState.disable` / `.enable` to set,
         ///           `.query` to read the current setting without
         ///           changing it.
         ///
