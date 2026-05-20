@@ -1,5 +1,5 @@
-// NSGestureRecognizer family + NSTrackingArea + NSPressure
-// configuration — view-level mouse / trackpad input.
+/// NSGestureRecognizer family + NSTrackingArea + NSPressure
+/// configuration — view-level mouse / trackpad input.
 
 use foundation { NSObject, NSString, NSPoint, NSRect }
 use core { NSView }

@@ -1,15 +1,15 @@
-// d3d12.dll — Direct3D 12 core API.
-//
-// D3D12 is COM-based: most work happens via vtable calls on
-// ID3D12Device, ID3D12CommandQueue, etc. The flat entry points
-// listed here bootstrap the device factory, then the rest of the
-// API is reached via the device's `QueryInterface` chain.
-//
-// Required Windows version: Windows 10 1507+ for D3D12, with
-// progressively newer features in 1607 / 1709 / 1903 / Win11.
-//
-// Linking: d3d12.lib (Windows 10 SDK).  At runtime the DLL is
-// d3d12.dll (forwarded transparently).
+/// d3d12.dll — Direct3D 12 core API.
+///
+/// D3D12 is COM-based: most work happens via vtable calls on
+/// ID3D12Device, ID3D12CommandQueue, etc. The flat entry points
+/// listed here bootstrap the device factory, then the rest of the
+/// API is reached via the device's `QueryInterface` chain.
+///
+/// Required Windows version: Windows 10 1507+ for D3D12, with
+/// progressively newer features in 1607 / 1709 / 1903 / Win11.
+///
+/// Linking: d3d12.lib (Windows 10 SDK).  At runtime the DLL is
+/// d3d12.dll (forwarded transparently).
 
 // Re-use the DXGI sample-descriptor struct from the windows
 // binding rather than duplicating it here — both modules end up

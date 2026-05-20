@@ -1,7 +1,7 @@
-// SDL2 mouse: cursor position / button state, cursor visibility,
-// custom cursor creation, relative-mode capture. Mirrors
-// SDL_mouse.h. Initialise SDL with `InitFlag.video` (events ride
-// along automatically).
+/// SDL2 mouse: cursor position / button state, cursor visibility,
+/// custom cursor creation, relative-mode capture. Mirrors
+/// SDL_mouse.h. Initialise SDL with `InitFlag.video` (events ride
+/// along automatically).
 
 use sdl_core { Point }
 use sdl_window { Window, SDL_Window }

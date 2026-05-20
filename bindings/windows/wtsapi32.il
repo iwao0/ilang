@@ -1,7 +1,7 @@
-// wtsapi32.dll — Terminal Services / Remote Desktop / Fast User
-// Switching APIs. Useful for session-aware services, screen lock
-// detection (WTSRegisterSessionNotification), and discovering the
-// active console session.
+/// wtsapi32.dll — Terminal Services / Remote Desktop / Fast User
+/// Switching APIs. Useful for session-aware services, screen lock
+/// detection (WTSRegisterSessionNotification), and discovering the
+/// active console session.
 
 // ─── WTS_CONNECTSTATE_CLASS — session state codes ────────────────
 pub enum WtsConnectState: u32 {

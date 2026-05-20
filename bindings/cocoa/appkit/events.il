@@ -1,5 +1,5 @@
-// Events + input — NSEvent + the NSEventType / NSEventModifierFlags
-// enums.
+/// Events + input — NSEvent + the NSEventType / NSEventModifierFlags
+/// enums.
 
 use foundation { NSObject, NSString, NSPoint, KeyCode }
 

@@ -1,8 +1,8 @@
-// `NSUserActivity` — Handoff / Spotlight indexing / Siri
-// suggestions integration. Create an activity describing what
-// the user is doing, fill in `userInfo` with the state needed
-// to resume it elsewhere, and `becomeCurrent` so the system can
-// surface it on the user's other devices / inside Spotlight.
+/// `NSUserActivity` — Handoff / Spotlight indexing / Siri
+/// suggestions integration. Create an activity describing what
+/// the user is doing, fill in `userInfo` with the state needed
+/// to resume it elsewhere, and `becomeCurrent` so the system can
+/// surface it on the user's other devices / inside Spotlight.
 
 use core { NSObject, NSString, NSArray, NSDictionary }
 use network { NSURL }

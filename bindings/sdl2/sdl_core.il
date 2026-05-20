@@ -1,10 +1,10 @@
-// SDL2 core: subsystem init / quit, error reporting, hints, log,
-// version, platform. Mirrors the headers SDL_init.h, SDL_error.h,
-// SDL_hints.h, SDL_log.h, SDL_version.h, SDL_platform.h.
-//
-// Variadic SDL functions (SDL_SetError, the SDL_Log* family) are
-// wrapped with single-string entry points — pass a pre-built
-// message; printf-style formatting happens in ilang code.
+/// SDL2 core: subsystem init / quit, error reporting, hints, log,
+/// version, platform. Mirrors the headers SDL_init.h, SDL_error.h,
+/// SDL_hints.h, SDL_log.h, SDL_version.h, SDL_platform.h.
+///
+/// Variadic SDL functions (SDL_SetError, the SDL_Log* family) are
+/// wrapped with single-string entry points — pass a pre-built
+/// message; printf-style formatting happens in ilang code.
 
 // ─── SDL_INIT_* flags ─────────────────────────────────────────────
 

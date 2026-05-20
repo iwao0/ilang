@@ -1,5 +1,5 @@
-// msimg32.dll — Microsoft Image Helpers: alpha blending and gradient fills.
-// These functions were split out of gdi32.dll starting with Windows 98 / 2000.
+/// msimg32.dll — Microsoft Image Helpers: alpha blending and gradient fills.
+/// These functions were split out of gdi32.dll starting with Windows 98 / 2000.
 
 // ─── GradientFill dwMode values ──────────────────────────────────
 pub enum GradientFillMode: u32 {

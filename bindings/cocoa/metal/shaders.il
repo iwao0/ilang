@@ -1,6 +1,6 @@
-// MTLLibrary + MTLFunction — shader source / compiled metallib
-// containers. Pipelines pull vertex / fragment / compute
-// functions out of these.
+/// MTLLibrary + MTLFunction — shader source / compiled metallib
+/// containers. Pipelines pull vertex / fragment / compute
+/// functions out of these.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

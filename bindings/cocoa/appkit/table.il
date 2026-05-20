@@ -1,6 +1,6 @@
-// NSTableView + NSOutlineView family — multi-column / tree
-// list views plus their delegate / data-source protocols and
-// NSTableColumn.
+/// NSTableView + NSOutlineView family — multi-column / tree
+/// list views plus their delegate / data-source protocols and
+/// NSTableColumn.
 
 use foundation { NSObject, NSString, NSArray, NSIndexSet, NSRect,
                  NSSize, NSNotification }

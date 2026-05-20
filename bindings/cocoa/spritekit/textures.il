@@ -1,5 +1,5 @@
-// SKTexture / SKMutableTexture / SKTextureAtlas — GPU image
-// surfaces used by sprite / shape / particle nodes.
+/// SKTexture / SKMutableTexture / SKTextureAtlas — GPU image
+/// surfaces used by sprite / shape / particle nodes.
 
 use foundation { NSObject, NSString, NSArray, NSData, NSSize,
                  NSRect, NSURL, nsstr }

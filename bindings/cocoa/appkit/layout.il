@@ -1,7 +1,7 @@
-// Layout containers — NSStackView / NSScrollView / NSSplitView /
-// NSGridView. The enums (`NSUserInterfaceLayoutOrientation` /
-// `NSBorderType` / `NSBoxType`) live here so callers only have to
-// import the layout module.
+/// Layout containers — NSStackView / NSScrollView / NSSplitView /
+/// NSGridView. The enums (`NSUserInterfaceLayoutOrientation` /
+/// `NSBorderType` / `NSBoxType`) live here so callers only have to
+/// import the layout module.
 
 use foundation { NSObject, NSArray, NSSize, NSRect, makeRect }
 use core { NSView }

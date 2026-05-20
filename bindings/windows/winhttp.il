@@ -1,20 +1,20 @@
-// winhttp.dll — modern HTTP/HTTPS client.
-//
-// Unlike WinINet, WinHTTP is service-friendly (no user-interaction,
-// no per-user state), supports modern TLS, and is the recommended
-// API for server-side and unattended HTTP clients.
-//
-// Usage:
-//   let h = WinHttpOpen(L"agent", AccessType.defaultProxy as u32, NULL, NULL, 0)
-//   let c = WinHttpConnect(h, L"host.example", 443, 0)
-//   let r = WinHttpOpenRequest(c, L"GET", L"/path", NULL, NULL, NULL,
-//                              OpenRequestFlags.secure as u32)
-//   WinHttpSendRequest(r, NULL, 0, NULL, 0, 0, 0)
-//   WinHttpReceiveResponse(r, NULL)
-//   WinHttpReadData(r, buf, len, &read)
-//   WinHttpCloseHandle(r); WinHttpCloseHandle(c); WinHttpCloseHandle(h)
-//
-// All strings are UTF-16 (`*const u16`) — WinHTTP has no ANSI variants.
+/// winhttp.dll — modern HTTP/HTTPS client.
+///
+/// Unlike WinINet, WinHTTP is service-friendly (no user-interaction,
+/// no per-user state), supports modern TLS, and is the recommended
+/// API for server-side and unattended HTTP clients.
+///
+/// Usage:
+///   let h = WinHttpOpen(L"agent", AccessType.defaultProxy as u32, NULL, NULL, 0)
+///   let c = WinHttpConnect(h, L"host.example", 443, 0)
+///   let r = WinHttpOpenRequest(c, L"GET", L"/path", NULL, NULL, NULL,
+///                              OpenRequestFlags.secure as u32)
+///   WinHttpSendRequest(r, NULL, 0, NULL, 0, 0, 0)
+///   WinHttpReceiveResponse(r, NULL)
+///   WinHttpReadData(r, buf, len, &read)
+///   WinHttpCloseHandle(r); WinHttpCloseHandle(c); WinHttpCloseHandle(h)
+///
+/// All strings are UTF-16 (`*const u16`) — WinHTTP has no ANSI variants.
 
 // ─── WinHttpOpen access type (WINHTTP_ACCESS_TYPE_*) ─────────────
 pub enum WinHttpAccessType: u32 {

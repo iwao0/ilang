@@ -1,4 +1,4 @@
-// NSDate — construct from epoch, arithmetic, comparison.
+/// NSDate — construct from epoch, arithmetic, comparison.
 
 use test
 use foundation { NSDate }

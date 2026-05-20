@@ -1,4 +1,4 @@
-// NSTimeZone — construct + read offset / name / abbreviation.
+/// NSTimeZone — construct + read offset / name / abbreviation.
 
 use test
 use foundation { NSTimeZone, NSDate, nsstr, ilstr }

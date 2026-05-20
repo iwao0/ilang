@@ -1,4 +1,4 @@
-// rpcrt4 — UUID generation, comparison, string round-trip.
+/// rpcrt4 — UUID generation, comparison, string round-trip.
 
 use test
 use windows {

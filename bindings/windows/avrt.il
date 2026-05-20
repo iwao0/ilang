@@ -1,8 +1,8 @@
-// avrt.dll — Multimedia Class Scheduler Service (MMCSS).
-//
-// Used by audio / video apps to ask Windows for guaranteed CPU
-// scheduling time. The classic example is WASAPI exclusive-mode
-// audio playback at low latency.
+/// avrt.dll — Multimedia Class Scheduler Service (MMCSS).
+///
+/// Used by audio / video apps to ask Windows for guaranteed CPU
+/// scheduling time. The classic example is WASAPI exclusive-mode
+/// audio playback at low latency.
 
 // ─── AvSetMmThreadPriority levels (AVRT_PRIORITY_*) ──────────────
 pub enum AvrtPriority: i32 {

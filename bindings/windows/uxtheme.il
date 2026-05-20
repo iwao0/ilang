@@ -1,9 +1,9 @@
-// uxtheme.dll — Windows Visual Styles ("themes"): draw themed
-// controls (buttons, scrollbars, edits, etc.) using the active
-// system theme. Use to make custom-drawn controls match the OS look.
-//
-// Common parts/states are listed in vsstyle.h; pass them as ints
-// to DrawThemeBackground / GetThemeColor.
+/// uxtheme.dll — Windows Visual Styles ("themes"): draw themed
+/// controls (buttons, scrollbars, edits, etc.) using the active
+/// system theme. Use to make custom-drawn controls match the OS look.
+///
+/// Common parts/states are listed in vsstyle.h; pass them as ints
+/// to DrawThemeBackground / GetThemeColor.
 
 // ─── Theme parts: BUTTON class (BP_*) ────────────────────────────
 pub enum ButtonPart: i32 {

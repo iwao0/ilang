@@ -1,10 +1,10 @@
-// kernel32 — call functions dynamically via GetProcAddress.
-//
-// Demonstrates the *void → fn(...) cast that lets dlsym /
-// GetProcAddress results be invoked through their declared signature.
-// The MIR lowering tags the resulting value as `MirTy::RawFn` so the
-// call site uses `Inst::CallRawIndirect` (no closure dispatch, no env
-// arg) instead of the normal closure path.
+/// kernel32 — call functions dynamically via GetProcAddress.
+///
+/// Demonstrates the *void → fn(...) cast that lets dlsym /
+/// GetProcAddress results be invoked through their declared signature.
+/// The MIR lowering tags the resulting value as `MirTy::RawFn` so the
+/// call site uses `Inst::CallRawIndirect` (no closure dispatch, no env
+/// arg) instead of the normal closure path.
 
 use test
 use windows {

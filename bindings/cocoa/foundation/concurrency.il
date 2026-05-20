@@ -1,13 +1,13 @@
-// Threading and synchronisation bindings — NSThread,
-// the lock family (NSLock / NSRecursiveLock / NSCondition /
-// NSConditionLock), and the NSOperation tree.
-//
-// Most of these classes accept a `void(^)(void)` callback (thread
-// body, completion block, block-operation body) — the @objc slot
-// is typed `ObjCBlock<fn()>` so the public wrappers build it via
-// `new ObjCBlock(body)`. NSThread also has a
-// `+detachNewThreadSelector:toTarget:withObject:` form for
-// selector-driven dispatch.
+/// Threading and synchronisation bindings — NSThread,
+/// the lock family (NSLock / NSRecursiveLock / NSCondition /
+/// NSConditionLock), and the NSOperation tree.
+///
+/// Most of these classes accept a `void(^)(void)` callback (thread
+/// body, completion block, block-operation body) — the @objc slot
+/// is typed `ObjCBlock<fn()>` so the public wrappers build it via
+/// `new ObjCBlock(body)`. NSThread also has a
+/// `+detachNewThreadSelector:toTarget:withObject:` form for
+/// selector-driven dispatch.
 
 use core { NSObject, NSString, NSArray }
 use datetime { NSDate }

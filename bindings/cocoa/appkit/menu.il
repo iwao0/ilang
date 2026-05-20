@@ -1,4 +1,4 @@
-// Menus — NSMenu / NSMenuItem + NSMenuDelegate.
+/// Menus — NSMenu / NSMenuItem + NSMenuDelegate.
 
 use foundation { NSObject, NSString, NSArray }
 

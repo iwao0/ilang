@@ -1,4 +1,4 @@
-// kernel32 — basic process / module / time queries.
+/// kernel32 — basic process / module / time queries.
 
 use test
 use windows {

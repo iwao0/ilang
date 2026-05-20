@@ -1,6 +1,6 @@
-// NSNotificationCenter — register a block observer, post
-// synchronously (NotificationCenter delivers on the posting
-// thread when queue is nil), assert side effects.
+/// NSNotificationCenter — register a block observer, post
+/// synchronously (NotificationCenter delivers on the posting
+/// thread when queue is nil), assert side effects.
 
 use test
 use foundation { NSNotificationCenter, NSNumber, NSObject, nil,

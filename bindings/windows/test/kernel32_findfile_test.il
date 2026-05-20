@@ -1,4 +1,4 @@
-// kernel32 — file enumeration over the Windows system directory.
+/// kernel32 — file enumeration over the Windows system directory.
 
 use test
 use windows {

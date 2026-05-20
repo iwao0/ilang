@@ -1,5 +1,5 @@
-// NSURLRequest / NSMutableURLRequest — construct + headers +
-// body, no actual network traffic.
+/// NSURLRequest / NSMutableURLRequest — construct + headers +
+/// body, no actual network traffic.
 
 use test
 use foundation { NSURL, NSURLRequest, NSMutableURLRequest, NSData,

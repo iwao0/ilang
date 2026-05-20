@@ -1,5 +1,5 @@
-// advapi32.dll — Advanced API services: registry, Windows services,
-// security tokens, event logging, and LSA policy.
+/// advapi32.dll — Advanced API services: registry, Windows services,
+/// security tokens, event logging, and LSA policy.
 
 // ─── Predefined registry root keys ───────────────────────────────
 // Use as `0x80000000 as i64 as *HKEY` etc.

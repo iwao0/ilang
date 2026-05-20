@@ -1,9 +1,9 @@
-// dxgi.dll — DirectX Graphics Infrastructure.
-//
-// DXGI is the COM-based factory and swap-chain layer underneath
-// D3D10/11/12 and many other GPU APIs.  Most non-trivial usage
-// requires walking COM vtables; the bindings here cover the
-// flat C entry points plus the most common structs.
+/// dxgi.dll — DirectX Graphics Infrastructure.
+///
+/// DXGI is the COM-based factory and swap-chain layer underneath
+/// D3D10/11/12 and many other GPU APIs.  Most non-trivial usage
+/// requires walking COM vtables; the bindings here cover the
+/// flat C entry points plus the most common structs.
 
 // ─── DXGI_FORMAT values (selected) ───────────────────────────────
 pub enum DxgiFormat: u32 {

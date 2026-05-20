@@ -1,15 +1,15 @@
-// SDL2_ttf — TrueType / OpenType font loading and text rendering.
-// Separate library (`libSDL2_ttf`) — must be installed alongside
-// SDL2. Initialise with `sdl.ttfInit()` after `sdl.init(...)`,
-// tear down with `sdl.ttfQuit()` before `sdl.quit()`. The `ttf`
-// prefix on the lifecycle / error fns avoids collisions with the
-// `sdl_core` `init` / `quit` / `getError` of the same name.
-//
-// Render fns produce `*SDL_Surface` (CPU-side bitmaps). Convert
-// to a GPU `Texture` for fast on-screen drawing via
-// `Texture.fromSurface(renderer, surfaceHandle)`, or wrap the
-// raw handle in `sdl_surface.Surface.fromHandle(...)` for
-// ARC-managed lifetime.
+/// SDL2_ttf — TrueType / OpenType font loading and text rendering.
+/// Separate library (`libSDL2_ttf`) — must be installed alongside
+/// SDL2. Initialise with `sdl.ttfInit()` after `sdl.init(...)`,
+/// tear down with `sdl.ttfQuit()` before `sdl.quit()`. The `ttf`
+/// prefix on the lifecycle / error fns avoids collisions with the
+/// `sdl_core` `init` / `quit` / `getError` of the same name.
+///
+/// Render fns produce `*SDL_Surface` (CPU-side bitmaps). Convert
+/// to a GPU `Texture` for fast on-screen drawing via
+/// `Texture.fromSurface(renderer, surfaceHandle)`, or wrap the
+/// raw handle in `sdl_surface.Surface.fromHandle(...)` for
+/// ARC-managed lifetime.
 
 use sdl_core { Color, Size }
 

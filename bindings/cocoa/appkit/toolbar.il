@@ -1,5 +1,5 @@
-// NSToolbar / NSToolbarItem / NSTabView / NSTabViewItem /
-// NSStatusBar / NSStatusItem — UI chrome around the main content.
+/// NSToolbar / NSToolbarItem / NSTabView / NSTabViewItem /
+/// NSStatusBar / NSStatusItem — UI chrome around the main content.
 
 use foundation { NSObject, NSString, NSArray, NSNotification, NSRect }
 use core { NSView }

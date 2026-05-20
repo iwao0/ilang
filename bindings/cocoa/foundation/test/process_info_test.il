@@ -1,4 +1,4 @@
-// NSProcessInfo — read-only properties on the running process.
+/// NSProcessInfo — read-only properties on the running process.
 
 use test
 use foundation { NSProcessInfo, ilstr }

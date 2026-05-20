@@ -1,5 +1,5 @@
-// Physics — SKPhysicsBody / SKPhysicsWorld / SKPhysicsContact /
-// SKPhysicsJoint* and the SKFieldNode region-of-influence node.
+/// Physics — SKPhysicsBody / SKPhysicsWorld / SKPhysicsContact /
+/// SKPhysicsJoint* and the SKFieldNode region-of-influence node.
 
 use foundation { NSObject, NSArray, NSPoint, NSSize, NSRect, NSVector }
 use node { SKNode }

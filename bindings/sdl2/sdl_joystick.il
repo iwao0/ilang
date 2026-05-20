@@ -1,8 +1,8 @@
-// SDL2 raw joystick API — for devices SDL doesn't recognise as a
-// game controller (steering wheels, flight sticks, custom HID
-// devices). Use `sdl_gamecontroller.il` instead for standard
-// xbox/ps/switch-style pads; this file is the lower-level layer.
-// Initialise SDL with `InitFlag.joystick` before use.
+/// SDL2 raw joystick API — for devices SDL doesn't recognise as a
+/// game controller (steering wheels, flight sticks, custom HID
+/// devices). Use `sdl_gamecontroller.il` instead for standard
+/// xbox/ps/switch-style pads; this file is the lower-level layer.
+/// Initialise SDL with `InitFlag.joystick` before use.
 
 /// `SDL_HAT_*` — D-pad / POV hat reading. Cardinal directions are
 /// powers of two so diagonals (`rightUp` / `leftDown` / etc.)

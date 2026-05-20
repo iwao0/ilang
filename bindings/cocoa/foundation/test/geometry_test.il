@@ -1,4 +1,4 @@
-// NSPoint / NSSize / NSRect / NSRange struct helpers + accessors.
+/// NSPoint / NSSize / NSRect / NSRange struct helpers + accessors.
 
 use test
 use foundation { makePoint, makeSize, makeRect, makeRange }

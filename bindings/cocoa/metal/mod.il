@@ -1,7 +1,7 @@
-// Metal bindings — folder umbrella. Mirror the foundation /
-// appkit / spritekit layout so a single `use metal { … }` keeps
-// reaching every Metal class regardless of which category file
-// it actually lives in.
+/// Metal bindings — folder umbrella. Mirror the foundation /
+/// appkit / spritekit layout so a single `use metal { … }` keeps
+/// reaching every Metal class regardless of which category file
+/// it actually lives in.
 
 pub use types.*
 pub use device.*

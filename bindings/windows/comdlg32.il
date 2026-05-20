@@ -1,10 +1,10 @@
-// comdlg32.dll — Common dialogs: file open/save, colour picker,
-// font chooser, and print setup.
-//
-// Every struct below must be filled, `lStructSize` set to the
-// declared size, and `hwndOwner` set before calling the dialog.
-// All functions return non-zero on OK, zero on Cancel / error;
-// call `CommDlgExtendedError()` to distinguish Cancel from error.
+/// comdlg32.dll — Common dialogs: file open/save, colour picker,
+/// font chooser, and print setup.
+///
+/// Every struct below must be filled, `lStructSize` set to the
+/// declared size, and `hwndOwner` set before calling the dialog.
+/// All functions return non-zero on OK, zero on Cancel / error;
+/// call `CommDlgExtendedError()` to distinguish Cancel from error.
 
 // ─── GetOpenFileNameA / GetSaveFileNameA flags (OFN_*) ───────────
 @flags

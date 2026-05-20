@@ -1,4 +1,4 @@
-// NSError — construct and read back domain / code / userInfo.
+/// NSError — construct and read back domain / code / userInfo.
 
 use test
 use foundation { NSError, NSMutableDictionary, NSObject, nsstr, ilstr }

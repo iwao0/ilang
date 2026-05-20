@@ -1,4 +1,4 @@
-// shlwapi — string search / convert helpers.
+/// shlwapi — string search / convert helpers.
 
 use test
 use windows {

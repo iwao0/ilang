@@ -1,6 +1,6 @@
-// GPU resources — MTLTexture / MTLBuffer / MTLHeap / MTLFence.
-// These are the data containers the encoders read from and write
-// to (samplers / depth-stencil state live in `pipeline.il`).
+/// GPU resources — MTLTexture / MTLBuffer / MTLHeap / MTLFence.
+/// These are the data containers the encoders read from and write
+/// to (samplers / depth-stencil state live in `pipeline.il`).
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

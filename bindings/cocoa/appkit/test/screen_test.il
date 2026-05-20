@@ -1,6 +1,6 @@
-// NSScreen — read-only screen geometry. Assumes the test
-// runs on a host with at least one display (Macs in headless
-// CI still have a virtual screen via WindowServer).
+/// NSScreen — read-only screen geometry. Assumes the test
+/// runs on a host with at least one display (Macs in headless
+/// CI still have a virtual screen via WindowServer).
 
 use test
 use appkit { NSScreen }

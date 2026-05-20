@@ -1,4 +1,4 @@
-// user32 — system metrics and DPI queries.
+/// user32 — system metrics and DPI queries.
 
 use test
 use windows {

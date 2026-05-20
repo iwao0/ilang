@@ -1,4 +1,4 @@
-// user32 — clipboard format registration and Open/Close round-trip.
+/// user32 — clipboard format registration and Open/Close round-trip.
 
 use test
 use windows {

@@ -1,6 +1,6 @@
-// NSCursor — static accessors return the standard system
-// cursor instances. We don't push / set them (would change
-// the active cursor for the test host).
+/// NSCursor — static accessors return the standard system
+/// cursor instances. We don't push / set them (would change
+/// the active cursor for the test host).
 
 use test
 use appkit { NSCursor, sharedApplication }

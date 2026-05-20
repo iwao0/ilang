@@ -1,17 +1,17 @@
-// opengl32.dll — OpenGL 1.1 base + WGL (Windows-GL bridge).
-//
-// Only GL 1.1 core functions are exported directly from opengl32.dll;
-// anything newer (GL 2.0+, ARB/EXT extensions) must be obtained at
-// runtime via `wglGetProcAddress` after a context is current.
-//
-// Typical setup:
-//   1. CreateWindowExA → HWND
-//   2. GetDC(hwnd) → HDC
-//   3. ChoosePixelFormat → SetPixelFormat on the HDC
-//   4. wglCreateContext(hdc) → HGLRC
-//   5. wglMakeCurrent(hdc, hglrc)
-//   6. draw, SwapBuffers(hdc) [from gdi32]
-//   7. wglMakeCurrent(NULL, NULL); wglDeleteContext(hglrc); ReleaseDC
+/// opengl32.dll — OpenGL 1.1 base + WGL (Windows-GL bridge).
+///
+/// Only GL 1.1 core functions are exported directly from opengl32.dll;
+/// anything newer (GL 2.0+, ARB/EXT extensions) must be obtained at
+/// runtime via `wglGetProcAddress` after a context is current.
+///
+/// Typical setup:
+///   1. CreateWindowExA → HWND
+///   2. GetDC(hwnd) → HDC
+///   3. ChoosePixelFormat → SetPixelFormat on the HDC
+///   4. wglCreateContext(hdc) → HGLRC
+///   5. wglMakeCurrent(hdc, hglrc)
+///   6. draw, SwapBuffers(hdc) [from gdi32]
+///   7. wglMakeCurrent(NULL, NULL); wglDeleteContext(hglrc); ReleaseDC
 
 // ─── PIXELFORMATDESCRIPTOR dwFlags ───────────────────────────────
 @flags

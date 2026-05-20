@@ -1,7 +1,7 @@
-// Controls — NSButton / NSTextField / NSSlider / NSStepper /
-// NSPopUpButton / NSComboBox / NSSegmentedControl /
-// NSProgressIndicator / NSDatePicker / NSBox plus
-// NSTextFieldDelegate / NSControlTextEditingDelegate.
+/// Controls — NSButton / NSTextField / NSSlider / NSStepper /
+/// NSPopUpButton / NSComboBox / NSSegmentedControl /
+/// NSProgressIndicator / NSDatePicker / NSBox plus
+/// NSTextFieldDelegate / NSControlTextEditingDelegate.
 
 use foundation { NSObject, NSString, NSArray, NSDate, NSRect, nsstr, makeRect }
 use core { NSView }

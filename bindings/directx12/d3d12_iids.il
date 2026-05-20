@@ -1,16 +1,16 @@
-// SDK-published GUIDs for D3D12 COM interfaces.
-//
-// Wraps the standard IIDs so user code never has to retype the
-// {189819f1-…} octets. Mirrors the C SDK convention of shipping
-// pre-defined `IID_*` symbols in `dxguid.lib`.
-//
-// IID layout helper:
-//   `xxxxxxxx-aaaa-bbbb-cccc-dddddddddddd`
-//   Data1   = 0xxxxxxxxx              (u32)
-//   Data2   = 0xaaaa                  (u16)
-//   Data3   = 0xbbbb                  (u16)
-//   Data4lo = little-endian u32 of the first 4 bytes of `cccc || dddd`
-//   Data4hi = little-endian u32 of the last 4 bytes
+/// SDK-published GUIDs for D3D12 COM interfaces.
+///
+/// Wraps the standard IIDs so user code never has to retype the
+/// {189819f1-…} octets. Mirrors the C SDK convention of shipping
+/// pre-defined `IID_*` symbols in `dxguid.lib`.
+///
+/// IID layout helper:
+///   `xxxxxxxx-aaaa-bbbb-cccc-dddddddddddd`
+///   Data1   = 0xxxxxxxxx              (u32)
+///   Data2   = 0xaaaa                  (u16)
+///   Data3   = 0xbbbb                  (u16)
+///   Data4lo = little-endian u32 of the first 4 bytes of `cccc || dddd`
+///   Data4hi = little-endian u32 of the last 4 bytes
 
 use d3d12 { GUID }
 

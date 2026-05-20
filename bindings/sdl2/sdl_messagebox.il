@@ -1,9 +1,9 @@
-// SDL2 message-box dialogs. Mirrors SDL_messagebox.h. The simple
-// form (`showSimpleMessageBox`) covers 90 % of real-world uses
-// (one-shot info / warning / error popups). The richer
-// `SDL_ShowMessageBox` is exposed raw for callers that need
-// custom buttons / colour schemes — building the
-// `SDL_MessageBoxData` structure is fiddly so we don't wrap it.
+/// SDL2 message-box dialogs. Mirrors SDL_messagebox.h. The simple
+/// form (`showSimpleMessageBox`) covers 90 % of real-world uses
+/// (one-shot info / warning / error popups). The richer
+/// `SDL_ShowMessageBox` is exposed raw for callers that need
+/// custom buttons / colour schemes — building the
+/// `SDL_MessageBoxData` structure is fiddly so we don't wrap it.
 
 use sdl_window { Window }
 

@@ -1,4 +1,4 @@
-// dwmapi — composition status and window attribute query.
+/// dwmapi — composition status and window attribute query.
 
 use test
 use windows {

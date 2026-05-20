@@ -1,4 +1,4 @@
-// crypt32 — Base64 / hex string encoding round-trips.
+/// crypt32 — Base64 / hex string encoding round-trips.
 
 use test
 use windows {

@@ -1,4 +1,4 @@
-// psapi — process / module enumeration.
+/// psapi — process / module enumeration.
 
 use test
 use windows {

@@ -1,13 +1,13 @@
-// dinput8.dll — DirectInput 8.
-//
-// Legacy controller/keyboard/mouse input API.  For modern code on
-// Xbox-style gamepads, prefer XInput (xinput1_4.il).  DirectInput
-// is still useful for non-XInput devices (flight sticks, racing
-// wheels, custom HID controllers).
-//
-// All real work is done through COM interfaces (IDirectInput8,
-// IDirectInputDevice8). The flat function `DirectInput8Create`
-// returns an IDirectInput8 interface pointer to bootstrap.
+/// dinput8.dll — DirectInput 8.
+///
+/// Legacy controller/keyboard/mouse input API.  For modern code on
+/// Xbox-style gamepads, prefer XInput (xinput1_4.il).  DirectInput
+/// is still useful for non-XInput devices (flight sticks, racing
+/// wheels, custom HID controllers).
+///
+/// All real work is done through COM interfaces (IDirectInput8,
+/// IDirectInputDevice8). The flat function `DirectInput8Create`
+/// returns an IDirectInput8 interface pointer to bootstrap.
 
 // ─── DI_ HRESULT codes (selected) ────────────────────────────────
 pub enum DiResult: i32 {

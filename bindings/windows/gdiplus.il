@@ -1,16 +1,16 @@
-// gdiplus.dll — GDI+ flat C API.
-//
-// Higher-level than GDI: alpha-blended drawing, image codecs
-// (PNG/JPG/GIF/TIFF/BMP), gradient brushes, anti-aliased paths.
-//
-// Usage:
-//   let mut tok: u64 = 0
-//   let mut input = GdiplusStartupInput { GdiplusVersion: 1, ... }
-//   GdiplusStartup(&tok, &input, 0 as *void)
-//   ...
-//   GdiplusShutdown(tok)
-//
-// All `Gdip*` functions return a GpStatus (i32). 0 = Ok.
+/// gdiplus.dll — GDI+ flat C API.
+///
+/// Higher-level than GDI: alpha-blended drawing, image codecs
+/// (PNG/JPG/GIF/TIFF/BMP), gradient brushes, anti-aliased paths.
+///
+/// Usage:
+///   let mut tok: u64 = 0
+///   let mut input = GdiplusStartupInput { GdiplusVersion: 1, ... }
+///   GdiplusStartup(&tok, &input, 0 as *void)
+///   ...
+///   GdiplusShutdown(tok)
+///
+/// All `Gdip*` functions return a GpStatus (i32). 0 = Ok.
 
 // ─── GpStatus return codes ───────────────────────────────────────
 pub enum GpStatus: i32 {

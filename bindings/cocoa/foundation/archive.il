@@ -1,14 +1,14 @@
-// Serialization / archiving bindings — NSCoder (abstract base
-// for read / write), NSKeyedArchiver / NSKeyedUnarchiver
-// (concrete plist-based encoder pair). Used by Cocoa for app
-// state restoration, NSDocument autosave, and any time you need
-// to ship an object graph through an `NSData`.
-//
-// Secure coding (`requiresSecureCoding`) is on by default — the
-// `unarchivedObjectOfClass:fromData:error:` family is the
-// recommended one-shot read path; the older
-// `unarchiveObjectWithData:` calls into the insecure path and is
-// intentionally not bound.
+/// Serialization / archiving bindings — NSCoder (abstract base
+/// for read / write), NSKeyedArchiver / NSKeyedUnarchiver
+/// (concrete plist-based encoder pair). Used by Cocoa for app
+/// state restoration, NSDocument autosave, and any time you need
+/// to ship an object graph through an `NSData`.
+///
+/// Secure coding (`requiresSecureCoding`) is on by default — the
+/// `unarchivedObjectOfClass:fromData:error:` family is the
+/// recommended one-shot read path; the older
+/// `unarchiveObjectWithData:` calls into the insecure path and is
+/// intentionally not bound.
 
 use core { NSObject, NSString, NSData, NSError }
 

@@ -1,4 +1,4 @@
-// NSMenu / NSMenuItem — construct, populate, inspect.
+/// NSMenu / NSMenuItem — construct, populate, inspect.
 
 use test
 use appkit { NSMenu, NSMenuItem }

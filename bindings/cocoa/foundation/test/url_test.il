@@ -1,4 +1,4 @@
-// NSURL — construct, inspect components.
+/// NSURL — construct, inspect components.
 
 use test
 use foundation { NSURL, nsstr, ilstr }

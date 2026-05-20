@@ -1,10 +1,10 @@
-// pdh.dll — Performance Data Helper.
-//
-// Higher-level wrapper around the raw registry-based perf counters.
-// Pattern: PdhOpenQuery → PdhAddCounterA → PdhCollectQueryData (×2
-// for two samples to compute a rate) → PdhGetFormattedCounterValue.
-//
-// All functions return PDH_STATUS (i32); 0 = ERROR_SUCCESS.
+/// pdh.dll — Performance Data Helper.
+///
+/// Higher-level wrapper around the raw registry-based perf counters.
+/// Pattern: PdhOpenQuery → PdhAddCounterA → PdhCollectQueryData (×2
+/// for two samples to compute a rate) → PdhGetFormattedCounterValue.
+///
+/// All functions return PDH_STATUS (i32); 0 = ERROR_SUCCESS.
 
 // ─── PDH status codes (selected) ─────────────────────────────────
 pub enum PdhStatus: i32 {

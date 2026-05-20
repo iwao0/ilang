@@ -1,4 +1,4 @@
-// shlwapi — path inspection / decomposition.
+/// shlwapi — path inspection / decomposition.
 
 use test
 use windows {

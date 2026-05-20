@@ -1,7 +1,7 @@
-// SDL2 filesystem helpers — `SDL_GetBasePath` and `SDL_GetPrefPath`
-// resolve standard install / per-user save directories. Both return
-// SDL-malloc'd strings; the wrappers `SDL_free` the originals so
-// callers see plain ilang strings.
+/// SDL2 filesystem helpers — `SDL_GetBasePath` and `SDL_GetPrefPath`
+/// resolve standard install / per-user save directories. Both return
+/// SDL-malloc'd strings; the wrappers `SDL_free` the originals so
+/// callers see plain ilang strings.
 
 use sdl_core { SDL_free }
 

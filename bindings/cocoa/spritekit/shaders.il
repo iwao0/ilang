@@ -1,6 +1,6 @@
-// Custom-shader pipeline — SKShader (GLSL fragment shader source),
-// SKUniform (per-shader uniforms), SKAttribute (per-node attributes
-// reachable by name from inside the shader), SKAttributeValue.
+/// Custom-shader pipeline — SKShader (GLSL fragment shader source),
+/// SKUniform (per-shader uniforms), SKAttribute (per-node attributes
+/// reachable by name from inside the shader), SKAttributeValue.
 
 use foundation { NSObject, NSString, NSArray, NSVector }
 use textures { SKTexture }

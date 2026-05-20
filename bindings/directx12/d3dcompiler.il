@@ -1,14 +1,14 @@
-// d3dcompiler_47.dll — HLSL shader compilation.
-//
-// The runtime DLL is `d3dcompiler_47.dll` (the latest stable version);
-// the import library `d3dcompiler.lib` in the Windows 10 SDK forwards
-// to the same DLL.  At runtime the DLL must be present — it's part
-// of standard Windows 10 / 11 but for redist scenarios you may need
-// to ship it alongside your binary.
-//
-// Most apps shouldn't compile shaders at runtime in production;
-// pre-compile to DXIL/DXBC via dxc.exe / fxc.exe at build time
-// and use D3DReadFileToBlob to load the .cso instead.
+/// d3dcompiler_47.dll — HLSL shader compilation.
+///
+/// The runtime DLL is `d3dcompiler_47.dll` (the latest stable version);
+/// the import library `d3dcompiler.lib` in the Windows 10 SDK forwards
+/// to the same DLL.  At runtime the DLL must be present — it's part
+/// of standard Windows 10 / 11 but for redist scenarios you may need
+/// to ship it alongside your binary.
+///
+/// Most apps shouldn't compile shaders at runtime in production;
+/// pre-compile to DXIL/DXBC via dxc.exe / fxc.exe at build time
+/// and use D3DReadFileToBlob to load the .cso instead.
 
 // ─── D3DCompile flags1 (D3DCOMPILE_*) ────────────────────────────
 @flags

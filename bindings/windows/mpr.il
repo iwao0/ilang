@@ -1,8 +1,8 @@
-// mpr.dll — Multiple Provider Router: Windows networking facade
-// over SMB / NetWare / WebDAV / generic network providers.
-//
-// Used to map / unmap network drives, list available shares, and
-// resolve UNC paths to credentials.
+/// mpr.dll — Multiple Provider Router: Windows networking facade
+/// over SMB / NetWare / WebDAV / generic network providers.
+///
+/// Used to map / unmap network drives, list available shares, and
+/// resolve UNC paths to credentials.
 
 // ─── NETRESOURCE dwScope values (RESOURCE_*) ─────────────────────
 pub enum WNetScope: u32 {

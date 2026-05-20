@@ -1,6 +1,6 @@
-// NSDateFormatter — fixed-locale / fixed-timezone format + parse
-// round-trip. Pins en_US_POSIX + UTC so the test isn't affected
-// by the host's region settings.
+/// NSDateFormatter — fixed-locale / fixed-timezone format + parse
+/// round-trip. Pins en_US_POSIX + UTC so the test isn't affected
+/// by the host's region settings.
 
 use test
 use foundation { NSDate, NSDateFormatter, NSTimeZone, NSLocale, nsstr, ilstr }

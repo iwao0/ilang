@@ -1,11 +1,11 @@
-// IO and stream bindings — NSFileHandle, NSPipe, the NSStream
-// tree (input / output), and NSCache.
-//
-// NSStream's `read:maxLength:` / `write:maxLength:` selectors
-// traffic in `uint8_t *` buffers. The raw selectors stay
-// module-private and the public wrappers expose
-// `u8[]` (write side, copies the bytes in) or
-// `bytesFromBuffer` round-trips (read side).
+/// IO and stream bindings — NSFileHandle, NSPipe, the NSStream
+/// tree (input / output), and NSCache.
+///
+/// NSStream's `read:maxLength:` / `write:maxLength:` selectors
+/// traffic in `uint8_t *` buffers. The raw selectors stay
+/// module-private and the public wrappers expose
+/// `u8[]` (write side, copies the bytes in) or
+/// `bytesFromBuffer` round-trips (read side).
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSMutableData, NSError }
 use collections { NSEnumerator }

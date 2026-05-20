@@ -1,6 +1,6 @@
-// setupapi.dll — Device installation, INF parsing, device-class
-// enumeration.  Used to list installed devices, query their
-// hardware IDs, drivers, and registry properties.
+/// setupapi.dll — Device installation, INF parsing, device-class
+/// enumeration.  Used to list installed devices, query their
+/// hardware IDs, drivers, and registry properties.
 
 // ─── Class GUIDs are 16-byte GUID structs; use ole32's GUID type. ─
 

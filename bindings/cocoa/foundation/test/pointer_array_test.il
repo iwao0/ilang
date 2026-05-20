@@ -1,4 +1,4 @@
-// NSPointerArray — strong-object variant + add/remove/replace.
+/// NSPointerArray — strong-object variant + add/remove/replace.
 
 use test
 use foundation { NSPointerArray, NSString, nsstr, ilstr }

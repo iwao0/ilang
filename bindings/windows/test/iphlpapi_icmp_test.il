@@ -1,4 +1,4 @@
-// iphlpapi — ICMP echo (ping) to the localhost address.
+/// iphlpapi — ICMP echo (ping) to the localhost address.
 
 use test
 use windows {

@@ -1,5 +1,5 @@
-// shell32.dll — Windows Shell: ShellExecute, folder paths, file
-// operations, drag-and-drop, and the system tray notification area.
+/// shell32.dll — Windows Shell: ShellExecute, folder paths, file
+/// operations, drag-and-drop, and the system tray notification area.
 
 // ─── ShellExecute return / error codes ───────────────────────────
 // Return value of ShellExecuteA is HINSTANCE cast to intptr.

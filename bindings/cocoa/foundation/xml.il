@@ -1,11 +1,11 @@
-// XML bindings — NSXMLParser (event-based SAX). The
-// tree-walking siblings NSXMLDocument / NSXMLNode / NSXMLElement
-// are macOS-only (not on iOS) and rarely the right tool for new
-// code, so they're intentionally not bound here.
-//
-// The delegate callbacks live on the `NSXMLParserDelegate` ObjC
-// protocol; implement that interface and set it as the parser's
-// delegate before calling `parse()`.
+/// XML bindings — NSXMLParser (event-based SAX). The
+/// tree-walking siblings NSXMLDocument / NSXMLNode / NSXMLElement
+/// are macOS-only (not on iOS) and rarely the right tool for new
+/// code, so they're intentionally not bound here.
+///
+/// The delegate callbacks live on the `NSXMLParserDelegate` ObjC
+/// protocol; implement that interface and set it as the parser's
+/// delegate before calling `parse()`.
 
 use core { NSObject, NSString, NSData, NSError, NSDictionary, NSArray }
 use network { NSURL }

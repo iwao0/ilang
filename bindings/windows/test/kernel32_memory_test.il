@@ -1,4 +1,4 @@
-// kernel32 — heap allocation lifecycle.
+/// kernel32 — heap allocation lifecycle.
 
 use test
 use windows {

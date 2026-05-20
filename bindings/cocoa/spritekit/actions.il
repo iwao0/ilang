@@ -1,7 +1,7 @@
-// SKAction + SKTransition — animation framework. SKActions are
-// recipes for changing node properties over time;
-// `node.runAction(...)` enqueues them. SKTransition is the
-// scene-to-scene crossfade / push / reveal.
+/// SKAction + SKTransition — animation framework. SKActions are
+/// recipes for changing node properties over time;
+/// `node.runAction(...)` enqueues them. SKTransition is the
+/// scene-to-scene crossfade / push / reveal.
 
 use foundation { NSObject, NSString, NSArray, NSPoint, NSSize,
                  NSVector, nsstr }

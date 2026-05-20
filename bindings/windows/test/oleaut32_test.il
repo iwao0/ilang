@@ -1,4 +1,4 @@
-// oleaut32 — BSTR allocation, VARIANT init/clear.
+/// oleaut32 — BSTR allocation, VARIANT init/clear.
 
 use test
 use windows {

@@ -1,7 +1,7 @@
-// MTLRenderCommandEncoder / MTLComputeCommandEncoder /
-// MTLBlitCommandEncoder — the per-pass workload recorders, plus
-// `MTLArgumentEncoder` for filling argument buffers. Obtained
-// from a command buffer; closed via `endEncoding()`.
+/// MTLRenderCommandEncoder / MTLComputeCommandEncoder /
+/// MTLBlitCommandEncoder — the per-pass workload recorders, plus
+/// `MTLArgumentEncoder` for filling argument buffers. Obtained
+/// from a command buffer; closed via `endEncoding()`.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

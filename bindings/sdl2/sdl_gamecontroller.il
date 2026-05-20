@@ -1,7 +1,7 @@
-// SDL2 game-controller bindings: opens the first attached
-// controller, exposes axis + button polling. Initialise SDL with
-// `InitFlag.gameController` (and ideally `InitFlag.joystick`) before
-// instantiating `GameController`.
+/// SDL2 game-controller bindings: opens the first attached
+/// controller, exposes axis + button polling. Initialise SDL with
+/// `InitFlag.gameController` (and ideally `InitFlag.joystick`) before
+/// instantiating `GameController`.
 
 use sdl_core { SDL_free }
 use sdl_joystick { Joystick }

@@ -1,4 +1,4 @@
-// uxtheme — visual styles availability and theme open/close.
+/// uxtheme — visual styles availability and theme open/close.
 
 use test
 use windows {

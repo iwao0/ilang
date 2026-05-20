@@ -1,7 +1,7 @@
-// NSBezierPath / NSGraphicsContext / NSAffineTransform — custom
-// drawing primitives. Used inside NSView subclass
-// `drawRect:` overrides for shapes the standard controls
-// don't cover.
+/// NSBezierPath / NSGraphicsContext / NSAffineTransform — custom
+/// drawing primitives. Used inside NSView subclass
+/// `drawRect:` overrides for shapes the standard controls
+/// don't cover.
 
 use foundation { NSObject, NSPoint, NSSize, NSRect, NSArray }
 

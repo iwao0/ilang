@@ -1,9 +1,9 @@
-// kernel32.dll — core OS services: processes, threads, files,
-// memory, synchronisation, timing, console, and DLL loading.
-//
-// Notes:
-//   INVALID_HANDLE_VALUE  = `0xFFFFFFFFFFFFFFFF as *HANDLE`
-//   INFINITE (no timeout) = `0xFFFFFFFF` as u32 for WaitForSingleObject
+/// kernel32.dll — core OS services: processes, threads, files,
+/// memory, synchronisation, timing, console, and DLL loading.
+///
+/// Notes:
+///   INVALID_HANDLE_VALUE  = `0xFFFFFFFFFFFFFFFF as *HANDLE`
+///   INFINITE (no timeout) = `0xFFFFFFFF` as u32 for WaitForSingleObject
 
 // ─── Generic-access rights (GENERIC_*) ───────────────────────
 @flags

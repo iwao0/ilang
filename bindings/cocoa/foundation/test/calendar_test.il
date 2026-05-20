@@ -1,4 +1,4 @@
-// NSCalendar / NSDateComponents — build a date, read fields back.
+/// NSCalendar / NSDateComponents — build a date, read fields back.
 
 use test
 use foundation { NSCalendar, NSDateComponents, NSTimeZone, NSDate,

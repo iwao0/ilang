@@ -1,8 +1,8 @@
-// AppKit bindings — umbrella module. Flattens the sibling
-// category files into the `appkit` namespace so callers can
-// `use appkit { NSWindow, NSButton, ... }` (or reach through
-// the umbrella `cocoa.X`) without remembering which file each
-// type lives in.
+/// AppKit bindings — umbrella module. Flattens the sibling
+/// category files into the `appkit` namespace so callers can
+/// `use appkit { NSWindow, NSButton, ... }` (or reach through
+/// the umbrella `cocoa.X`) without remembering which file each
+/// type lives in.
 
 pub use core.*
 pub use controls.*

@@ -1,79 +1,79 @@
-// Metal binding — full enough to drive an end-to-end render or
-// compute pipeline from ilang code: device → queue → command
-// buffer → encoder, plus the resource types each encoder kind
-// reaches for. Not part of the `cocoa` umbrella: apps that don't
-// render via Metal shouldn't be forced to dlopen
-// `Metal.framework` at startup.
-//
-// MTLDevice / MTLCommandQueue / MTLCommandBuffer /
-// MTLTexture / MTLBuffer / MTLLibrary / MTLFunction /
-// MTLSamplerState / MTLDepthStencilState /
-// MTL{Render,Compute,Blit}CommandEncoder and their pipeline-state
-// siblings are Apple-side protocols, not classes. The runtime
-// backs each with a concrete private class (e.g.
-// `_MTLCommandBuffer`) that responds to the protocol's selectors,
-// so `objc_msgSend` dispatch works on a handle obtained via
-// `MTLCreateSystemDefaultDevice()` or one of the factory methods
-// below — we never need `objc_getClass("MTLTexture")` to
-// succeed. Don't add `alloc` / `init` on these: protocols have no
-// class object to allocate against.
-//
-// `MTLRenderPassDescriptor` + its attachment-descriptor family
-// (`Color` array + `Depth` / `Stencil` singletons),
-// `MTLRenderPipelineDescriptor` + its colour-attachment array,
-// `MTLTextureDescriptor`, `MTLVertexDescriptor` + attribute /
-// layout arrays, `MTLSamplerDescriptor`, `MTLDepthStencilDescriptor`,
-// and `MTLStencilDescriptor` are concrete classes — the factory
-// methods below are the standard constructors.
-//
-// Tier coverage today (each was added in its own commit):
-//   * Core pipeline:        device, queue, command buffer, texture,
-//                           render-pass, render-pipeline,
-//                           library / function, buffer,
-//                           vertex descriptor, render encoder
-//                           (incl. draw calls)
-//   * Tier 3:               compute pipeline + compute encoder
-//   * Tier (a):             texture I/O — MTLRegion / MTLOrigin /
-//                           MTLSize, replaceRegion / getBytes,
-//                           MTLStorageMode
-//   * Tier (b):             samplers + depth-stencil state + render
-//                           pass depth/stencil attachments
-//   * Tier (c):             blit encoder (copy, fill, mipmaps,
-//                           managed-storage sync)
-//   * Tier (d):             command-buffer completion + schedule
-//                           handlers, status / error inspection
-//   * Tier (e):             render-encoder rasteriser state
-//                           (viewport, scissor, cull, winding,
-//                           fill mode, blend colour, RT array
-//                           length, debug labels) + compute
-//                           threadgroup-memory binding
-//   * Tier (g):             MTLHeap (resource pooling) +
-//                           MTLFence (intra-queue ordering) +
-//                           updateFence/waitForFence on all
-//                           three encoder kinds
-//   * Tier (h):             MTLEvent + MTLSharedEvent
-//                           (cross-queue / CPU↔GPU rendezvous);
-//                           encodeSignalEvent: / encodeWaitForEvent:
-//                           on the command buffer; CPU-side
-//                           signaledValue / setSignaledValue: /
-//                           waitUntilSignaledValue:timeoutMS: on
-//                           MTLSharedEvent
-//   * Tier (i):             MTLArgumentEncoder
-//                           (function.newArgumentEncoderWithBufferIndex:)
-//                           + useResource:/useHeap: residency
-//                           declarations on render and compute
-//                           encoders; MTLResourceUsage flags
-//   * Tier (j):             MTLCaptureManager + MTLCaptureDescriptor +
-//                           MTLCaptureScope (Xcode GPU frame capture
-//                           / .gputrace export); startCaptureOrError
-//                           pair-return wrapper
-//
-// Surface still intentionally absent (add per-need):
-//   * CAMetalLayer / CAMetalDrawable + on-screen presentation
-//   * MTLArgumentDescriptor (manual-layout argument encoders)
-//   * MTLIndirectCommandBuffer (Tier-2 indirect dispatch)
-//   * Tessellation / mesh-shading pipeline knobs
-//   * Acceleration structures / ray tracing
+/// Metal binding — full enough to drive an end-to-end render or
+/// compute pipeline from ilang code: device → queue → command
+/// buffer → encoder, plus the resource types each encoder kind
+/// reaches for. Not part of the `cocoa` umbrella: apps that don't
+/// render via Metal shouldn't be forced to dlopen
+/// `Metal.framework` at startup.
+///
+/// MTLDevice / MTLCommandQueue / MTLCommandBuffer /
+/// MTLTexture / MTLBuffer / MTLLibrary / MTLFunction /
+/// MTLSamplerState / MTLDepthStencilState /
+/// MTL{Render,Compute,Blit}CommandEncoder and their pipeline-state
+/// siblings are Apple-side protocols, not classes. The runtime
+/// backs each with a concrete private class (e.g.
+/// `_MTLCommandBuffer`) that responds to the protocol's selectors,
+/// so `objc_msgSend` dispatch works on a handle obtained via
+/// `MTLCreateSystemDefaultDevice()` or one of the factory methods
+/// below — we never need `objc_getClass("MTLTexture")` to
+/// succeed. Don't add `alloc` / `init` on these: protocols have no
+/// class object to allocate against.
+///
+/// `MTLRenderPassDescriptor` + its attachment-descriptor family
+/// (`Color` array + `Depth` / `Stencil` singletons),
+/// `MTLRenderPipelineDescriptor` + its colour-attachment array,
+/// `MTLTextureDescriptor`, `MTLVertexDescriptor` + attribute /
+/// layout arrays, `MTLSamplerDescriptor`, `MTLDepthStencilDescriptor`,
+/// and `MTLStencilDescriptor` are concrete classes — the factory
+/// methods below are the standard constructors.
+///
+/// Tier coverage today (each was added in its own commit):
+///   * Core pipeline:        device, queue, command buffer, texture,
+///                           render-pass, render-pipeline,
+///                           library / function, buffer,
+///                           vertex descriptor, render encoder
+///                           (incl. draw calls)
+///   * Tier 3:               compute pipeline + compute encoder
+///   * Tier (a):             texture I/O — MTLRegion / MTLOrigin /
+///                           MTLSize, replaceRegion / getBytes,
+///                           MTLStorageMode
+///   * Tier (b):             samplers + depth-stencil state + render
+///                           pass depth/stencil attachments
+///   * Tier (c):             blit encoder (copy, fill, mipmaps,
+///                           managed-storage sync)
+///   * Tier (d):             command-buffer completion + schedule
+///                           handlers, status / error inspection
+///   * Tier (e):             render-encoder rasteriser state
+///                           (viewport, scissor, cull, winding,
+///                           fill mode, blend colour, RT array
+///                           length, debug labels) + compute
+///                           threadgroup-memory binding
+///   * Tier (g):             MTLHeap (resource pooling) +
+///                           MTLFence (intra-queue ordering) +
+///                           updateFence/waitForFence on all
+///                           three encoder kinds
+///   * Tier (h):             MTLEvent + MTLSharedEvent
+///                           (cross-queue / CPU↔GPU rendezvous);
+///                           encodeSignalEvent: / encodeWaitForEvent:
+///                           on the command buffer; CPU-side
+///                           signaledValue / setSignaledValue: /
+///                           waitUntilSignaledValue:timeoutMS: on
+///                           MTLSharedEvent
+///   * Tier (i):             MTLArgumentEncoder
+///                           (function.newArgumentEncoderWithBufferIndex:)
+///                           + useResource:/useHeap: residency
+///                           declarations on render and compute
+///                           encoders; MTLResourceUsage flags
+///   * Tier (j):             MTLCaptureManager + MTLCaptureDescriptor +
+///                           MTLCaptureScope (Xcode GPU frame capture
+///                           / .gputrace export); startCaptureOrError
+///                           pair-return wrapper
+///
+/// Surface still intentionally absent (add per-need):
+///   * CAMetalLayer / CAMetalDrawable + on-screen presentation
+///   * MTLArgumentDescriptor (manual-layout argument encoders)
+///   * MTLIndirectCommandBuffer (Tier-2 indirect dispatch)
+///   * Tessellation / mesh-shading pipeline knobs
+///   * Acceleration structures / ray tracing
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 

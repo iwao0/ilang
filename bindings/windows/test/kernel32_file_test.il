@@ -1,4 +1,4 @@
-// kernel32 — file create / write / read / delete round-trip.
+/// kernel32 — file create / write / read / delete round-trip.
 
 use test
 use windows {

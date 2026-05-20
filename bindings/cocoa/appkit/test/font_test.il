@@ -1,5 +1,5 @@
-// NSFont — pull a few system fonts at known sizes and verify
-// pointSize / familyName round-trip.
+/// NSFont — pull a few system fonts at known sizes and verify
+/// pointSize / familyName round-trip.
 
 use test
 use appkit { NSFont }

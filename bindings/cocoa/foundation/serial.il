@@ -1,7 +1,7 @@
-// JSON / Property List serialization. The cousin `archive.il`
-// covers the keyed-archiver pair for arbitrary NSCoding object
-// graphs; this file handles the two text-bound formats
-// Foundation ships out of the box.
+/// JSON / Property List serialization. The cousin `archive.il`
+/// covers the keyed-archiver pair for arbitrary NSCoding object
+/// graphs; this file handles the two text-bound formats
+/// Foundation ships out of the box.
 
 use core { NSObject, NSData }
 

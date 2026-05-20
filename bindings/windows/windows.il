@@ -1,8 +1,8 @@
-// Umbrella module for Win32 bindings.
-//
-// Re-exports every DLL-per-file binding so callers can write
-// `use windows { CreateWindowExA, MSG, ... }` instead of naming
-// each module.  Add new DLLs as separate files and re-export here.
+/// Umbrella module for Win32 bindings.
+///
+/// Re-exports every DLL-per-file binding so callers can write
+/// `use windows { CreateWindowExA, MSG, ... }` instead of naming
+/// each module.  Add new DLLs as separate files and re-export here.
 
 pub use winnull.*
 pub use kernel32.*

@@ -1,4 +1,4 @@
-// kernel32 — SYSTEMTIME / FILETIME round-trips.
+/// kernel32 — SYSTEMTIME / FILETIME round-trips.
 
 use test
 use windows {

@@ -1,4 +1,4 @@
-// kernel32 — synchronization primitives lifecycle.
+/// kernel32 — synchronization primitives lifecycle.
 
 use test
 use windows {

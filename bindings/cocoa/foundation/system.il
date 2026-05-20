@@ -1,13 +1,13 @@
-// System / settings / notifications bindings:
-//
-//   * NSNotificationCenter / NSDistributedNotificationCenter —
-//     in-process and cross-process publish/subscribe.
-//   * NSUserDefaults — app preferences store, backed by a plist
-//     in `~/Library/Preferences/`.
-//   * NSProcessInfo — running-process metadata (arguments,
-//     environment, processor / memory counts, thermal state).
-//   * NSLocale — language / region / formatting locale lookup
-//     used by NSDateFormatter / NSNumberFormatter and friends.
+/// System / settings / notifications bindings:
+///
+///   * NSNotificationCenter / NSDistributedNotificationCenter —
+///     in-process and cross-process publish/subscribe.
+///   * NSUserDefaults — app preferences store, backed by a plist
+///     in `~/Library/Preferences/`.
+///   * NSProcessInfo — running-process metadata (arguments,
+///     environment, processor / memory counts, thermal state).
+///   * NSLocale — language / region / formatting locale lookup
+///     used by NSDateFormatter / NSNumberFormatter and friends.
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSData }
 use network { NSURL }

@@ -1,17 +1,17 @@
-// SDL2 window + video subsystem. Mirrors SDL_video.h: window
-// CRUD, display queries, video driver enumeration, the screen
-// saver, and the OpenGL attribute / context API.
-//
-// `*SDL_Window`, `*SDL_DisplayMode`, etc. only appear inside the
-// `@extern(C) {}` block. Out-params are wrapped behind plain
-// classes (`Point` / `Size` / `Rect` / `DisplayMode`)
-// so the public API hands back ordinary ilang values.
-//
-// Bindings deliberately skipped (callbacks / opaque void*):
-//   SDL_SetWindowHitTest, SDL_GetWindowICCProfile,
-//   SDL_GetWindowData / SDL_SetWindowData,
-//   SDL_GetWindowGammaRamp / SDL_SetWindowGammaRamp,
-//   SDL_GL_GetProcAddress.
+/// SDL2 window + video subsystem. Mirrors SDL_video.h: window
+/// CRUD, display queries, video driver enumeration, the screen
+/// saver, and the OpenGL attribute / context API.
+///
+/// `*SDL_Window`, `*SDL_DisplayMode`, etc. only appear inside the
+/// `@extern(C) {}` block. Out-params are wrapped behind plain
+/// classes (`Point` / `Size` / `Rect` / `DisplayMode`)
+/// so the public API hands back ordinary ilang values.
+///
+/// Bindings deliberately skipped (callbacks / opaque void*):
+///   SDL_SetWindowHitTest, SDL_GetWindowICCProfile,
+///   SDL_GetWindowData / SDL_SetWindowData,
+///   SDL_GetWindowGammaRamp / SDL_SetWindowGammaRamp,
+///   SDL_GL_GetProcAddress.
 
 use sdl_core { Rect, Point, Size, Color }
 use sdl_surface { Surface, SDL_Surface }

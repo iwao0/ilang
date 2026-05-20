@@ -1,6 +1,6 @@
-// imm32.dll — Input Method Manager: IME composition and candidate
-// list interaction. Used to handle CJK / complex-script input in
-// custom windows that don't get default IME behaviour.
+/// imm32.dll — Input Method Manager: IME composition and candidate
+/// list interaction. Used to handle CJK / complex-script input in
+/// custom windows that don't get default IME behaviour.
 
 // ─── ImmGetCompositionString index (GCS_*) ───────────────────────
 @flags

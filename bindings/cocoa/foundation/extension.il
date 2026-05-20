@@ -1,8 +1,8 @@
-// App-extension / share-sheet bindings. `NSItemProvider` is the
-// generic data-handle Foundation uses for drag-and-drop / share
-// sheet payloads; `NSExtensionContext` / `NSExtensionItem` are
-// the runtime surface an app extension (Share / Action / Today
-// widget) operates against.
+/// App-extension / share-sheet bindings. `NSItemProvider` is the
+/// generic data-handle Foundation uses for drag-and-drop / share
+/// sheet payloads; `NSExtensionContext` / `NSExtensionItem` are
+/// the runtime surface an app extension (Share / Action / Today
+/// widget) operates against.
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSError, NSData }
 use network { NSURL }

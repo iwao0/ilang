@@ -1,10 +1,10 @@
-// String-related bindings — pattern matching, scanning, and
-// attributed text. The base `NSString` / `NSMutableString` /
-// `NSCharacterSet` triple stays in `core.il` because `NSString`
-// has methods that take `NSCharacterSet` and other core types
-// (`NSData.dataWithContentsOfFile:` etc.) take `NSString`, so
-// moving them out would create a cyclic dependency between
-// `core` and `strings`.
+/// String-related bindings — pattern matching, scanning, and
+/// attributed text. The base `NSString` / `NSMutableString` /
+/// `NSCharacterSet` triple stays in `core.il` because `NSString`
+/// has methods that take `NSCharacterSet` and other core types
+/// (`NSData.dataWithContentsOfFile:` etc.) take `NSString`, so
+/// moving them out would create a cyclic dependency between
+/// `core` and `strings`.
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSCharacterSet, NSRange,
            nsstr, makeRange }

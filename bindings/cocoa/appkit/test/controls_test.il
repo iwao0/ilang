@@ -1,6 +1,6 @@
-// NSButton / NSTextField / NSSlider / NSStepper / NSPopUpButton —
-// construct and round-trip their typed setters / getters
-// without showing them on screen.
+/// NSButton / NSTextField / NSSlider / NSStepper / NSPopUpButton —
+/// construct and round-trip their typed setters / getters
+/// without showing them on screen.
 
 use test
 use appkit { NSButton, NSTextField, NSSlider, NSStepper,

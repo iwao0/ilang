@@ -1,4 +1,4 @@
-// ole32 — COM bootstrap and task-memory allocator.
+/// ole32 — COM bootstrap and task-memory allocator.
 
 use test
 use windows {

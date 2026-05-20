@@ -1,9 +1,9 @@
-// psapi.dll — Process Status API: enumerate processes, modules,
-// drivers, and query working-set / memory usage.
-//
-// On Windows 7+ these functions are re-exported by kernel32.dll as
-// the K32* variants (e.g. K32EnumProcesses). The psapi.dll exports
-// remain valid and are the simpler binding target.
+/// psapi.dll — Process Status API: enumerate processes, modules,
+/// drivers, and query working-set / memory usage.
+///
+/// On Windows 7+ these functions are re-exported by kernel32.dll as
+/// the K32* variants (e.g. K32EnumProcesses). The psapi.dll exports
+/// remain valid and are the simpler binding target.
 
 // ─── EnumProcessModulesEx filter flags (LIST_MODULES_*) ──────────
 @flags

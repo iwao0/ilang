@@ -1,5 +1,5 @@
-// Effect / particle / camera / light / audio nodes — scene-
-// graph nodes that aren't sprites but still hang under SKScene.
+/// Effect / particle / camera / light / audio nodes — scene-
+/// graph nodes that aren't sprites but still hang under SKScene.
 
 use foundation { NSObject, NSString, NSArray, NSData, NSPoint,
                  NSSize, NSURL, NSVector }

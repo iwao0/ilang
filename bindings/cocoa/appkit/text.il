@@ -1,4 +1,4 @@
-// Text + typography — NSTextView / NSFont / NSColor.
+/// Text + typography — NSTextView / NSFont / NSColor.
 
 use foundation { NSObject, NSString, NSRect, nsstr, makeRect }
 use core { NSView }

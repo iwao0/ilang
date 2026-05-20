@@ -1,4 +1,4 @@
-// psapi — process memory counters and image-file-name lookup.
+/// psapi — process memory counters and image-file-name lookup.
 
 use test
 use windows {

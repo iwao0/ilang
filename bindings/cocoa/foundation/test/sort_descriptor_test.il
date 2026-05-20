@@ -1,4 +1,4 @@
-// NSSortDescriptor + NSArray.sortedArrayUsingDescriptors.
+/// NSSortDescriptor + NSArray.sortedArrayUsingDescriptors.
 
 use test
 use foundation { NSNumber, NSMutableArray, NSSortDescriptor,

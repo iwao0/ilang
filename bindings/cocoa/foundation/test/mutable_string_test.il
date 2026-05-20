@@ -1,4 +1,4 @@
-// NSMutableString — appendString / insert / replace / setString.
+/// NSMutableString — appendString / insert / replace / setString.
 
 use test
 use foundation { NSMutableString, nsstr, ilstr, makeRange }

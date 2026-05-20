@@ -1,4 +1,4 @@
-// NSRegularExpression — compile + match count + replace.
+/// NSRegularExpression — compile + match count + replace.
 
 use test
 use foundation { NSDataDetector, regex, NSRegularExpressionOptions, NSMatchingOptions,

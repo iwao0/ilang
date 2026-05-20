@@ -1,6 +1,6 @@
-// xinput1_4.dll — XInput 1.4: Xbox One / Xbox 360 gamepad input.
-// Bound to xinput1_4.dll for Windows 8+. For Windows 7 use xinput9_1_0.dll
-// (same exports, smaller surface).
+/// xinput1_4.dll — XInput 1.4: Xbox One / Xbox 360 gamepad input.
+/// Bound to xinput1_4.dll for Windows 8+. For Windows 7 use xinput9_1_0.dll
+/// (same exports, smaller surface).
 
 // ─── XINPUT_GAMEPAD wButtons flags (XINPUT_GAMEPAD_*) ────────────
 @flags

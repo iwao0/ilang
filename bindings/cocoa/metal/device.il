@@ -1,7 +1,7 @@
-// MTLDevice + MTLCommandQueue + MTLCommandBuffer — the top of
-// every Metal call chain. Apps acquire a device via
-// `MTLCreateSystemDefaultDevice()`, build queues off it, and
-// enqueue command buffers carrying encoder workloads onto a queue.
+/// MTLDevice + MTLCommandQueue + MTLCommandBuffer — the top of
+/// every Metal call chain. Apps acquire a device via
+/// `MTLCreateSystemDefaultDevice()`, build queues off it, and
+/// enqueue command buffers carrying encoder workloads onto a queue.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

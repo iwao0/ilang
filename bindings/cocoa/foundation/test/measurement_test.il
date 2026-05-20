@@ -1,5 +1,5 @@
-// NSMeasurement + NSUnit{Length, Mass, Duration, Temperature, Area}
-// conversions.
+/// NSMeasurement + NSUnit{Length, Mass, Duration, Temperature, Area}
+/// conversions.
 
 use test
 use foundation { NSMeasurement, NSUnitLength, NSUnitMass,

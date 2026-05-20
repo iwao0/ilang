@@ -1,11 +1,11 @@
-// Synchronisation + capture:
-//   * `MTLEvent` / `MTLSharedEvent` — CPU↔GPU and cross-queue
-//     rendezvous primitives.
-//   * `MTLCapture{Descriptor,Manager,Scope}` — Xcode GPU frame
-//     capture / .gputrace export.
-//
-// Both groups are diagnostic / glue rather than data-flow, hence
-// the shared file.
+/// Synchronisation + capture:
+///   * `MTLEvent` / `MTLSharedEvent` — CPU↔GPU and cross-queue
+///     rendezvous primitives.
+///   * `MTLCapture{Descriptor,Manager,Scope}` — Xcode GPU frame
+///     capture / .gputrace export.
+///
+/// Both groups are diagnostic / glue rather than data-flow, hence
+/// the shared file.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

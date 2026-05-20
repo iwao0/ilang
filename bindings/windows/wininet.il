@@ -1,15 +1,15 @@
-// wininet.dll — WinINet: classic HTTP/HTTPS/FTP/Gopher client API.
-//
-// For new code prefer WinHTTP (winhttp.il) — WinINet integrates with
-// IE settings and is more suitable for user-mode interactive apps.
-//
-// Usage:
-//   let h  = InternetOpenA("agent", AccessType.preconfig as u32, NULL, NULL, 0)
-//   let c  = InternetConnectA(h, "host", 80, NULL, NULL, Service.http as u32, 0, 0)
-//   let r  = HttpOpenRequestA(c, "GET", "/path", NULL, NULL, NULL, OpenFlags.secure as u32, 0)
-//   HttpSendRequestA(r, NULL, 0, NULL, 0)
-//   InternetReadFile(r, buf, len, &read)
-//   InternetCloseHandle(r); InternetCloseHandle(c); InternetCloseHandle(h)
+/// wininet.dll — WinINet: classic HTTP/HTTPS/FTP/Gopher client API.
+///
+/// For new code prefer WinHTTP (winhttp.il) — WinINet integrates with
+/// IE settings and is more suitable for user-mode interactive apps.
+///
+/// Usage:
+///   let h  = InternetOpenA("agent", AccessType.preconfig as u32, NULL, NULL, 0)
+///   let c  = InternetConnectA(h, "host", 80, NULL, NULL, Service.http as u32, 0, 0)
+///   let r  = HttpOpenRequestA(c, "GET", "/path", NULL, NULL, NULL, OpenFlags.secure as u32, 0)
+///   HttpSendRequestA(r, NULL, 0, NULL, 0)
+///   InternetReadFile(r, buf, len, &read)
+///   InternetCloseHandle(r); InternetCloseHandle(c); InternetCloseHandle(h)
 
 // ─── InternetOpen access type (INTERNET_OPEN_TYPE_*) ─────────────
 pub enum AccessType: u32 {

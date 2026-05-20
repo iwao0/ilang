@@ -1,5 +1,5 @@
-// NSPasteboard — copy + paste round-trip on the general
-// clipboard. This DOES touch the user's actual clipboard.
+/// NSPasteboard — copy + paste round-trip on the general
+/// clipboard. This DOES touch the user's actual clipboard.
 
 use test
 use appkit { NSPasteboard, PasteboardTypeString,

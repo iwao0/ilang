@@ -1,4 +1,4 @@
-// oleaut32 — SAFEARRAY lifecycle (1-D array of i32).
+/// oleaut32 — SAFEARRAY lifecycle (1-D array of i32).
 
 use test
 use windows {

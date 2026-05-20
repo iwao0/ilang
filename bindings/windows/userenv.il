@@ -1,7 +1,7 @@
-// userenv.dll — User profile and environment management.
-// Loads user environments, locates user profile directories,
-// and creates the environment block used by CreateProcess for
-// running code as a different user.
+/// userenv.dll — User profile and environment management.
+/// Loads user environments, locates user profile directories,
+/// and creates the environment block used by CreateProcess for
+/// running code as a different user.
 
 @extern(C, "userenv") {
     // ── User profile paths ────────────────────────────────────────

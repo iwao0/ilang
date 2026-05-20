@@ -1,4 +1,4 @@
-// NSNumber / NSDecimalNumber / NSValue.
+/// NSNumber / NSDecimalNumber / NSValue.
 
 use test
 use foundation { NSNumber, NSDecimalNumber, NSValue, NSRange,

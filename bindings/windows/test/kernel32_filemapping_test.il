@@ -1,4 +1,4 @@
-// kernel32 — anonymous file-mapping shared memory.
+/// kernel32 — anonymous file-mapping shared memory.
 
 use test
 use windows {

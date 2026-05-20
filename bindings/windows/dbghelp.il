@@ -1,9 +1,9 @@
-// dbghelp.dll — debugging helper: mini-dumps, symbol resolution,
-// stack walking, and PE image inspection.
-//
-// dbghelp.dll is shipped with Windows but the version bundled with
-// Debugging Tools for Windows (the one in the SDK) is usually
-// newer and more capable.
+/// dbghelp.dll — debugging helper: mini-dumps, symbol resolution,
+/// stack walking, and PE image inspection.
+///
+/// dbghelp.dll is shipped with Windows but the version bundled with
+/// Debugging Tools for Windows (the one in the SDK) is usually
+/// newer and more capable.
 
 // ─── MINIDUMP_TYPE flags ─────────────────────────────────────────
 @flags

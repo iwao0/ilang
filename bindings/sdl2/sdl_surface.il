@@ -1,8 +1,8 @@
-// SDL2 surface + pixel-format API. Surfaces are CPU-side
-// pixel buffers — used as scratch images, BMP-format I/O, the
-// source for `Texture.fromSurface`, etc. For GPU-accelerated draw
-// targets, prefer `Renderer` / `Texture` from `sdl_renderer.il`.
-// Mirrors SDL_surface.h + SDL_pixels.h.
+/// SDL2 surface + pixel-format API. Surfaces are CPU-side
+/// pixel buffers — used as scratch images, BMP-format I/O, the
+/// source for `Texture.fromSurface`, etc. For GPU-accelerated draw
+/// targets, prefer `Renderer` / `Texture` from `sdl_renderer.il`.
+/// Mirrors SDL_surface.h + SDL_pixels.h.
 
 use sdl_core { Rect, Color }
 

@@ -1,4 +1,4 @@
-// NSScanner — Optional-returning scan helpers.
+/// NSScanner — Optional-returning scan helpers.
 
 use test
 use foundation { NSScanner, nsstr }

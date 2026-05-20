@@ -1,4 +1,4 @@
-// NSJSONSerialization + NSPropertyListSerialization.
+/// NSJSONSerialization + NSPropertyListSerialization.
 
 use test
 use foundation { NSJSONSerialization, NSPropertyListSerialization,

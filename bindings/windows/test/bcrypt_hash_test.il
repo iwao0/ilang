@@ -1,10 +1,10 @@
-// bcrypt — SHA-256 hash of an empty string, verified against the
-// well-known digest:
-//   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-//
-// Demonstrates the ANSI→UTF-16 conversion idiom needed for any
-// CNG / DXGI / DirectWrite call that takes a UTF-16 string but
-// where ilang only has UTF-8 string literals.
+/// bcrypt — SHA-256 hash of an empty string, verified against the
+/// well-known digest:
+///   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+///
+/// Demonstrates the ANSI→UTF-16 conversion idiom needed for any
+/// CNG / DXGI / DirectWrite call that takes a UTF-16 string but
+/// where ilang only has UTF-8 string literals.
 
 use test
 use windows {

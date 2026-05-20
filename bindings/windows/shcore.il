@@ -1,5 +1,5 @@
-// shcore.dll — Shell Core: per-monitor DPI awareness, scale factor,
-// modern command-line / image handling helpers.  Windows 8.1+.
+/// shcore.dll — Shell Core: per-monitor DPI awareness, scale factor,
+/// modern command-line / image handling helpers.  Windows 8.1+.
 
 // ─── PROCESS_DPI_AWARENESS values ────────────────────────────────
 pub enum DpiAwareness: i32 {

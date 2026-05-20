@@ -1,18 +1,18 @@
-// SDL2_mixer — multi-channel audio mixer for short SE (`Chunk`)
-// and streaming BGM (`Music`). Separate library
-// (`libSDL2_mixer`); not re-exported from `sdl.il` so programs
-// that only need raw queue-based playback through `sdl_audio.il`
-// don't have to dlopen it.
-//
-// Lifecycle:
-//   sdl.init(InitFlag.audio)
-//   sdl.Mixer.init(MixInitFlag.ogg | MixInitFlag.mp3)
-//   sdl.Mixer.openAudioDefault()            // 44.1k / s16 / stereo
-//   // or: sdl.Mixer.openAudio(44100, sdl.AudioFormat.s16Lsb, 2, 2048)
-//   ... game loop ...
-//   sdl.Mixer.closeAudio()
-//   sdl.Mixer.quit()
-//   sdl.quit()
+/// SDL2_mixer — multi-channel audio mixer for short SE (`Chunk`)
+/// and streaming BGM (`Music`). Separate library
+/// (`libSDL2_mixer`); not re-exported from `sdl.il` so programs
+/// that only need raw queue-based playback through `sdl_audio.il`
+/// don't have to dlopen it.
+///
+/// Lifecycle:
+///   sdl.init(InitFlag.audio)
+///   sdl.Mixer.init(MixInitFlag.ogg | MixInitFlag.mp3)
+///   sdl.Mixer.openAudioDefault()            // 44.1k / s16 / stereo
+///   // or: sdl.Mixer.openAudio(44100, sdl.AudioFormat.s16Lsb, 2, 2048)
+///   ... game loop ...
+///   sdl.Mixer.closeAudio()
+///   sdl.Mixer.quit()
+///   sdl.quit()
 
 use sdl_audio { AudioFormat }
 

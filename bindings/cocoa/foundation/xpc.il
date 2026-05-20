@@ -1,14 +1,14 @@
-// XPC bindings — Foundation's cross-process RPC machinery. Two
-// processes that want to talk to each other declare a shared
-// `@protocol` (the wire contract); each side wraps a connection
-// in an `NSXPCConnection`, sets the remote and exported
-// interfaces from `NSXPCInterface.interfaceWithProtocol:`, and
-// then drives method calls through `remoteObjectProxy`. The
-// system handles auth, marshalling, and forwarding under the hood.
-//
-// On macOS, XPC services live in `Contents/XPCServices/*.xpc`
-// inside a bundle, or are vended by `launchd` agents through
-// `NSXPCListener.serviceListener` (mach-service-name mode).
+/// XPC bindings — Foundation's cross-process RPC machinery. Two
+/// processes that want to talk to each other declare a shared
+/// `@protocol` (the wire contract); each side wraps a connection
+/// in an `NSXPCConnection`, sets the remote and exported
+/// interfaces from `NSXPCInterface.interfaceWithProtocol:`, and
+/// then drives method calls through `remoteObjectProxy`. The
+/// system handles auth, marshalling, and forwarding under the hood.
+///
+/// On macOS, XPC services live in `Contents/XPCServices/*.xpc`
+/// inside a bundle, or are vended by `launchd` agents through
+/// `NSXPCListener.serviceListener` (mach-service-name mode).
 
 use core { NSObject, NSString, NSArray, NSError }
 

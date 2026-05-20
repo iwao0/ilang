@@ -1,4 +1,4 @@
-// NSData — bytes round-trip + length + base64.
+/// NSData — bytes round-trip + length + base64.
 
 use test
 use foundation { NSData, NSDataBase64EncodingOptions, NSDataBase64DecodingOptions,

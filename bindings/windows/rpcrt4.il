@@ -1,8 +1,8 @@
-// rpcrt4.dll — Microsoft RPC runtime.
-//
-// In practice the most-used parts are the UUID helpers — needed any
-// time you mint a COM CLSID, a DCE/RPC interface ID, or just want a
-// platform-native GUID.
+/// rpcrt4.dll — Microsoft RPC runtime.
+///
+/// In practice the most-used parts are the UUID helpers — needed any
+/// time you mint a COM CLSID, a DCE/RPC interface ID, or just want a
+/// platform-native GUID.
 
 // ─── RPC_STATUS return codes (selected) ──────────────────────────
 pub enum RpcStatus: i32 {

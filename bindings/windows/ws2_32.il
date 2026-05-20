@@ -1,9 +1,9 @@
-// ws2_32.dll — Windows Sockets 2.
-//
-// Before any other Winsock call: WSAStartup(0x0202, &wsaData).
-// Always call WSACleanup() when done.
-// INVALID_SOCKET = `0xFFFFFFFFFFFFFFFF as u64`
-// SOCKET_ERROR   = -1 (returned as i32 by most functions)
+/// ws2_32.dll — Windows Sockets 2.
+///
+/// Before any other Winsock call: WSAStartup(0x0202, &wsaData).
+/// Always call WSACleanup() when done.
+/// INVALID_SOCKET = `0xFFFFFFFFFFFFFFFF as u64`
+/// SOCKET_ERROR   = -1 (returned as i32 by most functions)
 
 // ─── Address families (AF_*) ─────────────────────────────────────
 pub enum AddressFamily: i32 {

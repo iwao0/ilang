@@ -1,4 +1,4 @@
-// NSSet / NSMutableSet / NSCountedSet / NSIndexSet.
+/// NSSet / NSMutableSet / NSCountedSet / NSIndexSet.
 
 use test
 use foundation { NSMutableArray, NSMutableSet, NSCountedSet, NSIndexSet,

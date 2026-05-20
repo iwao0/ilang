@@ -1,8 +1,8 @@
-// crypt32.dll — Cryptography API: certificate stores, message
-// signing/verification, PKCS encoding, and Data-Protection API (DPAPI).
-//
-// Most functions return a non-zero value on success; call
-// `GetLastError()` for details on failure.
+/// crypt32.dll — Cryptography API: certificate stores, message
+/// signing/verification, PKCS encoding, and Data-Protection API (DPAPI).
+///
+/// Most functions return a non-zero value on success; call
+/// `GetLastError()` for details on failure.
 
 // ─── Certificate store providers (CERT_STORE_PROV_*) ─────────────
 // Pass as the second argument to CertOpenStore. Common values:

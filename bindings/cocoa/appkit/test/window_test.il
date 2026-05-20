@@ -1,6 +1,6 @@
-// NSWindow — construct and read back geometry. Doesn't show
-// the window or run the event loop, so this is safe in
-// headless contexts.
+/// NSWindow — construct and read back geometry. Doesn't show
+/// the window or run the event loop, so this is safe in
+/// headless contexts.
 
 use test
 use appkit { NSWindow, NSWindowStyleMask, NSBackingStoreType,

@@ -1,8 +1,8 @@
-// SDL2 timing + event-queue helpers. Mirrors SDL_timer.h plus
-// the event-queue subset of SDL_events.h (SDL_PumpEvents,
-// SDL_PollEvent, SDL_HasEvent / SDL_FlushEvent and friends).
-// Timer-callback APIs (SDL_AddTimer / SDL_RemoveTimer) need a C
-// function pointer and aren't exposed.
+/// SDL2 timing + event-queue helpers. Mirrors SDL_timer.h plus
+/// the event-queue subset of SDL_events.h (SDL_PumpEvents,
+/// SDL_PollEvent, SDL_HasEvent / SDL_FlushEvent and friends).
+/// Timer-callback APIs (SDL_AddTimer / SDL_RemoveTimer) need a C
+/// function pointer and aren't exposed.
 
 /// SDL_EventType — subset covering the common cases. Stored in
 /// `Event.eventType` so callers can dispatch on `pollEvent`.

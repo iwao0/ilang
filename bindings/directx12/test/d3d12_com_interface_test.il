@@ -1,10 +1,10 @@
-// d3d12 — COM dispatch via `@com interface`.
-//
-// Builds on the `@com interface IUnknown` / `: IUnknown` chain
-// in `bindings/directx12/d3d12_com.il`. The runtime path is
-// the same `(*recv)[slot](recv, args...)` indirection as the
-// struct fixture, but the call site reads as `device.Method(args)`
-// without manual offset / cast boilerplate.
+/// d3d12 — COM dispatch via `@com interface`.
+///
+/// Builds on the `@com interface IUnknown` / `: IUnknown` chain
+/// in `bindings/directx12/d3d12_com.il`. The runtime path is
+/// the same `(*recv)[slot](recv, args...)` indirection as the
+/// struct fixture, but the call site reads as `device.Method(args)`
+/// without manual offset / cast boilerplate.
 
 use test
 use directx12 {

@@ -1,12 +1,12 @@
-// ole32.dll — Component Object Model (COM) foundation.
-//
-// Usage pattern:
-//   1. CoInitializeEx(0 as *void, CoInit.apartmentThreaded as u32)
-//   2. CoCreateInstance(&CLSID, 0 as *void, ClsCtx.inprocServer as u32,
-//                       &IID, &ppv as **void)
-//   3. Use the object through its vtable (cast ppv to a struct of fn pointers).
-//   4. IUnknown.Release() when done.
-//   5. CoUninitialize()
+/// ole32.dll — Component Object Model (COM) foundation.
+///
+/// Usage pattern:
+///   1. CoInitializeEx(0 as *void, CoInit.apartmentThreaded as u32)
+///   2. CoCreateInstance(&CLSID, 0 as *void, ClsCtx.inprocServer as u32,
+///                       &IID, &ppv as **void)
+///   3. Use the object through its vtable (cast ppv to a struct of fn pointers).
+///   4. IUnknown.Release() when done.
+///   5. CoUninitialize()
 
 // ─── CoInitializeEx thread model (COINIT_*) ──────────────────────
 @flags

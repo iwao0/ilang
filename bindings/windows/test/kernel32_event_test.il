@@ -1,4 +1,4 @@
-// kernel32 — Event / mutex synchronisation primitives.
+/// kernel32 — Event / mutex synchronisation primitives.
 
 use test
 use windows {

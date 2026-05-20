@@ -1,13 +1,13 @@
-// SQLite 3 bindings for ilang.
-//
-// ARC-managed `Database` / `Statement` classes wrapping `libsqlite3`.
-// Open with `Database.open(path)`, run statements via `db.exec(sql)`
-// or `db.prepare(sql)` + `stmt.bind*` + `stmt.step()` + `stmt.column*`.
-//
-// Every fallible call returns `Result<T, SqliteError>`. Successful
-// step / done states are distinguished via `StepResult`. JIT-only —
-// the binding goes through `@extern(C) { @lib("sqlite3") fn ... }`
-// which needs dlsym.
+/// SQLite 3 bindings for ilang.
+///
+/// ARC-managed `Database` / `Statement` classes wrapping `libsqlite3`.
+/// Open with `Database.open(path)`, run statements via `db.exec(sql)`
+/// or `db.prepare(sql)` + `stmt.bind*` + `stmt.step()` + `stmt.column*`.
+///
+/// Every fallible call returns `Result<T, SqliteError>`. Successful
+/// step / done states are distinguished via `StepResult`. JIT-only —
+/// the binding goes through `@extern(C) { @lib("sqlite3") fn ... }`
+/// which needs dlsym.
 
 // ── SQLite result-code subset we care about ────────────────────────
 

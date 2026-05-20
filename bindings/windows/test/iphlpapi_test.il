@@ -1,4 +1,4 @@
-// iphlpapi — buffer-size query for GetNetworkParams.
+/// iphlpapi — buffer-size query for GetNetworkParams.
 
 use test
 use windows {

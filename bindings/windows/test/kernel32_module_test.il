@@ -1,4 +1,4 @@
-// kernel32 — module / executable path queries.
+/// kernel32 — module / executable path queries.
 
 use test
 use windows {

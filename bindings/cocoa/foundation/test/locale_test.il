@@ -1,4 +1,4 @@
-// NSLocale — construct by identifier and read back the parts.
+/// NSLocale — construct by identifier and read back the parts.
 
 use test
 use foundation { NSLocale, nsstr, ilstr }

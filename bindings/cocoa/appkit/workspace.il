@@ -1,5 +1,5 @@
-// Workspace + pasteboard — NSPasteboard / NSWorkspace plus the
-// PasteboardTypeString UTI constant.
+/// Workspace + pasteboard — NSPasteboard / NSWorkspace plus the
+/// PasteboardTypeString UTI constant.
 
 use foundation { NSObject, NSString, NSURL, nsstr, ilstr }
 

@@ -1,10 +1,10 @@
-// iphlpapi.dll — IP Helper API: query and configure network
-// interfaces, routing, TCP/UDP tables, and ICMP echo (ping).
-//
-// All "Get*Table*" functions follow the same pattern:
-//   1. call with a small (or zero) buffer; out-param fills the required size
-//   2. allocate a buffer of that size and call again
-// This is documented per function.
+/// iphlpapi.dll — IP Helper API: query and configure network
+/// interfaces, routing, TCP/UDP tables, and ICMP echo (ping).
+///
+/// All "Get*Table*" functions follow the same pattern:
+///   1. call with a small (or zero) buffer; out-param fills the required size
+///   2. allocate a buffer of that size and call again
+/// This is documented per function.
 
 // ─── Interface type (IF_TYPE_*) ──────────────────────────────────
 pub enum IfType: u32 {

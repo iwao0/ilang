@@ -1,4 +1,4 @@
-// ws2_32 — Winsock startup and byte-order conversions.
+/// ws2_32 — Winsock startup and byte-order conversions.
 
 use test
 use windows {

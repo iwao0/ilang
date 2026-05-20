@@ -1,4 +1,4 @@
-// kernel32 — lstr* C-string helpers.
+/// kernel32 — lstr* C-string helpers.
 
 use test
 use windows {

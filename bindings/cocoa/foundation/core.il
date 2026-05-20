@@ -1,10 +1,10 @@
-// Foundation bindings — the ObjC base layer (NSObject / NSString /
-// collections / dates / URLs) plus the ilang ↔ ObjC plumbing that
-// every higher-level binding leans on. Doesn't touch AppKit; safe
-// to import on macOS server contexts that don't open a window.
-//
-// Imported via the `cocoa` umbrella module (`use cocoa { ... }`)
-// or directly with `use foundation { ... }`.
+/// Foundation bindings — the ObjC base layer (NSObject / NSString /
+/// collections / dates / URLs) plus the ilang ↔ ObjC plumbing that
+/// every higher-level binding leans on. Doesn't touch AppKit; safe
+/// to import on macOS server contexts that don't open a window.
+///
+/// Imported via the `cocoa` umbrella module (`use cocoa { ... }`)
+/// or directly with `use foundation { ... }`.
 
 /// ─── Foundation geometry types (HFA-passed) ──────────────────────
 /// NSPoint / NSSize / NSRect / NSVector are plain f64 structs. The

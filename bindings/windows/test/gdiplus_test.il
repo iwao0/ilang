@@ -1,4 +1,4 @@
-// gdiplus — startup / shutdown lifecycle.
+/// gdiplus — startup / shutdown lifecycle.
 
 use test
 use windows {

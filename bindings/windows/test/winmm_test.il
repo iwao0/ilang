@@ -1,4 +1,4 @@
-// winmm — high-resolution timer + joystick count.
+/// winmm — high-resolution timer + joystick count.
 
 use test
 use windows {

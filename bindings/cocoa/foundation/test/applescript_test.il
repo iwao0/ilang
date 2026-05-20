@@ -1,5 +1,5 @@
-// NSAppleScript + NSAppleEventDescriptor — compile + execute a
-// trivial script that returns a fixed integer.
+/// NSAppleScript + NSAppleEventDescriptor — compile + execute a
+/// trivial script that returns a fixed integer.
 
 use test
 use foundation { NSAppleScript, NSAppleEventDescriptor,

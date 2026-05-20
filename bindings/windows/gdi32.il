@@ -1,9 +1,9 @@
-// gdi32.dll — GDI drawing: device contexts, pens, brushes, fonts,
-// bitmaps, regions, paths, and coordinate transforms.
-//
-// All handles below are opaque empty structs; cast integers to them
-// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
-// identically in registers, so unsafe casts are safe at the boundary.
+/// gdi32.dll — GDI drawing: device contexts, pens, brushes, fonts,
+/// bitmaps, regions, paths, and coordinate transforms.
+///
+/// All handles below are opaque empty structs; cast integers to them
+/// when using stock-object IDs.  The Win64 ABI treats `*T` and `i64`
+/// identically in registers, so unsafe casts are safe at the boundary.
 
 // ─── Raster-operation codes (SRCCOPY etc.) ───────────────────────
 pub enum RasterOp: u32 {

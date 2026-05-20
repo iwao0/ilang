@@ -1,12 +1,12 @@
-// Predicate / expression / linguistic-tagger bindings —
-// `NSArray.filteredArrayUsingPredicate:` is the canonical user
-// of the predicate types; expressions and the tagger are
-// standalone tools.
-//
-// The variadic `+predicateWithFormat:` factory is intentionally
-// not bound (ilang doesn't carry the ObjC `va_list` plumbing).
-// Use `+predicateWithFormat:argumentArray:` and pass an NSArray
-// of substitutions instead.
+/// Predicate / expression / linguistic-tagger bindings —
+/// `NSArray.filteredArrayUsingPredicate:` is the canonical user
+/// of the predicate types; expressions and the tagger are
+/// standalone tools.
+///
+/// The variadic `+predicateWithFormat:` factory is intentionally
+/// not bound (ilang doesn't carry the ObjC `va_list` plumbing).
+/// Use `+predicateWithFormat:argumentArray:` and pass an NSArray
+/// of substitutions instead.
 
 use core { NSObject, NSString, NSArray, NSDictionary }
 

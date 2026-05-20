@@ -1,4 +1,4 @@
-// NSNumberFormatter — style + locale-pinned format / parse.
+/// NSNumberFormatter — style + locale-pinned format / parse.
 
 use test
 use foundation { NSNumber, NSNumberFormatter, NSNumberFormatterStyle,

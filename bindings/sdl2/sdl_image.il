@@ -1,9 +1,9 @@
-// SDL2_image — image format loaders (PNG, JPEG, TIFF, WebP, JXL,
-// AVIF, …). Separate library (`libSDL2_image`); not re-exported
-// from `sdl.il` so programs that don't need image loading don't
-// have to dlopen it. Initialise with `sdl_image.imgInit(flags)`
-// after `sdl.init(...)`, tear down with `imgQuit()` before
-// `sdl.quit()`.
+/// SDL2_image — image format loaders (PNG, JPEG, TIFF, WebP, JXL,
+/// AVIF, …). Separate library (`libSDL2_image`); not re-exported
+/// from `sdl.il` so programs that don't need image loading don't
+/// have to dlopen it. Initialise with `sdl_image.imgInit(flags)`
+/// after `sdl.init(...)`, tear down with `imgQuit()` before
+/// `sdl.quit()`.
 
 use sdl_renderer { Renderer, Texture, SDL_Renderer, SDL_Texture }
 use sdl_surface { Surface }

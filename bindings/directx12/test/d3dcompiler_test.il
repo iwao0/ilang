@@ -1,5 +1,5 @@
-// d3dcompiler — compile a trivial HLSL vertex shader and inspect
-// the resulting blob.
+/// d3dcompiler — compile a trivial HLSL vertex shader and inspect
+/// the resulting blob.
 
 use test
 use directx12 {

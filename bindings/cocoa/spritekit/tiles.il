@@ -1,5 +1,5 @@
-// Tile map family — SKTileDefinition / SKTileGroup / SKTileSet /
-// SKTileMapNode / SKTileGroupRule.
+/// Tile map family — SKTileDefinition / SKTileGroup / SKTileSet /
+/// SKTileMapNode / SKTileGroupRule.
 
 use foundation { NSObject, NSString, NSArray, NSSize, NSPoint }
 use node { SKNode }

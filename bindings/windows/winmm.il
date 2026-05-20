@@ -1,5 +1,5 @@
-// winmm.dll — Windows Multimedia: simple audio playback,
-// waveform I/O, MIDI, joysticks, and high-resolution timers.
+/// winmm.dll — Windows Multimedia: simple audio playback,
+/// waveform I/O, MIDI, joysticks, and high-resolution timers.
 
 // ─── PlaySound flags (SND_*) ─────────────────────────────────────
 @flags

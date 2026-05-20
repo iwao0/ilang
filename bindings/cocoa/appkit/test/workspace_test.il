@@ -1,6 +1,6 @@
-// NSWorkspace — read-only shared singleton + URL parse safety.
-// We don't call openURL / openFile — those would launch external
-// apps.
+/// NSWorkspace — read-only shared singleton + URL parse safety.
+/// We don't call openURL / openFile — those would launch external
+/// apps.
 
 use test
 use appkit { NSWorkspace }

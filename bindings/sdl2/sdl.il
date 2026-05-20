@@ -1,7 +1,7 @@
-// Umbrella module — re-exports every per-feature SDL2 binding under
-// a single `sdl.*` namespace. After `use sdl` the caller can write
-// `sdl.init`, `new sdl.Window(...)`, `ren.fillRect(...)` etc.
-// without naming the individual feature modules.
+/// Umbrella module — re-exports every per-feature SDL2 binding under
+/// a single `sdl.*` namespace. After `use sdl` the caller can write
+/// `sdl.init`, `new sdl.Window(...)`, `ren.fillRect(...)` etc.
+/// without naming the individual feature modules.
 
 // Order matters: each module that does `use otherModule { … }`
 // must come after the module it imports from, so the umbrella

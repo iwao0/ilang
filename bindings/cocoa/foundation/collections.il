@@ -1,11 +1,11 @@
-// Foundation collection types beyond NSArray / NSDictionary
-// (which live in `core` because too many other classes use them
-// directly). This file pulls in NSSet / NSCountedSet,
-// NSIndexSet (+ Mutable), and NSOrderedSet (+ Mutable).
-//
-// Cross-file references resolve through `use core { ... }` at the
-// top: `core` is the sibling umbrella `core.il`, found via the
-// same-directory loader rule. `mod.il` re-exports everything.
+/// Foundation collection types beyond NSArray / NSDictionary
+/// (which live in `core` because too many other classes use them
+/// directly). This file pulls in NSSet / NSCountedSet,
+/// NSIndexSet (+ Mutable), and NSOrderedSet (+ Mutable).
+///
+/// Cross-file references resolve through `use core { ... }` at the
+/// top: `core` is the sibling umbrella `core.il`, found via the
+/// same-directory loader rule. `mod.il` re-exports everything.
 
 use core { NSObject, NSString, NSArray, NSRange }
 

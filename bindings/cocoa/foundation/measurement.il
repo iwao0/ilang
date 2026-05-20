@@ -1,12 +1,12 @@
-// Physical-unit measurement bindings — NSMeasurement (value +
-// unit pair) and the NSUnit class tree it indexes into.
-//
-// NSUnit's subtree has ~25 dimensional categories. This file
-// binds the abstract bases (NSUnit / NSDimension) plus the eight
-// most commonly used dimensions (length / mass / time / area /
-// volume / speed / temperature / energy). Each dimension exposes
-// a handful of typed `NSUnit*** *` singletons via class methods
-// — pass them to `NSMeasurement.initWithDoubleValue:unit:`.
+/// Physical-unit measurement bindings — NSMeasurement (value +
+/// unit pair) and the NSUnit class tree it indexes into.
+///
+/// NSUnit's subtree has ~25 dimensional categories. This file
+/// binds the abstract bases (NSUnit / NSDimension) plus the eight
+/// most commonly used dimensions (length / mass / time / area /
+/// volume / speed / temperature / energy). Each dimension exposes
+/// a handful of typed `NSUnit*** *` singletons via class methods
+/// — pass them to `NSMeasurement.initWithDoubleValue:unit:`.
 
 use core { NSObject, NSString }
 

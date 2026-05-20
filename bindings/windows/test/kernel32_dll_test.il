@@ -1,4 +1,4 @@
-// kernel32 — runtime DLL loading and symbol lookup.
+/// kernel32 — runtime DLL loading and symbol lookup.
 
 use test
 use windows {

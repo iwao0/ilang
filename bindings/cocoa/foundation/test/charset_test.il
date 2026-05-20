@@ -1,4 +1,4 @@
-// NSCharacterSet — predefined sets + characterIsMember.
+/// NSCharacterSet — predefined sets + characterIsMember.
 
 use test
 use foundation { NSCharacterSet, nsstr }

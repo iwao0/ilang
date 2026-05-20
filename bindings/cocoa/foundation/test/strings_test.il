@@ -1,4 +1,4 @@
-// NSString — broad surface coverage.
+/// NSString — broad surface coverage.
 
 use test
 use foundation { NSString, NSCharacterSet, NSComparisonResult, NSStringEncoding,

@@ -1,4 +1,4 @@
-// user32 — window introspection on the desktop HWND.
+/// user32 — window introspection on the desktop HWND.
 
 use test
 use windows {

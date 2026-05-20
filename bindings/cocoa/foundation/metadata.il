@@ -1,12 +1,12 @@
-// Spotlight metadata bindings — NSMetadataItem (one file's
-// metadata) and NSMetadataQuery (the asynchronous query
-// driving the Spotlight engine).
-//
-// Queries run on the user's metadata daemon (`mds`) so they
-// respect every locally-indexed file. The query lifecycle is
-// `setPredicate:` → `startQuery` → wait for the
-// `NSMetadataQueryDidFinishGatheringNotification` notification
-// → walk `results`.
+/// Spotlight metadata bindings — NSMetadataItem (one file's
+/// metadata) and NSMetadataQuery (the asynchronous query
+/// driving the Spotlight engine).
+///
+/// Queries run on the user's metadata daemon (`mds`) so they
+/// respect every locally-indexed file. The query lifecycle is
+/// `setPredicate:` → `startQuery` → wait for the
+/// `NSMetadataQueryDidFinishGatheringNotification` notification
+/// → walk `results`.
 
 use core { NSObject, NSString, NSArray, NSDictionary }
 use predicate { NSPredicate }

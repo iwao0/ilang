@@ -1,10 +1,10 @@
-// SDL2 audio: queue-based playback. Open a device, queue raw PCM
-// samples, hit `play()`. The device class wraps the lifecycle so
-// `deinit` closes the device automatically.
-//
-// Format: signed 16-bit little-endian (AUDIO_S16LSB). Use mono
-// (channels = 1) or stereo (channels = 2). For stereo the sample
-// stream interleaves L, R, L, R, ...
+/// SDL2 audio: queue-based playback. Open a device, queue raw PCM
+/// samples, hit `play()`. The device class wraps the lifecycle so
+/// `deinit` closes the device automatically.
+///
+/// Format: signed 16-bit little-endian (AUDIO_S16LSB). Use mono
+/// (channels = 1) or stereo (channels = 2). For stereo the sample
+/// stream interleaves L, R, L, R, ...
 
 /// Mirrors C's `SDL_AudioFormat` constants from SDL_audio.h. The
 /// 16-bit value is bit-packed:

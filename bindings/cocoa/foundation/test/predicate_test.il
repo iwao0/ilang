@@ -1,4 +1,4 @@
-// NSPredicate — constant predicates + filter an NSArray.
+/// NSPredicate — constant predicates + filter an NSArray.
 
 use test
 use foundation { NSPredicate, NSCompoundPredicate,

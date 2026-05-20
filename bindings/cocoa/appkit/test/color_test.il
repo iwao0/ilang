@@ -1,4 +1,4 @@
-// NSColor — predefined system colours + RGBA factory.
+/// NSColor — predefined system colours + RGBA factory.
 
 use test
 use appkit { NSColor, sharedApplication }

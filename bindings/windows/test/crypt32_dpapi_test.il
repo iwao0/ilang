@@ -1,4 +1,4 @@
-// crypt32 — DPAPI round-trip: protect → unprotect → byte equality.
+/// crypt32 — DPAPI round-trip: protect → unprotect → byte equality.
 
 use test
 use windows {

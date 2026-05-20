@@ -1,4 +1,4 @@
-// version — version-info resource size query for a system DLL.
+/// version — version-info resource size query for a system DLL.
 
 use test
 use windows {

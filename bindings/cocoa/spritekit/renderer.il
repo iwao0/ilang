@@ -1,7 +1,7 @@
-// SKRenderer — render an SKScene into a Metal command-buffer
-// for off-screen / video / advanced compositor use. Lets
-// non-SKView hosts (games using a Metal renderer of their own)
-// drop a SpriteKit scene into a render pass.
+/// SKRenderer — render an SKScene into a Metal command-buffer
+/// for off-screen / video / advanced compositor use. Lets
+/// non-SKView hosts (games using a Metal renderer of their own)
+/// drop a SpriteKit scene into a render pass.
 
 use foundation { NSObject, NSRect, NSSize }
 use node { SKScene }

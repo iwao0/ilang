@@ -1,4 +1,4 @@
-// kernel32 — environment variables and computer / user name.
+/// kernel32 — environment variables and computer / user name.
 
 use test
 use windows {

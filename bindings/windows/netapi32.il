@@ -1,12 +1,12 @@
-// netapi32.dll — Windows network management: user / group / share /
-// session enumeration and configuration.
-//
-// All these functions allocate output buffers internally and must be
-// freed with `NetApiBufferFree`. Names are UTF-16 — the historic API
-// has no ANSI variants for the modern functions.
-//
-// Most functions return 0 (NERR_Success) on success, otherwise a
-// Win32 error code.
+/// netapi32.dll — Windows network management: user / group / share /
+/// session enumeration and configuration.
+///
+/// All these functions allocate output buffers internally and must be
+/// freed with `NetApiBufferFree`. Names are UTF-16 — the historic API
+/// has no ANSI variants for the modern functions.
+///
+/// Most functions return 0 (NERR_Success) on success, otherwise a
+/// Win32 error code.
 
 // ─── Filter masks for NetUserEnum (FILTER_*) ─────────────────────
 @flags

@@ -1,5 +1,5 @@
-// Sprite / shape / label / video / reference nodes — the
-// leaf renderable types that live under SKScene.
+/// Sprite / shape / label / video / reference nodes — the
+/// leaf renderable types that live under SKScene.
 
 use foundation { NSObject, NSString, NSArray, NSPoint, NSSize,
                  NSRect, NSURL, nsstr }

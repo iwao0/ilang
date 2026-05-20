@@ -1,17 +1,17 @@
-// Cocoa-side leak smoke test — reads libmalloc's process-wide
-// bytes-in-use before / after a workload to catch leaks the
-// ilang ARC tracker (`liveAllocBytes`) misses.
-//
-// Apple's `objc_autorelease`d allocations (ObjC blocks,
-// `[NSString stringWithUTF8String:]` temporaries, etc.) go
-// through libmalloc but get freed by Apple's pool drain, not
-// ilang's `__mir_free`. So `liveAllocBytes` reports them as
-// leaked even when they aren't; the C-side libmalloc counter
-// is what actually shows whether memory grew.
-//
-// All workloads are wrapped in `autoreleasepool` so each
-// iteration's autoreleased temporaries drain before the next
-// reads bytes-in-use.
+/// Cocoa-side leak smoke test — reads libmalloc's process-wide
+/// bytes-in-use before / after a workload to catch leaks the
+/// ilang ARC tracker (`liveAllocBytes`) misses.
+///
+/// Apple's `objc_autorelease`d allocations (ObjC blocks,
+/// `[NSString stringWithUTF8String:]` temporaries, etc.) go
+/// through libmalloc but get freed by Apple's pool drain, not
+/// ilang's `__mir_free`. So `liveAllocBytes` reports them as
+/// leaked even when they aren't; the C-side libmalloc counter
+/// is what actually shows whether memory grew.
+///
+/// All workloads are wrapped in `autoreleasepool` so each
+/// iteration's autoreleased temporaries drain before the next
+/// reads bytes-in-use.
 
 use test
 use foundation { NSString, NSURL, NSDate, NSNumber, NSMutableArray,

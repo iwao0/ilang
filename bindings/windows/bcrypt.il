@@ -1,10 +1,10 @@
-// bcrypt.dll — Cryptography Next Generation (CNG) primitives.
-//
-// Replaces the legacy CryptoAPI (crypt32.dll for cert work, advapi32
-// for CryptAcquireContext etc.).  Use this for new hashing, symmetric
-// encryption, signing, key derivation, and random-number generation.
-//
-// All functions return NTSTATUS (i32); 0 = STATUS_SUCCESS.
+/// bcrypt.dll — Cryptography Next Generation (CNG) primitives.
+///
+/// Replaces the legacy CryptoAPI (crypt32.dll for cert work, advapi32
+/// for CryptAcquireContext etc.).  Use this for new hashing, symmetric
+/// encryption, signing, key derivation, and random-number generation.
+///
+/// All functions return NTSTATUS (i32); 0 = STATUS_SUCCESS.
 
 // ─── NTSTATUS values (selected) ──────────────────────────────────
 pub enum NtStatus: i32 {

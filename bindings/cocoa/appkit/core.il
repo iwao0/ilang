@@ -1,8 +1,8 @@
-// AppKit core — NSApplication / NSView / NSWindow / NSScreen plus
-// the NSWindowStyleMask / NSBackingStoreType /
-// NSApplicationActivationPolicy enums and the app + window
-// delegate protocols. Most other AppKit category files use these
-// classes as bases or arguments.
+/// AppKit core — NSApplication / NSView / NSWindow / NSScreen plus
+/// the NSWindowStyleMask / NSBackingStoreType /
+/// NSApplicationActivationPolicy enums and the app + window
+/// delegate protocols. Most other AppKit category files use these
+/// classes as bases or arguments.
 
 use foundation { NSObject, NSString, NSArray, NSNotification, NSPoint,
                  NSSize, NSRect, nsstr, makeRect }

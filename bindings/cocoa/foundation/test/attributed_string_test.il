@@ -1,4 +1,4 @@
-// NSAttributedString / NSMutableAttributedString.
+/// NSAttributedString / NSMutableAttributedString.
 
 use test
 use foundation { NSAttributedString, NSMutableAttributedString,

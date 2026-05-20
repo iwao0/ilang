@@ -1,14 +1,14 @@
-// SDL2 2D renderer (mirrors `SDL_render.h`): driver / renderer /
-// texture / draw / geometry. The full C surface is exposed through
-// `@extern(C)` declarations; the most-used calls are also wrapped
-// as ARC-managed `Renderer` / `Texture` methods so callers don't
-// have to thread raw handles around.
-//
-// Sprite support: `Texture` wraps a streaming SDL_Texture you
-// upload pixel bytes into via `update(rgba: u8[])`. Pixel format
-// is RGBA8888 (1 byte each, in the order R, G, B, A on
-// little-endian — SDL_PIXELFORMAT_ABGR8888). Renderer draws
-// textures with optional rotation through `drawTextureRot`.
+/// SDL2 2D renderer (mirrors `SDL_render.h`): driver / renderer /
+/// texture / draw / geometry. The full C surface is exposed through
+/// `@extern(C)` declarations; the most-used calls are also wrapped
+/// as ARC-managed `Renderer` / `Texture` methods so callers don't
+/// have to thread raw handles around.
+///
+/// Sprite support: `Texture` wraps a streaming SDL_Texture you
+/// upload pixel bytes into via `update(rgba: u8[])`. Pixel format
+/// is RGBA8888 (1 byte each, in the order R, G, B, A on
+/// little-endian — SDL_PIXELFORMAT_ABGR8888). Renderer draws
+/// textures with optional rotation through `drawTextureRot`.
 
 use sdl_core { Rect, Point, FPoint, Size, Color }
 use sdl_surface { BlendMode }

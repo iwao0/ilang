@@ -1,18 +1,18 @@
-// Virtual key codes — what `NSEvent.keyCode` returns. Mirrors the
-// `kVK_*` constants from `<HIToolbox/Events.h>`. These are
-// **physical-key**, layout-independent codes: pressing the key in
-// the bottom-left of a US QWERTY (`Z`) gives `keyZ` whether the
-// system layout is QWERTY, Dvorak, or AZERTY.
-//
-// Use against an `NSEvent`:
-//
-//     scene.keyDown(fn(e) {
-//         if e.keyCode == KeyCode.leftArrow {
-//             player.x -= 20.0
-//         }
-//     })
-//
-// The values are stable across macOS releases (Carbon ABI).
+/// Virtual key codes — what `NSEvent.keyCode` returns. Mirrors the
+/// `kVK_*` constants from `<HIToolbox/Events.h>`. These are
+/// **physical-key**, layout-independent codes: pressing the key in
+/// the bottom-left of a US QWERTY (`Z`) gives `keyZ` whether the
+/// system layout is QWERTY, Dvorak, or AZERTY.
+///
+/// Use against an `NSEvent`:
+///
+///     scene.keyDown(fn(e) {
+///         if e.keyCode == KeyCode.leftArrow {
+///             player.x -= 20.0
+///         }
+///     })
+///
+/// The values are stable across macOS releases (Carbon ABI).
 
 // ─── Letters (ANSI QWERTY layout) ─────────────────────────────
 //

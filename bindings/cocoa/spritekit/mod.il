@@ -1,7 +1,7 @@
-// SpriteKit bindings — umbrella module. Flattens the sibling
-// category files into the `spritekit` namespace so callers can
-// `use spritekit { SKScene, SKSpriteNode, ... }` (or reach
-// through `cocoa.X`) without picking a category by hand.
+/// SpriteKit bindings — umbrella module. Flattens the sibling
+/// category files into the `spritekit` namespace so callers can
+/// `use spritekit { SKScene, SKSpriteNode, ... }` (or reach
+/// through `cocoa.X`) without picking a category by hand.
 
 pub use node.*
 pub use textures.*

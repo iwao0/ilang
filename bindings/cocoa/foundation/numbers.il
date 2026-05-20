@@ -1,10 +1,10 @@
-// Numeric / value-box bindings — NSValue (geometry / range
-// boxing), NSNull (singleton for "absent" in collections that
-// don't accept nil), NSDecimalNumber (exact decimal arithmetic),
-// NSNumberFormatter (locale-aware string ↔ number), and
-// NSByteCountFormatter (`"1.5 KB"`-style sizing). NSMeasurement /
-// NSMeasurementFormatter need the NSUnit class tree which we
-// haven't bound yet — deferred.
+/// Numeric / value-box bindings — NSValue (geometry / range
+/// boxing), NSNull (singleton for "absent" in collections that
+/// don't accept nil), NSDecimalNumber (exact decimal arithmetic),
+/// NSNumberFormatter (locale-aware string ↔ number), and
+/// NSByteCountFormatter (`"1.5 KB"`-style sizing). NSMeasurement /
+/// NSMeasurementFormatter need the NSUnit class tree which we
+/// haven't bound yet — deferred.
 
 use core { NSObject, NSString, NSPoint, NSSize, NSRect, NSVector, NSRange,
            NSComparisonResult }

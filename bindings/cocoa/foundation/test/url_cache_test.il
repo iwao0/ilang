@@ -1,4 +1,4 @@
-// NSURLCache — shared / custom instances, capacity reads.
+/// NSURLCache — shared / custom instances, capacity reads.
 
 use test
 use foundation { NSURLCache, NSURL, nsstr }

@@ -1,9 +1,9 @@
-// oleaut32.dll — OLE Automation: BSTR, VARIANT, SAFEARRAY,
-// type libraries, and IDispatch-style error reporting.
-//
-// All BSTRs are 16-bit Unicode strings with a 4-byte length prefix
-// stored at `bstr - 4`. Always allocate with SysAllocString and free
-// with SysFreeString — never use free() or HeapFree directly.
+/// oleaut32.dll — OLE Automation: BSTR, VARIANT, SAFEARRAY,
+/// type libraries, and IDispatch-style error reporting.
+///
+/// All BSTRs are 16-bit Unicode strings with a 4-byte length prefix
+/// stored at `bstr - 4`. Always allocate with SysAllocString and free
+/// with SysFreeString — never use free() or HeapFree directly.
 
 // ─── Variant type codes (VT_*) ───────────────────────────────────
 pub enum VarType: u16 {

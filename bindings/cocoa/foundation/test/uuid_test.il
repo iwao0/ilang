@@ -1,4 +1,4 @@
-// NSUUID — generate + string round-trip + equality.
+/// NSUUID — generate + string round-trip + equality.
 
 use test
 use foundation { NSUUID, nsstr, ilstr }

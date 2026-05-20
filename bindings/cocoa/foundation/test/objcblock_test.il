@@ -1,6 +1,6 @@
-// ObjCBlock — create + invoke round-trip for every currently
-// supported signature shape. Pure ilang round-trip; doesn't go
-// out to any Cocoa selector.
+/// ObjCBlock — create + invoke round-trip for every currently
+/// supported signature shape. Pure ilang round-trip; doesn't go
+/// out to any Cocoa selector.
 
 use test
 

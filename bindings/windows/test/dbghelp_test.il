@@ -1,4 +1,4 @@
-// dbghelp — symbol handler initialisation and option round-trip.
+/// dbghelp — symbol handler initialisation and option round-trip.
 
 use test
 use windows {

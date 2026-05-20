@@ -1,8 +1,8 @@
-// d3d12 — bootstrap a D3D12 device using the default adapter.
-//
-// Skipped on machines without a D3D12-capable GPU / driver: the
-// call returns DXGI_ERROR_UNSUPPORTED. We accept any non-positive
-// HRESULT so the test is robust on CI without a discrete GPU.
+/// d3d12 — bootstrap a D3D12 device using the default adapter.
+///
+/// Skipped on machines without a D3D12-capable GPU / driver: the
+/// call returns DXGI_ERROR_UNSUPPORTED. We accept any non-positive
+/// HRESULT so the test is robust on CI without a discrete GPU.
 
 use test
 use directx12 {

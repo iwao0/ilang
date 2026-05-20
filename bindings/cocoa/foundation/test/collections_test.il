@@ -1,4 +1,4 @@
-// NSArray / NSMutableArray / NSDictionary / NSMutableDictionary.
+/// NSArray / NSMutableArray / NSDictionary / NSMutableDictionary.
 
 use test
 use foundation { NSObject, NSString, NSArray, NSMutableArray,

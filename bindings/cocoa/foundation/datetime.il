@@ -1,8 +1,8 @@
-// Date / time bindings — NSDate, NSDateFormatter, NSCalendar,
-// NSDateComponents. The `formatters.il` sibling carries the
-// auxiliary NSDateComponentsFormatter / NSDateIntervalFormatter
-// / NSRelativeDateTimeFormatter trio that builds on the types
-// here.
+/// Date / time bindings — NSDate, NSDateFormatter, NSCalendar,
+/// NSDateComponents. The `formatters.il` sibling carries the
+/// auxiliary NSDateComponentsFormatter / NSDateIntervalFormatter
+/// / NSRelativeDateTimeFormatter trio that builds on the types
+/// here.
 
 use core { NSObject, NSString, NSArray, NSRange, NSComparisonResult }
 

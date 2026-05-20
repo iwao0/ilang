@@ -1,10 +1,10 @@
-// Networking bindings. Covers the URL-session class tree, request
-// / response wrappers, query-string building, cookies, HTTP auth
-// credentials, plus the block-completion variants of the data /
-// download task factories — the runtime ships a
-// `void(^)(id, id, id)` trampoline that fits the standard
-// `(NSData *, NSURLResponse *, NSError *)` shape; the typed
-// `ObjCBlock<fn(i64, i64, i64)>` slot picks it.
+/// Networking bindings. Covers the URL-session class tree, request
+/// / response wrappers, query-string building, cookies, HTTP auth
+/// credentials, plus the block-completion variants of the data /
+/// download task factories — the runtime ships a
+/// `void(^)(id, id, id)` trampoline that fits the standard
+/// `(NSData *, NSURLResponse *, NSError *)` shape; the typed
+/// `ObjCBlock<fn(i64, i64, i64)>` slot picks it.
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSError }
 use datetime { NSDate }

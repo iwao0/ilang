@@ -1,4 +1,4 @@
-// wtsapi32 — session information for the calling process.
+/// wtsapi32 — session information for the calling process.
 
 use test
 use windows {

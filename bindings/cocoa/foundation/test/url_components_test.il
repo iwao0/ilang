@@ -1,4 +1,4 @@
-// NSURLComponents — parse, mutate, rebuild.
+/// NSURLComponents — parse, mutate, rebuild.
 
 use test
 use foundation { NSURLComponents, NSURLQueryItem, NSMutableArray,

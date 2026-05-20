@@ -1,6 +1,6 @@
-// Range / Constraint / Region / inverse-kinematics / warp
-// transforms — value-types and helpers that operate on
-// SKNodes but aren't themselves nodes.
+/// Range / Constraint / Region / inverse-kinematics / warp
+/// transforms — value-types and helpers that operate on
+/// SKNodes but aren't themselves nodes.
 
 use foundation { NSObject, NSArray, NSPoint, NSSize, NSRect }
 use node { SKNode }

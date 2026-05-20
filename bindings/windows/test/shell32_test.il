@@ -1,4 +1,4 @@
-// shell32 — special folder lookup.
+/// shell32 — special folder lookup.
 
 use test
 use windows {

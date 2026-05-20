@@ -1,14 +1,14 @@
-// user32.dll — window classes, window management, painting,
-// input, messaging, timers, dialogs, and resources.
-//
-// ANSI (`A`) variants only for now: arguments stay as
-// `*const char`, no UTF-16 conversion. Switch to `*W` once
-// a UTF-16 path lands.
-//
-// Handle types are opaque empty structs so the type system
-// catches accidental mix-ups between e.g. HWND and HBRUSH.
-// WPARAM = `u64` (UINT_PTR), LPARAM = `i64` (LONG_PTR),
-// LRESULT = `i64` (LONG_PTR), ATOM = `u16`.
+/// user32.dll — window classes, window management, painting,
+/// input, messaging, timers, dialogs, and resources.
+///
+/// ANSI (`A`) variants only for now: arguments stay as
+/// `*const char`, no UTF-16 conversion. Switch to `*W` once
+/// a UTF-16 path lands.
+///
+/// Handle types are opaque empty structs so the type system
+/// catches accidental mix-ups between e.g. HWND and HBRUSH.
+/// WPARAM = `u64` (UINT_PTR), LPARAM = `i64` (LONG_PTR),
+/// LRESULT = `i64` (LONG_PTR), ATOM = `u16`.
 
 // ─── Window class styles (CS_*) ───────────────────────────────
 @flags

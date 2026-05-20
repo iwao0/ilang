@@ -1,9 +1,9 @@
-// Pipeline-state descriptors and their compiled forms:
-//   * Render / compute pipeline (PSO build inputs + states)
-//   * Vertex layout (`MTLVertexDescriptor` + attribute / buffer-layout family)
-//   * Sampler / depth-stencil descriptors + their compiled states
-// All consumed by `MTLDevice.makeRenderPipelineState…` /
-// `makeComputePipelineState…` and the encoders.
+/// Pipeline-state descriptors and their compiled forms:
+///   * Render / compute pipeline (PSO build inputs + states)
+///   * Vertex layout (`MTLVertexDescriptor` + attribute / buffer-layout family)
+///   * Sampler / depth-stencil descriptors + their compiled states
+/// All consumed by `MTLDevice.makeRenderPipelineState…` /
+/// `makeComputePipelineState…` and the encoders.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

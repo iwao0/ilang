@@ -1,9 +1,9 @@
-// SDL2 RWops — abstract IO stream used by `SDL_LoadBMP_RW`,
-// `SDL_LoadWAV_RW`, etc. We expose just enough to construct one
-// from a file path / memory buffer and dispose of it. The
-// individual `read` / `write` / `seek` callbacks aren't surfaced
-// because real users of this binding always go through one of
-// the loader fns that consume the RWops in one shot.
+/// SDL2 RWops — abstract IO stream used by `SDL_LoadBMP_RW`,
+/// `SDL_LoadWAV_RW`, etc. We expose just enough to construct one
+/// from a file path / memory buffer and dispose of it. The
+/// individual `read` / `write` / `seek` callbacks aren't surfaced
+/// because real users of this binding always go through one of
+/// the loader fns that consume the RWops in one shot.
 
 @extern(C, "SDL2") {
     /// Opaque SDL_RWops. Created via `RWops.fromFile(...)` /

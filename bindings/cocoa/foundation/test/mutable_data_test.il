@@ -1,4 +1,4 @@
-// NSMutableData — append + setLength + increaseLengthBy.
+/// NSMutableData — append + setLength + increaseLengthBy.
 
 use test
 use foundation { NSMutableData }

@@ -1,6 +1,6 @@
-// MTLRenderPassDescriptor and its colour / depth / stencil
-// attachment family. Built CPU-side, handed to a command buffer
-// via `renderCommandEncoderWithDescriptor:` to start a render pass.
+/// MTLRenderPassDescriptor and its colour / depth / stencil
+/// attachment family. Built CPU-side, handed to a command buffer
+/// via `renderCommandEncoderWithDescriptor:` to start a render pass.
 
 use foundation { NSObject, NSString, NSError, NSRange, withObjcError, objcRetain }
 use types.*

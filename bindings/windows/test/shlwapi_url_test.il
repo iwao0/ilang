@@ -1,4 +1,4 @@
-// shlwapi — URL canonicalisation and combine helpers.
+/// shlwapi — URL canonicalisation and combine helpers.
 
 use test
 use windows {

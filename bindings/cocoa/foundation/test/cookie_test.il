@@ -1,6 +1,6 @@
-// NSHTTPCookieStorage + NSURLCredential + NSURLProtectionSpace.
-// Read-only / construct + accessor tests, no real network state
-// changes.
+/// NSHTTPCookieStorage + NSURLCredential + NSURLProtectionSpace.
+/// Read-only / construct + accessor tests, no real network state
+/// changes.
 
 use test
 use foundation { NSHTTPCookieStorage, NSURLCredential,

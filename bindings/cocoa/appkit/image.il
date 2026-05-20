@@ -1,4 +1,4 @@
-// Images + cursors — NSImage / NSImageView / NSCursor.
+/// Images + cursors — NSImage / NSImageView / NSCursor.
 
 use foundation { NSObject, NSString, NSURL, NSSize, NSRect, nsstr, makeRect }
 use core { NSView }

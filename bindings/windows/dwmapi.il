@@ -1,9 +1,9 @@
-// dwmapi.dll — Desktop Window Manager: composition, transparency,
-// Acrylic/Mica effects, thumbnail registration, and DWM flush.
-//
-// All functions require Windows Vista or later.  On Windows 8 and
-// later, DWM composition is always on and DwmIsCompositionEnabled
-// always returns 1.
+/// dwmapi.dll — Desktop Window Manager: composition, transparency,
+/// Acrylic/Mica effects, thumbnail registration, and DWM flush.
+///
+/// All functions require Windows Vista or later.  On Windows 8 and
+/// later, DWM composition is always on and DwmIsCompositionEnabled
+/// always returns 1.
 
 // ─── DWM window attribute IDs (DWMWA_*) ──────────────────────────
 pub enum DwmWindowAttribute: u32 {

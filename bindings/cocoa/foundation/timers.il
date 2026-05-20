@@ -1,8 +1,8 @@
-// Timer / run-loop / progress bindings. Cross-cutting "things
-// that fire over time" — separate from `core` because the block-
-// taking factories (`scheduledTimerWithTimeInterval:repeats:block:`,
-// etc.) lean on the block helpers and pull in NSDate / NSString
-// from siblings.
+/// Timer / run-loop / progress bindings. Cross-cutting "things
+/// that fire over time" — separate from `core` because the block-
+/// taking factories (`scheduledTimerWithTimeInterval:repeats:block:`,
+/// etc.) lean on the block helpers and pull in NSDate / NSString
+/// from siblings.
 
 use core { NSObject, NSString }
 use datetime { NSDate }

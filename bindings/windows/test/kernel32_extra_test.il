@@ -1,4 +1,4 @@
-// kernel32 — assorted utility coverage.
+/// kernel32 — assorted utility coverage.
 
 use test
 use windows {

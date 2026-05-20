@@ -1,25 +1,25 @@
-// COM-style interface bindings — IUnknown / ID3D12Device etc.
-//
-// `@com interface I { ... }` declares a virtual contract whose
-// dispatch goes through a raw COM vtable
-// (`(*recv)[slot](recv, args...)`), not ilang's class registry.
-// Slot numbers come from declaration order, concatenated with any
-// parent interface, matching the C++ COM ABI verbatim. Receivers
-// are 8-byte handles (no ARC header); lifetime is managed by
-// `Release()`.
-//
-// `@com interface` lives inside `@extern(C) { ... }` so its method
-// signatures can reference raw pointers and other C-only types
-// under the same scope rule that `fn` / `struct` decls follow.
-//
-// Cast `*void`/`i64` ↔ interface to bring a COM pointer in or
-// out of FFI scope, then dispatch with `device.Method(args)`.
-//
-// Slot-number rule: ilang's @com numbering walks `: Parent` chains
-// and appends own methods. To stay binary-compatible with the
-// SDK vtable, every interim slot is declared — methods this repo
-// never calls are kept as no-arg `_slotN()` placeholders so the
-// numbering stays anchored to the C++ COM ABI's positions.
+/// COM-style interface bindings — IUnknown / ID3D12Device etc.
+///
+/// `@com interface I { ... }` declares a virtual contract whose
+/// dispatch goes through a raw COM vtable
+/// (`(*recv)[slot](recv, args...)`), not ilang's class registry.
+/// Slot numbers come from declaration order, concatenated with any
+/// parent interface, matching the C++ COM ABI verbatim. Receivers
+/// are 8-byte handles (no ARC header); lifetime is managed by
+/// `Release()`.
+///
+/// `@com interface` lives inside `@extern(C) { ... }` so its method
+/// signatures can reference raw pointers and other C-only types
+/// under the same scope rule that `fn` / `struct` decls follow.
+///
+/// Cast `*void`/`i64` ↔ interface to bring a COM pointer in or
+/// out of FFI scope, then dispatch with `device.Method(args)`.
+///
+/// Slot-number rule: ilang's @com numbering walks `: Parent` chains
+/// and appends own methods. To stay binary-compatible with the
+/// SDK vtable, every interim slot is declared — methods this repo
+/// never calls are kept as no-arg `_slotN()` placeholders so the
+/// numbering stays anchored to the C++ COM ABI's positions.
 
 use d3d12 {
     GUID,

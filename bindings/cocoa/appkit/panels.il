@@ -1,6 +1,6 @@
-// Modal panels — NSAlert / NSSavePanel / NSOpenPanel plus the
-// NSAlertStyle enum and the ModalResponse* / AlertFirstButtonReturn
-// constant table.
+/// Modal panels — NSAlert / NSSavePanel / NSOpenPanel plus the
+/// NSAlertStyle enum and the ModalResponse* / AlertFirstButtonReturn
+/// constant table.
 
 use foundation { NSObject, NSString, NSURL, NSArray, nsstr, ilstr }
 

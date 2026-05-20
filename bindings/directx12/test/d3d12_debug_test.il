@@ -1,9 +1,9 @@
-// d3d12 — debug-layer interface lookup.
-//
-// D3D12GetDebugInterface returns the ID3D12Debug COM pointer used to
-// enable the debug layer.  Requires the "Graphics Tools" optional
-// feature; absence of it returns DXGI_ERROR_NOT_AVAILABLE
-// (0x887A0022 → -2005270494 as i32) — we treat that as OK.
+/// d3d12 — debug-layer interface lookup.
+///
+/// D3D12GetDebugInterface returns the ID3D12Debug COM pointer used to
+/// enable the debug layer.  Requires the "Graphics Tools" optional
+/// feature; absence of it returns DXGI_ERROR_NOT_AVAILABLE
+/// (0x887A0022 → -2005270494 as i32) — we treat that as OK.
 
 use test
 use directx12 {

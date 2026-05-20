@@ -1,4 +1,4 @@
-// NSInputStream — read bytes back from an NSData-backed stream.
+/// NSInputStream — read bytes back from an NSData-backed stream.
 
 use test
 use foundation { NSInputStream, NSData, NSStreamStatus }

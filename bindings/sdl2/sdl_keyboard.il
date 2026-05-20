@@ -1,10 +1,10 @@
-// SDL2 keyboard: state polling, modifier state, name <-> code
-// lookups, and text-input mode control. Mirrors SDL_keyboard.h
-// + the SDL_Scancode / SDL_Keycode / SDL_Keymod enums.
-//
-// The state polled by `Keyboard.isHeld(scancode)` reflects
-// SDL's internal keyboard array — call `sdl.pumpEvents()` once
-// per frame before querying so newly pressed keys show up.
+/// SDL2 keyboard: state polling, modifier state, name <-> code
+/// lookups, and text-input mode control. Mirrors SDL_keyboard.h
+/// + the SDL_Scancode / SDL_Keycode / SDL_Keymod enums.
+///
+/// The state polled by `Keyboard.isHeld(scancode)` reflects
+/// SDL's internal keyboard array — call `sdl.pumpEvents()` once
+/// per frame before querying so newly pressed keys show up.
 
 use sdl_core { Rect }
 use sdl_window { Window }

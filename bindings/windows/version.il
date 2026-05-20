@@ -1,16 +1,16 @@
-// version.dll — file version information.
-//
-// Reads the VERSIONINFO resource embedded in EXEs/DLLs.
-//
-// Typical usage:
-//   1. dwSize = GetFileVersionInfoSizeA(path, &handle)
-//   2. buf = HeapAlloc(...; dwSize)
-//   3. GetFileVersionInfoA(path, 0, dwSize, buf)
-//   4. VerQueryValueA(buf, "\\", &ffi, &len)
-//      → ffi is *VS_FIXEDFILEINFO  (52 bytes)
-//   5. for translated strings:
-//      VerQueryValueA(buf, "\\VarFileInfo\\Translation", &tx, &len)
-//      VerQueryValueA(buf, "\\StringFileInfo\\xxxxxxxx\\CompanyName", &s, &len)
+/// version.dll — file version information.
+///
+/// Reads the VERSIONINFO resource embedded in EXEs/DLLs.
+///
+/// Typical usage:
+///   1. dwSize = GetFileVersionInfoSizeA(path, &handle)
+///   2. buf = HeapAlloc(...; dwSize)
+///   3. GetFileVersionInfoA(path, 0, dwSize, buf)
+///   4. VerQueryValueA(buf, "\\", &ffi, &len)
+///      → ffi is *VS_FIXEDFILEINFO  (52 bytes)
+///   5. for translated strings:
+///      VerQueryValueA(buf, "\\VarFileInfo\\Translation", &tx, &len)
+///      VerQueryValueA(buf, "\\StringFileInfo\\xxxxxxxx\\CompanyName", &s, &len)
 
 // ─── VS_FIXEDFILEINFO field bit flags ────────────────────────────
 @flags

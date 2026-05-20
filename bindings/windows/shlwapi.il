@@ -1,8 +1,8 @@
-// shlwapi.dll — Shell Lightweight Utility APIs.
-// Path manipulation, string formatting, and portable registry helpers.
-//
-// All path functions work on null-terminated ANSI strings.
-// MAX_PATH = 260 bytes (including NUL).  Declare buffers at least that size.
+/// shlwapi.dll — Shell Lightweight Utility APIs.
+/// Path manipulation, string formatting, and portable registry helpers.
+///
+/// All path functions work on null-terminated ANSI strings.
+/// MAX_PATH = 260 bytes (including NUL).  Declare buffers at least that size.
 
 // ─── StrToInt64ExA base flags ─────────────────────────────────────
 pub enum StrToIntBase: u32 {

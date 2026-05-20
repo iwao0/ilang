@@ -1,12 +1,12 @@
-// Miscellaneous Foundation formatter bindings — the date /
-// duration / personal-name / physical-unit variants that didn't
-// fit `numbers.il` or `datetime.il`.
-//
-// All of them follow the same shape: `alloc().init()` to mint
-// an instance, set the units / style / locale properties, then
-// call `stringFrom...`. NSDateIntervalFormatter is the one
-// outlier whose input is a pair of dates rather than a
-// pre-built components value.
+/// Miscellaneous Foundation formatter bindings — the date /
+/// duration / personal-name / physical-unit variants that didn't
+/// fit `numbers.il` or `datetime.il`.
+///
+/// All of them follow the same shape: `alloc().init()` to mint
+/// an instance, set the units / style / locale properties, then
+/// call `stringFrom...`. NSDateIntervalFormatter is the one
+/// outlier whose input is a pair of dates rather than a
+/// pre-built components value.
 
 use core { NSObject, NSString }
 use datetime { NSDate, NSDateComponents, NSTimeZone }

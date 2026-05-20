@@ -1,6 +1,6 @@
-// Scene graph base — SKNode + SKScene + SKView. Every other
-// SpriteKit class derives from SKNode, so every category file
-// in this folder will `use node { SKNode, ... }`.
+/// Scene graph base — SKNode + SKScene + SKView. Every other
+/// SpriteKit class derives from SKNode, so every category file
+/// in this folder will `use node { SKNode, ... }`.
 
 use foundation { NSObject, NSString, NSArray, NSPoint, NSSize,
                  NSRect, NSVector, NSURL, nsstr }

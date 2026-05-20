@@ -1,5 +1,5 @@
-// NSBezierPath / NSAffineTransform / NSColor — pure construct +
-// inspect; no NSGraphicsContext / drawing actually happens.
+/// NSBezierPath / NSAffineTransform / NSColor — pure construct +
+/// inspect; no NSGraphicsContext / drawing actually happens.
 
 use test
 use appkit { NSBezierPath, NSAffineTransform, NSColor,

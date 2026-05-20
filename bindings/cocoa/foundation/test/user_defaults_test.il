@@ -1,5 +1,5 @@
-// NSUserDefaults — set / get / remove on a custom suite name so
-// we don't pollute the host user's defaults database.
+/// NSUserDefaults — set / get / remove on a custom suite name so
+/// we don't pollute the host user's defaults database.
 
 use test
 use foundation { NSUserDefaults, nsstr, ilstr }

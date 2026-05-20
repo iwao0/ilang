@@ -1,15 +1,15 @@
-// AppleScript / Apple Events bindings — the legacy macOS
-// automation surface that lets external scripts drive your app
-// (or your app drive other apps). Modern equivalents are
-// Shortcuts.app, Intents, and NSUserActivity, but the
-// AppleScript pipe is still wired through Foundation on every
-// shipping macOS release.
-//
-// What you actually need depends on which side you're on:
-//   * Sending AppleScript: NSAppleScript (compile + run a
-//     `.scpt`) and the NSAppleEventDescriptor reply tree.
-//   * Receiving AppleScript: subclass-and-register through
-//     NSScriptCommand / NSScriptObjectSpecifier and friends.
+/// AppleScript / Apple Events bindings — the legacy macOS
+/// automation surface that lets external scripts drive your app
+/// (or your app drive other apps). Modern equivalents are
+/// Shortcuts.app, Intents, and NSUserActivity, but the
+/// AppleScript pipe is still wired through Foundation on every
+/// shipping macOS release.
+///
+/// What you actually need depends on which side you're on:
+///   * Sending AppleScript: NSAppleScript (compile + run a
+///     `.scpt`) and the NSAppleEventDescriptor reply tree.
+///   * Receiving AppleScript: subclass-and-register through
+///     NSScriptCommand / NSScriptObjectSpecifier and friends.
 
 use core { NSObject, NSString, NSArray, NSDictionary, NSError, NSData }
 use datetime { NSDate }

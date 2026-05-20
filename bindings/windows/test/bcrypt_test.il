@@ -1,4 +1,4 @@
-// bcrypt — random bytes, SHA-256 hash of a known input.
+/// bcrypt — random bytes, SHA-256 hash of a known input.
 
 use test
 use windows {
