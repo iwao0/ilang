@@ -19,7 +19,7 @@
 //! | `as` (cast)             | 25 / —      | postfix|
 //! | prefix `-` `+` `!` `~`  | — / 30      | prefix |
 
-use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, UnOp, Symbol};
+use ilang_ast::{BinOp, Expr, ExprKind, LogicalOp, Span, UnOp, Symbol};
 use ilang_lexer::TokenKind;
 
 use crate::error::ParseError;
@@ -345,11 +345,14 @@ impl<'a> Parser<'a> {
                     // prealloc avoids the 0→4→8 reallocation pair for
                     // the common 3–4-field case.
                     let mut fs: Vec<(Symbol, Expr)> = Vec::with_capacity(4);
+                    let mut name_spans: Vec<Span> = Vec::with_capacity(4);
                     while !matches!(self.peek().kind, TokenKind::RBrace) {
+                        let fname_span = self.peek().span;
                         let fname = self.expect_ident("field name")?;
                         self.expect(&TokenKind::Colon, "':'")?;
                         let fval = self.parse_expr(0)?;
                         fs.push((fname, fval));
+                        name_spans.push(fname_span);
                         if matches!(self.peek().kind, TokenKind::Comma) {
                             self.bump();
                         } else if !matches!(self.peek().kind, TokenKind::RBrace)
@@ -372,6 +375,7 @@ impl<'a> Parser<'a> {
                         ExprKind::StructLit {
                             class: class_name.into(),
                             fields: fs.into(),
+                            field_name_spans: name_spans.into(),
                         },
                         span,
                     );

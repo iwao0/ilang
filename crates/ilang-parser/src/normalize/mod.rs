@@ -666,7 +666,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         // the full literal — including which field names the author
         // wrote — instead of an already-desugared `__sl.x = ...`
         // sequence that loses the "this was a struct literal" intent.
-        ExprKind::StructLit { class, fields } => {
+        ExprKind::StructLit { class, fields, field_name_spans } => {
             return Expr::new(
                 ExprKind::StructLit {
                     class,
@@ -674,6 +674,7 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
                         .into_iter()
                         .map(|(n, e)| (n, rewrite_expr(e, ctx)))
                         .collect(),
+                    field_name_spans,
                 },
                 span,
             );

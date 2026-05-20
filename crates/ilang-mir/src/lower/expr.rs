@@ -817,7 +817,7 @@ impl<'a> BodyCx<'a> {
             )),
             ExprKind::Match { scrutinee, arms } => self.lower_match(scrutinee, arms),
             ExprKind::MapLit(entries) => self.lower_map_literal(entries),
-            ExprKind::StructLit { class, fields } => {
+            ExprKind::StructLit { class, fields, .. } => {
                 // Aggregate literal — for `@extern(C) struct` /
                 // top-level `struct` / `union` (zero-init heap slot
                 // then store each field) and for ARC classes (the

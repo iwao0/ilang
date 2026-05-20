@@ -332,7 +332,13 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
     for item in &prog.items {
         match item {
             Item::Class(c) => classes.push(c),
+            Item::Interface(i) => {
+                register_interface_as_class(i, src, &mut out);
+            }
             Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    register_interface_as_class(iface, src, &mut out);
+                }
                 for inner in &b.items {
                     match inner {
                         ExternCItem::Class(c) => classes.push(c),
@@ -524,6 +530,59 @@ pub(crate) fn collect_classes(prog: &Program, src: &str) -> HashMap<AstSymbol, C
         }
     }
     out
+}
+
+/// Register an `interface` / `@com interface` / `@objc interface` in
+/// the class-info map so `value.method()` hover and go-to-def can
+/// resolve through the interface's method list. The interface's
+/// member table mirrors a fields-only `ClassInfo`, but the slots
+/// live under `methods` (interfaces don't have fields). The
+/// `interface ID3D12Device : IUnknown` chain is followed at the
+/// call site, not here — caller passes the leaf, methods of
+/// parents resolve via the `parent` lookup chain in `walker.rs`.
+fn register_interface_as_class(
+    i: &ilang_ast::InterfaceDecl,
+    src: &str,
+    out: &mut HashMap<AstSymbol, ClassInfo>,
+) {
+    let mut methods = HashMap::new();
+    for m in i.methods.iter() {
+        let params = m
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ret_ty = m.ret.clone();
+        let ret_str = match &ret_ty {
+            Some(t) => format!(": {t}"),
+            None => String::new(),
+        };
+        methods.insert(
+            m.name,
+            MemberInfo {
+                span: m.span,
+                signature: format!("(method) {}.{}({}){}", i.name, m.name, params, ret_str),
+                ret_ty,
+                is_static: false,
+                doc: text::extract_doc_above(src, m.span.line),
+            },
+        );
+    }
+    out.insert(
+        i.name,
+        ClassInfo {
+            decl_span: i.span,
+            fields: HashMap::new(),
+            methods,
+            getters: HashMap::new(),
+            setters: HashMap::new(),
+            external: false,
+            init_overloads: 0,
+            inits: Vec::new(),
+            kind: ClassKind::Interface,
+        },
+    );
 }
 
 pub(crate) fn fn_signature(f: &FnDecl) -> String {

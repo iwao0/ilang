@@ -207,6 +207,15 @@ pub enum ExprKind {
     StructLit {
         class: Symbol,
         fields: Box<[(Symbol, Expr)]>,
+        /// Source span of each entry's field name, parallel to
+        /// `fields`. The AST itself doesn't need them, but LSP
+        /// hover / go-to-def on a field name inside the literal
+        /// (`cbSize:` inside `WNDCLASSEXA { cbSize: 80, ... }`)
+        /// has nothing to anchor on otherwise. Construction sites
+        /// outside the parser usually clone these verbatim from
+        /// the source literal; passes that synthesise fields
+        /// from scratch can fill with `Span::dummy()`.
+        field_name_spans: Box<[Span]>,
     },
     /// Map literal: `{ "a": 1, "b": 2 }`. Keys must be K-typed
     /// expressions (string / int / bool literals at parse time;

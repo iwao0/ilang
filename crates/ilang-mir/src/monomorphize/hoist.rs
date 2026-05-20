@@ -577,12 +577,13 @@ fn hoist_in_expr(e: &Expr, ctx: &mut HoistCtx) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             items.iter().map(|i| hoist_in_expr(i, ctx)).collect(),
         ),
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class: class.clone(),
             fields: fields
                 .iter()
                 .map(|(n, e)| (n.clone(), hoist_in_expr(e, ctx)))
                 .collect(),
+            field_name_spans: field_name_spans.clone(),
         },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries

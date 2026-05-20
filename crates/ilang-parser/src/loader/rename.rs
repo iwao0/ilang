@@ -359,7 +359,7 @@ fn rename_in_expr(e: &mut Expr, rules: &HashMap<Symbol, Symbol>) {
                 rename_in_expr(e, rules);
             }
         }
-        ExprKind::StructLit { class, fields } => {
+        ExprKind::StructLit { class, fields, .. } => {
             if let Some(new_name) = rename_sym(class, rules) {
                 *class = new_name;
             }

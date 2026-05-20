@@ -567,12 +567,13 @@ fn rewrite_expr(e: Expr, ctx: &Ctx) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             Vec::from(items).into_iter().map(|e| rewrite_expr(e, ctx)).collect(),
         ),
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class,
             fields: fields
                 .into_iter()
                 .map(|(n, e)| (n, rewrite_expr(e, ctx)))
                 .collect(),
+            field_name_spans,
         },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries

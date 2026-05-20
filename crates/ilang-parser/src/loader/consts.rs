@@ -747,12 +747,13 @@ fn subst_const_expr(e: Expr, ctx: &SubstCtx<'_>) -> Expr {
         | ExprKind::This
         | ExprKind::None
         | ExprKind::Continue) => other,
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class,
             fields: fields
                 .into_iter()
                 .map(|(n, e)| (n, subst_const_expr(e, ctx)))
                 .collect(),
+            field_name_spans,
         },
     };
     Expr { kind, span }

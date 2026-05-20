@@ -63,7 +63,7 @@ fn dealias_expr(e: &mut Expr, modules: &HashMap<Symbol, Symbol>) {
                 dealias_expr(a, modules);
             }
         }
-        ExprKind::StructLit { class, fields } => {
+        ExprKind::StructLit { class, fields, .. } => {
             *class = dealias_sym(class, modules);
             for (_, x) in fields.iter_mut() {
                 dealias_expr(x, modules);

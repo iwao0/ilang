@@ -99,7 +99,7 @@ impl TypeChecker {
     ) -> Result<Type, TypeError> {
         let span = expr.span;
         match &expr.kind {
-            ExprKind::StructLit { class, fields } => {
+            ExprKind::StructLit { class, fields, .. } => {
                 // Look up the class signature. A literal against an
                 // unknown class name is the same error as `new
                 // BogusName()`.

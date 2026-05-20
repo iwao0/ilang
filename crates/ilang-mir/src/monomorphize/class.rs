@@ -684,12 +684,13 @@ pub(super) fn subst_expr(e: &Expr, params: &[Symbol], args: &[Type]) -> Expr {
         ExprKind::Tuple(items) => ExprKind::Tuple(
             items.iter().map(|e| subst_expr(e, params, args)).collect(),
         ),
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class: class.clone(),
             fields: fields
                 .iter()
                 .map(|(n, e)| (n.clone(), subst_expr(e, params, args)))
                 .collect(),
+            field_name_spans: field_name_spans.clone(),
         },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries
@@ -1065,9 +1066,10 @@ pub(super) fn rewrite_expr(e: &Expr) -> Expr {
         ExprKind::Tuple(items) => {
             ExprKind::Tuple(items.iter().map(rewrite_expr).collect())
         }
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class: class.clone(),
             fields: fields.iter().map(|(n, e)| (n.clone(), rewrite_expr(e))).collect(),
+            field_name_spans: field_name_spans.clone(),
         },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries

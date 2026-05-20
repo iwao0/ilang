@@ -1068,7 +1068,41 @@ impl<'a> Walker<'a> {
                     self.walk_expr(x, scope, this_class);
                 }
             }
-            ExprKind::StructLit { fields, .. } => {
+            ExprKind::StructLit { class, fields, field_name_spans } => {
+                // Hover on each field name (`cbSize: 80`) resolves
+                // to the matching declaration on the named class /
+                // struct, so the editor shows the field's declared
+                // type. Field-name spans come straight from the
+                // parser; values still walk normally below.
+                if let Some(info) = self.classes.get(class) {
+                    for (i, (fname, _)) in fields.iter().enumerate() {
+                        let Some(name_span) = field_name_spans.get(i) else {
+                            continue;
+                        };
+                        let Some(m) = info.fields.get(fname) else {
+                            continue;
+                        };
+                        let (target, no_def, uri) = member_target(
+                            m,
+                            info,
+                            class.as_str(),
+                            self.external_sources,
+                            name_span.line,
+                            name_span.col,
+                        );
+                        self.refs.push(RefEntry {
+                            line: name_span.line,
+                            start_col: name_span.col,
+                            end_col: name_span.col + fname.as_str().len() as u32,
+                            target_span: target,
+                            target_name_len: fname.as_str().len() as u32,
+                            signature: m.signature.clone(),
+                            no_definition: no_def,
+                            target_uri: uri,
+                            doc: m.doc.clone(),
+                        });
+                    }
+                }
                 for (_, x) in fields {
                     self.walk_expr(x, scope, this_class);
                 }
@@ -1128,6 +1162,16 @@ impl<'a> Walker<'a> {
                 .get(callee)
                 .or_else(|| self.external_returns.get(callee))
                 .cloned()
+                .or_else(|| {
+                    // FFI marshalling helpers (`cstrFromString`,
+                    // `readU64`, ...) are pre-registered by the type
+                    // checker but never declared in the buffer, so
+                    // they don't sit in `fn_returns` or
+                    // `external_returns`. Look them up by name so
+                    // a binding like `let p = cstrFromString(s)`
+                    // hovers with its pointer type.
+                    crate::builtins::ffi_helper_return_type(callee.as_str())
+                })
                 .or_else(|| {
                     // `ClassName.staticMethod()` — parsed as a single
                     // dotted callee, not as MethodCall. Resolve through
@@ -1189,6 +1233,19 @@ impl<'a> Walker<'a> {
                 })
             }
             ExprKind::Block(b) => b.tail.as_ref().and_then(|t| self.infer_expr(t, scope)),
+            // `Foo { f1: v, f2: w }` — typed by its class name.
+            // Both `@extern(C) pub struct` and plain `pub struct` use
+            // the same StructLit shape, so the hover renders e.g.
+            // `let wc: windows.WNDCLASSEXA`.
+            ExprKind::StructLit { class, .. } => {
+                Some(Type::Object(class.clone()))
+            }
+            // `expr as T` — the binding takes the cast's target
+            // type. `let device = raw as ID3D12Device` then resolves
+            // method calls (`device.CreateCommandQueue(...)`)
+            // through the @com interface registered under
+            // `ID3D12Device`.
+            ExprKind::Cast { ty, .. } => Some(ty.clone()),
             // `loop { ... break v ... }` — the value of the loop is the
             // first `break v` we find. Bare `break` (no value) yields
             // Unit; absence of any break we treat as no info.

@@ -197,7 +197,7 @@ fn validate_expr(e: &Expr, modules: &HashMap<Symbol, Symbol>) -> Result<(), Pars
                 validate_expr(x, modules)?;
             }
         }
-        ExprKind::StructLit { class, fields } => {
+        ExprKind::StructLit { class, fields, .. } => {
             check_dotted_ref(class, "", e.span, modules)?;
             for (_, x) in fields.iter() {
                 validate_expr(x, modules)?;

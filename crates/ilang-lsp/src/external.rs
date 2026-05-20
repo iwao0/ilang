@@ -892,7 +892,15 @@ pub(crate) fn collect_external_classes(
     for item in &prog.items {
         match item {
             Item::Class(c) if c.name.as_str().contains('.') => classes.push(c),
+            Item::Interface(i) if i.name.as_str().contains('.') => {
+                register_external_interface(i, sources, &mut src_cache, &mut out);
+            }
             Item::ExternC(b) => {
+                for iface in b.interfaces.iter() {
+                    if iface.name.as_str().contains('.') {
+                        register_external_interface(iface, sources, &mut src_cache, &mut out);
+                    }
+                }
                 for inner in &b.items {
                     match inner {
                         ExternCItem::Class(c) if c.name.as_str().contains('.') => classes.push(c),
@@ -1156,6 +1164,71 @@ pub(crate) fn collect_external_classes(
 /// `sdl.InitFlag`). Each variant is keyed `enum_key.variant_name` so
 /// `Field { obj: Var(enum_key), name: variant }` can be resolved by
 /// the walker.
+/// Register a cross-module interface (`directx12.ID3D12Device`,
+/// `cocoa.NSWindowDelegate`, …) so `receiver.method(...)` hovers
+/// resolve through the interface's method list when the receiver
+/// flows in from another file. Mirrors `register_interface_as_class`
+/// in `symbols.rs` but reads doc comments from the declaring file
+/// via `sources` instead of the buffer.
+fn register_external_interface(
+    i: &ilang_ast::InterfaceDecl,
+    sources: &ExternalSources,
+    src_cache: &mut HashMap<PathBuf, String>,
+    out: &mut HashMap<AstSymbol, ClassInfo>,
+) {
+    let mut methods = HashMap::new();
+    for m in i.methods.iter() {
+        let params = m
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.ty))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ret_ty = m.ret.clone();
+        let ret_str = match &ret_ty {
+            Some(t) => format!(": {t}"),
+            None => String::new(),
+        };
+        // Resolve the interface's declaring file via `sources` so
+        // we can pull `///` doc comments above the method out of
+        // disk. Skip silently when the file can't be read; we just
+        // lose the doc, the rest of the hover still works.
+        let doc = sources.get(&i.name).and_then(|loc| {
+            let path = loc.path.clone();
+            if !src_cache.contains_key(&path) {
+                let txt = std::fs::read_to_string(&path).ok()?;
+                src_cache.insert(path.clone(), txt);
+            }
+            let s = src_cache.get(&path)?.as_str();
+            text::extract_doc_above(s, m.span.line)
+        });
+        methods.insert(
+            m.name,
+            MemberInfo {
+                span: m.span,
+                signature: format!("(method) {}.{}({}){}", i.name, m.name, params, ret_str),
+                ret_ty,
+                is_static: false,
+                doc,
+            },
+        );
+    }
+    out.insert(
+        i.name,
+        ClassInfo {
+            decl_span: i.span,
+            fields: HashMap::new(),
+            methods,
+            getters: HashMap::new(),
+            setters: HashMap::new(),
+            external: true,
+            init_overloads: 0,
+            inits: Vec::new(),
+            kind: ClassKind::Interface,
+        },
+    );
+}
+
 pub(crate) fn register_enum_variants(
     e: &ilang_ast::EnumDecl,
     enum_key: &str,

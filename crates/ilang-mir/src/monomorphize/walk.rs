@@ -296,9 +296,10 @@ pub(super) fn map_expr_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> E
         },
         ExprKind::Array(items) => ExprKind::Array(items.iter().map(|e| f(e)).collect()),
         ExprKind::Tuple(items) => ExprKind::Tuple(items.iter().map(|e| f(e)).collect()),
-        ExprKind::StructLit { class, fields } => ExprKind::StructLit {
+        ExprKind::StructLit { class, fields, field_name_spans } => ExprKind::StructLit {
             class: class.clone(),
             fields: fields.iter().map(|(n, e)| (n.clone(), f(e))).collect(),
+            field_name_spans: field_name_spans.clone(),
         },
         ExprKind::MapLit(entries) => ExprKind::MapLit(
             entries.iter().map(|(k, v)| (f(k), f(v))).collect(),

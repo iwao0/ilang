@@ -431,7 +431,7 @@ fn check_expr(e: &Expr, self_module: Option<&str>, catalog: &PubCatalog) -> Resu
                 check_expr(a, self_module, catalog)?;
             }
         }
-        ExprKind::StructLit { class, fields } => {
+        ExprKind::StructLit { class, fields, .. } => {
             check_dotted(class, e.span, self_module, catalog)?;
             for (_, x) in fields.iter() {
                 check_expr(x, self_module, catalog)?;

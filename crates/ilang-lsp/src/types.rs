@@ -61,6 +61,10 @@ pub(crate) enum ClassKind {
     Class,
     Struct,
     Union,
+    /// `interface` / `@com interface` / `@objc interface`. Members
+    /// are virtual contracts; hover should phrase them as
+    /// "interface" rather than borrowing the class wording.
+    Interface,
 }
 
 impl ClassKind {
@@ -69,6 +73,7 @@ impl ClassKind {
             ClassKind::Class => "class",
             ClassKind::Struct => "struct",
             ClassKind::Union => "union",
+            ClassKind::Interface => "interface",
         }
     }
 }
