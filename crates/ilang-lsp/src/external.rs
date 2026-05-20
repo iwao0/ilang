@@ -616,6 +616,7 @@ pub(crate) fn walk_module(
                     out,
                     sources,
                     docs,
+                    const_types,
                 );
             }
             _ => {}
@@ -632,6 +633,7 @@ pub(crate) fn walk_module_aliased(
     out: &mut HashMap<AstSymbol, String>,
     sources: &mut ExternalSources,
     docs: &mut HashMap<AstSymbol, String>,
+    const_types: &mut HashMap<AstSymbol, Type>,
 ) {
     let (module_path, module_src) =
         if let Some(s) = ilang_parser::loader::builtin_module_source(actual) {
@@ -674,11 +676,11 @@ pub(crate) fn walk_module_aliased(
         match it {
             Item::Const(c) => {
                 let key = format!("{alias_prefix}.{}", c.name);
-                let ty = match c
+                let resolved_ty = c
                     .ty
                     .clone()
-                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]))
-                {
+                    .or_else(|| infer_expr_type_with_scope(&c.value, &[]));
+                let ty = match &resolved_ty {
                     Some(t) => format!(": {t}"),
                     None => String::new(),
                 };
@@ -686,6 +688,9 @@ pub(crate) fn walk_module_aliased(
                     .map(|v| format!(" = {v}"))
                     .unwrap_or_default();
                 out.insert(AstSymbol::intern(&key), format!("const {key}{ty}{value}"));
+                if let Some(t) = resolved_ty {
+                    const_types.insert(AstSymbol::intern(&key), t);
+                }
                 put(&key, c.span, c.name.as_str().len() as u32, sources);
                 if let Some(d) = text::extract_doc_above(&module_src, c.span.line) {
                     docs.insert(AstSymbol::intern(&key), d);
@@ -863,6 +868,7 @@ pub(crate) fn walk_module_aliased(
                     out,
                     sources,
                     docs,
+                    const_types,
                 );
             }
             _ => {}
