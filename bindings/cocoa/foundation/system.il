@@ -12,10 +12,10 @@
 use core { NSObject, NSString, NSArray, NSDictionary, NSData }
 use network { NSURL }
 
-// NSPostingStyle — when NSNotificationQueue actually fires
-// a queued notification. `whenIdle` waits for the run loop to
-// quiesce; `asap` runs at the next opportunity; `now` posts
-// synchronously (essentially defeats the queue).
+/// NSPostingStyle — when NSNotificationQueue actually fires
+/// a queued notification. `whenIdle` waits for the run loop to
+/// quiesce; `asap` runs at the next opportunity; `now` posts
+/// synchronously (essentially defeats the queue).
 pub enum NSPostingStyle: u64 {
     whenIdle = 1
     asap     = 2
@@ -33,10 +33,10 @@ pub enum NSNotificationCoalescing: u64 {
     onSender = 0x02
 }
 
-// NSProcessInfoThermalState — system thermal pressure. `nominal`
-// means everything's fine; `serious` / `critical` are signals to
-// scale work back / pause it entirely to stop the CPU throttling
-// (or the user's lap from catching fire).
+/// NSProcessInfoThermalState — system thermal pressure. `nominal`
+/// means everything's fine; `serious` / `critical` are signals to
+/// scale work back / pause it entirely to stop the CPU throttling
+/// (or the user's lap from catching fire).
 pub enum NSProcessInfoThermalState: i64 {
     nominal  = 0
     fair     = 1
@@ -189,7 +189,7 @@ pub enum NSProcessInfoThermalState: i64 {
         @objc("initWithSuiteName:")
         pub initWithSuiteName(name: NSString): NSUserDefaults
 
-        // ─── Typed getters ────────────────────────────────────
+        /// ─── Typed getters ────────────────────────────────────
         @objc("objectForKey:")
         pub objectForKey(k: NSString): NSObject
         @objc("stringForKey:")
@@ -213,7 +213,7 @@ pub enum NSProcessInfoThermalState: i64 {
         @objc("stringArrayForKey:")
         pub stringArrayForKey(k: NSString): NSArray
 
-        // ─── Typed setters ────────────────────────────────────
+        /// ─── Typed setters ────────────────────────────────────
         @objc("setObject:forKey:")
         pub setObject(value: NSObject, forKey: NSString)
         @objc("setInteger:forKey:")
@@ -344,7 +344,7 @@ pub enum NSProcessInfoThermalState: i64 {
         @objc("displayNameForKey:value:")
         pub displayNameForKey(key: NSString, value: NSString): NSString
 
-        // ─── Identifier canonicalisation ─────────────────────
+        /// ─── Identifier canonicalisation ─────────────────────
         @objc("canonicalLocaleIdentifierFromString:")
         pub static canonicalLocaleIdentifierFromString(s: NSString): NSString
         @objc("canonicalLanguageIdentifierFromString:")
@@ -354,7 +354,7 @@ pub enum NSProcessInfoThermalState: i64 {
         @objc("componentsFromLocaleIdentifier:")
         pub static componentsFromLocaleIdentifier(s: NSString): NSDictionary
 
-        // ─── Calendar accessor ───────────────────────────────
+        /// ─── Calendar accessor ───────────────────────────────
         @objc("calendarIdentifier")
         pub get calendarIdentifier(): NSString
         @objc("collationIdentifier")

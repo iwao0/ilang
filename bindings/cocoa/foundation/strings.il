@@ -137,8 +137,8 @@ pub enum NSMatchingOptions: u64 {
         @objc("setLocale:")
         pub set locale(l: NSObject)
 
-        // ─── String / character-set scans (out-param NSString
-        //     handed back via autoreleased pointer) ────────────
+        /// ─── String / character-set scans (out-param NSString
+        ///     handed back via autoreleased pointer) ────────────
         @objc("scanString:intoString:")
         _scanString(s: NSString, intoString: i64): bool
         @objc("scanCharactersFromSet:intoString:")
@@ -168,7 +168,7 @@ pub enum NSMatchingOptions: u64 {
             this._scanUpToCharactersFromSet(set, 0)
         }
 
-        // ── Raw out-param @objc selectors (non-pub) ────────────
+        /// ── Raw out-param @objc selectors (non-pub) ────────────
         @objc("scanInt:")
         _scanInt(out: *i32): bool
         @objc("scanInteger:")
@@ -178,7 +178,7 @@ pub enum NSMatchingOptions: u64 {
         @objc("scanFloat:")
         _scanFloat(out: *f32): bool
 
-        // ── Public Optional-returning wrappers ─────────────────
+        /// ── Public Optional-returning wrappers ─────────────────
         pub scanInt(): i32? {
             let v: i32 = 0
             if !this._scanInt(&v) { return none }

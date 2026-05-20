@@ -8,15 +8,15 @@ use node { SKNode }
 use sprites { SKBlendMode }
 use textures { SKTexture }
 
-// SKInterpolationMode — how an `SKKeyframeSequence` blends
-// between successive keyframes.
+/// SKInterpolationMode — how an `SKKeyframeSequence` blends
+/// between successive keyframes.
 pub enum SKInterpolationMode: i64 {
     linear = 1
     spline = 2
     step   = 3
 }
 
-// SKRepeatMode — what happens past the last keyframe.
+/// SKRepeatMode — what happens past the last keyframe.
 pub enum SKRepeatMode: i64 {
     clamp = 1
     loop  = 2
@@ -69,8 +69,8 @@ pub enum SKRepeatMode: i64 {
         @objc("shader")
         pub shader(): SKShader
 
-        // Warp geometry — same shape as `SKSpriteNode`'s; the
-        // EffectNode warps its rasterised subtree as a whole.
+        /// Warp geometry — same shape as `SKSpriteNode`'s; the
+        /// EffectNode warps its rasterised subtree as a whole.
         @objc("setWarpGeometry:")
         pub setWarpGeometry(g: SKWarpGeometry)
         @objc("warpGeometry")
@@ -123,42 +123,42 @@ pub enum SKRepeatMode: i64 {
         @objc("resetSimulation")
         pub resetSimulation()
 
-        // Rendering target — particles are emitted into
-        // `targetNode`'s coordinate space if set. Useful when
-        // the emitter is mounted on a moving parent but the
-        // particles should stay in world space.
+        /// Rendering target — particles are emitted into
+        /// `targetNode`'s coordinate space if set. Useful when
+        /// the emitter is mounted on a moving parent but the
+        /// particles should stay in world space.
         @objc("setTargetNode:")
         pub setTargetNode(n: SKNode)
         @objc("targetNode")
         pub targetNode(): SKNode
 
-        // Constant per-frame acceleration applied to each
-        // particle (world units / s²). Combine with the
-        // particle's initial `Speed` / `EmissionAngle` for
-        // gravity-like fall-off, smoke drift, etc.
+        /// Constant per-frame acceleration applied to each
+        /// particle (world units / s²). Combine with the
+        /// particle's initial `Speed` / `EmissionAngle` for
+        /// gravity-like fall-off, smoke drift, etc.
         @objc("setXAcceleration:")
         pub setXAcceleration(a: f64)
         @objc("setYAcceleration:")
         pub setYAcceleration(a: f64)
 
-        // Spread the spawn point over a rectangular range
-        // (`dx`, `dy` half-widths). Default `(0, 0)` emits
-        // every particle from the node's exact position.
+        /// Spread the spawn point over a rectangular range
+        /// (`dx`, `dy` half-widths). Default `(0, 0)` emits
+        /// every particle from the node's exact position.
         @objc("setParticlePositionRange:")
         pub setParticlePositionRange(v: NSVector)
 
-        // Each emitted particle runs `action` for its lifetime
-        // — handy for per-particle rotation / scale tweens
-        // beyond the built-in `setParticleScaleSpeed` etc.
+        /// Each emitted particle runs `action` for its lifetime
+        /// — handy for per-particle rotation / scale tweens
+        /// beyond the built-in `setParticleScaleSpeed` etc.
         @objc("setParticleAction:")
         pub setParticleAction(a: SKAction)
         @objc("particleAction")
         pub particleAction(): SKAction
 
-        // Keyframe-sequenced animation of per-particle colour
-        // / colour-blend-factor. The sequence is sampled
-        // against each particle's normalised lifetime
-        // (0.0 = birth, 1.0 = death).
+        /// Keyframe-sequenced animation of per-particle colour
+        /// / colour-blend-factor. The sequence is sampled
+        /// against each particle's normalised lifetime
+        /// (0.0 = birth, 1.0 = death).
         @objc("setParticleColorSequence:")
         pub setParticleColorSequence(s: SKKeyframeSequence)
         @objc("setParticleColorBlendFactor:")
@@ -166,9 +166,9 @@ pub enum SKRepeatMode: i64 {
         @objc("setParticleColorBlendFactorSequence:")
         pub setParticleColorBlendFactorSequence(s: SKKeyframeSequence)
 
-        // Per-channel drift speeds — combine with the
-        // particle's starting `particleColor` for fade /
-        // tint-shift effects.
+        /// Per-channel drift speeds — combine with the
+        /// particle's starting `particleColor` for fade /
+        /// tint-shift effects.
         @objc("setParticleColorRedSpeed:")
         pub setParticleColorRedSpeed(s: f64)
         @objc("setParticleColorGreenSpeed:")
@@ -178,7 +178,7 @@ pub enum SKRepeatMode: i64 {
         @objc("setParticleColorAlphaSpeed:")
         pub setParticleColorAlphaSpeed(s: f64)
 
-        // Per-channel jitter ranges (added randomly at spawn).
+        /// Per-channel jitter ranges (added randomly at spawn).
         @objc("setParticleColorRedRange:")
         pub setParticleColorRedRange(r: f64)
         @objc("setParticleColorGreenRange:")
@@ -188,13 +188,13 @@ pub enum SKRepeatMode: i64 {
         @objc("setParticleColorAlphaRange:")
         pub setParticleColorAlphaRange(r: f64)
 
-        // Particle scale rate of change (units / s) — combine
-        // with `setParticleScale` / `setParticleScaleRange`.
+        /// Particle scale rate of change (units / s) — combine
+        /// with `setParticleScale` / `setParticleScaleRange`.
         @objc("setParticleScaleSpeed:")
         pub setParticleScaleSpeed(s: f64)
 
-        // Z-rotation animation parameters for the particle's
-        // own coordinate frame (radians + radians/s).
+        /// Z-rotation animation parameters for the particle's
+        /// own coordinate frame (radians + radians/s).
         @objc("setParticleRotation:")
         pub setParticleRotation(r: f64)
         @objc("setParticleRotationRange:")
@@ -202,7 +202,7 @@ pub enum SKRepeatMode: i64 {
         @objc("setParticleRotationSpeed:")
         pub setParticleRotationSpeed(r: f64)
 
-        // Custom shader applied to each particle quad.
+        /// Custom shader applied to each particle quad.
         @objc("setShader:")
         pub setShader(s: SKShader)
     }

@@ -9,10 +9,10 @@
 use core { NSObject, NSString, NSPoint, NSSize, NSRect, NSVector, NSRange,
            NSComparisonResult }
 
-// NSNumberFormatterStyle — how `stringFromNumber:` renders its
-// input. Defaults to `none` (raw digits); change to `decimal` /
-// `currency` / `percent` / `scientific` / `spellOut` to opt into
-// locale-aware formatting.
+/// NSNumberFormatterStyle — how `stringFromNumber:` renders its
+/// input. Defaults to `none` (raw digits); change to `decimal` /
+/// `currency` / `percent` / `scientific` / `spellOut` to opt into
+/// locale-aware formatting.
 pub enum NSNumberFormatterStyle: u64 {
     none       = 0
     decimal    = 1
@@ -26,10 +26,10 @@ pub enum NSNumberFormatterStyle: u64 {
     currencyAccounting   = 10
 }
 
-// NSByteCountFormatterCountStyle — base unit set the formatter
-// picks from. `file` is binary (KB = 1024 bytes); `memory` is
-// the same; `decimal` is SI (KB = 1000 bytes); `binary` is
-// explicit kibibyte / mebibyte.
+/// NSByteCountFormatterCountStyle — base unit set the formatter
+/// picks from. `file` is binary (KB = 1024 bytes); `memory` is
+/// the same; `decimal` is SI (KB = 1000 bytes); `binary` is
+/// explicit kibibyte / mebibyte.
 pub enum NSByteCountFormatterCountStyle: i64 {
     file    = 0
     memory  = 1
@@ -37,9 +37,9 @@ pub enum NSByteCountFormatterCountStyle: i64 {
     binary  = 3
 }
 
-// NSDecimalNumberRoundingMode — rounding rule applied by
-// `decimalNumberByRoundingAccordingToBehavior:`. Mirrors
-// `<Foundation/NSDecimalNumber.h>`.
+/// NSDecimalNumberRoundingMode — rounding rule applied by
+/// `decimalNumberByRoundingAccordingToBehavior:`. Mirrors
+/// `<Foundation/NSDecimalNumber.h>`.
 pub enum NSRoundingMode: u64 {
     plain    = 0
     down     = 1

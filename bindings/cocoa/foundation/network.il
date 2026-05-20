@@ -9,10 +9,10 @@
 use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSError }
 use datetime { NSDate }
 
-// NSURLSessionTaskState — `state` value on every URLSessionTask.
-// `running` / `suspended` are the two states a task spends most
-// of its life in; `completed` is terminal. `canceling` means a
-// cancel was issued and is still propagating.
+/// NSURLSessionTaskState — `state` value on every URLSessionTask.
+/// `running` / `suspended` are the two states a task spends most
+/// of its life in; `completed` is terminal. `canceling` means a
+/// cancel was issued and is still propagating.
 pub enum NSURLSessionTaskState: i64 {
     running    = 0
     suspended  = 1
@@ -20,18 +20,18 @@ pub enum NSURLSessionTaskState: i64 {
     completed  = 3
 }
 
-// NSURLCacheStoragePolicy — request-side cache hint. The system
-// reserves the right to override `allowed` (downgrading it to
-// `notAllowed` for HTTPS responses missing cache-control
-// headers, for instance).
+/// NSURLCacheStoragePolicy — request-side cache hint. The system
+/// reserves the right to override `allowed` (downgrading it to
+/// `notAllowed` for HTTPS responses missing cache-control
+/// headers, for instance).
 pub enum NSURLCacheStoragePolicy: u64 {
     allowed         = 0
     allowedInMemoryOnly = 1
     notAllowed      = 2
 }
 
-// NSURLRequestCachePolicy — controls how a request consults
-// the local cache and whether it revalidates upstream.
+/// NSURLRequestCachePolicy — controls how a request consults
+/// the local cache and whether it revalidates upstream.
 pub enum NSURLRequestCachePolicy: u64 {
     useProtocolCachePolicy            = 0
     reloadIgnoringLocalCacheData      = 1
@@ -67,10 +67,10 @@ pub enum NSURLBookmarkResolutionOptions: u64 {
     withSecurityScope     = 0x400
 }
 
-// NSURLCredentialPersistence — how long a credential lives.
-// `none` is per-request; `forSession` covers the process
-// lifetime; `permanent` writes into the keychain; `synchronizable`
-// also syncs through iCloud Keychain.
+/// NSURLCredentialPersistence — how long a credential lives.
+/// `none` is per-request; `forSession` covers the process
+/// lifetime; `permanent` writes into the keychain; `synchronizable`
+/// also syncs through iCloud Keychain.
 pub enum NSURLCredentialPersistence: u64 {
     none           = 0
     forSession     = 1
@@ -96,11 +96,11 @@ pub enum NSURLCredentialPersistence: u64 {
 
         // ─── Bookmarks — persist a URL across launches / sandboxing ──
         //
-        // The bookmark blob captures the file's identity (inode +
-        // generation count) rather than its current path, so it
-        // survives a move-or-rename between save and restore. The
-        // `options` / `relativeToURL` arguments to `bookmarkDataWith…`
-        // accept `0` / `cocoa.nil` for the simplest case.
+        /// The bookmark blob captures the file's identity (inode +
+        /// generation count) rather than its current path, so it
+        /// survives a move-or-rename between save and restore. The
+        /// `options` / `relativeToURL` arguments to `bookmarkDataWith…`
+        /// accept `0` / `cocoa.nil` for the simplest case.
         @objc("bookmarkDataWithOptions:includingResourceValuesForKeys:relativeToURL:error:")
         pub bookmarkDataWithOptions(
             options: u64, includingResourceValuesForKeys: NSArray,
@@ -118,7 +118,7 @@ pub enum NSURLCredentialPersistence: u64 {
         @objc("stopAccessingSecurityScopedResource")
         pub stopAccessingSecurityScopedResource()
 
-        // ─── Path-component manipulation ──────────────────────
+        /// ─── Path-component manipulation ──────────────────────
         @objc("URLByAppendingPathComponent:")
         pub byAppendingPathComponent(component: NSString): NSURL
         @objc("URLByAppendingPathComponent:isDirectory:")
@@ -160,7 +160,7 @@ pub enum NSURLCredentialPersistence: u64 {
         @objc("absoluteURL")
         pub get absoluteURL(): NSURL
 
-        // ─── URL pieces (kept aligned with NSURLComponents) ──
+        /// ─── URL pieces (kept aligned with NSURLComponents) ──
         @objc("host")
         pub get host(): NSString
         @objc("port")
@@ -176,11 +176,11 @@ pub enum NSURLCredentialPersistence: u64 {
         @objc("query")
         pub get query(): NSString
 
-        // ─── Resource values ─────────────────────────────────
-        // The macOS / iOS resource-value API stamps and reads
-        // back filesystem metadata (size, modification date,
-        // type-identifier, security scope flags, …) without
-        // going through NSFileManager.
+        /// ─── Resource values ─────────────────────────────────
+        /// The macOS / iOS resource-value API stamps and reads
+        /// back filesystem metadata (size, modification date,
+        /// type-identifier, security scope flags, …) without
+        /// going through NSFileManager.
         @objc("resourceValuesForKeys:error:")
         pub resourceValuesForKeys(keys: NSArray, error: i64): NSDictionary
         @objc("setResourceValue:forKey:error:")
@@ -641,10 +641,10 @@ pub enum NSURLCredentialPersistence: u64 {
         @objc("setQueryItems:")
         pub set queryItems(items: NSArray)
 
-        // ─── Percent-encoded raw accessors ───────────────────
-        // The plain `host` / `path` / `query` getters above
-        // return decoded values. These percent-encoded ones
-        // return / accept the on-wire form.
+        /// ─── Percent-encoded raw accessors ───────────────────
+        /// The plain `host` / `path` / `query` getters above
+        /// return decoded values. These percent-encoded ones
+        /// return / accept the on-wire form.
         @objc("percentEncodedHost")
         pub get percentEncodedHost(): NSString
         @objc("setPercentEncodedHost:")

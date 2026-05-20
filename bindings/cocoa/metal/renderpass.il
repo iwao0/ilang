@@ -19,12 +19,12 @@ use types.*
         @objc("colorAttachments")
         pub colorAttachments(): MTLRenderPassColorAttachmentDescriptorArray
 
-        // Depth / stencil attachments. Unlike colour attachments
-        // there's only one slot each (no array), so these come
-        // back as plain attachment descriptors directly. Configure
-        // via the `setTexture:`, `setLoadAction:`, `setStoreAction:`,
-        // and `setClearDepth:` / `setClearStencil:` setters on the
-        // returned descriptor.
+        /// Depth / stencil attachments. Unlike colour attachments
+        /// there's only one slot each (no array), so these come
+        /// back as plain attachment descriptors directly. Configure
+        /// via the `setTexture:`, `setLoadAction:`, `setStoreAction:`,
+        /// and `setClearDepth:` / `setClearStencil:` setters on the
+        /// returned descriptor.
         @objc("depthAttachment")
         pub depthAttachment(): MTLRenderPassDepthAttachmentDescriptor
         @objc("setDepthAttachment:")

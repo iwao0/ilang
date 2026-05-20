@@ -26,13 +26,13 @@ use types.*
 
         // ─── CPU ↔ GPU byte transfer ────────────────────────────
         //
-        // `bytes` is a raw `i64` address (compute via `&local`
-        // inside an @extern(C) block, or take it from
-        // `mtlbuf.contents()`). `bytesPerRow` is the row stride
-        // in bytes — for tight packing pass `region.size.width *
-        // bytes_per_pixel` (e.g. 4 for BGRA8Unorm). The storage
-        // mode must allow CPU access; private-storage textures
-        // need a blit encoder + staging buffer instead.
+        /// `bytes` is a raw `i64` address (compute via `&local`
+        /// inside an @extern(C) block, or take it from
+        /// `mtlbuf.contents()`). `bytesPerRow` is the row stride
+        /// in bytes — for tight packing pass `region.size.width *
+        /// bytes_per_pixel` (e.g. 4 for BGRA8Unorm). The storage
+        /// mode must allow CPU access; private-storage textures
+        /// need a blit encoder + staging buffer instead.
         @objc("replaceRegion:mipmapLevel:withBytes:bytesPerRow:")
         pub replaceRegion(
             r: MTLRegion,

@@ -37,12 +37,12 @@ use network { NSURL }
         @objc("setSuggestedName:")
         pub set suggestedName(s: NSString)
 
-        // Both completion handlers receive `(id, NSError *)`. The
-        // ObjCBlock typed slot uses `(NSObject?, NSError?)` so MIR
-        // picks the `(id, id)`-encoded trampoline; pass a closure
-        // whose params are NSObject-typed (raw `fn(i64, i64)` would
-        // dispatch to the `(void *, size_t)` shape instead — wrong
-        // NSMethodSignature).
+        /// Both completion handlers receive `(id, NSError *)`. The
+        /// ObjCBlock typed slot uses `(NSObject?, NSError?)` so MIR
+        /// picks the `(id, id)`-encoded trampoline; pass a closure
+        /// whose params are NSObject-typed (raw `fn(i64, i64)` would
+        /// dispatch to the `(void *, size_t)` shape instead — wrong
+        /// NSMethodSignature).
         @objc("loadItemForTypeIdentifier:options:completionHandler:")
         pub loadItemForTypeIdentifier(
             uti: NSString, options: NSDictionary,

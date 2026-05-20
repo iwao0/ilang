@@ -23,13 +23,13 @@ use types.*
     @objc pub class MTLFunction : NSObject {
         @objc("name")
         pub functionName(): NSString
-        // Returns an argument encoder whose layout matches the
-        // function's `[[buffer(bufferIndex)]]` argument (which
-        // must be a struct of textures / samplers / buffers — the
-        // Metal argument-buffer feature). Write into an
-        // `MTLBuffer` of `encoder.encodedLength()` bytes using
-        // the encoder's `setBuffer/Texture/SamplerState:atIndex:`
-        // selectors.
+        /// Returns an argument encoder whose layout matches the
+        /// function's `[[buffer(bufferIndex)]]` argument (which
+        /// must be a struct of textures / samplers / buffers — the
+        /// Metal argument-buffer feature). Write into an
+        /// `MTLBuffer` of `encoder.encodedLength()` bytes using
+        /// the encoder's `setBuffer/Texture/SamplerState:atIndex:`
+        /// selectors.
         @objc("newArgumentEncoderWithBufferIndex:")
         pub newArgumentEncoderWithBufferIndex(idx: u64): MTLArgumentEncoder
     }

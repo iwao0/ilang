@@ -31,11 +31,11 @@ use types.*
         @objc("colorAttachments")
         pub colorAttachments(): MTLRenderPipelineColorAttachmentDescriptorArray
 
-        // Depth / stencil pixel formats for the pipeline. Must
-        // match the matching attachment's texture format on the
-        // active render pass, otherwise pipeline creation fails.
-        // Use `.invalid` (the default) to declare no
-        // depth / stencil buffer.
+        /// Depth / stencil pixel formats for the pipeline. Must
+        /// match the matching attachment's texture format on the
+        /// active render pass, otherwise pipeline creation fails.
+        /// Use `.invalid` (the default) to declare no
+        /// depth / stencil buffer.
         @objc("setDepthAttachmentPixelFormat:")
         pub setDepthAttachmentPixelFormat(f: MTLPixelFormat)
         @objc("setStencilAttachmentPixelFormat:")

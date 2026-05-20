@@ -3,9 +3,9 @@
 
 use foundation { NSObject, NSString, NSPoint, KeyCode }
 
-// NSEventType — discriminant for what an `NSEvent` carries. Read
-// via `event.eventType()`; common cases are `leftMouseDown` /
-// `keyDown` / `mouseMoved` / `scrollWheel`.
+/// NSEventType — discriminant for what an `NSEvent` carries. Read
+/// via `event.eventType()`; common cases are `leftMouseDown` /
+/// `keyDown` / `mouseMoved` / `scrollWheel`.
 pub enum NSEventType: u64 {
     leftMouseDown     = 1
     leftMouseUp       = 2
@@ -72,7 +72,7 @@ pub enum NSEventModifierFlags: u64 {
         @objc("deltaZ")
         pub get deltaZ(): f64
 
-        // Keyboard
+        /// Keyboard
         @objc("keyCode")
         pub get keyCode(): KeyCode
         @objc("characters")

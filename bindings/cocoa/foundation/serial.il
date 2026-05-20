@@ -32,10 +32,10 @@ pub enum NSJSONWritingOptions: u64 {
     withoutEscapingSlashes = 0x08
 }
 
-// NSPropertyListFormat — output / input format for
-// NSPropertyListSerialization. `xml` is the human-readable form
-// macOS' `defaults` command emits; `binary` is the compact form
-// the system uses for in-memory representations.
+/// NSPropertyListFormat — output / input format for
+/// NSPropertyListSerialization. `xml` is the human-readable form
+/// macOS' `defaults` command emits; `binary` is the compact form
+/// the system uses for in-memory representations.
 pub enum NSPropertyListFormat: u64 {
     openStep = 1
     xml      = 100

@@ -5,8 +5,8 @@
 use foundation { NSObject, NSString, NSArray, NSVector }
 use textures { SKTexture }
 
-// SKAttributeType — value type for a custom `SKAttribute` slot
-// exposed to a fragment shader.
+/// SKAttributeType — value type for a custom `SKAttribute` slot
+/// exposed to a fragment shader.
 pub enum SKAttributeType: i64 {
     none             = 0
     float            = 1

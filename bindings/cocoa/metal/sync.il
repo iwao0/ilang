@@ -65,9 +65,9 @@ use types.*
         @objc("init")
         pub init(): MTLCaptureDescriptor
 
-        // The capture target — an `id` that's either an MTLDevice,
-        // an MTLCommandQueue, or an MTLCaptureScope. Bound as
-        // NSObject so any of the three can be passed through.
+        /// The capture target — an `id` that's either an MTLDevice,
+        /// an MTLCommandQueue, or an MTLCaptureScope. Bound as
+        /// NSObject so any of the three can be passed through.
         @objc("setCaptureObject:")
         pub setCaptureObject(o: NSObject)
         @objc("setDestination:")
@@ -78,11 +78,12 @@ use types.*
 
     /// `MTLCaptureManager` — process-singleton that drives GPU
     /// frame capture. The casual flow is:
-    ///   1. `mgr = MTLCaptureManager.sharedCaptureManager()`
-    ///   2. `desc = MTLCaptureDescriptor.alloc().init()` + setters
-    ///   3. `mgr.startCaptureWithDescriptor(desc, errorSlot)`
-    ///   4. ...issue GPU work into the captured target...
-    ///   5. `mgr.stopCapture()`
+    ///
+    /// 1. `mgr = MTLCaptureManager.sharedCaptureManager()`
+    /// 2. `desc = MTLCaptureDescriptor.alloc().init()` + setters
+    /// 3. `mgr.startCaptureWithDescriptor(desc, errorSlot)`
+    /// 4. ...issue GPU work into the captured target...
+    /// 5. `mgr.stopCapture()`
     ///
     /// For finer control, mint an `MTLCaptureScope` via
     /// `newCaptureScopeWithDevice:` / `newCaptureScopeWithCommandQueue:`,
@@ -95,9 +96,9 @@ use types.*
         @objc("supportsDestination:")
         pub supportsDestination(d: MTLCaptureDestination): bool
 
-        // Capture lifecycle. `startCaptureWithDescriptor:error:`
-        // takes an `NSError **` slot (raw `i64`) — pair-return
-        // wrapper to follow.
+        /// Capture lifecycle. `startCaptureWithDescriptor:error:`
+        /// takes an `NSError **` slot (raw `i64`) — pair-return
+        /// wrapper to follow.
         @objc("startCaptureWithDescriptor:error:")
         pub startCaptureWithDescriptor(
             descriptor: MTLCaptureDescriptor, error: i64
@@ -107,9 +108,9 @@ use types.*
         @objc("isCapturing")
         pub isCapturing(): bool
 
-        // Capture-scope factories. Bracket draw work with
-        // `scope.begin/endScope()`; the manager then captures only
-        // that bracket when configured to target the scope.
+        /// Capture-scope factories. Bracket draw work with
+        /// `scope.begin/endScope()`; the manager then captures only
+        /// that bracket when configured to target the scope.
         @objc("newCaptureScopeWithDevice:")
         pub newCaptureScopeWithDevice(d: MTLDevice): MTLCaptureScope
         @objc("newCaptureScopeWithCommandQueue:")

@@ -6,10 +6,10 @@
 
 use core { NSObject, NSString, NSArray, NSRange, NSComparisonResult }
 
-// NSDateFormatterStyle — the locale-aware default presets you
-// pick by assigning to `dateStyle` / `timeStyle`. Setting
-// `dateFormat` directly to a Unicode TR35 pattern overrides
-// these.
+/// NSDateFormatterStyle — the locale-aware default presets you
+/// pick by assigning to `dateStyle` / `timeStyle`. Setting
+/// `dateFormat` directly to a Unicode TR35 pattern overrides
+/// these.
 pub enum NSDateFormatterStyle: u64 {
     none   = 0
     short  = 1
@@ -208,7 +208,7 @@ pub enum NSCalendarUnit: u64 {
         @objc("isDateInTomorrow:")
         pub isDateInTomorrow(d: NSDate): bool
 
-        // ─── Component-aware arithmetic / queries ─────────────
+        /// ─── Component-aware arithmetic / queries ─────────────
         @objc("dateBySettingHour:minute:second:ofDate:options:")
         pub dateBySettingHour(
             hour: i64, minute: i64, second: i64, ofDate: NSDate,
@@ -245,7 +245,7 @@ pub enum NSCalendarUnit: u64 {
         @objc("isDateInWeekend:")
         pub isDateInWeekend(date: NSDate): bool
 
-        // ─── Configuration ───────────────────────────────────
+        /// ─── Configuration ───────────────────────────────────
         @objc("calendarIdentifier")
         pub get calendarIdentifier(): NSString
         @objc("locale")
@@ -265,7 +265,7 @@ pub enum NSCalendarUnit: u64 {
         @objc("setMinimumDaysInFirstWeek:")
         pub set minimumDaysInFirstWeek(v: u64)
 
-        // ─── Calendar symbol arrays ──────────────────────────
+        /// ─── Calendar symbol arrays ──────────────────────────
         @objc("eraSymbols")
         pub get eraSymbols(): NSArray
         @objc("longEraSymbols")

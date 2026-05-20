@@ -12,10 +12,10 @@
 use core { NSObject, NSString, NSArray }
 use datetime { NSDate }
 
-// NSQualityOfService — scheduler hint for both NSThread and
-// NSOperation / NSOperationQueue. Higher numbers ask the system
-// to prioritise the work (`userInteractive` > `userInitiated` >
-// `utility` > `background`); `default` lets the system pick.
+/// NSQualityOfService — scheduler hint for both NSThread and
+/// NSOperation / NSOperationQueue. Higher numbers ask the system
+/// to prioritise the work (`userInteractive` > `userInitiated` >
+/// `utility` > `background`); `default` lets the system pick.
 pub enum NSQualityOfService: i64 {
     userInteractive = 0x21
     userInitiated   = 0x19
@@ -24,9 +24,9 @@ pub enum NSQualityOfService: i64 {
     default         = -1
 }
 
-// NSOperationQueuePriority — within a single operation queue,
-// ready operations execute in priority order. `normal` is the
-// default; lower / higher are best-effort hints.
+/// NSOperationQueuePriority — within a single operation queue,
+/// ready operations execute in priority order. `normal` is the
+/// default; lower / higher are best-effort hints.
 pub enum NSOperationQueuePriority: i64 {
     veryLow  = -8
     low      = -4

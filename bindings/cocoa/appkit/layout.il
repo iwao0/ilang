@@ -6,16 +6,16 @@
 use foundation { NSObject, NSArray, NSSize, NSRect, makeRect }
 use core { NSView }
 
-// NSUserInterfaceLayoutOrientation — direction NSStackView
-// stacks its arranged subviews. Top-down (`vertical`) is the
-// most common; `horizontal` reads left-to-right.
+/// NSUserInterfaceLayoutOrientation — direction NSStackView
+/// stacks its arranged subviews. Top-down (`vertical`) is the
+/// most common; `horizontal` reads left-to-right.
 pub enum NSUserInterfaceLayoutOrientation: i64 {
     horizontal = 0
     vertical   = 1
 }
 
-// NSBorderType — `NSScrollView.setBorderType` / `NSBox.setBorderType`
-// border decoration.
+/// NSBorderType — `NSScrollView.setBorderType` / `NSBox.setBorderType`
+/// border decoration.
 pub enum NSBorderType: u64 {
     noBorder    = 0
     lineBorder  = 1
@@ -23,10 +23,10 @@ pub enum NSBorderType: u64 {
     grooveBorder = 3
 }
 
-// NSBoxType — visual style of an NSBox. `primaryBox` is the
-// default; `separator` draws a single divider line; `custom`
-// disables the box chrome so a content view can be drawn at the
-// box's bounds.
+/// NSBoxType — visual style of an NSBox. `primaryBox` is the
+/// default; `separator` draws a single divider line; `custom`
+/// disables the box chrome so a content view can be drawn at the
+/// box's bounds.
 pub enum NSBoxType: u64 {
     primaryBox = 0
     secondaryBox = 1

@@ -3,8 +3,8 @@
 
 use foundation { NSObject, NSString, NSURL, nsstr, ilstr }
 
-// Standard UTI for plain UTF-8 text on the pasteboard. Pass to
-// `pasteboardCopy` / `setString(forType:)`.
+/// Standard UTI for plain UTF-8 text on the pasteboard. Pass to
+/// `pasteboardCopy` / `setString(forType:)`.
 pub const PasteboardTypeString: string = "public.utf8-plain-text"
 
 @extern(ObjC, "/System/Library/Frameworks/AppKit.framework/AppKit") {

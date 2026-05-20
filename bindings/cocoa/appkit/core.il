@@ -33,17 +33,17 @@ pub enum NSWindowStyleMask: u64 {
     fullSizeContentView    = 0x8000
 }
 
-// NSBackingStoreType — `buffered` is the only non-deprecated
-// member today; AppKit still accepts the legacy values for
-// source-compat.
+/// NSBackingStoreType — `buffered` is the only non-deprecated
+/// member today; AppKit still accepts the legacy values for
+/// source-compat.
 pub enum NSBackingStoreType: u64 {
     retained    = 0
     nonretained = 1
     buffered    = 2
 }
 
-// NSApplicationActivationPolicy — controls the app's Dock /
-// activation behaviour.
+/// NSApplicationActivationPolicy — controls the app's Dock /
+/// activation behaviour.
 pub enum NSApplicationActivationPolicy: i64 {
     regular    = 0
     accessory  = 1
@@ -75,12 +75,12 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub run()
         @objc("terminate:")
         pub terminate(sender: NSObject)
-        // Two overloads of `setDelegate:` dispatch the same ObjC
-        // selector: the typed `NSApplicationDelegate` form for the
-        // casual case (compile-time conformance check), and the
-        // permissive `NSObject` form for `setDelegate(nil)` /
-        // framework-provided delegate objects already bound as
-        // bare NSObject.
+        /// Two overloads of `setDelegate:` dispatch the same ObjC
+        /// selector: the typed `NSApplicationDelegate` form for the
+        /// casual case (compile-time conformance check), and the
+        /// permissive `NSObject` form for `setDelegate(nil)` /
+        /// framework-provided delegate objects already bound as
+        /// bare NSObject.
         @objc("setDelegate:")
         pub setDelegate(d: NSApplicationDelegate)
         @objc("setDelegate:")
@@ -93,12 +93,12 @@ pub enum NSApplicationActivationPolicy: i64 {
     @objc pub class NSView : NSObject {
         @objc("addSubview:")
         pub addSubview(v: NSView)
-        // Coordinate conversion. The `fromView` / `toView` slot
-        // is typed `NSObject` so `cocoa.nil` can be passed to
-        // mean "convert from / to window coordinates" — the
-        // same coordinate space `NSEvent.locationInWindow()`
-        // returns. A real NSView wrapper is accepted too
-        // (ObjC dispatches the same way either way).
+        /// Coordinate conversion. The `fromView` / `toView` slot
+        /// is typed `NSObject` so `cocoa.nil` can be passed to
+        /// mean "convert from / to window coordinates" — the
+        /// same coordinate space `NSEvent.locationInWindow()`
+        /// returns. A real NSView wrapper is accepted too
+        /// (ObjC dispatches the same way either way).
         @objc("convertPoint:fromView:")
         pub convertPointFromView(p: NSPoint, fromView: NSObject): NSPoint
         @objc("convertPoint:toView:")
@@ -115,10 +115,10 @@ pub enum NSApplicationActivationPolicy: i64 {
     @objc pub class NSWindow : NSObject {
         @objc("alloc")
         pub static alloc(): NSWindow
-        // `NSWindowStyleMask` / `NSBackingStoreType` are typed
-        // enums on the ilang side. The MIR codegen extracts the
-        // discriminant when handing them to objc_msgSend, so the
-        // C ABI sees the raw NSUInteger that AppKit expects.
+        /// `NSWindowStyleMask` / `NSBackingStoreType` are typed
+        /// enums on the ilang side. The MIR codegen extracts the
+        /// discriminant when handing them to objc_msgSend, so the
+        /// C ABI sees the raw NSUInteger that AppKit expects.
         @objc("initWithContentRect:styleMask:backing:defer:")
         pub init(
             rect: NSRect, mask: NSWindowStyleMask, backing: NSBackingStoreType, defer: bool
@@ -132,9 +132,9 @@ pub enum NSApplicationActivationPolicy: i64 {
         pub makeKeyAndOrderFront(sender: NSObject)
         @objc("contentView")
         pub get contentView(): NSView
-        // setDelegate overloads — typed `NSWindowDelegate` for
-        // the conformance-checked casual case, NSObject for nil
-        // clearing / framework-bound objects.
+        /// setDelegate overloads — typed `NSWindowDelegate` for
+        /// the conformance-checked casual case, NSObject for nil
+        /// clearing / framework-bound objects.
         @objc("setDelegate:")
         pub setDelegate(d: NSWindowDelegate)
         @objc("setDelegate:")

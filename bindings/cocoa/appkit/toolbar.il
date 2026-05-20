@@ -5,7 +5,7 @@ use foundation { NSObject, NSString, NSArray, NSNotification, NSRect }
 use core { NSView }
 use image { NSImage }
 
-// NSToolbarDisplayMode — what each toolbar slot shows.
+/// NSToolbarDisplayMode — what each toolbar slot shows.
 pub enum NSToolbarDisplayMode: u64 {
     default       = 0
     iconAndLabel  = 1
@@ -13,16 +13,16 @@ pub enum NSToolbarDisplayMode: u64 {
     labelOnly     = 3
 }
 
-// NSToolbarSizeMode — icon size preset for the toolbar.
+/// NSToolbarSizeMode — icon size preset for the toolbar.
 pub enum NSToolbarSizeMode: u64 {
     default = 0
     regular = 1
     small   = 2
 }
 
-// NSTabViewType — which edge of the view the tab strip lives
-// on, or whether tabs are hidden entirely (`noTabsBezelBorder`
-// for a borderless container).
+/// NSTabViewType — which edge of the view the tab strip lives
+/// on, or whether tabs are hidden entirely (`noTabsBezelBorder`
+/// for a borderless container).
 pub enum NSTabViewType: u64 {
     topTabsBezelBorder    = 0
     leftTabsBezelBorder   = 1
@@ -33,9 +33,9 @@ pub enum NSTabViewType: u64 {
     noTabsNoBorder        = 6
 }
 
-// NSStatusItemLength — sentinel values for
-// `NSStatusItem.setLength:` indicating the auto-sizing
-// behaviour rather than a literal pixel width.
+/// NSStatusItemLength — sentinel values for
+/// `NSStatusItem.setLength:` indicating the auto-sizing
+/// behaviour rather than a literal pixel width.
 pub const StatusItemVariableLength: f64 = -1.0
 pub const StatusItemSquareLength: f64 = -2.0
 

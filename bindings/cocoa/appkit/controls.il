@@ -6,9 +6,9 @@
 use foundation { NSObject, NSString, NSArray, NSDate, NSRect, nsstr, makeRect }
 use core { NSView }
 
-// NSBezelStyle — visual style of a push button. `push` is the
-// standard Mac-style rounded blue button; the rest are
-// historical / niche options.
+/// NSBezelStyle — visual style of a push button. `push` is the
+/// standard Mac-style rounded blue button; the rest are
+/// historical / niche options.
 pub enum NSBezelStyle: u64 {
     push                = 1
     rounded             = 1
@@ -26,14 +26,14 @@ pub enum NSBezelStyle: u64 {
     inline              = 15
 }
 
-// NSProgressIndicatorStyle — bar vs spinner.
+/// NSProgressIndicatorStyle — bar vs spinner.
 pub enum NSProgressIndicatorStyle: u64 {
     bar     = 0
     spinner = 1
 }
 
-// NSSegmentSwitchTracking — selection model of a segmented
-// control: how clicks change which segment(s) are highlighted.
+/// NSSegmentSwitchTracking — selection model of a segmented
+/// control: how clicks change which segment(s) are highlighted.
 pub enum NSSegmentSwitchTracking: u64 {
     selectOne     = 0
     selectAny     = 1
@@ -41,7 +41,7 @@ pub enum NSSegmentSwitchTracking: u64 {
     momentaryAccelerator = 3
 }
 
-// NSDatePickerStyle — visual layout of the date picker control.
+/// NSDatePickerStyle — visual layout of the date picker control.
 pub enum NSDatePickerStyle: u64 {
     textFieldAndStepper = 0
     clockAndCalendar    = 1
@@ -67,9 +67,9 @@ pub enum NSDatePickerStyle: u64 {
 
         @objc("setTarget:")
         pub setTarget(target: NSObject)
-        // SEL doesn't have a user-facing ilang type today; the
-        // action is passed as the raw SEL pointer cast to `i64`.
-        // Use `selectorPtr("clicked:")` to build one from a name.
+        /// SEL doesn't have a user-facing ilang type today; the
+        /// action is passed as the raw SEL pointer cast to `i64`.
+        /// Use `selectorPtr("clicked:")` to build one from a name.
         @objc("setAction:")
         pub setAction(sel: i64)
     }
@@ -100,10 +100,10 @@ pub enum NSDatePickerStyle: u64 {
         @objc("setSelectable:")
         pub setSelectable(flag: bool)
 
-        // setDelegate overloads. NSTextField accepts either the
-        // text-field-specific protocol or the more general
-        // NSControlTextEditingDelegate; bind both typed forms plus
-        // an NSObject fallback. Same ObjC selector under the hood.
+        /// setDelegate overloads. NSTextField accepts either the
+        /// text-field-specific protocol or the more general
+        /// NSControlTextEditingDelegate; bind both typed forms plus
+        /// an NSObject fallback. Same ObjC selector under the hood.
         @objc("setDelegate:")
         pub setDelegate(d: NSTextFieldDelegate)
         @objc("setDelegate:")

@@ -5,10 +5,10 @@ use foundation { NSObject, NSString, NSPoint, NSRect }
 use core { NSView }
 use events { NSEvent }
 
-// NSGestureRecognizerState — discriminant on a recognizer's
-// `state` property. The runtime drives it through the
-// possible → began → changed → (ended | cancelled | failed)
-// sequence.
+/// NSGestureRecognizerState — discriminant on a recognizer's
+/// `state` property. The runtime drives it through the
+/// possible → began → changed → (ended | cancelled | failed)
+/// sequence.
 pub enum NSGestureRecognizerState: i64 {
     possible  = 0
     began     = 1

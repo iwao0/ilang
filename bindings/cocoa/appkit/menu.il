@@ -52,8 +52,8 @@ use foundation { NSObject, NSString, NSArray }
         @objc("itemArray")
         pub get itemArray(): NSArray
 
-        // setDelegate overloads — typed `NSMenuDelegate` plus
-        // NSObject fallback. Same ObjC selector.
+        /// setDelegate overloads — typed `NSMenuDelegate` plus
+        /// NSObject fallback. Same ObjC selector.
         @objc("setDelegate:")
         pub setDelegate(d: NSMenuDelegate)
         @objc("setDelegate:")

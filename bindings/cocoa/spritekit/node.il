@@ -7,8 +7,8 @@ use foundation { NSObject, NSString, NSArray, NSPoint, NSSize,
 use appkit { NSView, NSColor }
 use metal { MTLCommandBuffer, MTLRenderPassDescriptor }
 
-// SKSceneScaleMode — how the scene's size is mapped to the
-// view's bounds.
+/// SKSceneScaleMode — how the scene's size is mapped to the
+/// view's bounds.
 pub enum SKSceneScaleMode: i64 {
     fill        = 0
     aspectFill  = 1
@@ -28,7 +28,7 @@ pub enum SKSceneScaleMode: i64 {
         @objc("init")
         pub init(): SKNode
 
-        // Hierarchy
+        /// Hierarchy
         @objc("addChild:")
         pub addChild(n: SKNode)
         @objc("insertChild:atIndex:")
@@ -46,9 +46,9 @@ pub enum SKSceneScaleMode: i64 {
         @objc("childNodeWithName:")
         pub childNodeWithName(name: NSString): SKNode
 
-        // Transform — exposed as properties so user code reads
-        // `node.position` / writes `node.position = p` rather
-        // than `node.position()` / `node.setPosition(p)`.
+        /// Transform — exposed as properties so user code reads
+        /// `node.position` / writes `node.position = p` rather
+        /// than `node.position()` / `node.setPosition(p)`.
         @objc("position")
         pub get position(): NSPoint
         @objc("setPosition:")
@@ -78,7 +78,7 @@ pub enum SKSceneScaleMode: i64 {
         @objc("setHidden:")
         pub set isHidden(flag: bool)
 
-        // Identity / state
+        /// Identity / state
         @objc("setName:")
         pub setName(n: NSString)
         @objc("name")
@@ -92,13 +92,13 @@ pub enum SKSceneScaleMode: i64 {
         @objc("setUserInteractionEnabled:")
         pub setUserInteractionEnabled(flag: bool)
 
-        // Geometry tests
+        /// Geometry tests
         @objc("containsPoint:")
         pub containsPoint(p: NSPoint): bool
         @objc("frame")
         pub frame(): NSRect
 
-        // Actions
+        /// Actions
         @objc("runAction:")
         pub runAction(a: SKAction)
         @objc("runAction:withKey:")
@@ -108,23 +108,23 @@ pub enum SKSceneScaleMode: i64 {
         @objc("hasActions")
         pub hasActions(): bool
 
-        // Physics
+        /// Physics
         @objc("setPhysicsBody:")
         pub setPhysicsBody(b: SKPhysicsBody)
         @objc("physicsBody")
         pub physicsBody(): SKPhysicsBody
 
-        // Constraints — apply an array of `SKConstraint`s
-        // after every frame's transform update.
+        /// Constraints — apply an array of `SKConstraint`s
+        /// after every frame's transform update.
         @objc("setConstraints:")
         pub setConstraints(arr: NSArray)
         @objc("constraints")
         pub constraints(): NSArray
 
-        // Scene-graph search — `nodeAtPoint:` finds the
-        // top-most node whose accumulated frame contains
-        // `point` (in this node's coordinate system).
-        // `nodesAtPoint:` returns every match.
+        /// Scene-graph search — `nodeAtPoint:` finds the
+        /// top-most node whose accumulated frame contains
+        /// `point` (in this node's coordinate system).
+        /// `nodesAtPoint:` returns every match.
         @objc("nodeAtPoint:")
         pub nodeAtPoint(p: NSPoint): SKNode
         @objc("nodesAtPoint:")
@@ -132,25 +132,25 @@ pub enum SKSceneScaleMode: i64 {
         @objc("intersectsNode:")
         pub intersectsNode(n: SKNode): bool
 
-        // Coordinate conversion between two nodes in the same
-        // scene graph (or between scene-graph and view space —
-        // bridge via `SKScene.convertPointFromView:` first).
+        /// Coordinate conversion between two nodes in the same
+        /// scene graph (or between scene-graph and view space —
+        /// bridge via `SKScene.convertPointFromView:` first).
         @objc("convertPoint:toNode:")
         pub convertPointToNode(p: NSPoint, toNode: SKNode): NSPoint
         @objc("convertPoint:fromNode:")
         pub convertPointFromNode(p: NSPoint, fromNode: SKNode): NSPoint
 
-        // Inverse-kinematics joint limits — consumed by
-        // `SKAction.reachTo:rootNode:duration:` and the like.
+        /// Inverse-kinematics joint limits — consumed by
+        /// `SKAction.reachTo:rootNode:duration:` and the like.
         @objc("setReachConstraints:")
         pub setReachConstraints(c: SKReachConstraints)
         @objc("reachConstraints")
         pub reachConstraints(): SKReachConstraints
 
-        // Per-node shader-attribute values — the fragment shader
-        // reads each `a_<name>` uniform from the value table set
-        // here. Pair with `SKAttribute.attributeWithName:type:`
-        // declared on the shader so the runtime knows the layout.
+        /// Per-node shader-attribute values — the fragment shader
+        /// reads each `a_<name>` uniform from the value table set
+        /// here. Pair with `SKAttribute.attributeWithName:type:`
+        /// declared on the shader so the runtime knows the layout.
         @objc("setValue:forAttributeNamed:")
         pub setValueForAttributeNamed(value: SKAttributeValue, forAttributeNamed: NSString)
         @objc("valueForAttributeNamed:")
@@ -182,24 +182,24 @@ pub enum SKSceneScaleMode: i64 {
         @objc("physicsWorld")
         pub physicsWorld(): SKPhysicsWorld
 
-        // View ↔ scene point conversion. Used inside
-        // `mouseDown:` overrides to turn an
-        // `event.locationInWindow()` into scene-graph
-        // coordinates the hit-testing helpers understand.
+        /// View ↔ scene point conversion. Used inside
+        /// `mouseDown:` overrides to turn an
+        /// `event.locationInWindow()` into scene-graph
+        /// coordinates the hit-testing helpers understand.
         @objc("convertPointFromView:")
         pub convertPointFromView(p: NSPoint): NSPoint
         @objc("convertPointToView:")
         pub convertPointToView(p: NSPoint): NSPoint
 
-        // The view currently hosting the scene (`nil`-handle
-        // until `presentScene:` runs).
+        /// The view currently hosting the scene (`nil`-handle
+        /// until `presentScene:` runs).
         @objc("view")
         pub view(): SKView
 
-        // Per-frame callback hook. The delegate is typed
-        // `NSObject` so any @objc subclass that implements the
-        // `SKSceneDelegate` selectors (see the class docstring)
-        // can be plugged in.
+        /// Per-frame callback hook. The delegate is typed
+        /// `NSObject` so any @objc subclass that implements the
+        /// `SKSceneDelegate` selectors (see the class docstring)
+        /// can be plugged in.
         @objc("setDelegate:")
         pub setDelegate(d: NSObject)
         @objc("delegate")
@@ -214,11 +214,12 @@ pub enum SKSceneScaleMode: i64 {
     /// `setDelegate:`. The delegate is any ilang `@objc` class
     /// implementing one or more of the `SKSceneDelegate`
     /// selectors:
-    ///   * `@objc("update:forScene:")` — `(t: f64, scene: SKScene)`
-    ///   * `@objc("didEvaluateActionsForScene:")` — `(scene: SKScene)`
-    ///   * `@objc("didSimulatePhysicsForScene:")` — `(scene: SKScene)`
-    ///   * `@objc("didApplyConstraintsForScene:")` — `(scene: SKScene)`
-    ///   * `@objc("didFinishUpdateForScene:")` — `(scene: SKScene)`
+    ///
+    /// * `@objc("update:forScene:")` — `(t: f64, scene: SKScene)`
+    /// * `@objc("didEvaluateActionsForScene:")` — `(scene: SKScene)`
+    /// * `@objc("didSimulatePhysicsForScene:")` — `(scene: SKScene)`
+    /// * `@objc("didApplyConstraintsForScene:")` — `(scene: SKScene)`
+    /// * `@objc("didFinishUpdateForScene:")` — `(scene: SKScene)`
     /// All are optional. Methods left unimplemented stay silent.
     @objc pub class SKView : NSView {
         @objc("alloc")

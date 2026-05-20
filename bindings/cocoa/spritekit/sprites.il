@@ -7,9 +7,9 @@ use appkit { NSColor }
 use node { SKNode }
 use textures { SKTexture }
 
-// SKBlendMode — composition mode for SKSpriteNode / SKShapeNode
-// / SKEmitterNode / SKEffectNode. `alpha` is the default
-// (standard "over" blending); `replace` skips blending entirely.
+/// SKBlendMode — composition mode for SKSpriteNode / SKShapeNode
+/// / SKEmitterNode / SKEffectNode. `alpha` is the default
+/// (standard "over" blending); `replace` skips blending entirely.
 pub enum SKBlendMode: i64 {
     alpha      = 0
     add        = 1
@@ -20,15 +20,15 @@ pub enum SKBlendMode: i64 {
     replace    = 6
 }
 
-// SKLabelHorizontalAlignmentMode — where the label's anchor
-// sits horizontally relative to the rendered glyphs.
+/// SKLabelHorizontalAlignmentMode — where the label's anchor
+/// sits horizontally relative to the rendered glyphs.
 pub enum SKLabelHorizontalAlignmentMode: i64 {
     center = 0
     left   = 1
     right  = 2
 }
 
-// SKLabelVerticalAlignmentMode — vertical anchor mode.
+/// SKLabelVerticalAlignmentMode — vertical anchor mode.
 pub enum SKLabelVerticalAlignmentMode: i64 {
     baseline = 0
     center   = 1
@@ -68,9 +68,9 @@ pub enum SKLabelVerticalAlignmentMode: i64 {
         @objc("shader")
         pub shader(): SKShader
 
-        // Warp geometry (SKWarpable) — drives a per-frame
-        // vertex remap of the sprite quad. Pair with
-        // `SKAction.warpTo` to animate the transition.
+        /// Warp geometry (SKWarpable) — drives a per-frame
+        /// vertex remap of the sprite quad. Pair with
+        /// `SKAction.warpTo` to animate the transition.
         @objc("setWarpGeometry:")
         pub setWarpGeometry(g: SKWarpGeometry)
         @objc("warpGeometry")

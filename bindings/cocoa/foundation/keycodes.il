@@ -16,9 +16,9 @@
 
 // ─── Letters (ANSI QWERTY layout) ─────────────────────────────
 //
-// Names map physical positions, NOT printed characters. `keyA` is
-// always the bottom-row leftmost letter; under a Dvorak layout it
-// still produces `keyA` (the *character* it emits would be 'a').
+/// Names map physical positions, NOT printed characters. `keyA` is
+/// always the bottom-row leftmost letter; under a Dvorak layout it
+/// still produces `keyA` (the *character* it emits would be 'a').
 pub enum KeyCode: u16 {
     keyA = 0x00
     keyS = 0x01

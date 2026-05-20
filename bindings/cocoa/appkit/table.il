@@ -6,16 +6,16 @@ use foundation { NSObject, NSString, NSArray, NSIndexSet, NSRect,
                  NSSize, NSNotification }
 use core { NSView }
 
-// NSTableViewSelectionHighlightStyle — visual treatment of the
-// selected row.
+/// NSTableViewSelectionHighlightStyle — visual treatment of the
+/// selected row.
 pub enum NSTableViewSelectionHighlightStyle: i64 {
     none        = -1
     regular     = 0
     sourceList  = 1
 }
 
-// NSTableViewColumnAutoresizingStyle — how column widths react
-// to the table being resized.
+/// NSTableViewColumnAutoresizingStyle — how column widths react
+/// to the table being resized.
 pub enum NSTableViewColumnAutoresizingStyle: u64 {
     none                          = 0
     uniform                       = 1

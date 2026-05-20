@@ -4,23 +4,23 @@
 
 use foundation { NSObject, NSString, NSURL, NSArray, nsstr, ilstr }
 
-// NSAlertStyle — informational vs warning vs critical visual
-// treatment of an NSAlert. AppKit picks an icon + colour based
-// on the style; defaults to `warning`.
+/// NSAlertStyle — informational vs warning vs critical visual
+/// treatment of an NSAlert. AppKit picks an icon + colour based
+/// on the style; defaults to `warning`.
 pub enum NSAlertStyle: i64 {
     warning      = 0
     informational = 1
     critical     = 2
 }
 
-// NSModalResponse constants — the `runModal()` return values
-// used by NSSavePanel / NSOpenPanel.
+/// NSModalResponse constants — the `runModal()` return values
+/// used by NSSavePanel / NSOpenPanel.
 pub const ModalResponseOK: i64 = 1
 pub const ModalResponseCancel: i64 = 0
 
-// NSAlert button-index constants — `runModal()` on an NSAlert
-// returns `AlertFirstButtonReturn` + N where N is the 0-indexed
-// position of the clicked button (first added → first return).
+/// NSAlert button-index constants — `runModal()` on an NSAlert
+/// returns `AlertFirstButtonReturn` + N where N is the 0-indexed
+/// position of the clicked button (first added → first return).
 pub const AlertFirstButtonReturn: i64 = 1000
 pub const AlertSecondButtonReturn: i64 = 1001
 pub const AlertThirdButtonReturn: i64 = 1002

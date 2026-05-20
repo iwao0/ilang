@@ -11,9 +11,9 @@ use core { NSObject, NSString, NSArray, NSDictionary, NSData, NSMutableData, NSE
 use collections { NSEnumerator }
 use network { NSURL }
 
-// NSStreamStatus — current state of an NSInputStream /
-// NSOutputStream. `notOpen` → `opening` → `open` → `reading` /
-// `writing` → `atEnd` / `error` / `closed`.
+/// NSStreamStatus — current state of an NSInputStream /
+/// NSOutputStream. `notOpen` → `opening` → `open` → `reading` /
+/// `writing` → `atEnd` / `error` / `closed`.
 pub enum NSStreamStatus: u64 {
     notOpen = 0
     opening = 1
@@ -75,11 +75,11 @@ pub enum NSStreamStatus: u64 {
         @objc("fileDescriptor")
         pub get fileDescriptor(): i32
 
-        // ─── Error-returning variants (10.15+) ────────────────
-        // The plain `readDataOfLength:` / `writeData:` family
-        // raise NSExceptions on failure; the
-        // `…AndReturnError:` mirrors below take the error
-        // through an NSError ** slot instead.
+        /// ─── Error-returning variants (10.15+) ────────────────
+        /// The plain `readDataOfLength:` / `writeData:` family
+        /// raise NSExceptions on failure; the
+        /// `…AndReturnError:` mirrors below take the error
+        /// through an NSError ** slot instead.
         @objc("readDataUpToLength:error:")
         pub readDataUpToLength(length: u64, error: i64): NSData
         @objc("readDataToEndOfFileAndReturnError:")
@@ -99,7 +99,7 @@ pub enum NSStreamStatus: u64 {
         @objc("closeAndReturnError:")
         pub closeAndReturnError(error: i64): bool
 
-        // ─── Construction from descriptor / URL ──────────────
+        /// ─── Construction from descriptor / URL ──────────────
         @objc("fileHandleWithFileDescriptor:closeOnDealloc:")
         pub static fileHandleWithFileDescriptor(
             fd: i32, closeOnDealloc: bool
@@ -111,9 +111,9 @@ pub enum NSStreamStatus: u64 {
             fd: i32, closeOnDealloc: bool
         ): NSFileHandle
 
-        // ─── Async readability handlers ──────────────────────
-        // Block-based notifications fire on a background queue
-        // when data / EOF / error becomes available.
+        /// ─── Async readability handlers ──────────────────────
+        /// Block-based notifications fire on a background queue
+        /// when data / EOF / error becomes available.
         @objc("readabilityHandler")
         pub get readabilityHandler(): ObjCBlock<fn(i64)>
         @objc("setReadabilityHandler:")
@@ -346,10 +346,10 @@ pub enum NSStreamStatus: u64 {
         @objc("changeCurrentDirectoryPath:")
         pub changeCurrentDirectoryPath(path: NSString): bool
 
-        // ─── URL-based variants ───────────────────────────────
-        // Prefer these over the path-based ones for new code:
-        // NSURL flows through the system's security-scoped /
-        // iCloud-aware code path without extra work.
+        /// ─── URL-based variants ───────────────────────────────
+        /// Prefer these over the path-based ones for new code:
+        /// NSURL flows through the system's security-scoped /
+        /// iCloud-aware code path without extra work.
         @objc("contentsOfDirectoryAtURL:includingPropertiesForKeys:options:error:")
         pub contentsOfDirectoryAtURL(
             url: NSURL, includingPropertiesForKeys: NSArray,
@@ -382,7 +382,7 @@ pub enum NSStreamStatus: u64 {
             includingResourceValuesForKeys: NSArray, options: u64
         ): NSArray
 
-        // ─── Symbolic-link / hardlink primitives ──────────────
+        /// ─── Symbolic-link / hardlink primitives ──────────────
         @objc("createSymbolicLinkAtPath:withDestinationPath:error:")
         pub createSymbolicLinkAtPath(
             path: NSString, withDestinationPath: NSString, error: i64
@@ -394,7 +394,7 @@ pub enum NSStreamStatus: u64 {
         @objc("linkItemAtPath:toPath:error:")
         pub linkItemAtPath(path: NSString, toPath: NSString, error: i64): bool
 
-        // ─── Path inspection / per-file predicates ────────────
+        /// ─── Path inspection / per-file predicates ────────────
         @objc("isExecutableFileAtPath:")
         pub isExecutableFileAtPath(path: NSString): bool
         @objc("isReadableFileAtPath:")
@@ -467,7 +467,7 @@ pub enum NSStreamStatus: u64 {
         @objc("objectForInfoDictionaryKey:")
         pub objectForInfoDictionaryKey(key: NSString): NSObject
 
-        // ─── Resource lookup variants ─────────────────────────
+        /// ─── Resource lookup variants ─────────────────────────
         @objc("pathForResource:ofType:")
         pub pathForResource(name: NSString, ofType: NSString): NSString
         @objc("pathForResource:ofType:inDirectory:")
@@ -490,7 +490,7 @@ pub enum NSStreamStatus: u64 {
             withExtension: NSString, subdirectory: NSString
         ): NSArray
 
-        // ─── Localization ────────────────────────────────────
+        /// ─── Localization ────────────────────────────────────
         @objc("localizedStringForKey:value:table:")
         pub localizedStringForKey(
             key: NSString, value: NSString, table: NSString

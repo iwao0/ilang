@@ -5,8 +5,8 @@ use foundation { NSObject, NSString, NSArray, NSData, NSSize,
                  NSRect, NSURL, nsstr }
 use appkit { NSColor }
 
-// SKTextureFilteringMode — sampling mode when a texture is
-// drawn at a non-1:1 scale. `nearest` for pixel-art look.
+/// SKTextureFilteringMode — sampling mode when a texture is
+/// drawn at a non-1:1 scale. `nearest` for pixel-art look.
 pub enum SKTextureFilteringMode: i64 {
     nearest = 0
     linear  = 1
@@ -35,18 +35,18 @@ pub enum SKTextureFilteringMode: i64 {
         @objc("filteringMode")
         pub filteringMode(): SKTextureFilteringMode
 
-        // Normal-map generation. The first form computes a
-        // default-tuned normal map; the second lets you dial
-        // `smoothness` (0..1) and `contrast` (≥ 1).
+        /// Normal-map generation. The first form computes a
+        /// default-tuned normal map; the second lets you dial
+        /// `smoothness` (0..1) and `contrast` (≥ 1).
         @objc("textureByGeneratingNormalMap")
         pub textureByGeneratingNormalMap(): SKTexture
         @objc("textureByGeneratingNormalMapWithSmoothness:contrast:")
         pub textureByGeneratingNormalMapWithParams(smoothness: f64, contrast: f64): SKTexture
 
-        // Async preload — the block is invoked on the main
-        // queue once the texture's pixels are uploaded. Wrap an
-        // ilang `fn()` with `new ObjCBlock(...)` at the call
-        // site; the type checker requires the matching signature.
+        /// Async preload — the block is invoked on the main
+        /// queue once the texture's pixels are uploaded. Wrap an
+        /// ilang `fn()` with `new ObjCBlock(...)` at the call
+        /// site; the type checker requires the matching signature.
         @objc("preloadWithCompletionHandler:")
         pub preloadWithCompletionHandler(block: ObjCBlock<fn()>)
         @objc("preloadTextures:withCompletionHandler:")

@@ -83,8 +83,9 @@ use textures { SKTexture }
     ///
     /// The delegate is any ilang `@objc` class implementing the
     /// `SKPhysicsContactDelegate` selectors:
-    ///   * `@objc("didBeginContact:")` — `(contact: SKPhysicsContact)`
-    ///   * `@objc("didEndContact:")` — `(contact: SKPhysicsContact)`
+    ///
+    /// * `@objc("didBeginContact:")` — `(contact: SKPhysicsContact)`
+    /// * `@objc("didEndContact:")` — `(contact: SKPhysicsContact)`
     /// Install via `world.setContactDelegate(delegate)`. Read
     /// the contact off `contact.bodyA()` / `bodyB()` /
     /// `contactPoint()` / `contactNormal()` / `collisionImpulse()`.

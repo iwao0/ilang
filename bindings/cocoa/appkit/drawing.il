@@ -5,9 +5,9 @@
 
 use foundation { NSObject, NSPoint, NSSize, NSRect, NSArray }
 
-// NSBezierPathElement — one record kind in an NSBezierPath's
-// element stream. Returned by `elementAtIndex:associatedPoints:`
-// when iterating an existing path.
+/// NSBezierPathElement — one record kind in an NSBezierPath's
+/// element stream. Returned by `elementAtIndex:associatedPoints:`
+/// when iterating an existing path.
 pub enum NSBezierPathElement: u64 {
     moveTo    = 0
     lineTo    = 1
@@ -16,24 +16,24 @@ pub enum NSBezierPathElement: u64 {
     quadraticCurveTo = 4
 }
 
-// NSLineCapStyle — endpoint shape of an open path's stroke.
+/// NSLineCapStyle — endpoint shape of an open path's stroke.
 pub enum NSLineCapStyle: u64 {
     butt   = 0
     round  = 1
     square = 2
 }
 
-// NSLineJoinStyle — corner shape where two stroked segments
-// meet.
+/// NSLineJoinStyle — corner shape where two stroked segments
+/// meet.
 pub enum NSLineJoinStyle: u64 {
     miter = 0
     round = 1
     bevel = 2
 }
 
-// NSWindingRule — fill-rule the path uses when filling. Most
-// callers want `nonZero` (the default); `evenOdd` is the SVG
-// "even-odd fill" rule.
+/// NSWindingRule — fill-rule the path uses when filling. Most
+/// callers want `nonZero` (the default); `evenOdd` is the SVG
+/// "even-odd fill" rule.
 pub enum NSWindingRule: u64 {
     nonZero = 0
     evenOdd = 1
@@ -63,7 +63,7 @@ pub enum NSWindingRule: u64 {
         @objc("init")
         pub init(): NSBezierPath
 
-        // Path construction.
+        /// Path construction.
         @objc("moveToPoint:")
         pub moveToPoint(p: NSPoint)
         @objc("lineToPoint:")
@@ -77,7 +77,7 @@ pub enum NSWindingRule: u64 {
         @objc("closePath")
         pub closePath()
 
-        // Rect / oval shortcuts (append to current path).
+        /// Rect / oval shortcuts (append to current path).
         @objc("appendBezierPathWithRect:")
         pub appendBezierPathWithRect(rect: NSRect)
         @objc("appendBezierPathWithOvalInRect:")
@@ -91,7 +91,7 @@ pub enum NSWindingRule: u64 {
             center: NSPoint, radius: f64, startAngle: f64, endAngle: f64
         )
 
-        // Inspection.
+        /// Inspection.
         @objc("currentPoint")
         pub get currentPoint(): NSPoint
         @objc("bounds")
@@ -101,7 +101,7 @@ pub enum NSWindingRule: u64 {
         @objc("elementCount")
         pub get elementCount(): i64
 
-        // Stroke / fill state.
+        /// Stroke / fill state.
         @objc("lineWidth")
         pub get lineWidth(): f64
         @objc("setLineWidth:")
@@ -127,7 +127,7 @@ pub enum NSWindingRule: u64 {
         @objc("setWindingRule:")
         pub set windingRule(r: NSWindingRule)
 
-        // Drawing.
+        /// Drawing.
         @objc("stroke")
         pub stroke()
         @objc("fill")
@@ -139,7 +139,7 @@ pub enum NSWindingRule: u64 {
         @objc("transformUsingAffineTransform:")
         pub transformUsingAffineTransform(t: NSAffineTransform)
 
-        // Hit-test.
+        /// Hit-test.
         @objc("containsPoint:")
         pub containsPoint(p: NSPoint): bool
     }

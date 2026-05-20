@@ -6,29 +6,29 @@
 // Imported via the `cocoa` umbrella module (`use cocoa { ... }`)
 // or directly with `use foundation { ... }`.
 
-// ─── Foundation geometry types (HFA-passed) ──────────────────────
-// NSPoint / NSSize / NSRect / NSVector are plain f64 structs. The
-// AArch64 ABI rides them through v0..v3 (HFA path) when passed to
-// objc_msgSend — same layout C uses, no shim needed.
+/// ─── Foundation geometry types (HFA-passed) ──────────────────────
+/// NSPoint / NSSize / NSRect / NSVector are plain f64 structs. The
+/// AArch64 ABI rides them through v0..v3 (HFA path) when passed to
+/// objc_msgSend — same layout C uses, no shim needed.
 pub struct NSPoint  { x: f64; y: f64 }
 pub struct NSSize   { width: f64; height: f64 }
 pub struct NSRect   { origin: NSPoint; size: NSSize }
-// CGVector — `(dx, dy)` pair Foundation uses for velocities,
-// gravity, impulses, etc. Same layout as `NSSize` but the field
-// names differ; a dedicated type keeps call sites readable.
+/// CGVector — `(dx, dy)` pair Foundation uses for velocities,
+/// gravity, impulses, etc. Same layout as `NSSize` but the field
+/// names differ; a dedicated type keeps call sites readable.
 pub struct NSVector { dx: f64; dy: f64 }
 
-// NSRange — Foundation's `(location, length)` pair. NSUInteger
-// fields, so 8 bytes each on 64-bit. Passed by value through the
-// integer-register ABI. Build with `makeRange(loc, len)`.
+/// NSRange — Foundation's `(location, length)` pair. NSUInteger
+/// fields, so 8 bytes each on 64-bit. Passed by value through the
+/// integer-register ABI. Build with `makeRange(loc, len)`.
 pub struct NSRange { location: u64; length: u64 }
 
-// NSStringEncoding — the integer codes Foundation uses for the
-// `dataUsingEncoding:` / `initWithData:encoding:` round-trip
-// (also accepted by NSData's `base64EncodedString:options:`-
-// adjacent APIs that take an encoding argument). UTF-8 is the
-// safe default; the JIS / ShiftJIS / EUC-JP entries cover legacy
-// Japanese text files.
+/// NSStringEncoding — the integer codes Foundation uses for the
+/// `dataUsingEncoding:` / `initWithData:encoding:` round-trip
+/// (also accepted by NSData's `base64EncodedString:options:`-
+/// adjacent APIs that take an encoding argument). UTF-8 is the
+/// safe default; the JIS / ShiftJIS / EUC-JP entries cover legacy
+/// Japanese text files.
 pub enum NSStringEncoding: u64 {
     ascii            = 1
     nextstep         = 2
@@ -112,13 +112,13 @@ pub enum NSDataSearchOptions: u64 {
     anchored  = 0x02
 }
 
-// NSPropertyListMutabilityOptions — what
-// `[NSPropertyListSerialization propertyListWithData:options:
-//  format:error:]` should hand back. The default
-// `immutable` keeps every container immutable; `mutableContainers`
-// returns NSMutableArray / NSMutableDictionary instead;
-// `mutableContainersAndLeaves` also returns NSMutableString for
-// scalar values.
+/// NSPropertyListMutabilityOptions — what
+/// `[NSPropertyListSerialization propertyListWithData:options:
+///  format:error:]` should hand back. The default
+/// `immutable` keeps every container immutable; `mutableContainers`
+/// returns NSMutableArray / NSMutableDictionary instead;
+/// `mutableContainersAndLeaves` also returns NSMutableString for
+/// scalar values.
 pub enum NSPropertyListMutabilityOptions: u64 {
     immutable                  = 0
     mutableContainers          = 1
@@ -142,10 +142,10 @@ pub enum NSFileVersionReplacingOptions: u64 {
     byMoving                  = 0x01
 }
 
-// NSComparisonResult — the three-way return value of every
-// Foundation `compare:` method. Mirrors C's strcmp / qsort
-// convention: negative = ascending, zero = same, positive =
-// descending.
+/// NSComparisonResult — the three-way return value of every
+/// Foundation `compare:` method. Mirrors C's strcmp / qsort
+/// convention: negative = ascending, zero = same, positive =
+/// descending.
 pub enum NSComparisonResult: i64 {
     orderedAscending  = -1
     orderedSame       = 0
@@ -203,7 +203,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("hash")
         pub get hash(): i64
 
-        // ─── Standard NSObject surface ─────────────────────────
+        /// ─── Standard NSObject surface ─────────────────────────
         @objc("isKindOfClass:")
         pub isKindOfClass(cls: NSObject): bool
         @objc("isMemberOfClass:")
@@ -233,7 +233,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("class")
         pub get classObject(): NSObject
 
-        // ─── Key-Value Coding (NSKeyValueCoding) ──────────────
+        /// ─── Key-Value Coding (NSKeyValueCoding) ──────────────
         @objc("valueForKey:")
         pub valueForKey(key: NSString): NSObject
         @objc("setValue:forKey:")
@@ -249,7 +249,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("mutableSetValueForKey:")
         pub mutableSetValueForKey(key: NSString): NSObject
 
-        // ─── Key-Value Observing (NSKeyValueObserving) ────────
+        /// ─── Key-Value Observing (NSKeyValueObserving) ────────
         @objc("addObserver:forKeyPath:options:context:")
         pub addKVObserver(
             observer: NSObject, forKeyPath: NSString, options: u64, context: i64
@@ -315,15 +315,15 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("isEqualToString:")
         pub isEqualToString(other: NSString): bool
 
-        // ─── out-parameter wrapper pattern ──────────────────────
-        // The raw ObjC selector takes three `NSUInteger *` slots
-        // that the caller fills in. We bind the selector as a
-        // non-pub method whose params are raw `*u64` (legal inside
-        // `@extern(ObjC)` — same C-pointer surface as the rest of
-        // the block), then expose a `pub` wrapper that allocates
-        // three local `u64`s, takes their addresses via `&`, and
-        // returns the three values as a tuple. The raw method is
-        // not visible outside the class.
+        /// ─── out-parameter wrapper pattern ──────────────────────
+        /// The raw ObjC selector takes three `NSUInteger *` slots
+        /// that the caller fills in. We bind the selector as a
+        /// non-pub method whose params are raw `*u64` (legal inside
+        /// `@extern(ObjC)` — same C-pointer surface as the rest of
+        /// the block), then expose a `pub` wrapper that allocates
+        /// three local `u64`s, takes their addresses via `&`, and
+        /// returns the three values as a tuple. The raw method is
+        /// not visible outside the class.
         @objc("getLineStart:end:contentsEnd:forRange:")
         _getLineBounds(start: *u64, end: *u64, contentsEnd: *u64, range: NSRange)
 
@@ -339,7 +339,7 @@ pub enum NSBinarySearchingOptions: u64 {
             (s, e, c)
         }
 
-        // ─── Predicates ─────────────────────────────────────────
+        /// ─── Predicates ─────────────────────────────────────────
         @objc("hasPrefix:")
         pub hasPrefix(prefix: NSString): bool
         @objc("hasSuffix:")
@@ -347,7 +347,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("containsString:")
         pub containsString(s: NSString): bool
 
-        // ─── Case conversion ───────────────────────────────────
+        /// ─── Case conversion ───────────────────────────────────
         @objc("lowercaseString")
         pub get lowercaseString(): NSString
         @objc("uppercaseString")
@@ -355,7 +355,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("capitalizedString")
         pub get capitalizedString(): NSString
 
-        // ─── Substring / append ────────────────────────────────
+        /// ─── Substring / append ────────────────────────────────
         @objc("substringFromIndex:")
         pub substringFromIndex(i: u64): NSString
         @objc("substringToIndex:")
@@ -365,7 +365,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("stringByAppendingString:")
         pub stringByAppendingString(s: NSString): NSString
 
-        // ─── Find / replace / split / trim ─────────────────────
+        /// ─── Find / replace / split / trim ─────────────────────
         @objc("stringByReplacingOccurrencesOfString:withString:")
         pub stringByReplacing(target: NSString, replacement: NSString): NSString
         @objc("componentsSeparatedByString:")
@@ -375,7 +375,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("stringByTrimmingCharactersInSet:")
         pub stringByTrimmingCharactersInSet(set: NSCharacterSet): NSString
 
-        // ─── Parsing (best-effort, returns 0 on a non-number) ──
+        /// ─── Parsing (best-effort, returns 0 on a non-number) ──
         @objc("intValue")
         pub get intValue(): i32
         @objc("integerValue")
@@ -387,7 +387,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("boolValue")
         pub get boolValue(): bool
 
-        // ─── URL percent-encoding ──────────────────────────────
+        /// ─── URL percent-encoding ──────────────────────────────
         @objc("stringByAddingPercentEncodingWithAllowedCharacters:")
         pub stringByAddingPercentEncoding(
             allowedCharacters: NSCharacterSet
@@ -395,7 +395,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("stringByRemovingPercentEncoding")
         pub get stringByRemovingPercentEncoding(): NSString
 
-        // ─── Encoding round-trip with NSData ───────────────────
+        /// ─── Encoding round-trip with NSData ───────────────────
         @objc("dataUsingEncoding:")
         pub dataUsingEncoding(encoding: NSStringEncoding): NSData
         @objc("dataUsingEncoding:allowLossyConversion:")
@@ -407,7 +407,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("initWithData:encoding:")
         pub initWithData(data: NSData, encoding: NSStringEncoding): NSString
 
-        // ─── File round-trip ──────────────────────────────────
+        /// ─── File round-trip ──────────────────────────────────
         @objc("stringWithContentsOfFile:encoding:error:")
         pub static stringWithContentsOfFile(
             path: NSString, encoding: NSStringEncoding, error: i64
@@ -418,7 +418,7 @@ pub enum NSBinarySearchingOptions: u64 {
             encoding: NSStringEncoding, error: i64
         ): bool
 
-        // ─── Comparison ───────────────────────────────────────
+        /// ─── Comparison ───────────────────────────────────────
         @objc("compare:")
         pub compareTo(other: NSString): NSComparisonResult
         @objc("compare:options:")
@@ -440,7 +440,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("canBeConvertedToEncoding:")
         pub canBeConvertedToEncoding(encoding: NSStringEncoding): bool
 
-        // ─── Per-line / per-paragraph chunking ────────────────
+        /// ─── Per-line / per-paragraph chunking ────────────────
         @objc("lineRangeForRange:")
         pub lineRangeForRange(range: NSRange): NSRange
         @objc("paragraphRangeForRange:")
@@ -448,8 +448,8 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("characterAtIndex:")
         pub characterAtIndex(i: u64): u16
 
-        // ─── NSString path methods (pre-NSURL helpers, but
-        //     still useful for raw POSIX-path manipulation) ────
+        /// ─── NSString path methods (pre-NSURL helpers, but
+        ///     still useful for raw POSIX-path manipulation) ────
         @objc("stringByAppendingPathComponent:")
         pub stringByAppendingPathComponent(component: NSString): NSString
         @objc("stringByAppendingPathExtension:")
@@ -475,7 +475,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("isAbsolutePath")
         pub get isAbsolutePath(): bool
 
-        // ─── Canonical Unicode normalisation forms ────────────
+        /// ─── Canonical Unicode normalisation forms ────────────
         @objc("precomposedStringWithCanonicalMapping")
         pub get precomposedStringWithCanonicalMapping(): NSString
         @objc("decomposedStringWithCanonicalMapping")
@@ -661,7 +661,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("writeToFile:atomically:")
         pub writeToFile(path: NSString, atomically: bool): bool
 
-        // ─── Base64 round-trip ─────────────────────────────────
+        /// ─── Base64 round-trip ─────────────────────────────────
         @objc("base64EncodedStringWithOptions:")
         pub base64EncodedString(options: NSDataBase64EncodingOptions): NSString
         @objc("alloc")
@@ -887,11 +887,11 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("characterIsMember:")
         pub characterIsMember(c: u16): bool
 
-        // ─── URL percent-encoding character sets ─────────────
-        // Match each component's `allowedCharactersIn…` set from
-        // RFC 3986; hand to
-        // `NSString.stringByAddingPercentEncoding(allowedCharacters:)`
-        // to encode a piece of a URL safely.
+        /// ─── URL percent-encoding character sets ─────────────
+        /// Match each component's `allowedCharactersIn…` set from
+        /// RFC 3986; hand to
+        /// `NSString.stringByAddingPercentEncoding(allowedCharacters:)`
+        /// to encode a piece of a URL safely.
         @objc("URLPathAllowedCharacterSet")
         pub static urlPathAllowed(): NSCharacterSet
         @objc("URLHostAllowedCharacterSet")
@@ -905,7 +905,7 @@ pub enum NSBinarySearchingOptions: u64 {
         @objc("URLFragmentAllowedCharacterSet")
         pub static urlFragmentAllowed(): NSCharacterSet
 
-        // ─── More predefined sets ────────────────────────────
+        /// ─── More predefined sets ────────────────────────────
         @objc("controlCharacterSet")
         pub static controlCharacters(): NSCharacterSet
         @objc("uppercaseLetterCharacterSet")

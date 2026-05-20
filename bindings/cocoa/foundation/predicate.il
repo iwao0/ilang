@@ -10,18 +10,18 @@
 
 use core { NSObject, NSString, NSArray, NSDictionary }
 
-// NSCompoundPredicateType — AND / OR / NOT combinator for
-// NSCompoundPredicate. The numeric values come straight from
-// `<Foundation/NSCompoundPredicate.h>`.
+/// NSCompoundPredicateType — AND / OR / NOT combinator for
+/// NSCompoundPredicate. The numeric values come straight from
+/// `<Foundation/NSCompoundPredicate.h>`.
 pub enum NSCompoundPredicateType: u64 {
     not = 0
     and = 1
     or  = 2
 }
 
-// NSExpressionType — what kind of expression an NSExpression
-// holds. Common ones are `constantValue` (literal) and `keyPath`
-// (KVC traversal).
+/// NSExpressionType — what kind of expression an NSExpression
+/// holds. Common ones are `constantValue` (literal) and `keyPath`
+/// (KVC traversal).
 pub enum NSExpressionType: u64 {
     constantValue   = 0
     evaluatedObject = 1

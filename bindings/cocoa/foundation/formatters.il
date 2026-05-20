@@ -12,8 +12,8 @@ use core { NSObject, NSString }
 use datetime { NSDate, NSDateComponents, NSTimeZone }
 use measurement { NSMeasurement, NSUnit }
 
-// NSDateComponentsFormatterUnitsStyle — text style for the
-// emitted duration (e.g. `"1h 23m"` vs `"1 hour, 23 minutes"`).
+/// NSDateComponentsFormatterUnitsStyle — text style for the
+/// emitted duration (e.g. `"1h 23m"` vs `"1 hour, 23 minutes"`).
 pub enum NSDateComponentsFormatterUnitsStyle: i64 {
     positional   = 0
     abbreviated  = 1
@@ -23,9 +23,9 @@ pub enum NSDateComponentsFormatterUnitsStyle: i64 {
     brief        = 5
 }
 
-// NSDateIntervalFormatterStyle — full / long / medium / short /
-// none. Same conventions as the NSDateFormatterStyle in
-// `numbers.il`'s NSDateFormatter sibling.
+/// NSDateIntervalFormatterStyle — full / long / medium / short /
+/// none. Same conventions as the NSDateFormatterStyle in
+/// `numbers.il`'s NSDateFormatter sibling.
 pub enum NSDateIntervalFormatterStyle: u64 {
     none    = 0
     short   = 1
@@ -34,8 +34,8 @@ pub enum NSDateIntervalFormatterStyle: u64 {
     full    = 4
 }
 
-// NSRelativeDateTimeFormatterUnitsStyle — natural-language unit
-// style for the "N units ago" / "in N units" relative phrasing.
+/// NSRelativeDateTimeFormatterUnitsStyle — natural-language unit
+/// style for the "N units ago" / "in N units" relative phrasing.
 pub enum NSRelativeDateTimeFormatterUnitsStyle: i64 {
     full              = 0
     spellOut          = 1
@@ -44,24 +44,24 @@ pub enum NSRelativeDateTimeFormatterUnitsStyle: i64 {
     narrow            = 4
 }
 
-// NSRelativeDateTimeFormatterStyle — whether the output is
-// numeric (`"1 day ago"`) or named (`"yesterday"`).
+/// NSRelativeDateTimeFormatterStyle — whether the output is
+/// numeric (`"1 day ago"`) or named (`"yesterday"`).
 pub enum NSRelativeDateTimeFormatterStyle: i64 {
     numeric = 0
     named   = 1
 }
 
-// NSFormattingUnitStyle — generic short / medium / long unit
-// style shared by NSEnergyFormatter / NSMassFormatter /
-// NSLengthFormatter.
+/// NSFormattingUnitStyle — generic short / medium / long unit
+/// style shared by NSEnergyFormatter / NSMassFormatter /
+/// NSLengthFormatter.
 pub enum NSFormattingUnitStyle: i64 {
     short  = 1
     medium = 2
     long   = 3
 }
 
-// NSPersonNameComponentsFormatterStyle — full / abbreviated /
-// short / medium / long display for a name.
+/// NSPersonNameComponentsFormatterStyle — full / abbreviated /
+/// short / medium / long display for a name.
 pub enum NSPersonNameComponentsFormatterStyle: u64 {
     default     = 0
     short       = 1
